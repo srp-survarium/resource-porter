@@ -1,0 +1,3 @@
+[submodule "deps/vostok-resources-db"]
+	path = deps/vostok-resources-db
+	url = https://github.com/srp-survarium/vostok-resources-db.git

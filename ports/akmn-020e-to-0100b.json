@@ -1,0 +1,71 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "akmn-020e-to-0100b",
+    "donor_build": "0.20e",
+    "target_build": "0.100b-802"
+  },
+  "weapon": {
+    "dict_id": 74,
+    "item_category": 15,
+    "donor_config": "gameplay/items/weapons/wpn_akmn.options",
+    "template_config": "gameplay/weapons/ak_74u.options",
+    "target_config": "gameplay/weapons/akmn.options",
+    "patch": {
+      "parameters.reload_time": 3.5,
+      "parameters.bullet_damage": 0.5,
+      "parameters.weight": 3.6,
+      "parameters.bullet_pierce": 0.6,
+      "parameters.base_dispersion": 1.5,
+      "parameters.aim_zoom_factor": 1.5,
+      "parameters.rounds_per_minute": 600,
+      "ui_desc.text_descriptions.name": "st_akmn_name",
+      "ui_desc.text_descriptions.description": "st_akmn_description",
+      "ui_desc.props_list.0.prop_value": "50",
+      "ui_desc.props_list.1.prop_value": "1.5",
+      "ui_desc.props_list.2.prop_value": "60",
+      "ui_desc.props_list.4.prop_value": "3.6",
+      "object.model": "weapons/akmn",
+      "object.skeleton": "weapons/akmn"
+    }
+  },
+  "ammo": {
+    "dict_id": 75,
+    "item_category": 9,
+    "donor_config": "gameplay/items/weapons/ammo/ammo_7.62x39.options",
+    "template_config": "gameplay/weapons/ammo/ammo_5.45x39_fmj",
+    "target_config": "gameplay/weapons/ammo/ammo_7.62x39",
+    "patch": {
+      "parameters.clip_weight": 0.5,
+      "parameters.clip_size": 30,
+      "ui_desc.text_descriptions.name": "st_ammo_762x39_name",
+      "ui_desc.text_descriptions.description": "st_ammo_762x39_description",
+      "ui_desc.props_list.0.prop_value": "30",
+      "ui_desc.props_list.1.prop_value": "0.5",
+      "data.muzzle_speed": 700
+    }
+  },
+  "dictionary": {
+    "path": "gameplay/db_static_dictionaries"
+  },
+  "localization": {
+    "path": "localization/russian/localization",
+    "strings": {
+      "st_akmn_name": "АКМН",
+      "st_akmn_description": "Автомат Калашникова модернизированный, боеприпас 7.62x39",
+      "st_ammo_762x39_name": "7.62x39",
+      "st_ammo_762x39_description": "Боеприпасы 7.62x39 для АКМН"
+    }
+  },
+  "copy": {
+    "prefixes": [
+      "models/weapons/akmn.skinned_model/",
+      "textures/weapons/akmn/"
+    ],
+    "files": [
+      "material_instances/weapons/akmn.material",
+      "material_instances/weapons/ak_74stock.material",
+      "animations/skeletons/weapons/akmn.skeleton"
+    ]
+  }
+}
