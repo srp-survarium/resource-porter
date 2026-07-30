@@ -18,6 +18,7 @@
               rustfmt
               clippy
               pkg-config
+              imagemagick
               curl
               iproute2
               util-linux

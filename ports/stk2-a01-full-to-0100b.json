@@ -1,0 +1,90 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "stk2-a01-full-to-0100b",
+    "donor_build": "stalker2-2011-source-project",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "stk2_a01_full",
+  "models": [],
+  "static_model": {
+    "settings_template": "models/level/lobby/base.model/settings",
+    "render_properties_template": "models/level/lobby/base.model/render/export_properties",
+    "surface_properties_template": "models/level/lobby/base.model/render/conc_low_s/export_properties"
+  },
+  "client_template_project": "projects/lobby_scene/client_project",
+  "target_client_project": "projects/stk2_a01_full/client_project",
+  "server_template_project": "projects/level_03/server_project",
+  "target_server_project": "projects/stk2_a01_full/server_project",
+  "visuals": [],
+  "source_project": "resources/sources/projects/scenario/a01_novice_mine/project.xprj",
+  "source_origin": [64.0, 0.0, 0.0],
+  "auto_material": "tiled/wall/stucco_zal_brick_vc",
+  "material_template": "material_instances/tiled/floor/pol.material",
+  "texture_options_template": "textures/tiled/floor/pol.options",
+  "fallback_source_textures": [
+    "//ivan/inbox/diana/boot",
+    "architecture/mine/shifer",
+    "architecture/mine/wood_roof",
+    "concrete_block_referece/bake/new_diffuse",
+    "d:work\\9oilet\\9ile",
+    "d:work\\9oilet\\9ile_floor",
+    "d:work\\9oilet\\9oiletl",
+    "d:work\\9oiletstandpipe",
+    "d:work\\9oiletwall",
+    "d:workpiperaildiffuse",
+    "d:workvegetation_costructivy_corner_l_a",
+    "forge/gates",
+    "forge/zabor_",
+    "inbox/diana/ventilation",
+    "nature/bush/fern_leave_01",
+    "props/stand_flowers/stand_flowers",
+    "work/stk2/clothes/pictures/hanging_clothes_novice_legs",
+    "work/stk2/clothes/pictures/neutral_01_novice_torso_modify",
+    "work/stk2/pipes/pictures/ready/pipes_02",
+    "work/stk2/radiator/pictures/radiator",
+    "work\\\\dry leafes\\\\leaf",
+    "work\\\\dry leafes\\\\leaves"
+  ],
+  "fallback_empty_surfaces": [
+    "generic/fence/fence#render/bakedsg1",
+    "props/electric/wire_beam_end#render/wirebeam_end1_wire_050050050"
+  ],
+  "model_archive_overrides": {
+    "generic/fence/mine_gates": "resources/exported/models/props/mine/mine_gates.model",
+    "props/electric/transformator_electric_pole": "resources/exported/models/props/electric/transformator_electric_pole.model.orig",
+    "props/electric/transformator_electric_pole_shelf": "resources/exported/models/props/electric/transformator_electric_pole_shelf.model.orig",
+    "props/electric/transformator_platform": "resources/exported/models/props/electric/transformator_platform.model.orig",
+    "props/pipes/pipes_green_6060": "resources/exported/models/generic/pipe/green_small/pipes_green_6060.model",
+    "props/pipes/pipes_green_90": "resources/exported/models/generic/pipe/green_small/pipes_green_90.model",
+    "props/pipes/pipes_green_901": "resources/exported/models/generic/pipe/green_small/pipes_green_901.model",
+    "props/pipes/pipes_green_connect": "resources/exported/models/generic/pipe/green_small/pipes_green_connect.model",
+    "props/pipes/pipes_green_end1": "resources/exported/models/generic/pipe/green_small/pipes_green_end1.model",
+    "props/pipes/pipes_green_end2": "resources/exported/models/generic/pipe/green_small/pipes_green_end2.model",
+    "props/pipes/pipes_green_endwall1": "resources/exported/models/generic/pipe/green_small/pipes_green_endwall1.model",
+    "props/pipes/pipes_green_endwall2": "resources/exported/models/generic/pipe/green_small/pipes_green_endwall2.model",
+    "props/pipes/pipes_green_hold1": "resources/exported/models/generic/pipe/green_small/pipes_green_hold1.model",
+    "props/pipes/pipes_green_hold2": "resources/exported/models/generic/pipe/green_small/pipes_green_hold2.model",
+    "props/pipes/pipes_green_line": "resources/exported/models/generic/pipe/green_small/pipes_green_line.model",
+    "props/pipes/pipes_green_line_small": "resources/exported/models/generic/pipe/green_small/pipes_green_line_small.model",
+    "props/stand/stand_chiaz": "resources/exported/models/props/stand/stand_chiaz.model.orig"
+  },
+  "terrain_texture_aliases": {
+    "terrain/junk_industrial": "terrain/asphalt_cracks_moss"
+  },
+  "convert_model_collision": true,
+  "terrain_directory": "resources/sources/projects/scenario/a01_novice_mine/terrain",
+  "team_spawns": [
+    [32.0, 2.5, -40.0],
+    [34.5, 2.5, -37.5]
+  ],
+  "spawn_orientation": 0.0,
+  "victory_item_spawners": [
+    [36.0, 1.5, -40.0],
+    [28.0, 1.5, -40.0]
+  ],
+  "victory_item_containers": [
+    [27.0, 1.5, -37.0],
+    [37.0, 1.5, -43.0]
+  ]
+}

@@ -25,10 +25,21 @@ The repository deliberately keeps two layers separate:
 
 `ports/sks-020e-to-0100b.json` then adds SKS as dictionary ID 76. It reuses
 ammunition ID 75, converts the newer weapon definition to the old schema, and
-copies the SKS model, material, and textures. The first-pass configuration is
-semi-automatic with a 10-round magazine. It deliberately uses the old
-`weapons/ak_test` animation skeleton because the first run with the newer SKS
-animation skeleton crashed immediately after equip.
+copies the SKS model, material, textures, original animation skeleton, and SKS
+item/reload animations. The first-pass configuration is semi-automatic with a
+10-round magazine. The old state machine is retained, but its AK-74u item and
+reload paths are translated to compatible SKS donor animations. Its material is
+regenerated from the old `ak74_u` material schema with SKS texture
+substitutions; copying the newer material directly left `shader_source` null in
+the v0.100b renderer.
+
+`ports/dolg-exoskeleton-stk2-to-0100b.json` adds the cancelled STK2 Duty
+exoskeleton as torso armor ID 77. The importer reads its nested
+`.skinned_model` archive and reproduces Vostok's PC hardware-skinning
+conversion for all six surfaces. The first runtime bundle deliberately uses
+existing v0.100b character materials and the `scavengers_01` animation
+skeleton; original texture conversion follows after geometry and bone-order
+validation.
 
 It intentionally shares the v0.100b AK animation, particle, and sound resources
 for the first runtime milestone. Those are shared dependencies, not replacement
@@ -98,10 +109,42 @@ pinned v0.100b writer, then reopens the result and verifies every bundle entry
 against its recorded SHA-256. Existing output/work paths are not reused unless
 `--force` is supplied.
 
+## Build the STK2 exoskeleton
+
+Extract only the externally supplied compiled model with the CLI:
+
+```sh
+7z x -y -o.work/stk2-character-source /path/to/stk_2.7z \
+  resources/exported/models/character/human/dolg/dolg_exo.skinned_model
+```
+
+Then build the additive armor bundle against the current combined database:
+
+```sh
+vostok-port build-armor \
+  --manifest ports/dolg-exoskeleton-stk2-to-0100b.json \
+  --donor-model-archive \
+    .work/stk2-character-source/resources/exported/models/character/human/dolg/dolg_exo.skinned_model \
+  --donor-texture-dir \
+    .work/stk2-character-source/resources/sources/textures/character/human/dolg \
+  --target-db .work/resources-v0100b-akmn-sks.db \
+  --output .work/dolg-exoskeleton-bundle
+```
+
+The converter validates four-weight source geometry, retargets it against the
+v0.100b bind pose, converts 76-byte donor vertices to the 48-byte hardware
+layout, compiles target-schema model/material settings, converts STK2 texture
+pixels to DXT1 and DXT5nm DDS resources with target `.options`, and records
+every output hash.
+
 ## Other useful commands
 
 ```sh
 vostok-port inventory --db /path/to/resources.db
+
+vostok-port stat \
+  --db /path/to/resources.db \
+  --path game_materials/game.materials
 
 vostok-port scan \
   --target-db /path/to/v0100b/resources.db \
@@ -118,9 +161,10 @@ vostok-port verify \
 The packed client resource is only one half of a genuinely new item. SRP branch
 `feature/akmn-content`, based directly on `0.100b`, adds weapon IDs 74 and 76
 and ammunition ID 75 to the lobby inventory, declares both compatibility
-pairs, and exposes all three IDs through the shop catalog. Commits `a86099f33`
-and `3627de347` contain those changes and their preservation tests. Existing
-weapons and ammunition remain available.
+pairs, and exposes all three IDs through the shop catalog. It also adds
+exoskeleton armor ID 77. Commits `a86099f33`, `3627de347`, and `72b4405a6`
+contain those changes and their preservation tests. Existing weapons,
+ammunition, and armor remain available.
 
 Each generated bundle also includes `server/srp-content.json` as a
 machine-readable additive catalog for batch importers and newer SRP consumers.
@@ -196,7 +240,7 @@ The successful Linux run reached login, browser, and lobby services. The client
 then equipped inventory instance 48 / dictionary ID 74 (AKMN) and instance 49 /
 dictionary ID 75 (7.62x39), confirming that both added resources are recognized
 by the v0.100b client. The current SRP branch also issues instance 50 /
-dictionary ID 76 (SKS).
+dictionary ID 76 (SKS) and instance 51 / dictionary ID 77 (Duty exoskeleton).
 
 ## STK2 character experiments
 
@@ -217,7 +261,7 @@ deliberately permissive: add exoskeleton as switchable armor and Bloodsucker as
 a switchable whole-body player visual, retain their original available rig
 data, and accept attachment, IK, camera, and hitbox bugs. Neither replaces the
 normal player assets. See `docs/stk2-character-assets.md` for exact paths and
-the geometry-conversion boundary found during inspection.
+conversion details.
 
 The next importer stages are:
 

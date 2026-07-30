@@ -1,0 +1,234 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "bloodsucker-head-helmet-stk2-to-0100b",
+    "donor_build": "stalker2-2011",
+    "target_build": "0.100b-802"
+  },
+  "armors": [
+    {
+      "dict_id": 85,
+      "item_category": 1,
+      "template_config": "gameplay/items/armour/helmet/blackmarket_helmet_1",
+      "target_config": "gameplay/items/armour/helmet/stk2_bloodsucker_head",
+      "patch": {
+        "data.part_name": "krovosos_head_sg",
+        "data.base_model": "character/monster/krovosos/krovosos_head",
+        "ui_desc.text_descriptions.name": "st_stk2_bloodsucker_head_name",
+        "ui_desc.text_descriptions.description": "st_stk2_bloodsucker_head_desc"
+      },
+      "replace_strings": {}
+    }
+  ],
+  "model": {
+    "animation_skeleton": "resources/animations/skeletons/scavengers_01",
+    "bind_pose_template": "models/character/human/scavengers_01/scavengers_01.skinned_model/render/bind_pose",
+    "settings_template": "models/character/human/scavengers_01/scavengers_01.skinned_model/settings",
+    "skeleton_template": "models/character/human/scavengers_01/scavengers_01.skinned_model/skeleton",
+    "render_properties_template": "models/character/human/scavengers_01/scavengers_01.skinned_model/render/export_properties",
+    "surface_properties_template": "models/character/human/scavengers_01/scavengers_01.skinned_model/render/scavengers_01_torso_s/export_properties",
+    "preserve_settings_template": false,
+    "rotate_y_180": true,
+    "retarget_maya_bind_pose": false,
+    "maya_bind_pose_map": {},
+    "bone_map": {
+      "bn_ass": "Hip",
+      "bn_spine01": "Spin",
+      "bn_spine02": "Spin_1",
+      "bn_spine03": "Chest",
+      "bn_r_sholder": "RightClavicle",
+      "bn_r_muscle_sholder": "RightClavicle",
+      "bn_r_UpperArm": "RightArm",
+      "bn_r_elbow": "RightForeArm",
+      "bn_r_foreArm": "RightForeArm",
+      "bn_r_twist_ForeArm": "RightForeArm_Roll",
+      "bn_r_hand": "RightHand",
+      "bn_r_thumb_a": "RightThumb1",
+      "bn_r_thumb_b": "RightThumb2",
+      "bn_r_thumb_c": "RightThumb3",
+      "bn_r_index_a": "RightIndex1",
+      "bn_r_index_b": "RightIndex2",
+      "bn_r_index_c": "RightIndex3",
+      "bn_r_middle_a": "RightMiddle1",
+      "bn_r_middle_b": "RightMiddle2",
+      "bn_r_middle_c": "RightMiddle3",
+      "bn_r_ringFinger_a": "RightRing1",
+      "bn_r_ringFinger_b": "RightRing2",
+      "bn_r_ringFinger_c": "RightRing3",
+      "bn_r_pinky_a": "RightPinky1",
+      "bn_r_pinky_b": "RightPinky2",
+      "bn_r_pinky_c": "RightPinky3",
+      "bn_r_twist_UpperArm": "RightArm_Roll",
+      "bn_r_muscle_UpperArm": "RightArm_Roll",
+      "bn_l_sholder": "LeftClavicle",
+      "bn_l_muscle_sholder": "LeftClavicle",
+      "bn_l_UpperArm": "LeftArm",
+      "bn_l_elbow": "LeftForeArm",
+      "bn_l_foreArm": "LeftForeArm",
+      "bn_l_twist_ForeArm": "LeftForeArm_Roll",
+      "bn_l_hand": "LeftHand",
+      "bn_l_thumb_a": "LeftThumb1",
+      "bn_l_thumb_b": "LeftThumb2",
+      "bn_l_thumb_c": "LeftThumb3",
+      "bn_l_index_a": "LeftIndex1",
+      "bn_l_index_b": "LeftIndex2",
+      "bn_l_index_c": "LeftIndex3",
+      "bn_l_middle_a": "LeftMiddle1",
+      "bn_l_middle_b": "LeftMiddle2",
+      "bn_l_middle_c": "LeftMiddle3",
+      "bn_l_ringFinger_a": "LeftRing1",
+      "bn_l_ringFinger_b": "LeftRing2",
+      "bn_l_ringFinger_c": "LeftRing3",
+      "bn_l_pinky_a": "LeftPinky1",
+      "bn_l_pinky_b": "LeftPinky2",
+      "bn_l_pinky_c": "LeftPinky3",
+      "bn_l_twist_UpperArm": "LeftArm_Roll",
+      "bn_l_muscle_UpperArm": "LeftArm_Roll",
+      "bn_neck": "Neck",
+      "bn_head": "Head",
+      "bn_l_jaw": "Head",
+      "bn_l_sideJaw_a": "Head",
+      "bn_l_sideJaw_b": "Head",
+      "bn_l_sideJaw_c": "Head",
+      "bn_l_sideJaw_d": "Head",
+      "bn_l_sideJaw_e": "Head",
+      "bn_l_centerJaw_a": "Head",
+      "bn_l_centerJaw_b": "Head",
+      "bn_l_centerJaw_c": "Head",
+      "bn_l_centerJaw_d": "Head",
+      "bn_r_centerJaw_a": "Head",
+      "bn_r_centerJaw_b": "Head",
+      "bn_r_centerJaw_c": "Head",
+      "bn_r_centerJaw_d": "Head",
+      "bn_r_sideJaw_a": "Head",
+      "bn_r_sideJaw_b": "Head",
+      "bn_r_sideJaw_c": "Head",
+      "bn_r_sideJaw_d": "Head",
+      "bn_r_sideJaw_e": "Head",
+      "bn_chestToBreathe": "Chest",
+      "bn_r_thigh": "RightUpLeg",
+      "bn_r_knee_a": "RightLeg",
+      "bn_r_leg": "RightLeg",
+      "bn_r_foot": "RightFoot",
+      "bn_r_bigToe": "RightToe",
+      "bn_r_mdlToe": "RightToe",
+      "bn_r_lttlToe": "RightToe",
+      "bn_r_muscle_thigh": "RightUpLeg_Roll",
+      "bn_l_thigh": "LeftUpLeg",
+      "bn_l_knee_a": "LeftLeg",
+      "bn_l_leg": "LeftLeg",
+      "bn_l_foot": "LeftFoot",
+      "bn_l_bigToe": "LeftToe",
+      "bn_l_mdlToe": "LeftToe",
+      "bn_l_lttlToe": "LeftToe",
+      "bn_l_muscle_thigh": "LeftUpLeg_Roll",
+      "bn_l_eye": "Head",
+      "bn_r_eye": "Head"
+    },
+    "surfaces": {
+      "eyes": "characters/monster/krovosos/krovosos_eyes",
+      "krovosos2": "characters/monster/krovosos/krovosos"
+    },
+    "target_models": {
+      "models/character/monster/krovosos/krovosos_head.skinned_model": {
+        "surfaces": {
+          "krovosos_eyes_sg": {
+            "source": "eyes"
+          },
+          "krovosos_head_sg": {
+            "source": "krovosos2",
+            "include_maya_influences": [
+              "bn_head",
+              "bn_l_eye",
+              "bn_r_eye",
+              "bn_l_jaw",
+              "bn_l_sideJaw_a",
+              "bn_l_sideJaw_b",
+              "bn_l_sideJaw_c",
+              "bn_l_sideJaw_d",
+              "bn_l_sideJaw_e",
+              "bn_l_centerJaw_a",
+              "bn_l_centerJaw_b",
+              "bn_l_centerJaw_c",
+              "bn_l_centerJaw_d",
+              "bn_r_centerJaw_a",
+              "bn_r_centerJaw_b",
+              "bn_r_centerJaw_c",
+              "bn_r_centerJaw_d",
+              "bn_r_sideJaw_a",
+              "bn_r_sideJaw_b",
+              "bn_r_sideJaw_c",
+              "bn_r_sideJaw_d",
+              "bn_r_sideJaw_e"
+            ],
+            "include_maya_weight_threshold": 0.5
+          }
+        }
+      }
+    }
+  },
+  "materials": [
+    {
+      "template": "material_instances/characters/human/black_market_01/black_market_01_torso.material",
+      "target": "material_instances/characters/monster/krovosos/krovosos.material",
+      "replace_strings": {
+        "character/human/black_market_01/black_market_01_torso": "character/monster/krovosos/krovosos",
+        "character/human/black_market_01/black_market_01_torso_gloss": "character/monster/krovosos/krovosos_spec",
+        "character/human/black_market_01/black_market_01_torso_nmap": "character/monster/krovosos/krovosos_nmap",
+        "character/human/black_market_01/black_market_01_torso_spec": "character/monster/krovosos/krovosos_spec"
+      }
+    },
+    {
+      "template": "material_instances/characters/human/black_market_01/black_market_01_helmet.material",
+      "target": "material_instances/characters/monster/krovosos/krovosos_eyes.material",
+      "replace_strings": {
+        "character/human/black_market_01/black_market_01_helmet": "character/monster/krovosos/krovosos_eyes",
+        "character/human/black_market_01/black_market_01_helmet_gloss": "character/monster/krovosos/krovosos_spec",
+        "character/human/black_market_01/black_market_01_helmet_nmap": "character/monster/krovosos/krovosos_eyes_nmap",
+        "character/human/black_market_01/black_market_01_helmet_spec": "character/monster/krovosos/krovosos_spec"
+      }
+    }
+  ],
+  "textures": [
+    {
+      "source_file": "krovosos.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso.options",
+      "target": "textures/character/monster/krovosos/krovosos",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "krovosos_nmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso_nmap.options",
+      "target": "textures/character/monster/krovosos/krovosos_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "krovosos _spec.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso_spec.options",
+      "target": "textures/character/monster/krovosos/krovosos_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "krovosos_eyes.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_helmet.options",
+      "target": "textures/character/monster/krovosos/krovosos_eyes",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "krovosos_eyes_nmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_helmet_nmap.options",
+      "target": "textures/character/monster/krovosos/krovosos_eyes_nmap",
+      "compression": "dxt5_normal"
+    }
+  ],
+  "dictionary": {
+    "path": "gameplay/db_static_dictionaries"
+  },
+  "localization": {
+    "path": "localization/russian/localization",
+    "strings": {
+      "st_stk2_bloodsucker_head_name": "Голова кровососа",
+      "st_stk2_bloodsucker_head_desc": "Голова кровососа из отменённого S.T.A.L.K.E.R. 2, используемая как шлем"
+    }
+  }
+}

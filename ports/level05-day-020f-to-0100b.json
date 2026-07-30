@@ -1,0 +1,37 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level05-day-020f-to-0100b",
+    "donor_build": "0.20f-1923",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_05_day_020f",
+  "roots": [
+    "projects/level_05/day/client_project",
+    "projects/level_05/day/server_project"
+  ],
+  "path_replacements": {
+    "projects/level_05/day/client_project": "projects/level_05_day_020f/client_project",
+    "projects/level_05/day/server_project": "projects/level_05_day_020f/server_project"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "material_template_overrides": {
+    "material_instances/fx/level_5_anomaly/uran_crystals.material": "material_instances/flora/anomaly_tree_leaves.material"
+  },
+  "allowed_unresolved_references": [
+    "models/props/light/barrel_stove_01_fire.model/collision",
+    "sounds/anomaly_center",
+    "sounds/day/cicadas_01",
+    "sounds/day/cicadas_02",
+    "sounds/day/cicadas_03",
+    "sounds/fire_1",
+    "sounds/fire_1(1)",
+    "sounds/fire_2",
+    "sounds/fire_3",
+    "sounds/fire_7",
+    "sounds/fort_ambient"
+  ],
+  "spawn_position": [-73.311, 5.91, 10.033],
+  "spawn_orientation": -1.46
+}

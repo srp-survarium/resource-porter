@@ -33,6 +33,12 @@ impl ResourceDb {
         self.entries.contains_key(path)
     }
 
+    pub fn is_file(&self, path: &str) -> bool {
+        self.entries
+            .get(path)
+            .is_some_and(|entry| matches!(entry.kind, NodeKind::File { .. }))
+    }
+
     pub fn paths_with_prefix<'a>(&'a self, prefix: &'a str) -> impl Iterator<Item = &'a str> + 'a {
         self.entries
             .range(prefix.to_owned()..)
@@ -67,6 +73,11 @@ impl ResourceDb {
     pub fn extract_prefix(&mut self, prefix: &str, root: &Path) -> Result<Vec<PathBuf>> {
         let paths: Vec<String> = self
             .paths_with_prefix(prefix)
+            .filter(|path| {
+                self.entries
+                    .get(*path)
+                    .is_some_and(|entry| matches!(entry.kind, NodeKind::File { .. }))
+            })
             .map(ToOwned::to_owned)
             .collect();
         if paths.is_empty() {
@@ -85,11 +96,17 @@ impl ResourceDb {
             let Some(entry) = self.entries.get(&path) else {
                 continue;
             };
-            if !matches!(entry.kind, NodeKind::File { .. }) {
-                continue;
+            match entry.kind {
+                NodeKind::Folder => {
+                    fs::create_dir_all(safe_join(root, &path)?)
+                        .with_context(|| format!("creating resource directory {path}"))?;
+                }
+                NodeKind::File { .. } => {
+                    self.extract_file(&path, root)?;
+                    count += 1;
+                }
+                _ => {}
             }
-            self.extract_file(&path, root)?;
-            count += 1;
         }
         Ok(count)
     }

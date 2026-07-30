@@ -30,7 +30,20 @@
       "ui_desc.props_list.2.prop_value": "10",
       "ui_desc.props_list.4.prop_value": "3.75",
       "object.model": "weapons/sks",
-      "object.skeleton": "weapons/ak_test"
+      "object.skeleton": "weapons/sks"
+    },
+    "replace_strings": {
+      "resources/animations/single/weapons/ak74u/item/crouch/3rd_view/reload_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/reload",
+      "resources/animations/single/weapons/ak74u/item/stand/1st_view/aimed_idle_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/idle",
+      "resources/animations/single/weapons/ak74u/item/stand/1st_view/aimed_shoot_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/shoot",
+      "resources/animations/single/weapons/ak74u/item/stand/1st_view/idle_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/idle",
+      "resources/animations/single/weapons/ak74u/item/stand/1st_view/reload_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/reload",
+      "resources/animations/single/weapons/ak74u/item/stand/1st_view/shoot_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/shoot",
+      "resources/animations/single/weapons/ak74u/item/stand/3rd_view/reload_ak74u": "resources/animations/single/weapons/sks/item/stand/1st_view/reload",
+      "resources/animations/single/weapons/ak74u/player/crouch/1st_view/hands_only/reload": "resources/animations/single/weapons/sks/player/stand/1st_view/on_site/hands_only/reload",
+      "resources/animations/single/weapons/ak74u/player/crouch/3rd_view/hands_only/reload": "resources/animations/single/weapons/sks/player/crouch/3rd_view/hands_only/reload",
+      "resources/animations/single/weapons/ak74u/player/stand/1st_view/on_site/hands_only/reload": "resources/animations/single/weapons/sks/player/stand/1st_view/on_site/hands_only/reload",
+      "resources/animations/single/weapons/ak74u/player/stand/3rd_view/on_site/hands_only/reload": "resources/animations/single/weapons/sks/player/stand/3rd_view/on_site/hands_only/reload"
     }
   },
   "ammo": {
@@ -52,13 +65,28 @@
       "st_sks_description": "Самозарядный карабин Симонова, боеприпас 7.62x39"
     }
   },
+  "generated_configs": [
+    {
+      "donor_config": "material_instances/weapons/sks.material",
+      "template_config": "material_instances/weapons/ak74_u.material",
+      "target_config": "material_instances/weapons/sks.material",
+      "patch": {},
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/sks/sks",
+        "weapons/ak_74u/aks74u_fmap": "weapons/sks/sks_fmap",
+        "weapons/ak_74u/aks74u_nmap": "weapons/sks/sks_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/sks/sks_smap"
+      }
+    }
+  ],
   "copy": {
     "prefixes": [
       "models/weapons/sks.skinned_model/",
-      "textures/weapons/sks/"
+      "textures/weapons/sks/",
+      "animations/single/weapons/sks/"
     ],
     "files": [
-      "material_instances/weapons/sks.material"
+      "animations/skeletons/weapons/sks.skeleton"
     ]
   }
 }

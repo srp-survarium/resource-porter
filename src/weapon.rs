@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -10,7 +11,9 @@ use crate::ResourceDb;
 use crate::archive::safe_join;
 use crate::binary_config::{BinaryConfig, ConfigValue, NamedValue};
 use crate::dependency;
-use crate::manifest::{BuildRecord, BuiltFile, PortManifest, SrpContentManifest};
+use crate::manifest::{
+    BuildRecord, BuiltFile, ComposedBundleRecord, PortManifest, SrpContentManifest,
+};
 
 pub fn build_bundle(
     manifest: &PortManifest,
@@ -35,6 +38,7 @@ pub fn build_bundle(
     // v0.100b schema comes from the old template.
     parse_config(&mut donor, &manifest.weapon.donor_config, "donor weapon")?;
     apply_patches(&mut weapon.root, &manifest.weapon.patch)?;
+    replace_strings(&mut weapon.root, &manifest.weapon.replace_strings);
     write_generated_config(
         &overlay,
         &manifest.weapon.target_config,
@@ -114,6 +118,28 @@ pub fn build_bundle(
         &mut files,
     )?;
 
+    for generated in &manifest.generated_configs {
+        let mut config = parse_config(
+            &mut target,
+            &generated.template_config,
+            "target generated-config template",
+        )?;
+        parse_config(
+            &mut donor,
+            &generated.donor_config,
+            "donor generated config",
+        )?;
+        apply_patches(&mut config.root, &generated.patch)?;
+        replace_strings(&mut config.root, &generated.replace_strings);
+        write_generated_config(
+            &overlay,
+            &generated.target_config,
+            &config,
+            "generated:converted-config",
+            &mut files,
+        )?;
+    }
+
     for prefix in &manifest.copy.prefixes {
         let paths: Vec<String> = donor
             .paths_with_prefix(prefix)
@@ -137,6 +163,12 @@ pub fn build_bundle(
     if !manifest.ammo.reuse_existing {
         scan_roots.push(manifest.ammo.target_config.clone());
     }
+    scan_roots.extend(
+        manifest
+            .generated_configs
+            .iter()
+            .map(|config| config.target_config.clone()),
+    );
     // Scan the source configs as a report. Generated configs also contain
     // target-era shared paths, which are validated separately below.
     let plan = dependency::scan(
@@ -198,39 +230,163 @@ pub fn apply_bundle(
     output_db: &Path,
     force: bool,
 ) -> Result<String> {
+    #[derive(serde::Deserialize)]
+    struct ApplyRecord {
+        #[serde(default)]
+        materialize_target_hard_links: BTreeSet<String>,
+    }
+
     if output_db.exists() && !force {
         bail!(
             "output database already exists (use --force to replace): {}",
             output_db.display()
         );
     }
-    let tree = work_dir.join("tree");
-    if tree.exists() {
-        if !force {
-            bail!(
-                "work tree already exists (use --force to reuse): {}",
-                tree.display()
-            );
-        }
-    } else {
-        fs::create_dir_all(&tree)?;
-        let mut base = ResourceDb::open(base_db)?;
-        base.extract_all(&tree)?;
+    let overlay = bundle.join("overlay");
+    if !overlay.is_dir() {
+        bail!("bundle overlay does not exist: {}", overlay.display());
     }
-    copy_tree(&bundle.join("overlay"), &tree)?;
-    let source = resources_db::pack::build_src_tree(&tree)?;
-    let image = resources_db::pack::assemble(&source)?;
+    crate::model_validation::validate_effective_overlay(base_db, &overlay)
+        .context("validating effective model surface/settings contracts before packing")?;
+    fs::create_dir_all(work_dir)?;
+    let donor_db = work_dir.join("bundle-overlay.db");
+    if donor_db.exists() && !force {
+        bail!(
+            "bundle overlay database already exists (use --force to replace): {}",
+            donor_db.display()
+        );
+    }
+    let source = resources_db::pack::build_src_tree(&overlay)?;
+    resources_db::pack::assemble_to_file(&source, &donor_db)?;
     if let Some(parent) = output_db.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(output_db, &image)?;
-    let sha = encode_hex(&Sha256::digest(&image));
+    let apply_record: ApplyRecord =
+        serde_json::from_reader(fs::File::open(bundle.join("port-manifest.json"))?)?;
+    let materialized_paths: Vec<Vec<u8>> = apply_record
+        .materialize_target_hard_links
+        .into_iter()
+        .map(String::into_bytes)
+        .collect();
+    resources_db::overlay::apply_db_overlay_with_materialized_paths(
+        base_db,
+        &donor_db,
+        output_db,
+        &materialized_paths,
+    )?;
+    let mut database = fs::File::open(output_db)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 1024 * 1024];
+    loop {
+        let count = database.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    let sha = encode_hex(&digest.finalize());
     verify_bundle(output_db, bundle)?;
     Ok(sha)
 }
 
+pub fn compose_bundles(
+    bundles: &[std::path::PathBuf],
+    output: &Path,
+) -> Result<ComposedBundleRecord> {
+    if bundles.is_empty() {
+        bail!("at least one input bundle is required");
+    }
+    prepare_empty_output(output)?;
+    let overlay = output.join("overlay");
+    fs::create_dir_all(&overlay)?;
+
+    #[derive(serde::Deserialize)]
+    struct InputRecord {
+        files: Vec<BuiltFile>,
+        #[serde(default)]
+        materialize_target_hard_links: BTreeSet<String>,
+    }
+
+    let mut files = BTreeMap::<String, BuiltFile>::new();
+    let mut overwritten_paths = BTreeSet::new();
+    let mut owned_model_roots = BTreeSet::<String>::new();
+    let mut bundle_names = Vec::with_capacity(bundles.len());
+    let mut materialize_target_hard_links = BTreeSet::new();
+    for bundle in bundles {
+        let bundle_name = bundle
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_else(|| bundle.as_os_str().to_str().unwrap_or("<non-utf8-bundle>"))
+            .to_owned();
+        let record: InputRecord =
+            serde_json::from_reader(fs::File::open(bundle.join("port-manifest.json"))?)
+                .with_context(|| format!("reading bundle manifest {}", bundle.display()))?;
+        materialize_target_hard_links.extend(record.materialize_target_hard_links.iter().cloned());
+        let incoming_model_roots: BTreeSet<String> = record
+            .files
+            .iter()
+            .filter_map(|file| model_root(&file.path))
+            .collect();
+        let accepted_model_roots: BTreeSet<String> = incoming_model_roots
+            .into_iter()
+            .filter(|root| owned_model_roots.insert(root.clone()))
+            .collect();
+        for mut file in record.files {
+            let input_path = safe_join(&bundle.join("overlay"), &file.path)?;
+            let bytes = fs::read(&input_path)
+                .with_context(|| format!("reading bundle resource {}", input_path.display()))?;
+            let actual_sha = encode_hex(&Sha256::digest(&bytes));
+            if actual_sha != file.sha256 {
+                bail!(
+                    "bundle resource hash mismatch for {} in {}: expected {}, got {}",
+                    file.path,
+                    bundle.display(),
+                    file.sha256,
+                    actual_sha
+                );
+            }
+            if let Some(root) = model_root(&file.path)
+                && !accepted_model_roots.contains(&root)
+            {
+                overwritten_paths.insert(file.path);
+                continue;
+            }
+            if files.contains_key(&file.path) {
+                overwritten_paths.insert(file.path);
+                continue;
+            }
+            let destination = safe_join(&overlay, &file.path)?;
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(destination, &bytes)?;
+            file.source = format!("compose:{bundle_name}:{}", file.source);
+            files.insert(file.path.clone(), file);
+        }
+        bundle_names.push(bundle_name);
+    }
+
+    let record = ComposedBundleRecord {
+        format_version: 1,
+        asset_id: "all-versioned-maps-to-0100b".into(),
+        bundles: bundle_names,
+        overwritten_paths: overwritten_paths.into_iter().collect(),
+        materialize_target_hard_links,
+        files: files.into_values().collect(),
+    };
+    to_writer_pretty(
+        fs::File::create(output.join("port-manifest.json"))?,
+        &record,
+    )?;
+    Ok(record)
+}
+
 pub fn verify_bundle(db_path: &Path, bundle: &Path) -> Result<()> {
-    let record: BuildRecord =
+    #[derive(serde::Deserialize)]
+    struct VerificationRecord {
+        files: Vec<BuiltFile>,
+    }
+    let record: VerificationRecord =
         serde_json::from_reader(fs::File::open(bundle.join("port-manifest.json"))?)?;
     let mut db = ResourceDb::open(db_path)?;
     for file in &record.files {
@@ -247,17 +403,83 @@ pub fn verify_bundle(db_path: &Path, bundle: &Path) -> Result<()> {
             );
         }
     }
+    validate_touched_model_surfaces(&mut db, &record.files)?;
     Ok(())
 }
 
-fn parse_config(db: &mut ResourceDb, path: &str, role: &str) -> Result<BinaryConfig> {
+fn validate_touched_model_surfaces(db: &mut ResourceDb, files: &[BuiltFile]) -> Result<()> {
+    let model_roots: BTreeSet<String> = files
+        .iter()
+        .filter_map(|file| model_root(&file.path))
+        .collect();
+    for root in model_roots {
+        let settings_path = format!("{root}/settings");
+        if !db.is_file(&settings_path) {
+            continue;
+        }
+        let render_prefix = format!("{root}/render/");
+        let actual_surfaces: BTreeSet<String> = db
+            .paths_with_prefix(&render_prefix)
+            .filter_map(|path| {
+                let relative = path.strip_prefix(&render_prefix)?;
+                let (surface, leaf) = relative.split_once('/')?;
+                (leaf == "converted_model").then(|| surface.to_owned())
+            })
+            .collect();
+        if actual_surfaces.is_empty() {
+            continue;
+        }
+
+        let settings = BinaryConfig::parse(&db.read(&settings_path)?)
+            .with_context(|| format!("parsing model settings {settings_path}"))?;
+        let Some(ConfigValue::Named(material_settings)) = settings.root.named("material_settings")
+        else {
+            continue;
+        };
+        let expected_surfaces: BTreeSet<String> = material_settings
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect();
+        ensure_matching_model_surfaces(&root, &expected_surfaces, &actual_surfaces)?;
+    }
+    Ok(())
+}
+
+fn model_root(path: &str) -> Option<String> {
+    [".skinned_model/", ".model/"]
+        .into_iter()
+        .find_map(|marker| {
+            path.find(marker)
+                .map(|offset| path[..offset + marker.len() - 1].to_owned())
+        })
+}
+
+fn ensure_matching_model_surfaces(
+    root: &str,
+    expected: &BTreeSet<String>,
+    actual: &BTreeSet<String>,
+) -> Result<()> {
+    if expected == actual {
+        return Ok(());
+    }
+    let missing_render_surfaces: Vec<&str> =
+        expected.difference(actual).map(String::as_str).collect();
+    let stale_render_surfaces: Vec<&str> =
+        actual.difference(expected).map(String::as_str).collect();
+    bail!(
+        "model surface/settings mismatch for {root}: missing render surfaces \
+         {missing_render_surfaces:?}, stale render surfaces {stale_render_surfaces:?}"
+    )
+}
+
+pub(crate) fn parse_config(db: &mut ResourceDb, path: &str, role: &str) -> Result<BinaryConfig> {
     let bytes = db
         .read(path)
         .with_context(|| format!("reading {role} {path}"))?;
     BinaryConfig::parse(&bytes).with_context(|| format!("parsing {role} {path}"))
 }
 
-fn apply_patches(
+pub(crate) fn apply_patches(
     root: &mut ConfigValue,
     patches: &BTreeMap<String, serde_json::Value>,
 ) -> Result<()> {
@@ -265,6 +487,27 @@ fn apply_patches(
         root.set_path(path, json_value(value).with_context(|| path.clone())?)?;
     }
     Ok(())
+}
+
+pub(crate) fn replace_strings(value: &mut ConfigValue, replacements: &BTreeMap<String, String>) {
+    match value {
+        ConfigValue::String(current) => {
+            if let Some(replacement) = replacements.get(current) {
+                current.clone_from(replacement);
+            }
+        }
+        ConfigValue::Named(values) => {
+            for value in values {
+                replace_strings(&mut value.value, replacements);
+            }
+        }
+        ConfigValue::Indexed(values) => {
+            for value in values {
+                replace_strings(value, replacements);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn json_value(value: &serde_json::Value) -> Result<ConfigValue> {
@@ -292,7 +535,7 @@ fn json_value(value: &serde_json::Value) -> Result<ConfigValue> {
     })
 }
 
-fn add_dictionary_item(
+pub(crate) fn add_dictionary_item(
     root: &mut ConfigValue,
     dict_id: u32,
     config_path: &str,
@@ -340,14 +583,12 @@ fn validate_dictionary_item(root: &ConfigValue, dict_id: u32, config_path: &str)
         .with_context(|| format!("reused ammunition dictionary ID does not exist: {dict_id}"))?;
     let expected_path = ConfigValue::String(config_path.to_owned());
     if item.value.named("cfg_name") != Some(&expected_path) {
-        bail!(
-            "reused ammunition ID {dict_id} points to a different config than {config_path}"
-        );
+        bail!("reused ammunition ID {dict_id} points to a different config than {config_path}");
     }
     Ok(())
 }
 
-fn add_localization_strings(
+pub(crate) fn add_localization_strings(
     root: &mut ConfigValue,
     additions: &BTreeMap<String, String>,
 ) -> Result<()> {
@@ -373,7 +614,7 @@ fn named(name: impl Into<String>, value: ConfigValue) -> NamedValue {
     }
 }
 
-fn write_generated_config(
+pub(crate) fn write_generated_config(
     overlay: &Path,
     path: &str,
     config: &BinaryConfig,
@@ -406,7 +647,7 @@ fn copy_donor_file(
     Ok(())
 }
 
-fn record_file(path: &str, source: &str, bytes: &[u8]) -> BuiltFile {
+pub(crate) fn record_file(path: &str, source: &str, bytes: &[u8]) -> BuiltFile {
     BuiltFile {
         path: path.to_owned(),
         source: source.to_owned(),
@@ -415,7 +656,7 @@ fn record_file(path: &str, source: &str, bytes: &[u8]) -> BuiltFile {
     }
 }
 
-fn reject_duplicate_outputs(files: &[BuiltFile]) -> Result<()> {
+pub(crate) fn reject_duplicate_outputs(files: &[BuiltFile]) -> Result<()> {
     for pair in files.windows(2) {
         if pair[0].path == pair[1].path {
             bail!("multiple build operations emitted {}", pair[0].path);
@@ -453,36 +694,11 @@ fn validate_generated_references(
     Ok(shared)
 }
 
-fn prepare_empty_output(output: &Path) -> Result<()> {
+pub(crate) fn prepare_empty_output(output: &Path) -> Result<()> {
     if output.exists() && fs::read_dir(output)?.next().is_some() {
         bail!("bundle output directory is not empty: {}", output.display());
     }
     fs::create_dir_all(output)?;
-    Ok(())
-}
-
-fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
-    if !source.is_dir() {
-        bail!("bundle overlay does not exist: {}", source.display());
-    }
-    let mut pending = vec![source.to_path_buf()];
-    while let Some(directory) = pending.pop() {
-        for entry in fs::read_dir(&directory)? {
-            let entry = entry?;
-            let path = entry.path();
-            let relative = path.strip_prefix(source)?;
-            let output = destination.join(relative);
-            if entry.file_type()?.is_dir() {
-                fs::create_dir_all(&output)?;
-                pending.push(path);
-            } else {
-                if let Some(parent) = output.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::copy(&path, &output)?;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -500,12 +716,166 @@ fn encode_hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
 
+    fn write_test_bundle(root: &Path, files: &[(&str, &[u8])]) {
+        let overlay = root.join("overlay");
+        fs::create_dir_all(&overlay).unwrap();
+        let mut records = Vec::new();
+        for (path, bytes) in files {
+            let output = safe_join(&overlay, path).unwrap();
+            fs::create_dir_all(output.parent().unwrap()).unwrap();
+            fs::write(output, bytes).unwrap();
+            records.push(record_file(path, "test", bytes));
+        }
+        fs::write(
+            root.join("port-manifest.json"),
+            serde_json::to_vec(&serde_json::json!({ "files": records })).unwrap(),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn patch_values_support_indexed_tables() {
         let value = json_value(&serde_json::json!([1, -1])).unwrap();
         assert_eq!(
             value,
             ConfigValue::Indexed(vec![ConfigValue::Integer(1), ConfigValue::Integer(-1)])
+        );
+    }
+
+    #[test]
+    fn extracts_static_and_skinned_model_roots() {
+        assert_eq!(
+            model_root("models/props/example.model/render/body/converted_model").as_deref(),
+            Some("models/props/example.model")
+        );
+        assert_eq!(
+            model_root("models/weapons/example.skinned_model/settings").as_deref(),
+            Some("models/weapons/example.skinned_model")
+        );
+        assert_eq!(model_root("projects/level/client_project"), None);
+    }
+
+    #[test]
+    fn rejects_stale_render_surfaces_left_by_an_additive_overlay() {
+        let expected = BTreeSet::from(["lod1".to_owned(), "body".to_owned()]);
+        let actual = BTreeSet::from([
+            "lod1".to_owned(),
+            "body".to_owned(),
+            "removed_stock_surface".to_owned(),
+        ]);
+        let error =
+            ensure_matching_model_surfaces("models/example.model", &expected, &actual).unwrap_err();
+        assert!(error.to_string().contains("removed_stock_surface"));
+    }
+
+    #[test]
+    fn compose_keeps_the_first_complete_model_namespace() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let first = temp.path().join("first");
+        let later = temp.path().join("later");
+        let output = temp.path().join("composed");
+        write_test_bundle(
+            &first,
+            &[
+                ("models/shared.model/settings", b"first settings"),
+                (
+                    "models/shared.model/render/body/converted_model",
+                    b"first body",
+                ),
+            ],
+        );
+        write_test_bundle(
+            &later,
+            &[
+                ("models/shared.model/settings", b"later settings"),
+                (
+                    "models/shared.model/render/body/converted_model",
+                    b"later body",
+                ),
+                (
+                    "models/shared.model/render/lod1/converted_model",
+                    b"later-only lod",
+                ),
+            ],
+        );
+
+        let record = compose_bundles(&[first, later], &output).unwrap();
+
+        assert_eq!(
+            fs::read(output.join("overlay/models/shared.model/render/body/converted_model"))
+                .unwrap(),
+            b"first body"
+        );
+        assert!(
+            !output
+                .join("overlay/models/shared.model/render/lod1/converted_model")
+                .exists()
+        );
+        assert_eq!(
+            record
+                .files
+                .iter()
+                .filter(|file| file.path.starts_with("models/shared.model/"))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn compose_keeps_first_bundle_partial_collision_namespace() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let first = temp.path().join("first");
+        let later = temp.path().join("later");
+        let output = temp.path().join("composed");
+        write_test_bundle(
+            &first,
+            &[(
+                "models/shared.model/collision/exported_primitives",
+                b"old collision",
+            )],
+        );
+        write_test_bundle(
+            &later,
+            &[
+                ("models/shared.model/settings", b"later settings"),
+                (
+                    "models/shared.model/render/body/converted_model",
+                    b"later body",
+                ),
+            ],
+        );
+
+        let record = compose_bundles(&[first, later], &output).unwrap();
+
+        assert_eq!(
+            fs::read(output.join("overlay/models/shared.model/collision/exported_primitives"))
+                .unwrap(),
+            b"old collision"
+        );
+        assert!(!output.join("overlay/models/shared.model/settings").exists());
+        assert!(
+            record
+                .overwritten_paths
+                .iter()
+                .any(|path| path == "models/shared.model/render/body/converted_model")
+        );
+    }
+
+    #[test]
+    fn exact_string_replacements_walk_nested_tables() {
+        let mut value = ConfigValue::Named(vec![NamedValue {
+            name: "states".into(),
+            value: ConfigValue::Indexed(vec![ConfigValue::String("old/path".into())]),
+        }]);
+        let replacements = BTreeMap::from([("old/path".into(), "new/path".into())]);
+
+        replace_strings(&mut value, &replacements);
+
+        assert_eq!(
+            value.named("states"),
+            Some(&ConfigValue::Indexed(vec![ConfigValue::String(
+                "new/path".into()
+            )]))
         );
     }
 }

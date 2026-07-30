@@ -1,0 +1,46 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level02-day-020f-to-0100b",
+    "donor_build": "0.20f-1923",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_02_day_020f",
+  "roots": [
+    "projects/level_02/day/client_project",
+    "projects/level_02/day/server_project"
+  ],
+  "path_replacements": {
+    "projects/level_02/day/client_project": "projects/level_02_day_020f/client_project",
+    "projects/level_02/day/server_project": "projects/level_02_day_020f/server_project"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "allowed_unresolved_references": [
+    "models/flora/fruit/fruit_tree_01.model/walker_collision",
+    "models/flora/fruit/fruit_tree_02.model/walker_collision",
+    "models/flora/fruit/fruit_tree_03.model/walker_collision",
+    "models/flora/fruit/fruit_tree_05.model/walker_collision",
+    "models/flora/poplar_04_sux.model/collision",
+    "models/flora/poplar_06_sux.model/collision",
+    "models/generic/tower/streetlight_dual.model/walker_collision",
+    "models/generic/tower/streetlight_single.model/walker_collision",
+    "models/props/tool/weel_sport_01.model/walker_collision",
+    "sounds/anomaly/rad_crystals_center",
+    "sounds/creatures_line",
+    "sounds/crowns",
+    "sounds/day/cicadas_all",
+    "sounds/day/cicadas_all_2",
+    "sounds/day/cicadas_single",
+    "sounds/day/cicadas_single_2",
+    "sounds/day/cornkracke",
+    "sounds/day/deer",
+    "sounds/fire/fire_1",
+    "sounds/fire/fire_2",
+    "sounds/lamp_bzz",
+    "sounds/wind_on_top_01",
+    "sounds/wind_on_top_02"
+  ],
+  "spawn_position": [22.422, 16.156, 191.68],
+  "spawn_orientation": -0.211
+}

@@ -1,0 +1,48 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level04-011e-mono-to-0100b",
+    "donor_build": "0.1.1e-884",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_04_011e_mono",
+  "roots": [
+    "projects/level_04/client_project",
+    "projects/level_04/client_project.lua",
+    "projects/level_04/server_project",
+    "projects/level_04/server_project.lua"
+  ],
+  "path_replacements": {
+    "projects/level_04/client_project": "projects/level_04_011e_mono/client_project",
+    "projects/level_04/client_project.lua": "projects/level_04_011e_mono/client_project.lua",
+    "projects/level_04/server_project": "projects/level_04_011e_mono/server_project",
+    "projects/level_04/server_project.lua": "projects/level_04_011e_mono/server_project.lua"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "model_material_overrides": {
+    "models/level/04/level_border.model/settings": {
+      "anomaly_moss_base_sg": "decals/moss_3"
+    },
+    "models/level/04/loading_station_01.model/settings": {
+      "metal_gray_s_vc": "tiled/metal/metal_column_03_burned_vc"
+    },
+    "models/level/04/loading_station_02.model/settings": {
+      "metal_gray_s_vc": "tiled/metal/metal_column_03_burned_vc"
+    },
+    "models/props/railroad/railroad_switch_01.model/settings": {
+      "checker1024x1024_s": "tiled/metal/metal_column_02"
+    },
+    "models/props/railroad/railroad_traffic_lights_01.model/settings": {
+      "checker1024x1024_s": "tiled/metal/metal_column_02"
+    }
+  },
+  "drop_client_objects": [
+    "industrial_scape"
+  ],
+  "allowed_unresolved_references": [
+    "sounds/scapes/industrial_scape"
+  ],
+  "spawn_position": [-78.428, 5.611, 31.116],
+  "spawn_orientation": -1.474
+}

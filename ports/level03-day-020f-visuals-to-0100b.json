@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level03-day-020f-visuals-to-0100b",
+    "donor_build": "0.20f-1707",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_03_020f_vis",
+  "roots": [
+    "projects/level_03/day/client_project"
+  ],
+  "path_replacements": {
+    "projects/level_03/day/client_project": "projects/level_03_020f_vis/client_project"
+  },
+  "target_copies": {
+    "projects/level_03/server_project": "projects/level_03_020f_vis/server_project"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "convert_split_client_objects_to_legacy": true,
+  "legacy_client_project_template": "projects/level_03/client_project",
+  "legacy_client_project_sections": [
+    "levelmap_min",
+    "levelmap_max",
+    "render_visuals",
+    "collision_objects",
+    "camera"
+  ],
+  "material_template_overrides": {
+    "material_instances/editor/moon.material": "material_instances/level/lobby/conc_low.material",
+    "material_instances/test/taras_fx/normal1.material": "material_instances/fx/pfx/water_splash.material",
+    "material_instances/water/water_l03_green.material": "material_instances/water/water_green.material"
+  },
+  "allowed_unresolved_references": [
+    "sounds/lightbulb/lightbulb_bzz",
+    "sounds/lightbulb/lightbulb_bzz_1",
+    "sounds/lightbulb/lightbulb_bzz_2",
+    "sounds/lightbulb/lightbulb_bzz_3",
+    "sounds/lightbulb/lightbulb_bzz_4",
+    "sounds/scapes/creatures",
+    "sounds/scapes/metal_construction_scape",
+    "sounds/trees/trees_squeak",
+    "sounds/trees/trees_squeak_2",
+    "sounds/trees/trees_squeak_3",
+    "sounds/wind/wind",
+    "sounds/wind/wind(1)",
+    "sounds/wind/wind(2)",
+    "sounds/wind/wind(3)"
+  ],
+  "spawn_position": [48.593, 0.433, 16.238],
+  "spawn_orientation": 1.447
+}

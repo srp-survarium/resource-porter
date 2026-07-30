@@ -1,0 +1,42 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level03-day-020f-to-0100b",
+    "donor_build": "0.20f-1923",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_03_day_020f",
+  "roots": [
+    "projects/level_03/day/client_project",
+    "projects/level_03/day/server_project"
+  ],
+  "path_replacements": {
+    "projects/level_03/day/client_project": "projects/level_03_day_020f/client_project",
+    "projects/level_03/day/server_project": "projects/level_03_day_020f/server_project"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "convert_split_client_objects_to_legacy": true,
+  "drop_client_object_types": [
+    "ambient_light",
+    "artefact_container",
+    "damage_zone",
+    "effect_zone",
+    "generic_anomaly_core",
+    "particle"
+  ],
+  "material_template_overrides": {
+    "material_instances/fx/level_3_anomaly/smoke.material": "material_instances/fx/pfx/pfx_smoke_03_nmap.material",
+    "material_instances/fx/level_3_anomaly/smoke_trail.material": "material_instances/fx/pfx/smoke_trail_small_nmap.material",
+    "material_instances/test/taras_fx/normal1.material": "material_instances/fx/pfx/water_splash.material"
+  },
+  "allowed_unresolved_references": [
+    "sounds/lightbulb/lightbulb_bzz_4",
+    "sounds/scapes/creatures",
+    "sounds/scapes/metal_construction_scape",
+    "sounds/trees/trees_squeak_2",
+    "sounds/trees/trees_squeak_3"
+  ],
+  "spawn_position": [75.552, 0.912, 5.131],
+  "spawn_orientation": 1.37
+}

@@ -1,0 +1,350 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "dolg-exoskeleton-stk2-to-0100b",
+    "donor_build": "stalker2-2011",
+    "target_build": "0.100b-802"
+  },
+  "armors": [
+    {
+      "dict_id": 77,
+      "item_category": 3,
+      "template_config": "gameplay/items/armour/torso/blackmarket_torso_1",
+      "target_config": "gameplay/items/armour/torso/dolg_exoskeleton_torso",
+      "patch": {
+        "data.part_name": "dolg_torso_sg",
+        "data.base_model": "character/human/dolg/dolg_exo_torso",
+        "parameters.weight": 20,
+        "parameters.reduce": 0.5,
+        "parameters.armor": 0.8,
+        "ui_desc.text_descriptions.name": "st_dolg_exoskeleton_torso_name",
+        "ui_desc.text_descriptions.description": "st_dolg_exoskeleton_torso_desc",
+        "ui_desc.props_list.0.prop_value": "80",
+        "ui_desc.props_list.1.prop_value": "50%",
+        "ui_desc.props_list.3.prop_value": "20.0"
+      },
+      "replace_strings": {
+        "black_market_01_torso_s": "dolg_torso_sg",
+        "character/human/black_market/black_market_01_torso_s1": "character/human/dolg/dolg_exo_torso",
+        "character/human/black_market/black_market_01_torso_s2": "character/human/dolg/dolg_exo_torso",
+        "character/human/black_market/black_market_01_torso_s3": "character/human/dolg/dolg_exo_torso"
+      }
+    },
+    {
+      "dict_id": 78,
+      "item_category": 5,
+      "template_config": "gameplay/items/armour/legs/blackmarket_legs_1",
+      "target_config": "gameplay/items/armour/legs/dolg_exoskeleton_pants",
+      "patch": {
+        "data.part_name": "dolg_pants_sg",
+        "data.base_model": "character/human/dolg/dolg_exo_pants",
+        "ui_desc.text_descriptions.name": "st_dolg_exoskeleton_pants_name",
+        "ui_desc.text_descriptions.description": "st_dolg_exoskeleton_pants_desc"
+      },
+      "replace_strings": {
+        "black_market_01_legs_s": "dolg_pants_sg",
+        "character/human/black_market/black_market_01_legs_s1": "character/human/dolg/dolg_exo_pants",
+        "character/human/black_market/black_market_01_legs_s2": "character/human/dolg/dolg_exo_pants",
+        "character/human/black_market/black_market_01_legs_s3": "character/human/dolg/dolg_exo_pants",
+        "character/human/black_market/black_market_01_legs_s4": "character/human/dolg/dolg_exo_pants"
+      }
+    },
+    {
+      "dict_id": 79,
+      "item_category": 1,
+      "template_config": "gameplay/items/armour/helmet/blackmarket_helmet_1",
+      "target_config": "gameplay/items/armour/helmet/dolg_exoskeleton_helmet",
+      "patch": {
+        "data.part_name": "dolg_helmet_sg",
+        "data.base_model": "character/human/dolg/dolg_exo_helmet",
+        "ui_desc.text_descriptions.name": "st_dolg_exoskeleton_helmet_name",
+        "ui_desc.text_descriptions.description": "st_dolg_exoskeleton_helmet_desc"
+      },
+      "replace_strings": {}
+    },
+    {
+      "dict_id": 80,
+      "item_category": 6,
+      "template_config": "gameplay/items/armour/gloves/blackmarket_gloves_1",
+      "target_config": "gameplay/items/armour/gloves/dolg_exoskeleton_gloves",
+      "patch": {
+        "data.part_name": "dolg_gloves_sg",
+        "data.base_model": "character/human/dolg/dolg_exo_gloves",
+        "ui_desc.text_descriptions.name": "st_dolg_exoskeleton_gloves_name",
+        "ui_desc.text_descriptions.description": "st_dolg_exoskeleton_gloves_desc"
+      },
+      "replace_strings": {}
+    },
+    {
+      "dict_id": 81,
+      "item_category": 7,
+      "template_config": "gameplay/items/armour/boots/blackmarket_boots_1",
+      "target_config": "gameplay/items/armour/boots/dolg_exoskeleton_boots",
+      "patch": {
+        "data.part_name": "dolg_boots_sg",
+        "data.base_model": "character/human/dolg/dolg_exo_boots",
+        "ui_desc.text_descriptions.name": "st_dolg_exoskeleton_boots_name",
+        "ui_desc.text_descriptions.description": "st_dolg_exoskeleton_boots_desc"
+      },
+      "replace_strings": {}
+    }
+  ],
+  "model": {
+    "animation_skeleton": "resources/animations/skeletons/scavengers_01",
+    "bind_pose_template": "models/character/human/black_market/black_market_01_torso_s1.skinned_model/render/bind_pose",
+    "settings_template": "models/character/human/black_market/black_market_01_torso_s1.skinned_model/settings",
+    "skeleton_template": "models/character/human/black_market/black_market_01_torso_s1.skinned_model/skeleton",
+    "render_properties_template": "models/character/human/black_market/black_market_01_torso_s1.skinned_model/render/export_properties",
+    "surface_properties_template": "models/character/human/black_market/black_market_01_torso_s1.skinned_model/render/black_market_01_torso_s/export_properties",
+    "bone_map": {
+      "Root": "Root",
+      "item": "Item",
+      "Weapon": "Weapon",
+      "Pistol": "Pistol",
+      "Hips": "Hip",
+      "LeftUpLeg": "LeftUpLeg",
+      "Spine": "Spin",
+      "RightUpLeg": "RightUpLeg",
+      "LeftLeg": "LeftLeg",
+      "LeftUpLegRoll": "LeftUpLeg_Roll",
+      "LeftFoot": "LeftFoot",
+      "LeftToe": "LeftToe",
+      "Spine1": "Spin_1",
+      "Spine_2": "Chest",
+      "LeftCollar": "LeftClavicle",
+      "RightCollar": "RightClavicle",
+      "Neck": "Neck",
+      "LeftArm": "LeftArm",
+      "LeftForeArm": "LeftForeArm",
+      "LeftSholderRoll": "LeftArm_Roll",
+      "LeftHandRoll": "LeftForeArm_Roll",
+      "LeftHand": "LeftHand",
+      "LeftHandPink_1": "LeftPinky1",
+      "LeftHandRing_1": "LeftRing1",
+      "LeftHandMiddle_1": "LeftMiddle1",
+      "LeftHandThumb_1": "LeftThumb1",
+      "LeftHandIndex_1": "LeftIndex1",
+      "LeftHandPink_2": "LeftPinky2",
+      "LeftHandPink_3": "LeftPinky3",
+      "LeftHandRing_2": "LeftRing2",
+      "LeftHandRing_3": "LeftRing3",
+      "LeftHandMiddle_2": "LeftMiddle2",
+      "LeftHandMiddle_3": "LeftMiddle3",
+      "LeftHandThumb_2": "LeftThumb2",
+      "LeftHandThumb_3": "LeftThumb3",
+      "LeftHandIndex_2": "LeftIndex2",
+      "LeftHandIndex_3": "LeftIndex3",
+      "RightArm": "RightArm",
+      "RightSholderRoll": "RightArm_Roll",
+      "RightForeArm": "RightForeArm",
+      "RightHand": "RightHand",
+      "RightHandRoll": "RightForeArm_Roll",
+      "RightHandIndex_1": "RightIndex1",
+      "RightHandThumb_1": "RightThumb1",
+      "RightHandRing_1": "RightRing1",
+      "RightHandMiddle_1": "RightMiddle1",
+      "RightHandPink_1": "RightPinky1",
+      "RightHandIndex_2": "RightIndex2",
+      "RightHandIndex_3": "RightIndex3",
+      "RightHandThumb_2": "RightThumb2",
+      "RightHandThumb_3": "RightThumb3",
+      "RightHandRing_2": "RightRing2",
+      "RightHandRing_3": "RightRing3",
+      "RightHandMiddle_2": "RightMiddle2",
+      "RightHandMiddle_3": "RightMiddle3",
+      "RightHandPink_2": "RightPinky2",
+      "RightHandPink_3": "RightPinky3",
+      "Head": "Head",
+      "RightUpLegRoll": "RightUpLeg_Roll",
+      "RightLeg": "RightLeg",
+      "RightFoot": "RightFoot",
+      "RightToe": "RightToe"
+    },
+    "surfaces": {
+      "dolg_exo_mtl_sg": "characters/human/scavengers_01/scavengers_01_attach",
+      "dolg_helmet_sg": "characters/human/dolg/dolg_exo_helmet",
+      "dolg_legs_sg": "characters/human/dolg/dolg_exo_legs",
+      "dolg_sign_sg": "characters/human/scavengers_01/scavengers_01_attach",
+      "dolg_torso_sg": "characters/human/dolg/dolg_exo_torso",
+      "dolg_torso_sg_1": "characters/human/dolg/dolg_exo_torso"
+    },
+    "target_models": {
+      "models/character/human/dolg/dolg_exo_torso.skinned_model": {
+        "surfaces": {
+          "dolg_torso_sg": {
+            "source": "dolg_torso_sg",
+            "selection": "exclude_hands"
+          }
+        }
+      },
+      "models/character/human/dolg/dolg_exo_pants.skinned_model": {
+        "surfaces": {
+          "dolg_pants_sg": {
+            "source": "dolg_legs_sg",
+            "selection": "exclude_feet"
+          }
+        }
+      },
+      "models/character/human/dolg/dolg_exo_helmet.skinned_model": {
+        "surfaces": {
+          "dolg_helmet_sg": {
+            "source": "dolg_helmet_sg"
+          },
+          "dolg_helmet_underlay_sg": {
+            "source": "dolg_torso_sg_1"
+          }
+        }
+      },
+      "models/character/human/dolg/dolg_exo_gloves.skinned_model": {
+        "surfaces": {
+          "dolg_gloves_sg": {
+            "source": "dolg_torso_sg",
+            "selection": "hands"
+          }
+        }
+      },
+      "models/character/human/dolg/dolg_exo_boots.skinned_model": {
+        "surfaces": {
+          "dolg_boots_sg": {
+            "source": "dolg_legs_sg",
+            "selection": "feet"
+          }
+        }
+      },
+      "models/character/human/dolg/dolg_exo_frame.skinned_model": {
+        "surfaces": {
+          "dolg_exo_mtl_sg": {
+            "source": "dolg_exo_mtl_sg"
+          },
+          "dolg_sign_sg": {
+            "source": "dolg_sign_sg"
+          }
+        }
+      }
+    }
+  },
+  "materials": [
+    {
+      "template": "material_instances/characters/human/black_market_01/black_market_01_torso.material",
+      "target": "material_instances/characters/human/dolg/dolg_exo_torso.material",
+      "replace_strings": {
+        "character/human/black_market_01/black_market_01_torso": "character/human/dolg/dolg_exo_torso",
+        "character/human/black_market_01/black_market_01_torso_gloss": "character/human/dolg/dolg_exo_torso_gloss",
+        "character/human/black_market_01/black_market_01_torso_nmap": "character/human/dolg/dolg_exo_torso_nmap",
+        "character/human/black_market_01/black_market_01_torso_spec": "character/human/dolg/dolg_exo_torso_spec"
+      }
+    },
+    {
+      "template": "material_instances/characters/human/black_market_01/black_market_01_legs.material",
+      "target": "material_instances/characters/human/dolg/dolg_exo_legs.material",
+      "replace_strings": {
+        "character/human/black_market_01/black_market_01_legs": "character/human/dolg/dolg_exo_legs",
+        "character/human/black_market_01/black_market_01_legs_gloss": "character/human/dolg/dolg_exo_legs_gloss",
+        "character/human/black_market_01/black_market_01_legs_nmap": "character/human/dolg/dolg_exo_legs_nmap",
+        "character/human/black_market_01/black_market_01_legs_spec": "character/human/dolg/dolg_exo_legs_spec"
+      }
+    },
+    {
+      "template": "material_instances/characters/human/black_market_01/black_market_01_helmet.material",
+      "target": "material_instances/characters/human/dolg/dolg_exo_helmet.material",
+      "replace_strings": {
+        "character/human/black_market_01/black_market_01_helmet": "character/human/dolg/dolg_exo_helmet",
+        "character/human/black_market_01/black_market_01_helmet_gloss": "character/human/dolg/dolg_exo_helmet_gloss",
+        "character/human/black_market_01/black_market_01_helmet_nmap": "character/human/dolg/dolg_exo_helmet_nmap",
+        "character/human/black_market_01/black_market_01_helmet_spec": "character/human/dolg/dolg_exo_helmet_spec"
+      }
+    }
+  ],
+  "textures": [
+    {
+      "source_file": "dolg_exo_torso.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso.options",
+      "target": "textures/character/human/dolg/dolg_exo_torso",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_torso_nmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso_nmap.options",
+      "target": "textures/character/human/dolg/dolg_exo_torso_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "dolg_exo_torso_spec.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso_spec.options",
+      "target": "textures/character/human/dolg/dolg_exo_torso_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_torso_fmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_torso_gloss.options",
+      "target": "textures/character/human/dolg/dolg_exo_torso_gloss",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_legs.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_legs.options",
+      "target": "textures/character/human/dolg/dolg_exo_legs",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_legs_nmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_legs_nmap.options",
+      "target": "textures/character/human/dolg/dolg_exo_legs_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "dolg_exo_legs_spec.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_legs_spec.options",
+      "target": "textures/character/human/dolg/dolg_exo_legs_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_legs_gmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_legs_gloss.options",
+      "target": "textures/character/human/dolg/dolg_exo_legs_gloss",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_helmet.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_helmet.options",
+      "target": "textures/character/human/dolg/dolg_exo_helmet",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_helmet_nmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_helmet_nmap.options",
+      "target": "textures/character/human/dolg/dolg_exo_helmet_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "dolg_exo_helmet_spec.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_helmet_spec.options",
+      "target": "textures/character/human/dolg/dolg_exo_helmet_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "dolg_exo_helmet_gmap.tga",
+      "template_options": "textures/character/human/black_market_01/black_market_01_helmet_gloss.options",
+      "target": "textures/character/human/dolg/dolg_exo_helmet_gloss",
+      "compression": "dxt1"
+    }
+  ],
+  "dictionary": {
+    "path": "gameplay/db_static_dictionaries"
+  },
+  "localization": {
+    "path": "localization/russian/localization",
+    "strings": {
+      "st_dolg_exoskeleton_torso_name": "Торс экзоскелета «Долг»",
+      "st_dolg_exoskeleton_torso_desc": "Броня торса из отменённого S.T.A.L.K.E.R. 2",
+      "st_dolg_exoskeleton_pants_name": "Поножи экзоскелета «Долг»",
+      "st_dolg_exoskeleton_pants_desc": "Защита ног из отменённого S.T.A.L.K.E.R. 2",
+      "st_dolg_exoskeleton_helmet_name": "Шлем экзоскелета «Долг»",
+      "st_dolg_exoskeleton_helmet_desc": "Шлем из отменённого S.T.A.L.K.E.R. 2",
+      "st_dolg_exoskeleton_gloves_name": "Перчатки экзоскелета «Долг»",
+      "st_dolg_exoskeleton_gloves_desc": "Перчатки из отменённого S.T.A.L.K.E.R. 2",
+      "st_dolg_exoskeleton_boots_name": "Ботинки экзоскелета «Долг»",
+      "st_dolg_exoskeleton_boots_desc": "Ботинки из отменённого S.T.A.L.K.E.R. 2"
+    }
+  }
+}

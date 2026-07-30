@@ -1,0 +1,26 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "lobby-playable-0100b",
+    "donor_build": "0.100b-802-original-lobby",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "lobby_playable_0100b",
+  "source_client_project": "projects/lobby_scene/client_project",
+  "target_client_project": "projects/lobby_playable_0100b/client_project",
+  "server_template_project": "projects/level_03/server_project",
+  "target_server_project": "projects/lobby_playable_0100b/server_project",
+  "team_spawns": [
+    [-1.5, 0.25, 0.0],
+    [1.5, 0.25, 0.0]
+  ],
+  "spawn_orientation": 0.0,
+  "victory_item_spawners": [
+    [0.0, 0.2, 1.5],
+    [0.0, 0.2, -1.5]
+  ],
+  "victory_item_containers": [
+    [-2.0, 0.2, 1.5],
+    [2.0, 0.2, -1.5]
+  ]
+}

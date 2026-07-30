@@ -1,0 +1,53 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level01-day-020f-to-0100b",
+    "donor_build": "0.20f-1923",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_01_day_020f",
+  "roots": [
+    "projects/level_01/day/client_project",
+    "projects/level_01/day/server_project"
+  ],
+  "path_replacements": {
+    "projects/level_01/day/client_project": "projects/level_01_day_020f/client_project",
+    "projects/level_01/day/server_project": "projects/level_01_day_020f/server_project"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "allowed_unresolved_references": [
+    "models/flora/fruit/fruit_tree_01.model/walker_collision",
+    "models/flora/fruit/fruit_tree_02.model/walker_collision",
+    "models/flora/fruit/fruit_tree_03.model/walker_collision",
+    "models/flora/fruit/fruit_tree_05.model/walker_collision",
+    "models/flora/poplar_04_sux.model/collision",
+    "models/props/street/bench_21b.model/walker_collision",
+    "sounds/creature_scream",
+    "sounds/day/cicadas_1",
+    "sounds/day/cicadas_2",
+    "sounds/day/cicadas_3",
+    "sounds/day/cicadas_4",
+    "sounds/day/cicadas_5",
+    "sounds/day/day_insects_01",
+    "sounds/day/day_insects_02",
+    "sounds/day/day_insects_03",
+    "sounds/day/day_insects_04",
+    "sounds/day/day_insects_05",
+    "sounds/day/day_insects_06",
+    "sounds/day/day_insects_07",
+    "sounds/fly_1",
+    "sounds/fly_2",
+    "sounds/fly_3",
+    "sounds/moan_1",
+    "sounds/moan_2",
+    "sounds/wind",
+    "sounds/wind_tree",
+    "sounds/wind_tree(1)",
+    "sounds/wind_tree(2)",
+    "sounds/wolf",
+    "sounds/wood_creak"
+  ],
+  "spawn_position": [90.887, 15.157, 62.428],
+  "spawn_orientation": 0.709
+}

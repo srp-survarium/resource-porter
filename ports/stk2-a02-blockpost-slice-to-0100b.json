@@ -1,0 +1,58 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "stk2-a02-blockpost-slice-to-0100b",
+    "donor_build": "stalker2-2011-derived-slice",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "stk2_a02_blockpost_slice",
+  "models": [
+    {
+      "donor_model_archive": "resources/exported/models/location/a02_blockpost/blockpost.model",
+      "target_model": "models/level/stk2_a02_blockpost_slice/blockpost.model",
+      "surfaces": {
+        "concrete02_tile01_1sg": "tiled/wall/stucco_zal_brick_vc",
+        "concrete_decal_1sg": "tiled/floor/pol",
+        "concrete_paint_1sg": "tiled/wall/stucco_zal_brick_vc",
+        "crete_floor_1sg": "tiled/floor/concrete_floor_red_brick_trash",
+        "decal_concrete_1sg": "tiled/floor/pol",
+        "plaster_rough_beige_01_1sg": "tiled/wall/stucco_zal_brick_vc",
+        "roof_leaves_1sg": "props/furniture/bed_alpha_01",
+        "shifer_1sg": "tiled/floor/floor_plate_side",
+        "windows_1sg": "props/furniture/bed_alpha_01",
+        "windows_transparent_1sg": "props/furniture/bed_alpha_01",
+        "wood_roof_1sg": "props/furniture/table_stool"
+      }
+    }
+  ],
+  "static_model": {
+    "settings_template": "models/level/lobby/base.model/settings",
+    "render_properties_template": "models/level/lobby/base.model/render/export_properties",
+    "surface_properties_template": "models/level/lobby/base.model/render/conc_low_s/export_properties"
+  },
+  "client_template_project": "projects/lobby_scene/client_project",
+  "target_client_project": "projects/stk2_a02_blockpost_slice/client_project",
+  "server_template_project": "projects/level_03/server_project",
+  "target_server_project": "projects/stk2_a02_blockpost_slice/server_project",
+  "visuals": [
+    {
+      "library_name": "level/stk2_a02_blockpost_slice/blockpost",
+      "position": [0.0, -1.0131054, 0.0],
+      "rotation": [0.0, 0.0, 0.0],
+      "scale": [1.0, 1.0, 1.0]
+    }
+  ],
+  "team_spawns": [
+    [-1.5, 0.25, 0.0],
+    [1.5, 0.25, 0.0]
+  ],
+  "spawn_orientation": 0.0,
+  "victory_item_spawners": [
+    [0.0, 0.2, 1.5],
+    [0.0, 0.2, -1.5]
+  ],
+  "victory_item_containers": [
+    [-2.0, 0.2, 1.5],
+    [2.0, 0.2, -1.5]
+  ]
+}

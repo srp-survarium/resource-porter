@@ -1,0 +1,37 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "level04-day-020f-to-0100b",
+    "donor_build": "0.20f-1923",
+    "target_build": "0.100b-802"
+  },
+  "map_name": "level_04_day_020f",
+  "roots": [
+    "projects/level_04/day/client_project",
+    "projects/level_04/day/server_project"
+  ],
+  "path_replacements": {
+    "projects/level_04/day/client_project": "projects/level_04_day_020f/client_project",
+    "projects/level_04/day/server_project": "projects/level_04_day_020f/server_project"
+  },
+  "upgrade_stripped_static_vertex_declarations": true,
+  "convert_materials_to_target_schema": true,
+  "allowed_unresolved_references": [
+    "models/flora/fruit/fruit_tree_01.model/walker_collision",
+    "models/flora/fruit/fruit_tree_02.model/walker_collision",
+    "models/flora/fruit/fruit_tree_03.model/walker_collision",
+    "models/flora/fruit/fruit_tree_05.model/walker_collision",
+    "models/props/electric/soviet_comp_01.model/collision",
+    "sounds/day/cicadas_01",
+    "sounds/day/cicadas_02",
+    "sounds/day/cicadas_03",
+    "sounds/scapes/cicadas_1",
+    "sounds/scapes/crowns",
+    "sounds/scapes/crowns_2",
+    "sounds/scapes/crowns_3",
+    "sounds/scapes/industrial_scape",
+    "sounds/scapes/metal_scape"
+  ],
+  "spawn_position": [-81.393, 5.611, 27.846],
+  "spawn_orientation": -1.556
+}

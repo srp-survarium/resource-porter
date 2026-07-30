@@ -27,7 +27,8 @@
       "ui_desc.props_list.4.prop_value": "3.6",
       "object.model": "weapons/akmn",
       "object.skeleton": "weapons/akmn"
-    }
+    },
+    "replace_strings": {}
   },
   "ammo": {
     "dict_id": 75,
@@ -57,6 +58,7 @@
       "st_ammo_762x39_description": "Боеприпасы 7.62x39 для АКМН"
     }
   },
+  "generated_configs": [],
   "copy": {
     "prefixes": [
       "models/weapons/akmn.skinned_model/",

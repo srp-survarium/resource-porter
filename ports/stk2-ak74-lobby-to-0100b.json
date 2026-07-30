@@ -1,0 +1,351 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "stk2-ak74-tir1-tir2-tir3-lobby-to-0100b",
+    "donor_build": "stalker2-2011",
+    "target_build": "0.100b-802"
+  },
+  "weapons": [
+    {
+      "dict_id": 82,
+      "item_category": 15,
+      "donor_model_archive": "exported/models/item/weapon/ak74/ak74_4tir1.model",
+      "target_model": "models/weapons/stk2_ak74_tir1.skinned_model",
+      "template_config": "gameplay/weapons/ak_74u.options",
+      "target_config": "gameplay/weapons/stk2_ak74_tir1.options",
+      "patch": {
+        "ui_desc.text_descriptions.name": "st_stk2_ak74_tir1_name",
+        "ui_desc.text_descriptions.description": "st_stk2_ak74_tir1_description",
+        "object.model": "weapons/stk2_ak74_tir1"
+      },
+      "replace_strings": {},
+      "surfaces": {
+        "ak74_01_s": "weapons/stk2_ak74/ak74_01",
+        "ak74_02_s": "weapons/stk2_ak74/ak74_02",
+        "ak74_03_s": "weapons/stk2_ak74/ak74_03",
+        "ak74_04_s": "weapons/stk2_ak74/ak74_04",
+        "ak74_05_s": "weapons/stk2_ak74/ak74_05",
+        "ak74_06_s": "weapons/stk2_ak74/ak74_06"
+      }
+    },
+    {
+      "dict_id": 84,
+      "item_category": 15,
+      "donor_model_archive": "exported/models/item/weapon/ak74/ak74_4tir2.model",
+      "target_model": "models/weapons/stk2_ak74_tir2.skinned_model",
+      "template_config": "gameplay/weapons/ak_74u.options",
+      "target_config": "gameplay/weapons/stk2_ak74_tir2.options",
+      "patch": {
+        "ui_desc.text_descriptions.name": "st_stk2_ak74_tir2_name",
+        "ui_desc.text_descriptions.description": "st_stk2_ak74_tir2_description",
+        "object.model": "weapons/stk2_ak74_tir2"
+      },
+      "replace_strings": {},
+      "surfaces": {
+        "ak74_01_s": "weapons/stk2_ak74/ak74_01",
+        "ak74_02_s": "weapons/stk2_ak74/ak74_02",
+        "ak74_03_s": "weapons/stk2_ak74/ak74_03",
+        "ak74_04_s": "weapons/stk2_ak74/ak74_04",
+        "ak74_06_s": "weapons/stk2_ak74/ak74_06"
+      }
+    },
+    {
+      "dict_id": 83,
+      "item_category": 15,
+      "donor_model_archive": "exported/models/item/weapon/ak74/ak74_4tir3.model",
+      "target_model": "models/weapons/stk2_ak74_tir3.skinned_model",
+      "template_config": "gameplay/weapons/ak_74u.options",
+      "target_config": "gameplay/weapons/stk2_ak74_tir3.options",
+      "patch": {
+        "ui_desc.text_descriptions.name": "st_stk2_ak74_tir3_name",
+        "ui_desc.text_descriptions.description": "st_stk2_ak74_tir3_description",
+        "object.model": "weapons/stk2_ak74_tir3"
+      },
+      "replace_strings": {},
+      "surfaces": {
+        "ak74_01_s": "weapons/stk2_ak74/ak74_01",
+        "ak74_02_s": "weapons/stk2_ak74/ak74_02",
+        "ak74_03_s": "weapons/stk2_ak74/ak74_03",
+        "ak74_04_s": "weapons/stk2_ak74/ak74_04",
+        "ak74_05_s": "weapons/stk2_ak74/ak74_05",
+        "ak74_06_s": "weapons/stk2_ak74/ak74_06"
+      }
+    }
+  ],
+  "weapon_model": {
+    "bind_pose_template": "models/weapons/ak_74u.skinned_model/render/bind_pose",
+    "settings_template": "models/weapons/ak_74u.skinned_model/settings",
+    "skeleton_template": "models/weapons/ak_74u.skinned_model/skeleton",
+    "render_properties_template": "models/weapons/ak_74u.skinned_model/render/export_properties",
+    "surface_properties_template": "models/weapons/ak_74u.skinned_model/render/lowfbxasc032poly002sg3/export_properties",
+    "rigid_bone_index": 1
+  },
+  "map_models": [
+    {
+      "donor_model_archive": "exported/models/location/a02_blockpost/blockpost.model",
+      "target_model": "models/level/stk2_lobby/blockpost.model",
+      "surfaces": {
+        "concrete02_tile01_1sg": "tiled/wall/stucco_zal_brick_vc",
+        "concrete_decal_1sg": "tiled/floor/pol",
+        "concrete_paint_1sg": "tiled/wall/stucco_zal_brick_vc",
+        "crete_floor_1sg": "tiled/floor/concrete_floor_red_brick_trash",
+        "decal_concrete_1sg": "tiled/floor/pol",
+        "plaster_rough_beige_01_1sg": "tiled/wall/stucco_zal_brick_vc",
+        "roof_leaves_1sg": "props/furniture/bed_alpha_01",
+        "shifer_1sg": "tiled/floor/floor_plate_side",
+        "windows_1sg": "props/furniture/bed_alpha_01",
+        "windows_transparent_1sg": "props/furniture/bed_alpha_01",
+        "wood_roof_1sg": "props/furniture/table_stool"
+      }
+    },
+    {
+      "donor_model_archive": "exported/models/props/furniture/sentry_a.model",
+      "target_model": "models/level/stk2_lobby/sentry_a.model",
+      "surfaces": {
+        "wood_tile_b_1sg": "props/furniture/table_stool"
+      }
+    },
+    {
+      "donor_model_archive": "exported/models/props/furniture/mattress_01.model",
+      "target_model": "models/level/stk2_lobby/mattress_01.model",
+      "surfaces": {
+        "mattress_01sg": "props/furniture/mattres"
+      }
+    },
+    {
+      "donor_model_archive": "exported/models/props/furniture/stool.model",
+      "target_model": "models/level/stk2_lobby/stool.model",
+      "surfaces": {
+        "stool_s": "props/furniture/table_stool"
+      }
+    }
+  ],
+  "static_model": {
+    "settings_template": "models/level/lobby/base.model/settings",
+    "render_properties_template": "models/level/lobby/base.model/render/export_properties",
+    "surface_properties_template": "models/level/lobby/base.model/render/conc_low_s/export_properties"
+  },
+  "materials": [
+    {
+      "template": "material_instances/weapons/ak74_u.material",
+      "target": "material_instances/weapons/stk2_ak74/ak74_01.material",
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/stk2_ak74/ak74_01",
+        "weapons/ak_74u/aks74u_fmap": "weapons/stk2_ak74/ak74_01_spec",
+        "weapons/ak_74u/aks74u_nmap": "weapons/stk2_ak74/ak74_01_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/stk2_ak74/ak74_01_spec",
+        "weapons/ak-74/ak74_pow": "weapons/stk2_ak74/ak74_01_spec"
+      }
+    },
+    {
+      "template": "material_instances/weapons/ak74_u.material",
+      "target": "material_instances/weapons/stk2_ak74/ak74_02.material",
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/stk2_ak74/ak74_02",
+        "weapons/ak_74u/aks74u_fmap": "weapons/stk2_ak74/ak74_02_spec",
+        "weapons/ak_74u/aks74u_nmap": "weapons/stk2_ak74/ak74_02_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/stk2_ak74/ak74_02_spec",
+        "weapons/ak-74/ak74_pow": "weapons/stk2_ak74/ak74_02_spec"
+      }
+    },
+    {
+      "template": "material_instances/weapons/ak74_u.material",
+      "target": "material_instances/weapons/stk2_ak74/ak74_03.material",
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/stk2_ak74/ak74_03",
+        "weapons/ak_74u/aks74u_fmap": "weapons/stk2_ak74/ak74_03_spec",
+        "weapons/ak_74u/aks74u_nmap": "weapons/stk2_ak74/ak74_03_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/stk2_ak74/ak74_03_spec",
+        "weapons/ak-74/ak74_pow": "weapons/stk2_ak74/ak74_03_spec"
+      }
+    },
+    {
+      "template": "material_instances/weapons/ak74_u.material",
+      "target": "material_instances/weapons/stk2_ak74/ak74_04.material",
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/stk2_ak74/ak74_04",
+        "weapons/ak_74u/aks74u_fmap": "weapons/stk2_ak74/ak74_04_spec",
+        "weapons/ak_74u/aks74u_nmap": "weapons/stk2_ak74/ak74_04_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/stk2_ak74/ak74_04_spec",
+        "weapons/ak-74/ak74_pow": "weapons/stk2_ak74/ak74_04_spec"
+      }
+    },
+    {
+      "template": "material_instances/weapons/ak74_u.material",
+      "target": "material_instances/weapons/stk2_ak74/ak74_05.material",
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/stk2_ak74/ak74_05",
+        "weapons/ak_74u/aks74u_fmap": "weapons/stk2_ak74/ak74_05_spec",
+        "weapons/ak_74u/aks74u_nmap": "weapons/stk2_ak74/ak74_05_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/stk2_ak74/ak74_05_spec",
+        "weapons/ak-74/ak74_pow": "weapons/stk2_ak74/ak74_05_spec"
+      }
+    },
+    {
+      "template": "material_instances/weapons/ak74_u.material",
+      "target": "material_instances/weapons/stk2_ak74/ak74_06.material",
+      "replace_strings": {
+        "weapons/ak_74u/aks74u": "weapons/stk2_ak74/ak74_06",
+        "weapons/ak_74u/aks74u_fmap": "weapons/stk2_ak74/ak74_06_spec",
+        "weapons/ak_74u/aks74u_nmap": "weapons/stk2_ak74/ak74_06_nmap",
+        "weapons/ak_74u/aks74u_smap": "weapons/stk2_ak74/ak74_06_spec",
+        "weapons/ak-74/ak74_pow": "weapons/stk2_ak74/ak74_06_spec"
+      }
+    }
+  ],
+  "textures": [
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_01.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u.options",
+      "target": "textures/weapons/stk2_ak74/ak74_01",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_01_nmap.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_nmap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_01_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_01_spec.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_smap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_01_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_02.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u.options",
+      "target": "textures/weapons/stk2_ak74/ak74_02",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_02_nmap.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_nmap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_02_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_02_spec.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_smap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_02_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_03.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u.options",
+      "target": "textures/weapons/stk2_ak74/ak74_03",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_03_nmap.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_nmap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_03_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_03_spec.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_smap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_03_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_04.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u.options",
+      "target": "textures/weapons/stk2_ak74/ak74_04",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_04_nmap.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_nmap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_04_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_04_spec.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_smap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_04_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_05.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u.options",
+      "target": "textures/weapons/stk2_ak74/ak74_05",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_05_nmap.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_nmap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_05_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_05_spec.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_smap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_05_spec",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_06.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u.options",
+      "target": "textures/weapons/stk2_ak74/ak74_06",
+      "compression": "dxt1"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_06_nmap.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_nmap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_06_nmap",
+      "compression": "dxt5_normal"
+    },
+    {
+      "source_file": "sources/textures/item/weapon/ak74/ak74_06_spec.tga",
+      "template_options": "textures/weapons/ak_74u/aks74u_smap.options",
+      "target": "textures/weapons/stk2_ak74/ak74_06_spec",
+      "compression": "dxt1"
+    }
+  ],
+  "lobby": {
+    "template_project": "projects/lobby_scene/client_project",
+    "target_project": "projects/lobby_scene/client_project",
+    "target_project_lua": "projects/lobby_scene/client_project.lua",
+    "visuals": [
+      {
+        "library_name": "level/stk2_lobby/blockpost",
+        "position": [0.0, -1.0131054, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      },
+      {
+        "library_name": "level/stk2_lobby/sentry_a",
+        "position": [2.5826871, 0.0060003, -1.4303837],
+        "rotation": [-3.1415927, -1.5604893, -3.1415927],
+        "scale": [1.0, 1.0, 1.0]
+      },
+      {
+        "library_name": "level/stk2_lobby/mattress_01",
+        "position": [1.1834338, 0.006, 1.8048115],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      },
+      {
+        "library_name": "level/stk2_lobby/stool",
+        "position": [1.710366, 0.006, -0.0822945],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    ]
+  },
+  "dictionary": {
+    "path": "gameplay/db_static_dictionaries"
+  },
+  "localization": {
+    "path": "localization/russian/localization",
+    "strings": {
+      "st_stk2_ak74_tir1_name": "АК-74 STK2, вариант 1",
+      "st_stk2_ak74_tir1_description": "Визуальный вариант АК-74 из сборки STK2; использует механику и анимации АКС-74У.",
+      "st_stk2_ak74_tir2_name": "АК-74 STK2, вариант 2",
+      "st_stk2_ak74_tir2_description": "Визуальный вариант АК-74 из сборки STK2 с пятью исходными поверхностями; использует механику и анимации АКС-74У.",
+      "st_stk2_ak74_tir3_name": "АК-74 STK2, вариант 3",
+      "st_stk2_ak74_tir3_description": "Визуальный вариант АК-74 из сборки STK2; использует механику и анимации АКС-74У."
+    }
+  }
+}
