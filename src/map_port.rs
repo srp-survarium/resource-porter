@@ -363,6 +363,21 @@ fn transform_client_project(
             &manifest.drop_client_object_types,
             dropped_client_object_types,
         )?;
+        convert_environment_probe_contracts(&mut project.root, path)?;
+        if let Some(post_effect) = &manifest.legacy_environment_post_effect {
+            let material_path = format!("material_instances/{post_effect}.material");
+            if !target.contains(&material_path) {
+                bail!(
+                    "{path} legacy environment post effect is absent from the target DB: \
+                     {material_path}"
+                );
+            }
+        }
+        convert_environment_contracts(
+            &mut project.root,
+            path,
+            manifest.legacy_environment_post_effect.as_deref(),
+        )?;
     }
     if let Some(template_path) = &manifest.legacy_client_project_template {
         let mut template = BinaryConfig::parse(
@@ -386,6 +401,9 @@ fn transform_client_project(
             applied_string_replacements,
         );
     }
+    convert_object_sound_contracts(&mut project.root, path, |sound_name| {
+        classify_target_sound_resource(target, sound_name)
+    })?;
     if output_path != path && project.root.named("project_name").is_some() {
         project.root.set_path(
             "project_name",
@@ -475,6 +493,211 @@ fn drop_client_object_types(
         }
     });
     Ok(())
+}
+
+fn convert_environment_probe_contracts(root: &mut ConfigValue, path: &str) -> Result<usize> {
+    let ConfigValue::Indexed(objects) = root
+        .named_mut("objects")
+        .with_context(|| format!("{path} has no legacy objects table after conversion"))?
+    else {
+        bail!("{path} legacy objects is not an indexed table");
+    };
+
+    let mut converted = 0;
+    for (object_index, object) in objects.iter_mut().enumerate() {
+        if !matches!(
+            object.named("game_object_type"),
+            Some(ConfigValue::String(kind)) if kind == "environment_probe"
+        ) {
+            continue;
+        }
+        let ConfigValue::Named(fields) = object else {
+            bail!("{path} environment probe object {object_index} is not a named table");
+        };
+        if let Some(index_position) = fields
+            .iter()
+            .position(|field| field.name == "cubemap_resolution_index")
+        {
+            if fields
+                .iter()
+                .any(|field| field.name == "cubemap_resolution")
+            {
+                bail!(
+                    "{path} environment probe object {object_index} contains both \
+                     cubemap_resolution_index and cubemap_resolution"
+                );
+            }
+            let index_field = &mut fields[index_position];
+            let ConfigValue::Integer(index) = index_field.value else {
+                bail!(
+                    "{path} environment probe object {object_index} \
+                     cubemap_resolution_index is not an integer"
+                );
+            };
+            let resolution = match index {
+                2 => 128,
+                3 => 256,
+                _ => bail!(
+                    "{path} environment probe object {object_index} uses unproven \
+                     cubemap_resolution_index {index}"
+                ),
+            };
+            index_field.name = "cubemap_resolution".into();
+            index_field.value = ConfigValue::Integer(resolution);
+        }
+
+        // v0.23 removed these fields from serialized probes, while v0.100b
+        // unconditionally reads both. Supplying the legacy defaults avoids the
+        // old binary-config reader spinning on a same-CRC field when a required
+        // name is absent.
+        for name in ["clip_by_normal", "with_shadows"] {
+            match fields.iter().find(|field| field.name == name) {
+                Some(NamedValue {
+                    value: ConfigValue::Boolean(_),
+                    ..
+                }) => {}
+                Some(_) => bail!(
+                    "{path} environment probe object {object_index} field {name} \
+                     is not a boolean"
+                ),
+                None => fields.push(NamedValue {
+                    name: name.into(),
+                    value: ConfigValue::Boolean(false),
+                }),
+            }
+        }
+        converted += 1;
+    }
+    Ok(converted)
+}
+
+fn convert_environment_contracts(
+    root: &mut ConfigValue,
+    path: &str,
+    legacy_post_effect: Option<&str>,
+) -> Result<usize> {
+    let ConfigValue::Indexed(objects) = root
+        .named_mut("objects")
+        .with_context(|| format!("{path} has no legacy objects table after conversion"))?
+    else {
+        bail!("{path} legacy objects is not an indexed table");
+    };
+
+    let mut converted = 0;
+    for (object_index, object) in objects.iter_mut().enumerate() {
+        if !matches!(
+            object.named("game_object_type"),
+            Some(ConfigValue::String(kind)) if kind == "environment"
+        ) {
+            continue;
+        }
+        let ConfigValue::Named(fields) = object else {
+            bail!("{path} environment object {object_index} is not a named table");
+        };
+        let has_legacy_post_effect = match fields.iter().find(|field| field.name == "post_effect") {
+            Some(NamedValue {
+                value: ConfigValue::String(_),
+                ..
+            }) => true,
+            Some(_) => {
+                bail!("{path} environment object {object_index} field post_effect is not a string")
+            }
+            None => false,
+        };
+        if !has_legacy_post_effect {
+            let post_effect = legacy_post_effect.with_context(|| {
+                format!(
+                    "{path} environment object {object_index} has no v0.100b post_effect; \
+                     declare legacy_environment_post_effect"
+                )
+            })?;
+            fields.push(NamedValue {
+                name: "post_effect".into(),
+                value: ConfigValue::String(post_effect.into()),
+            });
+            converted += 1;
+        }
+
+        // This table is the newer replacement for post_effect. v0.100b does
+        // not consume it, and retaining it would make dependency discovery
+        // import incompatible resources that are unreachable at runtime.
+        fields.retain(|field| field.name != "properties");
+    }
+    Ok(converted)
+}
+
+fn convert_object_sound_contracts(
+    root: &mut ConfigValue,
+    path: &str,
+    mut classify: impl FnMut(&str) -> Result<i32>,
+) -> Result<usize> {
+    let ConfigValue::Indexed(objects) = root
+        .named_mut("objects")
+        .with_context(|| format!("{path} has no legacy objects table after conversion"))?
+    else {
+        bail!("{path} legacy objects is not an indexed table");
+    };
+
+    let mut converted = 0;
+    for (object_index, object) in objects.iter_mut().enumerate() {
+        if !matches!(
+            object.named("game_object_type"),
+            Some(ConfigValue::String(kind)) if kind == "object_sound"
+        ) {
+            continue;
+        }
+        let sound_name = match object.named("sound_name") {
+            Some(ConfigValue::String(name)) => name.clone(),
+            Some(_) => bail!("{path} sound object {object_index} sound_name is not a string"),
+            None => bail!("{path} sound object {object_index} has no sound_name"),
+        };
+        let expected_resource_id = classify(&sound_name)
+            .with_context(|| format!("{path} sound object {object_index} ({sound_name})"))?;
+        let ConfigValue::Named(fields) = object else {
+            bail!("{path} sound object {object_index} is not a named table");
+        };
+        match fields.iter_mut().find(|field| field.name == "resource_id") {
+            Some(NamedValue {
+                value: ConfigValue::Integer(resource_id),
+                ..
+            }) => {
+                if *resource_id != expected_resource_id {
+                    *resource_id = expected_resource_id;
+                    converted += 1;
+                }
+            }
+            Some(_) => bail!("{path} sound object {object_index} resource_id is not an integer"),
+            None => {
+                fields.push(NamedValue {
+                    name: "resource_id".into(),
+                    value: ConfigValue::Integer(expected_resource_id),
+                });
+                converted += 1;
+            }
+        }
+    }
+    Ok(converted)
+}
+
+fn classify_target_sound_resource(target: &ResourceDb, sound_name: &str) -> Result<i32> {
+    let single_base = format!("sounds/single/{sound_name}");
+    let single_payload = target.is_file(&format!("{single_base}.high.ogg"));
+    let single_options = target.is_file(&format!("{single_base}.single_sound_options"));
+    let collection = target.is_file(&format!("sounds/collections/{sound_name}.sound_collection"));
+
+    match (single_payload, single_options, collection) {
+        (true, true, false) => Ok(256),
+        (false, false, true) => Ok(258),
+        (false, false, false) => {
+            bail!("target has neither a complete single sound nor a sound collection")
+        }
+        (payload, options, false) => {
+            bail!("target single sound is incomplete (payload={payload}, options={options})")
+        }
+        (_, _, true) => {
+            bail!("target sound is ambiguous: both single-sound and collection forms exist")
+        }
+    }
 }
 
 fn copy_project_sections(
@@ -724,6 +947,7 @@ pub fn build_playable_lobby_bundle(
 pub fn build_stk2_map_slice_bundle(
     manifest: &Stk2MapSliceManifest,
     source_root: &Path,
+    sound_donor_db: Option<&Path>,
     target_db: &Path,
     output: &Path,
 ) -> Result<MapBuildRecord> {
@@ -732,9 +956,43 @@ pub fn build_stk2_map_slice_bundle(
     fs::create_dir_all(&overlay)?;
 
     let mut target = ResourceDb::open(target_db)?;
+    let target_game_materials = crate::target_native_map::load_game_materials(&mut target)?;
     let mut files = Vec::new();
-    let (models, mut visuals, texture_plans) =
+    let (models, mut visuals, texture_plans, source_objects) =
         derive_stk2_project_content(manifest, source_root, output)?;
+    // Perform scene-schema projection before expensive texture/model
+    // conversion so an incompatible editor object fails the build quickly.
+    let mut client = BinaryConfig::parse(&target.read(&manifest.client_template_project)?)
+        .context("parsing STK2 map-slice client project template")?;
+    if manifest.convert_source_lights {
+        replace_stk2_client_lighting(
+            &mut client.root,
+            &source_objects,
+            manifest.source_origin,
+            manifest.source_light_types.as_ref(),
+            manifest.drop_target_environment_probes,
+            &manifest.target_client_project,
+        )?;
+    }
+    if manifest.convert_source_environment {
+        convert_stk2_environment(
+            manifest,
+            source_root,
+            &source_objects,
+            &mut target,
+            &mut client,
+            &overlay,
+            &mut files,
+        )?;
+    }
+    add_stk2_ambient_sounds(
+        manifest,
+        sound_donor_db,
+        &mut target,
+        &mut client,
+        &overlay,
+        &mut files,
+    )?;
     let terrain_cells = manifest
         .terrain_directory
         .as_deref()
@@ -749,16 +1007,17 @@ pub fn build_stk2_map_slice_bundle(
             &manifest.map_name,
             source_root,
             &manifest.terrain_texture_aliases,
+            &manifest.terrain_texture_binding_overrides,
         )?)
     {
-        if let Some(existing) = all_texture_plans.insert(plan.target_texture.clone(), plan.clone())
+        if let Some(existing) = all_texture_plans.insert(plan.target_material.clone(), plan.clone())
             && (existing.source_tga != plan.source_tga
                 || existing.source_options != plan.source_options
-                || existing.target_material != plan.target_material)
+                || existing.target_texture != plan.target_texture)
         {
             bail!(
-                "STK2 target texture {} has conflicting source plans",
-                plan.target_texture
+                "STK2 target material {} has conflicting source plans",
+                plan.target_material
             );
         }
     }
@@ -774,7 +1033,16 @@ pub fn build_stk2_map_slice_bundle(
     if !all_texture_plans.is_empty() {
         stk2_content::build_map_materials_and_textures(
             &all_texture_plans.into_values().collect::<Vec<_>>(),
-            manifest.material_template.as_deref().unwrap(),
+            manifest
+                .material_template
+                .as_deref()
+                .or_else(|| {
+                    manifest
+                        .material_templates
+                        .as_ref()
+                        .map(|templates| templates.opaque.as_str())
+                })
+                .unwrap(),
             manifest.texture_options_template.as_deref().unwrap(),
             source_root,
             &mut target,
@@ -783,9 +1051,22 @@ pub fn build_stk2_map_slice_bundle(
         )?;
     }
     for model in &models {
+        let collision_game_material = if manifest.convert_model_collision {
+            let name = manifest
+                .static_collision_game_material
+                .as_deref()
+                .context("validated STK2 static collision material is absent")?;
+            let id = *target_game_materials.get(name).with_context(|| {
+                format!("unknown target v0.100b static collision game material {name:?}")
+            })?;
+            Some((name, id))
+        } else {
+            None
+        };
         stk2_content::build_static_model(
             &manifest.static_model,
             model,
+            collision_game_material,
             source_root,
             &mut target,
             &overlay,
@@ -796,19 +1077,30 @@ pub fn build_stk2_map_slice_bundle(
         }
     }
     if !terrain_cells.is_empty() {
+        let terrain_game_material = manifest
+            .terrain_collision_game_material
+            .as_deref()
+            .context("validated STK2 terrain collision material is absent")?;
+        let terrain_game_material_id =
+            *target_game_materials
+                .get(terrain_game_material)
+                .with_context(|| {
+                    format!(
+                        "unknown target v0.100b terrain collision game material {terrain_game_material:?}"
+                    )
+                })?;
         visuals.extend(stk2_content::build_stk2_terrain_models(
             &terrain_cells,
             &manifest.map_name,
             manifest.source_origin,
             &manifest.static_model,
+            (terrain_game_material, terrain_game_material_id),
             &mut target,
             &overlay,
             &mut files,
         )?);
     }
 
-    let mut client = BinaryConfig::parse(&target.read(&manifest.client_template_project)?)
-        .context("parsing STK2 map-slice client project template")?;
     let mut collision_objects = client
         .root
         .named("collision_objects")
@@ -987,6 +1279,796 @@ pub fn build_stk2_map_slice_bundle(
     Ok(record)
 }
 
+#[derive(Clone, Copy)]
+enum Stk2EnvironmentValue {
+    Boolean(bool),
+    Number(f32),
+    Float3([f32; 3]),
+    Float4([f32; 4]),
+}
+
+fn convert_stk2_environment(
+    manifest: &Stk2MapSliceManifest,
+    source_root: &Path,
+    source_objects: &[crate::stk2_project::ProjectObject],
+    target: &mut ResourceDb,
+    client: &mut BinaryConfig,
+    overlay: &Path,
+    files: &mut Vec<crate::manifest::BuiltFile>,
+) -> Result<()> {
+    let environments = source_objects
+        .iter()
+        .filter(|object| object.kind == "environment")
+        .collect::<Vec<_>>();
+    if environments.len() != 1 {
+        bail!(
+            "{} source environment conversion requires exactly one environment object, found {}",
+            manifest.target_client_project,
+            environments.len()
+        );
+    }
+    let source_environment = environments[0];
+    let source_post_effect = match source_environment.properties.get("post_effect") {
+        Some(crate::stk2_project::ProjectProperty::String(value)) => value,
+        Some(_) => bail!("STK2 environment post_effect is not a string"),
+        None => bail!("STK2 environment has no post_effect"),
+    };
+    let source_instance_path =
+        format!("resources/sources/material_instances/{source_post_effect}.material");
+    let source_instance = fs::read_to_string(safe_join(source_root, &source_instance_path)?)
+        .with_context(|| format!("reading STK2 environment {source_instance_path}"))?;
+    let base_material = lua_assignment_string_value(&source_instance, "base_material")
+        .context("STK2 environment material has no base_material")?;
+    let source_base_path = format!("resources/sources/materials/{base_material}.material");
+    let source_base = fs::read_to_string(safe_join(source_root, &source_base_path)?)
+        .with_context(|| format!("reading STK2 environment base {source_base_path}"))?;
+
+    let template_path = manifest
+        .environment_material_template
+        .as_deref()
+        .context("validated environment material template is absent")?;
+    let target_path = manifest
+        .target_environment_material
+        .as_deref()
+        .context("validated target environment material is absent")?;
+    if target.is_file(target_path) {
+        bail!("target environment material already exists: {target_path}");
+    }
+    let mut material = BinaryConfig::parse(&target.read(template_path)?)
+        .with_context(|| format!("parsing target environment template {template_path}"))?;
+
+    for field in [
+        "adaptation_speed",
+        "environment_ambient_color",
+        "environment_far_fog_color",
+        "environment_far_fog_distance",
+        "environment_near_fog_distance",
+        "environment_skylight_lower_color",
+        "environment_skylight_lower_power",
+        "environment_skylight_upper_color",
+        "environment_skylight_upper_power",
+        "environment_sun_color",
+        "environment_use_skycolor",
+        "frame_desaturation",
+        "frame_height_lights",
+        "frame_mid_tones",
+        "frame_shadows",
+        "use_color_grading_lut",
+    ] {
+        let value = parse_stk2_environment_value(&source_instance, field)
+            .or_else(|| parse_stk2_environment_value(&source_base, field))
+            .with_context(|| format!("STK2 environment property {field:?} is absent"))?;
+        set_target_environment_value(&mut material.root, field, value)?;
+    }
+    let source_lut = parse_stk2_environment_string(&source_instance, "color_grading_texture")
+        .or_else(|| parse_stk2_environment_string(&source_base, "color_grading_texture"))
+        .context("STK2 environment property \"color_grading_texture\" is absent")?;
+    let target_lut = manifest
+        .target_environment_color_grading_texture
+        .as_deref()
+        .context("validated target environment color-grading texture is absent")?;
+    convert_stk2_color_grading_lut(
+        source_root,
+        &source_lut,
+        target,
+        manifest
+            .environment_color_grading_template
+            .as_deref()
+            .context("validated environment color-grading template is absent")?,
+        target_lut,
+        overlay,
+        files,
+    )?;
+    material.root.set_path(
+        "material.post_process.color_grading_texture.value",
+        ConfigValue::String(target_lut.to_owned()),
+    )?;
+    write_bundle_resource(
+        overlay,
+        target_path,
+        &material.to_bytes()?,
+        &format!(
+            "generated:target-schema-STK2-environment:{source_post_effect}:template:{template_path}"
+        ),
+        files,
+    )?;
+
+    let project_post_effect = target_path
+        .strip_prefix("material_instances/")
+        .and_then(|path| path.strip_suffix(".material"))
+        .with_context(|| {
+            format!(
+                "target environment material must be material_instances/<name>.material: {target_path}"
+            )
+        })?;
+    let ConfigValue::Indexed(objects) = client
+        .root
+        .named_mut("objects")
+        .context("target client project has no objects table")?
+    else {
+        bail!("target client project objects table is not indexed");
+    };
+    let mut target_environments = objects
+        .iter_mut()
+        .filter(|object| project_object_kind(object) == Some("environment"))
+        .collect::<Vec<_>>();
+    if target_environments.len() != 1 {
+        bail!(
+            "{} target template requires exactly one environment object, found {}",
+            manifest.client_template_project,
+            target_environments.len()
+        );
+    }
+    target_environments[0].set_path(
+        "post_effect",
+        ConfigValue::String(project_post_effect.to_owned()),
+    )?;
+    Ok(())
+}
+
+fn lua_assignment_string_value(text: &str, name: &str) -> Option<String> {
+    let marker = format!("{name} = \"");
+    let tail = text.split_once(&marker)?.1;
+    Some(tail.split_once('"')?.0.replace('\\', "/"))
+}
+
+fn stk2_lua_property_block<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let start = text.find(&format!("{name} ="))?;
+    let tail = &text[start..];
+    let end = tail.find(&format!("-- {name}"))?;
+    Some(&tail[..end])
+}
+
+fn parse_stk2_environment_value(text: &str, name: &str) -> Option<Stk2EnvironmentValue> {
+    let block = stk2_lua_property_block(text, name)?;
+    let raw = block.split_once("value =")?.1.trim_start();
+    if raw.starts_with("true") {
+        return Some(Stk2EnvironmentValue::Boolean(true));
+    }
+    if raw.starts_with("false") {
+        return Some(Stk2EnvironmentValue::Boolean(false));
+    }
+    if let Some(raw) = raw.strip_prefix("float3(") {
+        let raw = raw.split_once(')')?.0;
+        let values = raw
+            .split(',')
+            .map(|value| value.trim().parse::<f32>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        if values.len() == 3 && values.iter().all(|value| value.is_finite()) {
+            return Some(Stk2EnvironmentValue::Float3([
+                values[0], values[1], values[2],
+            ]));
+        }
+        return None;
+    }
+    if let Some(raw) = raw.strip_prefix("float4(") {
+        let raw = raw.split_once(')')?.0;
+        let values = raw
+            .split(',')
+            .map(|value| value.trim().parse::<f32>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        if values.len() == 4 && values.iter().all(|value| value.is_finite()) {
+            return Some(Stk2EnvironmentValue::Float4([
+                values[0], values[1], values[2], values[3],
+            ]));
+        }
+        return None;
+    }
+    let token = raw
+        .split(|character: char| character == ',' || character.is_whitespace())
+        .next()?;
+    let value = token.parse::<f32>().ok()?;
+    value
+        .is_finite()
+        .then_some(Stk2EnvironmentValue::Number(value))
+}
+
+fn set_target_environment_value(
+    root: &mut ConfigValue,
+    field: &str,
+    value: Stk2EnvironmentValue,
+) -> Result<()> {
+    let path = format!("material.post_process.{field}.value");
+    let current = config_value_at_path(root, &path)
+        .with_context(|| format!("target environment template has no {path}"))?;
+    let replacement = match (current, value) {
+        (ConfigValue::Boolean(_), Stk2EnvironmentValue::Boolean(value)) => {
+            ConfigValue::Boolean(value)
+        }
+        (ConfigValue::Integer(_), Stk2EnvironmentValue::Number(value))
+            if value.fract() == 0.0 && value >= i32::MIN as f32 && value <= i32::MAX as f32 =>
+        {
+            ConfigValue::Integer(value as i32)
+        }
+        // Lua material values do not have a declared scalar type: integral
+        // defaults cook as config integers even when the shader parameter is
+        // real-valued. Preserve a fractional donor value by promoting that
+        // self-describing node instead of rounding it back to the template.
+        (ConfigValue::Integer(_), Stk2EnvironmentValue::Number(value)) => ConfigValue::Float(value),
+        (ConfigValue::Float(_), Stk2EnvironmentValue::Number(value)) => ConfigValue::Float(value),
+        (ConfigValue::Float3(_), Stk2EnvironmentValue::Float3(value)) => ConfigValue::Float3(value),
+        (ConfigValue::Float4(_), Stk2EnvironmentValue::Float4(value)) => ConfigValue::Float4(value),
+        (target, _) => bail!(
+            "STK2 environment field {field:?} cannot be projected onto target type {target:?}"
+        ),
+    };
+    root.set_path(&path, replacement)
+}
+
+fn parse_stk2_environment_string(text: &str, name: &str) -> Option<String> {
+    let block = stk2_lua_property_block(text, name)?;
+    let raw = block.split_once("value =")?.1.trim_start();
+    let raw = raw.strip_prefix('"')?;
+    Some(raw.split_once('"')?.0.replace('\\', "/"))
+}
+
+fn convert_stk2_color_grading_lut(
+    source_root: &Path,
+    source_texture: &str,
+    target: &mut ResourceDb,
+    template_dds_path: &str,
+    target_texture: &str,
+    overlay: &Path,
+    files: &mut Vec<crate::manifest::BuiltFile>,
+) -> Result<()> {
+    let source_tga_path = format!("resources/sources/textures/{source_texture}.tga");
+    let source_tga = fs::read(safe_join(source_root, &source_tga_path)?)
+        .with_context(|| format!("reading STK2 color-grading LUT {source_tga_path}"))?;
+    let payload = stk2_color_grading_payload(&source_tga)
+        .with_context(|| format!("converting STK2 color-grading LUT {source_tga_path}"))?;
+
+    let mut template_dds = target
+        .read(template_dds_path)
+        .with_context(|| format!("reading target color-grading template {template_dds_path}"))?;
+    validate_target_color_grading_template(&template_dds, template_dds_path)?;
+    let payload_end = 128 + payload.len();
+    template_dds[128..payload_end].copy_from_slice(&payload);
+    // Resource DDS payloads carry one trailing sRGB policy byte.
+    template_dds[payload_end] = 0;
+
+    let target_dds_path = format!("textures/{target_texture}.dds");
+    let target_options_path = format!("textures/{target_texture}.options");
+    if target.is_file(&target_dds_path) || target.is_file(&target_options_path) {
+        bail!("target color-grading texture already exists: {target_texture}");
+    }
+    write_bundle_resource(
+        overlay,
+        &target_dds_path,
+        &template_dds,
+        &format!("converted:STK2-volume-LUT:{source_tga_path}:template:{template_dds_path}"),
+        files,
+    )?;
+
+    let template_options_path = format!(
+        "{}.options",
+        template_dds_path
+            .strip_suffix(".dds")
+            .context("environment_color_grading_template must end in .dds")?
+    );
+    let template_options = target.read(&template_options_path).with_context(|| {
+        format!("reading target color-grading options template {template_options_path}")
+    })?;
+    write_bundle_resource(
+        overlay,
+        &target_options_path,
+        &template_options,
+        &format!("target-template:{template_options_path}"),
+        files,
+    )?;
+    Ok(())
+}
+
+fn validate_target_color_grading_template(bytes: &[u8], label: &str) -> Result<()> {
+    const PAYLOAD_SIZE: usize = 16 * 16 * 16 * 4 + 16 * 8 * 8 * 4 + 16 * 4 * 4 * 4;
+    if bytes.len() != 128 + PAYLOAD_SIZE + 1
+        || bytes.get(..4) != Some(b"DDS ")
+        || read_u32(bytes, 4)? != 124
+        || read_u32(bytes, 12)? != 16
+        || read_u32(bytes, 16)? != 16
+        || read_u32(bytes, 24)? != 16
+        || read_u32(bytes, 28)? != 3
+        || read_u32(bytes, 84)? != 0
+        || read_u32(bytes, 88)? != 32
+    {
+        bail!(
+            "{label}: expected an uncompressed 16x16x16 BGRA8 DDS volume with three fixed-depth mips"
+        );
+    }
+    Ok(())
+}
+
+fn stk2_color_grading_payload(tga: &[u8]) -> Result<Vec<u8>> {
+    if tga.len() < 18 {
+        bail!("TGA header is truncated");
+    }
+    let id_length = usize::from(tga[0]);
+    if tga[1] != 0 || tga[2] != 2 {
+        bail!("only uncompressed true-color TGA LUTs are supported");
+    }
+    let width = usize::from(u16::from_le_bytes([tga[12], tga[13]]));
+    let height = usize::from(u16::from_le_bytes([tga[14], tga[15]]));
+    let channels = match tga[16] {
+        24 => 3,
+        32 => 4,
+        depth => bail!("unsupported TGA LUT pixel depth {depth}"),
+    };
+    if width != 256 || height != 16 {
+        bail!("STK2 color-grading LUT must be a 256x16 strip, got {width}x{height}");
+    }
+    let offset = 18_usize
+        .checked_add(id_length)
+        .context("TGA LUT pixel offset overflow")?;
+    let byte_count = width
+        .checked_mul(height)
+        .and_then(|count| count.checked_mul(channels))
+        .context("TGA LUT payload size overflow")?;
+    let pixels = tga
+        .get(offset..offset + byte_count)
+        .context("TGA LUT pixel payload is truncated")?;
+    let origin_top = tga[17] & 0x20 != 0;
+    let origin_right = tga[17] & 0x10 != 0;
+
+    // Convert the 16 horizontally packed 16x16 slices into canonical
+    // top-left BGRA8 images before producing fixed-depth 2D mip levels.
+    let mut slices = vec![vec![[0_u8; 4]; 16 * 16]; 16];
+    for file_y in 0..16 {
+        let y = if origin_top { file_y } else { 15 - file_y };
+        for file_x in 0..256 {
+            let x = if origin_right { 255 - file_x } else { file_x };
+            let source = (file_y * 256 + file_x) * channels;
+            let slice = x / 16;
+            let slice_x = x % 16;
+            slices[slice][y * 16 + slice_x] = [
+                pixels[source],
+                pixels[source + 1],
+                pixels[source + 2],
+                if channels == 4 {
+                    pixels[source + 3]
+                } else {
+                    255
+                },
+            ];
+        }
+    }
+
+    let mut payload = Vec::with_capacity(16 * (16 * 16 + 8 * 8 + 4 * 4) * 4);
+    let mut level = slices;
+    for size in [16_usize, 8, 4] {
+        for slice in &level {
+            for pixel in slice {
+                payload.extend_from_slice(pixel);
+            }
+        }
+        if size > 4 {
+            level = level
+                .iter()
+                .map(|slice| {
+                    let next_size = size / 2;
+                    let mut next = vec![[0_u8; 4]; next_size * next_size];
+                    for y in 0..next_size {
+                        for x in 0..next_size {
+                            for channel in 0..4 {
+                                let sum = u32::from(slice[(y * 2) * size + x * 2][channel])
+                                    + u32::from(slice[(y * 2) * size + x * 2 + 1][channel])
+                                    + u32::from(slice[(y * 2 + 1) * size + x * 2][channel])
+                                    + u32::from(slice[(y * 2 + 1) * size + x * 2 + 1][channel]);
+                                next[y * next_size + x][channel] =
+                                    u8::try_from((sum + 2) / 4).unwrap();
+                            }
+                        }
+                    }
+                    next
+                })
+                .collect();
+        }
+    }
+    Ok(payload)
+}
+
+fn config_value_at_path<'a>(root: &'a ConfigValue, path: &str) -> Option<&'a ConfigValue> {
+    let mut current = root;
+    for component in path.split('.') {
+        current = current.named(component)?;
+    }
+    Some(current)
+}
+
+fn add_stk2_ambient_sounds(
+    manifest: &Stk2MapSliceManifest,
+    sound_donor_db: Option<&Path>,
+    target: &mut ResourceDb,
+    client: &mut BinaryConfig,
+    overlay: &Path,
+    files: &mut Vec<crate::manifest::BuiltFile>,
+) -> Result<()> {
+    if manifest.ambient_sounds.is_empty() {
+        return Ok(());
+    }
+    let donor_path = sound_donor_db.context(
+        "STK2 map manifest declares ambient_sounds but --sound-donor-db was not supplied",
+    )?;
+    let mut donor = ResourceDb::open(donor_path)
+        .with_context(|| format!("opening ambient sound donor {}", donor_path.display()))?;
+
+    for sound in &manifest.ambient_sounds {
+        let donor_ogg_path = format!("sounds/single/{}.high.ogg", sound.donor_sound);
+        let target_ogg_path = format!("sounds/single/{}.high.ogg", sound.target_sound);
+        let target_options_path =
+            format!("sounds/single/{}.single_sound_options", sound.target_sound);
+        if target.is_file(&target_ogg_path) || target.is_file(&target_options_path) {
+            bail!(
+                "STK2 ambient target {:?} already exists in the target database",
+                sound.target_sound
+            );
+        }
+        let ogg = donor
+            .read(&donor_ogg_path)
+            .with_context(|| format!("reading donor ambient sound {donor_ogg_path}"))?;
+        if !ogg.starts_with(b"OggS") {
+            bail!("donor ambient payload {donor_ogg_path} is not an Ogg stream");
+        }
+        write_bundle_resource(
+            overlay,
+            &target_ogg_path,
+            &ogg,
+            &format!("donor-survarium:{donor_ogg_path}"),
+            files,
+        )?;
+
+        let options = target.read(&sound.options_template).with_context(|| {
+            format!(
+                "reading target ambient options template {}",
+                sound.options_template
+            )
+        })?;
+        BinaryConfig::parse(&options).with_context(|| {
+            format!(
+                "validating target ambient options template {}",
+                sound.options_template
+            )
+        })?;
+        write_bundle_resource(
+            overlay,
+            &target_options_path,
+            &options,
+            &format!("target-template:{}", sound.options_template),
+            files,
+        )?;
+
+        let mut template_project = BinaryConfig::parse(
+            &target.read(&sound.object_template_project)?,
+        )
+        .with_context(|| {
+            format!(
+                "parsing ambient object template project {}",
+                sound.object_template_project
+            )
+        })?;
+        let template_objects = template_project
+            .root
+            .named_mut("objects")
+            .with_context(|| {
+                format!(
+                    "ambient object template project {} has no objects table",
+                    sound.object_template_project
+                )
+            })?;
+        let ConfigValue::Indexed(template_objects) = template_objects else {
+            bail!(
+                "ambient object template project {} objects table is not indexed",
+                sound.object_template_project
+            );
+        };
+        let mut object = template_objects
+            .iter()
+            .find(|object| {
+                matches!(
+                    object.named("game_object_type"),
+                    Some(ConfigValue::String(kind)) if kind == "object_sound"
+                ) && matches!(
+                    object.named("sound_name"),
+                    Some(ConfigValue::String(name)) if name == &sound.object_template_sound
+                )
+            })
+            .cloned()
+            .with_context(|| {
+                format!(
+                    "project {} has no object_sound for {:?}",
+                    sound.object_template_project, sound.object_template_sound
+                )
+            })?;
+        object.set_path(
+            "sound_name",
+            ConfigValue::String(sound.target_sound.clone()),
+        )?;
+        object.set_path("position", ConfigValue::Float3(sound.position))?;
+        object.set_path("name", ConfigValue::String(sound.object_name.clone()))?;
+        object.set_path(
+            "full_name",
+            ConfigValue::String(format!("sounds/{}", sound.target_sound)),
+        )?;
+        object.set_path("resource_id", ConfigValue::Integer(256))?;
+
+        let objects = client.root.named_mut("objects").with_context(|| {
+            format!(
+                "{} client template has no objects table for ambient insertion",
+                manifest.target_client_project
+            )
+        })?;
+        let ConfigValue::Indexed(objects) = objects else {
+            bail!(
+                "{} client objects table is not indexed",
+                manifest.target_client_project
+            );
+        };
+        objects.push(object);
+    }
+    Ok(())
+}
+
+fn replace_stk2_client_lighting(
+    root: &mut ConfigValue,
+    source_objects: &[crate::stk2_project::ProjectObject],
+    source_origin: [f32; 3],
+    source_light_types: Option<&BTreeSet<i32>>,
+    drop_target_environment_probes: bool,
+    path: &str,
+) -> Result<()> {
+    let ConfigValue::Indexed(template_objects) = root
+        .named("objects")
+        .cloned()
+        .with_context(|| format!("{path} client template has no objects table"))?
+    else {
+        bail!("{path} client template objects table is not indexed");
+    };
+
+    let mut light_templates = BTreeMap::<i32, Vec<ConfigValue>>::new();
+    for object in &template_objects {
+        if project_object_kind(object) != Some("light") {
+            continue;
+        }
+        let light_type = match object.named("light_type") {
+            Some(ConfigValue::Integer(value)) => *value,
+            Some(_) => bail!("{path} target light template has non-integer light_type"),
+            None => bail!("{path} target light template has no light_type"),
+        };
+        light_templates
+            .entry(light_type)
+            .or_default()
+            .push(object.clone());
+    }
+
+    let mut output = Vec::new();
+    let mut dropped_environment_probes = 0_usize;
+    for object in template_objects {
+        if drop_target_environment_probes
+            && project_object_kind(&object) == Some("environment_probe")
+        {
+            dropped_environment_probes += 1;
+            continue;
+        }
+        if project_object_kind(&object) != Some("light") {
+            output.push(object);
+            continue;
+        }
+        let light_type = match object.named("light_type") {
+            Some(ConfigValue::Integer(value)) => *value,
+            Some(_) => bail!("{path} target light template has non-integer light_type"),
+            None => bail!("{path} target light template has no light_type"),
+        };
+        if source_light_types.is_some_and(|types| !types.contains(&light_type)) {
+            output.push(object);
+        }
+    }
+    if drop_target_environment_probes && dropped_environment_probes == 0 {
+        bail!("{path} requested target environment-probe removal but template has no probes");
+    }
+
+    let source_lights = source_objects
+        .iter()
+        .filter(|object| object.kind == "light")
+        .filter(|object| {
+            source_light_types.is_none_or(|types| {
+                matches!(
+                    object.properties.get("light_type"),
+                    Some(crate::stk2_project::ProjectProperty::Integer(value))
+                        if types.contains(value)
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if source_lights.is_empty() {
+        bail!("{path} source-light conversion was requested but no lights were parsed");
+    }
+    for source in source_lights {
+        let light_type = match source.properties.get("light_type") {
+            Some(crate::stk2_project::ProjectProperty::Integer(value)) => *value,
+            Some(_) => bail!("STK2 light {} has non-integer light_type", source.id),
+            None => bail!("STK2 light {} has no light_type", source.id),
+        };
+        let candidates = light_templates.get(&light_type).with_context(|| {
+            format!(
+                "{path} target client template has no light schema for STK2 light_type {light_type}"
+            )
+        })?;
+        let mut ranked = candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    project_property_incompatibilities(candidate, source),
+                    candidate,
+                )
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by_key(|(incompatibilities, _)| incompatibilities.len());
+        let (incompatibilities, template) = &ranked[0];
+        if !incompatibilities.is_empty() {
+            bail!(
+                "STK2 light {} cannot be represented by the target light_type {light_type} schemas \
+                 (incompatible source properties: {incompatibilities:?})",
+                source.id
+            );
+        }
+        let mut light = (*template).clone();
+        project_stk2_properties(&mut light, source, path)?;
+        light.set_path(
+            "position",
+            ConfigValue::Float3([
+                source.position[0] - source_origin[0],
+                source.position[1] - source_origin[1],
+                source.position[2] - source_origin[2],
+            ]),
+        )?;
+        if light.named("full_name").is_some() {
+            let name = match source.properties.get("name") {
+                Some(crate::stk2_project::ProjectProperty::String(name)) => name.as_str(),
+                _ => source.id.as_str(),
+            };
+            light.set_path(
+                "full_name",
+                ConfigValue::String(format!("environment_and_lights/{name}")),
+            )?;
+        }
+        output.push(light);
+    }
+
+    root.set_path("objects", ConfigValue::Indexed(output))
+        .with_context(|| format!("replacing {path} target client lighting objects"))
+}
+
+fn project_object_kind(object: &ConfigValue) -> Option<&str> {
+    match object.named("game_object_type") {
+        Some(ConfigValue::String(kind)) => Some(kind),
+        _ => None,
+    }
+}
+
+fn project_property_incompatibilities(
+    template: &ConfigValue,
+    source: &crate::stk2_project::ProjectObject,
+) -> Vec<String> {
+    let ConfigValue::Named(fields) = template else {
+        return vec!["<template-is-not-named>".into()];
+    };
+    fields
+        .iter()
+        .filter(|field| !preserve_target_light_default(&field.name))
+        .filter_map(|field| {
+            source
+                .properties
+                .get(&field.name)
+                .map(|source| (&field.name, &field.value, source))
+        })
+        .filter(|(_, target, source)| project_property_value(target, source).is_none())
+        .map(|(name, _, source)| format!("{name}={source:?}"))
+        .collect()
+}
+
+fn project_stk2_properties(
+    target: &mut ConfigValue,
+    source: &crate::stk2_project::ProjectObject,
+    path: &str,
+) -> Result<()> {
+    let ConfigValue::Named(fields) = target else {
+        bail!("{path} target project object template is not a named table");
+    };
+    for field in fields {
+        if preserve_target_light_default(&field.name) {
+            continue;
+        }
+        let Some(source_value) = source.properties.get(&field.name) else {
+            continue;
+        };
+        field.value = project_property_value(&field.value, source_value).with_context(|| {
+            format!(
+                "{path} STK2 object {} property {:?} cannot be projected onto target type {:?}",
+                source.id, field.name, field.value
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn preserve_target_light_default(name: &str) -> bool {
+    // STK2 serializes a tiny floating depth bias (commonly 0.0001), whereas
+    // v0.100b stores an integer policy value here. This is a semantic schema
+    // change, not a numeric unit conversion; retain the reviewed old template
+    // value until the renderer contract is recovered.
+    // Newer STK2 likewise stores fractional shadow transparency while the
+    // old client stores an integer policy. Both target fields therefore keep
+    // the selected v0.100b template default.
+    matches!(
+        name,
+        "lighting_model"
+            | "z_bias"
+            | "shadow_transparency"
+            | "shadow_map_size_index"
+            | "sun_shadow_map_size"
+            | "num_sun_cascades"
+            | "is_cast_shadow"
+            | "is_cast_shadow_neg_x"
+            | "is_cast_shadow_neg_y"
+            | "is_cast_shadow_neg_z"
+            | "is_cast_shadow_x"
+            | "is_cast_shadow_y"
+            | "is_cast_shadow_z"
+            | "is_shadower"
+            | "static_shadows"
+            | "use_with_lpv"
+    )
+}
+
+fn project_property_value(
+    target: &ConfigValue,
+    source: &crate::stk2_project::ProjectProperty,
+) -> Option<ConfigValue> {
+    use crate::stk2_project::ProjectProperty;
+    match (target, source) {
+        (ConfigValue::Boolean(_), ProjectProperty::Boolean(value)) => {
+            Some(ConfigValue::Boolean(*value))
+        }
+        (ConfigValue::Integer(_), ProjectProperty::Integer(value)) => {
+            Some(ConfigValue::Integer(*value))
+        }
+        (ConfigValue::Integer(_), ProjectProperty::Float(value))
+            if value.fract() == 0.0 && *value >= i32::MIN as f32 && *value <= i32::MAX as f32 =>
+        {
+            Some(ConfigValue::Integer(*value as i32))
+        }
+        (ConfigValue::Float(_), ProjectProperty::Integer(value)) => {
+            Some(ConfigValue::Float(*value as f32))
+        }
+        (ConfigValue::Float(_), ProjectProperty::Float(value)) => Some(ConfigValue::Float(*value)),
+        (ConfigValue::String(_), ProjectProperty::String(value)) => {
+            Some(ConfigValue::String(value.clone()))
+        }
+        (ConfigValue::Float3(_), ProjectProperty::Float3(value)) => {
+            Some(ConfigValue::Float3(*value))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Serialize)]
 struct Stk2ProjectBuildReport {
     source_project: String,
@@ -995,6 +2077,7 @@ struct Stk2ProjectBuildReport {
     composite_solid_visuals: usize,
     converted_instances: usize,
     converted_models: usize,
+    converted_lights: usize,
     source_texture_bindings: BTreeMap<String, Vec<String>>,
     empty_source_texture_bindings: Vec<String>,
     unresolved_source_texture_bindings: BTreeMap<String, Vec<String>>,
@@ -1010,11 +2093,13 @@ fn derive_stk2_project_content(
     Vec<StaticModelPortSpec>,
     Vec<LobbyVisualSpec>,
     Vec<stk2_content::Stk2MapTexturePlan>,
+    Vec<crate::stk2_project::ProjectObject>,
 )> {
     let Some(source_project) = &manifest.source_project else {
         return Ok((
             manifest.models.clone(),
             manifest.visuals.clone(),
+            Vec::new(),
             Vec::new(),
         ));
     };
@@ -1059,8 +2144,15 @@ fn derive_stk2_project_content(
     let mut empty_source_texture_bindings = Vec::new();
     let mut unresolved_source_texture_bindings = BTreeMap::<String, Vec<String>>::new();
     let mut texture_plans = BTreeMap::<String, stk2_content::Stk2MapTexturePlan>::new();
+    let source_material_catalog = manifest
+        .material_templates
+        .as_ref()
+        .map(|_| stk2_content::Stk2SourceMaterialCatalog::load(source_root))
+        .transpose()?;
     let mut used_fallback_source_textures = BTreeSet::new();
     let mut used_fallback_empty_surfaces = BTreeSet::new();
+    let mut used_surface_material_overrides = BTreeSet::new();
+    let mut used_source_material_template_overrides = BTreeSet::new();
     let mut used_model_archive_overrides = BTreeSet::new();
     let mut used_omitted_model_libraries = BTreeSet::new();
 
@@ -1109,7 +2201,7 @@ fn derive_stk2_project_content(
                 source_texture_bindings
                     .entry(texture.clone())
                     .or_default()
-                    .push(binding);
+                    .push(binding.clone());
                 let source_tga_lower = format!("resources/sources/textures/{texture}.tga");
                 let source_tga_upper = format!("resources/sources/textures/{texture}.TGA");
                 let source_tga = if safe_join(source_root, &source_tga_lower)?.is_file() {
@@ -1124,20 +2216,96 @@ fn derive_stk2_project_content(
                     && safe_join(source_root, &source_options)?.is_file()
                 {
                     let target_root = format!("ported/stk2/{}/{}", manifest.map_name, texture);
+                    let source_material_override =
+                        manifest.surface_material_overrides.get(&binding);
+                    let resolved_material = if let Some(source_material_override) =
+                        source_material_override
+                    {
+                        used_surface_material_overrides.insert(binding.clone());
+                        let templates = manifest.material_templates.as_ref().with_context(|| {
+                                format!(
+                                    "surface material override {binding:?} requires material_templates"
+                                )
+                            })?;
+                        Some(
+                            source_material_catalog
+                                .as_ref()
+                                .context("STK2 source material catalog is absent")?
+                                .resolve_exact(texture, source_material_override, templates)?,
+                        )
+                    } else {
+                        manifest.material_templates.as_ref().and_then(|templates| {
+                            source_material_catalog
+                                .as_ref()
+                                .and_then(|catalog| catalog.resolve(texture, templates))
+                        })
+                    };
+                    let target_material =
+                        if let Some(source_material_override) = source_material_override {
+                            format!(
+                                "ported/stk2/{}/source_materials/{}",
+                                manifest.map_name, source_material_override
+                            )
+                        } else {
+                            target_root.clone()
+                        };
+                    let resolved_source_material = resolved_material
+                        .as_ref()
+                        .map(|resolved| resolved.source_material.clone());
+                    let (mut material_template, source_material, auxiliary_textures) =
+                        if let Some(resolved) = resolved_material {
+                            let auxiliary_textures = stk2_content::auxiliary_texture_plans(
+                                &resolved,
+                                &manifest.map_name,
+                                source_root,
+                            )?;
+                            (
+                                Some(resolved.template),
+                                Some(resolved.source),
+                                auxiliary_textures,
+                            )
+                        } else if let Some(templates) = &manifest.material_templates {
+                            (
+                                Some(templates.opaque.clone()),
+                                Some("unresolved-or-ambiguous:opaque-fallback".to_owned()),
+                                Vec::new(),
+                            )
+                        } else {
+                            (None, None, Vec::new())
+                        };
+                    if let Some(source_material) = source_material_override
+                        .map(String::as_str)
+                        .or(resolved_source_material.as_deref())
+                        && let Some(template) = manifest
+                            .source_material_template_overrides
+                            .get(source_material)
+                    {
+                        used_source_material_template_overrides.insert(source_material.to_owned());
+                        material_template = Some(template.clone());
+                    }
                     let plan = stk2_content::Stk2MapTexturePlan {
                         source_texture: texture.clone(),
                         source_tga,
                         source_options,
                         target_texture: target_root.clone(),
-                        target_material: target_root.clone(),
+                        target_material: target_material.clone(),
+                        material_template,
+                        source_material,
+                        auxiliary_textures,
+                        target_texture_bindings: BTreeMap::new(),
                     };
-                    if let Some(existing) = texture_plans.insert(texture.clone(), plan.clone())
+                    if let Some(existing) =
+                        texture_plans.insert(target_material.clone(), plan.clone())
                         && (existing.target_texture != plan.target_texture
-                            || existing.target_material != plan.target_material)
+                            || existing.source_tga != plan.source_tga
+                            || existing.source_options != plan.source_options
+                            || existing.material_template != plan.material_template
+                            || existing.source_material != plan.source_material
+                            || existing.auxiliary_textures.len() != plan.auxiliary_textures.len())
                     {
-                        bail!("STK2 texture {texture} received conflicting target plans");
+                        bail!("STK2 target material {target_material} received conflicting plans");
                     }
-                    surface_materials.insert(surface.clone(), target_root);
+                    surface_materials.insert(surface.clone(), target_material);
                 } else {
                     used_fallback_source_textures.insert(texture.clone());
                     surface_materials.insert(surface.clone(), material.to_owned());
@@ -1183,10 +2351,31 @@ fn derive_stk2_project_content(
         });
     }
 
+    let converted_lights = manifest
+        .convert_source_lights
+        .then(|| {
+            objects
+                .iter()
+                .filter(|object| object.kind == "light")
+                .filter(|object| {
+                    manifest.source_light_types.as_ref().is_none_or(|types| {
+                        matches!(
+                            object.properties.get("light_type"),
+                            Some(crate::stk2_project::ProjectProperty::Integer(value))
+                                if types.contains(value)
+                        )
+                    })
+                })
+                .count()
+        })
+        .unwrap_or_default();
     let mut omitted_object_kinds: BTreeMap<String, usize> = parsed
         .object_kinds
         .iter()
-        .filter(|(kind, _)| kind.as_str() != "solid_visual")
+        .filter(|(kind, _)| {
+            kind.as_str() != "solid_visual"
+                && !(manifest.convert_source_lights && kind.as_str() == "light")
+        })
         .map(|(kind, count)| (kind.clone(), *count))
         .collect();
     for (kind, count) in &parsed.composite_child_kinds {
@@ -1204,6 +2393,7 @@ fn derive_stk2_project_content(
         composite_solid_visuals,
         converted_instances: visuals.len() - manifest.visuals.len(),
         converted_models: models.len() - manifest.models.len(),
+        converted_lights,
         source_texture_bindings,
         empty_source_texture_bindings,
         unresolved_source_texture_bindings,
@@ -1238,6 +2428,28 @@ fn derive_stk2_project_content(
             "STK2 fallback_empty_surfaces mismatch; missing approvals: {missing:?}; stale approvals: {stale:?}"
         );
     }
+    let declared_surface_material_overrides: BTreeSet<_> = manifest
+        .surface_material_overrides
+        .keys()
+        .cloned()
+        .collect();
+    if used_surface_material_overrides != declared_surface_material_overrides {
+        let unused: Vec<_> = declared_surface_material_overrides
+            .difference(&used_surface_material_overrides)
+            .collect();
+        bail!("unused STK2 surface_material_overrides entries: {unused:?}");
+    }
+    let declared_source_material_template_overrides: BTreeSet<_> = manifest
+        .source_material_template_overrides
+        .keys()
+        .cloned()
+        .collect();
+    if used_source_material_template_overrides != declared_source_material_template_overrides {
+        let unused: Vec<_> = declared_source_material_template_overrides
+            .difference(&used_source_material_template_overrides)
+            .collect();
+        bail!("unused STK2 source_material_template_overrides entries: {unused:?}");
+    }
     let declared_model_archive_overrides: BTreeSet<_> =
         manifest.model_archive_overrides.keys().cloned().collect();
     if used_model_archive_overrides != declared_model_archive_overrides {
@@ -1269,7 +2481,12 @@ fn derive_stk2_project_content(
     if visuals.is_empty() || models.is_empty() {
         bail!("STK2 source project produced no compatible static visuals");
     }
-    Ok((models, visuals, texture_plans.into_values().collect()))
+    Ok((
+        models,
+        visuals,
+        texture_plans.into_values().collect(),
+        objects,
+    ))
 }
 
 fn is_safe_stk2_library_name(name: &str) -> bool {
@@ -1653,6 +2870,312 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn converts_newer_environment_probe_resolution_indices() {
+        let probe = |index| {
+            ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("environment_probe".into()),
+                },
+                NamedValue {
+                    name: "cubemap_resolution_index".into(),
+                    value: ConfigValue::Integer(index),
+                },
+            ])
+        };
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![probe(2), probe(3)]),
+        }]);
+
+        assert_eq!(
+            convert_environment_probe_contracts(&mut root, "projects/test/client_project").unwrap(),
+            2
+        );
+        let ConfigValue::Indexed(objects) = root.named("objects").unwrap() else {
+            panic!("objects must remain indexed");
+        };
+        assert_eq!(
+            objects[0].named("cubemap_resolution"),
+            Some(&ConfigValue::Integer(128))
+        );
+        assert_eq!(
+            objects[1].named("cubemap_resolution"),
+            Some(&ConfigValue::Integer(256))
+        );
+        assert!(objects[0].named("cubemap_resolution_index").is_none());
+        assert!(objects[1].named("cubemap_resolution_index").is_none());
+        for object in objects {
+            assert_eq!(
+                object.named("clip_by_normal"),
+                Some(&ConfigValue::Boolean(false))
+            );
+            assert_eq!(
+                object.named("with_shadows"),
+                Some(&ConfigValue::Boolean(false))
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_unproven_environment_probe_resolution_indices() {
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("environment_probe".into()),
+                },
+                NamedValue {
+                    name: "cubemap_resolution_index".into(),
+                    value: ConfigValue::Integer(4),
+                },
+            ])]),
+        }]);
+
+        let error = convert_environment_probe_contracts(&mut root, "projects/test/client_project")
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("unproven cubemap_resolution_index 4")
+        );
+    }
+
+    #[test]
+    fn supplies_legacy_post_effect_for_newer_environment_objects() {
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("environment".into()),
+                },
+                NamedValue {
+                    name: "properties".into(),
+                    value: ConfigValue::Named(Vec::new()),
+                },
+            ])]),
+        }]);
+
+        assert_eq!(
+            convert_environment_contracts(
+                &mut root,
+                "projects/test/client_project",
+                Some("post_process/level_03_day"),
+            )
+            .unwrap(),
+            1
+        );
+        let ConfigValue::Indexed(objects) = root.named("objects").unwrap() else {
+            panic!("objects must remain indexed");
+        };
+        assert_eq!(
+            objects[0].named("post_effect"),
+            Some(&ConfigValue::String("post_process/level_03_day".into()))
+        );
+        assert!(objects[0].named("properties").is_none());
+    }
+
+    #[test]
+    fn replaces_only_template_lights_with_projected_stk2_lighting() {
+        use crate::stk2_project::{ProjectObject, ProjectProperty};
+
+        let object = |fields| ConfigValue::Named(fields);
+        let named = |name: &str, value| NamedValue {
+            name: name.into(),
+            value,
+        };
+        let mut root = ConfigValue::Named(vec![named(
+            "objects",
+            ConfigValue::Indexed(vec![
+                object(vec![named(
+                    "game_object_type",
+                    ConfigValue::String("sky".into()),
+                )]),
+                object(vec![
+                    named(
+                        "game_object_type",
+                        ConfigValue::String("environment".into()),
+                    ),
+                    named(
+                        "post_effect",
+                        ConfigValue::String("post_process/lobby".into()),
+                    ),
+                    named("position", ConfigValue::Float3([0.0, 0.0, 0.0])),
+                ]),
+                object(vec![named(
+                    "game_object_type",
+                    ConfigValue::String("environment_probe".into()),
+                )]),
+                object(vec![named(
+                    "game_object_type",
+                    ConfigValue::String("decal".into()),
+                )]),
+                object(vec![
+                    named("game_object_type", ConfigValue::String("light".into())),
+                    named("light_type", ConfigValue::Integer(0)),
+                    named("lighting_model", ConfigValue::Integer(3)),
+                    named("is_cast_shadow", ConfigValue::Boolean(true)),
+                    named("position", ConfigValue::Float3([0.0, 0.0, 0.0])),
+                    named("intensity", ConfigValue::Float(1.0)),
+                    named("z_bias", ConfigValue::Integer(0)),
+                    named("shadow_transparency", ConfigValue::Integer(0)),
+                    named("name", ConfigValue::String("template".into())),
+                    named("full_name", ConfigValue::String("template".into())),
+                ]),
+            ]),
+        )]);
+        let source_objects = vec![
+            ProjectObject {
+                id: "environment".into(),
+                kind: "environment".into(),
+                library_name: Some("environment".into()),
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0],
+                scale: [1.0, 1.0, 1.0],
+                properties: BTreeMap::from([
+                    (
+                        "game_object_type".into(),
+                        ProjectProperty::String("environment".into()),
+                    ),
+                    (
+                        "post_effect".into(),
+                        ProjectProperty::String("source/incompatible".into()),
+                    ),
+                    ("position".into(), ProjectProperty::Float3([0.0, 0.0, 0.0])),
+                ]),
+            },
+            ProjectObject {
+                id: "light".into(),
+                kind: "light".into(),
+                library_name: Some("point_light".into()),
+                position: [69.0, 14.0, -7.0],
+                rotation: [0.0, 0.0, 0.0],
+                scale: [1.0, 1.0, 1.0],
+                properties: BTreeMap::from([
+                    (
+                        "game_object_type".into(),
+                        ProjectProperty::String("light".into()),
+                    ),
+                    ("light_type".into(), ProjectProperty::Integer(0)),
+                    ("lighting_model".into(), ProjectProperty::Integer(0)),
+                    ("is_cast_shadow".into(), ProjectProperty::Boolean(true)),
+                    (
+                        "position".into(),
+                        ProjectProperty::Float3([69.0, 14.0, -7.0]),
+                    ),
+                    ("intensity".into(), ProjectProperty::Float(0.15)),
+                    ("z_bias".into(), ProjectProperty::Float(0.0001)),
+                    ("shadow_transparency".into(), ProjectProperty::Float(0.1)),
+                    (
+                        "name".into(),
+                        ProjectProperty::String("source_light".into()),
+                    ),
+                ]),
+            },
+        ];
+
+        replace_stk2_client_lighting(
+            &mut root,
+            &source_objects,
+            [64.0, 0.0, 0.0],
+            None,
+            false,
+            "projects/test/client_project",
+        )
+        .unwrap();
+
+        let ConfigValue::Indexed(objects) = root.named("objects").unwrap() else {
+            panic!("objects must remain indexed");
+        };
+        assert_eq!(objects.len(), 5);
+        assert_eq!(project_object_kind(&objects[0]), Some("sky"));
+        assert_eq!(project_object_kind(&objects[1]), Some("environment"));
+        assert_eq!(
+            objects[1].named("post_effect"),
+            Some(&ConfigValue::String("post_process/lobby".into()))
+        );
+        assert_eq!(project_object_kind(&objects[2]), Some("environment_probe"));
+        assert_eq!(project_object_kind(&objects[3]), Some("decal"));
+        assert_eq!(project_object_kind(&objects[4]), Some("light"));
+        assert_eq!(
+            objects[4].named("position"),
+            Some(&ConfigValue::Float3([5.0, 14.0, -7.0]))
+        );
+        assert_eq!(
+            objects[4].named("intensity"),
+            Some(&ConfigValue::Float(0.15))
+        );
+        assert_eq!(
+            objects[4].named("lighting_model"),
+            Some(&ConfigValue::Integer(3))
+        );
+        assert_eq!(
+            objects[4].named("is_cast_shadow"),
+            Some(&ConfigValue::Boolean(true))
+        );
+        assert_eq!(objects[4].named("z_bias"), Some(&ConfigValue::Integer(0)));
+        assert_eq!(
+            objects[4].named("shadow_transparency"),
+            Some(&ConfigValue::Integer(0))
+        );
+    }
+
+    #[test]
+    fn rejects_newer_environment_without_explicit_legacy_post_effect() {
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![ConfigValue::Named(vec![NamedValue {
+                name: "game_object_type".into(),
+                value: ConfigValue::String("environment".into()),
+            }])]),
+        }]);
+
+        let error = convert_environment_contracts(&mut root, "projects/test/client_project", None)
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("declare legacy_environment_post_effect")
+        );
+    }
+
+    #[test]
+    fn rewrites_sound_resource_class_with_the_target_sound_form() {
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("object_sound".into()),
+                },
+                NamedValue {
+                    name: "sound_name".into(),
+                    value: ConfigValue::String("scapes/creatures/creatures_line".into()),
+                },
+                NamedValue {
+                    name: "resource_id".into(),
+                    value: ConfigValue::Integer(258),
+                },
+            ])]),
+        }]);
+
+        assert_eq!(
+            convert_object_sound_contracts(&mut root, "projects/test/client_project", |_| Ok(256),)
+                .unwrap(),
+            1
+        );
+        let ConfigValue::Indexed(objects) = root.named("objects").unwrap() else {
+            panic!("objects must remain indexed");
+        };
+        assert_eq!(
+            objects[0].named("resource_id"),
+            Some(&ConfigValue::Integer(256))
+        );
+    }
 
     #[test]
     fn upgrades_newer_colored_static_model_with_target_color_declaration() {

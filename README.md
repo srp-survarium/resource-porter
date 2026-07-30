@@ -222,6 +222,13 @@ prefix-local wineserver before entering the namespace; this is required so
 Wine and SRP genuinely share the same `127.0.0.1`. Closing Wine also terminates
 all four private server processes.
 
+Before starting SRP or Wine, the launcher patches build 802's retired
+Vostok Games crash-report recipient to the non-resolving
+`crash-reports@localhost.invalid` address. It refuses an unknown executable and
+retains a stock-image backup. See
+[`docs/crash-report-email-safety.md`](docs/crash-report-email-safety.md) for
+the exact bytes, hashes, and standalone verification command.
+
 The private namespace includes both loopback and a dummy `10.100.0.1/24`
 adapter. With loopback alone, build 802 under Wine stayed at `Connecting...`
 without opening a login connection, although SRP was listening. The dummy
@@ -241,6 +248,51 @@ then equipped inventory instance 48 / dictionary ID 74 (AKMN) and instance 49 /
 dictionary ID 75 (7.62x39), confirming that both added resources are recognized
 by the v0.100b client. The current SRP branch also issues instance 50 /
 dictionary ID 76 (SKS) and instance 51 / dictionary ID 77 (Duty exoskeleton).
+
+## Canonical retail → STK2 map + weapons demo
+
+The canonical combined demo has one explicit resource chain:
+
+```text
+untouched retail v0.100b resources.db
+  + runtime-tested STK2 A01 map module
+  + retail-derived STK2 tir1/tir2/tir3 weapon module
+  = one verified resources.db used by the matching SRP map profile
+```
+
+Build, validate, and launch the complete chain with:
+
+```sh
+./scripts/run-canonical-stk2-a01-weapons-demo.sh
+```
+
+Use `--build-only` to stop after database verification, or
+`--rebuild-weapons` to regenerate the weapon module from the extracted STK2
+source. The script refuses a retail database whose SHA-256 is not
+`160dc7180b3e89279570d087442c3ad867aa5fe25bb2bf7789a8f7aaea628409`.
+It intentionally excludes the exoskeleton and all earlier AKMN/SKS experiments.
+The SRP `stk2-weapons` profile gives tir1 and tir2 to the local player and tir3
+to the remote test character.
+
+An extended checkpoint keeps that database intact and adds an exoskeleton
+module built against its final dictionary:
+
+```sh
+./scripts/run-canonical-stk2-a01-mixed-roster-demo.sh
+```
+
+The `stk2-mixed-roster` profile gives the local player stock Black Market
+equipment with STK2 exoskeleton gloves, an AKS-74U, and a Remington 870. Two
+complete STK2 Duty exoskeleton guards carrying tir1 and tir2 start symmetrically
+in front of the player at the railroad. Seven additional stock/mixed references
+are distributed across A01 with tir3 and a selection of stock weapons, for ten
+characters in total. Client suicide is handled by SRP and respawns the local
+player on the central concrete structure after ten seconds. Use `--reuse` to
+launch the runtime-verified database (SHA-256
+`5cfecbd2f850ddefc2fe1f01ba42ecf63c512fb9f562e25b2a6a9a7b40384e3f`)
+without rebuilding the resource chain. The known remaining visual issue is the
+concrete/brick near-detail transition; those materials look correct only from
+a distance.
 
 ## STK2 character experiments
 

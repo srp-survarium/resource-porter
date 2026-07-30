@@ -2001,7 +2001,7 @@ fn validate_render_properties(
     Ok(())
 }
 
-fn load_game_materials(target: &mut ResourceDb) -> Result<BTreeMap<String, i32>> {
+pub(crate) fn load_game_materials(target: &mut ResourceDb) -> Result<BTreeMap<String, i32>> {
     let config = BinaryConfig::parse(&target.read("game_materials/game.materials")?)
         .context("parsing target game-material dictionary")?;
     let ConfigValue::Indexed(materials) = config

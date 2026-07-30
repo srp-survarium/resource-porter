@@ -106,6 +106,11 @@ pub struct MapPortManifest {
     /// stale compatibility exceptions from silently accumulating.
     #[serde(default)]
     pub drop_client_object_types: BTreeSet<String>,
+    /// Target-build post-process material assigned to newer `environment`
+    /// objects. Newer projects serialize a `properties` table instead, while
+    /// v0.100b unconditionally requests the legacy `post_effect` string.
+    #[serde(default)]
+    pub legacy_environment_post_effect: Option<String>,
     /// Optional target-build client project used as the outer legacy schema.
     /// Only sections named by legacy_client_project_sections are copied from
     /// the converted donor project; all other sections remain target-native.
@@ -244,6 +249,11 @@ pub struct Stk2MapSliceManifest {
     pub auto_material: Option<String>,
     #[serde(default)]
     pub material_template: Option<String>,
+    /// Reviewed v0.100b material-instance templates used to translate the
+    /// source STK2 material contract. When absent, `material_template` is used
+    /// for every converted diffuse (the legacy, low-fidelity behavior).
+    #[serde(default)]
+    pub material_templates: Option<Stk2MaterialTemplates>,
     #[serde(default)]
     pub texture_options_template: Option<String>,
     /// Source texture names which are known to be absent or malformed in the
@@ -254,6 +264,16 @@ pub struct Stk2MapSliceManifest {
     /// export_properties intentionally contain an empty texture name.
     #[serde(default)]
     pub fallback_empty_surfaces: BTreeSet<String>,
+    /// Fully-qualified `library#render/surface` to exact STK2 source material
+    /// instance. This disambiguates cases where one diffuse image is used by
+    /// source materials with different shader families or auxiliary maps.
+    #[serde(default)]
+    pub surface_material_overrides: BTreeMap<String, String>,
+    /// Exact STK2 source-material names to reviewed v0.100b material-instance
+    /// templates. This refines the broad opaque/metal/foliage family choice
+    /// when shader semantics such as concrete detail normals matter.
+    #[serde(default)]
+    pub source_material_template_overrides: BTreeMap<String, String>,
     /// Explicit source-project library to compiled archive overrides. This is
     /// required when the editor project retains an old library path or only a
     /// `.model.orig` cooked archive survived.
@@ -269,16 +289,96 @@ pub struct Stk2MapSliceManifest {
     /// stable.
     #[serde(default)]
     pub terrain_texture_aliases: BTreeMap<String, String>,
+    /// Replace spatial objects inherited from the target client-project
+    /// template with STK2 light objects projected through matching v0.100b
+    /// light schemas. Global sky/environment objects remain target-native.
+    #[serde(default)]
+    pub convert_source_lights: bool,
+    /// Optional STK2 light types to convert. Target-template lights of other
+    /// types are retained, allowing each old-engine light contract to be
+    /// introduced and validated independently. When absent, all source light
+    /// types are converted.
+    #[serde(default)]
+    pub source_light_types: Option<BTreeSet<i32>>,
+    /// Remove environment probes inherited from the unrelated target map
+    /// template. Their finite bounds and cubemaps are map-specific; retaining
+    /// them creates hard spatial lighting boundaries in reconstructed maps.
+    #[serde(default)]
+    pub drop_target_environment_probes: bool,
+    /// Project the STK2 environment material's understood fog and ambient
+    /// fields into a cloned v0.100b post-process material.
+    #[serde(default)]
+    pub convert_source_environment: bool,
+    #[serde(default)]
+    pub environment_material_template: Option<String>,
+    #[serde(default)]
+    pub target_environment_material: Option<String>,
+    /// Stock v0.100b 16x16x16 volume-LUT DDS whose header and mip layout are
+    /// used to cook the STK2 256x16 strip LUT.
+    #[serde(default)]
+    pub environment_color_grading_template: Option<String>,
+    /// Logical target texture name without textures/ or an extension.
+    #[serde(default)]
+    pub target_environment_color_grading_texture: Option<String>,
     #[serde(default)]
     pub flat_collision_scale: Option<[f32; 3]>,
     #[serde(default)]
     pub convert_model_collision: bool,
+    /// Target v0.100b game-material name used for STK2 model collisions.
+    /// STK2 exported low-collision archives do not retain per-face material
+    /// dictionaries, so this is an explicit, audited model-level fallback.
+    #[serde(default)]
+    pub static_collision_game_material: Option<String>,
     #[serde(default)]
     pub terrain_directory: Option<String>,
+    /// Target-owned texture bindings applied only to generated terrain
+    /// materials. Keys are old-schema material properties such as
+    /// `texture_normal`; values omit the `textures/` prefix and extension.
+    #[serde(default)]
+    pub terrain_texture_binding_overrides: BTreeMap<String, String>,
+    /// Target v0.100b game-material name used for generated terrain collision.
+    #[serde(default)]
+    pub terrain_collision_game_material: Option<String>,
+    /// Looping ambience imported from a Survarium donor database. Only the
+    /// encoded OGG payload crosses builds; object and option contracts are
+    /// cloned from explicitly named v0.100b templates.
+    #[serde(default)]
+    pub ambient_sounds: Vec<Stk2AmbientSoundSpec>,
     pub team_spawns: [[f32; 3]; 2],
     pub spawn_orientation: f32,
     pub victory_item_spawners: Vec<[f32; 3]>,
     pub victory_item_containers: [[f32; 3]; 2],
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stk2AmbientSoundSpec {
+    /// Logical name below `sounds/single/` in the donor database.
+    pub donor_sound: String,
+    /// Logical name below `sounds/single/` emitted into the target bundle.
+    pub target_sound: String,
+    /// v0.100b project containing the `object_sound` instance to clone.
+    pub object_template_project: String,
+    /// Logical sound name of the `object_sound` instance to clone.
+    pub object_template_sound: String,
+    /// v0.100b `.single_sound_options` resource to clone.
+    pub options_template: String,
+    pub object_name: String,
+    pub position: [f32; 3],
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stk2MaterialTemplates {
+    pub opaque: String,
+    pub alpha_test: String,
+    pub alpha_test_two_sided: String,
+    pub two_sided: String,
+    pub decal: String,
+    pub metal: String,
+    pub metal_alpha_test: String,
+    pub metal_alpha_test_two_sided: String,
+    pub metal_two_sided: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -992,6 +1092,22 @@ impl MapPortManifest {
         {
             bail!("map drop_client_object_types requires convert_split_client_objects_to_legacy");
         }
+        if self
+            .legacy_environment_post_effect
+            .as_ref()
+            .is_some_and(|name| name.is_empty() || name.ends_with(".material"))
+        {
+            bail!(
+                "map legacy_environment_post_effect must be a non-empty material name without .material"
+            );
+        }
+        if self.legacy_environment_post_effect.is_some()
+            && !self.convert_split_client_objects_to_legacy
+        {
+            bail!(
+                "map legacy_environment_post_effect requires convert_split_client_objects_to_legacy"
+            );
+        }
         if self.legacy_client_project_template.is_none()
             && !self.legacy_client_project_sections.is_empty()
         {
@@ -1320,14 +1436,34 @@ impl Stk2MapSliceManifest {
             bail!("an STK2 source project requires auto_material");
         }
         if self.source_project.is_some()
-            && (self.material_template.as_deref().unwrap_or("").is_empty()
+            && ((self.material_template.as_deref().unwrap_or("").is_empty()
+                && self.material_templates.is_none())
                 || self
                     .texture_options_template
                     .as_deref()
                     .unwrap_or("")
                     .is_empty())
         {
-            bail!("an STK2 source project requires material_template and texture_options_template");
+            bail!(
+                "an STK2 source project requires material_template or material_templates, and texture_options_template"
+            );
+        }
+        if let Some(templates) = &self.material_templates
+            && [
+                &templates.opaque,
+                &templates.alpha_test,
+                &templates.alpha_test_two_sided,
+                &templates.two_sided,
+                &templates.decal,
+                &templates.metal,
+                &templates.metal_alpha_test,
+                &templates.metal_alpha_test_two_sided,
+                &templates.metal_two_sided,
+            ]
+            .into_iter()
+            .any(|template| template.is_empty())
+        {
+            bail!("STK2 material_templates entries must not be empty");
         }
         if self
             .fallback_source_textures
@@ -1340,11 +1476,44 @@ impl Stk2MapSliceManifest {
         if self.source_project.is_none()
             && (!self.fallback_source_textures.is_empty()
                 || !self.fallback_empty_surfaces.is_empty()
+                || !self.surface_material_overrides.is_empty()
                 || !self.model_archive_overrides.is_empty()
                 || !self.omitted_model_libraries.is_empty()
                 || !self.terrain_texture_aliases.is_empty())
         {
             bail!("STK2 fallback allowlists and model overrides require a source_project");
+        }
+        if self
+            .surface_material_overrides
+            .iter()
+            .any(|(surface, material)| surface.is_empty() || material.is_empty())
+        {
+            bail!("STK2 surface material overrides require non-empty paths");
+        }
+        if self
+            .source_material_template_overrides
+            .iter()
+            .any(|(source, template)| source.is_empty() || template.is_empty())
+        {
+            bail!("STK2 source material template overrides require non-empty paths");
+        }
+        if self.convert_model_collision
+            && self
+                .static_collision_game_material
+                .as_deref()
+                .unwrap_or("")
+                .is_empty()
+        {
+            bail!("STK2 model collision conversion requires static_collision_game_material");
+        }
+        if self.terrain_directory.is_some()
+            && self
+                .terrain_collision_game_material
+                .as_deref()
+                .unwrap_or("")
+                .is_empty()
+        {
+            bail!("STK2 terrain conversion requires terrain_collision_game_material");
         }
         if self
             .model_archive_overrides
@@ -1416,6 +1585,97 @@ impl Stk2MapSliceManifest {
         }
         if self.client_template_project == self.target_client_project {
             bail!("STK2 map slice must not overwrite its client template");
+        }
+        if self.convert_source_lights && self.source_project.is_none() {
+            bail!("STK2 source-light conversion requires source_project");
+        }
+        if self.source_light_types.is_some() && !self.convert_source_lights {
+            bail!("STK2 source_light_types requires convert_source_lights");
+        }
+        if self
+            .source_light_types
+            .as_ref()
+            .is_some_and(BTreeSet::is_empty)
+        {
+            bail!("STK2 source_light_types must not be empty");
+        }
+        if self.convert_source_environment {
+            if self.source_project.is_none()
+                || self
+                    .environment_material_template
+                    .as_deref()
+                    .unwrap_or("")
+                    .is_empty()
+                || self
+                    .target_environment_material
+                    .as_deref()
+                    .unwrap_or("")
+                    .is_empty()
+                || self
+                    .environment_color_grading_template
+                    .as_deref()
+                    .unwrap_or("")
+                    .is_empty()
+                || self
+                    .target_environment_color_grading_texture
+                    .as_deref()
+                    .unwrap_or("")
+                    .is_empty()
+            {
+                bail!(
+                    "STK2 source environment conversion requires source_project, environment_material_template, target_environment_material, environment_color_grading_template, and target_environment_color_grading_texture"
+                );
+            }
+        } else if self.environment_material_template.is_some()
+            || self.target_environment_material.is_some()
+            || self.environment_color_grading_template.is_some()
+            || self.target_environment_color_grading_texture.is_some()
+        {
+            bail!("STK2 environment conversion settings require convert_source_environment");
+        }
+        if self
+            .terrain_texture_binding_overrides
+            .iter()
+            .any(|(property, texture)| property.is_empty() || texture.is_empty())
+        {
+            bail!("STK2 terrain_texture_binding_overrides entries must not be empty");
+        }
+        let mut ambient_targets = BTreeSet::new();
+        for ambient in &self.ambient_sounds {
+            if [
+                ambient.donor_sound.as_str(),
+                ambient.target_sound.as_str(),
+                ambient.object_template_project.as_str(),
+                ambient.object_template_sound.as_str(),
+                ambient.options_template.as_str(),
+                ambient.object_name.as_str(),
+            ]
+            .into_iter()
+            .any(str::is_empty)
+            {
+                bail!("STK2 ambient sound entries must not contain empty strings");
+            }
+            for logical_name in [&ambient.donor_sound, &ambient.target_sound] {
+                if logical_name.starts_with('/')
+                    || logical_name.split('/').any(|component| {
+                        component.is_empty() || component == "." || component == ".."
+                    })
+                {
+                    bail!("STK2 ambient sound names must be safe relative names");
+                }
+            }
+            if !ambient.options_template.ends_with(".single_sound_options") {
+                bail!("STK2 ambient options templates must be .single_sound_options resources");
+            }
+            if !ambient_targets.insert(&ambient.target_sound) {
+                bail!(
+                    "STK2 ambient target sound {:?} is declared more than once",
+                    ambient.target_sound
+                );
+            }
+            if !ambient.position.into_iter().all(f32::is_finite) {
+                bail!("STK2 ambient sound positions must contain only finite values");
+            }
         }
         if self.victory_item_spawners.is_empty() {
             bail!("STK2 map slice needs at least one victory item spawner");

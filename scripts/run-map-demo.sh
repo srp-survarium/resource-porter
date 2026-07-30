@@ -56,9 +56,9 @@ case "${profile}" in
     match_loadout_profile="stock-v0100b"
     ;;
   stk2-a01-full)
-    map_db="${repo_dir}/.work/resources-v0100b-stk2-a01-target-native-v4.db"
-    profile_srp_bin_dir="${repo_dir}/.work/srp-a02-runtime-bin"
-    match_loadout_profile="stock-v0100b"
+    map_db="${repo_dir}/.work/resources-v0100b-stk2-a01-checkpoint-wallfix-exo-tir-showcase-v31.db"
+    profile_srp_bin_dir="${repo_dir}/.work/srp-a01-showcase-runtime-bin"
+    match_loadout_profile="stk2-showcase"
     ;;
   stk2-bar-shooting-gallery-full)
     map_db="${repo_dir}/.work/resources-v0100b-stk2-bar-gallery-full-v6.db"
@@ -115,6 +115,7 @@ ln -sfn "${map_db}" "${client_dir}/resources.db"
 export CLIENT_DIR="${client_dir}"
 export WINE_PREFIX="${repo_dir}/.work/wineprefix-map-demo"
 export SRP_REPO_DIR="${SRP_REPO_DIR:-${base_checkout}/srp}"
+export SRP_RUNTIME_DIR="${SRP_RUNTIME_DIR:-${repo_dir}/.work/stk2-content-srp-worktree}"
 export SRP_BIN_DIR="${SRP_BIN_DIR:-${profile_srp_bin_dir:-${SRP_REPO_DIR}/target/debug}}"
 export SRP_MAP_PROFILE="${server_profile}"
 export SRP_MATCH_LOADOUT_PROFILE="${SRP_MATCH_LOADOUT_PROFILE:-${match_loadout_profile}}"

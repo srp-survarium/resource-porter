@@ -20,7 +20,18 @@
   "source_project": "resources/sources/projects/scenario/a01_novice_mine/project.xprj",
   "source_origin": [64.0, 0.0, 0.0],
   "auto_material": "tiled/wall/stucco_zal_brick_vc",
-  "material_template": "material_instances/tiled/floor/pol.material",
+  "material_template": "material_instances/tiled/concrete/concrete_01.material",
+  "material_templates": {
+    "opaque": "material_instances/tiled/floor/pol.material",
+    "alpha_test": "material_instances/decals/decal_trash.material",
+    "alpha_test_two_sided": "material_instances/flora/poplar_leaves_02.material",
+    "two_sided": "material_instances/tiled/metal/metal_column_2side.material",
+    "decal": "material_instances/decals/decal_trash.material",
+    "metal": "material_instances/tiled/metal/metal_02.material",
+    "metal_alpha_test": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "metal_alpha_test_two_sided": "material_instances/tiled/metal/metal_alpha_f.material",
+    "metal_two_sided": "material_instances/tiled/metal/metal_column_2side.material"
+  },
   "texture_options_template": "textures/tiled/floor/pol.options",
   "fallback_source_textures": [
     "//ivan/inbox/diana/boot",
@@ -50,6 +61,47 @@
     "generic/fence/fence#render/bakedsg1",
     "props/electric/wire_beam_end#render/wirebeam_end1_wire_050050050"
   ],
+  "surface_material_overrides": {
+    "generic/construction/concrete_garbage#render/concrete_garbage_m": "props/debris/concrete_garbage",
+    "generic/pipe/pipe02_4m#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/pipe/pipe24m#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/pipe/pipe2m#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/pipe/pipe45deg#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/pipe/pipe4m#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/pipe/pipe8m#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/pipe/pipe_support_low#render/lowsup_mat": "tiled/metal/metal",
+    "generic/pipe/pipe_support_low#render/pipeconnectors": "props/pipes/pipes_connector",
+    "generic/tower_electric/lep_01#render/lambert2sg": "tiled/metal/tower_radio_2sided",
+    "location/a01_novice_mine/mine_a#render/brick_red": "architecture/mine/brick_red",
+    "location/a01_novice_mine/mine_a#render/concrete": "architecture/mine/concrete",
+    "location/a01_novice_mine/mine_a#render/crete_floor": "architecture/mine/crete_floor",
+    "location/a01_novice_mine/mine_a#render/ruberoid_dark_grey": "tiled/roof/ruberoid_dark_grey",
+    "location/a01_novice_mine/mine_b#render/concrete": "architecture/mine/concrete",
+    "location/a01_novice_mine/mine_b#render/crete_floor": "architecture/mine/crete_floor",
+    "location/a01_novice_mine/mine_b#render/ruberoid_dark_grey": "tiled/roof/ruberoid_dark_grey",
+    "location/a01_novice_mine/mine_part#render/brick_red": "architecture/mine/brick_red",
+    "location/a01_novice_mine/mine_part#render/concrete": "architecture/mine/concrete",
+    "location/a01_novice_mine/mine_part#render/ruberoid_dark_grey": "tiled/roof/ruberoid_dark_grey",
+    "props/furniture/plank_bed#render/plank_bed_metal_s": "props/furniture/plank_bed_metal",
+    "props/furniture/plank_bed#render/plank_bed_wood_s": "props/furniture/plank_bed_wood",
+    "props/kitchen/bucket_mtl#render/bucket_smashed_pasted__lambert15sg": "props/bucket/bucket_metal_alpha",
+    "props/kitchen/bucket_mtl_br#render/bucket_smashed_pasted__lambert15sg": "props/bucket/bucket_metal_alpha",
+    "props/kitchen/burjuika#render/ds1": "props/stove/burjuika_ds",
+    "props/kitchen/burjuika#render/phong1sg": "props/stove/burjuika",
+    "props/kitchen/sink_washer#render/sink_washer_chrome_s": "props/sanitary/sink_washer_chrome",
+    "props/kitchen/sink_washer#render/sink_washer_s": "props/sanitary/sink_washer",
+    "props/light/ceillamp_green#render/ceillamp_green_ilum_m1sg": "fx/glow/yellow",
+    "props/light/ceillamp_green#render/ceillamp_green_s1": "props/light/ceillamp_green",
+    "props/smoke/match_box_open#render/smoking_props_s": "props/smoke/smoking_props",
+    "props/tool/shovel_1#render/ds1": "props/garage/shovel_wood",
+    "props/tool/shovel_1#render/phong1sg": "props/garage/shovel_metal"
+  },
+  "source_material_template_overrides": {
+    "architecture/mine/brick_red": "material_instances/tiled/bricks/brick_red.material",
+    "architecture/mine/brick_white": "material_instances/tiled/bricks/brick_red.material",
+    "architecture/mine/concrete": "material_instances/tiled/concrete/concrete_01.material",
+    "architecture/mine/concrete2": "material_instances/tiled/concrete/concrete_01.material"
+  },
   "model_archive_overrides": {
     "generic/fence/mine_gates": "resources/exported/models/props/mine/mine_gates.model",
     "props/electric/transformator_electric_pole": "resources/exported/models/props/electric/transformator_electric_pole.model.orig",
@@ -72,8 +124,31 @@
   "terrain_texture_aliases": {
     "terrain/junk_industrial": "terrain/asphalt_cracks_moss"
   },
+  "terrain_texture_binding_overrides": {
+    "texture_normal": "tiled/concrete/concrete_01_nmap"
+  },
+  "convert_source_lights": true,
+  "drop_target_environment_probes": true,
+  "convert_source_environment": true,
+  "environment_material_template": "material_instances/post_process/level_03_day.material",
+  "target_environment_material": "material_instances/post_process/stk2_a01_environment.material",
+  "environment_color_grading_template": "textures/color_grading/level_03_day.dds",
+  "target_environment_color_grading_texture": "ported/stk2/stk2_a01_full/color_grading/color_grading_mine",
   "convert_model_collision": true,
+  "static_collision_game_material": "concrete",
   "terrain_directory": "resources/sources/projects/scenario/a01_novice_mine/terrain",
+  "terrain_collision_game_material": "ground",
+  "ambient_sounds": [
+    {
+      "donor_sound": "scapes/industrial_space",
+      "target_sound": "stk2_a01/scapes/industrial_space_020f",
+      "object_template_project": "projects/level_03/client_project",
+      "object_template_sound": "scapes/metal_construction",
+      "options_template": "sounds/single/scapes/metal_construction.single_sound_options",
+      "object_name": "industrial_space_020f",
+      "position": [32.0, 2.5, -40.0]
+    }
+  ],
   "team_spawns": [
     [32.0, 2.5, -40.0],
     [34.5, 2.5, -37.5]

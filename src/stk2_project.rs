@@ -13,6 +13,18 @@ pub struct ProjectObject {
     pub position: [f32; 3],
     pub rotation: [f32; 3],
     pub scale: [f32; 3],
+    /// Flat, top-level editor properties retained for target-schema
+    /// projection. Nested editor-only tables are deliberately not included.
+    pub properties: BTreeMap<String, ProjectProperty>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ProjectProperty {
+    Boolean(bool),
+    Integer(i32),
+    Float(f32),
+    String(String),
+    Float3([f32; 3]),
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -120,6 +132,7 @@ fn parse_project_object(
                 position,
                 rotation,
                 scale,
+                properties: partial.properties,
             }),
             _ => report.incomplete_objects.push(id.to_owned()),
         }
@@ -203,6 +216,7 @@ fn parse_project_object(
             position,
             rotation,
             scale: child_fields.scale.unwrap_or(resolved.scale),
+            properties: child_fields.properties,
         });
         index = end + 1;
     }
@@ -343,6 +357,11 @@ fn parse_fields(lines: &[&str], indent: usize) -> Result<PartialObject> {
                 line_index + 1
             );
         }
+        if let Some((name, value)) = scalar_assignment(field)? {
+            if partial.properties.insert(name.clone(), value).is_some() {
+                bail!("duplicate scalar property {name:?} in project object");
+            }
+        }
     }
     Ok(partial)
 }
@@ -355,6 +374,7 @@ struct PartialObject {
     position: Option<[f32; 3]>,
     rotation: Option<[f32; 3]>,
     scale: Option<[f32; 3]>,
+    properties: BTreeMap<String, ProjectProperty>,
 }
 
 fn quoted_assignment<'a>(line: &'a str, name: &str) -> Option<&'a str> {
@@ -384,6 +404,52 @@ fn float3_assignment(line: &str, name: &str) -> Result<Option<[f32; 3]>> {
         bail!("float3 assignment must contain three finite values");
     }
     Ok(Some([components[0], components[1], components[2]]))
+}
+
+fn scalar_assignment(line: &str) -> Result<Option<(String, ProjectProperty)>> {
+    let Some((name, raw_value)) = line.split_once(" = ") else {
+        return Ok(None);
+    };
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return Ok(None);
+    }
+    let raw_value = raw_value.strip_suffix(',').unwrap_or(raw_value).trim();
+    if raw_value == "{" || raw_value.starts_with("create_property_table") {
+        return Ok(None);
+    }
+    let value = if let Some(value) = raw_value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    {
+        ProjectProperty::String(value.to_owned())
+    } else if raw_value == "true" {
+        ProjectProperty::Boolean(true)
+    } else if raw_value == "false" {
+        ProjectProperty::Boolean(false)
+    } else if raw_value.starts_with("float3(") {
+        ProjectProperty::Float3(
+            float3_assignment(line, name)?
+                .with_context(|| format!("malformed float3 property {name:?}"))?,
+        )
+    } else if !raw_value.contains(['.', 'e', 'E']) {
+        let Ok(value) = raw_value.parse::<i32>() else {
+            return Ok(None);
+        };
+        ProjectProperty::Integer(value)
+    } else {
+        let Ok(value) = raw_value.parse::<f32>() else {
+            return Ok(None);
+        };
+        if !value.is_finite() {
+            bail!("project property {name:?} is not finite");
+        }
+        ProjectProperty::Float(value)
+    };
+    Ok(Some((name.to_owned(), value)))
 }
 
 #[cfg(test)]
@@ -418,6 +484,14 @@ objects = {
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].library_name.as_deref(), Some("props/box"));
         assert_eq!(objects[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(
+            objects[1].properties["position"],
+            ProjectProperty::Float3([4.0, 5.0, 6.0])
+        );
+        assert_eq!(
+            objects[1].properties["game_object_type"],
+            ProjectProperty::String("light".into())
+        );
         assert_eq!(report.object_kinds["solid_visual"], 1);
         assert_eq!(report.object_kinds["light"], 1);
     }

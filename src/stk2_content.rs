@@ -13,7 +13,7 @@ use crate::armor::{convert_texture, validate_dds};
 use crate::binary_config::{BinaryConfig, ConfigValue, NamedValue};
 use crate::manifest::{
     BuiltFile, LobbyVisualSpec, SrpContentManifest, StaticModelPortSpec, Stk2ContentBuildRecord,
-    Stk2ContentManifest, VisualWeaponSpec,
+    Stk2ContentManifest, Stk2MaterialTemplates, VisualWeaponSpec,
 };
 use crate::weapon::{
     add_dictionary_item, add_localization_strings, apply_patches, parse_config,
@@ -37,6 +37,254 @@ pub(crate) struct Stk2MapTexturePlan {
     pub source_options: String,
     pub target_texture: String,
     pub target_material: String,
+    pub material_template: Option<String>,
+    pub source_material: Option<String>,
+    pub auxiliary_textures: Vec<Stk2MapAuxiliaryTexturePlan>,
+    /// Reviewed target-owned texture bindings that require no source
+    /// conversion (for example the stock flat normal used by lossy terrain).
+    pub target_texture_bindings: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Stk2MapAuxiliaryTexturePlan {
+    pub material_property: String,
+    pub source_texture: String,
+    pub source_tga: String,
+    pub source_options: String,
+    pub target_texture: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Stk2SourceMaterialContract {
+    source_material: String,
+    base_material: String,
+    alpha_test: bool,
+    two_sided: bool,
+    metal: bool,
+    decal: bool,
+    texture_roles: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Stk2ResolvedSourceMaterial {
+    pub template: String,
+    pub source_material: String,
+    pub source: String,
+    pub texture_roles: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Stk2SourceMaterialCatalog {
+    by_diffuse: BTreeMap<String, Vec<Stk2SourceMaterialContract>>,
+}
+
+pub(crate) fn auxiliary_texture_plans(
+    resolved: &Stk2ResolvedSourceMaterial,
+    map_name: &str,
+    source_root: &Path,
+) -> Result<Vec<Stk2MapAuxiliaryTexturePlan>> {
+    let mut plans = Vec::new();
+    for (material_property, source_texture) in &resolved.texture_roles {
+        let source_tga_lower = format!("resources/sources/textures/{source_texture}.tga");
+        let source_tga_upper = format!("resources/sources/textures/{source_texture}.TGA");
+        let source_tga = if safe_join(source_root, &source_tga_lower)?.is_file() {
+            source_tga_lower
+        } else if safe_join(source_root, &source_tga_upper)?.is_file() {
+            source_tga_upper
+        } else {
+            bail!(
+                "STK2 material {} references missing auxiliary texture {}",
+                resolved.source,
+                source_texture
+            );
+        };
+        let source_options = format!("resources/sources/textures/{source_texture}.options");
+        if !safe_join(source_root, &source_options)?.is_file() {
+            bail!(
+                "STK2 material {} auxiliary texture {} has no options",
+                resolved.source,
+                source_texture
+            );
+        }
+        plans.push(Stk2MapAuxiliaryTexturePlan {
+            material_property: material_property.clone(),
+            source_texture: source_texture.clone(),
+            source_tga,
+            source_options,
+            target_texture: format!("ported/stk2/{map_name}/{source_texture}"),
+        });
+    }
+    Ok(plans)
+}
+
+impl Stk2SourceMaterialCatalog {
+    pub(crate) fn load(source_root: &Path) -> Result<Self> {
+        let instances = safe_join(source_root, "resources/sources/material_instances")?;
+        let bases = safe_join(source_root, "resources/sources/materials")?;
+        if !instances.is_dir() || !bases.is_dir() {
+            return Ok(Self::default());
+        }
+
+        let mut paths = Vec::new();
+        collect_files_with_extension(&instances, "material", &mut paths)?;
+        paths.sort();
+        let mut base_texts = BTreeMap::new();
+        let mut catalog = Self::default();
+        for path in paths {
+            let text = fs::read_to_string(&path)
+                .with_context(|| format!("reading STK2 source material {}", path.display()))?;
+            let Some(diffuse) = lua_string_property(&text, "texture_diffuse") else {
+                continue;
+            };
+            if diffuse.is_empty() {
+                continue;
+            }
+            let Some(base_material) = lua_assignment_string(&text, "base_material") else {
+                continue;
+            };
+            let base_text = if let Some(text) = base_texts.get(&base_material) {
+                text
+            } else {
+                let base_path = bases.join(format!("{base_material}.material"));
+                let text = fs::read_to_string(&base_path).with_context(|| {
+                    format!(
+                        "reading base material {base_material:?} for {}",
+                        path.display()
+                    )
+                })?;
+                base_texts.entry(base_material.clone()).or_insert(text)
+            };
+            let alpha_test = lua_bool_property(&text, "use_alpha_test")
+                .or_else(|| lua_bool_property(base_text, "use_alpha_test"))
+                .unwrap_or(false);
+            let two_sided = lua_bool_property(&text, "two_sided")
+                .or_else(|| lua_bool_property(base_text, "two_sided"))
+                .unwrap_or(false);
+            let source_material = path
+                .strip_prefix(&instances)
+                .unwrap_or(&path)
+                .with_extension("")
+                .to_string_lossy()
+                .replace('\\', "/");
+            let lower_base = base_material.to_ascii_lowercase();
+            let metal = lower_base.contains("metal")
+                || matches!(
+                    lower_base.as_str(),
+                    "bronze" | "chrome" | "metal_alum_brushed" | "wire_base_lighted"
+                );
+            let decal = lower_base.contains("decal");
+            let texture_roles = [
+                "texture_normal",
+                "texture_detail_normal",
+                "texture_specular_intensity",
+                "texture_specular_power",
+                "texture_emissive",
+                "texture_translucency",
+                "texture_bump",
+            ]
+            .into_iter()
+            .filter_map(|property| {
+                lua_string_property(&text, property)
+                    .filter(|texture| !texture.is_empty())
+                    .map(|texture| (property.to_owned(), normalize_stk2_resource_name(&texture)))
+            })
+            .collect();
+            catalog
+                .by_diffuse
+                .entry(normalize_stk2_resource_name(&diffuse))
+                .or_default()
+                .push(Stk2SourceMaterialContract {
+                    source_material,
+                    base_material,
+                    alpha_test,
+                    two_sided,
+                    metal,
+                    decal,
+                    texture_roles,
+                });
+        }
+        Ok(catalog)
+    }
+
+    pub(crate) fn resolve(
+        &self,
+        diffuse: &str,
+        templates: &Stk2MaterialTemplates,
+    ) -> Option<Stk2ResolvedSourceMaterial> {
+        let contracts = self
+            .by_diffuse
+            .get(&normalize_stk2_resource_name(diffuse))?;
+        let first = contracts.first()?;
+        if contracts.iter().any(|contract| {
+            contract.alpha_test != first.alpha_test
+                || contract.two_sided != first.two_sided
+                || contract.metal != first.metal
+                || contract.decal != first.decal
+                || contract.texture_roles != first.texture_roles
+        }) {
+            return None;
+        }
+        Some(resolve_stk2_source_material(first, templates))
+    }
+
+    pub(crate) fn resolve_exact(
+        &self,
+        diffuse: &str,
+        source_material: &str,
+        templates: &Stk2MaterialTemplates,
+    ) -> Result<Stk2ResolvedSourceMaterial> {
+        let normalized_diffuse = normalize_stk2_resource_name(diffuse);
+        let contracts = self.by_diffuse.get(&normalized_diffuse).with_context(|| {
+            format!("STK2 diffuse {diffuse:?} has no source material instances")
+        })?;
+        let normalized_source = normalize_stk2_resource_name(source_material);
+        let contract = contracts
+            .iter()
+            .find(|contract| {
+                normalize_stk2_resource_name(&contract.source_material) == normalized_source
+            })
+            .with_context(|| {
+                let candidates: Vec<_> = contracts
+                    .iter()
+                    .map(|contract| contract.source_material.as_str())
+                    .collect();
+                format!(
+                    "STK2 diffuse {diffuse:?} is not used by override material {source_material:?}; candidates: {candidates:?}"
+                )
+            })?;
+        Ok(resolve_stk2_source_material(contract, templates))
+    }
+}
+
+fn resolve_stk2_source_material(
+    contract: &Stk2SourceMaterialContract,
+    templates: &Stk2MaterialTemplates,
+) -> Stk2ResolvedSourceMaterial {
+    let template = if contract.decal {
+        &templates.decal
+    } else if contract.metal && contract.alpha_test && contract.two_sided {
+        &templates.metal_alpha_test_two_sided
+    } else if contract.metal && contract.alpha_test {
+        &templates.metal_alpha_test
+    } else if contract.metal && contract.two_sided {
+        &templates.metal_two_sided
+    } else if contract.metal {
+        &templates.metal
+    } else if contract.alpha_test && contract.two_sided {
+        &templates.alpha_test_two_sided
+    } else if contract.alpha_test {
+        &templates.alpha_test
+    } else if contract.two_sided {
+        &templates.two_sided
+    } else {
+        &templates.opaque
+    };
+    Stk2ResolvedSourceMaterial {
+        template: template.clone(),
+        source_material: contract.source_material.clone(),
+        source: format!("{} ({})", contract.source_material, contract.base_material),
+        texture_roles: contract.texture_roles.clone(),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -100,7 +348,30 @@ pub(crate) fn terrain_texture_plans(
     map_name: &str,
     source_root: &Path,
     aliases: &BTreeMap<String, String>,
+    texture_binding_overrides: &BTreeMap<String, String>,
 ) -> Result<Vec<Stk2MapTexturePlan>> {
+    let unique_textures: BTreeSet<_> = cells
+        .iter()
+        .flat_map(|cell| cell.textures.iter())
+        .cloned()
+        .collect();
+    let mut missing = Vec::new();
+    for texture in &unique_textures {
+        let source_texture = aliases.get(texture).unwrap_or(texture);
+        let lower = format!("resources/sources/textures/{source_texture}.tga");
+        let upper = format!("resources/sources/textures/{source_texture}.TGA");
+        let options = format!("resources/sources/textures/{source_texture}.options");
+        if (!safe_join(source_root, &lower)?.is_file()
+            && !safe_join(source_root, &upper)?.is_file())
+            || !safe_join(source_root, &options)?.is_file()
+        {
+            missing.push(format!("{texture} (source {source_texture})"));
+        }
+    }
+    if !missing.is_empty() {
+        bail!("STK2 terrain textures have missing TGA/options payloads: {missing:?}");
+    }
+
     let mut plans = BTreeMap::new();
     for texture in cells.iter().flat_map(|cell| cell.textures.iter()) {
         let source_texture = aliases.get(texture).unwrap_or(texture);
@@ -120,6 +391,9 @@ pub(crate) fn terrain_texture_plans(
             );
         }
         let target_root = format!("ported/stk2/{map_name}/{texture}");
+        let mut target_texture_bindings =
+            BTreeMap::from([("texture_normal".into(), "editor/editor_dummy_nmap".into())]);
+        target_texture_bindings.extend(texture_binding_overrides.clone());
         plans.insert(
             texture.clone(),
             Stk2MapTexturePlan {
@@ -128,6 +402,10 @@ pub(crate) fn terrain_texture_plans(
                 source_options,
                 target_texture: target_root.clone(),
                 target_material: target_root,
+                material_template: None,
+                source_material: Some("terrain-dominant-layer:flat-target-normal".into()),
+                auxiliary_textures: Vec::new(),
+                target_texture_bindings,
             },
         );
     }
@@ -139,6 +417,7 @@ pub(crate) fn build_stk2_terrain_models(
     map_name: &str,
     source_origin: [f32; 3],
     template: &crate::manifest::StaticModelTemplateSpec,
+    collision_game_material: (&str, i32),
     target: &mut ResourceDb,
     overlay: &Path,
     files: &mut Vec<BuiltFile>,
@@ -215,7 +494,12 @@ pub(crate) fn build_stk2_terrain_models(
             &template.settings_template,
             "terrain settings template",
         )?;
-        let settings = replace_settings_surfaces(settings_template, &material_bindings, true)?;
+        let mut settings = replace_settings_surfaces(settings_template, &material_bindings, true)?;
+        set_collision_game_material(
+            &mut settings,
+            collision_game_material.0,
+            collision_game_material.1,
+        )?;
         write_generated_config(
             overlay,
             &format!("{target_root}/settings"),
@@ -647,6 +931,7 @@ pub fn build_bundle(
             build_static_model(
                 &manifest.static_model,
                 model,
+                None,
                 source_root,
                 &mut target,
                 &overlay,
@@ -766,6 +1051,8 @@ pub(crate) fn build_map_materials_and_textures(
     overlay: &Path,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
+    let mut converted_diffuse_textures = BTreeMap::<String, (String, String)>::new();
+    let mut converted_auxiliary_textures = BTreeSet::new();
     for plan in plans {
         let source_options = safe_join(source_root, &plan.source_options)?;
         let options_text = fs::read_to_string(&source_options).with_context(|| {
@@ -786,67 +1073,217 @@ pub(crate) fn build_map_materials_and_textures(
         }
         let format = Stk2DiffuseFormat::parse(&source_format)
             .with_context(|| format!("source texture {}", plan.source_texture))?;
-        let source_tga = safe_join(source_root, &plan.source_tga)?;
-        let dds_path = format!("textures/{}.dds", plan.target_texture);
-        let dds_output = safe_join(overlay, &dds_path)?;
-        if let Some(parent) = dds_output.parent() {
-            fs::create_dir_all(parent)?;
+        let diffuse_source = (plan.source_tga.clone(), plan.source_options.clone());
+        if let Some(existing) = converted_diffuse_textures.get(&plan.target_texture) {
+            if existing != &diffuse_source {
+                bail!(
+                    "target diffuse texture {} has conflicting STK2 sources {:?} and {:?}",
+                    plan.target_texture,
+                    existing,
+                    diffuse_source
+                );
+            }
+        } else {
+            converted_diffuse_textures.insert(plan.target_texture.clone(), diffuse_source);
+            let source_tga = safe_join(source_root, &plan.source_tga)?;
+            let dds_path = format!("textures/{}.dds", plan.target_texture);
+            let dds_output = safe_join(overlay, &dds_path)?;
+            if let Some(parent) = dds_output.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            convert_stk2_diffuse_texture(&source_tga, &dds_output, format, srgb as u8)?;
+            let dds = fs::read(&dds_output)?;
+            files.push(record_file(
+                &dds_path,
+                &format!("converted:STK2:{}", plan.source_tga),
+                &dds,
+            ));
+
+            let mut options =
+                parse_config(target, options_template, "target texture options template")?;
+            options.root.set_path(
+                "options.format",
+                ConfigValue::String(format.target_options_name().to_owned()),
+            )?;
+            options
+                .root
+                .set_path("options.srgb", ConfigValue::Integer(srgb))?;
+            options
+                .root
+                .set_path("options.has_mip_levels", ConfigValue::Integer(has_mips))?;
+            write_generated_config(
+                overlay,
+                &format!("textures/{}.options", plan.target_texture),
+                &options,
+                "generated:target-schema-STK2-texture-options",
+                files,
+            )?;
         }
-        convert_stk2_diffuse_texture(&source_tga, &dds_output, format, srgb as u8)?;
-        let dds = fs::read(&dds_output)?;
-        files.push(record_file(
-            &dds_path,
-            &format!("converted:STK2:{}", plan.source_tga),
-            &dds,
-        ));
 
-        let mut options =
-            parse_config(target, options_template, "target texture options template")?;
-        options.root.set_path(
-            "options.format",
-            ConfigValue::String(format.target_options_name().to_owned()),
-        )?;
-        options
-            .root
-            .set_path("options.srgb", ConfigValue::Integer(srgb))?;
-        options
-            .root
-            .set_path("options.has_mip_levels", ConfigValue::Integer(has_mips))?;
-        write_generated_config(
-            overlay,
-            &format!("textures/{}.options", plan.target_texture),
-            &options,
-            "generated:target-schema-STK2-texture-options",
-            files,
-        )?;
-
-        let mut material = parse_config(target, material_template, "target material template")?;
+        let selected_template = plan
+            .material_template
+            .as_deref()
+            .unwrap_or(material_template);
+        let mut material = parse_config(target, selected_template, "target material template")?;
         material.root.set_path(
             "material.g_stage.effect.texture_diffuse.value",
             ConfigValue::String(plan.target_texture.clone()),
         )?;
-        if material
-            .root
-            .named("material")
-            .and_then(|value| value.named("g_stage"))
-            .and_then(|value| value.named("effect"))
-            .and_then(|value| value.named("use_nmap"))
-            .is_some()
-        {
+        for auxiliary in &plan.auxiliary_textures {
+            if converted_auxiliary_textures.insert(auxiliary.target_texture.clone()) {
+                let source_options = safe_join(source_root, &auxiliary.source_options)?;
+                let options_text = fs::read_to_string(&source_options).with_context(|| {
+                    format!(
+                        "reading STK2 auxiliary texture options {}",
+                        source_options.display()
+                    )
+                })?;
+                let source_format = source_option_string(&options_text, "format")?;
+                let srgb = source_option_integer(&options_text, "srgb")?;
+                let has_mips = source_option_integer(&options_text, "has_mip_levels")?;
+                let dimension = source_option_integer(&options_text, "texture_dimension")?;
+                if !matches!(srgb, 0 | 1) || has_mips != 1 || dimension != 1 {
+                    bail!(
+                        "{}: unsupported auxiliary texture options srgb={srgb}, has_mip_levels={has_mips}, texture_dimension={dimension}",
+                        auxiliary.source_texture
+                    );
+                }
+                let format = Stk2DiffuseFormat::parse(&source_format).with_context(|| {
+                    format!("source auxiliary texture {}", auxiliary.source_texture)
+                })?;
+                let source_tga = safe_join(source_root, &auxiliary.source_tga)?;
+                let dds_path = format!("textures/{}.dds", auxiliary.target_texture);
+                let dds_output = safe_join(overlay, &dds_path)?;
+                if let Some(parent) = dds_output.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                convert_stk2_diffuse_texture(&source_tga, &dds_output, format, srgb as u8)?;
+                let dds = fs::read(&dds_output)?;
+                files.push(record_file(
+                    &dds_path,
+                    &format!("converted:STK2:{}", auxiliary.source_tga),
+                    &dds,
+                ));
+
+                let mut options =
+                    parse_config(target, options_template, "target texture options template")?;
+                options.root.set_path(
+                    "options.format",
+                    ConfigValue::String(format.target_options_name().to_owned()),
+                )?;
+                options
+                    .root
+                    .set_path("options.srgb", ConfigValue::Integer(srgb))?;
+                options
+                    .root
+                    .set_path("options.has_mip_levels", ConfigValue::Integer(has_mips))?;
+                write_generated_config(
+                    overlay,
+                    &format!("textures/{}.options", auxiliary.target_texture),
+                    &options,
+                    "generated:target-schema-STK2-auxiliary-texture-options",
+                    files,
+                )?;
+            }
             material.root.set_path(
-                "material.g_stage.effect.use_nmap.value",
-                ConfigValue::Boolean(false),
+                &format!(
+                    "material.g_stage.effect.{}.value",
+                    auxiliary.material_property
+                ),
+                ConfigValue::String(auxiliary.target_texture.clone()),
             )?;
         }
+        for (material_property, target_texture) in &plan.target_texture_bindings {
+            let dds = format!("textures/{target_texture}.dds");
+            let options = format!("textures/{target_texture}.options");
+            if !target.is_file(&dds) || !target.is_file(&options) {
+                bail!(
+                    "target-owned material binding {material_property} references absent {target_texture}"
+                );
+            }
+            material.root.set_path(
+                &format!("material.g_stage.effect.{material_property}.value"),
+                ConfigValue::String(target_texture.clone()),
+            )?;
+        }
+        // Shader feature booleans are part of the old build's precompiled
+        // permutation key. Preserve the reviewed target template byte-for-byte
+        // except for texture bindings; synthesizing a new boolean combination
+        // can request a shader_source that v0.100b never shipped.
         write_generated_config(
             overlay,
             &format!("material_instances/{}.material", plan.target_material),
             &material,
-            "generated:target-schema-STK2-material",
+            &format!(
+                "generated:target-schema-STK2-material:{}",
+                plan.source_material.as_deref().unwrap_or("legacy-template")
+            ),
             files,
         )?;
     }
     Ok(())
+}
+
+fn collect_files_with_extension(
+    directory: &Path,
+    extension: &str,
+    output: &mut Vec<std::path::PathBuf>,
+) -> Result<()> {
+    for entry in fs::read_dir(directory)
+        .with_context(|| format!("reading directory {}", directory.display()))?
+    {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_files_with_extension(&path, extension, output)?;
+        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
+            output.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn lua_assignment_string(text: &str, name: &str) -> Option<String> {
+    let marker = format!("{name} = \"");
+    let tail = text.split_once(&marker)?.1;
+    Some(tail.split_once('"')?.0.replace('\\', "/"))
+}
+
+fn lua_property_block<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let marker = format!("{name} =");
+    let start = text.find(&marker)?;
+    let tail = &text[start..];
+    let end_marker = format!("-- {name}");
+    let end = tail.find(&end_marker)?;
+    Some(&tail[..end])
+}
+
+fn lua_string_property(text: &str, name: &str) -> Option<String> {
+    let block = lua_property_block(text, name)?;
+    lua_assignment_string(block, "value")
+}
+
+fn lua_bool_property(text: &str, name: &str) -> Option<bool> {
+    let block = lua_property_block(text, name)?;
+    let marker = "value =";
+    let tail = block.split_once(marker)?.1.trim_start();
+    if tail.starts_with("true") {
+        Some(true)
+    } else if tail.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn normalize_stk2_resource_name(value: &str) -> String {
+    value
+        .trim()
+        .replace('\\', "/")
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+        .to_ascii_lowercase()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -855,6 +1292,7 @@ enum Stk2DiffuseFormat {
     Dxt1Alpha,
     Dxt3,
     Dxt5,
+    NormalMap,
 }
 
 impl Stk2DiffuseFormat {
@@ -864,39 +1302,43 @@ impl Stk2DiffuseFormat {
             "DXT1a" => Ok(Self::Dxt1Alpha),
             "DXT3" => Ok(Self::Dxt3),
             "DXT5" => Ok(Self::Dxt5),
+            "NORMAL_MAP" => Ok(Self::NormalMap),
             _ => bail!("unsupported diffuse texture format {value:?}"),
         }
     }
 
     fn imagemagick_name(self) -> &'static str {
         match self {
-            Self::Dxt1 | Self::Dxt1Alpha => "dxt1",
+            Self::Dxt1 => "dxt1",
+            // ImageMagick's DDS writer emits four-color BC1 and discards the
+            // one-bit alpha mask even when the source TGA has alpha. DXT5 is
+            // a valid v0.100b alpha-test input and preserves the cutout.
+            Self::Dxt1Alpha => "dxt5",
             // ImageMagick accepts dxt3 but writes DXT5. Make that supported
             // alpha-preserving transcode explicit in payload and options.
-            Self::Dxt3 => "dxt5",
-            Self::Dxt5 => "dxt5",
+            Self::Dxt3 | Self::Dxt5 | Self::NormalMap => "dxt5",
         }
     }
 
     fn fourcc(self) -> &'static [u8; 4] {
         match self {
-            Self::Dxt1 | Self::Dxt1Alpha => b"DXT1",
-            Self::Dxt3 | Self::Dxt5 => b"DXT5",
+            Self::Dxt1 => b"DXT1",
+            Self::Dxt1Alpha | Self::Dxt3 | Self::Dxt5 | Self::NormalMap => b"DXT5",
         }
     }
 
     fn target_options_name(self) -> &'static str {
         match self {
             Self::Dxt1 => "DXT1",
-            Self::Dxt1Alpha => "DXT1a",
-            Self::Dxt3 | Self::Dxt5 => "DXT5",
+            Self::Dxt1Alpha | Self::Dxt3 | Self::Dxt5 => "DXT5",
+            Self::NormalMap => "NORMAL_MAP",
         }
     }
 
     fn block_bytes(self) -> usize {
         match self {
-            Self::Dxt1 | Self::Dxt1Alpha => 8,
-            Self::Dxt3 | Self::Dxt5 => 16,
+            Self::Dxt1 => 8,
+            Self::Dxt1Alpha | Self::Dxt3 | Self::Dxt5 | Self::NormalMap => 16,
         }
     }
 }
@@ -907,10 +1349,29 @@ fn convert_stk2_diffuse_texture(
     format: Stk2DiffuseFormat,
     srgb: u8,
 ) -> Result<()> {
-    let result = Command::new("magick")
+    let mut command = Command::new("magick");
+    command.arg(source);
+    if matches!(format, Stk2DiffuseFormat::NormalMap) {
+        // Vostok's A2D5 convention stores tangent-space X in alpha and Y in
+        // green. Preserve the source TGA's red channel in alpha before DXT5
+        // compression; the runtime reconstructs Z.
+        command
+            .arg("-alpha")
+            .arg("on")
+            .arg("-channel")
+            .arg("A")
+            .arg("-fx")
+            .arg("r")
+            .arg("-channel")
+            .arg("R")
+            .arg("-evaluate")
+            .arg("set")
+            .arg("100%")
+            .arg("+channel");
+    }
+    let result = command
         .arg("-define")
         .arg(format!("dds:compression={}", format.imagemagick_name()))
-        .arg(source)
         .arg(output)
         .output()
         .with_context(|| "starting ImageMagick from the repository Nix shell")?;
@@ -922,13 +1383,24 @@ fn convert_stk2_diffuse_texture(
         );
     }
     let mut dds = fs::read(output)?;
+    validate_imagemagick_stk2_diffuse_dds(&dds, format, output)?;
+    canonicalize_v0100b_bc_dds(&mut dds, format, output)?;
     validate_stk2_diffuse_dds(&dds, format, output)?;
+    if matches!(format, Stk2DiffuseFormat::NormalMap) {
+        dds.get_mut(88..92)
+            .context("normal-map DDS is too short for the A2D5 marker")?
+            .copy_from_slice(b"A2D5");
+    }
     dds.push(srgb);
     fs::write(output, dds)?;
     Ok(())
 }
 
-fn validate_stk2_diffuse_dds(bytes: &[u8], format: Stk2DiffuseFormat, label: &Path) -> Result<()> {
+fn validate_imagemagick_stk2_diffuse_dds(
+    bytes: &[u8],
+    format: Stk2DiffuseFormat,
+    label: &Path,
+) -> Result<()> {
     if bytes.len() < 128 || &bytes[..4] != b"DDS " || read_u32(bytes, 4)? != 124 {
         bail!("{}: invalid DDS header", label.display());
     }
@@ -973,6 +1445,188 @@ fn validate_stk2_diffuse_dds(bytes: &[u8], format: Stk2DiffuseFormat, label: &Pa
         );
     }
     Ok(())
+}
+
+fn target_v0100b_bc_mip_count(width: usize, height: usize) -> usize {
+    let mut width = width;
+    let mut height = height;
+    let mut count = 1_usize;
+    // Stock v0.100b block-compressed textures stop at the last mip whose
+    // dimensions are both at least one complete 4x4 BC block. In particular,
+    // 1024x1024 has 9 levels (down to 4x4), not the 11 levels emitted by
+    // ImageMagick (which also includes 2x2 and 1x1 blocks).
+    while width > 4 && height > 4 {
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+        count += 1;
+    }
+    count
+}
+
+fn bc_mip_payload_size(
+    mut width: usize,
+    mut height: usize,
+    mip_count: usize,
+    block_bytes: usize,
+) -> Result<usize> {
+    let mut payload = 0_usize;
+    for _ in 0..mip_count {
+        let blocks_wide = width.div_ceil(4).max(1);
+        let blocks_high = height.div_ceil(4).max(1);
+        payload = payload
+            .checked_add(
+                blocks_wide
+                    .checked_mul(blocks_high)
+                    .and_then(|blocks| blocks.checked_mul(block_bytes))
+                    .context("generated DDS mip size overflow")?,
+            )
+            .context("generated DDS payload size overflow")?;
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+    }
+    Ok(payload)
+}
+
+fn write_dds_u32(bytes: &mut [u8], offset: usize, value: u32) -> Result<()> {
+    bytes
+        .get_mut(offset..offset + 4)
+        .context("generated DDS header is truncated")?
+        .copy_from_slice(&value.to_le_bytes());
+    Ok(())
+}
+
+fn canonicalize_v0100b_bc_dds(
+    bytes: &mut Vec<u8>,
+    format: Stk2DiffuseFormat,
+    label: &Path,
+) -> Result<()> {
+    let width = usize::try_from(read_u32(bytes, 16)?)?;
+    let height = usize::try_from(read_u32(bytes, 12)?)?;
+    let target_mip_count = target_v0100b_bc_mip_count(width, height);
+    let payload = bc_mip_payload_size(width, height, target_mip_count, format.block_bytes())?;
+    let target_len = 128_usize
+        .checked_add(payload)
+        .context("target v0.100b DDS size overflow")?;
+    if bytes.len() < target_len {
+        bail!(
+            "{}: ImageMagick DDS is too short for the v0.100b mip chain",
+            label.display()
+        );
+    }
+    bytes.truncate(target_len);
+
+    // Match the native header contract byte-for-byte: DDSD_LINEARSIZE is set,
+    // dwPitchOrLinearSize describes the complete retained payload plus
+    // Vostok's trailing sRGB byte, and the reserved ImageMagick producer tag
+    // is cleared.
+    let header_flags = read_u32(bytes, 8)? | 0x8;
+    write_dds_u32(bytes, 8, header_flags)?;
+    write_dds_u32(
+        bytes,
+        20,
+        u32::try_from(
+            payload
+                .checked_add(1)
+                .context("target Vostok DDS size overflow")?,
+        )?,
+    )?;
+    write_dds_u32(bytes, 28, u32::try_from(target_mip_count)?)?;
+    bytes
+        .get_mut(32..76)
+        .context("generated DDS reserved header is truncated")?
+        .fill(0);
+    Ok(())
+}
+
+fn validate_stk2_diffuse_dds(bytes: &[u8], format: Stk2DiffuseFormat, label: &Path) -> Result<()> {
+    if bytes.len() < 128 || &bytes[..4] != b"DDS " || read_u32(bytes, 4)? != 124 {
+        bail!("{}: invalid target DDS header", label.display());
+    }
+    if bytes.get(84..88) != Some(format.fourcc()) {
+        bail!(
+            "{}: expected {} target DDS FourCC",
+            label.display(),
+            String::from_utf8_lossy(format.fourcc())
+        );
+    }
+    if read_u32(bytes, 112)? != 0 {
+        bail!("{}: target DDS is unexpectedly a cubemap", label.display());
+    }
+    let width = usize::try_from(read_u32(bytes, 16)?)?;
+    let height = usize::try_from(read_u32(bytes, 12)?)?;
+    let mip_count = usize::try_from(read_u32(bytes, 28)?.max(1))?;
+    let expected_mip_count = target_v0100b_bc_mip_count(width, height);
+    if mip_count != expected_mip_count {
+        bail!(
+            "{}: target DDS has {mip_count} mips, expected {expected_mip_count} for {width}x{height}",
+            label.display()
+        );
+    }
+    let payload = bc_mip_payload_size(width, height, mip_count, format.block_bytes())?;
+    if read_u32(bytes, 8)? & 0x8 == 0 || usize::try_from(read_u32(bytes, 20)?)? != payload + 1 {
+        bail!(
+            "{}: target DDS has a non-native linear-size header",
+            label.display()
+        );
+    }
+    if bytes
+        .get(32..76)
+        .is_none_or(|reserved| reserved.iter().any(|byte| *byte != 0))
+    {
+        bail!(
+            "{}: target DDS retains non-native reserved header data",
+            label.display()
+        );
+    }
+    if bytes.len() != 128 + payload {
+        bail!(
+            "{}: target DDS has {} bytes, expected {} before the Vostok sRGB byte",
+            label.display(),
+            bytes.len(),
+            128 + payload
+        );
+    }
+    if matches!(format, Stk2DiffuseFormat::Dxt1Alpha) && !dxt5_has_nonopaque_alpha(&bytes[128..]) {
+        bail!(
+            "{}: DXT1a source transcode lost its alpha cutout",
+            label.display()
+        );
+    }
+    Ok(())
+}
+
+fn dxt5_has_nonopaque_alpha(payload: &[u8]) -> bool {
+    payload.chunks_exact(16).any(|block| {
+        let alpha0 = block[0];
+        let alpha1 = block[1];
+        let mut palette = [0_u8; 8];
+        palette[0] = alpha0;
+        palette[1] = alpha1;
+        if alpha0 > alpha1 {
+            for index in 1..7 {
+                palette[index + 1] = u8::try_from(
+                    ((7 - index) * usize::from(alpha0) + index * usize::from(alpha1)) / 7,
+                )
+                .unwrap();
+            }
+        } else {
+            for index in 1..5 {
+                palette[index + 1] = u8::try_from(
+                    ((5 - index) * usize::from(alpha0) + index * usize::from(alpha1)) / 5,
+                )
+                .unwrap();
+            }
+            palette[6] = 0;
+            palette[7] = 255;
+        }
+        let indices = u64::from_le_bytes([
+            block[2], block[3], block[4], block[5], block[6], block[7], 0, 0,
+        ]);
+        (0..16).any(|pixel| {
+            let index = usize::try_from((indices >> (pixel * 3)) & 7).unwrap();
+            palette[index] < 255
+        })
+    })
 }
 
 fn source_option_string(text: &str, name: &str) -> Result<String> {
@@ -1116,6 +1770,7 @@ fn build_weapon(
 pub(crate) fn build_static_model(
     template: &crate::manifest::StaticModelTemplateSpec,
     model: &StaticModelPortSpec,
+    collision_game_material: Option<(&str, i32)>,
     source_root: &Path,
     target: &mut ResourceDb,
     overlay: &Path,
@@ -1147,7 +1802,10 @@ pub(crate) fn build_static_model(
         &template.settings_template,
         "static settings template",
     )?;
-    let settings = replace_settings_surfaces(settings_template, &model.surfaces, true)?;
+    let mut settings = replace_settings_surfaces(settings_template, &model.surfaces, true)?;
+    if let Some((name, id)) = collision_game_material {
+        set_collision_game_material(&mut settings, name, id)?;
+    }
     write_generated_config(
         overlay,
         &format!("{target_root}/settings"),
@@ -1212,15 +1870,40 @@ pub(crate) fn build_static_model_collision(
     let settings_path = safe_join(overlay, &format!("{target_root}/settings"))?;
     let settings = BinaryConfig::parse(&fs::read(&settings_path)?)
         .with_context(|| format!("parsing generated settings {}", settings_path.display()))?;
-    if settings
+    let collision_material = settings
         .root
         .named("game_material_settings")
         .and_then(|settings| settings.named("collisionSG"))
-        .is_none()
+        .with_context(|| {
+            format!(
+                "{}: generated model settings lack game_material_settings.collisionSG",
+                model.target_model
+            )
+        })?;
+    let collision_material_id = match collision_material.named("game_material_id") {
+        Some(ConfigValue::Integer(id)) => *id,
+        _ => bail!(
+            "{}: collisionSG has no integer game_material_id",
+            model.target_model
+        ),
+    };
+    let collision_material_name = match collision_material.named("game_material_name") {
+        Some(ConfigValue::String(name)) => name,
+        _ => bail!(
+            "{}: collisionSG has no string game_material_name",
+            model.target_model
+        ),
+    };
+    if collision_material_id < 0
+        || collision_material_id == 65_535
+        || collision_material_name.is_empty()
+        || collision_material_name == "not assigned or deleted"
     {
         bail!(
-            "{}: generated model settings lack game_material_settings.collisionSG",
-            model.target_model
+            "{}: collisionSG retains invalid game material {:?}/{}",
+            model.target_model,
+            collision_material_name,
+            collision_material_id
         );
     }
     write_raw_resource(
@@ -1492,6 +2175,21 @@ fn make_surface_properties(
             .set_path("type", ConfigValue::Integer(model_type))?;
     }
     Ok(properties)
+}
+
+fn set_collision_game_material(settings: &mut BinaryConfig, name: &str, id: i32) -> Result<()> {
+    if name.is_empty() || id < 0 || id == 65_535 {
+        bail!("invalid target collision game material {name:?} with id {id}");
+    }
+    settings.root.set_path(
+        "game_material_settings.collisionSG.game_material_id",
+        ConfigValue::Integer(id),
+    )?;
+    settings.root.set_path(
+        "game_material_settings.collisionSG.game_material_name",
+        ConfigValue::String(name.to_owned()),
+    )?;
+    Ok(())
 }
 
 fn replace_lobby(
@@ -2265,6 +2963,72 @@ mod tests {
     }
 
     #[test]
+    fn reads_stk2_material_property_overrides_without_matching_references() {
+        let material = r#"
+texture_diffuse = create_property_table ( {
+    value = "nature/bush/grass_custom",
+}, this ), -- texture_diffuse
+two_sided = create_reference( "base.two_sided", this ),
+use_alpha_test = create_property_table ( {
+    value = true,
+}, this ), -- use_alpha_test
+instance = {
+    base_material = "speedtree_base",
+}
+"#;
+        assert_eq!(
+            lua_string_property(material, "texture_diffuse").as_deref(),
+            Some("nature/bush/grass_custom")
+        );
+        assert_eq!(lua_bool_property(material, "use_alpha_test"), Some(true));
+        assert_eq!(lua_bool_property(material, "two_sided"), None);
+        assert_eq!(
+            lua_assignment_string(material, "base_material").as_deref(),
+            Some("speedtree_base")
+        );
+    }
+
+    #[test]
+    fn resolves_proven_material_family_and_rejects_ambiguous_diffuse() {
+        let templates = Stk2MaterialTemplates {
+            opaque: "opaque".into(),
+            alpha_test: "alpha".into(),
+            alpha_test_two_sided: "foliage".into(),
+            two_sided: "two-sided".into(),
+            decal: "decal".into(),
+            metal: "metal".into(),
+            metal_alpha_test: "metal-alpha-one-sided".into(),
+            metal_alpha_test_two_sided: "metal-alpha".into(),
+            metal_two_sided: "metal-two-sided".into(),
+        };
+        let metal = Stk2SourceMaterialContract {
+            source_material: "props/gate".into(),
+            base_material: "metal_rusted".into(),
+            alpha_test: true,
+            two_sided: true,
+            metal: true,
+            decal: false,
+            texture_roles: BTreeMap::new(),
+        };
+        let mut catalog = Stk2SourceMaterialCatalog::default();
+        catalog
+            .by_diffuse
+            .insert("props/gate".into(), vec![metal.clone()]);
+        assert_eq!(
+            catalog.resolve("props/gate", &templates).unwrap().template,
+            "metal-alpha"
+        );
+        let mut incompatible = metal;
+        incompatible.alpha_test = false;
+        catalog
+            .by_diffuse
+            .get_mut("props/gate")
+            .unwrap()
+            .push(incompatible);
+        assert!(catalog.resolve("props/gate", &templates).is_none());
+    }
+
+    #[test]
     fn generates_target_collision_face_dictionary() {
         let face_data = make_stk2_collision_face_data(3).unwrap();
         assert_eq!(read_u32(&face_data, 0).unwrap(), 0x1b);
@@ -2273,5 +3037,58 @@ mod tests {
         assert_eq!(read_u32(&face_data, 22).unwrap(), 0x1c);
         assert_eq!(read_u32(&face_data, 26).unwrap(), 6);
         assert_eq!(&face_data[30..], &[0; 6]);
+    }
+
+    #[test]
+    fn detects_preserved_dxt5_alpha_cutouts() {
+        let mut opaque = [0_u8; 16];
+        opaque[0] = 255;
+        opaque[1] = 255;
+        assert!(!dxt5_has_nonopaque_alpha(&opaque));
+
+        let mut cutout = [0_u8; 16];
+        cutout[0] = 0;
+        cutout[1] = 255;
+        assert!(dxt5_has_nonopaque_alpha(&cutout));
+    }
+
+    #[test]
+    fn canonicalizes_bc_mips_and_header_for_v0100b() {
+        assert_eq!(target_v0100b_bc_mip_count(1024, 1024), 9);
+        assert_eq!(target_v0100b_bc_mip_count(2048, 512), 8);
+        assert_eq!(target_v0100b_bc_mip_count(16, 16), 3);
+
+        // ImageMagick emits the complete 16, 8, 4, 2, 1 chain and writes its
+        // producer name into the reserved DDS header fields.
+        let source_payload = bc_mip_payload_size(16, 16, 5, 8).unwrap();
+        let mut dds = vec![0_u8; 128 + source_payload];
+        dds[..4].copy_from_slice(b"DDS ");
+        write_dds_u32(&mut dds, 4, 124).unwrap();
+        write_dds_u32(&mut dds, 8, 0x000a_1007).unwrap();
+        write_dds_u32(&mut dds, 12, 16).unwrap();
+        write_dds_u32(&mut dds, 16, 16).unwrap();
+        write_dds_u32(&mut dds, 20, 128).unwrap();
+        write_dds_u32(&mut dds, 28, 5).unwrap();
+        dds[32..43].copy_from_slice(b"IMAGEMAGICK");
+        write_dds_u32(&mut dds, 76, 32).unwrap();
+        write_dds_u32(&mut dds, 80, 4).unwrap();
+        dds[84..88].copy_from_slice(b"DXT1");
+        write_dds_u32(&mut dds, 108, 0x0040_1008).unwrap();
+
+        validate_imagemagick_stk2_diffuse_dds(
+            &dds,
+            Stk2DiffuseFormat::Dxt1,
+            Path::new("probe.dds"),
+        )
+        .unwrap();
+        canonicalize_v0100b_bc_dds(&mut dds, Stk2DiffuseFormat::Dxt1, Path::new("probe.dds"))
+            .unwrap();
+        validate_stk2_diffuse_dds(&dds, Stk2DiffuseFormat::Dxt1, Path::new("probe.dds")).unwrap();
+
+        assert_eq!(read_u32(&dds, 8).unwrap(), 0x000a_100f);
+        assert_eq!(read_u32(&dds, 20).unwrap(), 169);
+        assert_eq!(read_u32(&dds, 28).unwrap(), 3);
+        assert_eq!(dds.len(), 128 + 168);
+        assert!(dds[32..76].iter().all(|byte| *byte == 0));
     }
 }

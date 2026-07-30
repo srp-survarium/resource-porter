@@ -195,12 +195,16 @@ enum Command {
         /// Root containing the extracted STK2 `exported/` tree.
         #[arg(long)]
         source_root: PathBuf,
+        /// Optional Survarium database supplying ambient OGG payloads declared
+        /// by the map manifest.
+        #[arg(long)]
+        sound_donor_db: Option<PathBuf>,
         #[arg(long)]
         target_db: PathBuf,
         #[arg(long)]
         output: PathBuf,
     },
-    /// Compose overlays in order; later bundles supersede shared paths.
+    /// Compose overlays in priority order; earlier bundles supersede shared paths.
     Compose {
         #[arg(long = "bundle", required = true)]
         bundles: Vec<PathBuf>,
@@ -500,6 +504,7 @@ fn main() -> Result<()> {
         Command::BuildStk2MapSlice {
             manifest,
             source_root,
+            sound_donor_db,
             target_db,
             output,
         } => {
@@ -507,6 +512,7 @@ fn main() -> Result<()> {
             let record = map_port::build_stk2_map_slice_bundle(
                 &manifest,
                 &source_root,
+                sound_donor_db.as_deref(),
                 &target_db,
                 &output,
             )?;

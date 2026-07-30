@@ -17,6 +17,13 @@ pub struct DependencyPlan {
     pub resolved_relative_references: BTreeMap<String, String>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum SourcePolicy {
+    DonorRequired,
+    TargetPreferred,
+    TargetOnly,
+}
+
 pub fn scan(
     donor: &mut ResourceDb,
     target: &mut ResourceDb,
@@ -48,20 +55,27 @@ pub fn scan_with_forced_donor_and_overrides(
         roots: roots.clone(),
         ..DependencyPlan::default()
     };
-    let mut queue: VecDeque<(String, bool)> = roots.into_iter().map(|path| (path, true)).collect();
-    let mut visited = BTreeSet::<(String, bool)>::new();
+    let mut queue: VecDeque<(String, SourcePolicy)> = roots
+        .into_iter()
+        .map(|path| (path, SourcePolicy::DonorRequired))
+        .collect();
+    let mut visited = BTreeSet::<(String, SourcePolicy)>::new();
 
-    while let Some((path, force_donor)) = queue.pop_front() {
-        if !visited.insert((path.clone(), force_donor)) {
+    while let Some((path, policy)) = queue.pop_front() {
+        if !visited.insert((path.clone(), policy)) {
             continue;
         }
 
-        let selected = if force_donor {
-            select_path(donor, &path).map(|selection| (selection, true))
-        } else {
-            select_path(target, &path)
+        let selected = match policy {
+            SourcePolicy::DonorRequired => {
+                select_path(donor, &path).map(|selection| (selection, true))
+            }
+            SourcePolicy::TargetPreferred => select_path(target, &path)
                 .map(|selection| (selection, false))
-                .or_else(|| select_path(donor, &path).map(|selection| (selection, true)))
+                .or_else(|| select_path(donor, &path).map(|selection| (selection, true))),
+            SourcePolicy::TargetOnly => {
+                select_path(target, &path).map(|selection| (selection, false))
+            }
         };
         let Some((selection, from_donor)) = selected else {
             plan.unresolved_references.insert(path);
@@ -69,7 +83,10 @@ pub fn scan_with_forced_donor_and_overrides(
         };
 
         if let PathSelection::Directory(children) = selection {
-            queue.extend(children.into_iter().map(|child| (child, force_donor)));
+            queue.extend(children.into_iter().map(|child| {
+                let child_policy = dependency_policy(&child, from_donor, &forced_donor_paths);
+                (child, child_policy)
+            }));
             continue;
         }
 
@@ -98,12 +115,27 @@ pub fn scan_with_forced_donor_and_overrides(
                     .insert(format!("{path} -> {reference}"), resolved);
             }
             for candidate in candidates {
-                let force_donor = is_forced_donor(&candidate, &forced_donor_paths);
-                queue.push_back((candidate, force_donor));
+                let candidate_policy =
+                    dependency_policy(&candidate, from_donor, &forced_donor_paths);
+                queue.push_back((candidate, candidate_policy));
             }
         }
     }
     Ok(plan)
+}
+
+fn dependency_policy(
+    path: &str,
+    referrer_from_donor: bool,
+    forced_donor_paths: &BTreeSet<String>,
+) -> SourcePolicy {
+    if is_forced_donor(path, forced_donor_paths) {
+        SourcePolicy::DonorRequired
+    } else if referrer_from_donor {
+        SourcePolicy::TargetPreferred
+    } else {
+        SourcePolicy::TargetOnly
+    }
 }
 
 fn is_forced_donor(path: &str, forced_donor_paths: &BTreeSet<String>) -> bool {
@@ -235,6 +267,19 @@ fn resolve_global_candidates(
         } else {
             format!("sounds/{normalized}")
         };
+        let single_sound_base = if normalized.starts_with("sounds/single/") {
+            normalized.clone()
+        } else {
+            format!("sounds/single/{}", normalized.trim_start_matches("sounds/"))
+        };
+        let sound_collection = if normalized.starts_with("sounds/collections/") {
+            format!("{normalized}.sound_collection")
+        } else {
+            format!(
+                "sounds/collections/{}.sound_collection",
+                normalized.trim_start_matches("sounds/")
+            )
+        };
         let animation_base = if normalized.starts_with("animations/") {
             normalized.clone()
         } else {
@@ -260,6 +305,9 @@ fn resolve_global_candidates(
             format!("{texture_base}.options"),
             format!("{sound_base}.high.ogg"),
             format!("{sound_base}.single_sound_options"),
+            format!("{single_sound_base}.high.ogg"),
+            format!("{single_sound_base}.single_sound_options"),
+            sound_collection,
             format!("{animation_base}.b-spline"),
             format!("{animation_base}.bones_names"),
         ]);
@@ -273,15 +321,14 @@ fn resolve_global_candidates(
                 format!("{texture_base}.options"),
             ]);
         }
-        if sound_base.starts_with("sounds/single/")
-            && (donor.is_file(&format!("{sound_base}.high.ogg"))
-                || donor.is_file(&format!("{sound_base}.single_sound_options"))
-                || target.is_file(&format!("{sound_base}.high.ogg"))
-                || target.is_file(&format!("{sound_base}.single_sound_options")))
+        if donor.is_file(&format!("{single_sound_base}.high.ogg"))
+            || donor.is_file(&format!("{single_sound_base}.single_sound_options"))
+            || target.is_file(&format!("{single_sound_base}.high.ogg"))
+            || target.is_file(&format!("{single_sound_base}.single_sound_options"))
         {
             required_companions.extend([
-                format!("{sound_base}.high.ogg"),
-                format!("{sound_base}.single_sound_options"),
+                format!("{single_sound_base}.high.ogg"),
+                format!("{single_sound_base}.single_sound_options"),
             ]);
         }
         if animation_base.starts_with("animations/single/")
@@ -566,6 +613,69 @@ mod tests {
     }
 
     #[test]
+    fn target_owned_dependencies_never_fall_back_to_donor() {
+        let temp = TempDir::new().unwrap();
+        let donor_root = temp.path().join("donor");
+        let target_root = temp.path().join("target");
+
+        let project = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "post_effect".into(),
+                value: ConfigValue::String("post_process/legacy_day".into()),
+            }]),
+        }
+        .to_bytes()
+        .unwrap();
+        let target_material = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "disabled_texture".into(),
+                value: ConfigValue::String("editor/moon".into()),
+            }]),
+        }
+        .to_bytes()
+        .unwrap();
+        write_file(&donor_root, "projects/imported/client_project", &project);
+        write_file(
+            &donor_root,
+            "material_instances/editor/moon.material",
+            b"incompatible donor material",
+        );
+        write_file(
+            &target_root,
+            "material_instances/post_process/legacy_day.material",
+            &target_material,
+        );
+
+        let donor_db = temp.path().join("donor.db");
+        let target_db = temp.path().join("target.db");
+        pack_fixture(&donor_root, &donor_db);
+        pack_fixture(&target_root, &target_db);
+        let mut donor = ResourceDb::open(donor_db).unwrap();
+        let mut target = ResourceDb::open(target_db).unwrap();
+
+        let plan = scan(
+            &mut donor,
+            &mut target,
+            ["projects/imported/client_project".into()],
+        )
+        .unwrap();
+
+        assert!(
+            plan.target_files
+                .contains("material_instances/post_process/legacy_day.material")
+        );
+        assert!(
+            !plan
+                .donor_files
+                .contains("material_instances/editor/moon.material")
+        );
+        assert!(
+            plan.unresolved_references
+                .contains("material_instances/editor/moon.material")
+        );
+    }
+
+    #[test]
     fn extensionless_texture_reference_resolves_metadata_and_payload() {
         let temp = TempDir::new().unwrap();
         let donor_root = temp.path().join("donor");
@@ -606,6 +716,56 @@ mod tests {
                 .contains("textures/flora/grass_l01.options")
         );
         assert!(plan.donor_files.contains("textures/flora/grass_l01.dds"));
+    }
+
+    #[test]
+    fn logical_sound_name_resolves_target_single_sound_payload() {
+        let temp = TempDir::new().unwrap();
+        let donor_root = temp.path().join("donor");
+        let target_root = temp.path().join("target");
+        let project = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "sound_name".into(),
+                value: ConfigValue::String("scapes/creatures/creatures_line".into()),
+            }]),
+        }
+        .to_bytes()
+        .unwrap();
+        write_file(&donor_root, "projects/imported/client_project", &project);
+        write_file(
+            &target_root,
+            "sounds/single/scapes/creatures/creatures_line.high.ogg",
+            b"target sound",
+        );
+        write_file(
+            &target_root,
+            "sounds/single/scapes/creatures/creatures_line.single_sound_options",
+            b"target options",
+        );
+
+        let donor_db = temp.path().join("donor.db");
+        let target_db = temp.path().join("target.db");
+        pack_fixture(&donor_root, &donor_db);
+        pack_fixture(&target_root, &target_db);
+        let mut donor = ResourceDb::open(donor_db).unwrap();
+        let mut target = ResourceDb::open(target_db).unwrap();
+
+        let plan = scan(
+            &mut donor,
+            &mut target,
+            ["projects/imported/client_project".into()],
+        )
+        .unwrap();
+
+        assert!(
+            plan.target_files
+                .contains("sounds/single/scapes/creatures/creatures_line.high.ogg")
+        );
+        assert!(
+            plan.target_files
+                .contains("sounds/single/scapes/creatures/creatures_line.single_sound_options")
+        );
+        assert!(plan.unresolved_references.is_empty());
     }
 
     #[test]

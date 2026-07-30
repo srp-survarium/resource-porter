@@ -5,6 +5,7 @@ repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 work_dir="${repo_dir}/.work"
 client_dir="${CLIENT_DIR:-${work_dir}/client-v0100b-akmn}"
 srp_repo="${SRP_REPO_DIR:-/home/sheep/Projects/surv/srp}"
+srp_runtime_dir="${SRP_RUNTIME_DIR:-${srp_repo}}"
 srp_bin_dir="${SRP_BIN_DIR:-${work_dir}/srp-0100b-target/debug}"
 wine_prefix="${WINE_PREFIX:-${work_dir}/wineprefix}"
 server_log_dir="${SERVER_LOG_DIR:-${work_dir}/srp-0100b-logs}"
@@ -20,13 +21,21 @@ fi
 for required in \
   "${client_dir}/binaries/win32/survarium.exe" \
   "${client_dir}/resources.db" \
-  "${srp_repo}/certs/survarium_login_server.key"
+  "${srp_runtime_dir}/certs/survarium_login_server.key" \
+  "${srp_runtime_dir}/certs/survarium_login_server.crt"
 do
   if [[ ! -e "${required}" ]]; then
     echo "missing runtime artifact: ${required}" >&2
     exit 1
   fi
 done
+
+# Build 802 gives BugTrap the retired Vostok Games crash-report address.
+# Apply and verify the fixed-size, .invalid-recipient safety patch before
+# starting any server or Wine process. The patcher is idempotent and refuses
+# unknown executables.
+"${repo_dir}/tools/patch-crash-report-email.pl" \
+  --target "${client_dir}/binaries/win32/survarium.exe"
 
 if [[ ! -x "${srp_bin_dir}/srp" ]]; then
   for required in \
@@ -57,14 +66,14 @@ mkdir -p "${server_log_dir}"
 server_pids=()
 if [[ -x "${srp_bin_dir}/srp" ]]; then
   (
-    cd -- "${srp_repo}"
+    cd -- "${srp_runtime_dir}"
     exec "${srp_bin_dir}/srp"
   ) >"${server_log_dir}/srp-combined.log" 2>&1 &
   server_pids+=("$!")
 else
   for server in login-server browser-server lobby-server match-server; do
     (
-      cd -- "${srp_repo}"
+      cd -- "${srp_runtime_dir}"
       exec "${srp_bin_dir}/${server}"
     ) >"${server_log_dir}/${server}.log" 2>&1 &
     server_pids+=("$!")
@@ -104,6 +113,15 @@ curl --fail --silent --show-error \
 export WINEPREFIX="${wine_prefix}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 export WINEDLLOVERRIDES="d3d8,d3d9,d3d10core,d3d11,dxgi=n"
+# The old client couples parts of its audio/update timing to an effectively
+# uncapped render loop, including in the main menu. Limit DXVK presentation to
+# a stable rate to prevent high-FPS crackle/low-level noise. Callers can still
+# override this for diagnostics.
+export DXVK_FRAME_RATE="${DXVK_FRAME_RATE:-60}"
+# Give Wine's PulseAudio client a larger queue. The default low-latency queue
+# crackles on this client even in the menu when rendering and audio wakeups
+# coincide.
+export PULSE_LATENCY_MSEC="${PULSE_LATENCY_MSEC:-60}"
 export LOCALE_ARCHIVE_2_27="${RUSSIAN_LOCALE_DIR:?Russian locale was not provided by the outer launcher}/lib/locale/locale-archive"
 export LANG="ru_RU.UTF-8"
 export LC_ALL="ru_RU.UTF-8"
