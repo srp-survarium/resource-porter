@@ -97,10 +97,14 @@
     "props/tool/shovel_1#render/phong1sg": "props/garage/shovel_metal"
   },
   "source_material_template_overrides": {
-    "architecture/mine/brick_red": "material_instances/tiled/bricks/brick_red.material",
-    "architecture/mine/brick_white": "material_instances/tiled/bricks/brick_red.material",
-    "architecture/mine/concrete": "material_instances/tiled/concrete/concrete_01.material",
-    "architecture/mine/concrete2": "material_instances/tiled/concrete/concrete_01.material"
+    "architecture/mine/brick_red": "material_instances/tiled/bricks/brick_02.material",
+    "architecture/mine/brick_white": "material_instances/tiled/bricks/brick_02.material",
+    "architecture/mine/concrete": "material_instances/tiled/bricks/brick_02.material",
+    "architecture/mine/concrete2": "material_instances/tiled/bricks/brick_02.material",
+    "architecture/mine/crete_floor": "material_instances/tiled/bricks/brick_02.material",
+    "architecture/mine/metal_tiles": "material_instances/tiled/bricks/brick_02.material",
+    "architecture/mine/wood_roof": "material_instances/tiled/bricks/brick_02.material",
+    "tiled/roof/ruberoid_dark_grey": "material_instances/tiled/bricks/brick_02.material"
   },
   "model_archive_overrides": {
     "generic/fence/mine_gates": "resources/exported/models/props/mine/mine_gates.model",

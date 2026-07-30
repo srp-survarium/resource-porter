@@ -8,13 +8,14 @@ use vostok_resource_porter::dependency;
 use vostok_resource_porter::map_compare;
 use vostok_resource_porter::map_port;
 use vostok_resource_porter::material_conversion::MaterialCatalog;
+use vostok_resource_porter::material_patch;
 use vostok_resource_porter::maya_binary;
 use vostok_resource_porter::stk2_content;
 use vostok_resource_porter::target_native_map;
 use vostok_resource_porter::weapon;
 use vostok_resource_porter::{
-    ArmorPortManifest, BinaryConfig, MapPortManifest, PlayableLobbyManifest, PortManifest,
-    ResourceDb, Stk2ContentManifest, Stk2MapSliceManifest, TargetNativeMapManifest,
+    ArmorPortManifest, BinaryConfig, ConfigValue, MapPortManifest, PlayableLobbyManifest,
+    PortManifest, ResourceDb, Stk2ContentManifest, Stk2MapSliceManifest, TargetNativeMapManifest,
 };
 
 #[derive(Parser)]
@@ -49,6 +50,9 @@ enum Command {
     DumpConfig {
         #[arg(long)]
         file: PathBuf,
+        /// Print one stable path/value pair per scalar leaf.
+        #[arg(long)]
+        leaves: bool,
     },
     /// Decode a self-describing binary config directly from a resources.db.
     DumpDbConfig {
@@ -56,6 +60,9 @@ enum Command {
         db: PathBuf,
         #[arg(long)]
         path: String,
+        /// Print one stable path/value pair per scalar leaf.
+        #[arg(long)]
+        leaves: bool,
     },
     /// Compare decoded project trees and independently resolved resource graphs.
     CompareMapStructures {
@@ -80,6 +87,20 @@ enum Command {
         target_db: PathBuf,
         #[arg(long, default_value_t = 20)]
         limit: usize,
+    },
+    /// Rebuild selected materials through explicit target-build templates.
+    BuildMaterialPatch {
+        /// Database containing the effective materials to convert.
+        #[arg(long)]
+        source_db: PathBuf,
+        /// Target-build database containing the shader-compatible templates.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// Material mapping in RESOURCE_PATH=TEMPLATE_PATH form.
+        #[arg(long = "material", required = true)]
+        materials: Vec<String>,
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Inspect a Maya Binary scene's skin-cluster influences and weights.
     InspectMayaSkin {
@@ -245,6 +266,51 @@ enum Command {
     },
 }
 
+fn print_config(root: &ConfigValue, leaves: bool) -> Result<()> {
+    if leaves {
+        print_config_leaves(root, "")?;
+    } else {
+        println!("{root:#?}");
+    }
+    Ok(())
+}
+
+fn print_config_leaves(value: &ConfigValue, path: &str) -> Result<()> {
+    match value {
+        ConfigValue::Named(values) => {
+            for entry in values {
+                let child_path = if path.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{path}.{}", entry.name)
+                };
+                print_config_leaves(&entry.value, &child_path)?;
+            }
+        }
+        ConfigValue::Indexed(values) => {
+            for (index, entry) in values.iter().enumerate() {
+                print_config_leaves(entry, &format!("{path}[{index}]"))?;
+            }
+        }
+        ConfigValue::Boolean(value) => println!("{path}\tbool:{value}"),
+        ConfigValue::Integer(value) => println!("{path}\ti32:{value}"),
+        ConfigValue::Float(value) => println!("{path}\tf32:{value:?}"),
+        ConfigValue::String(value) => {
+            println!("{path}\tstring:{}", serde_json::to_string(value)?)
+        }
+        ConfigValue::Float2(value) => {
+            println!("{path}\tfloat2:{}", serde_json::to_string(value)?)
+        }
+        ConfigValue::Float3(value) => {
+            println!("{path}\tfloat3:{}", serde_json::to_string(value)?)
+        }
+        ConfigValue::Float4(value) => {
+            println!("{path}\tfloat4:{}", serde_json::to_string(value)?)
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { db } => {
@@ -280,14 +346,14 @@ fn main() -> Result<()> {
             println!("pos_in_db={}", entry.pos_in_db);
             println!("inline_buffer_offset={:?}", entry.inline_buffer_offset);
         }
-        Command::DumpConfig { file } => {
+        Command::DumpConfig { file, leaves } => {
             let config = BinaryConfig::parse(&std::fs::read(file)?)?;
-            println!("{:#?}", config.root);
+            print_config(&config.root, leaves)?;
         }
-        Command::DumpDbConfig { db, path } => {
+        Command::DumpDbConfig { db, path, leaves } => {
             let mut archive = ResourceDb::open(db)?;
             let config = BinaryConfig::parse(&archive.read(&path)?)?;
-            println!("{:#?}", config.root);
+            print_config(&config.root, leaves)?;
         }
         Command::CompareMapStructures {
             target_db,
@@ -348,7 +414,7 @@ fn main() -> Result<()> {
                 .take(limit)
             {
                 println!(
-                    "{}\t{}\tstage_contract={}\tdomain_rank={:?}\tmismatches={}\tshared_path_tokens={}\teffects={}\tdonor_stages={}\ttarget_stages={}",
+                    "{}\t{}\tstage_contract={}\tdomain_rank={:?}\tmismatches={}\tshared_path_tokens={}\teffects={}\tdonor_stages={}\ttarget_stages={}\ttarget_features={}",
                     candidate.path,
                     candidate.effect_match,
                     candidate.stage_contract_match,
@@ -357,9 +423,20 @@ fn main() -> Result<()> {
                     candidate.shared_path_tokens,
                     serde_json::to_string(&candidate.effect_contract)?,
                     serde_json::to_string(&candidate.donor_stage_selectors)?,
-                    serde_json::to_string(&candidate.target_stage_selectors)?
+                    serde_json::to_string(&candidate.target_stage_selectors)?,
+                    serde_json::to_string(&candidate.target_features)?
                 );
             }
+        }
+        Command::BuildMaterialPatch {
+            source_db,
+            target_db,
+            materials,
+            output,
+        } => {
+            material_patch::build_bundle(&source_db, &target_db, &materials, &output)?;
+            println!("materials={}", materials.len());
+            println!("bundle={}", output.display());
         }
         Command::InspectMayaSkin {
             scene,

@@ -34,6 +34,7 @@ pub struct MaterialTemplateCandidate {
     pub semantic_domain_rank: Option<usize>,
     pub donor_stage_selectors: BTreeMap<String, String>,
     pub target_stage_selectors: BTreeMap<String, String>,
+    pub target_features: BTreeMap<String, String>,
     pub feature_mismatches: usize,
     pub shared_path_tokens: usize,
 }
@@ -215,6 +216,7 @@ impl MaterialCatalog {
                     semantic_domain_rank: semantic_domain_rank(donor_path, &candidate.path),
                     donor_stage_selectors: donor_stage_selectors.clone(),
                     target_stage_selectors: candidate.stage_selectors.clone(),
+                    target_features: candidate.features.clone(),
                     feature_mismatches,
                     shared_path_tokens: usize::MAX - reverse_shared_tokens,
                 })

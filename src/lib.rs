@@ -6,6 +6,7 @@ pub mod manifest;
 pub mod map_compare;
 pub mod map_port;
 pub mod material_conversion;
+pub mod material_patch;
 pub mod maya_binary;
 pub mod model_validation;
 pub mod stk2_content;

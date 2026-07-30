@@ -290,9 +290,22 @@ characters in total. Client suicide is handled by SRP and respawns the local
 player on the central concrete structure after ten seconds. Use `--reuse` to
 launch the runtime-verified database (SHA-256
 `5cfecbd2f850ddefc2fe1f01ba42ecf63c512fb9f562e25b2a6a9a7b40384e3f`)
-without rebuilding the resource chain. The known remaining visual issue is the
-concrete/brick near-detail transition; those materials look correct only from
-a distance.
+without rebuilding the resource chain.
+
+The subsequent masonry checkpoint fixes the close-range concrete, brick, floor,
+metal-tile, ruberoid, and wood-roof transition without changing the verified
+map/content/server chain:
+
+```sh
+./scripts/run-canonical-stk2-a01-masonry-nearfix-demo.sh
+```
+
+Use `--build-only` to rebuild and validate the material-only patch, or `--reuse`
+to launch the runtime-tested database (SHA-256
+`4a51b1a80540e93766851674c9c4e9041960a66ef15f06139a6183f2e0795174`).
+The patch uses a v0.100b material template that supports static vertex-color
+meshes while disabling the unrelated vertex-blended dirt layer. Other
+vertex-painted props and debris remain unchanged intentionally.
 
 ## STK2 character experiments
 
