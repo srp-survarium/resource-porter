@@ -109,7 +109,23 @@ impl MergedSurface {
     ///
     /// Scaling here is an approximation, not a correction: it trades the
     /// source's exact mapping for a texel density the target can show.
-    pub fn encode_converted_model_scaled(&self, uv_scale: f32) -> Result<Vec<u8>> {
+    /// Encode, optionally lifting every vertex along its own normal.
+    ///
+    /// X-Ray's decals — posters, litter, wall grime — are separate surfaces laid
+    /// *exactly* on the surface they decorate, and the engine biased them at
+    /// draw time. v0.100b exposes no depth bias on a material instance, so two
+    /// coplanar surfaces fight for the depth buffer and flicker as the camera
+    /// moves.
+    ///
+    /// The engine's own decal material is not a substitute: `default_multiply_decal`
+    /// is a *projected* decal used by the decal system, and instantiating it as
+    /// a surface material renders nothing at all.
+    ///
+    /// So the geometry is moved instead of the render state: a decal is lifted
+    /// a few millimetres along its vertex normal, which is the direction it
+    /// faces away from its host surface. Small enough to be invisible, large
+    /// enough to settle the depth test.
+    pub fn encode_converted_model_lifted(&self, uv_scale: f32, lift: f32) -> Result<Vec<u8>> {
         let count = self.vertices.len();
         let vertex_chunk_size = STATIC_VERTEX_DECLARATION
             .len()
@@ -125,7 +141,8 @@ impl MergedSurface {
         output.extend_from_slice(&STATIC_VERTEX_DECLARATION);
         output.extend_from_slice(&u32::try_from(count)?.to_le_bytes());
         for vertex in &self.vertices {
-            for value in vertex.position {
+            for axis in 0..3 {
+                let value = vertex.position[axis] + vertex.normal[axis] * lift;
                 output.extend_from_slice(&value.to_le_bytes());
             }
             // The alpha bytes are target render policy, not source data: the
@@ -148,9 +165,9 @@ impl MergedSurface {
         Ok(output)
     }
 
-    /// Encode with the source mapping unchanged.
+    /// Encode with the source mapping and placement unchanged.
     pub fn encode_converted_model(&self) -> Result<Vec<u8>> {
-        self.encode_converted_model_scaled(1.0)
+        self.encode_converted_model_lifted(1.0, 0.0)
     }
 }
 
@@ -316,7 +333,14 @@ fn resolve_visual(
     let mut vertices = Vec::with_capacity(vertex_count);
     for offset in 0..vertex_count {
         let record = vertex_buffer.record(vertex_base + offset)?;
-        let mut vertex = vertex_buffer.layout.decode(record)?;
+        let mut vertex = vertex_buffer.layout.decode_as(
+            record,
+            if visual.kind == VisualKind::Tree {
+                crate::soc::codec::vertex::TexCoords::Tree
+            } else {
+                crate::soc::codec::vertex::TexCoords::Level
+            },
+        )?;
         // Tree geometry is stored once in its own space and placed by the
         // matrix `xrLC` factored out.
         if let Some(matrix) = &visual.tree_transform {

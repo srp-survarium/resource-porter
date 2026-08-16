@@ -146,3 +146,41 @@ never proven to be a hard limit — the crash it was written for turned out to b
 the `lib_name` bug — so the splitter may be unnecessary rather than merely
 conservative. It is kept because it matches retail's shape and because Cordon's
 1,375,470 triangles in one mesh is untested at any build.
+
+## A material flag is only settable if its shader was compiled
+
+**Status in 802:** the shipped shader set is narrower than the material schema.
+
+A material instance can carry a flag the effect code reads and acts on, while
+no compiled shader exists for the resulting permutation. Setting it then faults:
+
+```
+data->new_resource->shader_source == 0
+```
+
+`use_tditail_diffuse` is the worked example. The feature is entirely real --
+`render/engine/sources/effect_gstage_default_materials.cpp` reads the flag,
+binds `t_detail` from `texture_ditail_diffuse` and sets `ditail_texture_tile` --
+and the template materials carry all three fields. But no retail material sets
+it, and the reason is that the permutation was never built.
+
+The shipped permutations are enumerable, so this is checkable *before* building
+anything. Each shader resource under `shaders/sm_4_0/<name>/` is named by its
+flag string; a position that never varies is a feature with no compiled shader:
+
+```sh
+vostok-port list --db "$TARGET" --prefix shaders/sm_4_0/gbuffer_pass \
+  | sed 's|.*gbuffer_pass.ps/||' > perms.txt
+# then: for each character column, collect the distinct values across all lines
+```
+
+For `gbuffer_pass.ps` in build 802: 1,136 permutations, **32 flag positions
+vary** and **5 are stuck at zero**. Only the 32 are safe to enable.
+
+**Re-test:** run the same enumeration against the new build. A wider shader set
+makes previously unusable material features available -- terrain detail
+textures among them, which is what X-Ray terrain needs to stop looking flat.
+
+**The general rule:** before enabling any material flag the port does not
+already set, check that its position varies in the shipped permutations. The
+material schema is not a promise that the shader exists.

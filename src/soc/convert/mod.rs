@@ -10,10 +10,12 @@
 //! | [`collision`] | `level.cform` -> the target collision family payloads |
 //! | [`game_material`] | X-Ray physical material names -> v0.100b ids |
 //! | [`render_material`] | X-Ray shader names -> v0.100b material families |
+//! | [`animation`] | `bip01` motions -> clips on the v0.100b character rig |
 //!
 //! Nothing here writes a file or opens a database. The conversion result is
 //! data that [`super::build`] emits and records.
 
+pub mod animation;
 pub mod collision;
 pub mod game_material;
 pub mod render_material;

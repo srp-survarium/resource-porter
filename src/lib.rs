@@ -11,6 +11,7 @@ pub mod material_patch;
 pub mod maya_binary;
 pub mod model_validation;
 pub mod resource_copy_patch;
+pub mod skeleton_animation;
 pub mod soc;
 pub mod stk2_content;
 pub mod stk2_project;

@@ -397,6 +397,55 @@ enum Command {
         #[arg(long)]
         motion: Option<String>,
     },
+    /// Retarget one Shadow of Chernobyl motion onto the v0.100b character rig.
+    ///
+    /// Writes `<output>.b-spline` and `<output>.bones_names`, the pair the
+    /// engine loads as one `animation_class` resource.
+    SocRetargetMotion {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        /// Motion bank, e.g. `meshes/actors/mp_stalker.omf`.
+        #[arg(long)]
+        bank: String,
+        /// An actor model bound to that bank, for its rest pose.
+        #[arg(long)]
+        model: String,
+        /// Motion name, e.g. `cl_run_fwd_0`.
+        #[arg(long)]
+        motion: String,
+        /// Target rest pose.
+        #[arg(
+            long,
+            default_value = "models/character/human/base/base_character_boot.skinned_model/render/bind_pose"
+        )]
+        bind_pose: String,
+        /// Target bone hierarchy.
+        #[arg(long, default_value = "animations/skeletons/scavengers_01.skeleton")]
+        skeleton: String,
+        /// Output path without an extension.
+        #[arg(long)]
+        output: PathBuf,
+        /// Also report where this frame's pose lands in both rigs.
+        #[arg(long)]
+        compare_frame: Option<u32>,
+    },
+    /// Report an actor model's bone hierarchy and rest pose.
+    ///
+    /// The rest pose is what a retarget measures against: a motion key
+    /// replaces a bone's local frame, so the difference between two rigs is
+    /// the difference between the poses they were bound in.
+    SocProbeSkeleton {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Archive-relative model path, e.g. `meshes/actors/mp_stalker.ogf`.
+        #[arg(long)]
+        model: String,
+        /// Also report which of this bank's bones the model carries.
+        #[arg(long)]
+        bank: Option<String>,
+    },
     /// Report which blender class every shader a level binds resolves to.
     ///
     /// Cross-checks the converter's reviewed render-family table against what
@@ -1043,12 +1092,16 @@ fn main() -> Result<()> {
                 }
 
                 println!(
-                    "{} shader={name} tris={} y={:.2}..{:.2} u={:.1}..{:.1} v={:.1}..{:.1} \
+                    "{} shader={name} tris={} x={:.1}..{:.1} y={:.2}..{:.2} z={:.1}..{:.1} u={:.1}..{:.1} v={:.1}..{:.1} \
                      up={up} down={down} side={side}",
                     merged.name(),
                     merged.indices.len() / 3,
+                    min[0],
+                    max[0],
                     min[1],
                     max[1],
+                    min[2],
+                    max[2],
                     uv_min[0],
                     uv_max[0],
                     uv_min[1],
@@ -1185,6 +1238,121 @@ fn main() -> Result<()> {
                             motion.duration()
                         );
                     }
+                }
+            }
+        }
+        Command::SocRetargetMotion {
+            source_root,
+            target_db,
+            bank,
+            model,
+            motion,
+            bind_pose,
+            skeleton,
+            output,
+            compare_frame,
+        } => {
+            use vostok_resource_porter::skeleton_animation::Rig;
+            use vostok_resource_porter::soc::codec::{omf, skeleton as soc_skeleton};
+            use vostok_resource_porter::soc::convert::animation;
+
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let bank_bytes = source.read(&bank)?;
+            let decoded = omf::parse(&bank_bytes, &bank)?;
+            let model_bytes = source.read(&model)?;
+            let source_skeleton = soc_skeleton::parse(&model_bytes, &model)?;
+
+            let mut target = ResourceDb::open(&target_db)?;
+            let rig = Rig::parse(&target.read(&bind_pose)?, &target.read(&skeleton)?)?;
+
+            let motion = decoded
+                .motion(&motion)
+                .with_context(|| format!("{bank}: no motion named {motion}"))?;
+            let (clip, report) = animation::retarget(motion, &decoded, &source_skeleton, &rig)?;
+
+            if let Some(parent) = output.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let spline = output.with_extension("b-spline");
+            let names = output.with_extension("bones_names");
+            std::fs::write(&spline, clip.to_bspline()?)?;
+            std::fs::write(&names, clip.to_bones_names()?)?;
+
+            println!("motion={}", report.motion);
+            println!("samples={}", report.samples);
+            println!("driven_bones={} held_bones={}", report.driven, report.held);
+            println!("max_residual={:.6}", report.max_residual);
+            println!(
+                "alignment_yaw_degrees={:.2} alignment_residual={:.4}",
+                report.alignment.yaw.to_degrees(),
+                report.alignment.residual
+            );
+            println!("bones={}", clip.bones.len());
+            println!("b_spline={} bytes={}", spline.display(), std::fs::metadata(&spline)?.len());
+            println!("bones_names={} bytes={}", names.display(), std::fs::metadata(&names)?.len());
+
+            if let Some(frame) = compare_frame {
+                let samples =
+                    animation::compare_pose(&clip, &rig, motion, &decoded, &source_skeleton, frame)?;
+                println!("compare_frame={frame}");
+                for sample in samples {
+                    println!(
+                        "  {:<16} -> {:<14} soc=[{:7.3},{:7.3},{:7.3}] target=[{:7.3},{:7.3},{:7.3}]",
+                        sample.source_bone,
+                        sample.target_bone,
+                        sample.source[0],
+                        sample.source[1],
+                        sample.source[2],
+                        sample.target[0],
+                        sample.target[1],
+                        sample.target[2],
+                    );
+                }
+            }
+        }
+        Command::SocProbeSkeleton {
+            source_root,
+            model,
+            bank,
+        } => {
+            use vostok_resource_porter::soc::codec::{omf, skeleton};
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let bytes = source.read(&model)?;
+            let decoded = skeleton::parse(&bytes, &model)?;
+            println!("model={model}");
+            println!("bones={}", decoded.bones.len());
+            let model_rest = decoded.model_rest();
+            for (index, bone) in decoded.bones.iter().enumerate() {
+                let parent = bone
+                    .parent
+                    .map(|parent| decoded.bones[parent].name.as_str())
+                    .unwrap_or("-");
+                let position = model_rest[index].translation();
+                println!(
+                    "  {:<20} parent={:<20} rest=[{:.4}, {:.4}, {:.4}] model=[{:.4}, {:.4}, {:.4}]",
+                    bone.name,
+                    parent,
+                    bone.rest_translation[0],
+                    bone.rest_translation[1],
+                    bone.rest_translation[2],
+                    position[0],
+                    position[1],
+                    position[2],
+                );
+            }
+            if let Some(bank) = bank {
+                let bytes = source.read(&bank)?;
+                let bank_data = omf::parse(&bytes, &bank)?;
+                let missing: Vec<&str> = bank_data
+                    .bones
+                    .iter()
+                    .filter(|bone| decoded.index(bone).is_none())
+                    .map(String::as_str)
+                    .collect();
+                println!("bank={bank} bank_bones={}", bank_data.bones.len());
+                println!("bones_missing_from_model={}", missing.len());
+                for bone in missing {
+                    println!("  missing={bone}");
                 }
             }
         }

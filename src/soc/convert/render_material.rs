@@ -49,6 +49,19 @@ pub enum RenderFamily {
     /// class `D_TREE`, the same as real foliage. Only a declared name override
     /// selects this family.
     LodImpostor,
+    /// Wind-free flora geometry: tree trunks.
+    ///
+    /// X-Ray splits its wave shaders by name — `flora\leaf_wave` for canopy and
+    /// `flora\trunk_wave` for the trunk beneath it — but both are class
+    /// `D_TREE`, so the recorded state cannot separate them. Collapsed onto
+    /// [`Self::Foliage`], a trunk inherits the leaf template's
+    /// `wind_motion = 2` and the whole tree sways as one, boles included.
+    ///
+    /// The distinction is a target material setting rather than a family in the
+    /// engine's eyes: `flora/poplar_leaves_02` sets `wind_motion = 2`,
+    /// `flora/sosna_bark_lod` sets `0`. Splitting the family is how the port
+    /// selects between them.
+    Bark,
     /// A water surface, rendered by the target's own water shader.
     ///
     /// X-Ray water carries no usable appearance in its geometry or its texture
@@ -83,6 +96,7 @@ impl RenderFamily {
         Self::Emissive,
         Self::VertexLitAlphaTested,
         Self::LodImpostor,
+        Self::Bark,
         Self::Water,
     ];
 
@@ -97,6 +111,7 @@ impl RenderFamily {
             Self::Emissive => "emissive",
             Self::VertexLitAlphaTested => "vertex_lit_alpha_tested",
             Self::LodImpostor => "lod_impostor",
+            Self::Bark => "bark",
             Self::Water => "water",
         }
     }
@@ -163,6 +178,16 @@ pub fn default_name_overrides() -> BTreeMap<String, RenderFamily> {
         ("effects\\water", RenderFamily::Water),
         ("effects\\waterstuden", RenderFamily::Water),
         ("effects\\waterryaska", RenderFamily::Water),
+        // `xrLC` generates a flat billboard for every object it can impostor,
+        // and gives it class `D_TREE` -- the same class real foliage uses, so
+        // the recorded state cannot tell them apart. Left in the foliage
+        // family, Cordon's 37 impostors render *on top of* the objects they
+        // stand in for, each wearing a wind-animated flora material: a car is
+        // drawn twice, ghosted and swaying.
+        ("def_shaders\\def_objects_lod", RenderFamily::LodImpostor),
+        // Canopy and trunk share class `D_TREE`; only the name says which is
+        // which, and only the canopy should move.
+        ("flora\\trunk_wave", RenderFamily::Bark),
     ]
     .into_iter()
     .map(|(shader, family)| (shader.to_owned(), family))
@@ -378,9 +403,10 @@ mod tests {
             }
             "def_shaders\\def_aref_v" => RenderFamily::VertexLitAlphaTested,
             "def_shaders\\def_trans" | "def_shaders\\def_trans_v" => RenderFamily::Translucent,
-            "flora\\leaf_wave" | "flora\\trunk_wave" | "def_shaders\\def_objects_lod" => {
-                RenderFamily::Foliage
-            }
+            "flora\\leaf_wave" => RenderFamily::Foliage,
+            "flora\\trunk_wave" => RenderFamily::Bark,
+            // Class `D_TREE` like real foliage; only the name separates them.
+            "def_shaders\\def_objects_lod" => RenderFamily::LodImpostor,
             "effects\\wallmarkblend" => RenderFamily::Decal,
             "effects\\water" | "effects\\waterstuden" | "effects\\waterryaska" => {
                 RenderFamily::Water

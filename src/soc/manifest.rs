@@ -174,6 +174,23 @@ pub struct SocMapManifest {
     /// visible `missing texture` fallback.
     #[serde(default = "default_water_reflection_probe")]
     pub water_reflection_probe: String,
+    /// Tiled detail texture blended over the level's own terrain shaders.
+    ///
+    /// X-Ray terrain is a unique colour map stretched across the whole level
+    /// plus a tiled detail texture; without the second the ground is flat.
+    /// `None` leaves the target material as the template had it.
+    #[serde(default = "default_terrain_detail_texture")]
+    pub terrain_detail_texture: Option<String>,
+    /// How many times that detail texture repeats.
+    #[serde(default = "default_terrain_detail_tile")]
+    pub terrain_detail_tile: i32,
+    /// World units a decal surface is lifted along its normal.
+    ///
+    /// X-Ray lays posters, litter and grime exactly on their host surface and
+    /// biased them at draw time; v0.100b has no material-level depth bias, so
+    /// coplanar surfaces flicker. Millimetres are enough.
+    #[serde(default = "default_decal_lift")]
+    pub decal_lift: f32,
     /// Extra world units added to every side of a derived lighting volume.
     ///
     /// A volume sized exactly to the map leaves its outermost surfaces on the
@@ -223,6 +240,27 @@ fn default_normal_path() -> String {
 
 fn default_normal_enable_path() -> String {
     "material.g_stage.effect.use_nmap.value".to_owned()
+}
+
+fn default_terrain_detail_texture() -> Option<String> {
+    // Off. The feature is real -- `effect_gstage_default_materials.cpp` reads
+    // `use_tditail_diffuse` and binds `t_detail` -- but build 802 ships no
+    // compiled shader for it. Of the flag positions in `gbuffer_pass.ps`, 32
+    // vary across the 1,136 shipped permutations and 5 are stuck at zero; this
+    // is one of the five, so enabling it faults with
+    // `data->new_resource->shader_source == 0`. Set it on a build whose shader
+    // set includes the permutation.
+    None
+}
+
+fn default_terrain_detail_tile() -> i32 {
+    20
+}
+
+fn default_decal_lift() -> f32 {
+    // 1cm reduced the flicker but did not settle it; 3cm is still under the
+    // thickness of the litter and posters themselves.
+    0.03
 }
 
 fn default_water_reflection_probe() -> String {
@@ -414,6 +452,9 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             .map(|family| (*family, format!("material_instances/stock/{}", family.as_str())))
             .collect(),
         lighting_volume_margin: 16.0,
+        decal_lift: default_decal_lift(),
+        terrain_detail_texture: default_terrain_detail_texture(),
+        terrain_detail_tile: default_terrain_detail_tile(),
         water_reflection_probe: default_water_reflection_probe(),
         diffuse_path: default_diffuse_path(),
         family_uv_scale: BTreeMap::new(),

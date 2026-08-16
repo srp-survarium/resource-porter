@@ -38,6 +38,7 @@
     "foliage": "material_instances/flora/poplar_leaves_02.material",
     "decal": "material_instances/tiled/trash/trash_concrete_alpha.material",
     "emissive": "material_instances/tiled/concrete/concrete_01.material",
-    "lod_impostor": "material_instances/flora/sosna_bark_lod.material"
+    "lod_impostor": "material_instances/flora/sosna_bark_lod.material",
+    "bark": "material_instances/flora/sosna_bark_lod.material"
   }
 }

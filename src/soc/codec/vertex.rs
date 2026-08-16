@@ -173,6 +173,39 @@ pub struct SocVertexLayout {
 /// step.
 const TC_SCALE: f32 = 32.0 / 32768.0;
 
+/// `FTreeVisual_tile` is 16, against the level's 32.
+const TREE_TC_SCALE: f32 = 16.0 / 32768.0;
+
+/// Which texture-coordinate convention a visual's vertices were written under.
+///
+/// X-Ray has two, and they differ by a factor of two.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TexCoords {
+    /// Compiled level geometry, unpacked in the shader by `unpack_tc_base`:
+    /// `(tc + basis alpha) * 32/32768`.
+    Level,
+    /// Tree and instanced-object geometry, scaled by the constant
+    /// `FTreeVisual` hands the shader:
+    ///
+    /// ```cpp
+    /// // xrRender/FTreeVisual.h
+    /// const int FTreeVisual_tile  = 16;
+    /// const int FTreeVisual_quant = 32768 / FTreeVisual_tile;   // 2048
+    /// // xrRender/FTreeVisual.cpp
+    /// scale = 1.f / float( FTreeVisual_quant );
+    /// cmd_list.tree.set_consts( tvs.scale, tvs.scale, 0, 0 );
+    /// ```
+    ///
+    /// So `tc * 16/32768`, half the level scale, and *without* the basis-alpha
+    /// remainder: a tree vertex spends those bytes on hemisphere and sun
+    /// lighting instead. Decoding these as level geometry doubles every
+    /// coordinate, so the texture wraps twice over the surface and unrelated
+    /// regions of an atlas land on adjacent faces -- a vehicle ends up wearing
+    /// its own dashboard, with the lettering mirrored where the second lap
+    /// runs backwards.
+    Tree,
+}
+
 /// Expand a `D3DCOLOR` byte the way the GPU feeds it to a vertex shader.
 ///
 /// This is what makes the texture-coordinate remainder a *fraction* of a
@@ -235,6 +268,11 @@ impl SocVertexLayout {
 
     /// Decode one vertex from a `stride`-sized record.
     pub fn decode(&self, record: &[u8]) -> Result<SocVertex> {
+        self.decode_as(record, TexCoords::Level)
+    }
+
+    /// Decode one vertex under a stated texture-coordinate convention.
+    pub fn decode_as(&self, record: &[u8], convention: TexCoords) -> Result<SocVertex> {
         if record.len() != self.stride {
             bail!(
                 "vertex record is {} bytes, expected {}",
@@ -252,11 +290,18 @@ impl SocVertexLayout {
         let (binormal, binormal_alpha) = unpack_basis(read_u32(record, self.binormal)?);
         let uv = match self.texcoord_kind {
             // The fractional remainder lives in the tangent/binormal alpha.
-            DeclType::Short2 => [
-                (f32::from(read_i16(record, self.texcoord)?) + unorm8(tangent_alpha)) * TC_SCALE,
-                (f32::from(read_i16(record, self.texcoord + 2)?) + unorm8(binormal_alpha))
-                    * TC_SCALE,
-            ],
+            DeclType::Short2 => match convention {
+                TexCoords::Level => [
+                    (f32::from(read_i16(record, self.texcoord)?) + unorm8(tangent_alpha))
+                        * TC_SCALE,
+                    (f32::from(read_i16(record, self.texcoord + 2)?) + unorm8(binormal_alpha))
+                        * TC_SCALE,
+                ],
+                TexCoords::Tree => [
+                    f32::from(read_i16(record, self.texcoord)?) * TREE_TC_SCALE,
+                    f32::from(read_i16(record, self.texcoord + 2)?) * TREE_TC_SCALE,
+                ],
+            },
             // Multi-use models store the whole coordinate.
             DeclType::Short4 => [
                 f32::from(read_i16(record, self.texcoord)?) * TC_SCALE,

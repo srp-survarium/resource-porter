@@ -216,6 +216,13 @@ pub fn build_bundle(
                 .map(|scale| (plan.shader_id, *scale))
         })
         .collect();
+    // Decals sit exactly on the surface they decorate and v0.100b exposes no
+    // depth bias, so they are lifted along their normals instead.
+    let lift: BTreeMap<u16, f32> = material_plans
+        .iter()
+        .filter(|plan| plan.family == RenderFamily::Decal)
+        .map(|plan| (plan.shader_id, manifest.decal_lift))
+        .collect();
     let mut models = Vec::with_capacity(model_groups.len());
     for (index, group) in model_groups.iter().enumerate() {
         let path = manifest.model_path(index);
@@ -230,6 +237,7 @@ pub fn build_bundle(
             group,
             collision,
             &uv_scale,
+            &lift,
             &mut files,
         )?;
         models.push(path);
@@ -691,6 +699,7 @@ fn write_model_archive(
     group: &[usize],
     collision: Option<&collision::CollisionPayloads>,
     uv_scale: &BTreeMap<u16, f32>,
+    lift: &BTreeMap<u16, f32>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let surface_template = load_template(target, &manifest.templates.surface_properties)?;
@@ -707,8 +716,9 @@ fn write_model_archive(
         write_resource(
             overlay,
             &format!("{model}/render/{name}/converted_model"),
-            &merged.encode_converted_model_scaled(
+            &merged.encode_converted_model_lifted(
                 uv_scale.get(&merged.shader_id).copied().unwrap_or(1.0),
+                lift.get(&merged.shader_id).copied().unwrap_or(0.0),
             )?,
             "converted:SoC-OGF-static-visuals",
             files,
@@ -807,12 +817,12 @@ fn write_model_archive(
         Some(ConfigValue::Named(levels)) => levels.iter().map(|l| l.name.clone()).collect(),
         _ => bail!("{model}: template settings have no lod_hierrarchy"),
     };
-    // The merge produces a single detail level, so every surface belongs to
-    // LOD0 and nothing else. Retail agrees: `terrain_p_09` leaves `unassigned`
-    // empty, names `l3terr_` in LOD0 and `l3terr_lod_1` in LOD1, so a surface
-    // appears exactly once in the whole hierarchy. Declaring our surfaces on
-    // every level -- `unassigned` included -- listed each of them four times,
-    // which a render-only archive tolerates and a cook does not.
+    // A surface appears exactly once in the hierarchy: retail's `terrain_p_09`
+    // leaves `unassigned` empty and names its surfaces in LOD0. Assigning the
+    // impostors to LOD1 instead would be the faithful shape, but a map whose
+    // collision forces one surface per archive cannot use it -- an impostor and
+    // the object it stands for land in different models, so nothing can swap
+    // between them, and the impostor-only archives would declare an empty LOD0.
     let mut assigned = false;
     for level in levels {
         let surfaces = if level == "unassigned" || assigned {
@@ -998,6 +1008,11 @@ fn write_post_process_material(
     Ok(format!("{}/post_process", manifest.namespace))
 }
 
+/// The detail-texture controls on a g_stage material.
+const TERRAIN_DETAIL_ENABLE: &str = "material.g_stage.effect.use_tditail_diffuse.value";
+const TERRAIN_DETAIL_TEXTURE: &str = "material.g_stage.effect.texture_ditail_diffuse.value";
+const TERRAIN_DETAIL_TILE: &str = "material.g_stage.effect.constant_ditail_texture_tile.value";
+
 /// Where a forward water material binds its reflection probe.
 const WATER_REFLECTION_PATH: &str = "material.forward.effect.texture_reflection.value";
 
@@ -1079,6 +1094,44 @@ fn write_materials(
                     .set_path(&manifest.normal_enable_path, ConfigValue::Boolean(true))?;
             }
         }
+        // Terrain gets a tiled detail texture on top of its colour map.
+        //
+        // A `levels\*` shader is the level's own terrain, and X-Ray builds
+        // those from a *unique* colour map stretched across the whole level --
+        // Cordon's `escape_grass` spans 1,445 world units in one UV unit, about
+        // 1.4m per texel -- plus a tiled detail texture the shader blends in at
+        // close range. Port only the colour map and the ground reads as flat
+        // brown with the triangle facets showing through, which is what makes
+        // it look low-poly when the geometry is in fact S.T.A.L.K.E.R.'s own
+        // 153,706 triangles.
+        //
+        // v0.100b has the same feature, wired but unused by any retail
+        // material -- `effect_gstage_default_materials.cpp`:
+        //
+        // ```cpp
+        // configuration.use_detail_texture = custom_config.value_exists("use_tditail_diffuse")
+        //                                  ? bool(custom_config["use_tditail_diffuse"]) : false;
+        // ...
+        // if (configuration.use_detail_texture) {
+        //     compiler.set_texture ("t_detail", ..."texture_ditail_diffuse"...);
+        //     compiler.set_constant("ditail_texture_tile", ..."constant_ditail_texture_tile"...);
+        // }
+        // ```
+        if plan.source_shader.starts_with("levels\\") {
+            if let Some(detail) = &manifest.terrain_detail_texture {
+                material
+                    .root
+                    .set_path(TERRAIN_DETAIL_ENABLE, ConfigValue::Boolean(true))?;
+                material
+                    .root
+                    .set_path(TERRAIN_DETAIL_TEXTURE, ConfigValue::String(detail.clone()))?;
+                material.root.set_path(
+                    TERRAIN_DETAIL_TILE,
+                    ConfigValue::Integer(manifest.terrain_detail_tile),
+                )?;
+            }
+        }
+
         write_config(
             overlay,
             &plan.target_path(&manifest.namespace),
