@@ -147,6 +147,54 @@ is how `materials\fake` implements an invisible wall — those stay solid. The
 faces are dropped from the `cform` before anything downstream sees them, so the
 material bindings and the split both operate on real collision only.
 
+## Footstep sound: why it cannot be fixed from the map
+
+Wading through the pool sounds like walking on tile, and the obvious fix does
+not work. Recorded because it looks so plausible.
+
+The sound exists and is wired. `game_materials/material.pairs` entry 46 is a
+genuine actor footstep pair, and its collection ships:
+
+```
+pairs[46].mtrl_1 = "actor"   mtrl_1_id = 10
+pairs[46].mtrl_2 = "water"   mtrl_2_id = 27
+pairs[46].sound  = "material/water/step/water_steps_m"
+```
+
+So the tempting move is to give the submerged floor the `water` game material
+through `game_material_settings`, and it was tried: 2,023 triangles in
+`mp_pool`, correctly emitted, present in four of the nine archives. It changed
+nothing, and `game/sources/step_manager.cpp` says why:
+
+```cpp
+physics::closest_ray_result ray_result = world.get_physics_world( )->ray_test( ... );
+u16 const triangle_material_id  = ray_result.object->get_collision_group( );
+material_pair const* const pair = world.get_game_material_manager( )
+                                       .get_pair( triangle_material_id, foot_material_id );
+```
+
+Despite the variable's name, the material is taken from
+`get_collision_group()`, which is the Bullet broadphase filter group:
+
+```cpp
+u16 bt_static_rigid_body::get_collision_group( ) const {
+    return m_bt_body->getBroadphaseHandle( )->m_collisionFilterGroup;
+}
+```
+
+The same class exposes `get_triangle_material(triangle_id, ...)` immediately
+above, and `step_manager` does not call it. Footstep material is therefore a
+property of the collision *object*, not of the surface under the foot, and
+`game_material_settings` cannot influence it. Retail agrees: across
+`level_03`'s 1,858 collision objects the only `cgroup` values are 8, 2 and 10,
+with `cmask` 16, 4 and 20 — powers of two, physics filter categories, not
+material identifiers.
+
+What `game_material_settings` *does* drive is everything that resolves a
+material per triangle: bullet impact sounds, decals and particles go through
+`get_triangle_material`. Those are worth binding correctly, and are. Footsteps
+are not reachable from map data in this build.
+
 ## What is still missing
 
 The water plane is the target's, so it looks and behaves like the target's
@@ -158,3 +206,11 @@ improvement and has not been done.
 
 Reflections use one shared probe rather than a probe placed in the map, because
 converted maps author no environment probes at all.
+
+The water is a plane, not a volume, and that is visible from inside the pool:
+the first-person model is drawn forward and never fogged, and it occludes the
+water surface behind it, leaving an unfogged halo around a submerged boot.
+Nothing in the material can fix that -- a single plane cannot know the camera
+is beneath it. A water *box*, which is how v0.1.1e models it, would fog the
+whole view when submerged and is the shape worth building if underwater
+rendering matters.
