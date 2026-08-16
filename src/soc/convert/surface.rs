@@ -151,6 +151,10 @@ pub struct MergeReport {
     pub tree_visuals: usize,
     pub merged_surfaces: usize,
     pub triangles: usize,
+    /// Triangles contributed by tree visuals, which `xrLC` placed by their own
+    /// matrix. Tracked apart because they dominate a wooded level and because
+    /// the recovered Cordon manifests appear to have counted only the rest.
+    pub tree_triangles: usize,
     /// Source visual kinds with no target adapter, counted by label.
     pub dropped_by_kind: BTreeMap<String, usize>,
     /// Static visuals that carried no geometry container.
@@ -190,6 +194,7 @@ pub fn merge_visuals(
         report.rendered_visuals += 1;
         if resolved.is_tree {
             report.tree_visuals += 1;
+            report.tree_triangles += resolved.indices.len() / 3;
         }
         by_shader
             .entry(resolved.shader_id)

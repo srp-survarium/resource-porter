@@ -8,6 +8,9 @@
 //!
 //! | module | file | role |
 //! | --- | --- | --- |
+//! | [`archive`] | `gamedata.db*` | the packed container and its file table |
+//! | [`lzhuf`] | `gamedata.db*` | adaptive-Huffman LZSS, used by the file table |
+//! | [`cipher`] | `gamedata.db*` | the shipped file-table obfuscation |
 //! | [`chunks`] | any | the shared `id`/`size`/payload container |
 //! | [`level`] | `level`, `level.geom` | shader table, visual array, shared buffers |
 //! | [`ogf`] | `level` visuals | OGF v4 headers and geometry references |
@@ -15,9 +18,12 @@
 //! | [`cform`] | `level.cform` | collision triangles and their material ids |
 //! | [`gamemtl`] | `gamemtl.xr` | physical-material id to name |
 
+pub mod archive;
 pub mod cform;
 pub mod chunks;
+pub mod cipher;
 pub mod gamemtl;
+pub mod lzhuf;
 pub mod level;
 pub mod ogf;
 pub mod vertex;

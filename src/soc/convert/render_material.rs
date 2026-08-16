@@ -76,14 +76,36 @@ pub fn default_classification() -> BTreeMap<String, RenderFamily> {
         ("effects\\wallmarkblend", RenderFamily::Decal),
         ("effects\\lightplanes", RenderFamily::Emissive),
         ("selflight", RenderFamily::Emissive),
-        ("levels\\escape_asfalt", RenderFamily::Opaque),
-        ("levels\\escape_asfalt_noblend", RenderFamily::Opaque),
-        ("levels\\escape_grass", RenderFamily::Opaque),
-        ("levels\\escape_sand", RenderFamily::Opaque),
+        // Water is animated and refractive in X-Ray. Translucent is the
+        // closest target family, and a deliberately poor one: a converted
+        // pond will read as flat glass until a real adapter exists.
+        ("effects\\water", RenderFamily::Translucent),
+        ("effects\\waterstuden", RenderFamily::Translucent),
+        ("effects\\waterryaska", RenderFamily::Translucent),
+        ("def_shaders\\def_refl_alpha_heli", RenderFamily::Translucent),
     ]
     .into_iter()
     .map(|(shader, family)| (shader.to_owned(), family))
     .collect()
+}
+
+/// `levels\<map>_<surface>` shaders are a level's own ground and road variants.
+///
+/// Every compiled level defines its own, so enumerating them would mean listing
+/// one entry per map surface. They differ from `default` only in the detail and
+/// blend layers v0.100b resolves through its own template, which is how the
+/// recovered Cordon port treated all four of its `levels\escape_*` shaders.
+const LEVEL_SURFACE_PREFIX: &str = "levels\\";
+
+/// Classify one shader: reviewed table first, then the level-surface rule.
+pub fn classify(shader: &str, classification: &BTreeMap<String, RenderFamily>) -> Option<RenderFamily> {
+    if let Some(family) = classification.get(shader) {
+        return Some(*family);
+    }
+    if shader.starts_with(LEVEL_SURFACE_PREFIX) {
+        return Some(RenderFamily::Opaque);
+    }
+    None
 }
 
 /// One render material the port will generate.
@@ -129,7 +151,7 @@ pub fn plan_materials(
     let mut unknown = Vec::new();
     for (shader_id, surface_count) in used {
         let entry = table.get(*shader_id)?;
-        let Some(family) = classification.get(&entry.shader).copied() else {
+        let Some(family) = classify(&entry.shader, classification) else {
             unknown.push(entry.shader.clone());
             continue;
         };
@@ -208,7 +230,7 @@ mod tests {
             "effects\\lightplanes",
         ] {
             assert!(
-                classification.contains_key(shader),
+                classify(shader, &classification).is_some(),
                 "{shader} has no reviewed family"
             );
         }
@@ -233,6 +255,25 @@ mod tests {
             plans[0].target_reference("ported/soc/cordon"),
             "ported/soc/cordon/shader_0001"
         );
+    }
+
+    #[test]
+    fn level_surface_shaders_fall_under_the_prefix_rule() {
+        let classification = default_classification();
+        // Cordon's own ground shaders, and every other level's.
+        for shader in [
+            "levels\\escape_grass",
+            "levels\\mp_atp_asfalt",
+            "levels\\stancia_kanal",
+        ] {
+            assert_eq!(
+                classify(shader, &classification),
+                Some(RenderFamily::Opaque),
+                "{shader}"
+            );
+        }
+        // The rule is a prefix rule, not a substring one.
+        assert_eq!(classify("water\\levels_pond", &classification), None);
     }
 
     #[test]

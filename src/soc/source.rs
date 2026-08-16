@@ -1,10 +1,13 @@
-//! Access to an unpacked Shadow of Chernobyl `gamedata` tree.
+//! Access to Shadow of Chernobyl source data.
 //!
-//! Retail ships `gamedata.db0`..`gamedata.dbd`, whose file tables are both
-//! LZ-compressed and obfuscated with a key table belonging to the game. This
-//! converter deliberately does not reimplement that: unpack once with an
-//! external tool and point `--source-root` at the resulting `gamedata`
-//! directory.
+//! Two backends, one interface:
+//!
+//! * a retail installation, read straight from its `gamedata.db*` archives;
+//! * an already-unpacked `gamedata` directory.
+//!
+//! The archive backend is the normal one. The directory backend exists because
+//! mods and partial extractions are common, and because being able to point the
+//! converter at a tree you can inspect by hand is worth keeping.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -12,18 +15,36 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-/// An unpacked `gamedata` tree.
-#[derive(Clone, Debug)]
-pub struct SocSource {
-    root: PathBuf,
-    /// Lower-cased relative path -> real path, so the converter is insensitive
-    /// to how the tree was unpacked on a case-sensitive filesystem.
-    index: BTreeMap<String, PathBuf>,
+use super::codec::archive::SocArchiveSet;
+
+/// A source of Shadow of Chernobyl resources.
+pub enum SocSource {
+    /// A retail installation's packed archives.
+    Archives {
+        root: PathBuf,
+        set: Box<SocArchiveSet>,
+    },
+    /// An unpacked `gamedata` tree.
+    Directory {
+        root: PathBuf,
+        /// Normalised relative path -> real path.
+        index: BTreeMap<String, PathBuf>,
+    },
 }
 
 impl SocSource {
-    /// Index the tree below `root`.
-    pub fn open(root: impl AsRef<Path>) -> Result<Self> {
+    /// Open a retail installation directory holding `gamedata.db*`.
+    pub fn open_installation(root: impl AsRef<Path>) -> Result<Self> {
+        let root = root.as_ref().to_path_buf();
+        let set = SocArchiveSet::open_installation(&root)?;
+        Ok(Self::Archives {
+            root,
+            set: Box::new(set),
+        })
+    }
+
+    /// Open an unpacked `gamedata` tree.
+    pub fn open_directory(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         if !root.is_dir() {
             bail!("{} is not an unpacked gamedata directory", root.display());
@@ -33,39 +54,102 @@ impl SocSource {
         if index.is_empty() {
             bail!("{} contains no files", root.display());
         }
-        Ok(Self { root, index })
+        Ok(Self::Directory { root, index })
+    }
+
+    /// Open whichever backend `root` is: an installation if it holds packed
+    /// archives, an unpacked tree otherwise.
+    pub fn open(root: impl AsRef<Path>) -> Result<Self> {
+        let root = root.as_ref();
+        let packed = fs::read_dir(root)
+            .with_context(|| format!("listing {}", root.display()))?
+            .filter_map(|entry| entry.ok())
+            .any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| name.to_ascii_lowercase().starts_with("gamedata.db"))
+            });
+        if packed {
+            Self::open_installation(root)
+        } else {
+            Self::open_directory(root)
+        }
     }
 
     pub fn root(&self) -> &Path {
-        &self.root
+        match self {
+            Self::Archives { root, .. } | Self::Directory { root, .. } => root,
+        }
     }
 
-    /// Resolve a `gamedata`-relative path, accepting either separator.
-    pub fn find(&self, relative: &str) -> Option<&Path> {
-        self.index.get(&normalize(relative)).map(PathBuf::as_path)
+    pub fn contains(&self, relative: &str) -> bool {
+        match self {
+            Self::Archives { set, .. } => set.contains(relative),
+            Self::Directory { index, .. } => index.contains_key(&normalize(relative)),
+        }
     }
 
     /// Read a `gamedata`-relative file.
-    pub fn read(&self, relative: &str) -> Result<Vec<u8>> {
-        let path = self
-            .find(relative)
-            .with_context(|| format!("{relative} is missing from {}", self.root.display()))?;
-        fs::read(path).with_context(|| format!("reading {}", path.display()))
+    pub fn read(&mut self, relative: &str) -> Result<Vec<u8>> {
+        match self {
+            Self::Archives { set, .. } => set.read(relative),
+            Self::Directory { root, index } => {
+                let path = index
+                    .get(&normalize(relative))
+                    .with_context(|| format!("{relative} is missing from {}", root.display()))?;
+                fs::read(path).with_context(|| format!("reading {}", path.display()))
+            }
+        }
     }
 
-    /// Read one of a compiled level's three containers.
-    pub fn read_level_file(&self, level: &str, file: &str) -> Result<Vec<u8>> {
+    /// Read one of a compiled level's containers.
+    pub fn read_level_file(&mut self, level: &str, file: &str) -> Result<Vec<u8>> {
         self.read(&format!("levels/{level}/{file}"))
+            .with_context(|| format!("reading {file} of level {level}"))
     }
 
     /// Read the physical-material library.
-    pub fn read_game_materials(&self) -> Result<Vec<u8>> {
-        self.read("config/gamemtl.xr")
+    ///
+    /// Retail keeps it at the `gamedata` root; the SDK and some mods keep it
+    /// under `config/`.
+    pub fn read_game_materials(&mut self) -> Result<Vec<u8>> {
+        for candidate in ["gamemtl.xr", "config/gamemtl.xr"] {
+            if self.contains(candidate) {
+                return self.read(candidate);
+            }
+        }
+        bail!(
+            "neither gamemtl.xr nor config/gamemtl.xr is present in {}",
+            self.root().display()
+        )
     }
 
-    /// Resolve a shader-table texture name to its source DDS.
-    pub fn texture(&self, name: &str) -> Option<&Path> {
-        self.find(&format!("textures/{}.dds", normalize(name)))
+    /// Read a texture named the way the level shader table names it.
+    pub fn read_texture(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
+        let path = format!("textures/{}.dds", normalize(name));
+        if !self.contains(&path) {
+            return Ok(None);
+        }
+        self.read(&path).map(Some)
+    }
+
+    /// Every level directory the source contains.
+    pub fn levels(&self) -> Vec<String> {
+        let names: Vec<String> = match self {
+            Self::Archives { set, .. } => set.names().map(ToOwned::to_owned).collect(),
+            Self::Directory { index, .. } => index.keys().cloned().collect(),
+        };
+        let mut levels: Vec<String> = names
+            .iter()
+            .filter_map(|name| name.strip_prefix("levels/"))
+            .filter_map(|name| name.split('/').next())
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .collect();
+        levels.sort();
+        levels.dedup();
+        levels
     }
 }
 
@@ -249,8 +333,23 @@ mod tests {
         let textures = root.path().join("textures/prop");
         fs::create_dir_all(&textures).unwrap();
         fs::write(textures.join("prop_bochka.dds"), b"payload").unwrap();
+        let mut source = SocSource::open(root.path()).unwrap();
+        assert_eq!(
+            source.read_texture("PROP\\prop_bochka").unwrap().as_deref(),
+            Some(b"payload".as_slice())
+        );
+        assert!(source.read_texture("prop/missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn lists_level_directories() {
+        let root = tempfile::tempdir().unwrap();
+        for level in ["l01_escape", "testers_mp_atp"] {
+            let directory = root.path().join("levels").join(level);
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(directory.join("level"), b"x").unwrap();
+        }
         let source = SocSource::open(root.path()).unwrap();
-        assert!(source.texture("PROP\\prop_bochka").is_some());
-        assert!(source.texture("prop/missing").is_none());
+        assert_eq!(source.levels(), vec!["l01_escape", "testers_mp_atp"]);
     }
 }

@@ -155,16 +155,26 @@ world's visuals by shader into merged target surfaces, translates the collision
 material dictionary through reviewed names, and clones reviewed v0.100b
 templates for settings, materials, options and the project pair.
 
-Retail ships `gamedata.db0`..`gamedata.dbd`, whose file tables are compressed
-and obfuscated. Unpack once with an external tool and pass the resulting
-`gamedata` directory as `--source-root`; the converter does not read the packed
-archives.
+`--source-root` accepts a retail installation directly: the reader decodes the
+LZHUF-compressed, obfuscated file tables of `gamedata.db0`..`gamedata.dbd`. An
+unpacked `gamedata` tree also works and is detected automatically.
+
+Two investigation commands need no target database:
+
+```sh
+vostok-port soc-inventory --install-root "$SOC_INSTALL"
+vostok-port soc-probe-level --source-root "$SOC_INSTALL" --level all
+```
+
+`soc-probe-level` decodes a level and reports what a port would contain. Every
+one of Shadow of Chernobyl's 30 levels decodes, and probing Cordon reproduces
+eight of the nine counters the lost converter recorded.
 
 This path reimplements a converter whose original source was lost. See
 [`docs/soc-map-porting.md`](docs/soc-map-porting.md) for what the recovered
-manifests prove, what was never implemented, what is still provisional, and
-which parts of the rewrite are re-derived rather than recovered. It has not yet
-been run against real source data.
+manifests prove, what the probe confirms, what was never implemented, what is
+still provisional, and which parts of the rewrite are re-derived rather than
+recovered.
 
 ## Other useful commands
 

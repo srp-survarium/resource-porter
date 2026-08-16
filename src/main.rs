@@ -226,6 +226,35 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Summarise a packed Shadow of Chernobyl installation.
+    SocInventory {
+        /// Directory holding `gamedata.db0`..`gamedata.dbd`.
+        #[arg(long)]
+        install_root: PathBuf,
+        /// Restrict the listing to names starting with this prefix.
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Print every matching name instead of a count.
+        #[arg(long)]
+        list: bool,
+        /// Write each archive's decoded file table here for inspection.
+        #[arg(long)]
+        dump_tables: Option<PathBuf>,
+    },
+    /// Decode one Shadow of Chernobyl level and report what a port would contain.
+    ///
+    /// Needs no target database, so it can run against a bare installation.
+    SocProbeLevel {
+        /// A retail installation, or an unpacked `gamedata` tree.
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Level directory name, or `all` to probe every level.
+        #[arg(long)]
+        level: String,
+        /// Write the full report here as JSON.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Convert a compiled Shadow of Chernobyl level into a v0.100b bundle.
     BuildSocMap {
         #[arg(long)]
@@ -610,6 +639,104 @@ fn main() -> Result<()> {
             println!("map_name={}", record.map_name);
             println!("files={}", record.files.len());
             println!("bundle={}", output.display());
+        }
+        Command::SocInventory {
+            install_root,
+            prefix,
+            list,
+            dump_tables,
+        } => {
+            if let Some(directory) = &dump_tables {
+                std::fs::create_dir_all(directory)?;
+                let mut archives: Vec<PathBuf> = std::fs::read_dir(&install_root)?
+                    .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                    .filter(|path| {
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .is_some_and(|name| name.to_ascii_lowercase().starts_with("gamedata.db"))
+                    })
+                    .collect();
+                archives.sort();
+                for archive in archives {
+                    let table = soc::codec::archive::decoded_file_table(&archive)?;
+                    let name = archive.file_name().unwrap().to_string_lossy().into_owned();
+                    let output = directory.join(format!("{name}.table"));
+                    std::fs::write(&output, &table)?;
+                    println!("table={} bytes={}", output.display(), table.len());
+                }
+                return Ok(());
+            }
+            let set = soc::codec::archive::SocArchiveSet::open_installation(&install_root)?;
+            for archive in set.archives() {
+                println!(
+                    "archive={} files={} key={:?} header={}",
+                    archive.path().display(),
+                    archive.entries().len(),
+                    archive.key,
+                    archive.header.is_some()
+                );
+            }
+            println!("unique_paths={}", set.len());
+            let prefix = prefix.replace('\\', "/").to_ascii_lowercase();
+            let matching: Vec<&str> = set
+                .names()
+                .filter(|name| name.starts_with(&prefix))
+                .collect();
+            println!("matching={}", matching.len());
+            if list {
+                for name in matching {
+                    println!("{name}");
+                }
+            }
+        }
+        Command::SocProbeLevel {
+            source_root,
+            level,
+            output,
+        } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let levels = if level == "all" {
+                source.levels()
+            } else {
+                vec![level]
+            };
+            let mut reports = Vec::with_capacity(levels.len());
+            for name in &levels {
+                match soc::build::probe_level(&mut source, name) {
+                    Ok(report) => {
+                        println!(
+                            "{name}: visuals={} rendered={} trees={} surfaces={} triangles={} \
+                             (tree_tris={} static_tris={} distinct_tris={} covered_tris={} ranges={}) shaders={} textures={} \
+                             missing_textures={} collision={}v/{}t \
+                             collision_materials={} unclassified={:?} dropped={:?}",
+                            report.visuals,
+                            report.rendered_surfaces,
+                            report.tree_surfaces,
+                            report.converted_surfaces,
+                            report.rendered_triangles,
+                            report.tree_triangles,
+                            report.rendered_triangles - report.tree_triangles,
+                            report.distinct_source_triangles,
+                            report.covered_source_triangles,
+                            report.distinct_source_ranges,
+                            report.bound_shaders,
+                            report.source_textures,
+                            report.missing_textures.len(),
+                            report.collision_vertices,
+                            report.collision_triangles,
+                            report.collision_materials.len(),
+                            report.unclassified_shaders,
+                            report.dropped_by_kind,
+                        );
+                        reports.push(report);
+                    }
+                    Err(error) => println!("{name}: FAILED {error:#}"),
+                }
+            }
+            if let Some(output) = output {
+                std::fs::write(&output, serde_json::to_vec_pretty(&reports)?)?;
+                println!("report={}", output.display());
+            }
         }
         Command::BuildSocMap {
             manifest,

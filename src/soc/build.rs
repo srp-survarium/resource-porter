@@ -79,24 +79,18 @@ pub fn build_bundle(
     fs::create_dir_all(&overlay)
         .with_context(|| format!("creating bundle overlay {}", overlay.display()))?;
 
-    let source = SocSource::open(source_root)?;
+    let mut source = SocSource::open(source_root)?;
     let mut target = ResourceDb::open(target_db)?;
 
     // --- decode -----------------------------------------------------------
-    let level_bytes = source.read_level_file(&manifest.source_level, "level")?;
-    let geom_bytes = source.read_level_file(&manifest.source_level, "level.geom")?;
-    let cform_bytes = source.read_level_file(&manifest.source_level, "level.cform")?;
-
-    level::parse_header(&level_bytes)?;
-    let shader_table = level::parse_shaders(&level_bytes)?;
-    let buffers = level::parse_geometry(&geom_bytes)?;
-    let visual_payloads = level::visual_payloads(&level_bytes)?;
-    let mut visuals = Vec::with_capacity(visual_payloads.len());
-    for (index, payload) in visual_payloads.iter().enumerate() {
-        visuals.push(ogf::parse_visual(payload, index)?);
-    }
-    let cform = cform::parse(&cform_bytes)?;
-    let library = gamemtl::parse_library(&source.read_game_materials()?)?;
+    let decoded = decode_level(&mut source, &manifest.source_level)?;
+    let DecodedLevel {
+        shader_table,
+        visuals,
+        buffers,
+        cform,
+        library,
+    } = decoded;
 
     // --- convert ----------------------------------------------------------
     let (surfaces, merge_report) = surface::merge_visuals(&visuals, &buffers)?;
@@ -131,7 +125,7 @@ pub fn build_bundle(
     )?;
     let collision_payloads = collision::encode(&cform, &collision_materials)?;
 
-    let textures = plan_textures(manifest, &source, &material_plans)?;
+    let textures = plan_textures(manifest, &mut source, &material_plans)?;
 
     // --- emit -------------------------------------------------------------
     let mut files = Vec::new();
@@ -202,9 +196,201 @@ pub fn build_bundle(
     Ok(record)
 }
 
+/// One level decoded into everything the converter needs.
+pub struct DecodedLevel {
+    pub shader_table: level::ShaderTable,
+    pub visuals: Vec<ogf::Visual>,
+    pub buffers: level::GeometryBuffers,
+    pub cform: cform::Cform,
+    pub library: BTreeMap<u16, String>,
+}
+
+/// Decode one compiled level and the physical-material library.
+pub fn decode_level(source: &mut SocSource, level_name: &str) -> Result<DecodedLevel> {
+    let level_bytes = source.read_level_file(level_name, "level")?;
+    let geom_bytes = source.read_level_file(level_name, "level.geom")?;
+    let cform_bytes = source.read_level_file(level_name, "level.cform")?;
+
+    level::parse_header(&level_bytes)?;
+    let shader_table = level::parse_shaders(&level_bytes)?;
+    let buffers = level::parse_geometry(&geom_bytes)?;
+    let visual_payloads = level::visual_payloads(&level_bytes)?;
+    let mut visuals = Vec::with_capacity(visual_payloads.len());
+    for (index, payload) in visual_payloads.iter().enumerate() {
+        visuals.push(ogf::parse_visual(payload, index)?);
+    }
+    let cform = cform::parse(&cform_bytes)?;
+    let library = gamemtl::parse_library(&source.read_game_materials()?)?;
+
+    Ok(DecodedLevel {
+        shader_table,
+        visuals,
+        buffers,
+        cform,
+        library,
+    })
+}
+
+/// What decoding and merging one level produced, without emitting anything.
+///
+/// This is the shape the recovered `port-manifest.json` files record, so a
+/// probe of Cordon can be compared directly against the original port.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LevelProbe {
+    pub level: String,
+    pub shader_table_entries: usize,
+    pub visuals: usize,
+    pub rendered_surfaces: usize,
+    pub tree_surfaces: usize,
+    pub converted_surfaces: usize,
+    pub rendered_triangles: usize,
+    /// Of `rendered_triangles`, how many came from tree visuals.
+    pub tree_triangles: usize,
+    /// Triangles counted once per distinct source index range.
+    ///
+    /// `xrLC` lets many visuals share one buffer range and place it by matrix,
+    /// so this is the size of the level's unique geometry rather than of the
+    /// geometry a merge emits.
+    pub distinct_source_triangles: usize,
+    pub distinct_source_ranges: usize,
+    /// Triangles in the *union* of the index space the level references.
+    ///
+    /// Distinct ranges can overlap — a progressive visual and a plain one can
+    /// share a prefix — so this is the tightest measure of unique geometry.
+    pub covered_source_triangles: usize,
+    pub bound_shaders: usize,
+    pub source_textures: usize,
+    pub missing_textures: Vec<String>,
+    pub dropped_lightmaps: usize,
+    pub collision_vertices: usize,
+    pub collision_triangles: usize,
+    pub collision_materials: Vec<(u16, String, usize)>,
+    pub unclassified_shaders: Vec<String>,
+    pub dropped_by_kind: BTreeMap<String, usize>,
+    pub vertex_buffers: usize,
+    pub index_buffers: usize,
+}
+
+/// Decode and merge a level, reporting what the conversion would contain.
+///
+/// Needs no target database, so it can run against a bare installation. It is
+/// the check that proves the decoders against real data.
+pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProbe> {
+    let decoded = decode_level(source, level_name)?;
+    let (surfaces, merge_report) = surface::merge_visuals(&decoded.visuals, &decoded.buffers)?;
+
+    let mut used_shaders: BTreeMap<u16, usize> = BTreeMap::new();
+    for merged in &surfaces {
+        *used_shaders.entry(merged.shader_id).or_insert(0) += 1;
+    }
+
+    let mut distinct_ranges = BTreeSet::new();
+    for visual in &decoded.visuals {
+        if !visual.kind.is_static() {
+            continue;
+        }
+        if let Some(container) = visual.geometry {
+            distinct_ranges.insert((
+                container.index_buffer,
+                container.index_base,
+                container.index_count,
+            ));
+        }
+    }
+    let distinct_source_triangles: usize = distinct_ranges
+        .iter()
+        .map(|(_, _, count)| *count as usize / 3)
+        .sum();
+
+    let mut by_buffer: BTreeMap<u32, Vec<(u64, u64)>> = BTreeMap::new();
+    for (buffer, base, count) in &distinct_ranges {
+        by_buffer
+            .entry(*buffer)
+            .or_default()
+            .push((u64::from(*base), u64::from(*base) + u64::from(*count)));
+    }
+    let mut covered_indices = 0_u64;
+    for intervals in by_buffer.values_mut() {
+        intervals.sort_unstable();
+        let mut current: Option<(u64, u64)> = None;
+        for (start, end) in intervals.iter().copied() {
+            match &mut current {
+                Some((_, open_end)) if start <= *open_end => *open_end = (*open_end).max(end),
+                Some((open_start, open_end)) => {
+                    covered_indices += *open_end - *open_start;
+                    current = Some((start, end));
+                }
+                None => current = Some((start, end)),
+            }
+        }
+        if let Some((start, end)) = current {
+            covered_indices += end - start;
+        }
+    }
+    let covered_source_triangles = (covered_indices / 3) as usize;
+
+    let classification = render_material::default_classification();
+    let mut unclassified = BTreeSet::new();
+    let mut source_textures = BTreeSet::new();
+    let mut dropped_lightmaps = 0;
+    for shader_id in used_shaders.keys() {
+        let entry = decoded.shader_table.get(*shader_id)?;
+        if render_material::classify(&entry.shader, &classification).is_none() {
+            unclassified.insert(entry.shader.clone());
+        }
+        if let Some(texture) = entry.base_texture() {
+            source_textures.insert(texture.to_owned());
+        }
+        dropped_lightmaps += entry.lightmaps().len();
+    }
+
+    let mut missing_textures = Vec::new();
+    for texture in &source_textures {
+        if source.read_texture(texture)?.is_none() {
+            missing_textures.push(texture.clone());
+        }
+    }
+
+    let counts = decoded.cform.material_triangle_counts();
+    let mut collision_materials = Vec::with_capacity(counts.len());
+    for (id, triangles) in &counts {
+        let name = decoded
+            .library
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| format!("<undefined id {id}>"));
+        collision_materials.push((*id, name, *triangles));
+    }
+
+    Ok(LevelProbe {
+        level: level_name.to_owned(),
+        shader_table_entries: decoded.shader_table.len(),
+        visuals: merge_report.visuals,
+        rendered_surfaces: merge_report.rendered_visuals,
+        tree_surfaces: merge_report.tree_visuals,
+        converted_surfaces: surfaces.len(),
+        rendered_triangles: merge_report.triangles,
+        tree_triangles: merge_report.tree_triangles,
+        distinct_source_triangles,
+        distinct_source_ranges: distinct_ranges.len(),
+        covered_source_triangles,
+        bound_shaders: used_shaders.len(),
+        source_textures: source_textures.len(),
+        missing_textures,
+        dropped_lightmaps,
+        collision_vertices: decoded.cform.vertices.len(),
+        collision_triangles: decoded.cform.faces.len(),
+        collision_materials,
+        unclassified_shaders: unclassified.into_iter().collect(),
+        dropped_by_kind: merge_report.dropped_by_kind,
+        vertex_buffers: decoded.buffers.vertex_buffers.len(),
+        index_buffers: decoded.buffers.index_buffers.len(),
+    })
+}
+
 fn plan_textures(
     manifest: &SocMapManifest,
-    source: &SocSource,
+    source: &mut SocSource,
     plans: &[MaterialPlan],
 ) -> Result<Vec<TexturePlan>> {
     let mut wanted: BTreeSet<String> = BTreeSet::new();
@@ -226,12 +412,11 @@ fn plan_textures(
     let mut textures = Vec::with_capacity(wanted.len());
     let mut missing = Vec::new();
     for name in &wanted {
-        let effective = manifest.texture_aliases.get(name).unwrap_or(name);
-        let Some(path) = source.texture(effective) else {
+        let effective = manifest.texture_aliases.get(name).unwrap_or(name).clone();
+        let Some(bytes) = source.read_texture(&effective)? else {
             missing.push(name.clone());
             continue;
         };
-        let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
         let info = source::parse_dds(&bytes, name)?;
         if !info.has_trimmed_mip_chain() && !manifest.allow_untrimmed_mip_chains {
             bail!(
