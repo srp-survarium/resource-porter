@@ -190,9 +190,33 @@ property of the collision *object*, not of the surface under the foot, and
 with `cmask` 16, 4 and 20 — powers of two, physics filter categories, not
 material identifiers.
 
+This is a gap in build 802, not a design. The engine has exactly two `get_pair`
+callers, handed the same `closest_ray_result`, and they disagree:
+
+```cpp
+// bullet.cpp:448 -- reads the triangle the ray actually hit
+u16 game_material_id = body->get_triangle_material( ray_result.triangle_index, ray_result.is_shape_index );
+// bullet.cpp:527
+get_pair( m_bullet_material->id( ), m_collided_material->id( ) );
+
+// step_manager.cpp:66 -- ignores the triangle index in the same struct
+get_pair( ray_result.object->get_collision_group( ), foot_material_id );
+```
+
+`closest_ray_result` carries `triangle_index` and `is_shape_index`; bullets use
+them, footsteps do not. `step_manager::on_step` is the only footstep emitter in
+the tree, so there is no other path. The engine fix is two lines -- read the
+triangle material the way `bullet.cpp` does -- and it would light up the whole
+material table for footsteps, water included.
+
+Nor does the collision group rescue it: `m_pairs` is built as
+`m_pairs[actor][surface]` and water appears only ever as `mtrl_2`, so setting an
+object.s `cgroup` to 27 would look up `m_pairs[27][..]`, which does not exist,
+and would corrupt Bullet.s broadphase filtering besides.
+
 What `game_material_settings` *does* drive is everything that resolves a
 material per triangle: bullet impact sounds, decals and particles go through
-`get_triangle_material`. Those are worth binding correctly, and are. Footsteps
+`get_triangle_material`. Impacts on water will behave correctly already. Those are worth binding correctly, and are. Footsteps
 are not reachable from map data in this build, and the reason is sharper than
 "the group is not a material": `get_pair` is asymmetric --
 `m_pairs[first][second]` -- and pair 46 is stored at `m_pairs[10=actor][27=water]`.

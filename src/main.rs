@@ -380,6 +380,23 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Decode a motion bank and report the motions and bones it carries.
+    ///
+    /// The bank names its own bones, so this needs no actor model: it answers
+    /// "does this animation exist, on which bones, for how long" directly.
+    SocProbeMotions {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Archive-relative bank path, e.g. `meshes/actors/mp_stalker.omf`.
+        #[arg(long)]
+        bank: String,
+        /// Restrict the motion listing to names starting with this prefix.
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Report this motion's per-bone tracks instead of the listing.
+        #[arg(long)]
+        motion: Option<String>,
+    },
     /// Report which blender class every shader a level binds resolves to.
     ///
     /// Cross-checks the converter's reviewed render-family table against what
@@ -1105,6 +1122,71 @@ fn main() -> Result<()> {
             println!("path={path}");
             println!("bytes={}", bytes.len());
             println!("output={}", output.display());
+        }
+        Command::SocProbeMotions {
+            source_root,
+            bank,
+            prefix,
+            motion,
+        } => {
+            use vostok_resource_porter::soc::codec::omf;
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let bytes = source.read(&bank)?;
+            let decoded = omf::parse(&bytes, &bank)?;
+            println!("bank={bank}");
+            println!("version={}", decoded.version);
+            println!("bones={}", decoded.bones.len());
+            for partition in &decoded.partitions {
+                println!(
+                    "partition={} bones={}",
+                    partition.name,
+                    partition.bones.len()
+                );
+            }
+            println!("motions={}", decoded.motions.len());
+
+            match motion {
+                Some(name) => {
+                    let motion = decoded
+                        .motion(&name)
+                        .with_context(|| format!("{bank}: no motion named {name}"))?;
+                    println!(
+                        "motion={} frames={} seconds={:.3} speed={:.3}",
+                        motion.name,
+                        motion.frames,
+                        motion.duration(),
+                        motion.speed
+                    );
+                    let animated = motion
+                        .tracks
+                        .iter()
+                        .filter(|track| !track.is_static())
+                        .count();
+                    println!("animated_bones={animated} static_bones={}", motion.tracks.len() - animated);
+                    for (index, track) in motion.tracks.iter().enumerate() {
+                        println!(
+                            "  {:<24} rotations={:<4} translations={:<4}{}",
+                            decoded.bones[index],
+                            track.rotations.len(),
+                            track.translations.len(),
+                            if track.is_static() { " static" } else { "" }
+                        );
+                    }
+                }
+                None => {
+                    for motion in &decoded.motions {
+                        if !motion.name.starts_with(&prefix) {
+                            continue;
+                        }
+                        println!(
+                            "motion={} frames={} seconds={:.3}",
+                            motion.name,
+                            motion.frames,
+                            motion.duration()
+                        );
+                    }
+                }
+            }
         }
         Command::SocAuditShaders { source_root, level } => {
             use vostok_resource_porter::soc::codec::{blender, level as soc_level};

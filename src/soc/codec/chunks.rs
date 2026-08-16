@@ -182,6 +182,14 @@ impl<'a> Cursor<'a> {
         Ok(self.take(1)?[0])
     }
 
+    pub fn i16(&mut self) -> Result<i16> {
+        Ok(i16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+    }
+
+    pub fn i8(&mut self) -> Result<i8> {
+        Ok(self.take(1)?[0] as i8)
+    }
+
     pub fn f32(&mut self) -> Result<f32> {
         Ok(f32::from_le_bytes(self.take(4)?.try_into().unwrap()))
     }
