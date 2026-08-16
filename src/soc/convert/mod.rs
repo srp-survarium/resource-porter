@@ -17,4 +17,5 @@
 pub mod collision;
 pub mod game_material;
 pub mod render_material;
+pub mod spawn;
 pub mod surface;

@@ -35,7 +35,7 @@ pub struct SocMapBuildRecord {
     pub client_project: String,
     pub server_project: String,
     pub models: Vec<String>,
-    pub collision_model: String,
+    pub collision_models: Vec<String>,
     /// Source visuals that produced render geometry.
     pub rendered_surfaces: usize,
     /// Merged target surfaces.
@@ -45,6 +45,7 @@ pub struct SocMapBuildRecord {
     pub tree_surfaces: usize,
     pub textures: usize,
     pub materials: usize,
+    pub collision_pieces: usize,
     pub collision_vertices: usize,
     pub collision_triangles: usize,
     pub collision_materials: Vec<CollisionMaterialBinding>,
@@ -132,7 +133,16 @@ pub fn build_bundle(
         &manifest.effective_correspondence(),
         &target_materials,
     )?;
-    let collision_payloads = collision::encode(&cform, &collision_materials)?;
+    // One level-sized mesh does not cook; retail ships collision as many small
+    // per-object models. Split before encoding, and let the piece count set a
+    // floor on how many model archives we emit, so every piece rides in an
+    // archive that also carries render surfaces -- the only shape retail has.
+    let collision_pieces = collision::split(&cform, manifest.max_collision_triangles)
+        .iter()
+        .map(|piece| {
+            collision::encode(piece, &collision_materials, manifest.collision_face_dictionary)
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let textures = plan_textures(manifest, &mut source, &material_plans)?;
     let normals: BTreeSet<String> = textures
@@ -143,10 +153,35 @@ pub fn build_bundle(
 
     // --- emit -------------------------------------------------------------
     let mut files = Vec::new();
-    let model_groups = surface::assign_models(&surfaces, manifest.surfaces_per_model)?;
+    let pieces = if manifest.emit_collision {
+        collision_pieces.len()
+    } else {
+        0
+    };
+    // Enough archives to carry every collision piece, without exceeding the
+    // declared surfaces-per-archive.
+    let surfaces_per_model = if pieces > 1 {
+        // Floor, not ceiling: we need at least as many archives as pieces, and
+        // ceiling rounds the archive count down below the piece count.
+        manifest.surfaces_per_model.min(surfaces.len() / pieces).max(1)
+    } else {
+        manifest.surfaces_per_model
+    };
+    let model_groups = surface::assign_models(&surfaces, surfaces_per_model)?;
+    if model_groups.len() < pieces {
+        bail!(
+            "{} collision pieces need at least that many model archives, but {} surfaces \
+             produce only {}; lower max_collision_triangles or split the map",
+            pieces,
+            surfaces.len(),
+            model_groups.len()
+        );
+    }
     let mut models = Vec::with_capacity(model_groups.len());
     for (index, group) in model_groups.iter().enumerate() {
         let path = manifest.model_path(index);
+        // Each piece rides in an archive that also carries render surfaces.
+        let collision = (index < pieces).then(|| &collision_pieces[index]);
         write_model_archive(
             manifest,
             &mut target,
@@ -154,31 +189,27 @@ pub fn build_bundle(
             &path,
             &surfaces,
             group,
+            collision,
             &mut files,
         )?;
         models.push(path);
     }
 
-    let collision_model = manifest.collision_model_path();
-    write_collision_archive(
-        manifest,
-        &mut target,
-        &overlay,
-        &collision_model,
-        &collision_payloads,
-        &collision_materials,
-        &mut files,
-    )?;
+    let collision_models = models[..pieces].to_vec();
 
     write_materials(manifest, &mut target, &overlay, &material_plans, &normals, &mut files)?;
     write_textures(manifest, &mut target, &overlay, &textures, &mut files)?;
     let extent = MapExtent::of(&surfaces, cform.header.bounding_box)?;
+    let post_effect =
+        write_post_process_material(manifest, &mut target, &overlay, &extent, &mut files)?;
     let dropped_objects = write_projects(
         manifest,
         &mut target,
         &overlay,
         &models,
-        &collision_model,
+        &collision_models,
+        &extent,
+        &post_effect,
         &mut files,
     )?;
 
@@ -192,15 +223,16 @@ pub fn build_bundle(
         client_project: manifest.client_project_path(),
         server_project: manifest.server_project_path(),
         models,
-        collision_model,
+        collision_models,
         rendered_surfaces: merge_report.rendered_visuals,
         converted_surfaces: surfaces.len(),
         rendered_triangles: merge_report.triangles,
         tree_surfaces: merge_report.tree_visuals,
         textures: textures.len(),
         materials: material_plans.len(),
-        collision_vertices: collision_payloads.vertex_count,
-        collision_triangles: collision_payloads.triangle_count,
+        collision_vertices: collision_pieces.iter().map(|piece| piece.vertex_count).sum(),
+        collision_triangles: collision_pieces.iter().map(|piece| piece.triangle_count).sum(),
+        collision_pieces: collision_pieces.len(),
         dropped_lightmaps: material_plans
             .iter()
             .map(|plan| plan.dropped_lightmaps.len())
@@ -617,9 +649,12 @@ fn write_model_archive(
     model: &str,
     surfaces: &[MergedSurface],
     group: &[usize],
+    collision: Option<&collision::CollisionPayloads>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let surface_template = load_template(target, &manifest.templates.surface_properties)?;
+    let mut archive_min = [f32::INFINITY; 3];
+    let mut archive_max = [f32::NEG_INFINITY; 3];
     let mut bindings = BTreeMap::new();
 
     for index in group {
@@ -637,6 +672,10 @@ fn write_model_archive(
         )?;
 
         let bounds = merged.bounds();
+        for axis in 0..3 {
+            archive_min[axis] = archive_min[axis].min(bounds.min[axis]);
+            archive_max[axis] = archive_max[axis].max(bounds.max[axis]);
+        }
         let mut properties = surface_template.clone();
         properties.root.set_path(
             "source.mesh_name",
@@ -680,7 +719,29 @@ fn write_model_archive(
         )?;
     }
 
-    let render_properties = load_template(target, &manifest.templates.model_render_properties)?;
+    // The template's bounding box describes the template's map. Cloning it
+    // verbatim leaves every archive claiming level_03's extent -- for
+    // `terrain_p_09` that is x 38.6..116.076, z -22.691..70.817, which barely
+    // touches a converted map at all. Render-only archives merely cull wrong;
+    // an archive carrying collision has to be cooked against these bounds.
+    let mut render_properties = load_template(target, &manifest.templates.model_render_properties)?;
+    if let Some(collision) = collision {
+        let (min, max) = collision.bounds;
+        for axis in 0..3 {
+            archive_min[axis] = archive_min[axis].min(min[axis]);
+            archive_max[axis] = archive_max[axis].max(max[axis]);
+        }
+    }
+    if !archive_min.iter().chain(&archive_max).all(|value| value.is_finite()) {
+        bail!("model archive {model} produced no finite geometry to bound");
+    }
+        render_properties
+            .root
+            .set_path("bounding_box.min", ConfigValue::Float3(archive_min))?;
+        render_properties
+            .root
+            .set_path("bounding_box.max", ConfigValue::Float3(archive_max))?;
+
     write_config(
         overlay,
         &format!("{model}/render/export_properties"),
@@ -703,11 +764,26 @@ fn write_model_archive(
         Some(ConfigValue::Named(levels)) => levels.iter().map(|l| l.name.clone()).collect(),
         _ => bail!("{model}: template settings have no lod_hierrarchy"),
     };
+    // The merge produces a single detail level, so every surface belongs to
+    // LOD0 and nothing else. Retail agrees: `terrain_p_09` leaves `unassigned`
+    // empty, names `l3terr_` in LOD0 and `l3terr_lod_1` in LOD1, so a surface
+    // appears exactly once in the whole hierarchy. Declaring our surfaces on
+    // every level -- `unassigned` included -- listed each of them four times,
+    // which a render-only archive tolerates and a cook does not.
+    let mut assigned = false;
     for level in levels {
-        settings.root.set_path(
-            &format!("lod_hierrarchy.{level}.surfaces"),
-            ConfigValue::Indexed(surface_names.clone()),
-        )?;
+        let surfaces = if level == "unassigned" || assigned {
+            Vec::new()
+        } else {
+            assigned = true;
+            surface_names.clone()
+        };
+        settings
+            .root
+            .set_path(&format!("lod_hierrarchy.{level}.surfaces"), ConfigValue::Indexed(surfaces))?;
+    }
+    if !assigned {
+        bail!("{model}: template lod_hierrarchy declares no level to carry surfaces");
     }
     settings.root.set_path(
         "material_settings",
@@ -730,80 +806,74 @@ fn write_model_archive(
                 .collect(),
         ),
     )?;
+
+    // Collision lives *inside* a render archive, never beside one.
+    //
+    // v0.100b has 326 models, 236 of them carry collision, and not one is
+    // collision-only. A standalone collision archive is a shape the engine has
+    // never been asked to load, and it faults on a null resource while the map
+    // loads. The recovered Cordon bundles tell the same story from the other
+    // side: v1 kept render and collision in a single `cordon.model` and v3
+    // split them, and no bundle from v3 onward was ever shown to run.
+    let mut emitted_bindings = false;
+    if let Some(payloads) = collision {
+        write_resource(
+            overlay,
+            &format!("{model}/collision/vertices"),
+            &payloads.vertices,
+            "converted:SoC-CFORM-vertices",
+            files,
+        )?;
+        write_resource(
+            overlay,
+            &format!("{model}/collision/indices"),
+            &payloads.indices,
+            "converted:SoC-CFORM-indices",
+            files,
+        )?;
+        write_resource(
+            overlay,
+            &format!("{model}/collision/face_data"),
+            &payloads.face_data,
+            "converted:SoC-CFORM-per-triangle-materials",
+            files,
+        )?;
+        emitted_bindings = true;
+    }
+    if let Some(payloads) = collision.filter(|_| emitted_bindings) {
+        settings.root.set_path(
+            "game_material_settings",
+            ConfigValue::Named(
+                payloads
+                    .bindings
+                    .iter()
+                    .map(|binding| NamedValue {
+                        name: binding.face_name.clone(),
+                        value: ConfigValue::Named(vec![
+                            NamedValue {
+                                name: "game_material_id".into(),
+                                value: ConfigValue::Integer(binding.target_id),
+                            },
+                            NamedValue {
+                                name: "game_material_name".into(),
+                                value: ConfigValue::String(binding.target_name.clone()),
+                            },
+                        ]),
+                    })
+                    .collect(),
+            ),
+        )?;
+    } else {
+        // No collision payloads means no face dictionary to bind; leaving the
+        // template's would name faces this archive does not have.
+        remove_named(&mut settings.root, "game_material_settings");
+    }
+
     write_config(
         overlay,
         &format!("{model}/settings"),
         &settings,
         "generated:v0.100b-model-settings",
-        files,
-    )
-}
-
-fn write_collision_archive(
-    manifest: &SocMapManifest,
-    target: &mut ResourceDb,
-    overlay: &Path,
-    model: &str,
-    payloads: &collision::CollisionPayloads,
-    bindings: &[CollisionMaterialBinding],
-    files: &mut Vec<BuiltFile>,
-) -> Result<()> {
-    write_resource(
-        overlay,
-        &format!("{model}/collision/vertices"),
-        &payloads.vertices,
-        "converted:SoC-CFORM-vertices",
-        files,
-    )?;
-    write_resource(
-        overlay,
-        &format!("{model}/collision/indices"),
-        &payloads.indices,
-        "converted:SoC-CFORM-indices",
-        files,
-    )?;
-    write_resource(
-        overlay,
-        &format!("{model}/collision/face_data"),
-        &payloads.face_data,
-        "converted:SoC-CFORM-per-triangle-materials",
-        files,
-    )?;
-
-    let mut settings = load_template(target, &manifest.templates.collision_settings)?;
-    // v0.100b ships no collision-only model, so the template necessarily has
-    // render surfaces. A collision archive declares none, and the one-to-one
-    // rule -- surfaces in settings == surface directories with geometry -- makes
-    // leaving them in a crash rather than a cosmetic flaw.
-    for key in ["material_settings", "lod_hierrarchy", "lod_switching"] {
-        remove_named(&mut settings.root, key);
-    }
-    settings.root.set_path(
-        "game_material_settings",
-        ConfigValue::Named(
-            bindings
-                .iter()
-                .map(|binding| NamedValue {
-                    name: binding.face_name.clone(),
-                    value: ConfigValue::Named(vec![
-                        NamedValue {
-                            name: "game_material_id".into(),
-                            value: ConfigValue::Integer(binding.target_id),
-                        },
-                        NamedValue {
-                            name: "game_material_name".into(),
-                            value: ConfigValue::String(binding.target_name.clone()),
-                        },
-                    ]),
-                })
-                .collect(),
-        ),
-    )?;
-    write_config(
-        overlay,
-        &format!("{model}/settings"),
-        &settings,
-        "generated:v0.100b-collision-model-settings",
         files,
     )
 }
@@ -823,6 +893,73 @@ fn bind_texture(
     let reference = texture_reference_like(existing, target_texture);
     material.root.set_path(path, ConfigValue::String(reference))
 }
+
+/// Emit this map's post-process material, with the skylight band re-anchored.
+///
+/// Sky light is a world-height ramp, not a constant: `stage_ambient_lighting`
+/// hands the shader `(skylight_lower, skylight_upper - skylight_lower,
+/// skylight_power)` and the surface is lit in proportion to where it sits
+/// between the two. `level_03_day` sets `lower = 0`, `upper = 5`, tuned for
+/// terrain that runs y = -0.6..3.97.
+///
+/// A Shadow of Chernobyl map does not share that convention. `mp_pool`'s deck
+/// is at y = 0 and its pool floor at y = -4.69, so under the inherited band the
+/// ground receives *exactly* zero sky light, the pool receives zero, and a
+/// player's own hands go dark on the way down -- a sharp, sourceless cutoff at
+/// the floor. With `power = 0.1` the ramp then rises so steeply that a scrap of
+/// litter a few units up is already fully lit, which is what makes the edge
+/// look like a hard line rather than a gradient.
+///
+/// The band's width is the artist's decision and is preserved; only its anchor
+/// moves, to sit just under the map's lowest geometry.
+fn write_post_process_material(
+    manifest: &SocMapManifest,
+    target: &mut ResourceDb,
+    overlay: &Path,
+    extent: &MapExtent,
+    files: &mut Vec<BuiltFile>,
+) -> Result<String> {
+    let mut material = load_template(target, &manifest.templates.post_process_material)?;
+
+    let read = |material: &BinaryConfig, name: &str| -> Result<f32> {
+        match named_path(&material.root, &format!("{SKYLIGHT_PREFIX}.{name}.value")) {
+            Ok(ConfigValue::Float(value)) => Ok(*value),
+            Ok(ConfigValue::Integer(value)) => Ok(*value as f32),
+            _ => bail!(
+                "post-process template {} has no numeric {name}",
+                manifest.templates.post_process_material
+            ),
+        }
+    };
+    let band = (read(&material, "skylight_upper")? - read(&material, "skylight_lower")?).max(1.0);
+
+    // Clear of the lowest geometry, so the deepest floor still catches the
+    // bottom of the ramp instead of sitting exactly on zero.
+    let lower = extent.min[1] - SKYLIGHT_FLOOR_CLEARANCE;
+    material
+        .root
+        .set_path(&format!("{SKYLIGHT_PREFIX}.skylight_lower.value"), ConfigValue::Float(lower))?;
+    material
+        .root
+        .set_path(&format!("{SKYLIGHT_PREFIX}.skylight_upper.value"), ConfigValue::Float(lower + band))?;
+
+    let path = format!("material_instances/{}/post_process.material", manifest.namespace);
+    write_config(
+        overlay,
+        &path,
+        &material,
+        "generated:v0.100b-post-process",
+        files,
+    )?;
+    println!("skylight_band={lower:.2}..{:.2}", lower + band);
+    Ok(format!("{}/post_process", manifest.namespace))
+}
+
+/// Where the skylight parameters sit inside a post-process material.
+const SKYLIGHT_PREFIX: &str = "material.post_process";
+
+/// How far under the map's lowest geometry the skylight ramp starts.
+const SKYLIGHT_FLOOR_CLEARANCE: f32 = 1.0;
 
 fn write_materials(
     manifest: &SocMapManifest,
@@ -938,13 +1075,16 @@ fn write_projects(
     target: &mut ResourceDb,
     overlay: &Path,
     models: &[String],
-    collision_model: &str,
+    collision_models: &[String],
+    extent: &MapExtent,
+    post_effect: &str,
     files: &mut Vec<BuiltFile>,
 ) -> Result<BTreeMap<String, usize>> {
     let bindings = &manifest.project_bindings;
 
     let mut client = load_template(target, &manifest.templates.client_project)?;
-    let dropped_objects = filter_template_objects(manifest, &mut client.root)?;
+    let dropped_objects =
+        filter_template_objects(manifest, &mut client.root, extent, post_effect)?;
     client.root.set_path(
         &bindings.project_name_path,
         ConfigValue::String(manifest.project_name.clone()),
@@ -958,15 +1098,20 @@ fn write_projects(
     client
         .root
         .set_path(&bindings.visual_array_path, ConfigValue::Indexed(visuals))?;
-    let collision = rebuild_instances(
-        &client.root,
-        &bindings.collision_array_path,
-        &bindings.instance_model_path,
-        std::slice::from_ref(&collision_model.to_owned()),
-    )?;
-    client
-        .root
-        .set_path(&bindings.collision_array_path, ConfigValue::Indexed(collision))?;
+    // With the collision archive suppressed the template keeps its own
+    // collision, which belongs to another map -- deliberately wrong, and only
+    // useful for isolating the archive.
+    if manifest.emit_collision {
+        let collision = rebuild_instances(
+            &client.root,
+            &bindings.collision_array_path,
+            &bindings.instance_model_path,
+            collision_models,
+        )?;
+        client
+            .root
+            .set_path(&bindings.collision_array_path, ConfigValue::Indexed(collision))?;
+    }
     write_config(
         overlay,
         &manifest.client_project_path(),
@@ -1032,6 +1177,8 @@ fn write_projects(
 fn filter_template_objects(
     manifest: &SocMapManifest,
     root: &mut ConfigValue,
+    extent: &MapExtent,
+    post_effect: &str,
 ) -> Result<BTreeMap<String, usize>> {
     let bindings = &manifest.project_bindings;
     let (Some(array_path), Some(type_path)) = (
@@ -1051,6 +1198,7 @@ fn filter_template_objects(
         .collect();
 
     let mut kept = Vec::new();
+    let mut anchored = 0_usize;
     let mut dropped: BTreeMap<String, usize> = BTreeMap::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
     for entry in entries {
@@ -1062,11 +1210,68 @@ fn filter_template_objects(
             _ => "<untyped>".to_owned(),
         };
         seen.insert(kind.clone());
-        if retained.contains(kind.as_str()) {
-            kept.push(entry.clone());
+        // A `light` is positional -- except the sun. The template's 19 lights
+        // are one directional sun (`lib_name: "sun"`, `light_type: 4`, four
+        // shadow cascades) and eighteen local lamps placed around level_03.
+        // Dropping the lot leaves a map lit only by sky ambient, which reaches
+        // open geometry but not enclosed ground: the map goes black below the
+        // height where the sky stops being visible. The sun's own position is
+        // meaningless, so it travels; the lamps do not.
+        let is_positional_lamp = kind == "light"
+            && !matches!(entry.named("lib_name"), Some(ConfigValue::String(name)) if name == "sun");
+        if retained.contains(kind.as_str()) && !is_positional_lamp {
+            // A retained object is retained for its settings -- but the
+            // atmosphere objects anchor those settings to a *place*, and the
+            // place they carry is the template map's.
+            //
+            // `environment` sits at (0, 0, 0) in `level_03`, whose terrain
+            // runs y = -0.595..3.967, so that map's ground is above its own
+            // anchor. Imported unmoved into a map whose floor is at y = 0, the
+            // anchor lands exactly on the floor: the floor and the pool below
+            // it lose ambient entirely, a scrap of paper a few units higher
+            // keeps it, and a player's own hands go dark on the way down. The
+            // cutoff is perfectly sharp and has no visible source.
+            //
+            // `volume_fog` carries the same problem in its own terms: its
+            // position is the height fog collects at.
+            //
+            // So the atmosphere is re-anchored under this map, clear of its
+            // lowest geometry by [`SocMapManifest::lighting_volume_margin`] --
+            // a volume whose floor coincides with the map's own leaves the
+            // lowest surfaces on the boundary, where a rounding difference
+            // decides whether they are lit. The sun is exempt: it is
+            // directional, and its position means nothing.
+            let mut entry = entry.clone();
+            if kind != "light" && entry.named("position").is_some() {
+                entry.set_path(
+                    "position",
+                    ConfigValue::Float3([
+                        extent.center()[0],
+                        extent.min[1] - manifest.lighting_volume_margin,
+                        extent.center()[2],
+                    ]),
+                )?;
+                anchored += 1;
+            }
+            // The environment object names the post-process material that
+            // carries the skylight band; point it at this map's own.
+            if entry.named("post_effect").is_some() {
+                entry.set_path("post_effect", ConfigValue::String(post_effect.to_owned()))?;
+            }
+            kept.push(entry);
         } else {
-            *dropped.entry(kind).or_insert(0) += 1;
+            // Distinguish a lamp dropped for its place from a type that was
+            // never retained at all.
+            let label = if is_positional_lamp && retained.contains(kind.as_str()) {
+                "light:lamp".to_owned()
+            } else {
+                kind
+            };
+            *dropped.entry(label).or_insert(0) += 1;
         }
+    }
+    if anchored > 0 {
+        println!("re_anchored_template_objects={anchored}");
     }
 
     // A retain entry that matches nothing is a stale review, same posture as
@@ -1113,6 +1318,20 @@ fn rebuild_instances(
                 model_path,
                 ConfigValue::String(model_reference_like(&existing, model)),
             )?;
+            // The prototype is one of the template map's own objects and
+            // carries its placement -- for `level_03` that is a lamp at
+            // (-49.834, 8.897, 8.074). A converted map's geometry is already
+            // in world coordinates, so an inherited transform silently offsets
+            // the entire map from the coordinates the server spawns players in.
+            for (field, identity) in [
+                ("position", [0.0, 0.0, 0.0]),
+                ("rotation", [0.0, 0.0, 0.0]),
+                ("scale", [1.0, 1.0, 1.0]),
+            ] {
+                if entry.named(field).is_some() {
+                    entry.set_path(field, ConfigValue::Float3(identity))?;
+                }
+            }
             Ok(entry)
         })
         .collect()
@@ -1160,23 +1379,48 @@ fn texture_reference_like(template_value: &str, target_path: &str) -> String {
     reference
 }
 
+/// Rewrite a model reference in the shape the surrounding array already uses.
+///
+/// The two arrays of a client project do not agree. `render_visuals` names a
+/// model as `props/light/green_lamp_with_wire`, while `collision_objects` names
+/// the same model as
+/// `resources/models/props/light/green_lamp_with_wire.model/collision` -- a
+/// full resource path, down to the sub-resource. Writing the render shape into
+/// the collision array asks the engine to cook a path that resolves to nothing,
+/// and it faults on the result it never checks:
+///
+/// ```text
+/// resources <Warning>  cook of 'ported/soc/mp_pool/mp_pool_000' [...] failed
+/// debug     <ERROR>    ACCESS_VIOLATION
+/// ```
+///
+/// So the template value is read for all four of its conventions -- the
+/// `resources/` root, the `models/` prefix, the `.model` extension and any
+/// sub-resource suffix -- and each is reproduced.
 fn model_reference_like(template_value: &str, target_path: &str) -> String {
-    let keeps_prefix = template_value.starts_with("models/");
-    let keeps_extension = template_value.ends_with(".model");
+    let (root, rest) = match template_value.strip_prefix("resources/") {
+        Some(rest) => ("resources/", rest),
+        None => ("", template_value),
+    };
+    let (core, suffix) = match rest.find(".model") {
+        Some(at) => rest.split_at(at + ".model".len()),
+        None => (rest, ""),
+    };
+
     let mut reference = target_path.to_owned();
-    if !keeps_extension {
+    if !core.ends_with(".model") {
         reference = reference
             .strip_suffix(".model")
             .unwrap_or(&reference)
             .to_owned();
     }
-    if !keeps_prefix {
+    if !core.starts_with("models/") {
         reference = reference
             .strip_prefix("models/")
             .unwrap_or(&reference)
             .to_owned();
     }
-    reference
+    format!("{root}{reference}{suffix}")
 }
 
 fn load_template(target: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
@@ -1237,6 +1481,85 @@ mod tests {
             model_reference_like("stock/x", "models/ported/soc/cordon/y.model"),
             "ported/soc/cordon/y"
         );
+    }
+
+    /// The collision array names a model by full resource path down to the
+    /// sub-resource, unlike the render array. Reproducing only the render
+    /// shape names a path that resolves to nothing, and the cook fails.
+    #[test]
+    fn reproduces_a_full_collision_sub_resource_reference() {
+        assert_eq!(
+            model_reference_like(
+                "resources/models/props/light/green_lamp_with_wire.model/collision",
+                "models/ported/soc/cordon/y.model"
+            ),
+            "resources/models/ported/soc/cordon/y.model/collision"
+        );
+        assert_eq!(
+            model_reference_like(
+                "models/props/light/lamp.model/collision",
+                "models/ported/soc/cordon/y.model"
+            ),
+            "models/ported/soc/cordon/y.model/collision"
+        );
+        // The render array's own shape must survive unchanged.
+        assert_eq!(
+            model_reference_like(
+                "props/light/green_lamp_with_wire",
+                "models/ported/soc/cordon/y.model"
+            ),
+            "ported/soc/cordon/y"
+        );
+    }
+
+    /// A cloned prototype carries the template map's placement; a converted
+    /// map's geometry is already in world coordinates.
+    #[test]
+    fn clears_the_prototype_placement() {
+        let float3 = |name: &str, value: [f32; 3]| NamedValue {
+            name: name.into(),
+            value: ConfigValue::Float3(value),
+        };
+        // A prototype shaped like `level_03`'s: a lamp, placed where that map
+        // put it, referenced down to its collision sub-resource.
+        let root = ConfigValue::Named(vec![NamedValue {
+            name: "collision_objects".into(),
+            value: ConfigValue::Indexed(vec![ConfigValue::Named(vec![
+                float3("position", [-49.834, 8.897, 8.074]),
+                float3("rotation", [0.0, 90.0, 0.0]),
+                float3("scale", [2.0, 2.0, 2.0]),
+                NamedValue {
+                    name: "lib_name".into(),
+                    value: ConfigValue::String(
+                        "resources/models/props/light/green_lamp_with_wire.model/collision".into(),
+                    ),
+                },
+            ])]),
+        }]);
+        let entries = rebuild_instances(
+            &root,
+            "collision_objects",
+            "lib_name",
+            &["models/ported/soc/cordon/cordon_000.model".to_owned()],
+        )
+        .unwrap();
+        assert_eq!(
+            entries[0].named("lib_name"),
+            Some(&ConfigValue::String(
+                "resources/models/ported/soc/cordon/cordon_000.model/collision".into()
+            ))
+        );
+        let entry = entries.first().expect("one instance");
+        assert_eq!(entry.named("position"), Some(&ConfigValue::Float3([0.0; 3])));
+        assert_eq!(entry.named("rotation"), Some(&ConfigValue::Float3([0.0; 3])));
+        assert_eq!(entry.named("scale"), Some(&ConfigValue::Float3([1.0; 3])));
+    }
+
+    fn test_extent() -> MapExtent {
+        MapExtent {
+            min: [-10.0, -4.0, -20.0],
+            max: [10.0, 6.0, 20.0],
+        }
     }
 
     fn project_template() -> ConfigValue {
@@ -1352,11 +1675,57 @@ mod tests {
         assert!(MapExtent::of(&[], ([10.0, 0.0, 0.0], [-10.0, 0.0, 0.0])).is_err());
     }
 
+    /// The sun is the one light worth importing: it is directional, so its
+    /// position means nothing, and without it a map is lit by sky ambient
+    /// alone and goes black wherever the sky is not visible.
+    #[test]
+    fn keeps_the_sun_but_not_the_lamps() {
+        let light = |lib_name: &str| {
+            ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("light".into()),
+                },
+                NamedValue {
+                    name: "lib_name".into(),
+                    value: ConfigValue::String(lib_name.into()),
+                },
+                NamedValue {
+                    name: "position".into(),
+                    value: ConfigValue::Float3([14.132, 2.792, 7.879]),
+                },
+            ])
+        };
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![light("sun"), light("green_lamp"), light("lamp_02")]),
+        }]);
+
+        let mut manifest = crate::soc::manifest::sample_manifest();
+        manifest.project_bindings.retained_object_types = vec!["light".to_owned()];
+        let dropped = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process").unwrap();
+        assert_eq!(dropped["light:lamp"], 2);
+
+        let ConfigValue::Indexed(kept) = named_path(&root, "objects").unwrap() else {
+            panic!("objects is not indexed");
+        };
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            kept[0].named("lib_name"),
+            Some(&ConfigValue::String("sun".into()))
+        );
+        // The sun is not fog: its position is left exactly as authored.
+        assert_eq!(
+            kept[0].named("position"),
+            Some(&ConfigValue::Float3([14.132, 2.792, 7.879]))
+        );
+    }
+
     #[test]
     fn positional_template_objects_are_dropped_and_global_ones_kept() {
         let manifest = crate::soc::manifest::sample_manifest();
         let mut root = objects_template();
-        let dropped = filter_template_objects(&manifest, &mut root).unwrap();
+        let dropped = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process").unwrap();
 
         // Everything that carries a place in the template's map is gone.
         assert_eq!(dropped["environment_probe"], 2);
@@ -1395,7 +1764,7 @@ mod tests {
                 }]),
             ]),
         }]);
-        let dropped = filter_template_objects(&manifest, &mut root).unwrap();
+        let dropped = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process").unwrap();
         assert_eq!(dropped["<untyped>"], 1);
     }
 
@@ -1407,7 +1776,7 @@ mod tests {
             .retained_object_types
             .push("terrain".into());
         let mut root = objects_template();
-        let error = filter_template_objects(&manifest, &mut root)
+        let error = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process")
             .unwrap_err()
             .to_string();
         assert!(error.contains("does not contain"), "{error}");

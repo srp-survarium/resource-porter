@@ -494,7 +494,7 @@ pub(crate) fn build_stk2_terrain_models(
             &template.settings_template,
             "terrain settings template",
         )?;
-        let mut settings = replace_settings_surfaces(settings_template, &material_bindings, true)?;
+        let mut settings = replace_settings_surfaces(settings_template, &material_bindings, false)?;
         set_collision_game_material(
             &mut settings,
             collision_game_material.0,
@@ -2336,16 +2336,14 @@ fn convert_static_surface(vertices: &[u8], indices: &[u8]) -> Result<Vec<u8>> {
     for index in 0..count {
         let source = &vertices[4 + index * 56..][..56];
         output.extend_from_slice(&source[..12]);
-        let uv_x = read_f32(source, 48)?;
-        let uv_y = read_f32(source, 52)?;
         push_u32(&mut output, packed_basis(bases[index][0], 127));
         push_u32(
             &mut output,
-            packed_basis(bases[index][1], quantized_uv_fraction(uv_x)),
+            packed_basis(bases[index][1], 255),
         );
         push_u32(
             &mut output,
-            packed_basis(bases[index][2], quantized_uv_fraction(uv_y)),
+            packed_basis(bases[index][2], 255),
         );
         output.extend_from_slice(&source[48..56]);
     }

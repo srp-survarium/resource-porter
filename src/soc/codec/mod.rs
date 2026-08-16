@@ -28,4 +28,5 @@ pub mod gamemtl;
 pub mod lzhuf;
 pub mod level;
 pub mod ogf;
+pub mod spawn;
 pub mod vertex;

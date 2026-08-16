@@ -10,11 +10,14 @@ srp_bin_dir="${SRP_BIN_DIR:-${work_dir}/srp-0100b-target/debug}"
 wine_prefix="${WINE_PREFIX:-${work_dir}/wineprefix}"
 server_log_dir="${SERVER_LOG_DIR:-${work_dir}/srp-0100b-logs}"
 client_log="${CLIENT_LOG:-${work_dir}/client-v0100b-akmn.log}"
-max_resources_size_mb="${MAX_RESOURCES_SIZE_MB:-1536}"
+# The retail client is 32-bit/LAA. 3072 MiB can be requested explicitly for
+# non-DXVK diagnostics, but with DXVK it starves Vulkan's address mappings.
+max_resources_size_mb="${MAX_RESOURCES_SIZE_MB:-2560}"
+client_hit_report_patch_dir="${CLIENT_HIT_REPORT_PATCH_DIR:-}"
 
 if [[ ! "${max_resources_size_mb}" =~ ^[0-9]+$ ]] \
-  || (( max_resources_size_mb < 128 || max_resources_size_mb > 2048 )); then
-  echo "MAX_RESOURCES_SIZE_MB must be an integer from 128 through 2048" >&2
+  || (( max_resources_size_mb < 128 || max_resources_size_mb > 3072 )); then
+  echo "MAX_RESOURCES_SIZE_MB must be an integer from 128 through 3072" >&2
   exit 1
 fi
 
@@ -29,6 +32,18 @@ do
     exit 1
   fi
 done
+
+if [[ -n "${client_hit_report_patch_dir}" ]]; then
+  for required in \
+    "${client_hit_report_patch_dir}/srp_hit_report.dll" \
+    "${client_hit_report_patch_dir}/srp_hit_report_loader.exe"
+  do
+    if [[ ! -e "${required}" ]]; then
+      echo "missing client hit-report artifact: ${required}" >&2
+      exit 1
+    fi
+  done
+fi
 
 # Build 802 gives BugTrap the retired Vostok Games crash-report address.
 # Apply and verify the fixed-size, .invalid-recipient safety patch before
@@ -162,10 +177,21 @@ wine reg add 'HKLM\System\CurrentControlSet\Control\Nls\Language' /v Default /d 
 wine reg add 'HKCU\Software\Wine\Fonts\Replacements' /v Arial /d 'Liberation Sans' /f >/dev/null
 
 cd -- "${client_dir}/binaries/win32"
-wine survarium.exe \
-  -client=127.0.0.1:1234 \
-  -no_splash_screen \
-  "-max_resources_size=${max_resources_size_mb}" \
-  -no_warning_on_page_file_size \
-  -log_to_stdout \
-  >"${client_log}" 2>&1
+game_args=(
+  -client=127.0.0.1:1234
+  -no_splash_screen
+  "-max_resources_size=${max_resources_size_mb}"
+  -no_warning_on_page_file_size
+  -log_to_stdout
+)
+if [[ -n "${client_hit_report_patch_dir}" ]]; then
+  game_windows_path="$(winepath -w "${client_dir}/binaries/win32/survarium.exe")"
+  wine "${client_hit_report_patch_dir}/srp_hit_report_loader.exe" \
+    "${game_windows_path}" \
+    "${game_args[@]}" \
+    >"${client_log}" 2>&1
+else
+  wine survarium.exe \
+    "${game_args[@]}" \
+    >"${client_log}" 2>&1
+fi

@@ -4,15 +4,19 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use resources_db::NodeKind;
 use vostok_resource_porter::armor;
+use vostok_resource_porter::config_patch;
 use vostok_resource_porter::dependency;
 use vostok_resource_porter::map_compare;
 use vostok_resource_porter::map_port;
 use vostok_resource_porter::material_conversion::MaterialCatalog;
 use vostok_resource_porter::material_patch;
 use vostok_resource_porter::maya_binary;
+use vostok_resource_porter::resource_copy_patch;
 use vostok_resource_porter::soc;
 use vostok_resource_porter::stk2_content;
+use vostok_resource_porter::static_basis_patch;
 use vostok_resource_porter::target_native_map;
+use vostok_resource_porter::terrain_surface_patch;
 use vostok_resource_porter::weapon;
 use vostok_resource_porter::{
     ArmorPortManifest, BinaryConfig, ConfigValue, MapPortManifest, PlayableLobbyManifest,
@@ -100,6 +104,84 @@ enum Command {
         /// Material mapping in RESOURCE_PATH=TEMPLATE_PATH form.
         #[arg(long = "material", required = true)]
         materials: Vec<String>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Patch existing boolean leaves in one self-describing binary config.
+    BuildConfigPatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        #[arg(long)]
+        resource: String,
+        /// Boolean patch in CONFIG_PATH=true|false form.
+        #[arg(long = "set-bool")]
+        boolean_patches: Vec<String>,
+        /// Retain only the last COUNT entries of an indexed config table.
+        #[arg(long = "retain-indexed-suffix")]
+        retained_indexed_suffixes: Vec<String>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Replace packed static-model vertex bases below a prefix with a flat diagnostic basis.
+    BuildFlatStaticBasisPatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        #[arg(long)]
+        prefix: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Flatten static-model vertex heights below a prefix for depth diagnostics.
+    BuildFlatStaticHeightPatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        #[arg(long)]
+        prefix: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Restore the native v0.100b alpha contract in packed static vertex bases.
+    BuildCanonicalStaticBasisAlphaPatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        #[arg(long)]
+        prefix: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Scale packed static-model UVs below a prefix for sampling diagnostics.
+    BuildStaticUvScalePatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        #[arg(long)]
+        prefix: String,
+        #[arg(long)]
+        scale: f32,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Merge every terrain cell into one surface and apply the native model contract.
+    BuildSingleSurfaceTerrainPatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        #[arg(long)]
+        source_prefix: String,
+        #[arg(long)]
+        target_prefix: String,
+        #[arg(long)]
+        project: String,
+        #[arg(long)]
+        material: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Copy exact resources from one database to new virtual paths.
+    BuildResourceCopyPatch {
+        #[arg(long)]
+        source_db: PathBuf,
+        /// Exact resource copy in SOURCE=DESTINATION form.
+        #[arg(long = "copy", required = true)]
+        copies: Vec<String>,
         #[arg(long)]
         output: PathBuf,
     },
@@ -257,6 +339,22 @@ enum Command {
         /// Write the full report here as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Report places on a level's collision mesh where a player can stand.
+    ///
+    /// A converted map inherits no spawn points, and the centre of its
+    /// bounding box is not ground -- for `mp_pool` it is the bottom of the
+    /// pool. Ranked widest-ground first.
+    SocSpawnCandidates {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        level: String,
+        /// Grid resolution in world units.
+        #[arg(long, default_value_t = 2.0)]
+        cell: f32,
+        #[arg(long, default_value_t = 10)]
+        limit: usize,
     },
     /// Extract one file from a Shadow of Chernobyl installation or gamedata tree.
     SocExtract {
@@ -504,6 +602,96 @@ fn main() -> Result<()> {
             println!("materials={}", materials.len());
             println!("bundle={}", output.display());
         }
+        Command::BuildConfigPatch {
+            source_db,
+            resource,
+            boolean_patches,
+            retained_indexed_suffixes,
+            output,
+        } => {
+            config_patch::build_bundle(
+                &source_db,
+                &resource,
+                &boolean_patches,
+                &retained_indexed_suffixes,
+                &output,
+            )?;
+            println!("resource={resource}");
+            println!("boolean_patches={}", boolean_patches.len());
+            println!(
+                "retained_indexed_suffixes={}",
+                retained_indexed_suffixes.len()
+            );
+            println!("bundle={}", output.display());
+        }
+        Command::BuildFlatStaticBasisPatch {
+            source_db,
+            prefix,
+            output,
+        } => {
+            static_basis_patch::build_flat_basis_bundle(&source_db, &prefix, &output)?;
+            println!("prefix={prefix}");
+            println!("bundle={}", output.display());
+        }
+        Command::BuildFlatStaticHeightPatch {
+            source_db,
+            prefix,
+            output,
+        } => {
+            static_basis_patch::build_flat_height_bundle(&source_db, &prefix, &output)?;
+            println!("prefix={prefix}");
+            println!("bundle={}", output.display());
+        }
+        Command::BuildCanonicalStaticBasisAlphaPatch {
+            source_db,
+            prefix,
+            output,
+        } => {
+            static_basis_patch::build_canonical_alpha_bundle(&source_db, &prefix, &output)?;
+            println!("prefix={prefix}");
+            println!("bundle={}", output.display());
+        }
+        Command::BuildStaticUvScalePatch {
+            source_db,
+            prefix,
+            scale,
+            output,
+        } => {
+            static_basis_patch::build_uv_scale_bundle(&source_db, &prefix, scale, &output)?;
+            println!("prefix={prefix}");
+            println!("scale={scale}");
+            println!("bundle={}", output.display());
+        }
+        Command::BuildSingleSurfaceTerrainPatch {
+            source_db,
+            source_prefix,
+            target_prefix,
+            project,
+            material,
+            output,
+        } => {
+            terrain_surface_patch::build_single_surface_bundle(
+                &source_db,
+                &source_prefix,
+                &target_prefix,
+                &project,
+                &material,
+                &output,
+            )?;
+            println!("source_prefix={source_prefix}");
+            println!("target_prefix={target_prefix}");
+            println!("project={project}");
+            println!("bundle={}", output.display());
+        }
+        Command::BuildResourceCopyPatch {
+            source_db,
+            copies,
+            output,
+        } => {
+            resource_copy_patch::build_bundle(&source_db, &copies, &output)?;
+            println!("copies={}", copies.len());
+            println!("bundle={}", output.display());
+        }
         Command::InspectMayaSkin {
             scene,
             static_model,
@@ -723,6 +911,43 @@ fn main() -> Result<()> {
                 for name in matching {
                     println!("{name}");
                 }
+            }
+        }
+        Command::SocSpawnCandidates {
+            source_root,
+            level,
+            cell,
+            limit,
+        } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            // The level's own multiplayer team bases come first: they are
+            // authored, and the collision heuristic can land outside the arena.
+            match source.read_level_file(&level, "level.spawn") {
+                Ok(bytes) => {
+                    for base in soc::codec::spawn::team_bases(&bytes) {
+                        println!(
+                            "team_base=[{:.2}, {:.2}, {:.2}] name={}",
+                            base.position[0], base.position[1], base.position[2], base.name
+                        );
+                    }
+                }
+                Err(error) => println!("team_bases_unavailable: {error:#}"),
+            }
+            let cform = soc::build::decode_level(&mut source, &level)?.cform;
+            let (min, max) = cform.header.bounding_box;
+            println!(
+                "extent x={:.2}..{:.2} y={:.2}..{:.2} z={:.2}..{:.2}",
+                min[0], max[0], min[1], max[1], min[2], max[2]
+            );
+            for candidate in soc::convert::spawn::standable(&cform, cell, limit) {
+                println!(
+                    "spawn=[{:.2}, {:.2}, {:.2}] area={:.1} headroom={:.2}",
+                    candidate.position[0],
+                    candidate.position[1],
+                    candidate.position[2],
+                    candidate.area,
+                    candidate.headroom
+                );
             }
         }
         Command::SocProbeLevel {

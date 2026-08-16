@@ -13,6 +13,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use super::convert::collision::FaceDictionary;
 use super::convert::render_material::RenderFamily;
 
 /// A v0.100b resource this port clones instead of synthesising.
@@ -32,6 +33,13 @@ pub struct Templates {
     pub collision_settings: String,
     /// A `.options` resource for a block-compressed texture.
     pub texture_options: String,
+    /// A post-process material to clone the generated one from.
+    ///
+    /// This is where `skylight_lower` and `skylight_upper` live: the world
+    /// heights between which sky light ramps from nothing to full. They are
+    /// authored for the template's map, so they have to be re-anchored.
+    #[serde(default = "default_post_process_material")]
+    pub post_process_material: String,
     /// A client project to clone the generated one from.
     pub client_project: String,
     /// A server project to clone the generated one from.
@@ -157,6 +165,28 @@ pub struct SocMapManifest {
     /// boundary, where a rounding difference is enough to fall outside.
     #[serde(default = "default_lighting_volume_margin")]
     pub lighting_volume_margin: f32,
+    /// Emit the collision model and bind it into the client project.
+    ///
+    /// v0.100b ships no collision-only model -- all 236 of its collision models
+    /// also carry render surfaces -- so a collision-only archive is a shape the
+    /// engine has never been asked to load. Turning this off leaves the
+    /// template's own collision in place, which is wrong for the map but
+    /// isolates the archive when a converted map fails to load.
+    #[serde(default = "default_true")]
+    pub emit_collision: bool,
+    /// How many entries the collision face-material dictionary carries.
+    ///
+    /// `per_material` is what the source supports and what the port wants;
+    /// `single` is the only shape this engine has been observed to load.
+    #[serde(default = "default_face_dictionary")]
+    pub collision_face_dictionary: FaceDictionary,
+    /// Largest collision mesh emitted into one model archive.
+    ///
+    /// See [`crate::soc::convert::collision::MAX_TRIANGLES_PER_MODEL`]: a
+    /// level-sized mesh fails to cook, and the engine crashes on the result it
+    /// never checks.
+    #[serde(default = "default_max_collision_triangles")]
+    pub max_collision_triangles: usize,
     /// Accept source mip chains that continue past the last complete 4x4 block.
     /// v0.100b can substitute its visible `missing texture` fallback for those,
     /// so this must be a deliberate, recorded decision.
@@ -178,6 +208,18 @@ fn default_normal_path() -> String {
 
 fn default_normal_enable_path() -> String {
     "material.g_stage.effect.use_nmap.value".to_owned()
+}
+
+fn default_post_process_material() -> String {
+    "material_instances/post_process/level_03_day.material".to_owned()
+}
+
+fn default_max_collision_triangles() -> usize {
+    super::convert::collision::MAX_TRIANGLES_PER_MODEL
+}
+
+fn default_face_dictionary() -> FaceDictionary {
+    FaceDictionary::PerMaterial
 }
 
 fn default_true() -> bool {
@@ -294,12 +336,13 @@ impl SocMapManifest {
         )
     }
 
-    /// Resource path of the generated collision model archive.
+    /// The archive carrying collision.
+    ///
+    /// Collision rides inside the first render archive rather than in one of
+    /// its own: v0.100b ships no collision-only model, and a standalone one
+    /// faults the loader.
     pub fn collision_model_path(&self) -> String {
-        format!(
-            "models/{}/{}_collision.model",
-            self.namespace, self.model_prefix
-        )
+        self.model_path(0)
     }
 
     pub fn client_project_path(&self) -> String {
@@ -326,7 +369,8 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             surface_properties: "models/template.model/render/a/export_properties".into(),
             collision_settings: "models/collision_template.model/settings".into(),
             texture_options: "textures/template.options".into(),
-            client_project: "projects/level_03/client_project".into(),
+            post_process_material: default_post_process_material(),
+        client_project: "projects/level_03/client_project".into(),
             server_project: "projects/level_03/server_project".into(),
         },
         project_bindings: ProjectBindings {
@@ -356,6 +400,9 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         normal_path: default_normal_path(),
         normal_enable_path: default_normal_enable_path(),
         bind_normal_maps: true,
+        emit_collision: true,
+        collision_face_dictionary: default_face_dictionary(),
+        max_collision_triangles: default_max_collision_triangles(),
         texture_aliases: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,
     }
@@ -377,9 +424,14 @@ mod tests {
             manifest.model_path(2),
             "models/ported/soc/cordon/cordon_002.model"
         );
+        // Collision rides inside the first render archive, not beside it.
         assert_eq!(
             manifest.collision_model_path(),
-            "models/ported/soc/cordon/cordon_collision.model"
+            manifest.model_path(0)
+        );
+        assert_eq!(
+            manifest.collision_model_path(),
+            "models/ported/soc/cordon/cordon_000.model"
         );
         assert_eq!(
             manifest.client_project_path(),

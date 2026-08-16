@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod armor;
 pub mod binary_config;
+pub mod config_patch;
 pub mod dependency;
 pub mod manifest;
 pub mod map_compare;
@@ -9,10 +10,13 @@ pub mod material_conversion;
 pub mod material_patch;
 pub mod maya_binary;
 pub mod model_validation;
+pub mod resource_copy_patch;
 pub mod soc;
 pub mod stk2_content;
 pub mod stk2_project;
+pub mod static_basis_patch;
 pub mod target_native_map;
+pub mod terrain_surface_patch;
 pub mod weapon;
 
 pub use archive::ResourceDb;

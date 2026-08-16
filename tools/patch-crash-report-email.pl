@@ -13,10 +13,23 @@ my $RECIPIENT_OFFSET = 0x943af8;
 my $ORIGINAL_RECIPIENT = 'game_crash_reports@survarium.com';
 my $INERT_RECIPIENT = 'crash-reports@localhost.invalid';
 my $REPLACEMENT = $INERT_RECIPIENT . "\0";
-my $ORIGINAL_SHA256 =
-    '169d42c0fc25bddc285f5e93e26a2769edbdbf3d50b9e0575d9eed4757b74b0b';
-my $PATCHED_SHA256 =
-    'f7459d65611d20fcafc8b1db5e3fa3aae1013c22238c779787a79e70e4fd50f7';
+# Known build 802 images, original SHA-256 => the SHA-256 this patch produces.
+#
+# Two are recorded. The first is the image the demo chain was built against.
+# The second is the pristine one the vostok flake extracts from the archive.org
+# installer, whose resources.db is the pinned retail
+# 160dc7180b3e89279570d087442c3ad867aa5fe25bb2bf7789a8f7aaea628409. They differ
+# in bytes elsewhere in the image but agree on everything this patch depends on:
+# the exact file size, the recipient's offset, and its uniqueness.
+#
+# Adding an entry here is the only supported way to accept another image, and
+# it still has to satisfy every check below.
+my %KNOWN_BUILD_802 = (
+    '169d42c0fc25bddc285f5e93e26a2769edbdbf3d50b9e0575d9eed4757b74b0b' =>
+        'f7459d65611d20fcafc8b1db5e3fa3aae1013c22238c779787a79e70e4fd50f7',
+    '6cde21fac0fc508c140814c83d8a9d0158c0bff8f99c322cd7454c3d3103f737' =>
+        'db61aaf319d25f946e3d58ab4a042e548462b627188d5a623d73fc9d9407adfe',
+);
 
 sub read_binary {
     my ($path) = @_;
@@ -98,7 +111,8 @@ die sprintf("%s: unexpected bytes at recipient offset 0x%x\n",
 
 my $digest = sha256_hex($image);
 die "$target: recipient is original, but build hash is unsupported: $digest\n"
-    if $digest ne $ORIGINAL_SHA256;
+    if !exists $KNOWN_BUILD_802{$digest};
+my $expected_patched = $KNOWN_BUILD_802{$digest};
 die "$target: original recipient is not unique\n"
     if literal_count($image, $ORIGINAL_RECIPIENT) != 1;
 
@@ -106,7 +120,7 @@ my $mode = (stat($target))[2] & 07777;
 if (-e $backup) {
     my $backup_image = read_binary($backup);
     die "$backup: existing backup is not the stock build 802 image\n"
-        if sha256_hex($backup_image) ne $ORIGINAL_SHA256;
+        if !exists $KNOWN_BUILD_802{sha256_hex($backup_image)};
 } else {
     copy($target, $backup) or die "cannot create $backup: $!\n";
     chmod $mode, $backup or die "cannot set mode on $backup: $!\n";
@@ -116,8 +130,8 @@ substr($image, $RECIPIENT_OFFSET, length($ORIGINAL_RECIPIENT), $REPLACEMENT);
 validate_patched($target, $image);
 my $updated_digest = sha256_hex($image);
 die "internal error: patched image hash is $updated_digest, "
-    . "expected $PATCHED_SHA256\n"
-    if $updated_digest ne $PATCHED_SHA256;
+    . "expected $expected_patched\n"
+    if $updated_digest ne $expected_patched;
 
 my ($output, $temporary) = tempfile(
     '.' . basename($target) . '.XXXXXX',

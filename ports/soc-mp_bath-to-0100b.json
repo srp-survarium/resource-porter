@@ -24,23 +24,19 @@
     "respawn_position_path": "position",
     "objects_array_path": "objects",
     "object_type_path": "game_object_type",
-    "retained_object_types": ["sky", "environment", "volume_fog"]
+    "retained_object_types": ["sky", "environment", "volume_fog", "light"]
   },
   "surfaces_per_model": 200,
-  "spawn_position": [0, 10, 0],
+  "spawn_position": [-30.84, 3.29, 28.87],
   "material_templates": {
     "opaque": "material_instances/tiled/concrete/concrete_01.material",
-    "vertex_lit": "material_instances/tiled/bricks/brick_02.material",
+    "vertex_lit": "material_instances/tiled/concrete/concrete_02.material",
     "alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
-    "vertex_lit_alpha_tested": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "vertex_lit_alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
     "translucent": "material_instances/tiled/window/glass_tile.material",
     "foliage": "material_instances/flora/poplar_leaves_02.material",
-    "decal": "material_instances/decals/decals_multiply_02.material",
-    "emissive": "material_instances/weapons/tracer.material",
+    "decal": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "emissive": "material_instances/tiled/concrete/concrete_01.material",
     "lod_impostor": "material_instances/flora/sosna_bark_lod.material"
-  },
-  "family_diffuse_paths": {
-    "decal": "material.forward.effect.texture_emissive.value",
-    "emissive": "material.forward.effect.texture_emissive.value"
   }
 }

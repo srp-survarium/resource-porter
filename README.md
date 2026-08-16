@@ -346,6 +346,30 @@ The patch uses a v0.100b material template that supports static vertex-color
 meshes while disabling the unrelated vertex-blended dirt layer. Other
 vertex-painted props and debris remain unchanged intentionally.
 
+## Client-reported hit demo
+
+The next isolated demo keeps the frozen masonry-v3 database and selectively
+uses the SRP client-hit work without merging its PR stack:
+
+```sh
+./scripts/run-canonical-stk2-a01-hit-demo.sh
+./scripts/run-canonical-stk2-a01-hit-demo.sh --reuse
+```
+
+The first command rebuilds the match server and 32-bit client patch; `--reuse`
+launches the already-built artifacts. The injected DLL fills the shipped
+client's otherwise-empty `network_client::on_player_hit_received` callback and
+sends the locally computed target/body-part data to SRP. The server ignores the
+reported attacker, damage, and armor-piercing values, authenticates the only
+network player as player 0, and applies fixed 25-point damage to existing
+server-spawned players 1–9. It emits the stock `hit_player` response for each
+accepted hit and `kill_player` at zero health. Remote demo characters remain
+dead; the existing local-player suicide/roof-respawn path is unchanged.
+
+This is deliberately a client-authoritative collision demonstration, not a
+production anti-cheat design. See
+[`docs/client-reported-hit-demo.md`](docs/client-reported-hit-demo.md).
+
 ## STK2 character experiments
 
 The later Survarium databases contain five exoskeleton material definitions and

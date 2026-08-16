@@ -14,34 +14,34 @@ if [[ ${2:-} == "--check" ]]; then
 fi
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
-base_checkout="$(cd -- "${repo_dir}/../.." && pwd)"
+base_checkout="$(cd -- "${repo_dir}/.." && pwd)"
 base_client_dir="${BASE_CLIENT_DIR:-${repo_dir}/.work/client-v0100b-akmn}"
 server_profile="${profile}"
 match_loadout_profile="configured"
 
 case "${profile}" in
   level01-day-020f-native)
-    map_db="${base_checkout}/vostok/resource-db-builder/.work/resources-v0100b-level01-native-sharedfix.db"
+    map_db="${base_checkout}/resource-db-builder/.work/resources-v0100b-level01-native-sharedfix.db"
     profile_srp_bin_dir="${repo_dir}/.work/srp-stock-map-runtime-bin"
     match_loadout_profile="stock-v0100b"
     ;;
   level02-day-020f-native)
-    map_db="${base_checkout}/vostok/resource-db-builder/.work/resources-v0100b-level02-native-sharedfix.db"
+    map_db="${base_checkout}/resource-db-builder/.work/resources-v0100b-level02-native-sharedfix.db"
     profile_srp_bin_dir="${repo_dir}/.work/srp-stock-map-runtime-bin"
     match_loadout_profile="stock-v0100b"
     ;;
   level04-day-020f-native)
-    map_db="${base_checkout}/vostok/resource-db-builder/.work/resources-v0100b-level04-native-sharedfix.db"
+    map_db="${base_checkout}/resource-db-builder/.work/resources-v0100b-level04-native-sharedfix.db"
     profile_srp_bin_dir="${repo_dir}/.work/srp-stock-map-runtime-bin"
     match_loadout_profile="stock-v0100b"
     ;;
   level05-day-020f-native)
-    map_db="${base_checkout}/vostok/resource-db-builder/.work/resources-v0100b-level05-native-fixed.db"
+    map_db="${base_checkout}/resource-db-builder/.work/resources-v0100b-level05-native-fixed.db"
     profile_srp_bin_dir="${repo_dir}/.work/srp-stock-map-runtime-bin"
     match_loadout_profile="stock-v0100b"
     ;;
   level03-day-020f-native)
-    map_db="${base_checkout}/vostok/resource-db-builder/.work/resources-v0100b-level03-native-sharedfix.db"
+    map_db="${base_checkout}/resource-db-builder/.work/resources-v0100b-level03-native-sharedfix.db"
     profile_srp_bin_dir="${repo_dir}/.work/srp-stock-map-runtime-bin"
     match_loadout_profile="stock-v0100b"
     ;;
@@ -86,6 +86,29 @@ case "${profile}" in
     stk2-a02-blockpost-slice | \
     stk2-bar-shooting-gallery-derived)
     map_db="${repo_dir}/.work/resources-v0100b-full-latest-reviewed-all-maps-v8.db"
+    ;;
+  retail-level03)
+    # Control: untouched retail database and a retail map. If this crashes
+    # too, the fault is in the client/Wine stack rather than the conversion.
+    map_db="${RETAIL_DB}"
+    server_profile="level03-evening-0100b"
+    match_loadout_profile="stock-v0100b"
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  soc-mp-pool-nocollision |   soc-mp-pool-keepobjects)
+    map_db="${repo_dir}/.work/soc-release/resources-v0100b-soc-pool-ab.db"
+    match_loadout_profile="stock-v0100b"
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  soc-mp-pool | soc-cordon | soc-darkvalley)
+    # Shadow of Chernobyl maps, from the release built by build-soc-map.
+    # stock-v0100b loadout: this database has no STK2 inventory items, and
+    # handing out dictionary IDs it does not contain crashes the lobby.
+    map_db="${repo_dir}/.work/soc-release/${SOC_DB:-resources-v0100b-soc-maps-v1.db}"
+    match_loadout_profile="stock-v0100b"
+    # This database is retail plus converted maps and nothing else, so the
+    # lobby must not hand out the imported STK2 dictionary IDs.
+    export SRP_STOCK_PROFILE_ONLY=1
     ;;
   *)
     echo "unknown map profile: ${profile}" >&2
