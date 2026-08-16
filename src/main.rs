@@ -255,6 +255,17 @@ enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Report which blender class every shader a level binds resolves to.
+    ///
+    /// Cross-checks the converter's reviewed render-family table against what
+    /// `shaders.xr` actually records.
+    SocAuditShaders {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Level directory name, or `all`.
+        #[arg(long, default_value = "all")]
+        level: String,
+    },
     /// Convert a compiled Shadow of Chernobyl level into a v0.100b bundle.
     BuildSocMap {
         #[arg(long)]
@@ -708,7 +719,8 @@ fn main() -> Result<()> {
                             "{name}: visuals={} rendered={} trees={} surfaces={} triangles={} \
                              (tree_tris={} static_tris={} distinct_tris={} covered_tris={} ranges={}) shaders={} textures={} \
                              missing_textures={} collision={}v/{}t \
-                             collision_materials={} unclassified={:?} dropped={:?}",
+                             collision_materials={} size={:.0}x{:.0}x{:.0} y=[{:.1}..{:.1}] \
+                             unclassified={:?} dropped={:?}",
                             report.visuals,
                             report.rendered_surfaces,
                             report.tree_surfaces,
@@ -725,6 +737,11 @@ fn main() -> Result<()> {
                             report.collision_vertices,
                             report.collision_triangles,
                             report.collision_materials.len(),
+                            report.world_size[0],
+                            report.world_size[1],
+                            report.world_size[2],
+                            report.world_bounds.0[1],
+                            report.world_bounds.1[1],
                             report.unclassified_shaders,
                             report.dropped_by_kind,
                         );
@@ -736,6 +753,69 @@ fn main() -> Result<()> {
             if let Some(output) = output {
                 std::fs::write(&output, serde_json::to_vec_pretty(&reports)?)?;
                 println!("report={}", output.display());
+            }
+        }
+        Command::SocAuditShaders { source_root, level } => {
+            use vostok_resource_porter::soc::codec::{blender, level as soc_level};
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let library = blender::parse_library(&source.read_shaders()?)?;
+            println!("shaders.xr blenders={}", library.len());
+
+            let levels = if level == "all" {
+                source.levels()
+            } else {
+                vec![level]
+            };
+            // shader name -> (class id tag, levels binding it)
+            let mut bound: std::collections::BTreeMap<String, (String, Vec<String>)> =
+                Default::default();
+            let mut missing: std::collections::BTreeSet<String> = Default::default();
+            for name in &levels {
+                let Ok(bytes) = source.read_level_file(name, "level") else {
+                    continue;
+                };
+                let Ok(table) = soc_level::parse_shaders(&bytes) else {
+                    continue;
+                };
+                for id in 0..table.len() {
+                    let Ok(entry) = table.get(id as u16) else {
+                        continue;
+                    };
+                    match library.get(&entry.shader) {
+                        Some(found) => bound
+                            .entry(entry.shader.clone())
+                            .or_insert_with(|| (found.class_id.tag(), Vec::new()))
+                            .1
+                            .push(name.clone()),
+                        None => {
+                            missing.insert(entry.shader.clone());
+                        }
+                    }
+                }
+            }
+
+            let mut by_class: std::collections::BTreeMap<String, Vec<&String>> = Default::default();
+            for (shader, (tag, _)) in &bound {
+                by_class.entry(tag.clone()).or_default().push(shader);
+            }
+            println!("bound_shaders={} classes={}", bound.len(), by_class.len());
+            for (tag, shaders) in &by_class {
+                println!("class {tag}: {} shaders", shaders.len());
+                for shader in shaders {
+                    let levels = &bound[*shader].1;
+                        let b = &library[*shader];
+                    let p = b.common.as_ref();
+                    println!(
+                        "    {shader}  uses={} priority={} strict_sorting={} texture={:?}",
+                        levels.len(),
+                        p.map(|c| c.priority).unwrap_or(-1),
+                        p.map(|c| c.strict_sorting).unwrap_or(false),
+                        p.map(|c| c.texture.as_str()).unwrap_or("?"),
+                    );
+                }
+            }
+            if !missing.is_empty() {
+                println!("NOT IN shaders.xr: {missing:?}");
             }
         }
         Command::BuildSocMap {

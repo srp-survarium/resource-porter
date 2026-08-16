@@ -125,6 +125,16 @@ impl SocSource {
         )
     }
 
+    /// Read the shader library a level's shader table indexes into.
+    pub fn read_shaders(&mut self) -> Result<Vec<u8>> {
+        for candidate in ["shaders.xr", "config/shaders.xr"] {
+            if self.contains(candidate) {
+                return self.read(candidate);
+            }
+        }
+        bail!("shaders.xr is not present in {}", self.root().display())
+    }
+
     /// Read a texture named the way the level shader table names it.
     pub fn read_texture(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
         let path = format!("textures/{}.dds", normalize(name));

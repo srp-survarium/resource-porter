@@ -59,6 +59,34 @@ pub struct ProjectBindings {
     pub server_respawn_array_path: String,
     /// Dotted path, inside one respawn entry, of its position.
     pub respawn_position_path: String,
+
+    /// Dotted path of the indexed array of sky ambient-occlusion volumes.
+    ///
+    /// Each entry is a box that says which patch of world its baked occlusion
+    /// texture covers. Inherited from the template it describes the template's
+    /// map, and anything outside it receives no sky light at all — which reads
+    /// as a hard horizontal plane with everything below it black.
+    pub sky_ao_array_path: Option<String>,
+    /// Dotted path of the indexed array of ambient volumes: same box shape,
+    /// same failure, scaling ambient light instead of supplying sky light.
+    pub ambient_volume_array_path: Option<String>,
+    /// Dotted path of the indexed array of environment probes.
+    ///
+    /// Unlike the two volume kinds a probe cannot be re-derived: it needs a
+    /// cubemap captured in this map, and the port has none. Declaring the path
+    /// clears the array so the scene falls back to the global environment,
+    /// which is flatter than correct probes but never black.
+    pub environment_probe_array_path: Option<String>,
+
+    /// Dotted path, inside one volume entry, of its position.
+    pub volume_position_path: Option<String>,
+    /// Dotted paths, inside one volume entry, of its three side lengths.
+    ///
+    /// Order is `(x, y, z)` by *effect*, not by field name. v0.100b builds the
+    /// box with `set_scale(float3(width, depth, height))`, so the field called
+    /// `depth` drives the vertical axis and the one called `height` drives Z.
+    /// Declaring them positionally keeps that trap out of the converter.
+    pub volume_size_paths: Option<[String; 3]>,
 }
 
 /// One Shadow of Chernobyl map port.
@@ -101,6 +129,12 @@ pub struct SocMapManifest {
     /// Each entry names an audited replacement source texture.
     #[serde(default)]
     pub texture_aliases: BTreeMap<String, String>,
+    /// Extra world units added to every side of a derived lighting volume.
+    ///
+    /// A volume sized exactly to the map leaves its outermost surfaces on the
+    /// boundary, where a rounding difference is enough to fall outside.
+    #[serde(default = "default_lighting_volume_margin")]
+    pub lighting_volume_margin: f32,
     /// Accept source mip chains that continue past the last complete 4x4 block.
     /// v0.100b can substitute its visible `missing texture` fallback for those,
     /// so this must be a deliberate, recorded decision.
@@ -114,6 +148,10 @@ fn default_surfaces_per_model() -> usize {
 
 fn default_diffuse_property() -> String {
     "texture_diffuse".to_owned()
+}
+
+fn default_lighting_volume_margin() -> f32 {
+    16.0
 }
 
 impl SocMapManifest {
@@ -166,9 +204,25 @@ impl SocMapManifest {
         {
             bail!("SoC map manifest spawn is not finite");
         }
+        if !self.lighting_volume_margin.is_finite() || self.lighting_volume_margin < 0.0 {
+            bail!("SoC map manifest lighting_volume_margin must be finite and non-negative");
+        }
+        // A volume array can only be resized if the converter also knows which
+        // fields inside an entry carry its position and size.
+        let resizes_volumes = self.project_bindings.sky_ao_array_path.is_some()
+            || self.project_bindings.ambient_volume_array_path.is_some();
+        if resizes_volumes
+            && (self.project_bindings.volume_position_path.is_none()
+                || self.project_bindings.volume_size_paths.is_none())
+        {
+            bail!(
+                "SoC map manifest declares a lighting volume array but not \
+                 volume_position_path and volume_size_paths"
+            );
+        }
         // Every family the classification can produce needs a template, because
         // the family is chosen from the source and cannot be declined later.
-        for family in self.effective_classification().values() {
+        for family in RenderFamily::ALL {
             if !self.material_templates.contains_key(family) {
                 bail!(
                     "SoC map manifest has no material template for the {:?} render family",
@@ -179,15 +233,15 @@ impl SocMapManifest {
         Ok(())
     }
 
-    /// The reviewed default classification with this manifest's additions.
-    pub fn effective_classification(&self) -> BTreeMap<String, RenderFamily> {
-        let mut classification = super::convert::render_material::default_classification();
-        classification.extend(
+    /// The reviewed name overrides with this manifest's additions.
+    pub fn effective_name_overrides(&self) -> BTreeMap<String, RenderFamily> {
+        let mut overrides = super::convert::render_material::default_name_overrides();
+        overrides.extend(
             self.render_shader_families
                 .iter()
                 .map(|(shader, family)| (shader.clone(), *family)),
         );
-        classification
+        overrides
     }
 
     /// The reviewed default physical-material correspondence with this
@@ -253,25 +307,22 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             server_project_name_path: "project_name".into(),
             server_respawn_array_path: "objects.respawns".into(),
             respawn_position_path: "position".into(),
+            sky_ao_array_path: Some("objects.sky_ao".into()),
+            ambient_volume_array_path: Some("objects.ambient".into()),
+            environment_probe_array_path: Some("objects.probes".into()),
+            volume_position_path: Some("position".into()),
+            volume_size_paths: Some(["width".into(), "depth".into(), "height".into()]),
         },
         surfaces_per_model: 200,
         spawn_position: [0.0, 2.1951056, 0.0],
         spawn_orientation: 0.0,
         render_shader_families: BTreeMap::new(),
         collision_material_overrides: BTreeMap::new(),
-        material_templates: [
-            RenderFamily::Opaque,
-            RenderFamily::VertexLit,
-            RenderFamily::AlphaTested,
-            RenderFamily::Translucent,
-            RenderFamily::Foliage,
-            RenderFamily::Decal,
-            RenderFamily::Emissive,
-            RenderFamily::LodImpostor,
-        ]
-        .into_iter()
-        .map(|family| (family, format!("material_instances/stock/{}", family.as_str())))
-        .collect(),
+        material_templates: RenderFamily::ALL
+            .iter()
+            .map(|family| (*family, format!("material_instances/stock/{}", family.as_str())))
+            .collect(),
+        lighting_volume_margin: 16.0,
         diffuse_property: "texture_diffuse".into(),
         texture_aliases: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,

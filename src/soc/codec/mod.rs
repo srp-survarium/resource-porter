@@ -17,8 +17,10 @@
 //! | [`vertex`] | `level.geom` | D3D9 vertex declarations and vertex decoding |
 //! | [`cform`] | `level.cform` | collision triangles and their material ids |
 //! | [`gamemtl`] | `gamemtl.xr` | physical-material id to name |
+//! | [`blender`] | `shaders.xr` | shader name to blender class id |
 
 pub mod archive;
+pub mod blender;
 pub mod cform;
 pub mod chunks;
 pub mod cipher;

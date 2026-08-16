@@ -18,7 +18,7 @@ use crate::binary_config::{BinaryConfig, ConfigValue, NamedValue};
 use crate::manifest::BuiltFile;
 use crate::weapon::{record_file, reject_duplicate_outputs};
 
-use super::codec::{cform, gamemtl, level, ogf};
+use super::codec::{blender, cform, gamemtl, level, ogf};
 use super::convert::collision;
 use super::convert::game_material::{self, CollisionMaterialBinding};
 use super::convert::render_material::{self, MaterialPlan};
@@ -52,6 +52,8 @@ pub struct SocMapBuildRecord {
     pub merge_report: MergeReport,
     pub dropped_lightmaps: usize,
     pub spawn_position: [f32; 3],
+    /// World extent the derived lighting volumes were sized to.
+    pub map_extent: MapExtent,
     pub files: Vec<BuiltFile>,
 }
 
@@ -90,6 +92,7 @@ pub fn build_bundle(
         buffers,
         cform,
         library,
+        blenders,
     } = decoded;
 
     // --- convert ----------------------------------------------------------
@@ -102,8 +105,9 @@ pub fn build_bundle(
     for merged in &surfaces {
         *used_shaders.entry(merged.shader_id).or_insert(0) += 1;
     }
-    let classification = manifest.effective_classification();
-    let material_plans = render_material::plan_materials(&used_shaders, &shader_table, &classification)?;
+    let overrides = manifest.effective_name_overrides();
+    let material_plans =
+        render_material::plan_materials(&used_shaders, &shader_table, &blenders, &overrides)?;
     let bound_shaders: BTreeSet<String> = material_plans
         .iter()
         .map(|plan| plan.source_shader.clone())
@@ -158,7 +162,16 @@ pub fn build_bundle(
 
     write_materials(manifest, &mut target, &overlay, &material_plans, &mut files)?;
     write_textures(manifest, &mut target, &overlay, &textures, &mut files)?;
-    write_projects(manifest, &mut target, &overlay, &models, &collision_model, &mut files)?;
+    let extent = MapExtent::of(&surfaces, cform.header.bounding_box)?;
+    write_projects(
+        manifest,
+        &mut target,
+        &overlay,
+        &models,
+        &collision_model,
+        extent,
+        &mut files,
+    )?;
 
     files.sort_by(|left, right| left.path.cmp(&right.path));
     reject_duplicate_outputs(&files)?;
@@ -187,6 +200,7 @@ pub fn build_bundle(
         material_plans,
         merge_report,
         spawn_position: manifest.spawn_position,
+        map_extent: extent,
         files,
     };
 
@@ -196,6 +210,54 @@ pub fn build_bundle(
     Ok(record)
 }
 
+/// The world extent a derived lighting volume has to contain.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MapExtent {
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+impl MapExtent {
+    /// Union the converted render surfaces with the source collision bounds.
+    ///
+    /// Collision reaches below the visible mesh in places — ground has
+    /// thickness, and ravine floors and blockers sit under the render surface —
+    /// so a volume sized to visible geometry alone can leave the lowest
+    /// walkable spots outside every ambient source.
+    pub fn of(surfaces: &[MergedSurface], collision: ([f32; 3], [f32; 3])) -> Result<Self> {
+        let mut min = collision.0;
+        let mut max = collision.1;
+        for merged in surfaces {
+            let bounds = merged.bounds();
+            for axis in 0..3 {
+                min[axis] = min[axis].min(bounds.min[axis]);
+                max[axis] = max[axis].max(bounds.max[axis]);
+            }
+        }
+        if !min.iter().chain(&max).all(|value| value.is_finite()) {
+            bail!("map extent is not finite");
+        }
+        if (0..3).any(|axis| max[axis] < min[axis]) {
+            bail!("map extent is inverted: {min:?}..{max:?}");
+        }
+        Ok(Self { min, max })
+    }
+
+    pub fn center(&self) -> [f32; 3] {
+        std::array::from_fn(|axis| (self.min[axis] + self.max[axis]) * 0.5)
+    }
+
+    pub fn size(&self) -> [f32; 3] {
+        std::array::from_fn(|axis| self.max[axis] - self.min[axis])
+    }
+
+    /// Side lengths grown by `margin` on every side.
+    pub fn padded_size(&self, margin: f32) -> [f32; 3] {
+        let size = self.size();
+        std::array::from_fn(|axis| size[axis] + margin * 2.0)
+    }
+}
+
 /// One level decoded into everything the converter needs.
 pub struct DecodedLevel {
     pub shader_table: level::ShaderTable,
@@ -203,6 +265,8 @@ pub struct DecodedLevel {
     pub buffers: level::GeometryBuffers,
     pub cform: cform::Cform,
     pub library: BTreeMap<u16, String>,
+    /// The shader library `shaders.xr` records, keyed by shader name.
+    pub blenders: BTreeMap<String, blender::Blender>,
 }
 
 /// Decode one compiled level and the physical-material library.
@@ -221,6 +285,7 @@ pub fn decode_level(source: &mut SocSource, level_name: &str) -> Result<DecodedL
     }
     let cform = cform::parse(&cform_bytes)?;
     let library = gamemtl::parse_library(&source.read_game_materials()?)?;
+    let blenders = blender::parse_library(&source.read_shaders()?)?;
 
     Ok(DecodedLevel {
         shader_table,
@@ -228,6 +293,7 @@ pub fn decode_level(source: &mut SocSource, level_name: &str) -> Result<DecodedL
         buffers,
         cform,
         library,
+        blenders,
     })
 }
 
@@ -269,6 +335,17 @@ pub struct LevelProbe {
     pub dropped_by_kind: BTreeMap<String, usize>,
     pub vertex_buffers: usize,
     pub index_buffers: usize,
+    /// World extent of the converted render geometry.
+    pub render_bounds: (
+        [f32; 3],
+        [f32; 3],
+    ),
+    /// World extent of the source collision mesh, from `hdrCFORM`.
+    pub collision_bounds: ([f32; 3], [f32; 3]),
+    /// The union of both: what a derived lighting volume has to contain.
+    pub world_bounds: ([f32; 3], [f32; 3]),
+    /// Side lengths of `world_bounds`, in engine units.
+    pub world_size: [f32; 3],
 }
 
 /// Decode and merge a level, reporting what the conversion would contain.
@@ -329,13 +406,42 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
     }
     let covered_source_triangles = (covered_indices / 3) as usize;
 
-    let classification = render_material::default_classification();
+    // The extent a derived sky-AO or ambient volume has to contain. Collision
+    // is unioned in because it reaches below visible geometry in places, and a
+    // lighting volume that stops at the render bounds would leave those spots
+    // outside every ambient source.
+    let mut minimum = [f32::INFINITY; 3];
+    let mut maximum = [f32::NEG_INFINITY; 3];
+    for merged in &surfaces {
+        let bounds = merged.bounds();
+        for axis in 0..3 {
+            minimum[axis] = minimum[axis].min(bounds.min[axis]);
+            maximum[axis] = maximum[axis].max(bounds.max[axis]);
+        }
+    }
+    let render_bounds = (minimum, maximum);
+    let collision_bounds = decoded.cform.header.bounding_box;
+    for axis in 0..3 {
+        minimum[axis] = minimum[axis].min(collision_bounds.0[axis]);
+        maximum[axis] = maximum[axis].max(collision_bounds.1[axis]);
+    }
+    let world_size = [
+        maximum[0] - minimum[0],
+        maximum[1] - minimum[1],
+        maximum[2] - minimum[2],
+    ];
+
+    let overrides = render_material::default_name_overrides();
     let mut unclassified = BTreeSet::new();
     let mut source_textures = BTreeSet::new();
     let mut dropped_lightmaps = 0;
     for shader_id in used_shaders.keys() {
         let entry = decoded.shader_table.get(*shader_id)?;
-        if render_material::classify(&entry.shader, &classification).is_none() {
+        let classified = match decoded.blenders.get(&entry.shader) {
+            Some(found) => render_material::classify(&entry.shader, found, &overrides),
+            None => overrides.get(&entry.shader).copied(),
+        };
+        if classified.is_none() {
             unclassified.insert(entry.shader.clone());
         }
         if let Some(texture) = entry.base_texture() {
@@ -383,6 +489,10 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
         collision_materials,
         unclassified_shaders: unclassified.into_iter().collect(),
         dropped_by_kind: merge_report.dropped_by_kind,
+        render_bounds,
+        collision_bounds,
+        world_bounds: (minimum, maximum),
+        world_size,
         vertex_buffers: decoded.buffers.vertex_buffers.len(),
         index_buffers: decoded.buffers.index_buffers.len(),
     })
@@ -728,11 +838,13 @@ fn write_projects(
     overlay: &Path,
     models: &[String],
     collision_model: &str,
+    extent: MapExtent,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let bindings = &manifest.project_bindings;
 
     let mut client = load_template(target, &manifest.templates.client_project)?;
+    resize_lighting_volumes(manifest, &mut client.root, extent)?;
     client.root.set_path(
         &bindings.project_name_path,
         ConfigValue::String(manifest.project_name.clone()),
@@ -799,6 +911,74 @@ fn write_projects(
         "generated:SoC-server-project",
         files,
     )
+}
+
+/// Re-derive the template's lighting volumes for this map, and drop its probes.
+///
+/// Sky ambient-occlusion and ambient volumes are boxes whose contribution is
+/// additive and confined to their own bounds. Inherited from a template they
+/// describe the template's map, so anything outside them receives nothing:
+/// with the global ambient multiplier starting at zero, that reads as a hard
+/// horizontal plane with everything below it completely black.
+///
+/// Each volume keeps every other field it had — enabled flag, occlusion
+/// texture name, multiplier, resolution — and only moves and grows to contain
+/// this map.
+fn resize_lighting_volumes(
+    manifest: &SocMapManifest,
+    root: &mut ConfigValue,
+    extent: MapExtent,
+) -> Result<()> {
+    let bindings = &manifest.project_bindings;
+    let center = extent.center();
+    let size = extent.padded_size(manifest.lighting_volume_margin);
+
+    for array_path in [
+        bindings.sky_ao_array_path.as_ref(),
+        bindings.ambient_volume_array_path.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let position_path = bindings
+            .volume_position_path
+            .as_ref()
+            .expect("validated manifests declare a volume position path");
+        let size_paths = bindings
+            .volume_size_paths
+            .as_ref()
+            .expect("validated manifests declare volume size paths");
+
+        let ConfigValue::Indexed(entries) = named_path(root, array_path)? else {
+            bail!("project template {array_path} is not an indexed array");
+        };
+        if entries.is_empty() {
+            bail!(
+                "project template {array_path} has no lighting volume to re-derive; the converted \
+                 map would have no ambient source at all"
+            );
+        }
+        let mut resized = entries.clone();
+        for entry in &mut resized {
+            entry.set_path(position_path, ConfigValue::Float3(center))?;
+            for (axis, path) in size_paths.iter().enumerate() {
+                // Sizes are integers in the v0.100b object; round up so the
+                // box never lands just inside the extent it must contain.
+                entry.set_path(path, ConfigValue::Integer(size[axis].ceil() as i32))?;
+            }
+        }
+        root.set_path(array_path, ConfigValue::Indexed(resized))?;
+    }
+
+    // A probe needs a cubemap captured in this map. The port has none, so the
+    // honest result is no probe rather than another map's.
+    if let Some(array_path) = &bindings.environment_probe_array_path {
+        let ConfigValue::Indexed(_) = named_path(root, array_path)? else {
+            bail!("project template {array_path} is not an indexed array");
+        };
+        root.set_path(array_path, ConfigValue::Indexed(Vec::new()))?;
+    }
+    Ok(())
 }
 
 /// Clone the template's first array entry once per model, so the generated
@@ -1002,6 +1182,155 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("objects.lights"), "{error}");
+    }
+
+    fn lighting_template() -> ConfigValue {
+        let volume = |name: &str| {
+            ConfigValue::Named(vec![
+                NamedValue {
+                    name: "position".into(),
+                    // Somewhere in the template's map, not ours.
+                    value: ConfigValue::Float3([900.0, 400.0, 900.0]),
+                },
+                NamedValue {
+                    name: "width".into(),
+                    value: ConfigValue::Integer(512),
+                },
+                NamedValue {
+                    name: "depth".into(),
+                    value: ConfigValue::Integer(512),
+                },
+                NamedValue {
+                    name: "height".into(),
+                    value: ConfigValue::Integer(512),
+                },
+                // A field the converter does not understand must survive.
+                NamedValue {
+                    name: "texture".into(),
+                    value: ConfigValue::String(name.into()),
+                },
+            ])
+        };
+        ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Named(vec![
+                NamedValue {
+                    name: "sky_ao".into(),
+                    value: ConfigValue::Indexed(vec![volume("template_ao")]),
+                },
+                NamedValue {
+                    name: "ambient".into(),
+                    value: ConfigValue::Indexed(vec![volume("template_ambient")]),
+                },
+                NamedValue {
+                    name: "probes".into(),
+                    value: ConfigValue::Indexed(vec![
+                        ConfigValue::String("probe_a".into()),
+                        ConfigValue::String("probe_b".into()),
+                    ]),
+                },
+            ]),
+        }])
+    }
+
+    /// Cordon's real extent, as measured from retail: 1498 x 212 x 2417, with
+    /// ground down at Y -96.9. The inherited 512-unit box cannot contain it.
+    const CORDON: MapExtent = MapExtent {
+        min: [-749.0, -96.9, -1208.0],
+        max: [749.0, 115.4, 1209.0],
+    };
+
+    #[test]
+    fn map_extent_unions_render_and_collision_bounds() {
+        let extent = MapExtent::of(&[], ([-10.0, -5.0, -10.0], [10.0, 5.0, 10.0])).unwrap();
+        assert_eq!(extent.size(), [20.0, 10.0, 20.0]);
+        assert_eq!(extent.center(), [0.0, 0.0, 0.0]);
+        // The margin grows every side, so a side length gains twice it.
+        assert_eq!(extent.padded_size(16.0), [52.0, 42.0, 52.0]);
+    }
+
+    #[test]
+    fn map_extent_rejects_an_inverted_box() {
+        assert!(MapExtent::of(&[], ([10.0, 0.0, 0.0], [-10.0, 0.0, 0.0])).is_err());
+    }
+
+    #[test]
+    fn lighting_volumes_are_resized_to_the_converted_map() {
+        let manifest = crate::soc::manifest::sample_manifest();
+        let mut root = lighting_template();
+        resize_lighting_volumes(&manifest, &mut root, CORDON).unwrap();
+
+        let volumes = named_path(&root, "objects.sky_ao").unwrap();
+        let ConfigValue::Indexed(volumes) = volumes else {
+            panic!("sky_ao is not indexed");
+        };
+        let volume = &volumes[0];
+
+        // Centred on the map, not on the template's map.
+        let ConfigValue::Float3(position) = volume.named("position").unwrap() else {
+            panic!("position is not a float3");
+        };
+        assert!((position[1] - 9.25).abs() < 0.01, "{position:?}");
+
+        // Sized to contain it, with the margin, rounded up.
+        assert_eq!(volume.named("width"), Some(&ConfigValue::Integer(1530)));
+        assert_eq!(volume.named("depth"), Some(&ConfigValue::Integer(245)));
+        assert_eq!(volume.named("height"), Some(&ConfigValue::Integer(2449)));
+
+        // Fields the converter does not understand are untouched.
+        assert_eq!(
+            volume.named("texture"),
+            Some(&ConfigValue::String("template_ao".into()))
+        );
+    }
+
+    #[test]
+    fn the_vertical_axis_is_the_field_named_depth() {
+        // The engine builds the box with set_scale(width, depth, height), so
+        // `depth` is Y. A tall, narrow map must grow `depth`, not `height`.
+        let manifest = crate::soc::manifest::sample_manifest();
+        let mut root = lighting_template();
+        let tall = MapExtent {
+            min: [-1.0, -500.0, -1.0],
+            max: [1.0, 500.0, 1.0],
+        };
+        resize_lighting_volumes(&manifest, &mut root, tall).unwrap();
+        let ConfigValue::Indexed(volumes) = named_path(&root, "objects.sky_ao").unwrap() else {
+            panic!("sky_ao is not indexed");
+        };
+        assert_eq!(volumes[0].named("depth"), Some(&ConfigValue::Integer(1032)));
+        assert_eq!(volumes[0].named("height"), Some(&ConfigValue::Integer(34)));
+    }
+
+    #[test]
+    fn ambient_volumes_are_resized_too_and_probes_are_dropped() {
+        let manifest = crate::soc::manifest::sample_manifest();
+        let mut root = lighting_template();
+        resize_lighting_volumes(&manifest, &mut root, CORDON).unwrap();
+
+        let ConfigValue::Indexed(ambient) = named_path(&root, "objects.ambient").unwrap() else {
+            panic!("ambient is not indexed");
+        };
+        assert_eq!(ambient[0].named("width"), Some(&ConfigValue::Integer(1530)));
+
+        // Probes cannot be re-derived, so they go rather than describe
+        // somewhere else.
+        assert_eq!(
+            named_path(&root, "objects.probes").unwrap(),
+            &ConfigValue::Indexed(Vec::new())
+        );
+    }
+
+    #[test]
+    fn a_template_without_a_lighting_volume_is_a_build_failure() {
+        let manifest = crate::soc::manifest::sample_manifest();
+        let mut root = lighting_template();
+        root.set_path("objects.sky_ao", ConfigValue::Indexed(Vec::new()))
+            .unwrap();
+        let error = resize_lighting_volumes(&manifest, &mut root, CORDON)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no ambient source at all"), "{error}");
     }
 
     #[test]
