@@ -193,7 +193,14 @@ material identifiers.
 What `game_material_settings` *does* drive is everything that resolves a
 material per triangle: bullet impact sounds, decals and particles go through
 `get_triangle_material`. Those are worth binding correctly, and are. Footsteps
-are not reachable from map data in this build.
+are not reachable from map data in this build, and the reason is sharper than
+"the group is not a material": `get_pair` is asymmetric --
+`m_pairs[first][second]` -- and pair 46 is stored at `m_pairs[10=actor][27=water]`.
+It fires only when the collision group is 10 *and* the player.s foot material
+is 27. That foot material is a constant read once at creation
+(`player_cook.cpp`: `root["foot_1st_view_material_id"]`) and never updated from
+the world, so the only lever is the player config -- which would make every
+footstep in every map a splash.
 
 ## What is still missing
 
@@ -210,7 +217,14 @@ converted maps author no environment probes at all.
 The water is a plane, not a volume, and that is visible from inside the pool:
 the first-person model is drawn forward and never fogged, and it occludes the
 water surface behind it, leaving an unfogged halo around a submerged boot.
-Nothing in the material can fix that -- a single plane cannot know the camera
-is beneath it. A water *box*, which is how v0.1.1e models it, would fog the
-whole view when submerged and is the shape worth building if underwater
-rendering matters.
+
+This cannot be fixed from map data, and modelling the water as a box -- the
+shape v0.1.1e uses -- would not fix it either. **The engine has no concept of
+being underwater at all**: `swim`, `submerg`, `water_level`, `water_height`,
+`underwater` and `in_water` appear nowhere in the source except one NPC
+`die_in_water` sound collection. There is no water volume object, no water
+level, and no camera-in-water test, so nothing exists to trigger a submerged
+view. A box would also most likely be back-face culled from the inside; the
+material instance exposes no cull flag, since that belongs to the base effect.
+
+Underwater rendering is an engine change, not a resource change.
