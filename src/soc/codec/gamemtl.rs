@@ -53,6 +53,22 @@ impl GameMaterial {
         self.flags & flag != 0
     }
 
+    /// Whether a surface of this material stops the player.
+    ///
+    /// `level.cform` is a collision mesh for *everything*, including surfaces
+    /// X-Ray never blocks movement with: water, bushes, and the invisible
+    /// volumes the level designers used as triggers. Converting every triangle
+    /// makes all of them solid — the player walks on the surface of a pool, and
+    /// Cordon's 114,080 bush triangles become walls.
+    ///
+    /// [`flags::PASSABLE`] is X-Ray's own answer, with one exception:
+    /// [`flags::ACTOR_OBSTACLE`] marks the surfaces that are passable to the AI
+    /// but not to the player, which is how `materials\fake` implements an
+    /// invisible wall. Those must stay solid.
+    pub fn blocks_movement(&self) -> bool {
+        !self.has(flags::PASSABLE) || self.has(flags::ACTOR_OBSTACLE)
+    }
+
     pub fn is_climbable(&self) -> bool {
         self.has(flags::CLIMABLE)
     }

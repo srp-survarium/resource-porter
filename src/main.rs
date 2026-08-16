@@ -356,6 +356,20 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// Measure one level's merged surfaces: extent, UV range, facing.
+    ///
+    /// Turns "the texture tiles wrong" into numbers: the UV range says how
+    /// many times a texture repeats, and the facing histogram says whether a
+    /// surface is a flat plane or the walls of a volume.
+    SocSurfaceStats {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        level: String,
+        /// Only report surfaces whose shader name contains this.
+        #[arg(long)]
+        shader: Option<String>,
+    },
     /// Extract one file from a Shadow of Chernobyl installation or gamedata tree.
     SocExtract {
         #[arg(long)]
@@ -947,6 +961,81 @@ fn main() -> Result<()> {
                     candidate.position[2],
                     candidate.area,
                     candidate.headroom
+                );
+            }
+        }
+        Command::SocSurfaceStats {
+            source_root,
+            level,
+            shader,
+        } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let decoded = soc::build::decode_level(&mut source, &level)?;
+            let (surfaces, _) =
+                soc::convert::surface::merge_visuals(&decoded.visuals, &decoded.buffers)?;
+            for merged in &surfaces {
+                let name = decoded
+                    .shader_table
+                    .get(merged.shader_id)
+                    .map(|entry| entry.shader.as_str())
+                    .unwrap_or("<unknown>");
+                if shader.as_ref().is_some_and(|want| !name.contains(want.as_str())) {
+                    continue;
+                }
+
+                let mut min = [f32::INFINITY; 3];
+                let mut max = [f32::NEG_INFINITY; 3];
+                let mut uv_min = [f32::INFINITY; 2];
+                let mut uv_max = [f32::NEG_INFINITY; 2];
+                for vertex in &merged.vertices {
+                    for axis in 0..3 {
+                        min[axis] = min[axis].min(vertex.position[axis]);
+                        max[axis] = max[axis].max(vertex.position[axis]);
+                    }
+                    for axis in 0..2 {
+                        uv_min[axis] = uv_min[axis].min(vertex.uv[axis]);
+                        uv_max[axis] = uv_max[axis].max(vertex.uv[axis]);
+                    }
+                }
+
+                // Facing is taken from the winding, not from the stored normal:
+                // a flat plane is all `up`, the walls of a volume are `side`.
+                let (mut up, mut down, mut side) = (0_usize, 0_usize, 0_usize);
+                for triangle in merged.indices.chunks_exact(3) {
+                    let at = |index: u16| merged.vertices[usize::from(index)].position;
+                    let (a, b, c) = (at(triangle[0]), at(triangle[1]), at(triangle[2]));
+                    let edge0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                    let edge1 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                    let normal = [
+                        edge0[1] * edge1[2] - edge0[2] * edge1[1],
+                        edge0[2] * edge1[0] - edge0[0] * edge1[2],
+                        edge0[0] * edge1[1] - edge0[1] * edge1[0],
+                    ];
+                    let length = (normal[0] * normal[0]
+                        + normal[1] * normal[1]
+                        + normal[2] * normal[2])
+                        .sqrt();
+                    if !length.is_normal() {
+                        continue;
+                    }
+                    match normal[1] / length {
+                        cosine if cosine > 0.7 => up += 1,
+                        cosine if cosine < -0.7 => down += 1,
+                        _ => side += 1,
+                    }
+                }
+
+                println!(
+                    "{} shader={name} tris={} y={:.2}..{:.2} u={:.1}..{:.1} v={:.1}..{:.1} \
+                     up={up} down={down} side={side}",
+                    merged.name(),
+                    merged.indices.len() / 3,
+                    min[1],
+                    max[1],
+                    uv_min[0],
+                    uv_max[0],
+                    uv_min[1],
+                    uv_max[1],
                 );
             }
         }

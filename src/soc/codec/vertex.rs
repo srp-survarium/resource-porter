@@ -173,6 +173,27 @@ pub struct SocVertexLayout {
 /// step.
 const TC_SCALE: f32 = 32.0 / 32768.0;
 
+/// Expand a `D3DCOLOR` byte the way the GPU feeds it to a vertex shader.
+///
+/// This is what makes the texture-coordinate remainder a *fraction* of a
+/// quantisation step. X-Ray unpacks the coordinate in the vertex shader:
+///
+/// ```hlsl
+/// // res/gamedata/shaders/r2/shared/common.h
+/// float2 unpack_tc_base( float2 tc, float du, float dv ) {
+///     return (tc.xy + float2(du,dv)) * (32.f/32768.f);
+/// }
+/// ```
+///
+/// called as `unpack_tc_base(v.tc, v.T.w, v.B.w)`. `T` and `B` are declared
+/// `D3DCOLOR`, which the input assembler normalises to `[0,1]` -- so `du` is
+/// `alpha/255`, never the raw byte. Adding the byte instead displaces the
+/// coordinate by up to `255 * 32/32768` = 0.249 texture units, differently at
+/// every vertex, which smears the texture across each triangle.
+fn unorm8(byte: u8) -> f32 {
+    f32::from(byte) / 255.0
+}
+
 impl SocVertexLayout {
     /// Resolve a declaration, rejecting layouts whose meaning is not proven.
     pub fn resolve(elements: &[VertexElement]) -> Result<Self> {
@@ -232,8 +253,8 @@ impl SocVertexLayout {
         let uv = match self.texcoord_kind {
             // The fractional remainder lives in the tangent/binormal alpha.
             DeclType::Short2 => [
-                (f32::from(read_i16(record, self.texcoord)?) + f32::from(tangent_alpha)) * TC_SCALE,
-                (f32::from(read_i16(record, self.texcoord + 2)?) + f32::from(binormal_alpha))
+                (f32::from(read_i16(record, self.texcoord)?) + unorm8(tangent_alpha)) * TC_SCALE,
+                (f32::from(read_i16(record, self.texcoord + 2)?) + unorm8(binormal_alpha))
                     * TC_SCALE,
             ],
             // Multi-use models store the whole coordinate.
@@ -365,8 +386,10 @@ mod tests {
         assert_eq!(vertex.tangent[1], 1.0);
         assert_eq!(vertex.binormal[2], 1.0);
         // One whole texture unit is 1024 steps, plus 128/255 of one step.
-        assert!((vertex.uv[0] - (1024.0 + 128.0) * TC_SCALE).abs() < 1e-6);
-        assert!((vertex.uv[1] - (-2048.0 + 64.0) * TC_SCALE).abs() < 1e-6);
+        // The remainder is a fraction of one quantisation step, not whole
+        // steps: D3DCOLOR reaches the shader normalised to [0,1].
+        assert!((vertex.uv[0] - (1024.0 + 128.0 / 255.0) * TC_SCALE).abs() < 1e-6);
+        assert!((vertex.uv[1] - (-2048.0 + 64.0 / 255.0) * TC_SCALE).abs() < 1e-6);
     }
 
     #[test]

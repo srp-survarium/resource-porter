@@ -21,7 +21,7 @@ use crate::weapon::{record_file, reject_duplicate_outputs};
 use super::codec::{blender, cform, gamemtl, level, ogf};
 use super::convert::collision;
 use super::convert::game_material::{self, CollisionMaterialBinding};
-use super::convert::render_material::{self, MaterialPlan};
+use super::convert::render_material::{self, MaterialPlan, RenderFamily};
 use super::convert::surface::{self, MergeReport, MergedSurface};
 use super::manifest::SocMapManifest;
 use super::source::{self, DdsInfo, SocSource};
@@ -120,6 +120,35 @@ pub fn build_bundle(
         .collect();
     render_material::validate_override_usage(&manifest.render_shader_families, &bound_shaders)?;
 
+    // Drop the triangles X-Ray never blocks movement with before anything
+    // downstream sees them: water, foliage and trigger volumes are in
+    // `level.cform` like everything else, and converting them makes a pool
+    // walkable and a bush a wall. See `GameMaterial::blocks_movement`.
+    let mut cform = cform;
+    let passable: BTreeSet<u16> = cform
+        .material_triangle_counts()
+        .keys()
+        .copied()
+        .filter(|id| {
+            library
+                .get(id)
+                .is_some_and(|material| !material.blocks_movement())
+        })
+        .collect();
+    if !passable.is_empty() {
+        let before = cform.faces.len();
+        cform.faces.retain(|face| !passable.contains(&face.material));
+        let dropped = before - cform.faces.len();
+        let names: Vec<&str> = passable
+            .iter()
+            .filter_map(|id| library.get(id).map(|material| material.name.as_str()))
+            .collect();
+        println!(
+            "passable_collision_triangles_dropped={dropped} materials={}",
+            names.join(",")
+        );
+    }
+
     let used_materials = cform.material_triangle_counts();
     game_material::validate_override_usage(
         &manifest.collision_material_overrides,
@@ -177,6 +206,16 @@ pub fn build_bundle(
             model_groups.len()
         );
     }
+    // A family-wide texture-coordinate multiplier, resolved per shader.
+    let uv_scale: BTreeMap<u16, f32> = material_plans
+        .iter()
+        .filter_map(|plan| {
+            manifest
+                .family_uv_scale
+                .get(&plan.family)
+                .map(|scale| (plan.shader_id, *scale))
+        })
+        .collect();
     let mut models = Vec::with_capacity(model_groups.len());
     for (index, group) in model_groups.iter().enumerate() {
         let path = manifest.model_path(index);
@@ -190,6 +229,7 @@ pub fn build_bundle(
             &surfaces,
             group,
             collision,
+            &uv_scale,
             &mut files,
         )?;
         models.push(path);
@@ -650,6 +690,7 @@ fn write_model_archive(
     surfaces: &[MergedSurface],
     group: &[usize],
     collision: Option<&collision::CollisionPayloads>,
+    uv_scale: &BTreeMap<u16, f32>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let surface_template = load_template(target, &manifest.templates.surface_properties)?;
@@ -666,7 +707,9 @@ fn write_model_archive(
         write_resource(
             overlay,
             &format!("{model}/render/{name}/converted_model"),
-            &merged.encode_converted_model()?,
+            &merged.encode_converted_model_scaled(
+                uv_scale.get(&merged.shader_id).copied().unwrap_or(1.0),
+            )?,
             "converted:SoC-OGF-static-visuals",
             files,
         )?;
@@ -955,6 +998,9 @@ fn write_post_process_material(
     Ok(format!("{}/post_process", manifest.namespace))
 }
 
+/// Where a forward water material binds its reflection probe.
+const WATER_REFLECTION_PATH: &str = "material.forward.effect.texture_reflection.value";
+
 /// Where the skylight parameters sit inside a post-process material.
 const SKYLIGHT_PREFIX: &str = "material.post_process";
 
@@ -979,6 +1025,30 @@ fn write_materials(
             templates.insert(template_path.clone(), load_template(target, template_path)?);
         }
         let mut material = templates[template_path].clone();
+
+        // Water is rendered by the target's own shader, so nothing from the
+        // source is bound to it -- see `RenderFamily::Water`. What it does need
+        // is a reflection probe that exists: `water/water_green` points at
+        // `environment_probes/untitled_project/probe_50043953794066488`, which
+        // this database does not contain, and a material that samples a missing
+        // texture shows the engine's `missing texture` fallback.
+        if plan.family == RenderFamily::Water {
+            if named_path(&material.root, WATER_REFLECTION_PATH).is_ok() {
+                material.root.set_path(
+                    WATER_REFLECTION_PATH,
+                    ConfigValue::String(manifest.water_reflection_probe.clone()),
+                )?;
+            }
+            write_config(
+                overlay,
+                &plan.target_path(&manifest.namespace),
+                &material,
+                &format!("generated:v0.100b-water-from-SoC:{}", plan.source_shader),
+                files,
+            )?;
+            continue;
+        }
+
         if let Some(diffuse) = &plan.source_diffuse {
             let diffuse_path = manifest
                 .family_diffuse_paths

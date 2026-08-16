@@ -49,6 +49,25 @@ pub enum RenderFamily {
     /// class `D_TREE`, the same as real foliage. Only a declared name override
     /// selects this family.
     LodImpostor,
+    /// A water surface, rendered by the target's own water shader.
+    ///
+    /// X-Ray water carries no usable appearance in its geometry or its texture
+    /// alone: `water.vs` displaces the vertices as waves and builds ripples
+    /// from two normal maps offset by world position and animated per frame,
+    /// so the level authors had no reason to give the plane a sensible tiling.
+    /// `mp_pool`'s water spans 42 world units in 3 UV units. Ported as a
+    /// translucent surface it reads as a static green pattern, whatever the
+    /// tiling — the motion *was* the water.
+    ///
+    /// v0.100b has its own water shader (`forward_simple_water`, with wave
+    /// power, fog colour and local reflections), so the port hands it the plane
+    /// and lets the target animate it. Nothing from the source is bound: this
+    /// family carries no diffuse.
+    ///
+    /// Like [`Self::LodImpostor`], no blender state selects this — the water
+    /// shaders share `S_SET` priority 2 sorted with every other blended
+    /// overlay, so only a declared name override distinguishes them.
+    Water,
 }
 
 impl RenderFamily {
@@ -64,6 +83,7 @@ impl RenderFamily {
         Self::Emissive,
         Self::VertexLitAlphaTested,
         Self::LodImpostor,
+        Self::Water,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -77,6 +97,7 @@ impl RenderFamily {
             Self::Emissive => "emissive",
             Self::VertexLitAlphaTested => "vertex_lit_alpha_tested",
             Self::LodImpostor => "lod_impostor",
+            Self::Water => "water",
         }
     }
 }
@@ -115,8 +136,8 @@ pub fn classify_state(class: &str, priority: i32, strict_sorting: bool) -> Optio
         // Wind-animated foliage: leaves and trunks share this class.
         ("D_TREE", false) => RenderFamily::Foliage,
         // Screen-set effects. Unsorted ones are unlit sprites; sorted ones are
-        // blended overlays, which includes water — a deliberately poor fit that
-        // will read as flat glass until a real adapter exists.
+        // blended overlays. The water shaders live here too, and are lifted out
+        // by name into `RenderFamily::Water`.
         ("S_SET", false) => RenderFamily::Emissive,
         ("S_SET", true) => RenderFamily::Translucent,
         // Lightmap + emissive bump, unsorted: treated as a cutout.
@@ -135,6 +156,13 @@ pub fn default_name_overrides() -> BTreeMap<String, RenderFamily> {
         // Shares `S_SET` priority 2 / sorted with the water shaders, but it is
         // a wallmark laid over other geometry, not a surface in its own right.
         ("effects\\wallmarkblend", RenderFamily::Decal),
+        // The water shaders share that same state, so only the name separates
+        // them from any other blended overlay. They go to the target's own
+        // water shader rather than to a blended texture; see
+        // `RenderFamily::Water`.
+        ("effects\\water", RenderFamily::Water),
+        ("effects\\waterstuden", RenderFamily::Water),
+        ("effects\\waterryaska", RenderFamily::Water),
     ]
     .into_iter()
     .map(|(shader, family)| (shader.to_owned(), family))
@@ -355,7 +383,7 @@ mod tests {
             }
             "effects\\wallmarkblend" => RenderFamily::Decal,
             "effects\\water" | "effects\\waterstuden" | "effects\\waterryaska" => {
-                RenderFamily::Translucent
+                RenderFamily::Water
             }
             "effects\\glow" | "details\\lod" => RenderFamily::Emissive,
             other if other.starts_with("levels\\") => RenderFamily::Opaque,
@@ -444,9 +472,16 @@ mod tests {
             classify("effects\\wallmarkblend", &blender, &overrides),
             Some(RenderFamily::Decal)
         );
+        // Water carries the same state as the wallmark and as any other sorted
+        // overlay; all three are separated only by name.
         let water = blender_for("S_SET", 2, true, "effects\\water");
         assert_eq!(
             classify("effects\\water", &water, &overrides),
+            Some(RenderFamily::Water)
+        );
+        let overlay = blender_for("S_SET", 2, true, "effects\\some_overlay");
+        assert_eq!(
+            classify("effects\\some_overlay", &overlay, &overrides),
             Some(RenderFamily::Translucent)
         );
     }

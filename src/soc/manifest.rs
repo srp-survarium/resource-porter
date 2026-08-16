@@ -133,6 +133,14 @@ pub struct SocMapManifest {
     /// path rather than a field name.
     #[serde(default = "default_diffuse_path")]
     pub diffuse_path: String,
+    /// Texture-coordinate multiplier per render family.
+    ///
+    /// For shaders whose detail came from the shader rather than the base
+    /// texture -- water above all -- the source tiling is unusable once that
+    /// shader is gone. Declared per family and recorded, because it is an
+    /// approximation of the original look, not a faithful conversion.
+    #[serde(default)]
+    pub family_uv_scale: BTreeMap<RenderFamily, f32>,
     /// Families whose template binds its colour somewhere else.
     ///
     /// Decal and additive materials are forward-rendered rather than written
@@ -159,6 +167,13 @@ pub struct SocMapManifest {
     /// Each entry names an audited replacement source texture.
     #[serde(default)]
     pub texture_aliases: BTreeMap<String, String>,
+    /// Reflection probe a converted water material samples.
+    ///
+    /// `water/water_green` names a probe from a project this database does not
+    /// ship, and a material sampling a missing texture renders the engine.s
+    /// visible `missing texture` fallback.
+    #[serde(default = "default_water_reflection_probe")]
+    pub water_reflection_probe: String,
     /// Extra world units added to every side of a derived lighting volume.
     ///
     /// A volume sized exactly to the map leaves its outermost surfaces on the
@@ -208,6 +223,10 @@ fn default_normal_path() -> String {
 
 fn default_normal_enable_path() -> String {
     "material.g_stage.effect.use_nmap.value".to_owned()
+}
+
+fn default_water_reflection_probe() -> String {
+    "environment_probes/environment_probe".to_owned()
 }
 
 fn default_post_process_material() -> String {
@@ -395,7 +414,9 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             .map(|family| (*family, format!("material_instances/stock/{}", family.as_str())))
             .collect(),
         lighting_volume_margin: 16.0,
+        water_reflection_probe: default_water_reflection_probe(),
         diffuse_path: default_diffuse_path(),
+        family_uv_scale: BTreeMap::new(),
         family_diffuse_paths: BTreeMap::new(),
         normal_path: default_normal_path(),
         normal_enable_path: default_normal_enable_path(),

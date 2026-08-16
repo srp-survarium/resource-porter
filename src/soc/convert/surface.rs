@@ -95,7 +95,21 @@ impl MergedSurface {
 
     /// Encode the target `converted_model` payload: a vertex chunk carrying the
     /// declaration, then an index chunk.
-    pub fn encode_converted_model(&self) -> Result<Vec<u8>> {
+    /// Encode with an explicit texture-coordinate multiplier.
+    ///
+    /// A few X-Ray shaders do not get their detail from the base texture, so
+    /// the level authors had no reason to give them a sensible tiling.
+    /// `effects\water` is the clear case: `mp_pool`'s water is one flat plane
+    /// of 7,296 triangles spanning 42 world units, and its UVs span 3 -- one
+    /// repeat every fourteen units. X-Ray gets away with that because
+    /// `water.vs` takes its ripples from two normal maps offset by world
+    /// position (`watermove_tc(tbase * W_DISTORT_BASE_TILE, P.xz, AMP)`) and
+    /// animated per frame. Ported without that shader, the base texture is
+    /// left magnified about fourteenfold and reads as a few smooth lobes.
+    ///
+    /// Scaling here is an approximation, not a correction: it trades the
+    /// source's exact mapping for a texel density the target can show.
+    pub fn encode_converted_model_scaled(&self, uv_scale: f32) -> Result<Vec<u8>> {
         let count = self.vertices.len();
         let vertex_chunk_size = STATIC_VERTEX_DECLARATION
             .len()
@@ -121,7 +135,7 @@ impl MergedSurface {
             output.extend_from_slice(&packed_basis(vertex.tangent, 255).to_le_bytes());
             output.extend_from_slice(&packed_basis(vertex.binormal, 255).to_le_bytes());
             for value in vertex.uv {
-                output.extend_from_slice(&value.to_le_bytes());
+                output.extend_from_slice(&(value * uv_scale).to_le_bytes());
             }
         }
 
@@ -132,6 +146,11 @@ impl MergedSurface {
             output.extend_from_slice(&index.to_le_bytes());
         }
         Ok(output)
+    }
+
+    /// Encode with the source mapping unchanged.
+    pub fn encode_converted_model(&self) -> Result<Vec<u8>> {
+        self.encode_converted_model_scaled(1.0)
     }
 }
 
