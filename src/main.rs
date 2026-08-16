@@ -10,6 +10,7 @@ use vostok_resource_porter::map_port;
 use vostok_resource_porter::material_conversion::MaterialCatalog;
 use vostok_resource_porter::material_patch;
 use vostok_resource_porter::maya_binary;
+use vostok_resource_porter::soc;
 use vostok_resource_porter::stk2_content;
 use vostok_resource_porter::target_native_map;
 use vostok_resource_porter::weapon;
@@ -220,6 +221,18 @@ enum Command {
         /// by the map manifest.
         #[arg(long)]
         sound_donor_db: Option<PathBuf>,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Convert a compiled Shadow of Chernobyl level into a v0.100b bundle.
+    BuildSocMap {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Root of an unpacked Shadow of Chernobyl `gamedata` tree.
+        #[arg(long)]
+        source_root: PathBuf,
         #[arg(long)]
         target_db: PathBuf,
         #[arg(long)]
@@ -595,6 +608,34 @@ fn main() -> Result<()> {
             )?;
             println!("asset={}", record.asset_id);
             println!("map_name={}", record.map_name);
+            println!("files={}", record.files.len());
+            println!("bundle={}", output.display());
+        }
+        Command::BuildSocMap {
+            manifest,
+            source_root,
+            target_db,
+            output,
+        } => {
+            let manifest = soc::SocMapManifest::load(manifest)?;
+            let record = soc::build_bundle(&manifest, &source_root, &target_db, &output)?;
+            println!("asset={}", record.asset_id);
+            println!("source_level={}", record.source_level);
+            println!("project={}", record.project_name);
+            println!("models={}", record.models.len());
+            println!("rendered_surfaces={}", record.rendered_surfaces);
+            println!("converted_surfaces={}", record.converted_surfaces);
+            println!("rendered_triangles={}", record.rendered_triangles);
+            println!("tree_surfaces={}", record.tree_surfaces);
+            println!("materials={}", record.materials);
+            println!("textures={}", record.textures);
+            println!("dropped_lightmaps={}", record.dropped_lightmaps);
+            println!("collision_vertices={}", record.collision_vertices);
+            println!("collision_triangles={}", record.collision_triangles);
+            println!("collision_materials={}", record.collision_materials.len());
+            for (kind, count) in &record.merge_report.dropped_by_kind {
+                println!("dropped_visuals[{kind}]={count}");
+            }
             println!("files={}", record.files.len());
             println!("bundle={}", output.display());
         }

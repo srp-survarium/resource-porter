@@ -137,6 +137,35 @@ layout, compiles target-schema model/material settings, converts STK2 texture
 pixels to DXT1 and DXT5nm DDS resources with target `.options`, and records
 every output hash.
 
+## Build a Shadow of Chernobyl map
+
+`build-soc-map` converts a compiled X-Ray 1.x level into an additive v0.100b
+bundle:
+
+```sh
+vostok-port build-soc-map \
+  --manifest ports/soc-cordon-to-0100b.json \
+  --source-root /path/to/unpacked/gamedata \
+  --target-db /path/to/v0100b/resources.db \
+  --output .work/soc-cordon-bundle
+```
+
+It decodes `level`, `level.geom`, `level.cform` and `gamemtl.xr`, regroups the
+world's visuals by shader into merged target surfaces, translates the collision
+material dictionary through reviewed names, and clones reviewed v0.100b
+templates for settings, materials, options and the project pair.
+
+Retail ships `gamedata.db0`..`gamedata.dbd`, whose file tables are compressed
+and obfuscated. Unpack once with an external tool and pass the resulting
+`gamedata` directory as `--source-root`; the converter does not read the packed
+archives.
+
+This path reimplements a converter whose original source was lost. See
+[`docs/soc-map-porting.md`](docs/soc-map-porting.md) for what the recovered
+manifests prove, what was never implemented, what is still provisional, and
+which parts of the rewrite are re-derived rather than recovered. It has not yet
+been run against real source data.
+
 ## Other useful commands
 
 ```sh

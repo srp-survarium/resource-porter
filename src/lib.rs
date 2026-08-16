@@ -9,6 +9,7 @@ pub mod material_conversion;
 pub mod material_patch;
 pub mod maya_binary;
 pub mod model_validation;
+pub mod soc;
 pub mod stk2_content;
 pub mod stk2_project;
 pub mod target_native_map;
