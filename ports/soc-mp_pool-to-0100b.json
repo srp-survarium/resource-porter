@@ -1,0 +1,46 @@
+{
+  "format_version": 1,
+  "asset_id": "soc-mp_pool-to-0100b",
+  "source_level": "testers_mp_pool",
+  "namespace": "ported/soc/mp_pool",
+  "model_prefix": "mp_pool",
+  "project_name": "soc_mp_pool",
+  "templates": {
+    "model_settings": "models/level/03/terrain_p_09.model/settings",
+    "model_render_properties": "models/level/03/terrain_p_09.model/render/export_properties",
+    "surface_properties": "models/level/03/terrain_p_09.model/render/l3terr_/export_properties",
+    "collision_settings": "models/level/03/terrain_p_09.model/settings",
+    "texture_options": "textures/tiled/wood/plywood_01.options",
+    "client_project": "projects/level_03/client_project",
+    "server_project": "projects/level_03/server_project"
+  },
+  "project_bindings": {
+    "project_name_path": "project_name",
+    "visual_array_path": "render_visuals",
+    "collision_array_path": "collision_objects",
+    "instance_model_path": "lib_name",
+    "server_project_name_path": "project_name",
+    "server_respawn_array_path": "objects.respawn_points",
+    "respawn_position_path": "position",
+    "objects_array_path": "objects",
+    "object_type_path": "game_object_type",
+    "retained_object_types": ["sky", "environment", "volume_fog"]
+  },
+  "surfaces_per_model": 200,
+  "spawn_position": [0, 10, 0],
+  "material_templates": {
+    "opaque": "material_instances/tiled/concrete/concrete_01.material",
+    "vertex_lit": "material_instances/tiled/bricks/brick_02.material",
+    "alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "vertex_lit_alpha_tested": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "translucent": "material_instances/tiled/window/glass_tile.material",
+    "foliage": "material_instances/flora/poplar_leaves_02.material",
+    "decal": "material_instances/decals/decals_multiply_02.material",
+    "emissive": "material_instances/weapons/tracer.material",
+    "lod_impostor": "material_instances/flora/sosna_bark_lod.material"
+  },
+  "family_diffuse_paths": {
+    "decal": "material.forward.effect.texture_emissive.value",
+    "emissive": "material.forward.effect.texture_emissive.value"
+  }
+}

@@ -237,6 +237,9 @@ enum Command {
         /// Print every matching name instead of a count.
         #[arg(long)]
         list: bool,
+        /// List gamemtl.xr materials with their behaviour flags.
+        #[arg(long)]
+        list_game_materials: bool,
         /// Write each archive's decoded file table here for inspection.
         #[arg(long)]
         dump_tables: Option<PathBuf>,
@@ -254,6 +257,16 @@ enum Command {
         /// Write the full report here as JSON.
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Extract one file from a Shadow of Chernobyl installation or gamedata tree.
+    SocExtract {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Archive-relative path, e.g. `levels/l01_escape/level.spawn`.
+        #[arg(long)]
+        path: String,
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Report which blender class every shader a level binds resolves to.
     ///
@@ -656,6 +669,7 @@ fn main() -> Result<()> {
             prefix,
             list,
             dump_tables,
+            list_game_materials,
         } => {
             if let Some(directory) = &dump_tables {
                 std::fs::create_dir_all(directory)?;
@@ -688,6 +702,17 @@ fn main() -> Result<()> {
                 );
             }
             println!("unique_paths={}", set.len());
+            if list_game_materials {
+                let mut source = soc::source::SocSource::open(&install_root)?;
+                let library = vostok_resource_porter::soc::codec::gamemtl::parse_library(
+                    &source.read_game_materials()?,
+                )?;
+                println!("game_materials={}", library.len());
+                for (id, material) in &library {
+                    println!("  {id:3} {:32} {:?}", material.name, material.flag_names());
+                }
+                return Ok(());
+            }
             let prefix = prefix.replace('\\', "/").to_ascii_lowercase();
             let matching: Vec<&str> = set
                 .names()
@@ -754,6 +779,18 @@ fn main() -> Result<()> {
                 std::fs::write(&output, serde_json::to_vec_pretty(&reports)?)?;
                 println!("report={}", output.display());
             }
+        }
+        Command::SocExtract {
+            source_root,
+            path,
+            output,
+        } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let bytes = source.read(&path)?;
+            std::fs::write(&output, &bytes)?;
+            println!("path={path}");
+            println!("bytes={}", bytes.len());
+            println!("output={}", output.display());
         }
         Command::SocAuditShaders { source_root, level } => {
             use vostok_resource_porter::soc::codec::{blender, level as soc_level};

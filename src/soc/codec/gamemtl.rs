@@ -14,9 +14,76 @@ use super::chunks::{Chunks, Cursor};
 pub const GAMEMTLS_CHUNK_VERSION: u32 = 0x1000;
 pub const GAMEMTLS_CHUNK_MTLS: u32 = 0x1002;
 pub const GAMEMTL_CHUNK_MAIN: u32 = 0x1000;
+pub const GAMEMTL_CHUNK_FLAGS: u32 = 0x1001;
 
-/// Decode the library into an id-to-name map.
-pub fn parse_library(bytes: &[u8]) -> Result<BTreeMap<u16, String>> {
+/// Behaviour flags a physical material carries.
+///
+/// These describe what the *world* does, independently of how it sounds or
+/// looks: whether an actor can climb it, walk through it, or be hurt by it.
+/// The port translates material names and drops all of this, so the flags are
+/// decoded to make that loss measurable rather than invisible.
+pub mod flags {
+    pub const BREAKABLE: u32 = 1 << 0;
+    pub const BOUNCEABLE: u32 = 1 << 2;
+    pub const SKIDMARK: u32 = 1 << 3;
+    pub const BLOODMARK: u32 = 1 << 4;
+    /// The actor can climb this surface: ladders, and climbable fences.
+    pub const CLIMABLE: u32 = 1 << 5;
+    /// The actor walks through it: foliage, thin bushes.
+    pub const PASSABLE: u32 = 1 << 7;
+    pub const DYNAMIC: u32 = 1 << 8;
+    pub const LIQUID: u32 = 1 << 9;
+    pub const SUPPRESS_SHADOWS: u32 = 1 << 10;
+    pub const SUPPRESS_WALLMARKS: u32 = 1 << 11;
+    pub const ACTOR_OBSTACLE: u32 = 1 << 12;
+    pub const NO_RICOCHET: u32 = 1 << 13;
+    pub const INJURIOUS: u32 = 1 << 28;
+    pub const SHOOTABLE: u32 = 1 << 29;
+}
+
+/// One physical material.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameMaterial {
+    pub name: String,
+    pub flags: u32,
+}
+
+impl GameMaterial {
+    pub fn has(&self, flag: u32) -> bool {
+        self.flags & flag != 0
+    }
+
+    pub fn is_climbable(&self) -> bool {
+        self.has(flags::CLIMABLE)
+    }
+
+    /// Names of every flag set, for reporting.
+    pub fn flag_names(&self) -> Vec<&'static str> {
+        [
+            (flags::BREAKABLE, "breakable"),
+            (flags::BOUNCEABLE, "bounceable"),
+            (flags::SKIDMARK, "skidmark"),
+            (flags::BLOODMARK, "bloodmark"),
+            (flags::CLIMABLE, "climable"),
+            (flags::PASSABLE, "passable"),
+            (flags::DYNAMIC, "dynamic"),
+            (flags::LIQUID, "liquid"),
+            (flags::SUPPRESS_SHADOWS, "suppress_shadows"),
+            (flags::SUPPRESS_WALLMARKS, "suppress_wallmarks"),
+            (flags::ACTOR_OBSTACLE, "actor_obstacle"),
+            (flags::NO_RICOCHET, "no_ricochet"),
+            (flags::INJURIOUS, "injurious"),
+            (flags::SHOOTABLE, "shootable"),
+        ]
+        .into_iter()
+        .filter(|(flag, _)| self.flags & flag != 0)
+        .map(|(_, name)| name)
+        .collect()
+    }
+}
+
+/// Decode the library into an id-to-material map.
+pub fn parse_library(bytes: &[u8]) -> Result<BTreeMap<u16, GameMaterial>> {
     let chunks = Chunks::new(bytes, "gamemtl.xr");
     let version = chunks.require(GAMEMTLS_CHUNK_VERSION)?;
     let mut cursor = Cursor::new(version, "gamemtl.xr version");
@@ -26,7 +93,8 @@ pub fn parse_library(bytes: &[u8]) -> Result<BTreeMap<u16, String>> {
     let mut library = BTreeMap::new();
     for entry in Chunks::new(materials, "gamemtl.xr materials").iter() {
         let entry = entry?;
-        let main = Chunks::new(entry.payload, "gamemtl.xr material").require(GAMEMTL_CHUNK_MAIN)?;
+        let chunks = Chunks::new(entry.payload, "gamemtl.xr material");
+        let main = chunks.require(GAMEMTL_CHUNK_MAIN)?;
         let mut cursor = Cursor::new(main, "gamemtl.xr material header");
         let id = cursor.u32()?;
         let name = cursor.stringz()?;
@@ -35,8 +103,19 @@ pub fn parse_library(bytes: &[u8]) -> Result<BTreeMap<u16, String>> {
         if name.is_empty() {
             bail!("game material {id} has an empty name");
         }
-        if let Some(existing) = library.insert(id, name.clone()) {
-            bail!("game material id {id} is defined twice: {existing:?} and {name:?}");
+        let flags = match chunks.find(GAMEMTL_CHUNK_FLAGS)? {
+            Some(payload) => Cursor::new(payload, "gamemtl.xr material flags").u32()?,
+            None => bail!("game material {name:?} has no flags chunk"),
+        };
+        let material = GameMaterial {
+            name: name.clone(),
+            flags,
+        };
+        if let Some(existing) = library.insert(id, material) {
+            bail!(
+                "game material id {id} is defined twice: {:?} and {name:?}",
+                existing.name
+            );
         }
     }
     if library.is_empty() {
@@ -58,10 +137,16 @@ pub(crate) mod fixtures {
     }
 
     pub fn material(index: u32, id: u32, name: &str) -> Vec<u8> {
+        material_with_flags(index, id, name, 0)
+    }
+
+    pub fn material_with_flags(index: u32, id: u32, name: &str, flags: u32) -> Vec<u8> {
         let mut main = id.to_le_bytes().to_vec();
         main.extend_from_slice(name.as_bytes());
         main.push(0);
-        chunk(index, &chunk(GAMEMTL_CHUNK_MAIN, &main))
+        let mut payload = chunk(GAMEMTL_CHUNK_MAIN, &main);
+        payload.extend(chunk(GAMEMTL_CHUNK_FLAGS, &flags.to_le_bytes()));
+        chunk(index, &payload)
     }
 
     /// A three-entry library matching the identifiers the Cordon port used.
@@ -83,9 +168,9 @@ mod tests {
     #[test]
     fn reads_identifiers_and_names() {
         let library = parse_library(&library()).unwrap();
-        assert_eq!(library[&0], "default");
-        assert_eq!(library[&3], "materials\\concrete");
-        assert_eq!(library[&39], "materials\\tree_trunk");
+        assert_eq!(library[&0].name, "default");
+        assert_eq!(library[&3].name, "materials\\concrete");
+        assert_eq!(library[&39].name, "materials\\tree_trunk");
     }
 
     #[test]

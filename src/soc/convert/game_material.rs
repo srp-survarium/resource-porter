@@ -17,6 +17,8 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result, bail};
+
+use crate::soc::codec::gamemtl::GameMaterial;
 use serde::{Deserialize, Serialize};
 
 /// The face-dictionary entry name the collision family uses for source
@@ -47,9 +49,18 @@ pub fn default_correspondence() -> BTreeMap<String, String> {
         ("materials\\bush", "foliage"),
         ("materials\\cloth", "cloth"),
         ("materials\\concrete", "concrete"),
+        // X-Ray's instant-death surfaces. v0.100b has no injurious physical
+        // material, so the damage is lost and only the footing survives. A
+        // converted map's radioactive pools and crushers become ordinary
+        // ground.
+        ("materials\\death", "default"),
+        ("materials\\earth_death", "ground"),
         ("materials\\dirt", "mud"),
         ("materials\\earth", "ground"),
         ("materials\\fake", "default"),
+        ("materials\\grass", "grass"),
+        ("materials\\sand", "ground"),
+        ("materials\\water", "water"),
         ("materials\\flooring_tile", "stone"),
         ("materials\\glass", "glass"),
         ("materials\\gravel", "gravel"),
@@ -87,7 +98,7 @@ pub struct CollisionMaterialBinding {
 /// dictionary read from `game_materials/game.materials`.
 pub fn resolve_bindings(
     used: &BTreeMap<u16, usize>,
-    library: &BTreeMap<u16, String>,
+    library: &BTreeMap<u16, GameMaterial>,
     correspondence: &BTreeMap<String, String>,
     target_materials: &BTreeMap<String, i32>,
 ) -> Result<Vec<CollisionMaterialBinding>> {
@@ -100,6 +111,7 @@ pub fn resolve_bindings(
                     "collision uses game material id {source_id}, which gamemtl.xr does not define"
                 )
             })?
+            .name
             .clone();
         let target_name = correspondence
             .get(&source_name)
@@ -137,12 +149,12 @@ pub fn resolve_bindings(
 /// source change unnoticed.
 pub fn validate_override_usage(
     overrides: &BTreeMap<String, String>,
-    library: &BTreeMap<u16, String>,
+    library: &BTreeMap<u16, GameMaterial>,
     used: &BTreeMap<u16, usize>,
 ) -> Result<()> {
     let used_names: std::collections::BTreeSet<&String> = used
         .keys()
-        .filter_map(|id| library.get(id))
+        .filter_map(|id| library.get(id).map(|material| &material.name))
         .collect();
     let stale: Vec<&String> = overrides
         .keys()
@@ -158,6 +170,21 @@ pub fn validate_override_usage(
 mod tests {
     use super::*;
     use crate::soc::codec::gamemtl;
+
+    fn library_of(entries: &[(u16, &str)]) -> BTreeMap<u16, GameMaterial> {
+        entries
+            .iter()
+            .map(|(id, name)| {
+                (
+                    *id,
+                    GameMaterial {
+                        name: (*name).to_owned(),
+                        flags: 0,
+                    },
+                )
+            })
+            .collect()
+    }
 
     #[test]
     fn names_the_face_dictionary_after_the_source_identifier() {
@@ -198,7 +225,7 @@ mod tests {
 
     #[test]
     fn fails_on_a_source_material_without_a_reviewed_target() {
-        let library = BTreeMap::from([(5_u16, "materials\\lava".to_owned())]);
+        let library = library_of(&[(5, "materials\\lava")]);
         let used = BTreeMap::from([(5_u16, 1_usize)]);
         let error = resolve_bindings(&used, &library, &default_correspondence(), &BTreeMap::new())
             .unwrap_err()
@@ -211,7 +238,7 @@ mod tests {
 
     #[test]
     fn fails_when_the_target_dictionary_lacks_the_reviewed_name() {
-        let library = BTreeMap::from([(3_u16, "materials\\concrete".to_owned())]);
+        let library = library_of(&[(3, "materials\\concrete")]);
         let used = BTreeMap::from([(3_u16, 1_usize)]);
         let error = resolve_bindings(&used, &library, &default_correspondence(), &BTreeMap::new())
             .unwrap_err()
@@ -221,7 +248,7 @@ mod tests {
 
     #[test]
     fn rejects_a_stale_override() {
-        let library = BTreeMap::from([(3_u16, "materials\\concrete".to_owned())]);
+        let library = library_of(&[(3, "materials\\concrete")]);
         let used = BTreeMap::from([(3_u16, 1_usize)]);
         let overrides = BTreeMap::from([("materials\\lava".to_owned(), "stone".to_owned())]);
         assert!(validate_override_usage(&overrides, &library, &used).is_err());

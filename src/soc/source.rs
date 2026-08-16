@@ -213,11 +213,25 @@ pub struct DdsInfo {
 }
 
 impl DdsInfo {
-    pub fn format(&self) -> Result<&'static str> {
+    /// Whether the payload is block-compressed rather than raw pixels.
+    pub fn is_compressed(&self) -> bool {
+        self.four_cc != [0; 4]
+    }
+
+    /// The value the target's `.options` uses for this payload.
+    ///
+    /// `NORMAL_MAP` is a format in its own right in v0.100b, not a DXT5 with a
+    /// convention attached, so a converted normal map has to declare it.
+    pub fn target_format(&self, is_normal: bool) -> Result<&'static str> {
+        if is_normal {
+            return Ok("NORMAL_MAP");
+        }
         Ok(match &self.four_cc {
             b"DXT1" => "DXT1",
-            b"DXT3" => "DXT3",
-            b"DXT5" => "DXT5",
+            b"DXT3" | b"DXT5" => "DXT5",
+            // X-Ray keeps a few detail textures as raw 32-bit pixels, and
+            // v0.100b has a format for exactly that.
+            [0, 0, 0, 0] => "UNCOMPRESSED",
             other => bail!(
                 "unsupported source DDS format {:?}",
                 String::from_utf8_lossy(other)
@@ -225,10 +239,18 @@ impl DdsInfo {
         })
     }
 
+    pub fn format(&self) -> Result<&'static str> {
+        self.target_format(false)
+    }
+
     /// v0.100b stops a block-compressed chain at the last complete 4x4 block.
     /// A source chain that continues to 2x2 and 1x1 is the documented cause of
     /// the engine substituting its visible `missing texture` fallback.
     pub fn target_mip_levels(&self) -> u32 {
+        // The 4x4 floor is a block-compression constraint; raw pixels have none.
+        if !self.is_compressed() {
+            return self.mip_levels;
+        }
         let mut width = self.width;
         let mut height = self.height;
         let mut levels = 1;
@@ -243,6 +265,94 @@ impl DdsInfo {
     pub fn has_trimmed_mip_chain(&self) -> bool {
         self.mip_levels <= self.target_mip_levels()
     }
+}
+
+/// Bytes per 4x4 block for a block-compressed format.
+fn block_bytes(four_cc: &[u8; 4]) -> Result<usize> {
+    Ok(match four_cc {
+        b"DXT1" => 8,
+        b"DXT3" | b"DXT5" => 16,
+        // Raw 32-bit pixels: one "block" is one pixel.
+        [0, 0, 0, 0] => 4,
+        other => bail!(
+            "unsupported block-compressed format {:?}",
+            String::from_utf8_lossy(other)
+        ),
+    })
+}
+
+/// Payload size of the first `levels` mips.
+fn chain_bytes(info: DdsInfo, levels: u32) -> Result<usize> {
+    let block = block_bytes(&info.four_cc)?;
+    let compressed = info.is_compressed();
+    let (mut width, mut height) = (info.width, info.height);
+    let mut total = 0_usize;
+    for _ in 0..levels {
+        let blocks = if compressed {
+            (width as usize).div_ceil(4) * (height as usize).div_ceil(4)
+        } else {
+            width as usize * height as usize
+        };
+        total = total
+            .checked_add(blocks * block)
+            .context("DDS chain size overflow")?;
+        width = (width / 2).max(1);
+        height = (height / 2).max(1);
+    }
+    Ok(total)
+}
+
+/// Rewrite a source DDS into the exact container v0.100b expects.
+///
+/// Three differences from a generic DDS, each of which alone makes the target's
+/// texture cooker substitute its visible `missing texture` fallback:
+///
+/// * the mip chain stops at the last complete 4x4 block, not at 1x1;
+/// * `dwPitchOrLinearSize` holds the *whole retained payload*, with
+///   `DDSD_LINEARSIZE` set;
+/// * one trailing byte follows the payload, carrying the colour space — 1 for
+///   sRGB colour, 0 for linear data such as a normal map.
+///
+/// The reserved header block is cleared: a producer tag left there is enough on
+/// its own to fail the cooker.
+pub fn canonicalize_dds(bytes: &[u8], info: DdsInfo, srgb: bool) -> Result<Vec<u8>> {
+    // Trim, never invent: some source textures — the per-level terrain sheets
+    // in particular — ship a single level, and asking for the full chain would
+    // read past the end of the file.
+    let levels = info.target_mip_levels().min(info.mip_levels);
+    let payload = chain_bytes(info, levels)?;
+    let end = 128 + payload;
+    if bytes.len() < end {
+        bail!(
+            "DDS is {} bytes but its first {levels} mip levels need {end}",
+            bytes.len()
+        );
+    }
+
+    let mut output = Vec::with_capacity(end + 1);
+    output.extend_from_slice(&bytes[..end]);
+
+    const DDSD_CAPS: u32 = 0x1;
+    const DDSD_HEIGHT: u32 = 0x2;
+    const DDSD_WIDTH: u32 = 0x4;
+    const DDSD_PIXELFORMAT: u32 = 0x1000;
+    const DDSD_MIPMAPCOUNT: u32 = 0x2_0000;
+    const DDSD_LINEARSIZE: u32 = 0x8_0000;
+
+    let write = |bytes: &mut [u8], offset: usize, value: u32| {
+        bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    };
+    write(
+        &mut output,
+        8,
+        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_MIPMAPCOUNT | DDSD_LINEARSIZE,
+    );
+    write(&mut output, 20, u32::try_from(payload)?);
+    write(&mut output, 28, levels);
+    output[32..76].fill(0);
+
+    output.push(u8::from(srgb));
+    Ok(output)
 }
 
 /// Parse the fixed part of a DDS header.

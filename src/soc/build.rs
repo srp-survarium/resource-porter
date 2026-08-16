@@ -52,8 +52,13 @@ pub struct SocMapBuildRecord {
     pub merge_report: MergeReport,
     pub dropped_lightmaps: usize,
     pub spawn_position: [f32; 3],
-    /// World extent the derived lighting volumes were sized to.
+    /// World extent of the converted map.
     pub map_extent: MapExtent,
+    /// Template scene objects dropped because they belong to the template map,
+    /// counted by `game_object_type`.
+    pub dropped_template_objects: BTreeMap<String, usize>,
+    /// Source normal maps bound into the target materials.
+    pub bound_normal_maps: usize,
     pub files: Vec<BuiltFile>,
 }
 
@@ -130,6 +135,11 @@ pub fn build_bundle(
     let collision_payloads = collision::encode(&cform, &collision_materials)?;
 
     let textures = plan_textures(manifest, &mut source, &material_plans)?;
+    let normals: BTreeSet<String> = textures
+        .iter()
+        .filter(|texture| texture.source_name.ends_with("_bump"))
+        .map(|texture| texture.source_name.clone())
+        .collect();
 
     // --- emit -------------------------------------------------------------
     let mut files = Vec::new();
@@ -160,16 +170,15 @@ pub fn build_bundle(
         &mut files,
     )?;
 
-    write_materials(manifest, &mut target, &overlay, &material_plans, &mut files)?;
+    write_materials(manifest, &mut target, &overlay, &material_plans, &normals, &mut files)?;
     write_textures(manifest, &mut target, &overlay, &textures, &mut files)?;
     let extent = MapExtent::of(&surfaces, cform.header.bounding_box)?;
-    write_projects(
+    let dropped_objects = write_projects(
         manifest,
         &mut target,
         &overlay,
         &models,
         &collision_model,
-        extent,
         &mut files,
     )?;
 
@@ -201,6 +210,8 @@ pub fn build_bundle(
         merge_report,
         spawn_position: manifest.spawn_position,
         map_extent: extent,
+        dropped_template_objects: dropped_objects,
+        bound_normal_maps: normals.len(),
         files,
     };
 
@@ -264,7 +275,7 @@ pub struct DecodedLevel {
     pub visuals: Vec<ogf::Visual>,
     pub buffers: level::GeometryBuffers,
     pub cform: cform::Cform,
-    pub library: BTreeMap<u16, String>,
+    pub library: BTreeMap<u16, gamemtl::GameMaterial>,
     /// The shader library `shaders.xr` records, keyed by shader name.
     pub blenders: BTreeMap<String, blender::Blender>,
 }
@@ -331,6 +342,11 @@ pub struct LevelProbe {
     pub collision_vertices: usize,
     pub collision_triangles: usize,
     pub collision_materials: Vec<(u16, String, usize)>,
+    /// Collision materials the level uses that X-Ray marks climbable, with
+    /// their triangle counts: ladders, and climbable fences.
+    pub climbable_materials: Vec<(String, usize)>,
+    /// Materials the actor walks through rather than collides with.
+    pub passable_materials: Vec<(String, usize)>,
     pub unclassified_shaders: Vec<String>,
     pub dropped_by_kind: BTreeMap<String, usize>,
     pub vertex_buffers: usize,
@@ -463,10 +479,22 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
         let name = decoded
             .library
             .get(id)
-            .cloned()
+            .map(|material| material.name.clone())
             .unwrap_or_else(|| format!("<undefined id {id}>"));
         collision_materials.push((*id, name, *triangles));
     }
+
+    let flagged = |flag: u32| -> Vec<(String, usize)> {
+        counts
+            .iter()
+            .filter_map(|(id, triangles)| {
+                let material = decoded.library.get(id)?;
+                material.has(flag).then(|| (material.name.clone(), *triangles))
+            })
+            .collect()
+    };
+    let climbable_materials = flagged(gamemtl::flags::CLIMABLE);
+    let passable_materials = flagged(gamemtl::flags::PASSABLE);
 
     Ok(LevelProbe {
         level: level_name.to_owned(),
@@ -487,6 +515,8 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
         collision_vertices: decoded.cform.vertices.len(),
         collision_triangles: decoded.cform.faces.len(),
         collision_materials,
+        climbable_materials,
+        passable_materials,
         unclassified_shaders: unclassified.into_iter().collect(),
         dropped_by_kind: merge_report.dropped_by_kind,
         render_bounds,
@@ -519,6 +549,23 @@ fn plan_textures(
         bail!("texture aliases no longer apply to any bound texture: {stale:?}");
     }
 
+    // Shadow of Chernobyl stores a normal map beside its diffuse, as
+    // `<name>_bump`. Where one exists it is a free fidelity gain: the payload
+    // is a DDS the target already reads, and the binding is one field.
+    if manifest.bind_normal_maps {
+        let with_normals: Vec<String> = wanted
+            .iter()
+            .map(|name| format!("{name}_bump"))
+            .filter(|candidate| {
+                source
+                    .read_texture(candidate)
+                    .map(|found| found.is_some())
+                    .unwrap_or(false)
+            })
+            .collect();
+        wanted.extend(with_normals);
+    }
+
     let mut textures = Vec::with_capacity(wanted.len());
     let mut missing = Vec::new();
     for name in &wanted {
@@ -528,17 +575,17 @@ fn plan_textures(
             continue;
         };
         let info = source::parse_dds(&bytes, name)?;
-        if !info.has_trimmed_mip_chain() && !manifest.allow_untrimmed_mip_chains {
-            bail!(
-                "{name} has {} mip levels but v0.100b stops at {} for {}x{}; the extra levels can \
-                 make the texture cooker substitute its visible fallback. Trim the chain or \
-                 declare allow_untrimmed_mip_chains.",
-                info.mip_levels,
-                info.target_mip_levels(),
-                info.width,
-                info.height
-            );
-        }
+        // Source chains run to 1x1; the target stops at the last complete 4x4
+        // block and expects a trailing colour-space byte. Rewriting the
+        // container is what the recovered port's `identity:SoC-DDS` copy did
+        // not do.
+        let is_normal = name.ends_with("_bump");
+        let bytes = if manifest.allow_untrimmed_mip_chains {
+            bytes
+        } else {
+            source::canonicalize_dds(&bytes, info, !is_normal)
+                .with_context(|| format!("canonicalizing {name}"))?
+        };
         // The target path always keeps the *declared* name, so an alias stays
         // visible in the manifest without moving the binding.
         let target_dds = source::target_texture_path(&manifest.namespace, name)?;
@@ -645,10 +692,23 @@ fn write_model_archive(
     let mut settings = load_template(target, &manifest.templates.model_settings)?;
     // The one-to-one rule: the surface list in settings and the surface
     // directories carrying geometry must be the same set.
-    settings.root.set_path(
-        "lod_hierrarchy.LOD0.surfaces",
-        ConfigValue::Indexed(bindings.keys().cloned().map(ConfigValue::String).collect()),
-    )?;
+    // Every LOD level the template declares gets our surface list. The merge
+    // produces one detail level, but the target's LOD switching expects the
+    // levels the template had, and the one-to-one rule -- surfaces named in
+    // settings == surface directories carrying geometry -- makes a level left
+    // naming the template's surfaces a load failure.
+    let surface_names: Vec<ConfigValue> =
+        bindings.keys().cloned().map(ConfigValue::String).collect();
+    let levels: Vec<String> = match settings.root.named("lod_hierrarchy") {
+        Some(ConfigValue::Named(levels)) => levels.iter().map(|l| l.name.clone()).collect(),
+        _ => bail!("{model}: template settings have no lod_hierrarchy"),
+    };
+    for level in levels {
+        settings.root.set_path(
+            &format!("lod_hierrarchy.{level}.surfaces"),
+            ConfigValue::Indexed(surface_names.clone()),
+        )?;
+    }
     settings.root.set_path(
         "material_settings",
         ConfigValue::Named(
@@ -711,6 +771,13 @@ fn write_collision_archive(
     )?;
 
     let mut settings = load_template(target, &manifest.templates.collision_settings)?;
+    // v0.100b ships no collision-only model, so the template necessarily has
+    // render surfaces. A collision archive declares none, and the one-to-one
+    // rule -- surfaces in settings == surface directories with geometry -- makes
+    // leaving them in a crash rather than a cosmetic flaw.
+    for key in ["material_settings", "lod_hierrarchy", "lod_switching"] {
+        remove_named(&mut settings.root, key);
+    }
     settings.root.set_path(
         "game_material_settings",
         ConfigValue::Named(
@@ -741,11 +808,28 @@ fn write_collision_archive(
     )
 }
 
+/// Rewrite one texture binding, keeping the reference style the template uses.
+fn bind_texture(
+    material: &mut BinaryConfig,
+    path: &str,
+    target_texture: &str,
+    template_path: &str,
+) -> Result<()> {
+    let existing = named_path(&material.root, path)
+        .with_context(|| format!("material template {template_path} has no {path} binding"))?;
+    let ConfigValue::String(existing) = existing else {
+        bail!("material template {template_path} binds {path} as a non-string value");
+    };
+    let reference = texture_reference_like(existing, target_texture);
+    material.root.set_path(path, ConfigValue::String(reference))
+}
+
 fn write_materials(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
     overlay: &Path,
     plans: &[MaterialPlan],
+    normals: &BTreeSet<String>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let mut templates = BTreeMap::new();
@@ -759,26 +843,34 @@ fn write_materials(
         }
         let mut material = templates[template_path].clone();
         if let Some(diffuse) = &plan.source_diffuse {
-            let texture = source::target_texture_path(&manifest.namespace, diffuse)?;
-            let existing = material
-                .root
-                .named(&manifest.diffuse_property)
-                .with_context(|| {
-                    format!(
-                        "material template {template_path} has no {} binding",
-                        manifest.diffuse_property
-                    )
-                })?;
-            let ConfigValue::String(existing) = existing else {
-                bail!(
-                    "material template {template_path} binds {} as a non-string value",
-                    manifest.diffuse_property
-                );
-            };
-            material.root.set_path(
-                &manifest.diffuse_property,
-                ConfigValue::String(texture_reference_like(existing, &texture)),
+            let diffuse_path = manifest
+                .family_diffuse_paths
+                .get(&plan.family)
+                .unwrap_or(&manifest.diffuse_path);
+            bind_texture(
+                &mut material,
+                diffuse_path,
+                &source::target_texture_path(&manifest.namespace, diffuse)?,
+                template_path,
             )?;
+
+            // The `_bump` companion, where the source has one. The enable flag
+            // has to move with it: a template chosen for its diffuse may have
+            // normal mapping switched off.
+            if manifest.bind_normal_maps && normals.contains(&format!("{diffuse}_bump")) {
+                bind_texture(
+                    &mut material,
+                    &manifest.normal_path,
+                    &source::target_texture_path(
+                        &manifest.namespace,
+                        &format!("{diffuse}_bump"),
+                    )?,
+                    template_path,
+                )?;
+                material
+                    .root
+                    .set_path(&manifest.normal_enable_path, ConfigValue::Boolean(true))?;
+            }
         }
         write_config(
             overlay,
@@ -800,26 +892,35 @@ fn write_textures(
 ) -> Result<()> {
     let template = load_template(target, &manifest.templates.texture_options)?;
     for texture in textures {
-        // X-Ray already stores block-compressed DDS in a container v0.100b
-        // reads, so the payload is copied rather than re-encoded.
+        // The pixels are X-Ray's; the container around them is rewritten to the
+        // target's convention — chain trimmed to the last complete block, and a
+        // trailing colour-space byte.
         write_resource(
             overlay,
             &texture.target_dds,
             &texture.bytes,
-            "identity:SoC-DDS",
+            "converted:SoC-DDS-to-v0.100b-container",
             files,
         )?;
+
+        // `.options` is what the cooker reads to decide how to interpret the
+        // payload; a format mismatch here is a missing texture at runtime.
+        // v0.100b treats a normal map as its own format rather than as a DXT5
+        // with a convention attached.
+        let is_normal = texture.source_name.ends_with("_bump");
         let mut options = template.clone();
         options.root.set_path(
-            "format",
-            ConfigValue::String(texture.info.format()?.to_owned()),
+            "options.format",
+            ConfigValue::String(texture.info.target_format(is_normal)?.to_owned()),
         )?;
-        if options.root.named("has_mip_levels").is_some() {
-            options.root.set_path(
-                "has_mip_levels",
-                ConfigValue::Boolean(texture.info.mip_levels > 1),
-            )?;
-        }
+        options.root.set_path(
+            "options.has_mip_levels",
+            ConfigValue::Integer(i32::from(texture.info.mip_levels > 1)),
+        )?;
+        options.root.set_path(
+            "options.srgb",
+            ConfigValue::Integer(i32::from(!is_normal)),
+        )?;
         write_config(
             overlay,
             &texture.target_options,
@@ -838,13 +939,12 @@ fn write_projects(
     overlay: &Path,
     models: &[String],
     collision_model: &str,
-    extent: MapExtent,
     files: &mut Vec<BuiltFile>,
-) -> Result<()> {
+) -> Result<BTreeMap<String, usize>> {
     let bindings = &manifest.project_bindings;
 
     let mut client = load_template(target, &manifest.templates.client_project)?;
-    resize_lighting_volumes(manifest, &mut client.root, extent)?;
+    let dropped_objects = filter_template_objects(manifest, &mut client.root)?;
     client.root.set_path(
         &bindings.project_name_path,
         ConfigValue::String(manifest.project_name.clone()),
@@ -910,75 +1010,78 @@ fn write_projects(
         &server,
         "generated:SoC-server-project",
         files,
-    )
+    )?;
+    Ok(dropped_objects)
 }
 
-/// Re-derive the template's lighting volumes for this map, and drop its probes.
+/// Drop every scene object whose meaning is positional.
 ///
-/// Sky ambient-occlusion and ambient volumes are boxes whose contribution is
-/// additive and confined to their own bounds. Inherited from a template they
-/// describe the template's map, so anything outside them receives nothing:
-/// with the global ambient multiplier starting at zero, that reads as a hard
-/// horizontal plane with everything below it completely black.
+/// v0.100b keeps lights, decals, environment probes, collision geometry,
+/// sounds, vegetation, sky and fog in one flat array discriminated by
+/// `game_object_type`. Cloning a template project inherits all of them at the
+/// template map's coordinates: `projects/level_03/client_project` carries 248,
+/// including 36 environment probes, 110 decals and 47 collision geometries.
 ///
-/// Each volume keeps every other field it had — enabled flag, occlusion
-/// texture name, multiplier, resolution — and only moves and grows to contain
-/// this map.
-fn resize_lighting_volumes(
+/// Only globally-meaningful types survive — sky, environment, fog — because
+/// they describe the whole scene rather than a place in it. Everything else
+/// would be furniture from another map scattered through this one, and the
+/// probes in particular are what put a hard black lighting boundary through
+/// the STK2 A01 ravine.
+///
+/// Returns how many objects of each type were dropped, for the build record.
+fn filter_template_objects(
     manifest: &SocMapManifest,
     root: &mut ConfigValue,
-    extent: MapExtent,
-) -> Result<()> {
+) -> Result<BTreeMap<String, usize>> {
     let bindings = &manifest.project_bindings;
-    let center = extent.center();
-    let size = extent.padded_size(manifest.lighting_volume_margin);
+    let (Some(array_path), Some(type_path)) = (
+        bindings.objects_array_path.as_ref(),
+        bindings.object_type_path.as_ref(),
+    ) else {
+        return Ok(BTreeMap::new());
+    };
 
-    for array_path in [
-        bindings.sky_ao_array_path.as_ref(),
-        bindings.ambient_volume_array_path.as_ref(),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        let position_path = bindings
-            .volume_position_path
-            .as_ref()
-            .expect("validated manifests declare a volume position path");
-        let size_paths = bindings
-            .volume_size_paths
-            .as_ref()
-            .expect("validated manifests declare volume size paths");
+    let ConfigValue::Indexed(entries) = named_path(root, array_path)? else {
+        bail!("project template {array_path} is not an indexed array");
+    };
+    let retained: BTreeSet<&str> = bindings
+        .retained_object_types
+        .iter()
+        .map(String::as_str)
+        .collect();
 
-        let ConfigValue::Indexed(entries) = named_path(root, array_path)? else {
-            bail!("project template {array_path} is not an indexed array");
+    let mut kept = Vec::new();
+    let mut dropped: BTreeMap<String, usize> = BTreeMap::new();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for entry in entries {
+        let kind = match entry.named(type_path) {
+            Some(ConfigValue::String(kind)) => kind.clone(),
+            // An object without the discriminator cannot be judged, so it goes:
+            // keeping it would be keeping something unidentified from another
+            // map.
+            _ => "<untyped>".to_owned(),
         };
-        if entries.is_empty() {
-            bail!(
-                "project template {array_path} has no lighting volume to re-derive; the converted \
-                 map would have no ambient source at all"
-            );
+        seen.insert(kind.clone());
+        if retained.contains(kind.as_str()) {
+            kept.push(entry.clone());
+        } else {
+            *dropped.entry(kind).or_insert(0) += 1;
         }
-        let mut resized = entries.clone();
-        for entry in &mut resized {
-            entry.set_path(position_path, ConfigValue::Float3(center))?;
-            for (axis, path) in size_paths.iter().enumerate() {
-                // Sizes are integers in the v0.100b object; round up so the
-                // box never lands just inside the extent it must contain.
-                entry.set_path(path, ConfigValue::Integer(size[axis].ceil() as i32))?;
-            }
-        }
-        root.set_path(array_path, ConfigValue::Indexed(resized))?;
     }
 
-    // A probe needs a cubemap captured in this map. The port has none, so the
-    // honest result is no probe rather than another map's.
-    if let Some(array_path) = &bindings.environment_probe_array_path {
-        let ConfigValue::Indexed(_) = named_path(root, array_path)? else {
-            bail!("project template {array_path} is not an indexed array");
-        };
-        root.set_path(array_path, ConfigValue::Indexed(Vec::new()))?;
+    // A retain entry that matches nothing is a stale review, same posture as
+    // every other override in this converter.
+    let stale: Vec<&String> = bindings
+        .retained_object_types
+        .iter()
+        .filter(|kind| !seen.contains(*kind))
+        .collect();
+    if !stale.is_empty() {
+        bail!("retained_object_types names types the template does not contain: {stale:?}");
     }
-    Ok(())
+
+    root.set_path(array_path, ConfigValue::Indexed(kept))?;
+    Ok(dropped)
 }
 
 /// Clone the template's first array entry once per model, so the generated
@@ -1013,6 +1116,13 @@ fn rebuild_instances(
             Ok(entry)
         })
         .collect()
+}
+
+/// Drop one named field, if the config has it.
+fn remove_named(root: &mut ConfigValue, key: &str) {
+    if let ConfigValue::Named(values) = root {
+        values.retain(|value| value.name != key);
+    }
 }
 
 /// Resolve a dotted path against a decoded config.
@@ -1183,58 +1293,42 @@ mod tests {
             .to_string();
         assert!(error.contains("objects.lights"), "{error}");
     }
-
-    fn lighting_template() -> ConfigValue {
-        let volume = |name: &str| {
+    /// A client project shaped like `projects/level_03/client_project`: one
+    /// flat `objects` array mixing global and positional scene objects.
+    fn objects_template() -> ConfigValue {
+        let object = |kind: &str, name: &str| {
             ConfigValue::Named(vec![
                 NamedValue {
-                    name: "position".into(),
-                    // Somewhere in the template's map, not ours.
-                    value: ConfigValue::Float3([900.0, 400.0, 900.0]),
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String(kind.into()),
                 },
                 NamedValue {
-                    name: "width".into(),
-                    value: ConfigValue::Integer(512),
-                },
-                NamedValue {
-                    name: "depth".into(),
-                    value: ConfigValue::Integer(512),
-                },
-                NamedValue {
-                    name: "height".into(),
-                    value: ConfigValue::Integer(512),
-                },
-                // A field the converter does not understand must survive.
-                NamedValue {
-                    name: "texture".into(),
+                    name: "name".into(),
                     value: ConfigValue::String(name.into()),
+                },
+                NamedValue {
+                    name: "position".into(),
+                    value: ConfigValue::Float3([900.0, 400.0, 900.0]),
                 },
             ])
         };
         ConfigValue::Named(vec![NamedValue {
             name: "objects".into(),
-            value: ConfigValue::Named(vec![
-                NamedValue {
-                    name: "sky_ao".into(),
-                    value: ConfigValue::Indexed(vec![volume("template_ao")]),
-                },
-                NamedValue {
-                    name: "ambient".into(),
-                    value: ConfigValue::Indexed(vec![volume("template_ambient")]),
-                },
-                NamedValue {
-                    name: "probes".into(),
-                    value: ConfigValue::Indexed(vec![
-                        ConfigValue::String("probe_a".into()),
-                        ConfigValue::String("probe_b".into()),
-                    ]),
-                },
+            value: ConfigValue::Indexed(vec![
+                object("environment_probe", "probe_a"),
+                object("environment_probe", "probe_b"),
+                object("decal", "decal_a"),
+                object("light", "light_a"),
+                object("collision_geometry", "collision_a"),
+                object("sky", "the_sky"),
+                object("environment", "the_environment"),
+                object("volume_fog", "the_fog"),
             ]),
         }])
     }
 
     /// Cordon's real extent, as measured from retail: 1498 x 212 x 2417, with
-    /// ground down at Y -96.9. The inherited 512-unit box cannot contain it.
+    /// ground down at Y -96.9.
     const CORDON: MapExtent = MapExtent {
         min: [-749.0, -96.9, -1208.0],
         max: [749.0, 115.4, 1209.0],
@@ -1245,8 +1339,12 @@ mod tests {
         let extent = MapExtent::of(&[], ([-10.0, -5.0, -10.0], [10.0, 5.0, 10.0])).unwrap();
         assert_eq!(extent.size(), [20.0, 10.0, 20.0]);
         assert_eq!(extent.center(), [0.0, 0.0, 0.0]);
-        // The margin grows every side, so a side length gains twice it.
         assert_eq!(extent.padded_size(16.0), [52.0, 42.0, 52.0]);
+    }
+
+    #[test]
+    fn map_extent_measures_cordon() {
+        assert_eq!(CORDON.size().map(|v| v.round()), [1498.0, 212.0, 2417.0]);
     }
 
     #[test]
@@ -1255,82 +1353,92 @@ mod tests {
     }
 
     #[test]
-    fn lighting_volumes_are_resized_to_the_converted_map() {
+    fn positional_template_objects_are_dropped_and_global_ones_kept() {
         let manifest = crate::soc::manifest::sample_manifest();
-        let mut root = lighting_template();
-        resize_lighting_volumes(&manifest, &mut root, CORDON).unwrap();
+        let mut root = objects_template();
+        let dropped = filter_template_objects(&manifest, &mut root).unwrap();
 
-        let volumes = named_path(&root, "objects.sky_ao").unwrap();
-        let ConfigValue::Indexed(volumes) = volumes else {
-            panic!("sky_ao is not indexed");
+        // Everything that carries a place in the template's map is gone.
+        assert_eq!(dropped["environment_probe"], 2);
+        assert_eq!(dropped["decal"], 1);
+        assert_eq!(dropped["light"], 1);
+        assert_eq!(dropped["collision_geometry"], 1);
+
+        // Whole-scene settings survive.
+        let ConfigValue::Indexed(kept) = named_path(&root, "objects").unwrap() else {
+            panic!("objects is not indexed");
         };
-        let volume = &volumes[0];
-
-        // Centred on the map, not on the template's map.
-        let ConfigValue::Float3(position) = volume.named("position").unwrap() else {
-            panic!("position is not a float3");
-        };
-        assert!((position[1] - 9.25).abs() < 0.01, "{position:?}");
-
-        // Sized to contain it, with the margin, rounded up.
-        assert_eq!(volume.named("width"), Some(&ConfigValue::Integer(1530)));
-        assert_eq!(volume.named("depth"), Some(&ConfigValue::Integer(245)));
-        assert_eq!(volume.named("height"), Some(&ConfigValue::Integer(2449)));
-
-        // Fields the converter does not understand are untouched.
-        assert_eq!(
-            volume.named("texture"),
-            Some(&ConfigValue::String("template_ao".into()))
-        );
+        let names: Vec<&str> = kept
+            .iter()
+            .filter_map(|entry| match entry.named("game_object_type") {
+                Some(ConfigValue::String(kind)) => Some(kind.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, vec!["sky", "environment", "volume_fog"]);
     }
 
     #[test]
-    fn the_vertical_axis_is_the_field_named_depth() {
-        // The engine builds the box with set_scale(width, depth, height), so
-        // `depth` is Y. A tall, narrow map must grow `depth`, not `height`.
-        let manifest = crate::soc::manifest::sample_manifest();
-        let mut root = lighting_template();
-        let tall = MapExtent {
-            min: [-1.0, -500.0, -1.0],
-            max: [1.0, 500.0, 1.0],
-        };
-        resize_lighting_volumes(&manifest, &mut root, tall).unwrap();
-        let ConfigValue::Indexed(volumes) = named_path(&root, "objects.sky_ao").unwrap() else {
-            panic!("sky_ao is not indexed");
-        };
-        assert_eq!(volumes[0].named("depth"), Some(&ConfigValue::Integer(1032)));
-        assert_eq!(volumes[0].named("height"), Some(&ConfigValue::Integer(34)));
+    fn an_object_without_a_type_is_dropped_rather_than_guessed_at() {
+        let mut manifest = crate::soc::manifest::sample_manifest();
+        manifest.project_bindings.retained_object_types = vec!["sky".into()];
+        let mut root = ConfigValue::Named(vec![NamedValue {
+            name: "objects".into(),
+            value: ConfigValue::Indexed(vec![
+                ConfigValue::Named(vec![NamedValue {
+                    name: "name".into(),
+                    value: ConfigValue::String("mystery".into()),
+                }]),
+                ConfigValue::Named(vec![NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("sky".into()),
+                }]),
+            ]),
+        }]);
+        let dropped = filter_template_objects(&manifest, &mut root).unwrap();
+        assert_eq!(dropped["<untyped>"], 1);
     }
 
     #[test]
-    fn ambient_volumes_are_resized_too_and_probes_are_dropped() {
-        let manifest = crate::soc::manifest::sample_manifest();
-        let mut root = lighting_template();
-        resize_lighting_volumes(&manifest, &mut root, CORDON).unwrap();
-
-        let ConfigValue::Indexed(ambient) = named_path(&root, "objects.ambient").unwrap() else {
-            panic!("ambient is not indexed");
-        };
-        assert_eq!(ambient[0].named("width"), Some(&ConfigValue::Integer(1530)));
-
-        // Probes cannot be re-derived, so they go rather than describe
-        // somewhere else.
-        assert_eq!(
-            named_path(&root, "objects.probes").unwrap(),
-            &ConfigValue::Indexed(Vec::new())
-        );
-    }
-
-    #[test]
-    fn a_template_without_a_lighting_volume_is_a_build_failure() {
-        let manifest = crate::soc::manifest::sample_manifest();
-        let mut root = lighting_template();
-        root.set_path("objects.sky_ao", ConfigValue::Indexed(Vec::new()))
-            .unwrap();
-        let error = resize_lighting_volumes(&manifest, &mut root, CORDON)
+    fn a_stale_retained_type_is_a_build_failure() {
+        let mut manifest = crate::soc::manifest::sample_manifest();
+        manifest
+            .project_bindings
+            .retained_object_types
+            .push("terrain".into());
+        let mut root = objects_template();
+        let error = filter_template_objects(&manifest, &mut root)
             .unwrap_err()
             .to_string();
-        assert!(error.contains("no ambient source at all"), "{error}");
+        assert!(error.contains("does not contain"), "{error}");
+    }
+
+    #[test]
+    fn a_material_binding_keeps_the_templates_reference_style() {
+        let mut material = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "effect".into(),
+                value: ConfigValue::Named(vec![NamedValue {
+                    name: "texture_diffuse".into(),
+                    value: ConfigValue::Named(vec![NamedValue {
+                        name: "value".into(),
+                        // The target writes namespace-relative, extension-less.
+                        value: ConfigValue::String("tiled/roof/roof_03".into()),
+                    }]),
+                }]),
+            }]),
+        };
+        bind_texture(
+            &mut material,
+            "effect.texture_diffuse.value",
+            "textures/ported/soc/cordon/prop/bochka.dds",
+            "tiled/roof/roof_03",
+        )
+        .unwrap();
+        assert_eq!(
+            named_path(&material.root, "effect.texture_diffuse.value").unwrap(),
+            &ConfigValue::String("ported/soc/cordon/prop/bochka".into())
+        );
     }
 
     #[test]

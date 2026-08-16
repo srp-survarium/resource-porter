@@ -60,33 +60,29 @@ pub struct ProjectBindings {
     /// Dotted path, inside one respawn entry, of its position.
     pub respawn_position_path: String,
 
-    /// Dotted path of the indexed array of sky ambient-occlusion volumes.
+    /// Dotted path of the template's heterogeneous scene-object array.
     ///
-    /// Each entry is a box that says which patch of world its baked occlusion
-    /// texture covers. Inherited from the template it describes the template's
-    /// map, and anything outside it receives no sky light at all — which reads
-    /// as a hard horizontal plane with everything below it black.
-    pub sky_ao_array_path: Option<String>,
-    /// Dotted path of the indexed array of ambient volumes: same box shape,
-    /// same failure, scaling ambient light instead of supplying sky light.
-    pub ambient_volume_array_path: Option<String>,
-    /// Dotted path of the indexed array of environment probes.
+    /// In v0.100b this is one flat array holding lights, decals, environment
+    /// probes, collision geometry, sounds, vegetation, sky and fog — all
+    /// discriminated by [`Self::object_type_path`]. Cloning a template project
+    /// drags every one of them along, and almost all are positioned for the
+    /// template's map: `projects/level_03/client_project` carries 248 objects,
+    /// of which 36 are environment probes, 110 decals and 47 collision
+    /// geometries, none of which belong anywhere near a converted map.
+    pub objects_array_path: Option<String>,
+    /// Dotted path, inside one scene object, of its type discriminator.
+    pub object_type_path: Option<String>,
+    /// Object types kept when cloning the template.
     ///
-    /// Unlike the two volume kinds a probe cannot be re-derived: it needs a
-    /// cubemap captured in this map, and the port has none. Declaring the path
-    /// clears the array so the scene falls back to the global environment,
-    /// which is flatter than correct probes but never black.
-    pub environment_probe_array_path: Option<String>,
-
-    /// Dotted path, inside one volume entry, of its position.
-    pub volume_position_path: Option<String>,
-    /// Dotted paths, inside one volume entry, of its three side lengths.
-    ///
-    /// Order is `(x, y, z)` by *effect*, not by field name. v0.100b builds the
-    /// box with `set_scale(float3(width, depth, height))`, so the field called
-    /// `depth` drives the vertical axis and the one called `height` drives Z.
-    /// Declaring them positionally keeps that trap out of the converter.
-    pub volume_size_paths: Option<[String; 3]>,
+    /// Only types whose meaning is *global* rather than positional can be
+    /// retained — sky, the environment settings, volumetric fog. Everything
+    /// else is dropped, because its coordinates describe the template's map.
+    /// This is the rule the STK2 port arrived at the hard way: "spatial
+    /// lights, probes, and decals inherited from a convenient client-project
+    /// template must be removed because their coordinates belong to the
+    /// template map".
+    #[serde(default)]
+    pub retained_object_types: Vec<String>,
 }
 
 /// One Shadow of Chernobyl map port.
@@ -122,9 +118,35 @@ pub struct SocMapManifest {
     pub collision_material_overrides: BTreeMap<String, String>,
     /// Reviewed v0.100b material template per render family.
     pub material_templates: BTreeMap<RenderFamily, String>,
-    /// Name of the material property the diffuse texture binds to.
-    #[serde(default = "default_diffuse_property")]
-    pub diffuse_property: String,
+    /// Dotted path of the material field the diffuse texture binds to.
+    ///
+    /// v0.100b materials nest every binding under `material.g_stage.effect`,
+    /// and each leaf is a `{ value, is_model_parameter }` pair, so this is a
+    /// path rather than a field name.
+    #[serde(default = "default_diffuse_path")]
+    pub diffuse_path: String,
+    /// Families whose template binds its colour somewhere else.
+    ///
+    /// Decal and additive materials are forward-rendered rather than written
+    /// into the G-buffer, so their colour lives at
+    /// `material.forward.effect.texture_emissive` and the `g_stage` path does
+    /// not exist on them at all.
+    #[serde(default)]
+    pub family_diffuse_paths: BTreeMap<RenderFamily, String>,
+    /// Dotted path of the field a converted normal map binds to, and of the
+    /// flag that enables normal mapping.
+    ///
+    /// Shadow of Chernobyl ships a `<name>_bump` companion for 587 of its
+    /// 3,743 base textures. Binding them is the largest fidelity gain
+    /// available at no risk: the payload is a DDS the target already reads,
+    /// and the binding is one field.
+    #[serde(default = "default_normal_path")]
+    pub normal_path: String,
+    #[serde(default = "default_normal_enable_path")]
+    pub normal_enable_path: String,
+    /// Convert and bind `_bump` companions when the source has them.
+    #[serde(default = "default_true")]
+    pub bind_normal_maps: bool,
     /// Source textures a surface may reference but the tree does not contain.
     /// Each entry names an audited replacement source texture.
     #[serde(default)]
@@ -146,8 +168,20 @@ fn default_surfaces_per_model() -> usize {
     200
 }
 
-fn default_diffuse_property() -> String {
-    "texture_diffuse".to_owned()
+fn default_diffuse_path() -> String {
+    "material.g_stage.effect.texture_diffuse.value".to_owned()
+}
+
+fn default_normal_path() -> String {
+    "material.g_stage.effect.texture_normal.value".to_owned()
+}
+
+fn default_normal_enable_path() -> String {
+    "material.g_stage.effect.use_nmap.value".to_owned()
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_lighting_volume_margin() -> f32 {
@@ -207,17 +241,13 @@ impl SocMapManifest {
         if !self.lighting_volume_margin.is_finite() || self.lighting_volume_margin < 0.0 {
             bail!("SoC map manifest lighting_volume_margin must be finite and non-negative");
         }
-        // A volume array can only be resized if the converter also knows which
-        // fields inside an entry carry its position and size.
-        let resizes_volumes = self.project_bindings.sky_ao_array_path.is_some()
-            || self.project_bindings.ambient_volume_array_path.is_some();
-        if resizes_volumes
-            && (self.project_bindings.volume_position_path.is_none()
-                || self.project_bindings.volume_size_paths.is_none())
+        // Filtering the template's scene objects needs both the array and the
+        // field that says what each object is.
+        if self.project_bindings.objects_array_path.is_some()
+            != self.project_bindings.object_type_path.is_some()
         {
             bail!(
-                "SoC map manifest declares a lighting volume array but not \
-                 volume_position_path and volume_size_paths"
+                "SoC map manifest must declare objects_array_path and object_type_path together"
             );
         }
         // Every family the classification can produce needs a template, because
@@ -307,11 +337,9 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             server_project_name_path: "project_name".into(),
             server_respawn_array_path: "objects.respawns".into(),
             respawn_position_path: "position".into(),
-            sky_ao_array_path: Some("objects.sky_ao".into()),
-            ambient_volume_array_path: Some("objects.ambient".into()),
-            environment_probe_array_path: Some("objects.probes".into()),
-            volume_position_path: Some("position".into()),
-            volume_size_paths: Some(["width".into(), "depth".into(), "height".into()]),
+            objects_array_path: Some("objects".into()),
+            object_type_path: Some("game_object_type".into()),
+            retained_object_types: vec!["sky".into(), "environment".into(), "volume_fog".into()],
         },
         surfaces_per_model: 200,
         spawn_position: [0.0, 2.1951056, 0.0],
@@ -323,7 +351,11 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             .map(|family| (*family, format!("material_instances/stock/{}", family.as_str())))
             .collect(),
         lighting_volume_margin: 16.0,
-        diffuse_property: "texture_diffuse".into(),
+        diffuse_path: default_diffuse_path(),
+        family_diffuse_paths: BTreeMap::new(),
+        normal_path: default_normal_path(),
+        normal_enable_path: default_normal_enable_path(),
+        bind_normal_maps: true,
         texture_aliases: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,
     }
