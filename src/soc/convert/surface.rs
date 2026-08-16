@@ -61,6 +61,36 @@ impl MergedSurface {
     }
 
     /// Axis-aligned bounds and the sphere the renderer culls against.
+    /// World units spanned by one texture-coordinate unit, horizontally.
+    ///
+    /// The measure a tiled overlay needs: `constant_tile_N` is a repeat *count*
+    /// over the mesh UV, so turning a wanted repeat size in metres into a count
+    /// needs to know how much ground one UV unit covers. Horizontal only —
+    /// terrain is close enough to flat that height would only add the cliffs.
+    ///
+    /// `None` when the surface has no measurable UV extent, which a single
+    /// degenerate triangle can produce.
+    pub fn uv_world_density(&self) -> Option<f32> {
+        let mut world = [f32::NEG_INFINITY; 2];
+        let mut world_min = [f32::INFINITY; 2];
+        let mut uv = [f32::NEG_INFINITY; 2];
+        let mut uv_min = [f32::INFINITY; 2];
+        for vertex in &self.vertices {
+            for (index, axis) in [0, 2].into_iter().enumerate() {
+                world[index] = world[index].max(vertex.position[axis]);
+                world_min[index] = world_min[index].min(vertex.position[axis]);
+            }
+            for axis in 0..2 {
+                uv[axis] = uv[axis].max(vertex.uv[axis]);
+                uv_min[axis] = uv_min[axis].min(vertex.uv[axis]);
+            }
+        }
+        let world_span = (world[0] - world_min[0]).max(world[1] - world_min[1]);
+        let uv_span = (uv[0] - uv_min[0]).max(uv[1] - uv_min[1]);
+        (uv_span > f32::EPSILON && world_span.is_finite() && world_span > 0.0)
+            .then(|| world_span / uv_span)
+    }
+
     pub fn bounds(&self) -> Bounds {
         let mut minimum = [f32::INFINITY; 3];
         let mut maximum = [f32::NEG_INFINITY; 3];
@@ -414,6 +444,23 @@ fn resolve_visual(
         indices: indices.to_vec(),
         is_tree: visual.kind == VisualKind::Tree,
     })
+}
+
+/// World units one texture-coordinate unit covers, per shader.
+///
+/// A shader is split into as many surfaces as the merge needed, and its layers
+/// have to tile at one size across all of them, so the parts are summed rather
+/// than measured apart: the density is the widest part's, which is the one that
+/// establishes the scale a player reads.
+pub fn uv_world_density(surfaces: &[MergedSurface]) -> BTreeMap<u16, f32> {
+    let mut densities: BTreeMap<u16, f32> = BTreeMap::new();
+    for surface in surfaces {
+        if let Some(density) = surface.uv_world_density() {
+            let entry = densities.entry(surface.shader_id).or_insert(0.0);
+            *entry = entry.max(density);
+        }
+    }
+    densities
 }
 
 /// Distribute surfaces over model archives, at most `per_model` each.

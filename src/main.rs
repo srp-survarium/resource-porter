@@ -356,6 +356,26 @@ enum Command {
         #[arg(long, default_value_t = 10)]
         limit: usize,
     },
+    /// List the collision under one point, in the order a falling player meets it.
+    ///
+    /// The question every "I fell through the map" report actually asks: is
+    /// there a floor here, what is it made of, and does the port keep it?
+    /// Each triangle whose footprint covers the point is reported with the
+    /// height it sits at, its source material, and whether that material is
+    /// passable -- because a passable triangle is dropped from the converted
+    /// collision, and a spawn standing on one has nothing to stand on.
+    SocProbeGround {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        level: String,
+        /// World x of the point to look under.
+        #[arg(long, allow_hyphen_values = true)]
+        x: f32,
+        /// World z of the point to look under.
+        #[arg(long, allow_hyphen_values = true)]
+        z: f32,
+    },
     /// Measure one level's merged surfaces: extent, UV range, facing.
     ///
     /// Turns "the texture tiles wrong" into numbers: the UV range says how
@@ -1045,6 +1065,63 @@ fn main() -> Result<()> {
                     candidate.area,
                     candidate.headroom
                 );
+            }
+        }
+        Command::SocProbeGround {
+            source_root,
+            level,
+            x,
+            z,
+        } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let library = soc::codec::gamemtl::parse_library(&source.read_game_materials()?)?;
+            let cform = soc::build::decode_level(&mut source, &level)?.cform;
+
+            // A triangle is under the point when the point is inside its
+            // horizontal projection. Barycentric signs, so the winding does not
+            // matter -- the source is not consistent about it.
+            let mut hits = Vec::new();
+            for face in &cform.faces {
+                let [a, b, c] = face.vertices.map(|index| cform.vertices[index as usize]);
+                let side = |p: [f32; 3], q: [f32; 3]| {
+                    (q[0] - p[0]) * (z - p[2]) - (q[2] - p[2]) * (x - p[0])
+                };
+                let (ab, bc, ca) = (side(a, b), side(b, c), side(c, a));
+                let inside = (ab >= 0.0 && bc >= 0.0 && ca >= 0.0)
+                    || (ab <= 0.0 && bc <= 0.0 && ca <= 0.0);
+                if !inside {
+                    continue;
+                }
+                // Interpolate the height rather than averaging the corners: on
+                // a ramp the difference is the whole answer.
+                let area = (b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2]);
+                let height = if area.abs() < f32::EPSILON {
+                    (a[1] + b[1] + c[1]) / 3.0
+                } else {
+                    (bc * a[1] + ca * b[1] + ab * c[1]) / (ab + bc + ca)
+                };
+                // Upward-facing means standable; the same triangle seen from
+                // below is a ceiling.
+                let normal_y = (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]);
+                hits.push((height, face.material, normal_y));
+            }
+            hits.sort_by(|left, right| {
+                right.0.partial_cmp(&left.0).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            println!("probe=[{x:.2}, ?, {z:.2}] triangles={}", hits.len());
+            for (height, material_id, normal_y) in &hits {
+                let material = library.get(material_id);
+                let name = material.map_or("<unknown>", |material| material.name.as_str());
+                let kept = material.is_none_or(soc::codec::gamemtl::GameMaterial::blocks_movement);
+                println!(
+                    "  y={height:8.2} material={name:<28} facing={:<7} converted={}",
+                    if *normal_y >= 0.0 { "up" } else { "down" },
+                    if kept { "yes" } else { "no (passable)" },
+                );
+            }
+            if hits.is_empty() {
+                println!("  nothing: the level has no collision over or under this point");
             }
         }
         Command::SocSurfaceStats {

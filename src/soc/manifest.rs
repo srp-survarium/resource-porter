@@ -184,6 +184,53 @@ pub struct SocMapManifest {
     /// How many times that detail texture repeats.
     #[serde(default = "default_terrain_detail_tile")]
     pub terrain_detail_tile: i32,
+    /// How the generated terrain mask weights the four layers, as one texel.
+    ///
+    /// `terrain_material_pass.ps` samples the mask at the *untiled* mesh UV and
+    /// then `normalize()`s it as a 4-vector before weighting:
+    ///
+    /// ```hlsl
+    /// float4 mask = texture_mask.Sample(s_base, parameters.tc);
+    /// mask        = normalize(mask);
+    /// float3 diffuse = mask.x * diffuse_0.xyz + mask.y * diffuse_1.xyz + ...
+    /// ```
+    ///
+    /// L2 normalisation, not a partition of unity: the weights of any two live
+    /// layers sum to more than one, so a 50/50 blend renders 41% over-bright.
+    /// [`Self::terrain_exposure`] pays that back through the detail slot, so
+    /// these are free to be read as an ordinary ratio.
+    #[serde(default = "default_terrain_layer_weights")]
+    pub terrain_layer_weights: [u8; 4],
+    /// How many times terrain layer 0 repeats across the level.
+    ///
+    /// X-Ray stretches its colour map once over the whole map, so this is 1 --
+    /// against the template's 60, which tiles a soil swatch. It is a shader
+    /// *constant*, not one of the fourteen macros in `shaders/masks`, so it
+    /// changes without asking for an uncompiled permutation.
+    #[serde(default = "default_terrain_base_tile")]
+    pub terrain_base_tile: i32,
+    /// How many world units one repeat of a tiled terrain layer covers.
+    ///
+    /// The tile *count* is derived from this and the shader's own UV density,
+    /// because the UV range a terrain shader covers differs per shader and per
+    /// map: the template's 60 is a repeat every 3m on level_03 and every 24m on
+    /// Cordon.
+    #[serde(default = "default_terrain_layer_metres")]
+    pub terrain_layer_metres: f32,
+    /// Tiled ground texture per terrain shader, where the name misleads.
+    ///
+    /// Keyed by the X-Ray shader name, valued with a source texture.
+    /// [`crate::soc::convert::render_material::terrain_detail_texture`] derives
+    /// this from the shader's name for all 51 terrain shaders in the game; an
+    /// entry here overrides it after review.
+    #[serde(default)]
+    pub terrain_layer_textures: BTreeMap<String, String>,
+    /// Overall brightness of converted terrain, 1.0 being the source's own.
+    ///
+    /// Applied through the detail slot, which cannot be switched off -- see
+    /// `write_terrain_controls`.
+    #[serde(default = "default_terrain_exposure")]
+    pub terrain_exposure: f32,
     /// World units a decal surface is lifted along its normal.
     ///
     /// X-Ray lays posters, litter and grime exactly on their host surface and
@@ -255,6 +302,26 @@ fn default_terrain_detail_texture() -> Option<String> {
 
 fn default_terrain_detail_tile() -> i32 {
     20
+}
+
+fn default_terrain_layer_weights() -> [u8; 4] {
+    // Two thirds source colour map, one third tiled detail, once the shader has
+    // normalised them and the exposure grey has paid for the normalisation.
+    [255, 128, 0, 0]
+}
+
+fn default_terrain_base_tile() -> i32 {
+    1
+}
+
+fn default_terrain_layer_metres() -> f32 {
+    // A repeat every four metres: close enough that the texture reads as ground
+    // underfoot, far enough that the pattern does not announce itself.
+    4.0
+}
+
+fn default_terrain_exposure() -> f32 {
+    1.0
 }
 
 fn default_decal_lift() -> f32 {
@@ -455,6 +522,11 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         decal_lift: default_decal_lift(),
         terrain_detail_texture: default_terrain_detail_texture(),
         terrain_detail_tile: default_terrain_detail_tile(),
+        terrain_layer_weights: default_terrain_layer_weights(),
+        terrain_base_tile: default_terrain_base_tile(),
+        terrain_layer_metres: default_terrain_layer_metres(),
+        terrain_layer_textures: BTreeMap::new(),
+        terrain_exposure: default_terrain_exposure(),
         water_reflection_probe: default_water_reflection_probe(),
         diffuse_path: default_diffuse_path(),
         family_uv_scale: BTreeMap::new(),

@@ -37,8 +37,13 @@
     "water": "material_instances/water/water_green.material",
     "foliage": "material_instances/flora/poplar_leaves_02.material",
     "decal": "material_instances/tiled/trash/trash_concrete_alpha.material",
-    "emissive": "material_instances/tiled/concrete/concrete_01.material",
+    "emissive": "material_instances/weapons/tracer.material",
     "lod_impostor": "material_instances/flora/sosna_bark_lod.material",
-    "bark": "material_instances/flora/sosna_bark_lod.material"
+    "bark": "material_instances/flora/sosna_bark_lod.material",
+    "terrain": "material_instances/terrain/03_base_final.material"
+  },
+  "family_diffuse_paths": {
+    "emissive": "material.forward.effect.texture_emissive.value",
+    "terrain": "material.g_stage.effect.texture_diffuse_0.value"
   }
 }

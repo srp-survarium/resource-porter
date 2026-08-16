@@ -100,7 +100,9 @@ case "${profile}" in
     match_loadout_profile="stock-v0100b"
     export SRP_STOCK_PROFILE_ONLY=1
     ;;
-  soc-mp-pool | soc-cordon | soc-darkvalley)
+  soc-mp-pool | soc-cordon | soc-darkvalley | \
+    soc-rostok | soc-factory | soc-atp | soc-railroad | soc-lost-village | \
+    soc-military-1 | soc-military-2 | soc-agroprom | soc-workshop | soc-bath)
     # Shadow of Chernobyl maps, from the release built by build-soc-map.
     # stock-v0100b loadout: this database has no STK2 inventory items, and
     # handing out dictionary IDs it does not contain crashes the lobby.

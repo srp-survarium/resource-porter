@@ -245,7 +245,25 @@ pub fn build_bundle(
 
     let collision_models = models[..pieces].to_vec();
 
-    write_materials(manifest, &mut target, &overlay, &material_plans, &normals, &mut files)?;
+    // The level's own ground needs two generated control textures, and only if
+    // the level has terrain surfaces at all — three of the thirteen maps are
+    // carved out of a single-player level and reach no `levels\*` shader.
+    let terrain_controls = material_plans
+        .iter()
+        .any(|plan| plan.family == RenderFamily::Terrain)
+        .then(|| write_terrain_controls(manifest, &mut target, &overlay, &mut files))
+        .transpose()?;
+    let uv_density = surface::uv_world_density(&surfaces);
+    write_materials(
+        manifest,
+        &mut target,
+        &overlay,
+        &material_plans,
+        &normals,
+        terrain_controls.as_ref(),
+        &uv_density,
+        &mut files,
+    )?;
     write_textures(manifest, &mut target, &overlay, &textures, &mut files)?;
     let extent = MapExtent::of(&surfaces, cform.header.bounding_box)?;
     let post_effect =
@@ -617,6 +635,11 @@ fn plan_textures(
     for plan in plans {
         if let Some(diffuse) = &plan.source_diffuse {
             wanted.insert(diffuse.clone());
+        }
+        // Terrain wants a second texture the shader table never names: the
+        // tiled ground detail X-Ray blended over its colour map.
+        if plan.family == RenderFamily::Terrain {
+            wanted.insert(terrain_layer_texture(manifest, &plan.source_shader));
         }
     }
     let mut stale: Vec<&String> = manifest
@@ -1008,10 +1031,43 @@ fn write_post_process_material(
     Ok(format!("{}/post_process", manifest.namespace))
 }
 
-/// The detail-texture controls on a g_stage material.
-const TERRAIN_DETAIL_ENABLE: &str = "material.g_stage.effect.use_tditail_diffuse.value";
-const TERRAIN_DETAIL_TEXTURE: &str = "material.g_stage.effect.texture_ditail_diffuse.value";
-const TERRAIN_DETAIL_TILE: &str = "material.g_stage.effect.constant_ditail_texture_tile.value";
+/// Where `g_stage_terrain` reads its layer blend weights.
+const TERRAIN_MASK_TEXTURE: &str = "material.g_stage.effect.texture_mask.value";
+
+/// How a forward material combines with what is already on screen.
+///
+/// `blend_mode.h`: 0 opaque, 1 translucent, 2 additive, 3 modulate, 4
+/// subtractive. It is read straight into render state by
+/// `effect_material_base.cpp` rather than turned into a shader macro, so
+/// unlike almost everything else on a material it can be changed freely.
+const FORWARD_BLEND_MODE: &str = "material.forward.effect.blend_mode.value";
+const BLEND_MODE_ADDITIVE: i32 = 2;
+
+/// The rest of a forward emissive material's colour contract.
+const FORWARD_TRANSPARENCY_TEXTURE: &str = "material.forward.effect.texture_transparency.value";
+const FORWARD_EMISSIVE_MULTIPLIER: &str =
+    "material.forward.effect.constant_emissive_multiplier.value";
+
+/// How often one terrain layer may repeat across its surface.
+///
+/// A repeat count, not a distance: the largest retail value is 60, and a
+/// four-figure count on a level-sized surface aliases into noise long before
+/// the constant itself becomes a problem.
+const MAX_TERRAIN_TILE: i32 = 2000;
+
+/// Where the tile count for one terrain layer sits.
+fn terrain_tile_path(layer: usize) -> String {
+    format!("material.g_stage.effect.constant_tile_{layer}.value")
+}
+
+/// The tiled ground texture for one terrain shader: declared, or derived.
+fn terrain_layer_texture(manifest: &SocMapManifest, shader: &str) -> String {
+    manifest
+        .terrain_layer_textures
+        .get(shader)
+        .cloned()
+        .unwrap_or_else(|| render_material::terrain_detail_texture(shader).to_owned())
+}
 
 /// Where a forward water material binds its reflection probe.
 const WATER_REFLECTION_PATH: &str = "material.forward.effect.texture_reflection.value";
@@ -1028,6 +1084,8 @@ fn write_materials(
     overlay: &Path,
     plans: &[MaterialPlan],
     normals: &BTreeSet<String>,
+    terrain: Option<&TerrainControls>,
+    uv_density: &BTreeMap<u16, f32>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let mut templates = BTreeMap::new();
@@ -1079,7 +1137,21 @@ fn write_materials(
             // The `_bump` companion, where the source has one. The enable flag
             // has to move with it: a template chosen for its diffuse may have
             // normal mapping switched off.
-            if manifest.bind_normal_maps && normals.contains(&format!("{diffuse}_bump")) {
+            //
+            // Terrain is exempt. Its normals are per layer — `texture_normal_0`
+            // through `_3` — and layer 0 is the colour map at tile 1, so a
+            // normal map bound there is stretched over the whole level and
+            // perturbs nothing. The bumps that matter are the template's, on
+            // the tiled layers, and they are already bound.
+            //
+            // Emissive is exempt because it is forward-rendered: it has no
+            // `g_stage` block at all, so `normal_path` names a field that does
+            // not exist. An additive glow is not lit anyway.
+            if manifest.bind_normal_maps
+                && plan.family != RenderFamily::Terrain
+                && plan.family != RenderFamily::Emissive
+                && normals.contains(&format!("{diffuse}_bump"))
+            {
                 bind_texture(
                     &mut material,
                     &manifest.normal_path,
@@ -1094,40 +1166,121 @@ fn write_materials(
                     .set_path(&manifest.normal_enable_path, ConfigValue::Boolean(true))?;
             }
         }
-        // Terrain gets a tiled detail texture on top of its colour map.
+        // Emissive surfaces are *added* to the scene, not placed in it.
         //
-        // A `levels\*` shader is the level's own terrain, and X-Ray builds
-        // those from a *unique* colour map stretched across the whole level --
-        // Cordon's `escape_grass` spans 1,445 world units in one UV unit, about
-        // 1.4m per texel -- plus a tiled detail texture the shader blends in at
-        // close range. Port only the colour map and the ground reads as flat
-        // brown with the triangle facets showing through, which is what makes
-        // it look low-poly when the geometry is in fact S.T.A.L.K.E.R.'s own
-        // 153,706 triangles.
+        // X-Ray's `effects\lightplanes` are the fake light shafts a renderer
+        // without volumetrics used: a bright cone painted on a black field,
+        // drawn additively, so the black contributes nothing. Given an opaque
+        // material instead, the black is what you see -- mp_agroprom's shafts
+        // became two storey-high black walls across the middle of a building,
+        // with the lamp still glowing at their apex.
         //
-        // v0.100b has the same feature, wired but unused by any retail
-        // material -- `effect_gstage_default_materials.cpp`:
+        // `blend_mode` is the fix and it is free: `effect_material_base.cpp`
+        // reads it into render state rather than into the shader key, so unlike
+        // the `use_*` flags it can differ from the template. The template is
+        // `weapons/tracer`, chosen for its base material (`forward_emissive`)
+        // and translucent by default because a tracer round is.
+        if plan.family == RenderFamily::Emissive {
+            material.root.set_path(
+                FORWARD_BLEND_MODE,
+                ConfigValue::Integer(BLEND_MODE_ADDITIVE),
+            )?;
+            // The template multiplies a tracer by ten to make it carry at
+            // range. A light shaft is already the brightness it should be.
+            material
+                .root
+                .set_path(FORWARD_EMISSIVE_MULTIPLIER, ConfigValue::Integer(1))?;
+            // `use_ttransparency` is a shader flag and stays as the template
+            // set it, so the slot has to hold something: the same texture, as
+            // the template itself does.
+            if let Some(diffuse) = &plan.source_diffuse {
+                bind_texture(
+                    &mut material,
+                    FORWARD_TRANSPARENCY_TEXTURE,
+                    &source::target_texture_path(&manifest.namespace, diffuse)?,
+                    template_path,
+                )?;
+            }
+        }
+
+        // Terrain: the source colour map becomes layer 0, and the template's
+        // own tiled layers supply the detail the colour map cannot carry.
         //
-        // ```cpp
-        // configuration.use_detail_texture = custom_config.value_exists("use_tditail_diffuse")
-        //                                  ? bool(custom_config["use_tditail_diffuse"]) : false;
-        // ...
-        // if (configuration.use_detail_texture) {
-        //     compiler.set_texture ("t_detail", ..."texture_ditail_diffuse"...);
-        //     compiler.set_constant("ditail_texture_tile", ..."constant_ditail_texture_tile"...);
-        // }
-        // ```
-        if plan.source_shader.starts_with("levels\\") {
-            if let Some(detail) = &manifest.terrain_detail_texture {
-                material
-                    .root
-                    .set_path(TERRAIN_DETAIL_ENABLE, ConfigValue::Boolean(true))?;
-                material
-                    .root
-                    .set_path(TERRAIN_DETAIL_TEXTURE, ConfigValue::String(detail.clone()))?;
+        // X-Ray stretches one unique image across the whole level -- Cordon's
+        // `escape_grass` covers 1,445 world units in one UV unit, about 1.4m
+        // per texel -- and blends a tiled detail texture over it at close
+        // range. Converted as a plain diffuse the second half is simply lost,
+        // and the ground reads as flat brown with the triangle facets showing
+        // through: what looks like low-poly geometry is in fact
+        // S.T.A.L.K.E.R.'s own 153,706 triangles under a texture with no
+        // detail left at walking distance.
+        //
+        // `g_stage_terrain` rebuilds the same idea from the target's parts.
+        // Layer 0 is the colour map at tile 1, layers 1..3 are the template's
+        // tiled ground textures, and the generated mask decides the mix. Only
+        // textures and tile constants change: `use_tdetail`, `use_nmap`,
+        // `use_height_map_*`, `num_used_terrain_layers` and
+        // `terrain_blend_mode` are the config values
+        // `effect_gstage_terrain_materials::compile` turns into shader macros,
+        // and each one is part of the permutation key in `shaders/masks`.
+        if plan.family == RenderFamily::Terrain {
+            let controls = terrain.expect("a terrain plan implies generated terrain controls");
+            material.root.set_path(
+                TERRAIN_MASK_TEXTURE,
+                ConfigValue::String(controls.mask.clone()),
+            )?;
+            // The colour map is not tiled: X-Ray laid it out to cover the level
+            // exactly once.
+            material.root.set_path(
+                &terrain_tile_path(0),
+                ConfigValue::Integer(manifest.terrain_base_tile),
+            )?;
+            // Layer 1 is X-Ray's own ground detail for this shader, which is
+            // the half of its terrain the colour map never carried.
+            let detail = terrain_layer_texture(manifest, &plan.source_shader);
+            bind_texture(
+                &mut material,
+                "material.g_stage.effect.texture_diffuse_1.value",
+                &source::target_texture_path(&manifest.namespace, &detail)?,
+                template_path,
+            )?;
+            if manifest.bind_normal_maps && normals.contains(&format!("{detail}_bump")) {
+                bind_texture(
+                    &mut material,
+                    "material.g_stage.effect.texture_normal_1.value",
+                    &source::target_texture_path(
+                        &manifest.namespace,
+                        &format!("{detail}_bump"),
+                    )?,
+                    template_path,
+                )?;
+            }
+            // The tiled layers repeat at a fixed size on the ground rather than
+            // a fixed number of times, because the UV range a terrain shader
+            // covers differs per shader and per map. `constant_tile_N` is a
+            // repeat count over the mesh UV, so the count that gives a
+            // metre-sized repeat is the shader's world span per UV unit divided
+            // by the size wanted.
+            let density = uv_density.get(&plan.shader_id).copied().unwrap_or(0.0);
+            if density > 0.0 && manifest.terrain_layer_metres > 0.0 {
+                let tile = (density / manifest.terrain_layer_metres).round();
+                let tile = (tile as i32).clamp(1, MAX_TERRAIN_TILE);
+                for layer in 1..4 {
+                    material
+                        .root
+                        .set_path(&terrain_tile_path(layer), ConfigValue::Integer(tile))?;
+                }
+            }
+            // `use_tdetail` cannot be cleared, so the slot is rebound to a flat
+            // grey rather than left holding level_03's ground photo.
+            for slot in 0..2 {
                 material.root.set_path(
-                    TERRAIN_DETAIL_TILE,
-                    ConfigValue::Integer(manifest.terrain_detail_tile),
+                    &format!("material.g_stage.effect.texture_detail_{slot}.value"),
+                    ConfigValue::String(controls.detail.clone()),
+                )?;
+                material.root.set_path(
+                    &format!("material.g_stage.effect.constant_detail_tile_{slot}.value"),
+                    ConfigValue::Integer(1),
                 )?;
             }
         }
@@ -1141,6 +1294,186 @@ fn write_materials(
         )?;
     }
     Ok(())
+}
+
+/// One `4x4` DXT5 image of a single colour, in the target's container.
+///
+/// Both terrain control textures are constants — a blend mask with no spatial
+/// variation, and a flat exposure multiplier — so this generates them rather
+/// than shipping image files. DXT5 rather than the smaller uncompressed layout
+/// because it is the format retail already uses in these slots
+/// (`terrain/03_base_mask` is DXT5) and so is the one the loader is known to
+/// accept; a constant colour costs one block either way.
+///
+/// A DXT5 block whose two endpoints are equal decodes to that colour for every
+/// index, so both index fields are left zero. Endpoint precision is 5:6:5, and
+/// the mask survives it because the shader `normalize()`s the weights and only
+/// their ratio matters.
+fn write_constant_texture(
+    manifest: &SocMapManifest,
+    target: &mut ResourceDb,
+    overlay: &Path,
+    name: &str,
+    rgba: [u8; 4],
+    label: &str,
+    files: &mut Vec<BuiltFile>,
+) -> Result<String> {
+    const SIDE: u32 = 4;
+    const BLOCK: u32 = 16;
+
+    let [red, green, blue, alpha] = rgba;
+    let quantise = |value: u8, bits: u32| -> u16 {
+        let steps = f32::from((1_u16 << bits) - 1);
+        (f32::from(value) / 255.0 * steps).round() as u16
+    };
+    let colour = (quantise(red, 5) << 11) | (quantise(green, 6) << 5) | quantise(blue, 5);
+
+    let mut block = Vec::with_capacity(BLOCK as usize);
+    block.extend_from_slice(&[alpha, alpha]); // both alpha endpoints
+    block.extend_from_slice(&[0; 6]); // alpha indices: endpoint 0 throughout
+    block.extend_from_slice(&colour.to_le_bytes());
+    block.extend_from_slice(&colour.to_le_bytes());
+    block.extend_from_slice(&[0; 4]); // colour indices: endpoint 0 throughout
+
+    // The same header shape `source::canonicalize_dds` writes: linear size over
+    // pitch, an explicit mip count, a cleared reserved block, and one trailing
+    // colour-space byte.
+    const DDSD_CAPS: u32 = 0x1;
+    const DDSD_HEIGHT: u32 = 0x2;
+    const DDSD_WIDTH: u32 = 0x4;
+    const DDSD_PIXELFORMAT: u32 = 0x1000;
+    const DDSD_MIPMAPCOUNT: u32 = 0x2_0000;
+    const DDSD_LINEARSIZE: u32 = 0x8_0000;
+
+    let mut dds = Vec::with_capacity(128 + block.len() + 1);
+    dds.extend_from_slice(b"DDS ");
+    dds.extend_from_slice(&124_u32.to_le_bytes());
+    dds.extend_from_slice(
+        &(DDSD_CAPS
+            | DDSD_HEIGHT
+            | DDSD_WIDTH
+            | DDSD_PIXELFORMAT
+            | DDSD_MIPMAPCOUNT
+            | DDSD_LINEARSIZE)
+            .to_le_bytes(),
+    );
+    dds.extend_from_slice(&SIDE.to_le_bytes()); // height
+    dds.extend_from_slice(&SIDE.to_le_bytes()); // width
+    dds.extend_from_slice(&BLOCK.to_le_bytes()); // linear size
+    dds.extend_from_slice(&0_u32.to_le_bytes()); // depth
+    dds.extend_from_slice(&1_u32.to_le_bytes()); // mip levels
+    dds.extend_from_slice(&[0; 44]); // reserved, cleared
+    dds.extend_from_slice(&32_u32.to_le_bytes()); // pixel format size
+    dds.extend_from_slice(&0x4_u32.to_le_bytes()); // DDPF_FOURCC
+    dds.extend_from_slice(b"DXT5");
+    dds.extend_from_slice(&[0; 20]); // bit counts and channel masks
+    dds.extend_from_slice(&0x1000_u32.to_le_bytes()); // caps: TEXTURE
+    dds.extend_from_slice(&[0; 16]); // caps2..reserved2
+    dds.extend_from_slice(&block);
+    // Control data, not colour: sampled raw, never de-gamma'd. Retail agrees --
+    // every `terrain/*` texture records `srgb: 0`.
+    dds.push(0);
+
+    write_resource(
+        overlay,
+        &format!("textures/{}/{name}.dds", manifest.namespace),
+        &dds,
+        label,
+        files,
+    )?;
+
+    let mut options = load_template(target, &manifest.templates.texture_options)?;
+    options
+        .root
+        .set_path("options.format", ConfigValue::String("DXT5".into()))?;
+    options
+        .root
+        .set_path("options.has_mip_levels", ConfigValue::Integer(0))?;
+    options.root.set_path("options.srgb", ConfigValue::Integer(0))?;
+    write_config(
+        overlay,
+        &format!("textures/{}/{name}.options", manifest.namespace),
+        &options,
+        label,
+        files,
+    )?;
+
+    Ok(format!("{}/{name}", manifest.namespace))
+}
+
+/// The two constants a converted terrain material needs, and their paths.
+struct TerrainControls {
+    mask: String,
+    detail: String,
+}
+
+/// Generate the blend mask and the exposure multiplier for this map's terrain.
+///
+/// `terrain_gbuffer_pass` weights its four layers by a mask sampled at the
+/// *untiled* mesh UV, and level_03's mask is a 2048x2048 painting of level_03's
+/// own ground — white where its terrain is, black under its buildings.
+/// Inherited, it stamps another map's layout onto this one, so the port
+/// generates its own: one colour, every texel.
+///
+/// The second constant is there because `use_tdetail` cannot be turned off.
+/// It is one of the fourteen macros in `shaders/masks` that form this shader's
+/// permutation, so clearing it asks for a shader build 802 never compiled; the
+/// slot has to stay bound, and the template binds `terrain/03_base` — level_03's
+/// ground photo — stretched across whatever UV range it is given. A flat grey
+/// takes its place, which also pays for the mask's normalisation:
+///
+/// ```hlsl
+/// mask = normalize(mask);           // L2, so live weights sum to > 1
+/// diffuse = mask.x * diffuse_0 + mask.y * diffuse_1 + ...;
+/// out_color = min(detail_0.x, detail_1.x) * (float4(diffuse, 1) + ...);
+/// ```
+///
+/// A 60/40 mask sums to 1.34 after normalisation, and the ground would render
+/// a third too bright. The grey is `1 / that sum`, so the two layers add back
+/// to exactly the exposure their textures were painted at.
+fn write_terrain_controls(
+    manifest: &SocMapManifest,
+    target: &mut ResourceDb,
+    overlay: &Path,
+    files: &mut Vec<BuiltFile>,
+) -> Result<TerrainControls> {
+    let weights = manifest.terrain_layer_weights;
+    let length = weights
+        .iter()
+        .map(|weight| f32::from(*weight).powi(2))
+        .sum::<f32>()
+        .sqrt();
+    if length <= 0.0 {
+        bail!("terrain_layer_weights are all zero, so every terrain layer is weighted out");
+    }
+    let weight_sum = weights.iter().map(|weight| f32::from(*weight)).sum::<f32>() / length;
+
+    let exposure = (manifest.terrain_exposure / weight_sum).clamp(0.0, 1.0);
+    let grey = (exposure * 255.0).round() as u8;
+    println!(
+        "terrain_mask={weights:?} normalised_sum={weight_sum:.3} exposure_grey={grey}"
+    );
+
+    Ok(TerrainControls {
+        mask: write_constant_texture(
+            manifest,
+            target,
+            overlay,
+            "terrain_mask",
+            weights,
+            "generated:v0.100b-terrain-blend-mask",
+            files,
+        )?,
+        detail: write_constant_texture(
+            manifest,
+            target,
+            overlay,
+            "terrain_exposure",
+            [grey, grey, grey, 255],
+            "generated:v0.100b-terrain-exposure",
+            files,
+        )?,
+    })
 }
 
 fn write_textures(

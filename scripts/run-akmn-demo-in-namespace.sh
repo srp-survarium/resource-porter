@@ -52,6 +52,14 @@ fi
 "${repo_dir}/tools/patch-crash-report-email.pl" \
   --target "${client_dir}/binaries/win32/survarium.exe"
 
+# The login menu holds each status line for five seconds whatever the servers
+# do, which is most of the wait between launching and reaching the lobby.
+# Also idempotent, and it runs second because it leaves the crash recipient
+# untouched while the crash patcher would not recognise the login-patched image
+# as a stock one.
+"${repo_dir}/tools/patch-login-menu-wait.pl" \
+  --target "${client_dir}/binaries/win32/survarium.exe"
+
 if [[ ! -x "${srp_bin_dir}/srp" ]]; then
   for required in \
     "${srp_bin_dir}/login-server" \
