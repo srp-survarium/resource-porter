@@ -297,6 +297,51 @@ fn resolve_visual(
     container: &GeometryContainer,
     buffers: &GeometryBuffers,
 ) -> Result<ResolvedVisual> {
+    // A tree visual keeps its detail levels in the level's shared `fsL_SWIS`
+    // table and names its record by `OGF_SWICONTAINER`, so the narrowing that
+    // `OGF_SWIDATA` does for a progressive mesh has to happen here instead:
+    //
+    // ```cpp
+    // // xrRender/FTreeVisual.cpp
+    // u32 ID = data->r_u32();
+    // pSWI   = RImplementation.getSWI( ID );
+    // // FTreeVisual_PM::Render
+    // FSlideWindow& SW = pSWI->sw[lod_id];
+    // cmd_list.Render( D3DPT_TRIANGLELIST, vBase, 0, SW.num_verts,
+    //                  iBase + SW.offset, SW.num_tris );
+    // ```
+    //
+    // Without it the whole container is drawn, which is every detail level of
+    // the mesh at once.
+    let narrowed;
+    let container = match visual.sliding_window {
+        Some(id) => {
+            let window = buffers
+                .sliding_windows
+                .get(usize::try_from(id)?)
+                .with_context(|| format!("sliding window record {id} does not exist"))?;
+            let triangles = u32::from(window.triangles);
+            if triangles == 0 {
+                bail!("sliding window record {id} declares no triangles at full detail");
+            }
+            if window.offset + triangles * 3 > container.index_count {
+                bail!(
+                    "sliding window record {id} runs to index {} of a {}-index container",
+                    window.offset + triangles * 3,
+                    container.index_count
+                );
+            }
+            narrowed = GeometryContainer {
+                index_base: container.index_base + window.offset,
+                index_count: triangles * 3,
+                vertex_count: u32::from(window.vertices).min(container.vertex_count),
+                ..*container
+            };
+            &narrowed
+        }
+        None => container,
+    };
+
     let vertex_buffer = buffers
         .vertex_buffers
         .get(usize::try_from(container.vertex_buffer)?)
@@ -444,6 +489,7 @@ mod tests {
             record[20..24].copy_from_slice(&0x00_80_80_ff_u32.to_le_bytes());
         }
         GeometryBuffers {
+            sliding_windows: Vec::new(),
             vertex_buffers: vec![VertexBuffer {
                 layout,
                 count: vertex_count,
@@ -455,6 +501,7 @@ mod tests {
 
     fn visual(kind: VisualKind, shader_id: u16, base: u32, count: u32) -> Visual {
         Visual {
+            sliding_window: None,
             kind,
             shader_id,
             bounding_box: ([0.0; 3], [1.0; 3]),

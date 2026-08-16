@@ -168,6 +168,13 @@ pub struct SocVertexLayout {
     texcoord_kind: DeclType,
 }
 
+impl SocVertexLayout {
+    /// The declared type of `TEXCOORD0`, which decides the decode path.
+    pub fn texcoord_kind(&self) -> DeclType {
+        self.texcoord_kind
+    }
+}
+
 /// `s24_tc_base` uses `quant = 32768 / 32`, so one whole texture unit is 1024
 /// quantisation steps and the stored remainder is a 1/255 subdivision of one
 /// step.
@@ -302,11 +309,25 @@ impl SocVertexLayout {
                     f32::from(read_i16(record, self.texcoord + 2)?) * TREE_TC_SCALE,
                 ],
             },
-            // Multi-use models store the whole coordinate.
-            DeclType::Short4 => [
-                f32::from(read_i16(record, self.texcoord)?) * TC_SCALE,
-                f32::from(read_i16(record, self.texcoord + 2)?) * TC_SCALE,
-            ],
+            // `SHORT4` carries no remainder -- the two leading components are
+            // the whole coordinate -- but it is still quantised, and by the
+            // convention of whichever visual owns the buffer. Cordon keeps its
+            // tree and instanced-object geometry in five `SHORT4` buffers and
+            // the rest of the world in fourteen `SHORT2` ones, so scaling
+            // `SHORT4` at the level rate doubled every coordinate on exactly
+            // the geometry `FTreeVisual` draws: vehicles, props and foliage
+            // sampled their own atlas twice over, putting dashboard instruments
+            // across a car's exterior panels.
+            DeclType::Short4 => {
+                let scale = match convention {
+                    TexCoords::Level => TC_SCALE,
+                    TexCoords::Tree => TREE_TC_SCALE,
+                };
+                [
+                    f32::from(read_i16(record, self.texcoord)?) * scale,
+                    f32::from(read_i16(record, self.texcoord + 2)?) * scale,
+                ]
+            }
             DeclType::Float2 => [
                 read_f32(record, self.texcoord)?,
                 read_f32(record, self.texcoord + 4)?,

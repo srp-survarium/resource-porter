@@ -370,6 +370,23 @@ enum Command {
         #[arg(long)]
         shader: Option<String>,
     },
+    /// Report each shared vertex buffer.s declaration.
+    SocAuditBuffers {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        level: String,
+    },
+    /// Report which OGF chunks each visual kind carries.
+    ///
+    /// A visual the converter declines may be a grouping node that loses
+    /// nothing, or may hold its geometry in embedded children. This says which.
+    SocAuditVisuals {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        level: String,
+    },
     /// Extract one file from a Shadow of Chernobyl installation or gamedata tree.
     SocExtract {
         #[arg(long)]
@@ -1092,9 +1109,11 @@ fn main() -> Result<()> {
                 }
 
                 println!(
-                    "{} shader={name} tris={} x={:.1}..{:.1} y={:.2}..{:.2} z={:.1}..{:.1} u={:.1}..{:.1} v={:.1}..{:.1} \
+                    "{} shader={name} visuals={}/{} tris={} x={:.1}..{:.1} y={:.2}..{:.2} z={:.1}..{:.1} u={:.1}..{:.1} v={:.1}..{:.1} \
                      up={up} down={down} side={side}",
                     merged.name(),
+                    merged.tree_visual_count,
+                    merged.visual_count,
                     merged.indices.len() / 3,
                     min[0],
                     max[0],
@@ -1107,6 +1126,52 @@ fn main() -> Result<()> {
                     uv_min[1],
                     uv_max[1],
                 );
+            }
+        }
+        Command::SocAuditBuffers { source_root, level } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let geom = source.read_level_file(&level, "level.geom")?;
+            let buffers = soc::codec::level::parse_geometry(&geom)?;
+            println!("sliding_window_records={}", buffers.sliding_windows.len());
+            for (index, vb) in buffers.vertex_buffers.iter().enumerate() {
+                println!(
+                    "vertex_buffer[{index}] vertices={} stride={} texcoord={:?}",
+                    vb.count,
+                    vb.layout.stride,
+                    vb.layout.texcoord_kind()
+                );
+            }
+        }
+        Command::SocAuditVisuals { source_root, level } => {
+            let mut source = soc::source::SocSource::open(&source_root)?;
+            let bytes = source.read_level_file(&level, "level")?;
+            let visuals = soc::codec::level::visual_payloads(&bytes)?;
+            let mut by_kind: std::collections::BTreeMap<String, (usize, std::collections::BTreeSet<u32>)> =
+                std::collections::BTreeMap::new();
+            for payload in &visuals {
+                let kind = match soc::codec::ogf::parse_visual(payload, 0) {
+                    Ok(visual) => visual.kind.label(),
+                    Err(_) => "<unparsed>".to_owned(),
+                };
+                let entry = by_kind.entry(kind).or_default();
+                entry.0 += 1;
+                entry.1.extend(soc::codec::ogf::visual_chunk_ids(payload));
+            }
+            println!("visuals={}", visuals.len());
+            for (kind, (count, chunks)) in by_kind {
+                let named: Vec<String> = chunks
+                    .iter()
+                    .map(|id| match id {
+                        1 => "HEADER(1)".to_owned(),
+                        9 => "CHILDREN(9)".to_owned(),
+                        10 => "CHILDREN_L(10)".to_owned(),
+                        11 => "LODDEF2(11)".to_owned(),
+                        12 => "TREEDEF2(12)".to_owned(),
+                        21 => "GCONTAINER(21)".to_owned(),
+                        other => format!("chunk_{other}"),
+                    })
+                    .collect();
+                println!("{kind}: count={count} chunks=[{}]", named.join(", "));
             }
         }
         Command::SocProbeLevel {

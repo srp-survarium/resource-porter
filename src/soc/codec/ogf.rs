@@ -11,6 +11,8 @@ use super::chunks::{Chunks, Cursor};
 
 /// `OGF_Chuncks` from `xray-16/src/xrCore/FMesh.hpp`.
 pub const OGF_HEADER: u32 = 1;
+pub const OGF_SWIDATA: u32 = 6;
+pub const OGF_SWICONTAINER: u32 = 20;
 pub const OGF_GCONTAINER: u32 = 21;
 pub const OGF_TREEDEF2: u32 = 12;
 
@@ -77,6 +79,26 @@ pub struct Visual {
     pub geometry: Option<GeometryContainer>,
     /// Row-major placement matrix from `OGF_TREEDEF2`, translation in row 3.
     pub tree_transform: Option<[f32; 16]>,
+    /// `OGF_SWICONTAINER`: index of this visual's record in `fsL_SWIS`.
+    ///
+    /// Tree visuals keep their detail levels in the level's shared sliding
+    /// window table rather than in their own chunk, so the container range has
+    /// to be narrowed against that table once it is loaded.
+    pub sliding_window: Option<u32>,
+}
+
+/// `OGF_Chuncks` a visual carries, in file order.
+///
+/// Diagnostic only: the converter acts on the three chunks it understands, and
+/// this reports what a visual it declines actually contained. A visual kind
+/// with no geometry chunk is a grouping node and loses nothing when dropped; a
+/// kind carrying `OGF_CHILDREN` (9) holds its geometry in embedded children,
+/// and dropping it loses that geometry outright.
+pub fn visual_chunk_ids(payload: &[u8]) -> Vec<u32> {
+    Chunks::new(payload, "level visual")
+        .iter()
+        .filter_map(|chunk| chunk.ok().map(|chunk| chunk.id))
+        .collect()
 }
 
 /// Parse one visual chunk from `fsL_VISUALS`.
@@ -124,6 +146,53 @@ pub fn parse_visual(payload: &[u8], index: usize) -> Result<Visual> {
         None => None,
     };
 
+    // A progressive mesh keeps every detail level in one container range, and
+    // the engine draws exactly one of them:
+    //
+    // ```cpp
+    // // xrRender/FProgressive.cpp
+    // FSlideWindow& SW = nSWI.sw[lod_id];
+    // cmd_list.Render( D3DPT_TRIANGLELIST, vBase, 0, SW.num_verts,
+    //                  iBase + SW.offset, SW.num_tris );
+    // ```
+    //
+    // with `lod_id = iFloor((1 - LOD) * (count - 1) + 0.5)`, so window 0 is the
+    // full-detail mesh. Taking the whole container instead emits every level at
+    // once, stacked in place: the object is drawn complete *and* simplified,
+    // interpenetrating, with each level's own texture mapping.
+    let geometry = match (geometry, chunks.find(OGF_SWIDATA)?) {
+        (Some(container), Some(payload)) => {
+            let mut cursor = Cursor::new(payload, "OGF sliding window data");
+            for _ in 0..4 {
+                cursor.u32()?; // reserved[4]
+            }
+            let count = cursor.u32()?;
+            if count == 0 {
+                bail!("visual {index} declares sliding window data with no windows");
+            }
+            let offset = cursor.u32()?;
+            let triangles = u32::from(cursor.u16()?);
+            let vertices = u32::from(cursor.u16()?);
+            if triangles == 0 || vertices == 0 {
+                bail!("visual {index} declares an empty full-detail sliding window");
+            }
+            if offset + triangles * 3 > container.index_count {
+                bail!(
+                    "visual {index} window 0 runs to index {} of a {}-index container",
+                    offset + triangles * 3,
+                    container.index_count
+                );
+            }
+            Some(GeometryContainer {
+                index_base: container.index_base + offset,
+                index_count: triangles * 3,
+                vertex_count: vertices.min(container.vertex_count),
+                ..container
+            })
+        }
+        (geometry, _) => geometry,
+    };
+
     let tree_transform = match chunks.find(OGF_TREEDEF2)? {
         Some(treedef) => {
             let mut cursor = Cursor::new(treedef, "OGF tree definition");
@@ -145,12 +214,18 @@ pub fn parse_visual(payload: &[u8], index: usize) -> Result<Visual> {
         bail!("visual {index} is a tree visual without an OGF_TREEDEF2 placement matrix");
     }
 
+    let sliding_window = match chunks.find(OGF_SWICONTAINER)? {
+        Some(payload) => Some(Cursor::new(payload, "OGF sliding window container").u32()?),
+        None => None,
+    };
+
     Ok(Visual {
         kind,
         shader_id,
         bounding_box: (minimum, maximum),
         geometry,
         tree_transform,
+        sliding_window,
     })
 }
 

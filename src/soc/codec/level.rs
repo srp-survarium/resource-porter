@@ -22,6 +22,7 @@ pub const FSL_SHADERS: u32 = 2;
 pub const FSL_VISUALS: u32 = 3;
 pub const FSL_VB: u32 = 9;
 pub const FSL_IB: u32 = 10;
+pub const FSL_SWIS: u32 = 11;
 
 /// `XRCL_PRODUCTION_VERSION`: the level format shipped by Shadow of Chernobyl.
 pub const XRLC_VERSION_SOC: u16 = 14;
@@ -108,6 +109,23 @@ impl VertexBuffer {
 pub struct GeometryBuffers {
     pub vertex_buffers: Vec<VertexBuffer>,
     pub index_buffers: Vec<Vec<u16>>,
+    /// `fsL_SWIS`, one full-detail sliding window per record.
+    ///
+    /// X-Ray's own comment on the chunk is "collapse info, usually for trees":
+    /// a progressive mesh keeps every detail level in one index range, and a
+    /// tree visual names the record describing its own by `OGF_SWICONTAINER`.
+    /// Only window 0 is kept, because the port has no LOD switching and window
+    /// 0 is what `lod_id = iFloor((1 - LOD) * (count - 1) + 0.5)` selects at
+    /// full detail.
+    pub sliding_windows: Vec<SlideWindow>,
+}
+
+/// One `FSlideWindow`: `u32 offset; u16 num_tris; u16 num_verts;`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct SlideWindow {
+    pub offset: u32,
+    pub triangles: u16,
+    pub vertices: u16,
 }
 
 /// Parse the `fsL_HEADER` chunk.
@@ -190,6 +208,34 @@ pub fn visual_payloads(level: &[u8]) -> Result<Vec<&[u8]>> {
 pub fn parse_geometry(geom: &[u8]) -> Result<GeometryBuffers> {
     let chunks = Chunks::new(geom, "level.geom");
     let mut buffers = GeometryBuffers::default();
+
+    // `fsL_SWIS`: one record per progressive mesh, each a list of detail
+    // levels. Only the full-detail window of each is kept.
+    if let Some(payload) = chunks.find(FSL_SWIS)? {
+        let mut cursor = Cursor::new(payload, "level.geom sliding windows");
+        let items = usize::try_from(cursor.u32()?)?;
+        buffers.sliding_windows.reserve(items);
+        for index in 0..items {
+            for _ in 0..4 {
+                cursor.u32()?; // reserved[4]
+            }
+            let count = usize::try_from(cursor.u32()?)?;
+            if count == 0 {
+                bail!("sliding window record {index} declares no detail levels");
+            }
+            let window = SlideWindow {
+                offset: cursor.u32()?,
+                triangles: cursor.u16()?,
+                vertices: cursor.u16()?,
+            };
+            for _ in 1..count {
+                cursor.u32()?;
+                cursor.u16()?;
+                cursor.u16()?;
+            }
+            buffers.sliding_windows.push(window);
+        }
+    }
 
     let vertex_payload = chunks.require(FSL_VB)?;
     let mut cursor = Cursor::new(vertex_payload, "level.geom vertex buffers");
