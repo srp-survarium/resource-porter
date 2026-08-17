@@ -62,6 +62,8 @@ pub struct LilithMapBuildRecord {
     pub merge_report: surface::MergeReport,
     /// Materials whose shader the classification declined, with the shader.
     pub dropped_materials: BTreeMap<String, usize>,
+    /// Dangling material references resolved through `material_aliases`.
+    pub material_aliases_used: BTreeMap<String, String>,
     pub spawn_position: [f32; 3],
     /// Every authored `GameStartPoint`, in metres, for choosing spawns.
     pub start_points: Vec<(Option<String>, [f32; 3])>,
@@ -96,21 +98,40 @@ pub fn build_bundle(
 
     let mut materials = Vec::with_capacity(world.render.materials.len());
     let mut missing = Vec::new();
+    let mut aliased: BTreeMap<String, String> = BTreeMap::new();
     for path in &world.render.materials {
         match source.read(path) {
             Ok(bytes) => materials.push(Some(mat::parse(&bytes, path)?)),
             Err(_) => {
-                missing.push(path.clone());
-                materials.push(None);
+                // Retail data carries a handful of dangling references (the
+                // engine renders its own fallback there); each needs a
+                // reviewed substitute in `material_aliases` or the build
+                // fails closed.
+                let substitute = manifest
+                    .material_aliases
+                    .iter()
+                    .find(|(from, _)| from.eq_ignore_ascii_case(path))
+                    .map(|(_, to)| to.clone());
+                match substitute {
+                    Some(substitute) => {
+                        let bytes = source.read(&substitute).with_context(|| {
+                            format!("material alias {path} -> {substitute}")
+                        })?;
+                        materials.push(Some(mat::parse(&bytes, &substitute)?));
+                        aliased.insert(path.clone(), substitute);
+                    }
+                    None => {
+                        missing.push(path.clone());
+                        materials.push(None);
+                    }
+                }
             }
         }
     }
     if !missing.is_empty() {
-        // Retail data carries a handful of dangling references (the engine
-        // renders its own fallback there). They stay fail-closed until each
-        // one is reviewed into `render_shader_families` under a substitute.
         bail!(
-            "{world_path} references materials no mounted archive carries: {missing:?}"
+            "{world_path} references materials no mounted archive carries: {missing:?}; \
+             add reviewed material_aliases entries"
         );
     }
 
@@ -157,11 +178,17 @@ pub fn build_bundle(
         // Normal maps are bound per material by name -- materials share
         // diffuse textures (the black "none" texture above all) while
         // carrying their own normals, so the SoC `<diffuse>_bump` convention
-        // cannot name them.
+        // cannot name them. The `_nm` suffix keeps a texture that serves
+        // both roles (Museum uses `flat_black_noAlpha` as a diffuse *and* a
+        // normal) from claiming one target path with two colour spaces.
         let source_normal = (manifest.bind_normal_maps
             && family != RenderFamily::Emissive
             && family != RenderFamily::Water)
-            .then(|| material.normal().map(strip_dds).map(str::to_owned))
+            .then(|| {
+                material
+                    .normal()
+                    .map(|normal| format!("{}_nm", strip_dds(normal)))
+            })
             .flatten();
         plans.push(MaterialPlan {
             shader_id: u16::try_from(index).context("material index exceeds u16")?,
@@ -336,6 +363,7 @@ pub fn build_bundle(
         collision_report,
         merge_report,
         dropped_materials,
+        material_aliases_used: aliased,
         spawn_position: manifest.spawn_position,
         start_points,
         map_extent: extent,
@@ -378,7 +406,10 @@ fn plan_textures(
             .expect("every lilith plan binds a texture");
         add_texture(manifest, source, &mut planned, diffuse, diffuse, false)?;
         if let Some(normal) = &plan.source_normal {
-            add_texture(manifest, source, &mut planned, normal, normal, true)?;
+            let file = normal
+                .strip_suffix("_nm")
+                .expect("lilith normal plans carry the _nm suffix");
+            add_texture(manifest, source, &mut planned, normal, file, true)?;
         }
     }
     Ok(planned.into_values().collect())

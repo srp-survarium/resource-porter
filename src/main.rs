@@ -556,6 +556,22 @@ enum Command {
         x: f32,
         #[arg(long, allow_hyphen_values = true)]
         z: f32,
+        /// Also list raw brush polygons over the column with their surface
+        /// flags, for reverse-engineering what a flag bit means.
+        #[arg(long)]
+        bsp_flags: bool,
+    },
+    /// Judge every authored start point of a F.E.A.R. world for spawn use.
+    ///
+    /// The engine resolves a spawn onto the topmost collision over its
+    /// column, so only a point whose column is open to the sky spawns where
+    /// it was authored. Usable points print first.
+    LilithSpawnCandidates {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// A world name, or `all` for every multiplayer world.
+        #[arg(long, default_value = "all")]
+        world: String,
     },
     /// Report every shader the multiplayer worlds' materials render with.
     ///
@@ -1781,6 +1797,7 @@ fn main() -> Result<()> {
             world,
             x,
             z,
+            bsp_flags,
         } => {
             use vostok_resource_porter::lilith::{probe, source::LilithSource};
             let mut source = LilithSource::open(&source_root)?;
@@ -1796,6 +1813,48 @@ fn main() -> Result<()> {
                     if layer.upward { "up  " } else { "down" },
                     layer.source
                 );
+            }
+            if bsp_flags {
+                for (y, flags, bsp) in probe::probe_bsp_flags(&mut source, &path, x, z)? {
+                    println!("bsp_poly y={y:8.2} flags={flags:#06x} bsp={bsp}");
+                }
+            }
+        }
+        Command::LilithSpawnCandidates { source_root, world } => {
+            use vostok_resource_porter::lilith::{probe, source::LilithSource};
+            let mut source = LilithSource::open(&source_root)?;
+            let worlds = if world == "all" {
+                source.multiplayer_worlds()
+            } else {
+                vec![probe::resolve_world(&source, &world)?]
+            };
+            for path in worlds {
+                println!("== {path}");
+                match probe::spawn_candidates(&mut source, &path) {
+                    Ok(candidates) => {
+                        let usable = candidates.iter().filter(|c| c.usable).count();
+                        println!("start_points={} usable={usable}", candidates.len());
+                        for candidate in &candidates {
+                            let height = |value: Option<f32>| {
+                                value
+                                    .map(|value| format!("{value:.2}"))
+                                    .unwrap_or_else(|| "none".to_owned())
+                            };
+                            println!(
+                                "{} [{:.2}, {:.2}, {:.2}] floor={} ceiling={} spawn_y={} name={}",
+                                if candidate.usable { "usable " } else { "no-fit " },
+                                candidate.position[0],
+                                candidate.position[1],
+                                candidate.position[2],
+                                height(candidate.floor),
+                                height(candidate.ceiling),
+                                height(candidate.adjusted.map(|adjusted| adjusted[1])),
+                                candidate.name.as_deref().unwrap_or("?"),
+                            );
+                        }
+                    }
+                    Err(error) => println!("error={error:#}"),
+                }
             }
         }
         Command::LilithAuditShaders { source_root, world } => {

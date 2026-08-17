@@ -43,15 +43,25 @@ families, plus the BSP polygons, plus the authored blocker fences — each
 covering the others' gaps, coincident duplicates harmless.
 `lilith-probe-ground` reports the result per column.
 
-Two more findings from the playtests that got Office standing:
+Three more findings from the playtests that got Office standing:
 
-* **the engine resolves a spawn onto the topmost collision over its
-  column.** Every indoor start point put the player on the building's roof;
-  reversing the collision winding changed nothing, which is how the
-  one-sided-collision theory died. The port's spawn must be a column open to
-  the sky — and since sky-seal geometry is dropped, an outdoor column's top
-  surface *is* its floor. Office has exactly one authored start point like
-  that (`Start05`, the courtyard), and it works;
+* **spawn position is the capsule's feet, and the capsule is 2.0–2.7 m
+  tall.** The walk telemetry tracks floor heights exactly (feet), Office's
+  3.5 m rooms rejected a spawn authored 1.5 m up — 2.0 m of headroom was
+  not enough and the engine resolved the capsule up through the roof —
+  while the SoC bath's 2.7 m of headroom always worked. So a usable spawn
+  needs about 3.3 m of floor-to-ceiling clearance and is placed 0.55 m
+  above the floor; `lilith-spawn-candidates` judges every authored
+  `GameStartPoint` by exactly this and emits the adjusted height. Every
+  world has usable points under this criterion — from 9 in Bedlam to 172
+  in Asylum. (The interim "must be open to the sky" theory was this
+  constraint seen through one map's ceilings; reversing the collision
+  winding, the theory before that, changed nothing at all);
+* **the invisible sealing hull must not become collision.** BSP polygons
+  with flag bit `0x0004` are the sky lids and seals — the one bit every
+  observed lid carries (DeadWood's `0x006e`, Streets' `0x0014`) and no
+  observed floor or glass does. Converted, they put a ceiling over every
+  outdoor map;
 * **triangle size matters to the cooker.** Brush faces arrive as slabs two
   triangles wide; converted at that size the cooked collision behaved like a
   bad spatial hash — standable near parts of a slab, holes at its corners.

@@ -70,6 +70,8 @@ pub struct CollisionReport {
     pub passable_surfaces: usize,
     /// Triangles from brush BSP polygons, world and placed models alike.
     pub bsp_triangles: usize,
+    /// BSP polygons dropped for carrying the invisible-hull flag.
+    pub invisible_polygons: usize,
     /// Brush models contributing no polygons (empty BSPs exist in retail).
     pub empty_models: usize,
     /// Triangles from authored blocker polygons.
@@ -129,6 +131,16 @@ pub fn build_cform(
         for polygon in &bsp.polygons {
             if polygon.vertices.len() < 3 {
                 report.degenerate_polygons += 1;
+                continue;
+            }
+            // Bit 2 marks the invisible sealing hull: it is the one bit every
+            // observed sky lid carries (DeadWood's 0x006e, Streets' 0x0014)
+            // and no observed floor or glass does (0x0082, 0x0051, 0x0009).
+            // Converted, those lids put a ceiling over every outdoor map and
+            // caught the spawns; the render mesh supplies the geometry a
+            // player actually sees and touches.
+            if polygon.surface_flags & 0x0004 != 0 {
+                report.invisible_polygons += 1;
                 continue;
             }
             let point = |corner: usize| {

@@ -167,6 +167,13 @@ pub struct SocMapManifest {
     /// Each entry names an audited replacement source texture.
     #[serde(default)]
     pub texture_aliases: BTreeMap<String, String>,
+    /// Source *materials* a world references but no archive carries, each
+    /// naming an audited substitute material. Used by the lilith path:
+    /// F.E.A.R. retail ships a handful of dangling `.Mat00` references where
+    /// its own engine shows a fallback. Keys and values are archive paths as
+    /// the world names them, compared case-insensitively.
+    #[serde(default)]
+    pub material_aliases: BTreeMap<String, String>,
     /// Reflection probe a converted water material samples.
     ///
     /// `water/water_green` names a probe from a project this database does not
@@ -538,6 +545,7 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         collision_face_dictionary: default_face_dictionary(),
         max_collision_triangles: default_max_collision_triangles(),
         texture_aliases: BTreeMap::new(),
+        material_aliases: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,
     }
 }

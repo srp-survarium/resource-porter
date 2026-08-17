@@ -112,9 +112,11 @@ case "${profile}" in
     # lobby must not hand out the imported STK2 dictionary IDs.
     export SRP_STOCK_PROFILE_ONLY=1
     ;;
-  fear-office)
-    # F.E.A.R. multiplayer maps, from the release built by build-lilith-map.
-    # Same stock-loadout constraints as the SoC maps: retail dictionary only.
+  fear-*)
+    # F.E.A.R. multiplayer maps, from the release built by build-lilith-map;
+    # all twenty-four live in one composed database, and the profile name is
+    # the SRP map profile. Same stock-loadout constraints as the SoC maps:
+    # retail dictionary only.
     map_db="${repo_dir}/.work/fear-release/${FEAR_DB:-resources.db}"
     match_loadout_profile="stock-v0100b"
     export SRP_STOCK_PROFILE_ONLY=1

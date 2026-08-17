@@ -261,6 +261,155 @@ fn height_over(triangle: &[[f32; 3]; 3], x: f32, z: f32) -> Option<(f32, bool)> 
     Some((y, normal_y > 0.0))
 }
 
+/// Every brush BSP polygon over `(x, z)` metres with its raw surface flags,
+/// highest first — for working out what a flag bit means by looking at what
+/// carries it. `(height, flags, bsp_index)`.
+pub fn probe_bsp_flags(
+    source: &mut LilithSource,
+    world_path: &str,
+    x: f32,
+    z: f32,
+) -> Result<Vec<(f32, u16, usize)>> {
+    let bytes = source.read(world_path)?;
+    let world = world::parse(&bytes, world_path)?;
+    let mut hits = Vec::new();
+    for (index, bsp) in world.world_models.bsps.iter().enumerate() {
+        for polygon in &bsp.polygons {
+            let points: Vec<[f32; 3]> = polygon
+                .vertices
+                .iter()
+                .map(|&vertex| bsp.points[vertex as usize].map(|axis| axis * SCALE))
+                .collect();
+            for corner in 1..points.len().saturating_sub(1) {
+                let triangle = [points[0], points[corner], points[corner + 1]];
+                if let Some((y, _)) = height_over(&triangle, x, z) {
+                    hits.push((y, polygon.surface_flags, index));
+                }
+            }
+        }
+    }
+    hits.sort_by(|left, right| right.0.total_cmp(&left.0));
+    hits.dedup();
+    Ok(hits)
+}
+
+/// How much floor-to-ceiling clearance a spawn needs, in metres.
+///
+/// Empirical, from the client: the position the engine takes is the capsule's
+/// *feet* (the walk telemetry tracks floor heights exactly), and Office's
+/// 3.5 m rooms rejected a spawn authored 1.5 m up -- 2.0 m of headroom was
+/// not enough -- while bath's 2.7 m of headroom in the SoC port was. So the
+/// capsule is 2.0..2.7 m tall; a spawn placed [`SPAWN_FLOOR_CLEARANCE`]
+/// above the floor fits wherever the room clears this.
+const SPAWN_MIN_ROOM: f32 = 3.3;
+/// Metres above the floor the adjusted spawn is placed.
+const SPAWN_FLOOR_CLEARANCE: f32 = 0.55;
+
+/// One authored start point judged against the converted collision.
+#[derive(Debug)]
+pub struct SpawnCandidate {
+    pub name: Option<String>,
+    /// Authored position, metres.
+    pub position: [f32; 3],
+    /// The floor under the point, if any.
+    pub floor: Option<f32>,
+    /// The first collision above the floor, if any.
+    pub ceiling: Option<f32>,
+    /// Where to actually spawn: just above the floor, clear of the ceiling.
+    pub adjusted: Option<[f32; 3]>,
+    /// Whether the capsule fits -- see [`SPAWN_MIN_ROOM`].
+    pub usable: bool,
+}
+
+/// Judge every `GameStartPoint` of a world for spawn usability.
+pub fn spawn_candidates(
+    source: &mut LilithSource,
+    world_path: &str,
+) -> Result<Vec<SpawnCandidate>> {
+    // (floor under the authored point, first layer above that floor).
+    let room_at = |cform: &crate::soc::codec::cform::Cform,
+                   x: f32,
+                   z: f32,
+                   authored: f32|
+     -> (Option<f32>, Option<f32>) {
+        let mut floor: Option<f32> = None;
+        let mut ceiling: Option<f32> = None;
+        for face in &cform.faces {
+            let triangle = face.vertices.map(|index| cform.vertices[index as usize]);
+            if let Some((y, _)) = height_over(&triangle, x, z) {
+                if y <= authored + 0.1 {
+                    floor = Some(floor.map_or(y, |current: f32| current.max(y)));
+                } else {
+                    ceiling = Some(ceiling.map_or(y, |current: f32| current.min(y)));
+                }
+            }
+        }
+        (floor, ceiling)
+    };
+
+    let bytes = source.read(world_path)?;
+    let world = world::parse(&bytes, world_path)?;
+    let mut solid = std::collections::BTreeSet::new();
+    for (index, path) in world.render.materials.iter().enumerate() {
+        let is_solid = match source.read(path) {
+            Ok(bytes) => match super::codec::mat::parse(&bytes, path) {
+                Ok(material) => match super::convert::render_material::classify(
+                    &material.shader,
+                    &BTreeMap::new(),
+                ) {
+                    Ok(Some(family)) => super::convert::collision::family_is_solid(family),
+                    Ok(None) => false,
+                    Err(_) => true,
+                },
+                Err(_) => true,
+            },
+            Err(_) => true,
+        };
+        if is_solid {
+            solid.insert(index as u32);
+        }
+    }
+    let (cform, _) = super::convert::collision::build_cform(
+        &world.world_models,
+        &world.render,
+        &solid,
+        world_path,
+    )?;
+
+    let mut candidates = Vec::new();
+    for object in &world.objects {
+        if object.class != "GameStartPoint" {
+            continue;
+        }
+        let position = object
+            .position()
+            .with_context(|| format!("{world_path}: a GameStartPoint has no Pos"))?
+            .map(|axis| axis * SCALE);
+        let (floor, ceiling) = room_at(&cform, position[0], position[2], position[1]);
+        let usable = floor.is_some_and(|floor| {
+            // The floor must be the point's own -- authored ~1.5 m under it,
+            // not a storey further down through a hole in the mesh.
+            let authored_gap = position[1] - floor;
+            let room = ceiling.map_or(f32::INFINITY, |ceiling| ceiling - floor);
+            (0.2..=2.6).contains(&authored_gap) && room >= SPAWN_MIN_ROOM
+        });
+        let adjusted = floor
+            .filter(|_| usable)
+            .map(|floor| [position[0], floor + SPAWN_FLOOR_CLEARANCE, position[2]]);
+        candidates.push(SpawnCandidate {
+            name: object.name().map(str::to_owned),
+            position,
+            floor,
+            ceiling,
+            adjusted,
+            usable,
+        });
+    }
+    // Usable points first, each group in authored order.
+    candidates.sort_by_key(|candidate| !candidate.usable);
+    Ok(candidates)
+}
+
 /// Which shaders the mounted worlds' materials use, and how often.
 ///
 /// The FEAR analogue of `soc-audit-shaders`: every `.Mat00` a world's render
