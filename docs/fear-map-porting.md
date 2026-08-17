@@ -176,13 +176,21 @@ physics, render, objects, streaming assets, with four section-total
 tripwires and a terminal-padding check standing guard; every emitted Office
 resource re-read from the packed database and hash-matched (`verify`).
 
-Verified in the client: Office loads, renders, spawns on the courtyard
-floor, and holds a player through a walk across the courtyard and into the
-interior — the union collision and the open-sky spawn together, after three
-playtested iterations recorded above. The `there is no surface with id[5/6/7]`
-console message that accompanies a session is the player character model's
-head-visibility toggle poking subsurfaces the stock model lacks
-(`game/sources/player.cpp:1368`); it is not a map defect.
+Verified in the client, one walked session each with position telemetry:
+thirteen of the twenty-four maps — Office, Asylum, Bedlam, Cafeteria,
+Campus, Stockpile, Waterworks, Heliport, Factory, Docks, Train Yard
+(Perseus Mandate), DeadWood and Streets. Every one spawned standing on its
+audited point and held the player at floor level for the whole session,
+with one defect found: Cafeteria has an open edge around [0.4, -30.4]
+where no converted source carries geometry — the same missing-prop class
+as Office's elevator shaft. The remaining eleven (Clone, Construction,
+Depot, Evac, Facility, Forgotten Factory, HighTech, Labs, Museum,
+Refinery, SpillKill) are built and verified but not yet walked.
+
+The `there is no surface with id[5/6/7]` console message that accompanies
+a session is the player character model's head-visibility toggle poking
+subsurfaces the stock model lacks (`game/sources/player.cpp:1368`); it is
+not a map defect.
 
 Not verified: how any world *looks* against the source — texture
 assignment, translucency, emissive strength — and everything the lighting
