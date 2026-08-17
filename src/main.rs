@@ -506,6 +506,92 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Summarise an installed F.E.A.R. archive set.
+    LilithInventory {
+        /// The install root holding `Default.archcfg`; expansions in `FEARXP`
+        /// and `FEARXP2` are mounted over it when present.
+        #[arg(long)]
+        install_root: PathBuf,
+        /// Restrict the listing to normalized paths starting with this prefix.
+        #[arg(long, default_value = "")]
+        prefix: String,
+        /// Print every matching path instead of a count.
+        #[arg(long)]
+        list: bool,
+        /// List the multiplayer worlds with the archive each resolves to.
+        #[arg(long)]
+        list_worlds: bool,
+    },
+    /// Decode one F.E.A.R. world and report what a port would contain.
+    ///
+    /// Needs no target database, so it can run against a bare installation.
+    LilithProbeWorld {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// A world path, a bare multiplayer world name, or `all`.
+        #[arg(long)]
+        world: String,
+    },
+    /// Extract one file from an installed F.E.A.R. archive set.
+    LilithExtract {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Archive-relative path, case-insensitive, either separator.
+        #[arg(long)]
+        path: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// List the collision under one point of a F.E.A.R. world, in metres.
+    ///
+    /// Reports both candidate sources -- the converted physics shapes and the
+    /// brush BSP polygons -- so "I fell through the map" answers which source
+    /// actually carries the floor.
+    LilithProbeGround {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        world: String,
+        #[arg(long, allow_hyphen_values = true)]
+        x: f32,
+        #[arg(long, allow_hyphen_values = true)]
+        z: f32,
+    },
+    /// Report every shader the multiplayer worlds' materials render with.
+    ///
+    /// The FEAR analogue of `soc-audit-shaders`: the `.fx` path is what the
+    /// port's family classification keys on.
+    LilithAuditShaders {
+        #[arg(long)]
+        source_root: PathBuf,
+        /// A world name, or `all` for every multiplayer world.
+        #[arg(long, default_value = "all")]
+        world: String,
+    },
+    /// Dump one world's render geometry as Wavefront OBJ, for inspection.
+    ///
+    /// Positions are scaled to metres; surfaces become OBJ groups named by
+    /// their material, so a viewer answers "which material is that wall".
+    LilithDumpObj {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        world: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Convert a compiled F.E.A.R. multiplayer world into a v0.100b bundle.
+    BuildLilithMap {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The F.E.A.R. install root holding `Default.archcfg`.
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Compose overlays in priority order; earlier bundles supersede shared paths.
     Compose {
         #[arg(long = "bundle", required = true)]
@@ -1586,6 +1672,202 @@ fn main() -> Result<()> {
             for (kind, count) in &record.merge_report.dropped_by_kind {
                 println!("dropped_visuals[{kind}]={count}");
             }
+            println!("files={}", record.files.len());
+            println!("bundle={}", output.display());
+        }
+        Command::LilithInventory {
+            install_root,
+            prefix,
+            list,
+            list_worlds,
+        } => {
+            use vostok_resource_porter::lilith::source::LilithSource;
+            let source = LilithSource::open(&install_root)?;
+            for archive in source.archives() {
+                println!(
+                    "archive={} files={}",
+                    archive.path().display(),
+                    archive.entries().len()
+                );
+            }
+            let prefix = vostok_resource_porter::lilith::codec::arch::normalize(&prefix);
+            let matching = source
+                .paths()
+                .filter(|(path, _)| path.starts_with(prefix.as_str()));
+            if list {
+                for (path, entry) in matching {
+                    println!("{path}\t{}", entry.size);
+                }
+            } else {
+                println!("paths={}", matching.count());
+            }
+            if list_worlds {
+                for world in source.multiplayer_worlds() {
+                    let archive = source
+                        .winning_archive(&world)
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default();
+                    let size = source.entry(&world).map(|entry| entry.size).unwrap_or(0);
+                    println!("world={world}\tbytes={size}\tarchive={archive}");
+                }
+            }
+        }
+        Command::LilithProbeWorld { source_root, world } => {
+            use vostok_resource_porter::lilith::{probe, source::LilithSource};
+            let mut source = LilithSource::open(&source_root)?;
+            let worlds = if world == "all" {
+                source.multiplayer_worlds()
+            } else {
+                vec![probe::resolve_world(&source, &world)?]
+            };
+            for path in worlds {
+                println!("== {path}");
+                let report = match probe::probe_world(&mut source, &path) {
+                    Ok(report) => report,
+                    Err(error) => {
+                        println!("error={error:#}");
+                        continue;
+                    }
+                };
+                println!(
+                    "bounds_m=[{:.1},{:.1},{:.1}]..[{:.1},{:.1},{:.1}]",
+                    report.min[0], report.min[1], report.min[2],
+                    report.max[0], report.max[1], report.max[2]
+                );
+                println!("world_models={}", report.world_models);
+                for (kind, count) in &report.physics_shapes {
+                    println!("physics[{kind}]={count}");
+                }
+                println!("physics_triangles={}", report.physics_triangles);
+                println!(
+                    "render surfaces={} materials={} vertices={} triangles={}",
+                    report.render_surfaces,
+                    report.render_materials,
+                    report.render_vertices,
+                    report.render_triangles
+                );
+                for (index, layout) in report.layouts.iter().enumerate() {
+                    println!("layout[{index}]={layout}");
+                }
+                for (class, count) in &report.objects_by_class {
+                    println!("object[{class}]={count}");
+                }
+                for (name, position) in &report.start_points {
+                    println!(
+                        "start_point=[{:.2}, {:.2}, {:.2}] name={}",
+                        position[0],
+                        position[1],
+                        position[2],
+                        name.as_deref().unwrap_or("?")
+                    );
+                }
+                println!("streaming_assets={}", report.streaming_assets);
+            }
+        }
+        Command::LilithExtract {
+            source_root,
+            path,
+            output,
+        } => {
+            use vostok_resource_porter::lilith::source::LilithSource;
+            let mut source = LilithSource::open(&source_root)?;
+            let bytes = source.read(&path)?;
+            std::fs::write(&output, &bytes)
+                .with_context(|| format!("writing {}", output.display()))?;
+            println!("extracted={} bytes={}", output.display(), bytes.len());
+        }
+        Command::LilithProbeGround {
+            source_root,
+            world,
+            x,
+            z,
+        } => {
+            use vostok_resource_porter::lilith::{probe, source::LilithSource};
+            let mut source = LilithSource::open(&source_root)?;
+            let path = probe::resolve_world(&source, &world)?;
+            let layers = probe::probe_ground(&mut source, &path, x, z)?;
+            if layers.is_empty() {
+                println!("no collision over [{x}, {z}] from either source");
+            }
+            for layer in &layers {
+                println!(
+                    "y={:8.2}  {}  {}",
+                    layer.y,
+                    if layer.upward { "up  " } else { "down" },
+                    layer.source
+                );
+            }
+        }
+        Command::LilithAuditShaders { source_root, world } => {
+            use vostok_resource_porter::lilith::{probe, source::LilithSource};
+            let mut source = LilithSource::open(&source_root)?;
+            let worlds = if world == "all" {
+                source.multiplayer_worlds()
+            } else {
+                vec![probe::resolve_world(&source, &world)?]
+            };
+            let census = probe::audit_shaders(&mut source, &worlds)?;
+            for (shader, usage) in &census {
+                println!(
+                    "{shader}\tmaterials={} diffuse={} normal={} specular={}\te.g. {}",
+                    usage.materials,
+                    usage.with_diffuse,
+                    usage.with_normal,
+                    usage.with_specular,
+                    usage.example
+                );
+            }
+        }
+        Command::LilithDumpObj {
+            source_root,
+            world,
+            output,
+        } => {
+            use vostok_resource_porter::lilith::{probe, source::LilithSource};
+            let mut source = LilithSource::open(&source_root)?;
+            let path = probe::resolve_world(&source, &world)?;
+            let (surfaces, vertices, triangles) = probe::dump_obj(&mut source, &path, &output)?;
+            println!("world={path}");
+            println!("surfaces={surfaces} vertices={vertices} triangles={triangles}");
+            println!("obj={}", output.display());
+        }
+        Command::BuildLilithMap {
+            manifest,
+            source_root,
+            target_db,
+            output,
+        } => {
+            let manifest = soc::SocMapManifest::load(manifest)?;
+            let record = vostok_resource_porter::lilith::build::build_bundle(
+                &manifest,
+                &source_root,
+                &target_db,
+                &output,
+            )?;
+            println!("asset={}", record.asset_id);
+            println!("source_world={}", record.source_world);
+            println!("project={}", record.project_name);
+            println!("models={}", record.models.len());
+            println!("converted_surfaces={}", record.converted_surfaces);
+            println!("rendered_triangles={}", record.rendered_triangles);
+            println!("materials={}", record.materials);
+            println!("textures={}", record.textures);
+            println!("bound_normal_maps={}", record.bound_normal_maps);
+            println!("collision_pieces={}", record.collision_pieces);
+            println!("collision_vertices={}", record.collision_vertices);
+            println!("collision_triangles={}", record.collision_triangles);
+            for (shader, surfaces) in &record.dropped_materials {
+                println!("dropped_surfaces[{shader}]={surfaces}");
+            }
+            println!(
+                "collision render={} bsp={} blockers={} passable_surfaces={} empty_models={}",
+                record.collision_report.render_triangles,
+                record.collision_report.bsp_triangles,
+                record.collision_report.blocker_triangles,
+                record.collision_report.passable_surfaces,
+                record.collision_report.empty_models
+            );
+            println!("start_points={}", record.start_points.len());
             println!("files={}", record.files.len());
             println!("bundle={}", output.display());
         }

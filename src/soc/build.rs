@@ -64,12 +64,20 @@ pub struct SocMapBuildRecord {
 }
 
 /// One converted texture.
-struct TexturePlan {
-    source_name: String,
-    target_dds: String,
-    target_options: String,
-    info: DdsInfo,
-    bytes: Vec<u8>,
+///
+/// `pub(crate)` because the F.E.A.R. path plans its own textures -- explicit
+/// paths instead of X-Ray naming conventions -- and feeds them to the same
+/// writer.
+pub(crate) struct TexturePlan {
+    pub(crate) source_name: String,
+    pub(crate) target_dds: String,
+    pub(crate) target_options: String,
+    pub(crate) info: DdsInfo,
+    pub(crate) bytes: Vec<u8>,
+    /// Written into `.options` as the NORMAL_MAP format and linear colour
+    /// space. SoC infers this from the `_bump` suffix; F.E.A.R. knows it from
+    /// the material binding.
+    pub(crate) is_normal: bool,
 }
 
 /// Build the additive bundle for one map.
@@ -698,6 +706,7 @@ fn plan_textures(
             .to_owned()
             + ".options";
         textures.push(TexturePlan {
+            is_normal: name.ends_with("_bump"),
             source_name: name.clone(),
             target_dds,
             target_options,
@@ -713,7 +722,7 @@ fn plan_textures(
     Ok(textures)
 }
 
-fn write_model_archive(
+pub(crate) fn write_model_archive(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
     overlay: &Path,
@@ -988,7 +997,7 @@ fn bind_texture(
 ///
 /// The band's width is the artist's decision and is preserved; only its anchor
 /// moves, to sit just under the map's lowest geometry.
-fn write_post_process_material(
+pub(crate) fn write_post_process_material(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
     overlay: &Path,
@@ -1078,7 +1087,7 @@ const SKYLIGHT_PREFIX: &str = "material.post_process";
 /// How far under the map's lowest geometry the skylight ramp starts.
 const SKYLIGHT_FLOOR_CLEARANCE: f32 = 1.0;
 
-fn write_materials(
+pub(crate) fn write_materials(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
     overlay: &Path,
@@ -1147,18 +1156,19 @@ fn write_materials(
             // Emissive is exempt because it is forward-rendered: it has no
             // `g_stage` block at all, so `normal_path` names a field that does
             // not exist. An additive glow is not lit anyway.
+            let normal_source = plan.source_normal.clone().or_else(|| {
+                let bump = format!("{diffuse}_bump");
+                normals.contains(&bump).then_some(bump)
+            });
             if manifest.bind_normal_maps
                 && plan.family != RenderFamily::Terrain
                 && plan.family != RenderFamily::Emissive
-                && normals.contains(&format!("{diffuse}_bump"))
+                && let Some(normal_source) = normal_source
             {
                 bind_texture(
                     &mut material,
                     &manifest.normal_path,
-                    &source::target_texture_path(
-                        &manifest.namespace,
-                        &format!("{diffuse}_bump"),
-                    )?,
+                    &source::target_texture_path(&manifest.namespace, &normal_source)?,
                     template_path,
                 )?;
                 material
@@ -1402,7 +1412,7 @@ fn write_constant_texture(
 }
 
 /// The two constants a converted terrain material needs, and their paths.
-struct TerrainControls {
+pub(crate) struct TerrainControls {
     mask: String,
     detail: String,
 }
@@ -1476,7 +1486,7 @@ fn write_terrain_controls(
     })
 }
 
-fn write_textures(
+pub(crate) fn write_textures(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
     overlay: &Path,
@@ -1500,7 +1510,7 @@ fn write_textures(
         // payload; a format mismatch here is a missing texture at runtime.
         // v0.100b treats a normal map as its own format rather than as a DXT5
         // with a convention attached.
-        let is_normal = texture.source_name.ends_with("_bump");
+        let is_normal = texture.is_normal;
         let mut options = template.clone();
         options.root.set_path(
             "options.format",
@@ -1526,7 +1536,7 @@ fn write_textures(
     Ok(())
 }
 
-fn write_projects(
+pub(crate) fn write_projects(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
     overlay: &Path,
@@ -1879,14 +1889,14 @@ fn model_reference_like(template_value: &str, target_path: &str) -> String {
     format!("{root}{reference}{suffix}")
 }
 
-fn load_template(target: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
+pub(crate) fn load_template(target: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
     let bytes = target
         .read(path)
         .with_context(|| format!("reading template {path}"))?;
     BinaryConfig::parse(&bytes).with_context(|| format!("parsing template {path}"))
 }
 
-fn write_resource(
+pub(crate) fn write_resource(
     overlay: &Path,
     path: &str,
     bytes: &[u8],
@@ -1902,7 +1912,7 @@ fn write_resource(
     Ok(())
 }
 
-fn write_config(
+pub(crate) fn write_config(
     overlay: &Path,
     path: &str,
     config: &BinaryConfig,

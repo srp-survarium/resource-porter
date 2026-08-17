@@ -403,6 +403,11 @@ pub struct MaterialPlan {
     pub family: RenderFamily,
     /// The base texture, as named by the source shader table.
     pub source_diffuse: Option<String>,
+    /// An explicitly named normal map, for sources that bind one per material
+    /// rather than by the `<diffuse>_bump` convention. `None` for SoC plans:
+    /// the material writer falls back to the convention.
+    #[serde(default)]
+    pub source_normal: Option<String>,
     /// Lightmaps `xrLC` baked for this surface. v0.100b lights the world at
     /// runtime and has no binding for them, so they are recorded and dropped.
     pub dropped_lightmaps: Vec<String>,
@@ -451,6 +456,7 @@ pub fn plan_materials(
             source_shader: entry.shader.clone(),
             family,
             source_diffuse: entry.base_texture().map(ToOwned::to_owned),
+            source_normal: None,
             dropped_lightmaps: entry.lightmaps().to_vec(),
             surface_count: *surface_count,
         });

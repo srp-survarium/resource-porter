@@ -3,6 +3,7 @@ pub mod armor;
 pub mod binary_config;
 pub mod config_patch;
 pub mod dependency;
+pub mod lilith;
 pub mod manifest;
 pub mod map_compare;
 pub mod map_port;
