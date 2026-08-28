@@ -35,9 +35,9 @@ pub fn build_bundle(
 
     let mut patches = BTreeMap::new();
     for specification in boolean_specifications {
-        let (path, raw_value) = specification
-            .split_once('=')
-            .with_context(|| format!("config patch entry must be PATH=BOOLEAN: {specification:?}"))?;
+        let (path, raw_value) = specification.split_once('=').with_context(|| {
+            format!("config patch entry must be PATH=BOOLEAN: {specification:?}")
+        })?;
         if path.is_empty() || path.split('.').any(|component| component.is_empty()) {
             bail!("config patch path is invalid: {path:?}");
         }
@@ -77,9 +77,7 @@ pub fn build_bundle(
     for (path, value) in &patches {
         match value_at_path(&config.root, path) {
             Some(ConfigValue::Boolean(_)) => {}
-            Some(actual) => bail!(
-                "config patch {path:?} targets {actual:?}, not a boolean"
-            ),
+            Some(actual) => bail!("config patch {path:?} targets {actual:?}, not a boolean"),
             None => bail!("config patch path does not exist: {path}"),
         }
         config.root.set_path(path, ConfigValue::Boolean(*value))?;
@@ -97,9 +95,7 @@ pub fn build_bundle(
             );
         }
         let retained = values[values.len() - count..].to_vec();
-        config
-            .root
-            .set_path(path, ConfigValue::Indexed(retained))?;
+        config.root.set_path(path, ConfigValue::Indexed(retained))?;
     }
 
     let patched_bytes = config.to_bytes()?;

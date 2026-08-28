@@ -6,10 +6,10 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use serde_json::to_writer_pretty;
 
+use crate::ResourceDb;
 use crate::archive::safe_join;
 use crate::manifest::BuiltFile;
 use crate::weapon::{prepare_empty_output, record_file};
-use crate::ResourceDb;
 
 #[derive(Debug, Serialize)]
 struct ResourceCopyPatchRecord {
@@ -82,4 +82,3 @@ fn validate_resource_path(path: &str) -> Result<()> {
     }
     Ok(())
 }
-

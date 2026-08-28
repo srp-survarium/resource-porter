@@ -470,7 +470,9 @@ mod tests {
         assert_eq!(bank.partitions.len(), 1);
         assert_eq!(bank.partitions[0].name, "default");
         assert_eq!(bank.motions.len(), 1);
-        let motion = bank.motion("CL_RUN_FWD_0").expect("case-insensitive lookup");
+        let motion = bank
+            .motion("CL_RUN_FWD_0")
+            .expect("case-insensitive lookup");
         assert_eq!(motion.frames, 2);
         assert!((motion.duration() - 2.0 / 30.0).abs() < 1e-6);
     }
@@ -526,6 +528,9 @@ mod tests {
         params.extend_from_slice(&0u16.to_le_bytes());
         let bytes = chunk(OGF_S_SMPARAMS, &params);
         let error = parse(&bytes, "bank.omf").unwrap_err().to_string();
-        assert!(error.contains("no partition claims motion bone 0"), "{error}");
+        assert!(
+            error.contains("no partition claims motion bone 0"),
+            "{error}"
+        );
     }
 }

@@ -1,0 +1,70 @@
+{
+  "format_version": 1,
+  "asset_id": "dirty-bomb-castle-to-0100b",
+  "source_level": "OBJ_Castle",
+  "namespace": "ported/dirty_bomb/castle",
+  "model_prefix": "castle",
+  "project_name": "dirty_bomb_castle",
+  "templates": {
+    "model_settings": "models/level/03/terrain_p_09.model/settings",
+    "model_render_properties": "models/level/03/terrain_p_09.model/render/export_properties",
+    "surface_properties": "models/level/03/terrain_p_09.model/render/l3terr_/export_properties",
+    "collision_settings": "models/level/03/terrain_p_09.model/settings",
+    "texture_options": "textures/tiled/wood/plywood_01.options",
+    "client_project": "projects/level_03/client_project",
+    "server_project": "projects/level_03/server_project"
+  },
+  "project_bindings": {
+    "project_name_path": "project_name",
+    "visual_array_path": "render_visuals",
+    "collision_array_path": "collision_objects",
+    "instance_model_path": "lib_name",
+    "server_project_name_path": "project_name",
+    "server_respawn_array_path": "objects.respawn_points",
+    "respawn_position_path": "position",
+    "objects_array_path": "objects",
+    "object_type_path": "game_object_type",
+    "retained_object_types": ["sky", "environment", "volume_fog"]
+  },
+  "surfaces_per_model": 1,
+  "max_collision_triangles": 15000,
+  "spawn_position": [3.9591174, 4.604241, 50.966724],
+  "collision_material_overrides": {
+    "dirty_bomb_default": "concrete"
+  },
+  "collision_face_dictionary": "single",
+  "render_shader_families": {
+    "Castle.Materials.MI_LDN_grass_ground": "opaque",
+    "Vista_Castle_Matte_Painting.Materials.MI_River_Bed": "opaque"
+  },
+  "texture_aliases": {
+    "FX_Materials.Textures.Generic.T_SuperNoise_01": "EnvYolk_FX.Textures.T_CloudNoise",
+    "FX_Materials.Textures.T_PlainMidGrey": "mastermaterials.Textures.T_Flat_Gray_D",
+    "GEN_Tileable_Metal_TEX.T_metal_tile_01_D": "GEN_Tileable_Metal_TEX.T_metal_tile_02_D",
+    "Objective_Wall.Textures.T_Objective_Barrier_01_D": "Objective_Wall.Textures.T_Objective_Barrier_02_D",
+    "WeaponSkins.Textures.OldWood_D": "GEN_Tileable_Materials_02.T_OldWoodfloor_01_D"
+  },
+  "material_aliases": {
+    "LDN_LedSign_01.Materials.MI_LDN_LedSign": "GEN_Tileable_Materials_03.Materials.MI_GEN_Brushed_Metal_01"
+  },
+  "disable_foliage_wind": true,
+  "material_templates": {
+    "unknown": "material_instances/tiled/concrete/concrete_01.material",
+    "opaque": "material_instances/tiled/concrete/concrete_01.material",
+    "vertex_lit": "material_instances/tiled/concrete/concrete_02.material",
+    "alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "vertex_lit_alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "translucent": "material_instances/tiled/window/glass.material",
+    "water": "material_instances/water/water_green.material",
+    "foliage": "material_instances/flora/poplar_leaves_02.material",
+    "decal": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "emissive": "material_instances/weapons/tracer.material",
+    "lod_impostor": "material_instances/flora/sosna_bark_lod.material",
+    "bark": "material_instances/flora/sosna_bark_lod.material",
+    "terrain": "material_instances/terrain/03_base_final.material"
+  },
+  "family_diffuse_paths": {
+    "emissive": "material.forward.effect.texture_emissive.value",
+    "terrain": "material.g_stage.effect.texture_diffuse_0.value"
+  }
+}

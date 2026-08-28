@@ -98,12 +98,7 @@ pub fn parse(bytes: &[u8], label: &str) -> Result<Material> {
         let value = match kind {
             1 => MatValue::String(lt_string(&mut cursor, label)?),
             2 => MatValue::Vector3([cursor.f32()?, cursor.f32()?, cursor.f32()?]),
-            3 => MatValue::Vector4([
-                cursor.f32()?,
-                cursor.f32()?,
-                cursor.f32()?,
-                cursor.f32()?,
-            ]),
+            3 => MatValue::Vector4([cursor.f32()?, cursor.f32()?, cursor.f32()?, cursor.f32()?]),
             4 => MatValue::Integer(cursor.u32()?),
             5 => MatValue::Float(cursor.f32()?),
             other => bail!(
@@ -126,8 +121,7 @@ pub fn parse(bytes: &[u8], label: &str) -> Result<Material> {
 fn lt_string(cursor: &mut Cursor, label: &str) -> Result<String> {
     let length = cursor.u16()? as usize;
     let bytes = cursor.take(length)?;
-    let text = std::str::from_utf8(bytes)
-        .with_context(|| format!("{label}: non-ASCII string"))?;
+    let text = std::str::from_utf8(bytes).with_context(|| format!("{label}: non-ASCII string"))?;
     Ok(text.to_owned())
 }
 

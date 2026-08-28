@@ -67,8 +67,7 @@ pub fn standable(cform: &Cform, cell: f32, limit: usize) -> Vec<Candidate> {
             edge0[2] * edge1[0] - edge0[0] * edge1[2],
             edge0[0] * edge1[1] - edge0[1] * edge1[0],
         ];
-        let length =
-            (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+        let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
         if !length.is_normal() {
             continue;
         }
@@ -100,8 +99,9 @@ pub fn standable(cform: &Cform, cell: f32, limit: usize) -> Vec<Candidate> {
         .into_values()
         .filter(|cell| cell.samples > 0.0)
         .filter_map(|mut cell| {
-            cell.heights
-                .sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+            cell.heights.sort_by(|left, right| {
+                left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+            });
             // Stand on the lowest surface in the cell with room above it: the
             // floor of a room, not the roof over it.
             let (floor, headroom) = cell.heights.iter().find_map(|floor| {
@@ -181,7 +181,9 @@ mod tests {
 
     #[test]
     fn prefers_the_widest_floor_over_the_pit() {
-        let best = *standable(&pool_like(), 2.0, 4).first().expect("a candidate");
+        let best = *standable(&pool_like(), 2.0, 4)
+            .first()
+            .expect("a candidate");
         assert!(best.position[1] > -1.0, "spawned in the pit: {best:?}");
         assert!(best.position[0] > 10.0, "not on the deck: {best:?}");
         assert!(best.position[2] > 10.0, "not on the deck: {best:?}");
@@ -189,7 +191,10 @@ mod tests {
 
     #[test]
     fn stands_clear_of_the_surface() {
-        assert_eq!(standable(&pool_like(), 2.0, 1)[0].position[1], STANDING_CLEARANCE);
+        assert_eq!(
+            standable(&pool_like(), 2.0, 1)[0].position[1],
+            STANDING_CLEARANCE
+        );
     }
 
     /// A floor with a ceiling too low to stand under is not a spawn.
@@ -211,7 +216,10 @@ mod tests {
         };
         // The lower floor is unusable, so the only spawn is on top of the slab.
         let ranked = standable(&cform, 64.0, 4);
-        assert!(ranked.iter().all(|c| c.headroom >= REQUIRED_HEADROOM), "{ranked:?}");
+        assert!(
+            ranked.iter().all(|c| c.headroom >= REQUIRED_HEADROOM),
+            "{ranked:?}"
+        );
         assert_eq!(ranked[0].position[1], 1.0 + STANDING_CLEARANCE);
     }
 }

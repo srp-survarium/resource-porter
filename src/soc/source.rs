@@ -1,8 +1,8 @@
-//! Access to Shadow of Chernobyl source data.
+//! Access to retail X-Ray 1.x source data.
 //!
 //! Two backends, one interface:
 //!
-//! * a retail installation, read straight from its `gamedata.db*` archives;
+//! * a retail installation, read straight from its packed archives;
 //! * an already-unpacked `gamedata` directory.
 //!
 //! The archive backend is the normal one. The directory backend exists because
@@ -33,7 +33,7 @@ pub enum SocSource {
 }
 
 impl SocSource {
-    /// Open a retail installation directory holding `gamedata.db*`.
+    /// Open a retail X-Ray installation directory.
     pub fn open_installation(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         let set = SocArchiveSet::open_installation(&root)?;
@@ -61,7 +61,7 @@ impl SocSource {
     /// archives, an unpacked tree otherwise.
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
-        let packed = fs::read_dir(root)
+        let packed_at_root = fs::read_dir(root)
             .with_context(|| format!("listing {}", root.display()))?
             .filter_map(|entry| entry.ok())
             .any(|entry| {
@@ -70,7 +70,21 @@ impl SocSource {
                     .to_str()
                     .is_some_and(|name| name.to_ascii_lowercase().starts_with("gamedata.db"))
             });
-        if packed {
+        let split_packed = ["resources", "levels", "localization", "mp", "patches"]
+            .into_iter()
+            .map(|directory| root.join(directory))
+            .filter(|directory| directory.is_dir())
+            .any(|directory| {
+                fs::read_dir(directory).is_ok_and(|entries| {
+                    entries.filter_map(Result::ok).any(|entry| {
+                        entry
+                            .file_name()
+                            .to_str()
+                            .is_some_and(|name| name.to_ascii_lowercase().contains(".db"))
+                    })
+                })
+            });
+        if packed_at_root || split_packed {
             Self::open_installation(root)
         } else {
             Self::open_directory(root)
@@ -138,6 +152,25 @@ impl SocSource {
     /// Read a texture named the way the level shader table names it.
     pub fn read_texture(&mut self, name: &str) -> Result<Option<Vec<u8>>> {
         let path = format!("textures/{}.dds", normalize(name));
+        if !self.contains(&path) {
+            return Ok(None);
+        }
+        self.read(&path).map(Some)
+    }
+
+    /// Read a texture using X-Ray's global texture root, then the current
+    /// level's local root.
+    ///
+    /// Clear Sky terrain sheets are referenced as
+    /// `terrain\\terrain_<level>` but stored below
+    /// `levels/<level>/terrain/`; Shadow of Chernobyl keeps the textures used
+    /// by its converted maps in the global root. Keeping both lookups here
+    /// preserves the source reference as the emitted target name.
+    pub fn read_level_texture(&mut self, level: &str, name: &str) -> Result<Option<Vec<u8>>> {
+        if let Some(bytes) = self.read_texture(name)? {
+            return Ok(Some(bytes));
+        }
+        let path = format!("levels/{}/{}.dds", normalize(level), normalize(name));
         if !self.contains(&path) {
             return Ok(None);
         }
@@ -345,7 +378,12 @@ pub fn canonicalize_dds(bytes: &[u8], info: DdsInfo, srgb: bool) -> Result<Vec<u
     write(
         &mut output,
         8,
-        DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | DDSD_MIPMAPCOUNT | DDSD_LINEARSIZE,
+        DDSD_CAPS
+            | DDSD_HEIGHT
+            | DDSD_WIDTH
+            | DDSD_PIXELFORMAT
+            | DDSD_MIPMAPCOUNT
+            | DDSD_LINEARSIZE,
     );
     write(&mut output, 20, u32::try_from(payload)?);
     write(&mut output, 28, levels);
@@ -459,6 +497,22 @@ mod tests {
             Some(b"payload".as_slice())
         );
         assert!(source.read_texture("prop/missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn resolves_clear_sky_level_local_textures() {
+        let root = tempfile::tempdir().unwrap();
+        let terrain = root.path().join("levels/mp_training_camp/terrain");
+        fs::create_dir_all(&terrain).unwrap();
+        fs::write(terrain.join("terrain_mp_training_camp.dds"), b"terrain").unwrap();
+        let mut source = SocSource::open(root.path()).unwrap();
+        assert_eq!(
+            source
+                .read_level_texture("MP_TRAINING_CAMP", "terrain\\terrain_mp_training_camp")
+                .unwrap()
+                .as_deref(),
+            Some(b"terrain".as_slice())
+        );
     }
 
     #[test]

@@ -13,8 +13,9 @@ use vostok_resource_porter::material_patch;
 use vostok_resource_porter::maya_binary;
 use vostok_resource_porter::resource_copy_patch;
 use vostok_resource_porter::soc;
-use vostok_resource_porter::stk2_content;
+use vostok_resource_porter::soc_addon;
 use vostok_resource_porter::static_basis_patch;
+use vostok_resource_porter::stk2_content;
 use vostok_resource_porter::target_native_map;
 use vostok_resource_porter::terrain_surface_patch;
 use vostok_resource_porter::weapon;
@@ -308,9 +309,9 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Summarise a packed Shadow of Chernobyl installation.
+    /// Summarise a packed retail X-Ray installation.
     SocInventory {
-        /// Directory holding `gamedata.db0`..`gamedata.dbd`.
+        /// Installation holding root `gamedata.db*` or split archive directories.
         #[arg(long)]
         install_root: PathBuf,
         /// Restrict the listing to names starting with this prefix.
@@ -326,7 +327,7 @@ enum Command {
         #[arg(long)]
         dump_tables: Option<PathBuf>,
     },
-    /// Decode one Shadow of Chernobyl level and report what a port would contain.
+    /// Decode one X-Ray level and report what a port would contain.
     ///
     /// Needs no target database, so it can run against a bare installation.
     SocProbeLevel {
@@ -389,6 +390,12 @@ enum Command {
         /// Only report surfaces whose shader name contains this.
         #[arg(long)]
         shader: Option<String>,
+        /// Only report surfaces whose triangles cover this world X coordinate.
+        #[arg(long, requires = "z", allow_hyphen_values = true)]
+        x: Option<f32>,
+        /// Only report surfaces whose triangles cover this world Z coordinate.
+        #[arg(long, requires = "x", allow_hyphen_values = true)]
+        z: Option<f32>,
     },
     /// Report each shared vertex buffer.s declaration.
     SocAuditBuffers {
@@ -499,6 +506,91 @@ enum Command {
         #[arg(long)]
         manifest: PathBuf,
         /// Root of an unpacked Shadow of Chernobyl `gamedata` tree.
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build an optional meadow, flower-island, lighting and victory-item layer for an X-Ray map.
+    BuildSocMapAddon {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        level: String,
+        /// Effective converted map database to patch.
+        #[arg(long)]
+        base_db: PathBuf,
+        #[arg(long)]
+        flower_png: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long, default_value_t = 16500)]
+        grass_limit: usize,
+        #[arg(long, default_value_t = 21600)]
+        conifer_limit: usize,
+        #[arg(long, default_value_t = -40.0, allow_hyphen_values = true)]
+        flower_center_x: f32,
+        #[arg(long, default_value_t = 189.0, allow_hyphen_values = true)]
+        flower_center_z: f32,
+        #[arg(long, default_value_t = 24.0)]
+        flower_radius: f32,
+        #[arg(long, default_value_t = 900)]
+        flower_limit: usize,
+        #[arg(long, default_value_t = 10)]
+        victory_item_count: usize,
+        #[arg(long, default_value_t = 0.8)]
+        skylight_multiplier: f32,
+        #[arg(long, default_value_t = 0.18)]
+        skylight_power: f32,
+    },
+    /// List installed Dirty Bomb cooked maps and their streamed packages.
+    DirtyBombInventory {
+        /// Dirty Bomb install root, or its `ShooterGame/CookedPC` directory.
+        #[arg(long)]
+        install_root: PathBuf,
+        /// Restrict the inventory to one map (`Overground` and
+        /// `EXE_Overground` are equivalent).
+        #[arg(long)]
+        map: Option<String>,
+        /// Print every package rather than only the per-map totals.
+        #[arg(long)]
+        list_packages: bool,
+    },
+    /// Decode one complete Dirty Bomb streamed map graph and report port inputs.
+    ///
+    /// This validates the retail UE3 868/9 ABI, every LZO block and the object
+    /// tables before counting geometry, collision, materials and spawn actors.
+    DirtyBombProbeMap {
+        /// Dirty Bomb install root, or its `ShooterGame/CookedPC` directory.
+        #[arg(long)]
+        source_root: PathBuf,
+        /// Map directory name, with optional `EXE_` prefix.
+        #[arg(long)]
+        map: String,
+        /// Write the complete stable report as JSON.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Convert Dirty Bomb mesh placements in memory and report target geometry.
+    ///
+    /// This is the no-database dry run for the Survarium build path: it applies
+    /// visibility, material overrides, actor/component transforms, handedness
+    /// conversion and per-section collision selection.
+    DirtyBombProbeConversion {
+        #[arg(long)]
+        source_root: PathBuf,
+        #[arg(long)]
+        map: String,
+        /// Write the stable conversion counters and material mapping as JSON.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Convert a cooked Dirty Bomb map graph into a Survarium v0.100b bundle.
+    BuildDirtyBombMap {
+        #[arg(long)]
+        manifest: PathBuf,
         #[arg(long)]
         source_root: PathBuf,
         #[arg(long)]
@@ -1085,7 +1177,9 @@ fn main() -> Result<()> {
                     .filter(|path| {
                         path.file_name()
                             .and_then(|name| name.to_str())
-                            .is_some_and(|name| name.to_ascii_lowercase().starts_with("gamedata.db"))
+                            .is_some_and(|name| {
+                                name.to_ascii_lowercase().starts_with("gamedata.db")
+                            })
                     })
                     .collect();
                 archives.sort();
@@ -1139,8 +1233,8 @@ fn main() -> Result<()> {
             limit,
         } => {
             let mut source = soc::source::SocSource::open(&source_root)?;
-            // The level's own multiplayer team bases come first: they are
-            // authored, and the collision heuristic can land outside the arena.
+            // The level's own multiplayer points come first: they are authored,
+            // and the collision heuristic can land outside the arena.
             match source.read_level_file(&level, "level.spawn") {
                 Ok(bytes) => {
                     for base in soc::codec::spawn::team_bases(&bytes) {
@@ -1151,6 +1245,24 @@ fn main() -> Result<()> {
                     }
                 }
                 Err(error) => println!("team_bases_unavailable: {error:#}"),
+            }
+            match source.read_level_file(&level, "level.game") {
+                Ok(bytes) => match soc::codec::spawn::actor_respawns(&bytes) {
+                    Ok(respawns) => {
+                        for point in respawns {
+                            println!(
+                                "actor_respawn=[{:.2}, {:.2}, {:.2}] team={} game_type={:#06x}",
+                                point.position[0],
+                                point.position[1],
+                                point.position[2],
+                                point.team,
+                                point.game_type
+                            );
+                        }
+                    }
+                    Err(error) => println!("actor_respawns_unavailable: {error:#}"),
+                },
+                Err(error) => println!("actor_respawns_unavailable: {error:#}"),
             }
             let cform = soc::build::decode_level(&mut source, &level)?.cform;
             let (min, max) = cform.header.bounding_box;
@@ -1189,8 +1301,8 @@ fn main() -> Result<()> {
                     (q[0] - p[0]) * (z - p[2]) - (q[2] - p[2]) * (x - p[0])
                 };
                 let (ab, bc, ca) = (side(a, b), side(b, c), side(c, a));
-                let inside = (ab >= 0.0 && bc >= 0.0 && ca >= 0.0)
-                    || (ab <= 0.0 && bc <= 0.0 && ca <= 0.0);
+                let inside =
+                    (ab >= 0.0 && bc >= 0.0 && ca >= 0.0) || (ab <= 0.0 && bc <= 0.0 && ca <= 0.0);
                 if !inside {
                     continue;
                 }
@@ -1208,7 +1320,10 @@ fn main() -> Result<()> {
                 hits.push((height, face.material, normal_y));
             }
             hits.sort_by(|left, right| {
-                right.0.partial_cmp(&left.0).unwrap_or(std::cmp::Ordering::Equal)
+                right
+                    .0
+                    .partial_cmp(&left.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             });
 
             println!("probe=[{x:.2}, ?, {z:.2}] triangles={}", hits.len());
@@ -1230,6 +1345,8 @@ fn main() -> Result<()> {
             source_root,
             level,
             shader,
+            x,
+            z,
         } => {
             let mut source = soc::source::SocSource::open(&source_root)?;
             let decoded = soc::build::decode_level(&mut source, &level)?;
@@ -1241,8 +1358,38 @@ fn main() -> Result<()> {
                     .get(merged.shader_id)
                     .map(|entry| entry.shader.as_str())
                     .unwrap_or("<unknown>");
-                if shader.as_ref().is_some_and(|want| !name.contains(want.as_str())) {
+                if shader
+                    .as_ref()
+                    .is_some_and(|want| !name.contains(want.as_str()))
+                {
                     continue;
+                }
+
+                let mut point_hits = Vec::new();
+                if let (Some(x), Some(z)) = (x, z) {
+                    for triangle in merged.indices.chunks_exact(3) {
+                        let at = |index: u16| merged.vertices[usize::from(index)].position;
+                        let (a, b, c) = (at(triangle[0]), at(triangle[1]), at(triangle[2]));
+                        let side = |p: [f32; 3], q: [f32; 3]| {
+                            (q[0] - p[0]) * (z - p[2]) - (q[2] - p[2]) * (x - p[0])
+                        };
+                        let (ab, bc, ca) = (side(a, b), side(b, c), side(c, a));
+                        if !((ab >= 0.0 && bc >= 0.0 && ca >= 0.0)
+                            || (ab <= 0.0 && bc <= 0.0 && ca <= 0.0))
+                        {
+                            continue;
+                        }
+                        let denominator = ab + bc + ca;
+                        let height = if denominator.abs() < f32::EPSILON {
+                            (a[1] + b[1] + c[1]) / 3.0
+                        } else {
+                            (bc * a[1] + ca * b[1] + ab * c[1]) / denominator
+                        };
+                        point_hits.push(height);
+                    }
+                    if point_hits.is_empty() {
+                        continue;
+                    }
                 }
 
                 let mut min = [f32::INFINITY; 3];
@@ -1273,10 +1420,9 @@ fn main() -> Result<()> {
                         edge0[2] * edge1[0] - edge0[0] * edge1[2],
                         edge0[0] * edge1[1] - edge0[1] * edge1[0],
                     ];
-                    let length = (normal[0] * normal[0]
-                        + normal[1] * normal[1]
-                        + normal[2] * normal[2])
-                        .sqrt();
+                    let length =
+                        (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
+                            .sqrt();
                     if !length.is_normal() {
                         continue;
                     }
@@ -1289,7 +1435,7 @@ fn main() -> Result<()> {
 
                 println!(
                     "{} shader={name} visuals={}/{} tris={} x={:.1}..{:.1} y={:.2}..{:.2} z={:.1}..{:.1} u={:.1}..{:.1} v={:.1}..{:.1} \
-                     up={up} down={down} side={side}",
+                     up={up} down={down} side={side} hits={point_hits:?}",
                     merged.name(),
                     merged.tree_visual_count,
                     merged.visual_count,
@@ -1325,8 +1471,10 @@ fn main() -> Result<()> {
             let mut source = soc::source::SocSource::open(&source_root)?;
             let bytes = source.read_level_file(&level, "level")?;
             let visuals = soc::codec::level::visual_payloads(&bytes)?;
-            let mut by_kind: std::collections::BTreeMap<String, (usize, std::collections::BTreeSet<u32>)> =
-                std::collections::BTreeMap::new();
+            let mut by_kind: std::collections::BTreeMap<
+                String,
+                (usize, std::collections::BTreeSet<u32>),
+            > = std::collections::BTreeMap::new();
             for payload in &visuals {
                 let kind = match soc::codec::ogf::parse_visual(payload, 0) {
                     Ok(visual) => visual.kind.label(),
@@ -1459,7 +1607,10 @@ fn main() -> Result<()> {
                         .iter()
                         .filter(|track| !track.is_static())
                         .count();
-                    println!("animated_bones={animated} static_bones={}", motion.tracks.len() - animated);
+                    println!(
+                        "animated_bones={animated} static_bones={}",
+                        motion.tracks.len() - animated
+                    );
                     for (index, track) in motion.tracks.iter().enumerate() {
                         println!(
                             "  {:<24} rotations={:<4} translations={:<4}{}",
@@ -1532,12 +1683,26 @@ fn main() -> Result<()> {
                 report.alignment.residual
             );
             println!("bones={}", clip.bones.len());
-            println!("b_spline={} bytes={}", spline.display(), std::fs::metadata(&spline)?.len());
-            println!("bones_names={} bytes={}", names.display(), std::fs::metadata(&names)?.len());
+            println!(
+                "b_spline={} bytes={}",
+                spline.display(),
+                std::fs::metadata(&spline)?.len()
+            );
+            println!(
+                "bones_names={} bytes={}",
+                names.display(),
+                std::fs::metadata(&names)?.len()
+            );
 
             if let Some(frame) = compare_frame {
-                let samples =
-                    animation::compare_pose(&clip, &rig, motion, &decoded, &source_skeleton, frame)?;
+                let samples = animation::compare_pose(
+                    &clip,
+                    &rig,
+                    motion,
+                    &decoded,
+                    &source_skeleton,
+                    frame,
+                )?;
                 println!("compare_frame={frame}");
                 for sample in samples {
                     println!(
@@ -1648,7 +1813,7 @@ fn main() -> Result<()> {
                 println!("class {tag}: {} shaders", shaders.len());
                 for shader in shaders {
                     let levels = &bound[*shader].1;
-                        let b = &library[*shader];
+                    let b = &library[*shader];
                     let p = b.common.as_ref();
                     println!(
                         "    {shader}  uses={} priority={} strict_sorting={} texture={:?}",
@@ -1688,6 +1853,321 @@ fn main() -> Result<()> {
             for (kind, count) in &record.merge_report.dropped_by_kind {
                 println!("dropped_visuals[{kind}]={count}");
             }
+            println!("files={}", record.files.len());
+            println!("bundle={}", output.display());
+        }
+        Command::BuildSocMapAddon {
+            source_root,
+            level,
+            base_db,
+            flower_png,
+            output,
+            grass_limit,
+            conifer_limit,
+            flower_center_x,
+            flower_center_z,
+            flower_radius,
+            flower_limit,
+            victory_item_count,
+            skylight_multiplier,
+            skylight_power,
+        } => {
+            let record = soc_addon::build_bundle(
+                &source_root,
+                &level,
+                &base_db,
+                &flower_png,
+                &output,
+                grass_limit,
+                conifer_limit,
+                [flower_center_x, flower_center_z],
+                flower_radius,
+                flower_limit,
+                victory_item_count,
+                skylight_multiplier,
+                skylight_power,
+            )?;
+            println!("grass_instances={}", record.grass_instances);
+            println!("grass_batches={}", record.grass_batches);
+            println!("conifer_instances={}", record.conifer_instances);
+            println!("conifer_batches={}", record.conifer_batches);
+            println!("flower_instances={}", record.flower_instances);
+            for (index, position) in record.victory_item_spawners.iter().enumerate() {
+                println!(
+                    "victory_item[{index}]=[{:.2}, {:.2}, {:.2}]",
+                    position[0], position[1], position[2]
+                );
+            }
+            for (index, position) in record.victory_item_containers.iter().enumerate() {
+                println!(
+                    "victory_item_container[{index}]=[{:.2}, {:.2}, {:.2}]",
+                    position[0], position[1], position[2]
+                );
+            }
+            println!("bundle={}", output.display());
+        }
+        Command::DirtyBombInventory {
+            install_root,
+            map,
+            list_packages,
+        } => {
+            use vostok_resource_porter::dirty_bomb::{probe, source::DirtyBombSource};
+            let source = DirtyBombSource::open(&install_root)?;
+            let selected = map
+                .as_deref()
+                .map(|requested| source.resolve_map(requested))
+                .transpose()?;
+            for installed in probe::inventory(&source)? {
+                if selected
+                    .as_ref()
+                    .is_some_and(|selected| !installed.name.eq_ignore_ascii_case(selected))
+                {
+                    continue;
+                }
+                println!(
+                    "map={} packages={} disk_bytes={}",
+                    installed.name, installed.package_count, installed.disk_bytes
+                );
+                if list_packages {
+                    for package in installed.packages {
+                        println!("  {}\t{}", package.path, package.disk_bytes);
+                    }
+                }
+            }
+        }
+        Command::DirtyBombProbeMap {
+            source_root,
+            map,
+            output,
+        } => {
+            use vostok_resource_porter::dirty_bomb::{probe, source::DirtyBombSource};
+            let source = DirtyBombSource::open(&source_root)?;
+            let report = probe::probe_map(&source, &map)?;
+            println!(
+                "map={} packages={} disk_bytes={} logical_bytes={}",
+                report.map, report.package_count, report.disk_bytes, report.logical_bytes
+            );
+            println!(
+                "names={} imports={} exports={} properties_decoded={} property_errors={}",
+                report.names,
+                report.imports,
+                report.exports,
+                report.properties_decoded,
+                report.property_errors.values().sum::<usize>()
+            );
+            for name in [
+                "StaticMesh",
+                "StaticMeshActor",
+                "StaticMeshComponent",
+                "RB_BodySetup",
+                "SDStitchingProxy",
+                "Brush",
+                "BrushComponent",
+                "Model",
+                "ModelComponent",
+                "BlockingVolume",
+                "SplineLoftActor",
+                "Texture2D",
+                "Material",
+                "MaterialInstanceConstant",
+                "PointLight",
+                "SpotLight",
+                "PlayerStart",
+            ] {
+                if let Some(count) = report.classes.get(name) {
+                    println!("class[{name}]={count}");
+                }
+            }
+            println!("external_packages={}", report.external_packages.len());
+            println!(
+                "streaming_levels={} missing={} undeclared={}",
+                report.declared_streaming_levels.len(),
+                report.missing_streaming_levels.len(),
+                report.undeclared_sublevels.len()
+            );
+            println!(
+                "static_mesh_references={} unresolved={}",
+                report.static_mesh_references.len(),
+                report.unresolved_static_mesh_references
+            );
+            println!(
+                "static_meshes_decoded={} errors={} lod0_vertices={} lod0_triangles={} lod0_sections={}",
+                report.static_meshes_decoded,
+                report.static_mesh_errors.values().sum::<usize>(),
+                report.static_mesh_lod0_vertices,
+                report.static_mesh_lod0_triangles,
+                report.static_mesh_lod0_sections
+            );
+            for (class, bounds) in &report.location_bounds {
+                if matches!(
+                    class.as_str(),
+                    "StaticMeshActor"
+                        | "InterpActor"
+                        | "BlockingVolume"
+                        | "SplineLoftActor"
+                        | "PlayerStart"
+                ) {
+                    println!(
+                        "bounds[{class}]={} [{:.2},{:.2},{:.2}]..[{:.2},{:.2},{:.2}]m",
+                        bounds.count,
+                        bounds.min_vostok_m[0],
+                        bounds.min_vostok_m[1],
+                        bounds.min_vostok_m[2],
+                        bounds.max_vostok_m[0],
+                        bounds.max_vostok_m[1],
+                        bounds.max_vostok_m[2]
+                    );
+                }
+            }
+            for start in &report.player_starts {
+                println!(
+                    "player_start={} [{:.2},{:.2},{:.2}]m package={}",
+                    start.object,
+                    start.location_vostok_m[0],
+                    start.location_vostok_m[1],
+                    start.location_vostok_m[2],
+                    start.package
+                );
+            }
+            if let Some(output) = output {
+                probe::write_json(&report, &output)?;
+                println!("report={}", output.display());
+            }
+        }
+        Command::DirtyBombProbeConversion {
+            source_root,
+            map,
+            output,
+        } => {
+            use vostok_resource_porter::dirty_bomb::{convert, source::DirtyBombSource};
+            let source = DirtyBombSource::open(&source_root)?;
+            let converted = convert::convert_map(&source, &map)?;
+            let report = &converted.report;
+            println!(
+                "map={} packages={} placements={} visible={} rendered={} imported_skipped={}",
+                converted.map,
+                report.packages,
+                report.placements,
+                report.visible_placements,
+                report.rendered_placements,
+                report.skipped_imported_mesh_placements
+            );
+            println!(
+                "mirrored={} absolute_translation={} absolute_rotation={} absolute_scale={}",
+                report.mirrored_placements,
+                report.absolute_translation_placements,
+                report.absolute_rotation_placements,
+                report.absolute_scale_placements
+            );
+            println!(
+                "surfaces={} materials={} render_sections={} render_vertices={} render_triangles={}",
+                converted.surfaces.len(),
+                report.materials.len(),
+                report.render_sections,
+                report.render_vertices,
+                report.render_triangles
+            );
+            println!(
+                "bsp_models={} bsp_nodes={} rendered={}/{}v/{}t collision={}/{}v/{}t",
+                report.bsp_models,
+                report.bsp_nodes,
+                report.bsp_render_nodes,
+                report.bsp_render_vertices,
+                report.bsp_render_triangles,
+                report.bsp_collision_nodes,
+                report.bsp_collision_vertices,
+                report.bsp_collision_triangles
+            );
+            println!(
+                "collision_sections={} collision_vertices={} collision_triangles={} degenerate_dropped={} background_dropped={}",
+                report.collision_sections,
+                report.collision_vertices,
+                report.collision_triangles,
+                report.collision_degenerate_triangles_dropped,
+                report.background_collision_triangles_dropped
+            );
+            if let Some(worst) = report
+                .reported_bounds_comparisons
+                .iter()
+                .max_by(|left, right| {
+                    left.outside_distance_metres
+                        .total_cmp(&right.outside_distance_metres)
+                })
+            {
+                let outside_tolerance = report
+                    .reported_bounds_comparisons
+                    .iter()
+                    .filter(|bounds| bounds.outside_distance_metres > 0.25)
+                    .count();
+                println!(
+                    "reported_bounds={} outside_25cm={} max_outside={:.3}m actor={} class={}",
+                    report.reported_bounds_comparisons.len(),
+                    outside_tolerance,
+                    worst.outside_distance_metres,
+                    worst.actor,
+                    worst.actor_class
+                );
+            }
+            for candidate in &report.spawn_candidates {
+                if let Some(position) = candidate.target_position {
+                    println!(
+                        "spawn={} actor=[{:.2},{:.2},{:.2}] floor={:.2} target=[{:.2},{:.2},{:.2}]",
+                        candidate.object,
+                        candidate.actor_position[0],
+                        candidate.actor_position[1],
+                        candidate.actor_position[2],
+                        candidate.floor.unwrap(),
+                        position[0],
+                        position[1],
+                        position[2]
+                    );
+                }
+            }
+            if let Some(output) = output {
+                std::fs::write(&output, serde_json::to_vec_pretty(report)?)
+                    .with_context(|| format!("writing {}", output.display()))?;
+                println!("report={}", output.display());
+            }
+        }
+        Command::BuildDirtyBombMap {
+            manifest,
+            source_root,
+            target_db,
+            output,
+        } => {
+            let manifest = soc::SocMapManifest::load(manifest)?;
+            let record = vostok_resource_porter::dirty_bomb::build::build_bundle(
+                &manifest,
+                &source_root,
+                &target_db,
+                &output,
+            )?;
+            println!("asset={}", record.asset_id);
+            println!("source_map={}", record.source_map);
+            println!("project={}", record.project_name);
+            println!("models={}", record.models.len());
+            println!("converted_surfaces={}", record.converted_surfaces);
+            println!("rendered_triangles={}", record.rendered_triangles);
+            println!("materials={}", record.materials);
+            println!("placeholder_materials={}", record.placeholder_materials);
+            println!(
+                "unknown_materials={}",
+                record
+                    .material_assets
+                    .material_families
+                    .values()
+                    .filter(
+                        |family| **family == soc::convert::render_material::RenderFamily::Unknown
+                    )
+                    .count()
+            );
+            println!(
+                "material_errors={}",
+                record.material_assets.material_failures.len()
+            );
+            println!("collision_pieces={}", record.collision_pieces);
+            println!("collision_vertices={}", record.collision_vertices);
+            println!("collision_triangles={}", record.collision_triangles);
             println!("files={}", record.files.len());
             println!("bundle={}", output.display());
         }
@@ -1747,8 +2227,12 @@ fn main() -> Result<()> {
                 };
                 println!(
                     "bounds_m=[{:.1},{:.1},{:.1}]..[{:.1},{:.1},{:.1}]",
-                    report.min[0], report.min[1], report.min[2],
-                    report.max[0], report.max[1], report.max[2]
+                    report.min[0],
+                    report.min[1],
+                    report.min[2],
+                    report.max[0],
+                    report.max[1],
+                    report.max[2]
                 );
                 println!("world_models={}", report.world_models);
                 for (kind, count) in &report.physics_shapes {
@@ -1842,7 +2326,11 @@ fn main() -> Result<()> {
                             };
                             println!(
                                 "{} [{:.2}, {:.2}, {:.2}] floor={} ceiling={} spawn_y={} name={}",
-                                if candidate.usable { "usable " } else { "no-fit " },
+                                if candidate.usable {
+                                    "usable "
+                                } else {
+                                    "no-fit "
+                                },
                                 candidate.position[0],
                                 candidate.position[1],
                                 candidate.position[2],

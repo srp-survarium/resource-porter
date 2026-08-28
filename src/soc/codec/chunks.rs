@@ -207,10 +207,12 @@ impl<'a> Cursor<'a> {
     /// silent replacement character.
     pub fn stringz(&mut self) -> Result<String> {
         let tail = &self.bytes[self.offset..];
-        let end = tail
-            .iter()
-            .position(|byte| *byte == 0)
-            .with_context(|| format!("{}: unterminated string at byte {}", self.label, self.offset))?;
+        let end = tail.iter().position(|byte| *byte == 0).with_context(|| {
+            format!(
+                "{}: unterminated string at byte {}",
+                self.label, self.offset
+            )
+        })?;
         let text = std::str::from_utf8(&tail[..end])
             .with_context(|| format!("{}: non-ASCII string at byte {}", self.label, self.offset))?
             .to_owned();

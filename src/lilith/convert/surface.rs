@@ -147,7 +147,9 @@ impl PartBuilder {
 ///   without authored tangents are unlit glass and additive glows, which
 ///   never sample a normal map, so the frame only has to be valid, not
 ///   UV-aligned.
-fn convert_vertices(decoded: &crate::lilith::codec::world::DecodedSurface) -> Result<Vec<SocVertex>> {
+fn convert_vertices(
+    decoded: &crate::lilith::codec::world::DecodedSurface,
+) -> Result<Vec<SocVertex>> {
     let count = decoded.positions.len();
     let mut normals = if decoded.normals.len() == count {
         decoded.normals.clone()
@@ -155,8 +157,7 @@ fn convert_vertices(decoded: &crate::lilith::codec::world::DecodedSurface) -> Re
         face_normals(&decoded.positions, &decoded.indices)
     };
     for normal in &mut normals {
-        let length =
-            (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+        let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
         if length > f32::EPSILON {
             for axis in normal.iter_mut() {
                 *axis /= length;
@@ -169,13 +170,12 @@ fn convert_vertices(decoded: &crate::lilith::codec::world::DecodedSurface) -> Re
     let mut vertices = Vec::with_capacity(count);
     for index in 0..count {
         let normal = normals[index];
-        let (tangent, binormal) = if decoded.tangents.len() == count
-            && decoded.binormals.len() == count
-        {
-            (decoded.tangents[index], decoded.binormals[index])
-        } else {
-            orthonormal_frame(normal)
-        };
+        let (tangent, binormal) =
+            if decoded.tangents.len() == count && decoded.binormals.len() == count {
+                (decoded.tangents[index], decoded.binormals[index])
+            } else {
+                orthonormal_frame(normal)
+            };
         vertices.push(SocVertex {
             position: decoded.positions[index].map(|value| value * SCALE),
             normal,

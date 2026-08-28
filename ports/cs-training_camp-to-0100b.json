@@ -1,0 +1,66 @@
+{
+  "format_version": 1,
+  "asset_id": "cs-training_camp-to-0100b",
+  "source_level": "mp_training_camp",
+  "namespace": "ported/cs/training_camp",
+  "model_prefix": "training_camp",
+  "project_name": "cs_training_camp",
+  "templates": {
+    "model_settings": "models/level/03/terrain_p_09.model/settings",
+    "model_render_properties": "models/level/03/terrain_p_09.model/render/export_properties",
+    "surface_properties": "models/level/03/terrain_p_09.model/render/l3terr_/export_properties",
+    "collision_settings": "models/level/03/terrain_p_09.model/settings",
+    "texture_options": "textures/tiled/wood/plywood_01.options",
+    "client_project": "projects/level_03/client_project",
+    "server_project": "projects/level_03/server_project"
+  },
+  "project_bindings": {
+    "project_name_path": "project_name",
+    "visual_array_path": "render_visuals",
+    "collision_array_path": "collision_objects",
+    "instance_model_path": "lib_name",
+    "server_project_name_path": "project_name",
+    "server_respawn_array_path": "objects.respawn_points",
+    "respawn_position_path": "position",
+    "objects_array_path": "objects",
+    "object_type_path": "game_object_type",
+    "retained_object_types": ["sky", "environment", "volume_fog", "light"]
+  },
+  "surfaces_per_model": 200,
+  "spawn_position": [32.927, -0.043, -32.941],
+  "collision_material_overrides": {
+    "materials\\earth_slide": "ground"
+  },
+  "render_shader_families": {
+    "levels\\mp_darkvalley_asfalt": "terrain",
+    "levels\\mp_darkvalley_grass": "terrain",
+    "levels\\mp_darkvalley_sand": "terrain"
+  },
+  "terrain_layer_metres": 6.0,
+  "terrain_layer_normal_textures": {
+    "levels\\mp_darkvalley_asfalt": "terrain/04_det_debris_nmap",
+    "levels\\mp_darkvalley_grass": "terrain/04_det_grass_dead_02_nmap",
+    "levels\\mp_darkvalley_sand": "terrain/loam_nmap"
+  },
+  "normal_texture_overrides": {
+    "grnd\\grnd_shlak_03": "terrain/04_det_debris_nmap"
+  },
+  "material_templates": {
+    "opaque": "material_instances/tiled/concrete/concrete_01.material",
+    "vertex_lit": "material_instances/tiled/concrete/concrete_02.material",
+    "alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "vertex_lit_alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "translucent": "material_instances/tiled/window/glass.material",
+    "water": "material_instances/water/water_green.material",
+    "foliage": "material_instances/flora/poplar_leaves_02.material",
+    "decal": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "emissive": "material_instances/weapons/tracer.material",
+    "lod_impostor": "material_instances/flora/sosna_bark_lod.material",
+    "bark": "material_instances/flora/sosna_bark_lod.material",
+    "terrain": "material_instances/terrain/03_base_final.material"
+  },
+  "family_diffuse_paths": {
+    "emissive": "material.forward.effect.texture_emissive.value",
+    "terrain": "material.g_stage.effect.texture_diffuse_0.value"
+  }
+}

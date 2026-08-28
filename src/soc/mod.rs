@@ -1,4 +1,4 @@
-//! Shadow of Chernobyl map conversion.
+//! X-Ray 1.x map conversion, initially built for Shadow of Chernobyl.
 //!
 //! This is a fourth map-building path alongside `build-map`,
 //! `build-target-native-map` and `build-stk2-map-slice`. It differs from all
@@ -20,10 +20,9 @@
 //! reviewed names, and clones target project/material/settings templates rather
 //! than inventing target structures.
 //!
-//! Reading the packed `gamedata.db*` archives is deliberately out of scope:
-//! they are encrypted and LZ-compressed, and unpacking them once with an
-//! external tool keeps a proprietary key table out of this repository. Point
-//! `--source-root` at an unpacked `gamedata` tree.
+//! The source may be an unpacked `gamedata` tree, a Shadow of Chernobyl
+//! installation with root-level `gamedata.db*`, or Clear Sky/Call of Pripyat's
+//! split archive layout.
 
 //! ```text
 //! codec/    decode X-Ray formats            (no target knowledge, no I/O)

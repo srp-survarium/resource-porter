@@ -176,6 +176,59 @@ manifests prove, what the probe confirms, what was never implemented, what is
 still provisional, and which parts of the rewrite are re-derived rather than
 recovered.
 
+## Build a Dirty Bomb map
+
+The Dirty Bomb path reads the retail UE3 cooked package graph directly. It
+supports compressed package chunks, streamed `.umap` levels, placed static
+meshes, cooked BSP, per-component material overrides, mirrored transforms,
+collision, textures, material instances, and authored player starts.
+
+Inventory and probe commands do not write a target database:
+
+```sh
+vostok-port dirty-bomb-inventory \
+  --install-root /path/to/DirtyBomb \
+  --list-packages
+
+vostok-port dirty-bomb-probe-map \
+  --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
+  --map EXE_Overground \
+  --output .work/dirty-bomb-overground-probe.json
+
+vostok-port dirty-bomb-probe-conversion \
+  --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
+  --map EXE_Overground \
+  --output .work/dirty-bomb-overground-conversion.json
+```
+
+Build and validate a v0.100b overlay with one of the reviewed manifests under
+`ports/`:
+
+```sh
+vostok-port build-dirty-bomb-map \
+  --manifest ports/dirty-bomb-overground-to-0100b.json \
+  --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
+  --target-db /path/to/v0100b/resources.db \
+  --output .work/dirty-bomb-overground-bundle
+
+vostok-port validate-overlay \
+  --base-db /path/to/v0100b/resources.db \
+  --overlay .work/dirty-bomb-overground-bundle/overlay
+```
+
+Manifests are included for `EXE_Overground`, `EXE_Canal`, `EXE_Gallery`, and
+`OBJ_Castle`. Material aliases and diffuse, opacity, or shader-family overrides
+are reviewed per source material and recorded in the bundle report. An
+unresolved or unusable source material is deliberately classified `UNKNOWN`
+and rendered with the manifest's concrete diagnostic material; the porter does
+not silently select a different texture. This keeps questionable surfaces
+visible and traceable for later correction.
+
+After `apply`, the local runtime launcher profiles are
+`dirty-bomb-overground`, `dirty-bomb-canal`, `dirty-bomb-gallery`, and
+`dirty-bomb-castle`. `scripts/run-map-demo.sh PROFILE --check` verifies the
+selected database and runtime layout without starting Wine.
+
 ## Other useful commands
 
 ```sh

@@ -6,11 +6,11 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use serde_json::to_writer_pretty;
 
+use crate::ResourceDb;
 use crate::archive::safe_join;
 use crate::manifest::BuiltFile;
 use crate::material_conversion::MaterialCatalog;
 use crate::weapon::{prepare_empty_output, record_file};
-use crate::ResourceDb;
 
 #[derive(Debug, Serialize)]
 struct MaterialPatchRecord {
@@ -66,8 +66,7 @@ pub fn build_bundle(
         let source_bytes = source
             .read(path)
             .with_context(|| format!("reading source material {path}"))?;
-        let converted =
-            catalog.convert(path, &source_bytes, Some(template), &source, &target)?;
+        let converted = catalog.convert(path, &source_bytes, Some(template), &source, &target)?;
         let destination = safe_join(&overlay, path)?;
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;

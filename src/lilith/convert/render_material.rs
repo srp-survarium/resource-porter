@@ -51,22 +51,52 @@ pub fn default_shader_classes() -> BTreeMap<&'static str, ShaderClass> {
         ("shaders\\rigid\\solid\\diffuse.fx", Family(Opaque)),
         ("shaders\\rigid\\solid\\cloth.fx", Family(Opaque)),
         ("shaders\\rigid\\solid\\twotonepaint.fx", Family(Opaque)),
-        ("shaders\\rigid\\prototype\\specular_mirror.fx", Family(Opaque)),
-        ("shaders\\rigid\\solid\\specular_alphatest.fx", Family(AlphaTested)),
-        ("shaders\\rigid\\solid\\specular_alphatest_bump.fx", Family(AlphaTested)),
+        (
+            "shaders\\rigid\\prototype\\specular_mirror.fx",
+            Family(Opaque),
+        ),
+        (
+            "shaders\\rigid\\solid\\specular_alphatest.fx",
+            Family(AlphaTested),
+        ),
+        (
+            "shaders\\rigid\\solid\\specular_alphatest_bump.fx",
+            Family(AlphaTested),
+        ),
         ("shaders\\rigid\\solid\\glass.fx", Family(Translucent)),
         ("shaders\\rigid\\solid\\glass_env.fx", Family(Translucent)),
-        ("shaders\\rigid\\solid\\glass_env_flat.fx", Family(Translucent)),
+        (
+            "shaders\\rigid\\solid\\glass_env_flat.fx",
+            Family(Translucent),
+        ),
         ("shaders\\rigid\\solid\\glass_flat.fx", Family(Translucent)),
-        ("shaders\\rigid\\translucent\\translucent.fx", Family(Translucent)),
+        (
+            "shaders\\rigid\\translucent\\translucent.fx",
+            Family(Translucent),
+        ),
         ("shaders\\rigid\\translucent\\cloud.fx", Family(Translucent)),
-        ("shaders\\rigid\\translucent\\effect\\refract.fx", Family(Translucent)),
-        ("shaders\\rigid\\translucent\\effect\\refract_blur.fx", Family(Translucent)),
-        ("shaders\\rigid\\translucent\\effect\\blur.fx", Family(Translucent)),
-        ("shaders\\rigid\\prototype\\murky_water_low.fx", Family(Water)),
+        (
+            "shaders\\rigid\\translucent\\effect\\refract.fx",
+            Family(Translucent),
+        ),
+        (
+            "shaders\\rigid\\translucent\\effect\\refract_blur.fx",
+            Family(Translucent),
+        ),
+        (
+            "shaders\\rigid\\translucent\\effect\\blur.fx",
+            Family(Translucent),
+        ),
+        (
+            "shaders\\rigid\\prototype\\murky_water_low.fx",
+            Family(Water),
+        ),
         ("shaders\\rigid\\solid\\emissive.fx", Family(Emissive)),
         ("shaders\\rigid\\translucent\\additive.fx", Family(Emissive)),
-        ("shaders\\rigid\\translucent\\additive_falloff.fx", Family(Emissive)),
+        (
+            "shaders\\rigid\\translucent\\additive_falloff.fx",
+            Family(Emissive),
+        ),
         ("shaders\\rigid\\translucent\\multiply.fx", Family(Decal)),
         (
             "shaders\\rigid\\solid\\sky.fx",
@@ -139,10 +169,12 @@ mod tests {
 
     #[test]
     fn override_wins() {
-        let overrides: BTreeMap<String, RenderFamily> =
-            [("shaders\\rigid\\solid\\sky.fx".to_owned(), RenderFamily::Opaque)]
-                .into_iter()
-                .collect();
+        let overrides: BTreeMap<String, RenderFamily> = [(
+            "shaders\\rigid\\solid\\sky.fx".to_owned(),
+            RenderFamily::Opaque,
+        )]
+        .into_iter()
+        .collect();
         assert_eq!(
             classify("shaders\\rigid\\solid\\sky.fx", &overrides).unwrap(),
             Some(RenderFamily::Opaque)

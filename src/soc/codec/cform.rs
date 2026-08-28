@@ -103,9 +103,8 @@ pub fn parse(bytes: &[u8]) -> Result<Cform> {
         let record = cursor
             .take(FACE_SIZE)
             .with_context(|| format!("reading collision face {index}"))?;
-        let vertex = |slot: usize| {
-            u32::from_le_bytes(record[slot * 4..slot * 4 + 4].try_into().unwrap())
-        };
+        let vertex =
+            |slot: usize| u32::from_le_bytes(record[slot * 4..slot * 4 + 4].try_into().unwrap());
         let vertices_of_face = [vertex(0), vertex(1), vertex(2)];
         for reference in vertices_of_face {
             if usize::try_from(reference)? >= vertex_count {

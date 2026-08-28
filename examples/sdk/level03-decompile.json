@@ -1,0 +1,27 @@
+{
+  "operation": "decompile-map",
+  "protocol_version": 1,
+  "project_name": "level_03",
+  "target_profile": "survarium-v0100b802",
+  "variants": [
+    {
+      "id": "day",
+      "runtime_project": "level_03",
+      "source_profile": "survarium-v0100b802",
+      "source_db": ".work/client-map-retail-level03/resources.db"
+    },
+    {
+      "id": "evening",
+      "runtime_project": "level_03_evn",
+      "source_profile": "survarium-v0100b802",
+      "source_db": ".work/client-map-retail-level03/resources.db"
+    },
+    {
+      "id": "rain",
+      "runtime_project": "level_03_rain",
+      "source_profile": "survarium-v0100b802",
+      "source_db": ".work/client-map-retail-level03/resources.db"
+    }
+  ],
+  "output": ".work/sdk-decompiled-level03"
+}

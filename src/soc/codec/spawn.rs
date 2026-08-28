@@ -1,4 +1,4 @@
-//! Decode the spawn points a Shadow of Chernobyl multiplayer level declares.
+//! Decode the spawn points an X-Ray multiplayer level declares.
 //!
 //! A converted map inherits no spawn points, and neither of the obvious
 //! substitutes works. The centre of the map's bounding box is not ground -- for
@@ -8,14 +8,17 @@
 //! x = 84..480 while its arena is a fraction of that, so the widest floor can
 //! sit outside the playable area entirely.
 //!
-//! The level already knows the answer. `level.spawn` carries the map's own
-//! multiplayer team bases, placed by the people who built it.
+//! The level already knows the answer. Shadow of Chernobyl's `level.spawn`
+//! carries the map's multiplayer team bases. Clear Sky's `level.game` carries
+//! explicit actor respawn points, grouped by team and game-mode mask.
 //!
 //! Only the object header is decoded here. A full `CSE_Abstract` carries
 //! per-class packed properties this port has no use for, but every object
 //! begins the same way, which is enough to find the ones that matter.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
+
+use super::chunks::{Chunks, Cursor};
 
 /// The section name of a multiplayer team base.
 pub const TEAM_BASE_SECTION: &str = "zone_team_base";
@@ -28,6 +31,68 @@ pub struct SpawnPoint {
     /// Instance name, e.g. `level_prefix_zone_team_base_0000`.
     pub name: String,
     pub position: [f32; 3],
+}
+
+/// One actor respawn decoded from `level.game`'s `RPOINT_CHUNK`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActorRespawn {
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+    pub team: u8,
+    /// Bit mask of X-Ray multiplayer game IDs.
+    pub game_type: u16,
+}
+
+/// `POINT_BASE + ptRPoint` from `Common/LevelGameDef.h`.
+const RPOINT_CHUNK: u32 = 0x2000;
+const ACTOR_SPAWN: u8 = 0;
+
+/// Every actor respawn in `level.game`, in authored file order.
+///
+/// Clear Sky appends one reserved byte to the documented 28-byte actor record;
+/// the retail reader consumes the common prefix and ignores the remainder, so
+/// this decoder deliberately does the same.
+pub fn actor_respawns(game: &[u8]) -> Result<Vec<ActorRespawn>> {
+    let Some(points) = Chunks::new(game, "level.game").find(RPOINT_CHUNK)? else {
+        return Ok(Vec::new());
+    };
+
+    let mut found = Vec::new();
+    for chunk in Chunks::new(points, "level.game rpoints").iter() {
+        let chunk = chunk?;
+        let mut record = Cursor::new(chunk.payload, "level.game rpoint");
+        if record.remaining() < 28 {
+            bail!(
+                "level.game rpoint {} has {} bytes; expected at least 28",
+                chunk.id,
+                record.remaining()
+            );
+        }
+        let position = record.float3()?;
+        let rotation = record.float3()?;
+        let team = record.u8()?;
+        let point_type = record.u8()?;
+        let game_type = record.u16()?;
+        if point_type == ACTOR_SPAWN {
+            if !position
+                .iter()
+                .chain(&rotation)
+                .all(|value| value.is_finite())
+            {
+                bail!(
+                    "level.game rpoint {} contains a non-finite vector",
+                    chunk.id
+                );
+            }
+            found.push(ActorRespawn {
+                position,
+                rotation,
+                team,
+                game_type,
+            });
+        }
+    }
+    Ok(found)
 }
 
 /// Every team base the level declares, in file order.
@@ -122,6 +187,42 @@ mod tests {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
         bytes
+    }
+
+    fn chunk(id: u32, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&id.to_le_bytes());
+        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    fn rpoint(position: [f32; 3], rotation: [f32; 3], team: u8, kind: u8) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for value in position.into_iter().chain(rotation) {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(&[team, kind]);
+        bytes.extend_from_slice(&4u16.to_le_bytes());
+        bytes.push(0); // Clear Sky's reserved trailing byte.
+        bytes
+    }
+
+    #[test]
+    fn decodes_clear_sky_actor_respawns_and_skips_items() {
+        let mut points = Vec::new();
+        points.extend(chunk(0, &rpoint([32.927, -0.543, -32.941], [0.0; 3], 1, 0)));
+        points.extend(chunk(1, &rpoint([2.167, 24.026, 3.957], [0.0; 3], 1, 2)));
+        points.extend(chunk(2, &rpoint([4.089, -1.194, 39.012], [0.0; 3], 2, 0)));
+        let game = chunk(RPOINT_CHUNK, &points);
+
+        let respawns = actor_respawns(&game).unwrap();
+        assert_eq!(respawns.len(), 2);
+        assert_eq!(respawns[0].position, [32.927, -0.543, -32.941]);
+        assert_eq!(respawns[0].team, 1);
+        assert_eq!(respawns[0].game_type, 4);
+        assert_eq!(respawns[1].position, [4.089, -1.194, 39.012]);
+        assert_eq!(respawns[1].team, 2);
     }
 
     /// The two bases `testers_mp_darkvalley` declares, at the offsets and

@@ -5,10 +5,10 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use serde_json::to_writer_pretty;
 
+use crate::ResourceDb;
 use crate::archive::safe_join;
 use crate::manifest::BuiltFile;
 use crate::weapon::{prepare_empty_output, record_file};
-use crate::ResourceDb;
 
 #[derive(Debug, Serialize)]
 struct StaticBasisPatchRecord {
@@ -136,9 +136,7 @@ fn scale_static_uvs(bytes: &mut [u8], path: &str, scale: f32) -> Result<()> {
         .and_then(|size| size.checked_add(vertex_count.checked_mul(VERTEX_STRIDE)?))
         .context("static vertex chunk size overflow")?;
     if vertex_chunk_size != expected_size || bytes.len() < 8 + expected_size {
-        bail!(
-            "{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}"
-        );
+        bail!("{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}");
     }
 
     let vertices = 8 + DECLARATION_SIZE + 4;
@@ -172,9 +170,7 @@ fn canonicalize_static_basis_alpha(bytes: &mut [u8], path: &str) -> Result<()> {
         .and_then(|size| size.checked_add(vertex_count.checked_mul(VERTEX_STRIDE)?))
         .context("static vertex chunk size overflow")?;
     if vertex_chunk_size != expected_size || bytes.len() < 8 + expected_size {
-        bail!(
-            "{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}"
-        );
+        bail!("{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}");
     }
 
     let vertices = 8 + DECLARATION_SIZE + 4;
@@ -203,9 +199,7 @@ fn flatten_static_height(bytes: &mut [u8], path: &str) -> Result<()> {
         .and_then(|size| size.checked_add(vertex_count.checked_mul(VERTEX_STRIDE)?))
         .context("static vertex chunk size overflow")?;
     if vertex_chunk_size != expected_size || bytes.len() < 8 + expected_size {
-        bail!(
-            "{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}"
-        );
+        bail!("{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}");
     }
 
     let vertices = 8 + DECLARATION_SIZE + 4;
@@ -245,9 +239,7 @@ fn flatten_static_basis(bytes: &mut [u8], path: &str) -> Result<()> {
         .and_then(|size| size.checked_add(vertex_count.checked_mul(VERTEX_STRIDE)?))
         .context("static vertex chunk size overflow")?;
     if vertex_chunk_size != expected_size || bytes.len() < 8 + expected_size {
-        bail!(
-            "{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}"
-        );
+        bail!("{path} has static vertex chunk size {vertex_chunk_size}, expected {expected_size}");
     }
 
     let vertices = 8 + DECLARATION_SIZE + 4;
@@ -271,8 +263,7 @@ fn flatten_static_basis(bytes: &mut [u8], path: &str) -> Result<()> {
 }
 
 fn packed_basis(vector: [f32; 3], alpha: u8) -> u32 {
-    let component =
-        |value: f32| (((value + 1.0) * 127.5).floor() as i32).clamp(0, 255) as u32;
+    let component = |value: f32| (((value + 1.0) * 127.5).floor() as i32).clamp(0, 255) as u32;
     ((alpha as u32) << 24)
         | (component(vector[0]) << 16)
         | (component(vector[1]) << 8)

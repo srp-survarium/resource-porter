@@ -17,7 +17,9 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result, bail};
 
 use crate::soc::codec::level::GeometryBuffers;
-use crate::soc::codec::ogf::{GeometryContainer, Visual, VisualKind, transform_direction, transform_position};
+use crate::soc::codec::ogf::{
+    GeometryContainer, Visual, VisualKind, transform_direction, transform_position,
+};
 use crate::soc::codec::vertex::SocVertex;
 
 /// One `u16` index space.
@@ -248,7 +250,10 @@ pub fn merge_visuals(
 
     for (index, visual) in visuals.iter().enumerate() {
         if !visual.kind.is_static() {
-            *report.dropped_by_kind.entry(visual.kind.label()).or_insert(0) += 1;
+            *report
+                .dropped_by_kind
+                .entry(visual.kind.label())
+                .or_insert(0) += 1;
             continue;
         }
         let Some(container) = visual.geometry else {
@@ -496,9 +501,9 @@ fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
 mod tests {
     use super::*;
     use crate::soc::codec::level::VertexBuffer;
-    
-    use crate::soc::codec::vertex::{SocVertexLayout, parse_declaration};
+
     use crate::soc::codec::chunks::Cursor;
+    use crate::soc::codec::vertex::{SocVertexLayout, parse_declaration};
 
     fn float2_layout() -> (SocVertexLayout, usize) {
         let mut bytes = Vec::new();
@@ -618,14 +623,20 @@ mod tests {
         tree.tree_transform = Some(identity);
         let (surfaces, report) = merge_visuals(&[tree], &buffers).unwrap();
         assert_eq!(report.tree_visuals, 1);
-        assert!(surfaces[0].vertices.iter().all(|vertex| vertex.position[1] == 5.0));
+        assert!(
+            surfaces[0]
+                .vertices
+                .iter()
+                .all(|vertex| vertex.position[1] == 5.0)
+        );
         assert_eq!(surfaces[0].tree_visual_count, 1);
     }
 
     #[test]
     fn encodes_the_target_static_surface_layout() {
         let buffers = buffers(3, vec![0, 1, 2]);
-        let (surfaces, _) = merge_visuals(&[visual(VisualKind::Normal, 1, 0, 3)], &buffers).unwrap();
+        let (surfaces, _) =
+            merge_visuals(&[visual(VisualKind::Normal, 1, 0, 3)], &buffers).unwrap();
         let payload = surfaces[0].encode_converted_model().unwrap();
         assert_eq!(u32::from_le_bytes(payload[0..4].try_into().unwrap()), 3);
         assert_eq!(&payload[8..56], &STATIC_VERTEX_DECLARATION);
@@ -650,7 +661,8 @@ mod tests {
     #[test]
     fn computes_bounds_from_converted_positions() {
         let buffers = buffers(3, vec![0, 1, 2]);
-        let (surfaces, _) = merge_visuals(&[visual(VisualKind::Normal, 1, 0, 3)], &buffers).unwrap();
+        let (surfaces, _) =
+            merge_visuals(&[visual(VisualKind::Normal, 1, 0, 3)], &buffers).unwrap();
         let bounds = surfaces[0].bounds();
         assert_eq!(bounds.min, [0.0, 0.0, 0.0]);
         assert_eq!(bounds.max, [2.0, 0.0, 0.0]);

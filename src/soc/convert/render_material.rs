@@ -23,6 +23,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RenderFamily {
+    /// Unresolved or textureless source material. It is deliberately distinct
+    /// from [`Self::Opaque`]: ports may render it with the same conspicuous
+    /// concrete placeholder, but build reports and manifests must keep the
+    /// unresolved contract visible until a reviewed alias is supplied.
+    Unknown,
     /// Fully opaque, lit by the target's own lighting.
     Opaque,
     /// Opaque, but the source shader consumed baked vertex colour. v0.100b
@@ -134,6 +139,9 @@ pub enum RenderFamily {
 impl RenderFamily {
     /// Every family. A manifest must name a v0.100b template for each, because
     /// the family is chosen from the source and cannot be declined later.
+    /// `Unknown` is omitted: established non-Dirty-Bomb manifests never
+    /// produce it, while importers that do may declare an explicit template or
+    /// use the opaque placeholder fallback in `write_materials`.
     pub const ALL: &'static [Self] = &[
         Self::Opaque,
         Self::VertexLit,
@@ -151,6 +159,7 @@ impl RenderFamily {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Unknown => "unknown",
             Self::Opaque => "opaque",
             Self::VertexLit => "vertex_lit",
             Self::AlphaTested => "alpha_tested",
@@ -528,7 +537,10 @@ mod tests {
             blender::SHADERS_CHUNK_BLENDERS,
             &blender::fixtures::blender(0, tag, name, priority, sorting),
         );
-        blender::parse_library(&bytes).unwrap().remove(name).unwrap()
+        blender::parse_library(&bytes)
+            .unwrap()
+            .remove(name)
+            .unwrap()
     }
 
     /// The roster is the regression test: every shader the retail game binds
@@ -547,8 +559,10 @@ mod tests {
     #[test]
     fn the_roster_covers_every_shader_the_game_binds() {
         assert_eq!(KNOWN_SHADERS.len(), 70);
-        let classes: std::collections::BTreeSet<&str> =
-            KNOWN_SHADERS.iter().map(|(_, class, _, _)| *class).collect();
+        let classes: std::collections::BTreeSet<&str> = KNOWN_SHADERS
+            .iter()
+            .map(|(_, class, _, _)| *class)
+            .collect();
         assert_eq!(classes.len(), 8);
     }
 
@@ -634,7 +648,10 @@ mod tests {
         entries
             .iter()
             .map(|(name, class, priority, sorting)| {
-                ((*name).to_owned(), blender_for(class, *priority, *sorting, name))
+                (
+                    (*name).to_owned(),
+                    blender_for(class, *priority, *sorting, name),
+                )
             })
             .collect()
     }
@@ -655,7 +672,10 @@ mod tests {
         assert_eq!(plans.len(), 2);
         assert_eq!(plans[0].name, "shader_0001");
         assert_eq!(plans[0].family, RenderFamily::Opaque);
-        assert_eq!(plans[0].source_diffuse.as_deref(), Some("prop\\prop_bochka"));
+        assert_eq!(
+            plans[0].source_diffuse.as_deref(),
+            Some("prop\\prop_bochka")
+        );
         assert_eq!(plans[0].dropped_lightmaps, ["lm_l01#0"]);
         assert_eq!(plans[1].family, RenderFamily::Foliage);
         assert_eq!(

@@ -433,7 +433,9 @@ pub fn audit_shaders(
                 continue;
             };
             let material = super::codec::mat::parse(&bytes, material_path)?;
-            let entry = census.entry(material.shader.to_ascii_lowercase()).or_default();
+            let entry = census
+                .entry(material.shader.to_ascii_lowercase())
+                .or_default();
             entry.materials += 1;
             if entry.example.is_empty() {
                 entry.example = material_path.clone();

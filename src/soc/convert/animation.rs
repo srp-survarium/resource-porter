@@ -144,7 +144,11 @@ pub fn align(source: &skeleton::Skeleton, rig: &Rig) -> Result<Alignment> {
                 from[1] - source_hip[1],
                 from[2] - source_hip[2],
             ],
-            [to[0] - target_hip[0], to[1] - target_hip[1], to[2] - target_hip[2]],
+            [
+                to[0] - target_hip[0],
+                to[1] - target_hip[1],
+                to[2] - target_hip[2],
+            ],
         ));
     }
     if pairs.is_empty() {
@@ -233,12 +237,10 @@ fn matched_rest(
         .map(|frame| transform(frame.translation(), &to_target))
         .collect();
 
-    let mut basis: Vec<Basis> = (0..rig.bones.len()).map(|index| rig.rest_basis(index)).collect();
-    let mut position: Vec<[f32; 3]> = rig
-        .bones
-        .iter()
-        .map(|bone| bone.rest_translation)
+    let mut basis: Vec<Basis> = (0..rig.bones.len())
+        .map(|index| rig.rest_basis(index))
         .collect();
+    let mut position: Vec<[f32; 3]> = rig.bones.iter().map(|bone| bone.rest_translation).collect();
 
     for index in rig_order(rig) {
         let Some(source_index) = mapped[index] else {
@@ -258,7 +260,8 @@ fn matched_rest(
         };
 
         let target_direction = direction(position[index], position[child]);
-        let source_direction = direction(source_position[source_index], source_position[source_child]);
+        let source_direction =
+            direction(source_position[source_index], source_position[source_child]);
         let (Some(from), Some(to)) = (target_direction, source_direction) else {
             continue;
         };
@@ -344,8 +347,7 @@ fn minimal_rotation(from: [f32; 3], to: [f32; 3]) -> Basis {
 }
 
 fn normalise(vector: [f32; 3]) -> [f32; 3] {
-    let length =
-        (vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]).sqrt();
+    let length = (vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]).sqrt();
     [vector[0] / length, vector[1] / length, vector[2] / length]
 }
 
@@ -462,18 +464,16 @@ pub fn retarget(
 
         // X-Ray keeps a motion's travel on the pelvis; carry the displacement
         // from its rest position over to the bone the pelvis maps to.
-        if let (Some(pelvis), Some(hip_slot)) = (source.index("bip01_pelvis"), hip_slot(&target_order, rig)) {
+        if let (Some(pelvis), Some(hip_slot)) =
+            (source.index("bip01_pelvis"), hip_slot(&target_order, rig))
+        {
             let track = &motion.tracks[tracks[pelvis]];
             let moved = track.translation(frame);
             let rest = source.bones[pelvis].rest_translation;
             let index = target_order[hip_slot].expect("the hip is a rig bone");
             let (rest_local, _) = rig.local_rest(index);
             let displacement = transform(
-                [
-                    moved[0] - rest[0],
-                    moved[1] - rest[1],
-                    moved[2] - rest[2],
-                ],
+                [moved[0] - rest[0], moved[1] - rest[1], moved[2] - rest[2]],
                 &to_target,
             );
             let displacement = match rig.bones[index].parent {

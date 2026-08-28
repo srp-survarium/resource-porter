@@ -188,9 +188,7 @@ impl Arch00 {
                 .with_context(|| format!("{label}: directory {index} is unreachable"))?;
             for _ in 0..record.file_count {
                 let file = files.get(next_file).with_context(|| {
-                    format!(
-                        "{label}: directories claim more than the {file_count} files present"
-                    )
+                    format!("{label}: directories claim more than the {file_count} files present")
                 })?;
                 next_file += 1;
                 let name = dictionary_string(names, file.name, &label)?;
@@ -212,9 +210,7 @@ impl Arch00 {
             }
         }
         if next_file != file_count {
-            bail!(
-                "{label}: directories claim {next_file} files but the table has {file_count}"
-            );
+            bail!("{label}: directories claim {next_file} files but the table has {file_count}");
         }
 
         Ok(Self {
@@ -247,14 +243,15 @@ impl Arch00 {
                 entry.compression
             );
         }
-        let mut payload = vec![
-            0u8;
-            usize::try_from(entry.size)
-                .with_context(|| format!("{} is too large for this platform", entry.path))?
-        ];
-        self.file.seek(SeekFrom::Start(entry.offset)).with_context(|| {
-            format!("{}: seeking to {}", self.path.display(), entry.path)
-        })?;
+        let mut payload =
+            vec![
+                0u8;
+                usize::try_from(entry.size)
+                    .with_context(|| format!("{} is too large for this platform", entry.path))?
+            ];
+        self.file
+            .seek(SeekFrom::Start(entry.offset))
+            .with_context(|| format!("{}: seeking to {}", self.path.display(), entry.path))?;
         self.file.read_exact(&mut payload).with_context(|| {
             format!(
                 "{}: {} declares {} bytes at offset {}, which run past the archive",

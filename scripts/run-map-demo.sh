@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 2 || ( $# -eq 2 && "${2:-}" != "--check" ) ]]; then
   echo "usage: $0 PROFILE [--check]" >&2
-  echo "profiles: level03-native-0100b level04-011e level04-011e-mono level01-day-020f level01-day-020f-native level02-day-020f level02-day-020f-native level03-day-020f level03-day-020f-native level03-day-020f-minimal level03-day-020f-visuals level04-day-020f level04-day-020f-native level05-day-020f level05-day-020f-native level03-day-023h lobby-playable stk2-a01-full stk2-a02-blockpost-slice stk2-a02-full stk2-a03-full stk2-bar-shooting-gallery-derived stk2-bar-shooting-gallery-full stk2-chaz-mir-part" >&2
+  echo "profiles: level03-native-0100b level04-011e level04-011e-mono level01-day-020f level01-day-020f-native level02-day-020f level02-day-020f-native level03-day-020f level03-day-020f-native level03-day-020f-minimal level03-day-020f-visuals level04-day-020f level04-day-020f-native level05-day-020f level05-day-020f-native level03-day-023h lobby-playable stk2-a01-full stk2-a02-blockpost-slice stk2-a02-full stk2-a03-full stk2-bar-shooting-gallery-derived stk2-bar-shooting-gallery-full stk2-chaz-mir-part cs-training-camp dirty-bomb-overground dirty-bomb-canal dirty-bomb-gallery dirty-bomb-castle" >&2
   exit 2
 fi
 
@@ -110,6 +110,49 @@ case "${profile}" in
     match_loadout_profile="stock-v0100b"
     # This database is retail plus converted maps and nothing else, so the
     # lobby must not hand out the imported STK2 dictionary IDs.
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  cs-training-camp)
+    # Clear Sky multiplayer map, converted through the X-Ray map path.
+    map_db="${repo_dir}/.work/cs-release-v2/${CS_DB:-resources.db}"
+    match_loadout_profile="stock-v0100b"
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  dirty-bomb-overground)
+    map_db="${repo_dir}/.work/dirty-bomb-overground-resources-v30.db"
+    profile_srp_bin_dir="${repo_dir}/.work/stk2-content-srp-worktree/target/debug"
+    if [[ -z ${BASE_CLIENT_DIR:-} ]]; then
+      base_client_dir="${repo_dir}/.work/client-v0100b-soc"
+    fi
+    match_loadout_profile="stock-v0100b"
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  dirty-bomb-canal)
+    map_db="${repo_dir}/.work/dirty-bomb-canal-resources-v8.db"
+    profile_srp_bin_dir="${repo_dir}/.work/stk2-content-srp-worktree/target/debug"
+    if [[ -z ${BASE_CLIENT_DIR:-} ]]; then
+      base_client_dir="${repo_dir}/.work/client-v0100b-soc"
+    fi
+    match_loadout_profile="stock-v0100b"
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  dirty-bomb-gallery)
+    map_leaf="${profile#dirty-bomb-}"
+    map_db="${repo_dir}/.work/dirty-bomb-${map_leaf}-resources-v9.db"
+    profile_srp_bin_dir="${repo_dir}/.work/stk2-content-srp-worktree/target/debug"
+    if [[ -z ${BASE_CLIENT_DIR:-} ]]; then
+      base_client_dir="${repo_dir}/.work/client-v0100b-soc"
+    fi
+    match_loadout_profile="stock-v0100b"
+    export SRP_STOCK_PROFILE_ONLY=1
+    ;;
+  dirty-bomb-castle)
+    map_db="${repo_dir}/.work/dirty-bomb-castle-resources-v1.db"
+    profile_srp_bin_dir="${repo_dir}/.work/stk2-content-srp-worktree/target/debug"
+    if [[ -z ${BASE_CLIENT_DIR:-} ]]; then
+      base_client_dir="${repo_dir}/.work/client-v0100b-soc"
+    fi
+    match_loadout_profile="stock-v0100b"
     export SRP_STOCK_PROFILE_ONLY=1
     ;;
   fear-*)

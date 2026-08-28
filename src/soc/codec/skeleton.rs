@@ -107,9 +107,12 @@ pub struct Matrix {
 
 impl Matrix {
     pub const IDENTITY: Matrix = Matrix {
-        rows: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [
-            0.0, 0.0, 0.0,
-        ]],
+        rows: [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0],
+        ],
     };
 
     /// `Fmatrix::setXYZi(angles)` followed by `translate_over(offset)`.
@@ -292,9 +295,12 @@ mod tests {
     fn resolves_parents_and_rest_frames() {
         let bytes = model(&[
             ("bip01_pelvis", "", [0.0, 0.0, 0.0], [0.0, 0.9, 0.0]),
-            ("bip01_spine", "bip01_pelvis", [0.0, 0.0, 0.0], [
-                0.0, 0.1, 0.0,
-            ]),
+            (
+                "bip01_spine",
+                "bip01_pelvis",
+                [0.0, 0.0, 0.0],
+                [0.0, 0.1, 0.0],
+            ),
         ]);
         let skeleton = parse(&bytes, "stalker.ogf").unwrap();
         assert_eq!(skeleton.bones[0].parent, None);

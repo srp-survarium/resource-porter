@@ -34,11 +34,11 @@ use crate::soc::manifest::SocMapManifest;
 use crate::soc::source as soc_source;
 use crate::weapon::reject_duplicate_outputs;
 
+use super::SCALE;
 use super::codec::{mat, world};
 use super::convert::{collision, render_material, surface};
 use super::probe;
 use super::source::LilithSource;
-use super::SCALE;
 
 /// What one map build produced.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -114,9 +114,9 @@ pub fn build_bundle(
                     .map(|(_, to)| to.clone());
                 match substitute {
                     Some(substitute) => {
-                        let bytes = source.read(&substitute).with_context(|| {
-                            format!("material alias {path} -> {substitute}")
-                        })?;
+                        let bytes = source
+                            .read(&substitute)
+                            .with_context(|| format!("material alias {path} -> {substitute}"))?;
                         materials.push(Some(mat::parse(&bytes, &substitute)?));
                         aliased.insert(path.clone(), substitute);
                     }
@@ -250,7 +250,10 @@ pub fn build_bundle(
         0
     };
     let surfaces_per_model = if pieces > 1 {
-        manifest.surfaces_per_model.min(surfaces.len() / pieces).max(1)
+        manifest
+            .surfaces_per_model
+            .min(surfaces.len() / pieces)
+            .max(1)
     } else {
         manifest.surfaces_per_model
     };
@@ -357,8 +360,14 @@ pub fn build_bundle(
         textures: textures.len(),
         materials: plans.len(),
         collision_pieces: collision_pieces.len(),
-        collision_vertices: collision_pieces.iter().map(|piece| piece.vertex_count).sum(),
-        collision_triangles: collision_pieces.iter().map(|piece| piece.triangle_count).sum(),
+        collision_vertices: collision_pieces
+            .iter()
+            .map(|piece| piece.vertex_count)
+            .sum(),
+        collision_triangles: collision_pieces
+            .iter()
+            .map(|piece| piece.triangle_count)
+            .sum(),
         collision_materials: bindings,
         collision_report,
         merge_report,
@@ -455,6 +464,7 @@ fn add_texture(
             info,
             bytes,
             is_normal,
+            srgb: !is_normal,
         },
     );
     Ok(())

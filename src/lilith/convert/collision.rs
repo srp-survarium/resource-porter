@@ -225,7 +225,9 @@ fn push_subdivided(
         edge(triangle[0], triangle[2]),
         edge(triangle[0], triangle[1]),
     ];
-    let longest = (0..3).max_by(|&a, &b| lengths[a].total_cmp(&lengths[b])).unwrap();
+    let longest = (0..3)
+        .max_by(|&a, &b| lengths[a].total_cmp(&lengths[b]))
+        .unwrap();
     // The depth guard only exists to make degenerate float behaviour finite;
     // 4m edges under a 300m map are eight halvings away.
     if lengths[longest] <= MAX_EDGE_METRES * MAX_EDGE_METRES || depth >= 12 {

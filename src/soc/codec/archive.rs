@@ -106,16 +106,13 @@ impl SocArchive {
                 .with_context(|| format!("chunk size overflow in {}", path.display()))?;
         }
 
-        let (payload, compressed) = table
-            .with_context(|| format!("{} has no file table chunk", path.display()))?;
+        let (payload, compressed) =
+            table.with_context(|| format!("{} has no file table chunk", path.display()))?;
 
         // The engine treats a missing INI header as the signal that a non-`.xdb`
         // archive is obfuscated.
-        let obfuscated = header.is_none()
-            && !path
-                .to_string_lossy()
-                .to_ascii_lowercase()
-                .contains(".xdb");
+        let obfuscated =
+            header.is_none() && !path.to_string_lossy().to_ascii_lowercase().contains(".xdb");
         let (table_bytes, key) = decode_table(&payload, compressed, obfuscated, &path)?;
         Ok((file, header, table_bytes, key))
     }
@@ -170,8 +167,12 @@ fn read_chunk_header(file: &mut File, offset: u64, path: &Path) -> Result<(u32, 
     let mut header = [0_u8; 8];
     file.seek(SeekFrom::Start(offset))
         .with_context(|| format!("seeking to byte {offset} of {}", path.display()))?;
-    file.read_exact(&mut header)
-        .with_context(|| format!("reading a chunk header at byte {offset} of {}", path.display()))?;
+    file.read_exact(&mut header).with_context(|| {
+        format!(
+            "reading a chunk header at byte {offset} of {}",
+            path.display()
+        )
+    })?;
     Ok((
         u32::from_le_bytes(header[0..4].try_into().unwrap()),
         u32::from_le_bytes(header[4..8].try_into().unwrap()),
@@ -182,8 +183,12 @@ fn read_exact_at(file: &mut File, offset: u64, size: usize, path: &Path) -> Resu
     let mut payload = vec![0_u8; size];
     file.seek(SeekFrom::Start(offset))
         .with_context(|| format!("seeking to byte {offset} of {}", path.display()))?;
-    file.read_exact(&mut payload)
-        .with_context(|| format!("reading {size} bytes at byte {offset} of {}", path.display()))?;
+    file.read_exact(&mut payload).with_context(|| {
+        format!(
+            "reading {size} bytes at byte {offset} of {}",
+            path.display()
+        )
+    })?;
     Ok(payload)
 }
 
@@ -242,7 +247,9 @@ fn parse_table(bytes: &[u8], path: &Path) -> Result<Vec<ArchiveEntry>> {
                 path.display(),
                 entries.len(),
                 bytes.len(),
-                entries.last().map(|entry: &ArchiveEntry| entry.name.as_str())
+                entries
+                    .last()
+                    .map(|entry: &ArchiveEntry| entry.name.as_str())
             );
         }
         let total = 2 + declared;
@@ -305,8 +312,13 @@ impl SocArchiveSet {
         Ok(Self { archives, index })
     }
 
-    /// Open the `gamedata.db*` archives of a retail installation, in the order
-    /// the engine registers them.
+    /// Open the X-Ray archives of a retail installation, in increasing
+    /// precedence order.
+    ///
+    /// Shadow of Chernobyl keeps `gamedata.db*` at the installation root.
+    /// Clear Sky and Call of Pripyat split the same container format across
+    /// `resources/`, `levels/`, `localization/`, `mp/`, and `patches/`.
+    /// Patches are deliberately mounted last so their duplicate paths win.
     pub fn open_installation(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
         let mut paths: Vec<PathBuf> = std::fs::read_dir(root)
@@ -321,11 +333,35 @@ impl SocArchiveSet {
                     })
             })
             .collect();
-        if paths.is_empty() {
-            bail!("{} contains no gamedata.db* archives", root.display());
+        if !paths.is_empty() {
+            // `db0`..`db9` then `dba`..`dbd`: ASCII order is registration order.
+            paths.sort();
+            return Self::open(&paths);
         }
-        // `db0`..`db9` then `dba`..`dbd`: ASCII order is registration order.
-        paths.sort();
+
+        for directory in ["resources", "levels", "localization", "mp", "patches"] {
+            let directory = root.join(directory);
+            if !directory.is_dir() {
+                continue;
+            }
+            let mut group: Vec<PathBuf> = std::fs::read_dir(&directory)
+                .with_context(|| format!("listing {}", directory.display()))?
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .filter(|path| {
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(is_split_archive_name)
+                })
+                .collect();
+            group.sort();
+            paths.extend(group);
+        }
+        if paths.is_empty() {
+            bail!(
+                "{} contains neither gamedata.db* nor split X-Ray archives",
+                root.display()
+            );
+        }
         Self::open(&paths)
     }
 
@@ -360,6 +396,14 @@ impl SocArchiveSet {
         let entry = archive.entries[entry_index].clone();
         archive.read(&entry)
     }
+}
+
+fn is_split_archive_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let Some((_, suffix)) = name.rsplit_once(".db") else {
+        return false;
+    };
+    suffix.is_empty() || (suffix.len() == 1 && suffix.as_bytes()[0].is_ascii_alphanumeric())
 }
 
 /// X-Ray writes names with backslashes and matches them case-insensitively.
@@ -446,6 +490,31 @@ mod tests {
     }
 
     #[test]
+    fn opens_clear_sky_split_archive_layout_with_patches_last() {
+        let root = tempfile::tempdir().unwrap();
+        let resources = root.path().join("resources");
+        let levels = root.path().join("levels");
+        let multiplayer = root.path().join("mp");
+        let patches = root.path().join("patches");
+        for directory in [&resources, &levels, &multiplayer, &patches] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        write_archive(&resources, "configs.db", &[("config\\x.ltx", b"BASE")]);
+        write_archive(&levels, "levels.db0", &[("levels\\marsh\\level", b"MARSH")]);
+        write_archive(
+            &multiplayer,
+            "mp_training_camp.db",
+            &[("levels\\mp_training_camp\\level", b"CAMP")],
+        );
+        write_archive(&patches, "xpatch_10.db", &[("config\\x.ltx", b"PATCH")]);
+
+        let mut set = SocArchiveSet::open_installation(root.path()).unwrap();
+        assert_eq!(set.archives().len(), 4);
+        assert_eq!(set.read("config/x.ltx").unwrap(), b"PATCH");
+        assert_eq!(set.read("levels/mp_training_camp/level").unwrap(), b"CAMP");
+    }
+
+    #[test]
     fn resolves_names_case_insensitively_and_by_either_separator() {
         let directory = tempfile::tempdir().unwrap();
         let path = write_archive(
@@ -481,7 +550,10 @@ mod tests {
     fn rejects_an_archive_without_a_file_table() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("d.xdb0");
-        File::create(&path).unwrap().write_all(&chunk(0, b"x")).unwrap();
+        File::create(&path)
+            .unwrap()
+            .write_all(&chunk(0, b"x"))
+            .unwrap();
         let error = SocArchive::open(&path).unwrap_err().to_string();
         assert!(error.contains("no file table chunk"), "{error}");
     }

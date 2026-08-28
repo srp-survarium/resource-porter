@@ -78,6 +78,9 @@ pub(crate) struct TexturePlan {
     /// space. SoC infers this from the `_bump` suffix; F.E.A.R. knows it from
     /// the material binding.
     pub(crate) is_normal: bool,
+    /// Whether the texture cooker should expose the sampled payload as sRGB.
+    /// Terrain is deliberately linear in v0.100b, including its colour maps.
+    pub(crate) srgb: bool,
 }
 
 /// Build the additive bundle for one map.
@@ -145,7 +148,9 @@ pub fn build_bundle(
         .collect();
     if !passable.is_empty() {
         let before = cform.faces.len();
-        cform.faces.retain(|face| !passable.contains(&face.material));
+        cform
+            .faces
+            .retain(|face| !passable.contains(&face.material));
         let dropped = before - cform.faces.len();
         let names: Vec<&str> = passable
             .iter()
@@ -177,7 +182,11 @@ pub fn build_bundle(
     let collision_pieces = collision::split(&cform, manifest.max_collision_triangles)
         .iter()
         .map(|piece| {
-            collision::encode(piece, &collision_materials, manifest.collision_face_dictionary)
+            collision::encode(
+                piece,
+                &collision_materials,
+                manifest.collision_face_dictionary,
+            )
         })
         .collect::<Result<Vec<_>>>()?;
 
@@ -200,7 +209,10 @@ pub fn build_bundle(
     let surfaces_per_model = if pieces > 1 {
         // Floor, not ceiling: we need at least as many archives as pieces, and
         // ceiling rounds the archive count down below the piece count.
-        manifest.surfaces_per_model.min(surfaces.len() / pieces).max(1)
+        manifest
+            .surfaces_per_model
+            .min(surfaces.len() / pieces)
+            .max(1)
     } else {
         manifest.surfaces_per_model
     };
@@ -304,8 +316,14 @@ pub fn build_bundle(
         tree_surfaces: merge_report.tree_visuals,
         textures: textures.len(),
         materials: material_plans.len(),
-        collision_vertices: collision_pieces.iter().map(|piece| piece.vertex_count).sum(),
-        collision_triangles: collision_pieces.iter().map(|piece| piece.triangle_count).sum(),
+        collision_vertices: collision_pieces
+            .iter()
+            .map(|piece| piece.vertex_count)
+            .sum(),
+        collision_triangles: collision_pieces
+            .iter()
+            .map(|piece| piece.triangle_count)
+            .sum(),
         collision_pieces: collision_pieces.len(),
         dropped_lightmaps: material_plans
             .iter()
@@ -458,10 +476,7 @@ pub struct LevelProbe {
     pub vertex_buffers: usize,
     pub index_buffers: usize,
     /// World extent of the converted render geometry.
-    pub render_bounds: (
-        [f32; 3],
-        [f32; 3],
-    ),
+    pub render_bounds: ([f32; 3], [f32; 3]),
     /// World extent of the source collision mesh, from `hdrCFORM`.
     pub collision_bounds: ([f32; 3], [f32; 3]),
     /// The union of both: what a derived lighting volume has to contain.
@@ -574,7 +589,7 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
 
     let mut missing_textures = Vec::new();
     for texture in &source_textures {
-        if source.read_texture(texture)?.is_none() {
+        if source.read_level_texture(level_name, texture)?.is_none() {
             missing_textures.push(texture.clone());
         }
     }
@@ -595,7 +610,9 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
             .iter()
             .filter_map(|(id, triangles)| {
                 let material = decoded.library.get(id)?;
-                material.has(flag).then(|| (material.name.clone(), *triangles))
+                material
+                    .has(flag)
+                    .then(|| (material.name.clone(), *triangles))
             })
             .collect()
     };
@@ -669,7 +686,7 @@ fn plan_textures(
             .map(|name| format!("{name}_bump"))
             .filter(|candidate| {
                 source
-                    .read_texture(candidate)
+                    .read_level_texture(&manifest.source_level, candidate)
                     .map(|found| found.is_some())
                     .unwrap_or(false)
             })
@@ -681,7 +698,7 @@ fn plan_textures(
     let mut missing = Vec::new();
     for name in &wanted {
         let effective = manifest.texture_aliases.get(name).unwrap_or(name).clone();
-        let Some(bytes) = source.read_texture(&effective)? else {
+        let Some(bytes) = source.read_level_texture(&manifest.source_level, &effective)? else {
             missing.push(name.clone());
             continue;
         };
@@ -691,10 +708,11 @@ fn plan_textures(
         // container is what the recovered port's `identity:SoC-DDS` copy did
         // not do.
         let is_normal = name.ends_with("_bump");
+        let srgb = !is_normal && !is_terrain_texture(name);
         let bytes = if manifest.allow_untrimmed_mip_chains {
             bytes
         } else {
-            source::canonicalize_dds(&bytes, info, !is_normal)
+            source::canonicalize_dds(&bytes, info, srgb)
                 .with_context(|| format!("canonicalizing {name}"))?
         };
         // The target path always keeps the *declared* name, so an alias stays
@@ -712,6 +730,7 @@ fn plan_textures(
             target_options,
             info,
             bytes,
+            srgb,
         });
     }
     if !missing.is_empty() {
@@ -720,6 +739,13 @@ fn plan_textures(
         );
     }
     Ok(textures)
+}
+
+/// Texture families sampled by `g_stage_terrain` are linear in every retail
+/// v0.100b `.options` record, including the large colour/detail overlay.
+fn is_terrain_texture(name: &str) -> bool {
+    let name = name.replace('/', "\\").to_ascii_lowercase();
+    name.starts_with("terrain\\") || name.starts_with("detail\\detail_grnd_")
 }
 
 pub(crate) fn write_model_archive(
@@ -817,15 +843,19 @@ pub(crate) fn write_model_archive(
             archive_max[axis] = archive_max[axis].max(max[axis]);
         }
     }
-    if !archive_min.iter().chain(&archive_max).all(|value| value.is_finite()) {
+    if !archive_min
+        .iter()
+        .chain(&archive_max)
+        .all(|value| value.is_finite())
+    {
         bail!("model archive {model} produced no finite geometry to bound");
     }
-        render_properties
-            .root
-            .set_path("bounding_box.min", ConfigValue::Float3(archive_min))?;
-        render_properties
-            .root
-            .set_path("bounding_box.max", ConfigValue::Float3(archive_max))?;
+    render_properties
+        .root
+        .set_path("bounding_box.min", ConfigValue::Float3(archive_min))?;
+    render_properties
+        .root
+        .set_path("bounding_box.max", ConfigValue::Float3(archive_max))?;
 
     write_config(
         overlay,
@@ -863,9 +893,10 @@ pub(crate) fn write_model_archive(
             assigned = true;
             surface_names.clone()
         };
-        settings
-            .root
-            .set_path(&format!("lod_hierrarchy.{level}.surfaces"), ConfigValue::Indexed(surfaces))?;
+        settings.root.set_path(
+            &format!("lod_hierrarchy.{level}.surfaces"),
+            ConfigValue::Indexed(surfaces),
+        )?;
     }
     if !assigned {
         bail!("{model}: template lod_hierrarchy declares no level to carry surfaces");
@@ -1021,14 +1052,19 @@ pub(crate) fn write_post_process_material(
     // Clear of the lowest geometry, so the deepest floor still catches the
     // bottom of the ramp instead of sitting exactly on zero.
     let lower = extent.min[1] - SKYLIGHT_FLOOR_CLEARANCE;
-    material
-        .root
-        .set_path(&format!("{SKYLIGHT_PREFIX}.skylight_lower.value"), ConfigValue::Float(lower))?;
-    material
-        .root
-        .set_path(&format!("{SKYLIGHT_PREFIX}.skylight_upper.value"), ConfigValue::Float(lower + band))?;
+    material.root.set_path(
+        &format!("{SKYLIGHT_PREFIX}.skylight_lower.value"),
+        ConfigValue::Float(lower),
+    )?;
+    material.root.set_path(
+        &format!("{SKYLIGHT_PREFIX}.skylight_upper.value"),
+        ConfigValue::Float(lower + band),
+    )?;
 
-    let path = format!("material_instances/{}/post_process.material", manifest.namespace);
+    let path = format!(
+        "material_instances/{}/post_process.material",
+        manifest.namespace
+    );
     write_config(
         overlay,
         &path,
@@ -1102,11 +1138,25 @@ pub(crate) fn write_materials(
         let template_path = manifest
             .material_templates
             .get(&plan.family)
-            .expect("validated manifests have a template for every family");
+            .or_else(|| {
+                (plan.family == RenderFamily::Unknown)
+                    .then(|| manifest.material_templates.get(&RenderFamily::Opaque))
+                    .flatten()
+            })
+            .expect("validated manifests have a template for every resolved family");
         if !templates.contains_key(template_path) {
             templates.insert(template_path.clone(), load_template(target, template_path)?);
         }
         let mut material = templates[template_path].clone();
+
+        if plan.family == RenderFamily::Foliage && manifest.disable_foliage_wind {
+            const WIND_MOTION_PATH: &str = "material.g_stage.effect.wind_motion.value";
+            if named_path(&material.root, WIND_MOTION_PATH).is_ok() {
+                material
+                    .root
+                    .set_path(WIND_MOTION_PATH, ConfigValue::Integer(0))?;
+            }
+        }
 
         // Water is rendered by the target's own shader, so nothing from the
         // source is bound to it -- see `RenderFamily::Water`. What it does need
@@ -1156,6 +1206,7 @@ pub(crate) fn write_materials(
             // Emissive is exempt because it is forward-rendered: it has no
             // `g_stage` block at all, so `normal_path` names a field that does
             // not exist. An additive glow is not lit anyway.
+            let normal_override = manifest.normal_texture_overrides.get(diffuse);
             let normal_source = plan.source_normal.clone().or_else(|| {
                 let bump = format!("{diffuse}_bump");
                 normals.contains(&bump).then_some(bump)
@@ -1163,12 +1214,19 @@ pub(crate) fn write_materials(
             if manifest.bind_normal_maps
                 && plan.family != RenderFamily::Terrain
                 && plan.family != RenderFamily::Emissive
-                && let Some(normal_source) = normal_source
+                && (normal_override.is_some() || normal_source.is_some())
             {
+                let normal_path = match normal_override {
+                    Some(target_normal) => target_normal.clone(),
+                    None => source::target_texture_path(
+                        &manifest.namespace,
+                        normal_source.as_ref().expect("normal source checked above"),
+                    )?,
+                };
                 bind_texture(
                     &mut material,
                     &manifest.normal_path,
-                    &source::target_texture_path(&manifest.namespace, &normal_source)?,
+                    &normal_path,
                     template_path,
                 )?;
                 material
@@ -1213,8 +1271,8 @@ pub(crate) fn write_materials(
             }
         }
 
-        // Terrain: the source colour map becomes layer 0, and the template's
-        // own tiled layers supply the detail the colour map cannot carry.
+        // Terrain: the source colour map is the target's detail overlay, and
+        // X-Ray's tiled ground texture supplies the target's diffuse layers.
         //
         // X-Ray stretches one unique image across the whole level -- Cordon's
         // `escape_grass` covers 1,445 world units in one UV unit, about 1.4m
@@ -1226,9 +1284,14 @@ pub(crate) fn write_materials(
         // detail left at walking distance.
         //
         // `g_stage_terrain` rebuilds the same idea from the target's parts.
-        // Layer 0 is the colour map at tile 1, layers 1..3 are the template's
-        // tiled ground textures, and the generated mask decides the mix. Only
-        // textures and tile constants change: `use_tdetail`, `use_nmap`,
+        // Build 802's exact shader hard-lights `texture_detail_0` over the
+        // mask-blended diffuse layers. The template confirms the intended
+        // roles: `terrain/03_base` is detail 0 at tile 1, while the four
+        // diffuse textures tile 60 times. Putting the colour map in diffuse 0
+        // and replacing detail 0 with grey reverses those roles and washes the
+        // ground out.
+        //
+        // Only textures and tile constants change: `use_tdetail`, `use_nmap`,
         // `use_height_map_*`, `num_used_terrain_layers` and
         // `terrain_blend_mode` are the config values
         // `effect_gstage_terrain_materials::compile` turns into shader macros,
@@ -1239,31 +1302,63 @@ pub(crate) fn write_materials(
                 TERRAIN_MASK_TEXTURE,
                 ConfigValue::String(controls.mask.clone()),
             )?;
-            // The colour map is not tiled: X-Ray laid it out to cover the level
-            // exactly once.
-            material.root.set_path(
-                &terrain_tile_path(0),
-                ConfigValue::Integer(manifest.terrain_base_tile),
-            )?;
-            // Layer 1 is X-Ray's own ground detail for this shader, which is
-            // the half of its terrain the colour map never carried.
-            let detail = terrain_layer_texture(manifest, &plan.source_shader);
-            bind_texture(
-                &mut material,
-                "material.g_stage.effect.texture_diffuse_1.value",
-                &source::target_texture_path(&manifest.namespace, &detail)?,
-                template_path,
-            )?;
-            if manifest.bind_normal_maps && normals.contains(&format!("{detail}_bump")) {
+            let colour_map = plan.source_diffuse.as_ref().with_context(|| {
+                format!("terrain shader {:?} has no colour map", plan.source_shader)
+            })?;
+            let colour_map = source::target_texture_path(&manifest.namespace, colour_map)?;
+            // X-Ray laid the colour map out once over the whole level. Both
+            // detail slots are bound because this shader permutation samples
+            // both, although detail 1 is weighted by only 1e-5.
+            for slot in 0..2 {
                 bind_texture(
                     &mut material,
-                    "material.g_stage.effect.texture_normal_1.value",
-                    &source::target_texture_path(
-                        &manifest.namespace,
-                        &format!("{detail}_bump"),
-                    )?,
+                    &format!("material.g_stage.effect.texture_detail_{slot}.value"),
+                    &colour_map,
                     template_path,
                 )?;
+                material.root.set_path(
+                    &format!("material.g_stage.effect.constant_detail_tile_{slot}.value"),
+                    ConfigValue::Integer(manifest.terrain_base_tile),
+                )?;
+            }
+
+            // The source shader name identifies the tiled material X-Ray put
+            // under that colour map: grass, earth/sand, asphalt, or wet silt.
+            // Bind it to every live layer so DXT mask quantisation and custom
+            // mask weights cannot leak unrelated level_03 template textures.
+            let detail = terrain_layer_texture(manifest, &plan.source_shader);
+            let detail_path = source::target_texture_path(&manifest.namespace, &detail)?;
+            for layer in 0..4 {
+                bind_texture(
+                    &mut material,
+                    &format!("material.g_stage.effect.texture_diffuse_{layer}.value"),
+                    &detail_path,
+                    template_path,
+                )?;
+            }
+            let source_detail_normal = format!("{detail}_bump");
+            let normal_path = if let Some(target_normal) = manifest
+                .terrain_layer_normal_textures
+                .get(&plan.source_shader)
+            {
+                Some(target_normal.clone())
+            } else if manifest.bind_normal_maps && normals.contains(&source_detail_normal) {
+                Some(source::target_texture_path(
+                    &manifest.namespace,
+                    &source_detail_normal,
+                )?)
+            } else {
+                None
+            };
+            if let Some(normal_path) = normal_path {
+                for layer in 0..4 {
+                    bind_texture(
+                        &mut material,
+                        &format!("material.g_stage.effect.texture_normal_{layer}.value"),
+                        &normal_path,
+                        template_path,
+                    )?;
+                }
             }
             // The tiled layers repeat at a fixed size on the ground rather than
             // a fixed number of times, because the UV range a terrain shader
@@ -1275,23 +1370,11 @@ pub(crate) fn write_materials(
             if density > 0.0 && manifest.terrain_layer_metres > 0.0 {
                 let tile = (density / manifest.terrain_layer_metres).round();
                 let tile = (tile as i32).clamp(1, MAX_TERRAIN_TILE);
-                for layer in 1..4 {
+                for layer in 0..4 {
                     material
                         .root
                         .set_path(&terrain_tile_path(layer), ConfigValue::Integer(tile))?;
                 }
-            }
-            // `use_tdetail` cannot be cleared, so the slot is rebound to a flat
-            // grey rather than left holding level_03's ground photo.
-            for slot in 0..2 {
-                material.root.set_path(
-                    &format!("material.g_stage.effect.texture_detail_{slot}.value"),
-                    ConfigValue::String(controls.detail.clone()),
-                )?;
-                material.root.set_path(
-                    &format!("material.g_stage.effect.constant_detail_tile_{slot}.value"),
-                    ConfigValue::Integer(1),
-                )?;
             }
         }
 
@@ -1308,9 +1391,9 @@ pub(crate) fn write_materials(
 
 /// One `4x4` DXT5 image of a single colour, in the target's container.
 ///
-/// Both terrain control textures are constants — a blend mask with no spatial
-/// variation, and a flat exposure multiplier — so this generates them rather
-/// than shipping image files. DXT5 rather than the smaller uncompressed layout
+/// The terrain control texture is a constant blend mask with no spatial
+/// variation, so this generates it rather than shipping an image file. DXT5
+/// rather than the smaller uncompressed layout
 /// because it is the format retail already uses in these slots
 /// (`terrain/03_base_mask` is DXT5) and so is the one the loader is known to
 /// accept; a constant colour costs one block either way.
@@ -1325,6 +1408,7 @@ fn write_constant_texture(
     overlay: &Path,
     name: &str,
     rgba: [u8; 4],
+    is_normal: bool,
     label: &str,
     files: &mut Vec<BuiltFile>,
 ) -> Result<String> {
@@ -1393,13 +1477,16 @@ fn write_constant_texture(
     )?;
 
     let mut options = load_template(target, &manifest.templates.texture_options)?;
-    options
-        .root
-        .set_path("options.format", ConfigValue::String("DXT5".into()))?;
+    options.root.set_path(
+        "options.format",
+        ConfigValue::String(if is_normal { "NORMAL_MAP" } else { "DXT5" }.into()),
+    )?;
     options
         .root
         .set_path("options.has_mip_levels", ConfigValue::Integer(0))?;
-    options.root.set_path("options.srgb", ConfigValue::Integer(0))?;
+    options
+        .root
+        .set_path("options.srgb", ConfigValue::Integer(0))?;
     write_config(
         overlay,
         &format!("textures/{}/{name}.options", manifest.namespace),
@@ -1414,7 +1501,6 @@ fn write_constant_texture(
 /// The two constants a converted terrain material needs, and their paths.
 pub(crate) struct TerrainControls {
     mask: String,
-    detail: String,
 }
 
 /// Generate the blend mask and the exposure multiplier for this map's terrain.
@@ -1425,22 +1511,8 @@ pub(crate) struct TerrainControls {
 /// Inherited, it stamps another map's layout onto this one, so the port
 /// generates its own: one colour, every texel.
 ///
-/// The second constant is there because `use_tdetail` cannot be turned off.
-/// It is one of the fourteen macros in `shaders/masks` that form this shader's
-/// permutation, so clearing it asks for a shader build 802 never compiled; the
-/// slot has to stay bound, and the template binds `terrain/03_base` — level_03's
-/// ground photo — stretched across whatever UV range it is given. A flat grey
-/// takes its place, which also pays for the mask's normalisation:
-///
-/// ```hlsl
-/// mask = normalize(mask);           // L2, so live weights sum to > 1
-/// diffuse = mask.x * diffuse_0 + mask.y * diffuse_1 + ...;
-/// out_color = min(detail_0.x, detail_1.x) * (float4(diffuse, 1) + ...);
-/// ```
-///
-/// A 60/40 mask sums to 1.34 after normalisation, and the ground would render
-/// a third too bright. The grey is `1 / that sum`, so the two layers add back
-/// to exactly the exposure their textures were painted at.
+/// Build 802 divides the sampled RGBA value by the sum of its channels. The
+/// relative weights therefore matter, but their magnitude does not.
 fn write_terrain_controls(
     manifest: &SocMapManifest,
     target: &mut ResourceDb,
@@ -1448,21 +1520,11 @@ fn write_terrain_controls(
     files: &mut Vec<BuiltFile>,
 ) -> Result<TerrainControls> {
     let weights = manifest.terrain_layer_weights;
-    let length = weights
-        .iter()
-        .map(|weight| f32::from(*weight).powi(2))
-        .sum::<f32>()
-        .sqrt();
-    if length <= 0.0 {
+    let weight_sum = weights.iter().map(|weight| u32::from(*weight)).sum::<u32>();
+    if weight_sum == 0 {
         bail!("terrain_layer_weights are all zero, so every terrain layer is weighted out");
     }
-    let weight_sum = weights.iter().map(|weight| f32::from(*weight)).sum::<f32>() / length;
-
-    let exposure = (manifest.terrain_exposure / weight_sum).clamp(0.0, 1.0);
-    let grey = (exposure * 255.0).round() as u8;
-    println!(
-        "terrain_mask={weights:?} normalised_sum={weight_sum:.3} exposure_grey={grey}"
-    );
+    println!("terrain_mask={weights:?} channel_sum={weight_sum}");
 
     Ok(TerrainControls {
         mask: write_constant_texture(
@@ -1471,16 +1533,8 @@ fn write_terrain_controls(
             overlay,
             "terrain_mask",
             weights,
+            false,
             "generated:v0.100b-terrain-blend-mask",
-            files,
-        )?,
-        detail: write_constant_texture(
-            manifest,
-            target,
-            overlay,
-            "terrain_exposure",
-            [grey, grey, grey, 255],
-            "generated:v0.100b-terrain-exposure",
             files,
         )?,
     })
@@ -1522,7 +1576,7 @@ pub(crate) fn write_textures(
         )?;
         options.root.set_path(
             "options.srgb",
-            ConfigValue::Integer(i32::from(!is_normal)),
+            ConfigValue::Integer(i32::from(texture.srgb)),
         )?;
         write_config(
             overlay,
@@ -1549,8 +1603,7 @@ pub(crate) fn write_projects(
     let bindings = &manifest.project_bindings;
 
     let mut client = load_template(target, &manifest.templates.client_project)?;
-    let dropped_objects =
-        filter_template_objects(manifest, &mut client.root, extent, post_effect)?;
+    let dropped_objects = filter_template_objects(manifest, &mut client.root, extent, post_effect)?;
     client.root.set_path(
         &bindings.project_name_path,
         ConfigValue::String(manifest.project_name.clone()),
@@ -1574,9 +1627,10 @@ pub(crate) fn write_projects(
             &bindings.instance_model_path,
             collision_models,
         )?;
-        client
-            .root
-            .set_path(&bindings.collision_array_path, ConfigValue::Indexed(collision))?;
+        client.root.set_path(
+            &bindings.collision_array_path,
+            ConfigValue::Indexed(collision),
+        )?;
     }
     write_config(
         overlay,
@@ -1932,7 +1986,10 @@ mod tests {
     #[test]
     fn copies_the_reference_style_of_a_template() {
         assert_eq!(
-            texture_reference_like("textures/stock/wall.dds", "textures/ported/soc/cordon/a.dds"),
+            texture_reference_like(
+                "textures/stock/wall.dds",
+                "textures/ported/soc/cordon/a.dds"
+            ),
             "textures/ported/soc/cordon/a.dds"
         );
         assert_eq!(
@@ -2016,8 +2073,14 @@ mod tests {
             ))
         );
         let entry = entries.first().expect("one instance");
-        assert_eq!(entry.named("position"), Some(&ConfigValue::Float3([0.0; 3])));
-        assert_eq!(entry.named("rotation"), Some(&ConfigValue::Float3([0.0; 3])));
+        assert_eq!(
+            entry.named("position"),
+            Some(&ConfigValue::Float3([0.0; 3]))
+        );
+        assert_eq!(
+            entry.named("rotation"),
+            Some(&ConfigValue::Float3([0.0; 3]))
+        );
         assert_eq!(entry.named("scale"), Some(&ConfigValue::Float3([1.0; 3])));
     }
 
@@ -2064,9 +2127,7 @@ mod tests {
         assert_eq!(instances.len(), 2);
         assert_eq!(
             instances[1].named("model"),
-            Some(&ConfigValue::String(
-                "ported/soc/cordon/cordon_001".into()
-            ))
+            Some(&ConfigValue::String("ported/soc/cordon/cordon_001".into()))
         );
         // Fields the converter does not understand survive untouched.
         assert_eq!(
@@ -2169,7 +2230,13 @@ mod tests {
 
         let mut manifest = crate::soc::manifest::sample_manifest();
         manifest.project_bindings.retained_object_types = vec!["light".to_owned()];
-        let dropped = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process").unwrap();
+        let dropped = filter_template_objects(
+            &manifest,
+            &mut root,
+            &test_extent(),
+            "ported/soc/x/post_process",
+        )
+        .unwrap();
         assert_eq!(dropped["light:lamp"], 2);
 
         let ConfigValue::Indexed(kept) = named_path(&root, "objects").unwrap() else {
@@ -2191,7 +2258,13 @@ mod tests {
     fn positional_template_objects_are_dropped_and_global_ones_kept() {
         let manifest = crate::soc::manifest::sample_manifest();
         let mut root = objects_template();
-        let dropped = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process").unwrap();
+        let dropped = filter_template_objects(
+            &manifest,
+            &mut root,
+            &test_extent(),
+            "ported/soc/x/post_process",
+        )
+        .unwrap();
 
         // Everything that carries a place in the template's map is gone.
         assert_eq!(dropped["environment_probe"], 2);
@@ -2230,7 +2303,13 @@ mod tests {
                 }]),
             ]),
         }]);
-        let dropped = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process").unwrap();
+        let dropped = filter_template_objects(
+            &manifest,
+            &mut root,
+            &test_extent(),
+            "ported/soc/x/post_process",
+        )
+        .unwrap();
         assert_eq!(dropped["<untyped>"], 1);
     }
 
@@ -2242,9 +2321,14 @@ mod tests {
             .retained_object_types
             .push("terrain".into());
         let mut root = objects_template();
-        let error = filter_template_objects(&manifest, &mut root, &test_extent(), "ported/soc/x/post_process")
-            .unwrap_err()
-            .to_string();
+        let error = filter_template_objects(
+            &manifest,
+            &mut root,
+            &test_extent(),
+            "ported/soc/x/post_process",
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("does not contain"), "{error}");
     }
 
@@ -2274,6 +2358,13 @@ mod tests {
             named_path(&material.root, "effect.texture_diffuse.value").unwrap(),
             &ConfigValue::String("ported/soc/cordon/prop/bochka".into())
         );
+    }
+
+    #[test]
+    fn target_terrain_inputs_are_linear() {
+        assert!(is_terrain_texture("terrain\\terrain_mp_training_camp"));
+        assert!(is_terrain_texture("detail/detail_grnd_grass"));
+        assert!(!is_terrain_texture("prop\\prop_bochka"));
     }
 
     #[test]

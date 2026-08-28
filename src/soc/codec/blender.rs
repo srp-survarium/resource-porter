@@ -45,7 +45,8 @@ pub struct ClassId(pub u64);
 impl ClassId {
     /// The tag as written in `Blender_CLSID.h`, trailing spaces trimmed.
     pub fn tag(self) -> String {
-        let bytes: [u8; 8] = std::array::from_fn(|index| ((self.0 >> (56 - index * 8)) & 0xff) as u8);
+        let bytes: [u8; 8] =
+            std::array::from_fn(|index| ((self.0 >> (56 - index * 8)) & 0xff) as u8);
         String::from_utf8_lossy(&bytes).trim_end().to_owned()
     }
 }
@@ -164,7 +165,10 @@ fn read_property<'a>(cursor: &mut Cursor<'a>, expected: u32, size: usize) -> Res
 
 /// Decode a fixed-width, NUL-padded field.
 fn fixed_string(bytes: &[u8]) -> Result<String> {
-    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     Ok(std::str::from_utf8(&bytes[..end])
         .context("blender string is not ASCII")?
         .to_owned())
@@ -257,16 +261,16 @@ mod tests {
         let library = parse_library(&bytes).unwrap();
         assert_eq!(library.len(), 3);
         assert_eq!(library["default"].class_id.tag(), "LM");
-        assert_eq!(
-            library["def_shaders\\def_aref"].class_id.tag(),
-            "LM_AREF"
-        );
+        assert_eq!(library["def_shaders\\def_aref"].class_id.tag(), "LM_AREF");
         assert_eq!(library["flora\\leaf_wave"].version, 3);
     }
 
     #[test]
     fn reads_the_common_properties() {
-        let bytes = chunk(SHADERS_CHUNK_BLENDERS, &blender(0, "LM", "default", 7, true));
+        let bytes = chunk(
+            SHADERS_CHUNK_BLENDERS,
+            &blender(0, "LM", "default", 7, true),
+        );
         let library = parse_library(&bytes).unwrap();
         let common = library["default"].common.as_ref().unwrap();
         assert_eq!(common.priority, 7);

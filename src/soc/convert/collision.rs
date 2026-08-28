@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail};
 
-use crate::soc::codec::cform::Cform;
 use super::game_material::CollisionMaterialBinding;
+use crate::soc::codec::cform::Cform;
 
 /// Chunk identifiers of the target collision family.
 pub const CHUNK_VERTICES: u32 = 0x19;
@@ -442,7 +442,11 @@ mod tests {
             .iter()
             .flat_map(|piece| {
                 piece.faces.iter().map(|face| {
-                    assert!(face.vertices.iter().all(|v| (*v as usize) < piece.vertices.len()));
+                    assert!(
+                        face.vertices
+                            .iter()
+                            .all(|v| (*v as usize) < piece.vertices.len())
+                    );
                     face.vertices.map(|v| piece.vertices[v as usize])
                 })
             })
@@ -486,15 +490,21 @@ mod tests {
     #[test]
     fn fails_when_a_face_material_has_no_binding() {
         let cform = cform(3, &[3, 7]);
-        let error = encode(&cform, &[binding(3, 19, "concrete")], FaceDictionary::PerMaterial)
-            .unwrap_err()
-            .to_string();
+        let error = encode(
+            &cform,
+            &[binding(3, 19, "concrete")],
+            FaceDictionary::PerMaterial,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("no resolved binding"), "{error}");
     }
 
     #[test]
     fn fails_without_any_binding() {
-        let error = encode(&cform(3, &[3]), &[], FaceDictionary::PerMaterial).unwrap_err().to_string();
+        let error = encode(&cform(3, &[3]), &[], FaceDictionary::PerMaterial)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("no resolved material bindings"), "{error}");
     }
 }

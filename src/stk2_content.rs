@@ -2337,14 +2337,8 @@ fn convert_static_surface(vertices: &[u8], indices: &[u8]) -> Result<Vec<u8>> {
         let source = &vertices[4 + index * 56..][..56];
         output.extend_from_slice(&source[..12]);
         push_u32(&mut output, packed_basis(bases[index][0], 127));
-        push_u32(
-            &mut output,
-            packed_basis(bases[index][1], 255),
-        );
-        push_u32(
-            &mut output,
-            packed_basis(bases[index][2], 255),
-        );
+        push_u32(&mut output, packed_basis(bases[index][1], 255));
+        push_u32(&mut output, packed_basis(bases[index][2], 255));
         output.extend_from_slice(&source[48..56]);
     }
     push_u32(&mut output, 4);

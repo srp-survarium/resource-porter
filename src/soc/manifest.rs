@@ -149,6 +149,10 @@ pub struct SocMapManifest {
     /// not exist on them at all.
     #[serde(default)]
     pub family_diffuse_paths: BTreeMap<RenderFamily, String>,
+    /// Preserve foliage cutout/two-sided rendering but disable the target
+    /// template's procedural wind when source deformation inputs are absent.
+    #[serde(default)]
+    pub disable_foliage_wind: bool,
     /// Dotted path of the field a converted normal map binds to, and of the
     /// flag that enables normal mapping.
     ///
@@ -167,6 +171,13 @@ pub struct SocMapManifest {
     /// Each entry names an audited replacement source texture.
     #[serde(default)]
     pub texture_aliases: BTreeMap<String, String>,
+    /// Target-build normal-map override keyed by source diffuse texture.
+    ///
+    /// Values omit the `textures/` prefix and extension. This keeps a source
+    /// diffuse while replacing a bump map whose tangent convention is not
+    /// compatible with the target material shader.
+    #[serde(default)]
+    pub normal_texture_overrides: BTreeMap<String, String>,
     /// Source *materials* a world references but no archive carries, each
     /// naming an audited substitute material. Used by the lilith path:
     /// F.E.A.R. retail ships a handful of dangling `.Mat00` references where
@@ -174,6 +185,22 @@ pub struct SocMapManifest {
     /// the world names them, compared case-insensitively.
     #[serde(default)]
     pub material_aliases: BTreeMap<String, String>,
+    /// Reviewed diffuse-texture choices for materials whose UE3 parameter
+    /// names are ambiguous or misleading. Keys are source material paths and
+    /// values are source `Texture2D` paths, compared case-insensitively.
+    ///
+    /// Dirty Bomb decal instances sometimes expose a channel mask through a
+    /// parameter named `DiffuseMap`; selecting that mask by name produces a
+    /// large white polygon. Keep those exceptions in the manifest instead of
+    /// adding another silent naming heuristic.
+    #[serde(default)]
+    pub material_diffuse_overrides: BTreeMap<String, String>,
+    /// Reviewed opacity-texture choices paired with
+    /// `material_diffuse_overrides`. Vostok has no independent opacity
+    /// sampler for the alpha-tested templates, so the porter bakes this mask
+    /// into the selected diffuse texture's alpha channel.
+    #[serde(default)]
+    pub material_opacity_overrides: BTreeMap<String, String>,
     /// Reflection probe a converted water material samples.
     ///
     /// `water/water_green` names a probe from a project this database does not
@@ -193,19 +220,18 @@ pub struct SocMapManifest {
     pub terrain_detail_tile: i32,
     /// How the generated terrain mask weights the four layers, as one texel.
     ///
-    /// `terrain_material_pass.ps` samples the mask at the *untiled* mesh UV and
-    /// then `normalize()`s it as a 4-vector before weighting:
+    /// Build 802's `terrain_gbuffer_pass.ps` samples the mask at the *untiled*
+    /// mesh UV and divides it by the sum of its channels before weighting:
     ///
     /// ```hlsl
     /// float4 mask = texture_mask.Sample(s_base, parameters.tc);
-    /// mask        = normalize(mask);
+    /// mask        /= mask.x + mask.y + mask.z + mask.w;
     /// float3 diffuse = mask.x * diffuse_0.xyz + mask.y * diffuse_1.xyz + ...
     /// ```
     ///
-    /// L2 normalisation, not a partition of unity: the weights of any two live
-    /// layers sum to more than one, so a 50/50 blend renders 41% over-bright.
-    /// [`Self::terrain_exposure`] pays that back through the detail slot, so
-    /// these are free to be read as an ordinary ratio.
+    /// These are therefore ordinary relative weights. Converted X-Ray terrain
+    /// currently binds the same tiled material to all four layers, making the
+    /// result robust to both DXT mask quantisation and custom weight ratios.
     #[serde(default = "default_terrain_layer_weights")]
     pub terrain_layer_weights: [u8; 4],
     /// How many times terrain layer 0 repeats across the level.
@@ -232,10 +258,17 @@ pub struct SocMapManifest {
     /// entry here overrides it after review.
     #[serde(default)]
     pub terrain_layer_textures: BTreeMap<String, String>,
-    /// Overall brightness of converted terrain, 1.0 being the source's own.
+    /// Target-build normal map per terrain shader.
     ///
-    /// Applied through the detail slot, which cannot be switched off -- see
-    /// `write_terrain_controls`.
+    /// Normally the converter binds X-Ray's `<detail>_bump` companion. This
+    /// override is useful when the source normal-map tangent convention does
+    /// not agree with the target terrain shader: values are existing v0.100b
+    /// texture paths, without the `textures/` prefix or extension.
+    #[serde(default)]
+    pub terrain_layer_normal_textures: BTreeMap<String, String>,
+    /// Legacy terrain brightness knob. Retained for manifest compatibility;
+    /// build 802 exposes no scalar brightness control in this material, and a
+    /// flat detail texture changes the hard-light blend rather than exposure.
     #[serde(default = "default_terrain_exposure")]
     pub terrain_exposure: f32,
     /// World units a decal surface is lifted along its normal.
@@ -312,9 +345,10 @@ fn default_terrain_detail_tile() -> i32 {
 }
 
 fn default_terrain_layer_weights() -> [u8; 4] {
-    // Two thirds source colour map, one third tiled detail, once the shader has
-    // normalised them and the exposure grey has paid for the normalisation.
-    [255, 128, 0, 0]
+    // Each X-Ray terrain surface already identifies one ground material, so a
+    // single live layer is sufficient. The writer binds the same texture to
+    // all four as a guard against compressed-mask leakage.
+    [255, 0, 0, 0]
 }
 
 fn default_terrain_base_tile() -> i32 {
@@ -395,7 +429,10 @@ impl SocMapManifest {
             || self.namespace.contains("..")
             || self.namespace.contains('\\')
         {
-            bail!("SoC map manifest namespace {:?} is not a safe resource prefix", self.namespace);
+            bail!(
+                "SoC map manifest namespace {:?} is not a safe resource prefix",
+                self.namespace
+            );
         }
         if self.source_level.contains('/') || self.source_level.contains('\\') {
             bail!(
@@ -419,9 +456,7 @@ impl SocMapManifest {
         if self.project_bindings.objects_array_path.is_some()
             != self.project_bindings.object_type_path.is_some()
         {
-            bail!(
-                "SoC map manifest must declare objects_array_path and object_type_path together"
-            );
+            bail!("SoC map manifest must declare objects_array_path and object_type_path together");
         }
         // Every family the classification can produce needs a template, because
         // the family is chosen from the source and cannot be declined later.
@@ -501,7 +536,7 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
             collision_settings: "models/collision_template.model/settings".into(),
             texture_options: "textures/template.options".into(),
             post_process_material: default_post_process_material(),
-        client_project: "projects/level_03/client_project".into(),
+            client_project: "projects/level_03/client_project".into(),
             server_project: "projects/level_03/server_project".into(),
         },
         project_bindings: ProjectBindings {
@@ -523,7 +558,12 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         collision_material_overrides: BTreeMap::new(),
         material_templates: RenderFamily::ALL
             .iter()
-            .map(|family| (*family, format!("material_instances/stock/{}", family.as_str())))
+            .map(|family| {
+                (
+                    *family,
+                    format!("material_instances/stock/{}", family.as_str()),
+                )
+            })
             .collect(),
         lighting_volume_margin: 16.0,
         decal_lift: default_decal_lift(),
@@ -533,11 +573,13 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         terrain_base_tile: default_terrain_base_tile(),
         terrain_layer_metres: default_terrain_layer_metres(),
         terrain_layer_textures: BTreeMap::new(),
+        terrain_layer_normal_textures: BTreeMap::new(),
         terrain_exposure: default_terrain_exposure(),
         water_reflection_probe: default_water_reflection_probe(),
         diffuse_path: default_diffuse_path(),
         family_uv_scale: BTreeMap::new(),
         family_diffuse_paths: BTreeMap::new(),
+        disable_foliage_wind: false,
         normal_path: default_normal_path(),
         normal_enable_path: default_normal_enable_path(),
         bind_normal_maps: true,
@@ -545,7 +587,10 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         collision_face_dictionary: default_face_dictionary(),
         max_collision_triangles: default_max_collision_triangles(),
         texture_aliases: BTreeMap::new(),
+        normal_texture_overrides: BTreeMap::new(),
         material_aliases: BTreeMap::new(),
+        material_diffuse_overrides: BTreeMap::new(),
+        material_opacity_overrides: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,
     }
 }
@@ -567,10 +612,7 @@ mod tests {
             "models/ported/soc/cordon/cordon_002.model"
         );
         // Collision rides inside the first render archive, not beside it.
-        assert_eq!(
-            manifest.collision_model_path(),
-            manifest.model_path(0)
-        );
+        assert_eq!(manifest.collision_model_path(), manifest.model_path(0));
         assert_eq!(
             manifest.collision_model_path(),
             "models/ported/soc/cordon/cordon_000.model"
@@ -603,7 +645,9 @@ mod tests {
             .render_shader_families
             .insert("water\\water".into(), RenderFamily::Translucent);
         manifest.validate().unwrap();
-        manifest.material_templates.remove(&RenderFamily::Translucent);
+        manifest
+            .material_templates
+            .remove(&RenderFamily::Translucent);
         assert!(manifest.validate().is_err());
     }
 
@@ -621,7 +665,9 @@ mod tests {
     #[test]
     fn rejects_an_unknown_field() {
         let text = r#"{"format_version":1,"asset_id":"a","surprise":true}"#;
-        let error = serde_json::from_str::<SocMapManifest>(text).unwrap_err().to_string();
+        let error = serde_json::from_str::<SocMapManifest>(text)
+            .unwrap_err()
+            .to_string();
         assert!(error.contains("surprise"), "{error}");
     }
 }

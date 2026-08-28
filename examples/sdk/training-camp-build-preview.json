@@ -1,0 +1,6 @@
+{
+  "operation": "build-preview",
+  "protocol_version": 1,
+  "project_root": ".work/sdk-decompiled-training-camp",
+  "output": ".work/sdk-preview-training-camp"
+}

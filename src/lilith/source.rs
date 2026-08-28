@@ -56,8 +56,9 @@ impl LilithSource {
                 continue;
             }
             archive_paths.extend(
-                archcfg_archives(&expansion)
-                    .with_context(|| format!("mounting the expansion at {}", expansion.display()))?,
+                archcfg_archives(&expansion).with_context(|| {
+                    format!("mounting the expansion at {}", expansion.display())
+                })?,
             );
         }
 
@@ -68,8 +69,8 @@ impl LilithSource {
         for path in archive_paths {
             // An expansion's archcfg re-lists the base archives it builds on;
             // the file is already mounted, and its entries would not change.
-            let canonical = fs::canonicalize(&path)
-                .with_context(|| format!("resolving {}", path.display()))?;
+            let canonical =
+                fs::canonicalize(&path).with_context(|| format!("resolving {}", path.display()))?;
             if !mounted.insert(canonical) {
                 continue;
             }

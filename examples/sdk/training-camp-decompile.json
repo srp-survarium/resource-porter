@@ -1,0 +1,15 @@
+{
+  "operation": "decompile-map",
+  "protocol_version": 1,
+  "project_name": "cs_training_camp",
+  "target_profile": "survarium-v0100b802",
+  "variants": [
+    {
+      "id": "day",
+      "runtime_project": "cs_training_camp",
+      "source_profile": "survarium-v0100b802",
+      "source_db": ".work/client-map-cs-training-camp/resources.db"
+    }
+  ],
+  "output": ".work/sdk-decompiled-training-camp"
+}

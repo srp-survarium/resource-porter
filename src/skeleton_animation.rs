@@ -136,7 +136,8 @@ impl Channel {
             [
                 0.0,
                 k20 * (d1 - 2.0 * d0) + k21 * (d1 + d2 - d0) + k22 * (d1 + d2 + d3),
-                k10 * (dm1 + d0 - 2.0 * d1) + k11 * (-2.0 * d1 - d2 + d0)
+                k10 * (dm1 + d0 - 2.0 * d1)
+                    + k11 * (-2.0 * d1 - d2 + d0)
                     + k12 * (-2.0 * (d1 + d2)),
                 k0 * 3.0 * d1,
             ],
@@ -162,7 +163,8 @@ impl Channel {
             self.point(index as isize - 2),
             self.point(index as isize - 3),
         ];
-        let combine = |row: &[f32; 4]| row[0] * p[0] + row[1] * p[1] + row[2] * p[2] + row[3] * p[3];
+        let combine =
+            |row: &[f32; 4]| row[0] * p[0] + row[1] * p[1] + row[2] * p[2] + row[3] * p[3];
         [
             combine(&factors[3]),
             combine(&factors[2]),
@@ -376,7 +378,11 @@ impl Clip {
         for track in &self.tracks {
             for channel in &track.channels {
                 if channel.knots.len() != channel.points.len() {
-                    bail!("a channel has {} knots and {} points", channel.knots.len(), channel.points.len());
+                    bail!(
+                        "a channel has {} knots and {} points",
+                        channel.knots.len(),
+                        channel.points.len()
+                    );
                 }
                 if channel.pairs() < MIN_PAIRS {
                     bail!(
@@ -593,7 +599,8 @@ fn parse_bind_pose(bytes: &[u8]) -> Result<Vec<(String, [f32; 3], [f32; 3])>> {
         let frame = bytes
             .get(offset..offset + 36)
             .with_context(|| format!("bind pose bone {index} has a truncated frame"))?;
-        let read = |at: usize| f32::from_le_bytes(frame[at..at + 4].try_into().expect("four bytes"));
+        let read =
+            |at: usize| f32::from_le_bytes(frame[at..at + 4].try_into().expect("four bytes"));
         let translation = [read(0), read(4), read(8)];
         let rotation = [read(12), read(16), read(20)];
         offset += 36;
@@ -610,8 +617,9 @@ fn parse_bind_pose(bytes: &[u8]) -> Result<Vec<(String, [f32; 3], [f32; 3])>> {
 
 /// A `.skeleton` nests bone names as config tables, one level per generation,
 /// with a `mask` leaf marking each bone. The nesting *is* the hierarchy.
-fn parse_skeleton_parents(bytes: &[u8]) -> Result<std::collections::BTreeMap<String, Option<String>>>
-{
+fn parse_skeleton_parents(
+    bytes: &[u8],
+) -> Result<std::collections::BTreeMap<String, Option<String>>> {
     let config = BinaryConfig::parse(bytes)?;
     let mut parents = std::collections::BTreeMap::new();
     collect_skeleton_parents(&config.root, None, &mut parents);

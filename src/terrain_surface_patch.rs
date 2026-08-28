@@ -108,9 +108,8 @@ pub fn build_single_surface_bundle(
         let first_surface_root = surface_paths[0]
             .strip_suffix("/converted_model")
             .context("converted-model path has no leaf")?;
-        let mut properties = BinaryConfig::parse(
-            &source.read(&format!("{first_surface_root}/export_properties"))?,
-        )?;
+        let mut properties =
+            BinaryConfig::parse(&source.read(&format!("{first_surface_root}/export_properties"))?)?;
         properties.root.set_path(
             "source.indices",
             ConfigValue::Integer(i32::try_from(index_count)?),
@@ -168,8 +167,7 @@ pub fn build_single_surface_bundle(
             &mut files,
         )?;
 
-        let mut settings =
-            BinaryConfig::parse(&source.read(&format!("{source_model}/settings"))?)?;
+        let mut settings = BinaryConfig::parse(&source.read(&format!("{source_model}/settings"))?)?;
         settings.root.set_path(
             "lod_hierrarchy.LOD0.surfaces",
             ConfigValue::Indexed(vec![ConfigValue::String("terrain".into())]),
@@ -205,10 +203,9 @@ pub fn build_single_surface_bundle(
         settings
             .root
             .set_path("collision_enabled", ConfigValue::Boolean(true))?;
-        settings.root.set_path(
-            "walker_collision_enabled",
-            ConfigValue::Boolean(true),
-        )?;
+        settings
+            .root
+            .set_path("walker_collision_enabled", ConfigValue::Boolean(true))?;
         settings.root.set_path(
             "collision_use_raytrace_for_walker",
             ConfigValue::Boolean(true),

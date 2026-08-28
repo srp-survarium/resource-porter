@@ -332,8 +332,14 @@ mod tests {
 
         let visual = parse_visual(&bytes, 0).unwrap();
         let matrix = visual.tree_transform.unwrap();
-        assert_eq!(transform_position(&matrix, [1.0, 1.0, 1.0]), [11.0, 21.0, 31.0]);
-        assert_eq!(transform_direction(&matrix, [0.0, 1.0, 0.0]), [0.0, 1.0, 0.0]);
+        assert_eq!(
+            transform_position(&matrix, [1.0, 1.0, 1.0]),
+            [11.0, 21.0, 31.0]
+        );
+        assert_eq!(
+            transform_direction(&matrix, [0.0, 1.0, 0.0]),
+            [0.0, 1.0, 0.0]
+        );
     }
 
     #[test]

@@ -1,0 +1,67 @@
+{
+  "format_version": 1,
+  "asset_id": "dirty-bomb-overground-to-0100b",
+  "source_level": "EXE_Overground",
+  "namespace": "ported/dirty_bomb/overground",
+  "model_prefix": "overground",
+  "project_name": "dirty_bomb_overground",
+  "templates": {
+    "model_settings": "models/level/03/terrain_p_09.model/settings",
+    "model_render_properties": "models/level/03/terrain_p_09.model/render/export_properties",
+    "surface_properties": "models/level/03/terrain_p_09.model/render/l3terr_/export_properties",
+    "collision_settings": "models/level/03/terrain_p_09.model/settings",
+    "texture_options": "textures/tiled/wood/plywood_01.options",
+    "client_project": "projects/level_03/client_project",
+    "server_project": "projects/level_03/server_project"
+  },
+  "project_bindings": {
+    "project_name_path": "project_name",
+    "visual_array_path": "render_visuals",
+    "collision_array_path": "collision_objects",
+    "instance_model_path": "lib_name",
+    "server_project_name_path": "project_name",
+    "server_respawn_array_path": "objects.respawn_points",
+    "respawn_position_path": "position",
+    "objects_array_path": "objects",
+    "object_type_path": "game_object_type",
+    "retained_object_types": ["sky", "environment", "volume_fog"]
+  },
+  "surfaces_per_model": 200,
+  "max_collision_triangles": 6500,
+  "spawn_position": [67.4268, 0.3867, -56.9175],
+  "collision_material_overrides": {
+    "dirty_bomb_default": "concrete"
+  },
+  "collision_face_dictionary": "single",
+  "texture_aliases": {
+    "GEN_Tileable_Metal_TEX.T_metal_tile_01_D": "BenG_Test.EnvironmentMaterialsTest.T_LightScratchedMetal_Tiling_D"
+  },
+  "material_diffuse_overrides": {
+    "LDN_Prop_Graffity_Tags_01.Materials.LDN_Graffitti_Tag_01": "LDN_Prop_Graffity_Tags_01.T_wall_tag_01_m",
+    "LDN_Prop_Graffity_Tags_01.Materials.LDN_Graffitti_Tag_05": "LDN_Prop_Graffity_Tags_01.T_wall_tag_13_m"
+  },
+  "material_opacity_overrides": {
+    "LDN_Prop_Graffity_Tags_01.Materials.LDN_Graffitti_Tag_01": "LDN_Prop_Graffity_Tags_01.T_wall_tag_01_m",
+    "LDN_Prop_Graffity_Tags_01.Materials.LDN_Graffitti_Tag_05": "LDN_Prop_Graffity_Tags_01.T_wall_tag_13_m"
+  },
+  "disable_foliage_wind": true,
+  "material_templates": {
+    "unknown": "material_instances/tiled/concrete/concrete_01.material",
+    "opaque": "material_instances/tiled/concrete/concrete_01.material",
+    "vertex_lit": "material_instances/tiled/concrete/concrete_02.material",
+    "alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "vertex_lit_alpha_tested": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "translucent": "material_instances/tiled/window/glass.material",
+    "water": "material_instances/water/water_green.material",
+    "foliage": "material_instances/flora/poplar_leaves_02.material",
+    "decal": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "emissive": "material_instances/weapons/tracer.material",
+    "lod_impostor": "material_instances/flora/sosna_bark_lod.material",
+    "bark": "material_instances/flora/sosna_bark_lod.material",
+    "terrain": "material_instances/terrain/03_base_final.material"
+  },
+  "family_diffuse_paths": {
+    "emissive": "material.forward.effect.texture_emissive.value",
+    "terrain": "material.g_stage.effect.texture_diffuse_0.value"
+  }
+}

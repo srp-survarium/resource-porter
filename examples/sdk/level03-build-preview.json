@@ -1,0 +1,6 @@
+{
+  "operation": "build-preview",
+  "protocol_version": 1,
+  "project_root": ".work/sdk-decompiled-level03",
+  "output": ".work/sdk-preview-level03"
+}

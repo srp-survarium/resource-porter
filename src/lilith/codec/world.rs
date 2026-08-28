@@ -298,7 +298,12 @@ pub fn parse_world_models(bytes: &[u8], header: &WorldHeader, label: &str) -> Re
     // The section totals exist to be checked: a drifted cursor produces
     // plausible-looking garbage, and these four sums are the tripwire.
     if (seen_nodes, seen_polygons, seen_refs, seen_points)
-        != (total_nodes, total_polygons, total_unknown_counts, total_points)
+        != (
+            total_nodes,
+            total_polygons,
+            total_unknown_counts,
+            total_points,
+        )
     {
         bail!(
             "{label}: section declares {total_nodes} nodes / {total_polygons} polygons / \
@@ -341,7 +346,12 @@ pub fn parse_world_models(bytes: &[u8], header: &WorldHeader, label: &str) -> Re
         let result = (|| -> Result<(Vec<PhysicsShape>, Vec<String>)> {
             let mut physics = Vec::with_capacity(shape_count);
             for index in 0..shape_count {
-                physics.push(parse_physics_shape(&mut attempt, label, index, &mut choices)?);
+                physics.push(parse_physics_shape(
+                    &mut attempt,
+                    label,
+                    index,
+                    &mut choices,
+                )?);
             }
             let assets = parse_streaming_assets(&mut attempt, label)?;
             Ok((physics, assets))
@@ -430,9 +440,7 @@ fn parse_physics_shape(
                 );
             }
             if let Some(out_of_range) = indices.iter().find(|&&i| i as usize >= point_count) {
-                bail!(
-                    "{label}: physics mesh {index} names point {out_of_range} of {point_count}"
-                );
+                bail!("{label}: physics mesh {index} names point {out_of_range} of {point_count}");
             }
             cursor.take(16)?; // physics_props
             let trailing = cursor.u32()? as usize;
@@ -485,7 +493,12 @@ fn parse_physics_shape(
             let nested_count = cursor.u32()? as usize;
             let mut nested = Vec::with_capacity(nested_count);
             for sub in 0..nested_count {
-                nested.push(parse_nested_shape(cursor, label, index * 1000 + sub, choices)?);
+                nested.push(parse_nested_shape(
+                    cursor,
+                    label,
+                    index * 1000 + sub,
+                    choices,
+                )?);
             }
             PhysicsShapeKind::SubShapes(nested)
         }
@@ -549,8 +562,7 @@ fn parse_nested_shape(
             if cursor.remaining() >= 32 {
                 let mut peek = *cursor;
                 let trailer_position = peek.float3()?;
-                let trailer_rotation =
-                    [peek.f32()?, peek.f32()?, peek.f32()?, peek.f32()?];
+                let trailer_rotation = [peek.f32()?, peek.f32()?, peek.f32()?, peek.f32()?];
                 let count = peek.u32()?;
                 let norm: f32 = trailer_rotation.iter().map(|axis| axis * axis).sum();
                 if (1..=16).contains(&count) && (0.98..=1.02).contains(&norm) {
@@ -642,8 +654,7 @@ fn parse_streaming_assets(cursor: &mut Cursor, label: &str) -> Result<Vec<String
         if count_at % 4 != 0 {
             continue;
         }
-        let stored =
-            u32::from_le_bytes(body[count_at..count_at + 4].try_into().unwrap()) as usize;
+        let stored = u32::from_le_bytes(body[count_at..count_at + 4].try_into().unwrap()) as usize;
         if stored != count {
             continue;
         }
@@ -659,8 +670,8 @@ fn parse_streaming_assets(cursor: &mut Cursor, label: &str) -> Result<Vec<String
             break;
         }
     }
-    let (blob, pairs) = solution
-        .with_context(|| format!("{label}: no streaming-asset count fits the section"))?;
+    let (blob, pairs) =
+        solution.with_context(|| format!("{label}: no streaming-asset count fits the section"))?;
     if let Some(declared) = declared_blob
         && declared != blob.len()
     {
@@ -686,9 +697,12 @@ fn parse_streaming_assets(cursor: &mut Cursor, label: &str) -> Result<Vec<String
 }
 
 fn string_at(data: &[u8], offset: usize, label: &str) -> Result<String> {
-    let tail = data
-        .get(offset..)
-        .with_context(|| format!("{label}: string offset {offset} outside a {}-byte table", data.len()))?;
+    let tail = data.get(offset..).with_context(|| {
+        format!(
+            "{label}: string offset {offset} outside a {}-byte table",
+            data.len()
+        )
+    })?;
     let end = tail
         .iter()
         .position(|byte| *byte == 0)
@@ -827,10 +841,15 @@ impl RenderMesh {
         // room for it.
         if decoded.positions.is_empty()
             && stride >= 12
-            && layout.attributes.iter().all(|attribute| attribute.offset >= 12)
+            && layout
+                .attributes
+                .iter()
+                .all(|attribute| attribute.offset >= 12)
         {
             for vertex in 0..count {
-                decoded.positions.push(floats_at::<3>(block, vertex * stride)?);
+                decoded
+                    .positions
+                    .push(floats_at::<3>(block, vertex * stride)?);
             }
         }
         if decoded.positions.len() != count {
@@ -1047,7 +1066,8 @@ impl WorldObject {
 
     pub fn string(&self, name: &str) -> Option<&str> {
         match self.value(name)? {
-            PropertyValue::String(text) | PropertyValue::Command(text)
+            PropertyValue::String(text)
+            | PropertyValue::Command(text)
             | PropertyValue::Text(text) => Some(text),
             _ => None,
         }
@@ -1134,7 +1154,12 @@ pub fn parse_objects(bytes: &[u8], header: &WorldHeader, label: &str) -> Result<
 fn bytes_at<const N: usize>(blob: &[u8], offset: usize) -> Result<[u8; N]> {
     Ok(blob
         .get(offset..offset + N)
-        .with_context(|| format!("value at offset {offset} runs past the {}-byte blob", blob.len()))?
+        .with_context(|| {
+            format!(
+                "value at offset {offset} runs past the {}-byte blob",
+                blob.len()
+            )
+        })?
         .try_into()
         .unwrap())
 }
