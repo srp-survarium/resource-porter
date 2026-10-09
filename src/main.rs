@@ -730,6 +730,15 @@ enum Command {
         #[arg(long)]
         bundle: PathBuf,
     },
+    /// Copy every file under the given prefixes out of a packed database as a bundle.
+    ExtractBundle {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long = "prefix", required = true)]
+        prefixes: Vec<String>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// List project collision objects in a packed database that cannot cook.
     AuditCollision {
         #[arg(long)]
@@ -2458,6 +2467,11 @@ fn main() -> Result<()> {
             println!("bundles={}", record.bundles.len());
             println!("files={}", record.files.len());
             println!("overwritten_paths={}", record.overwritten_paths.len());
+            println!("bundle={}", output.display());
+        }
+        Command::ExtractBundle { db, prefixes, output } => {
+            let count = weapon::extract_bundle(&db, &prefixes, &output)?;
+            println!("files={count}");
             println!("bundle={}", output.display());
         }
         Command::AuditCollision { db } => {

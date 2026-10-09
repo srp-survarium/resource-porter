@@ -398,6 +398,52 @@ pub fn compose_bundles(
     Ok(record)
 }
 
+/// Lift already-packed resources back out of a database as a bundle.
+///
+/// For carrying a map forward from a verified release when its source is not
+/// at hand: every file under one of `prefixes` is copied out with its hash, so
+/// the result composes and applies like a freshly built bundle.
+pub fn extract_bundle(db_path: &Path, prefixes: &[String], output: &Path) -> Result<usize> {
+    prepare_empty_output(output)?;
+    let overlay = output.join("overlay");
+    let mut db = ResourceDb::open(db_path)?;
+    let paths: Vec<String> = db
+        .entries()
+        .keys()
+        .filter(|path| db.is_file(path) && prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())))
+        .cloned()
+        .collect();
+    if paths.is_empty() {
+        bail!("{} holds no file under {prefixes:?}", db_path.display());
+    }
+    let source = format!("extracted:{}", db_path.display());
+    let mut files = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let bytes = db.read(path)?;
+        let destination = safe_join(&overlay, path)?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&destination, &bytes)?;
+        files.push(record_file(path, &source, &bytes));
+    }
+    #[derive(serde::Serialize)]
+    struct ExtractedRecord {
+        format_version: u32,
+        asset_id: String,
+        files: Vec<BuiltFile>,
+    }
+    to_writer_pretty(
+        fs::File::create(output.join("port-manifest.json"))?,
+        &ExtractedRecord {
+            format_version: 1,
+            asset_id: "extracted".into(),
+            files,
+        },
+    )?;
+    Ok(paths.len())
+}
+
 pub fn verify_bundle(db_path: &Path, bundle: &Path) -> Result<()> {
     #[derive(serde::Deserialize)]
     struct VerificationRecord {
