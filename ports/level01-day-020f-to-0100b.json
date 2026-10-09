@@ -7,47 +7,114 @@
   },
   "map_name": "level_01_day_020f",
   "roots": [
-    "projects/level_01/day/client_project",
-    "projects/level_01/day/server_project"
+    "projects/level_01/day/client_project"
   ],
   "path_replacements": {
-    "projects/level_01/day/client_project": "projects/level_01_day_020f/client_project",
-    "projects/level_01/day/server_project": "projects/level_01_day_020f/server_project"
+    "projects/level_01/day/client_project": "projects/level_01_day_020f/client_project"
+  },
+  "target_copies": {
+    "projects/level_03/server_project": "projects/level_01_day_020f/server_project"
   },
   "upgrade_stripped_static_vertex_declarations": true,
   "convert_materials_to_target_schema": true,
+  "convert_split_client_objects_to_legacy": true,
+  "legacy_environment_post_effect": "post_process/level_03_day",
+  "drop_client_object_types": [
+    "ambient_light",
+    "artefact_container",
+    "damage_zone",
+    "effect_zone",
+    "generic_anomaly_core",
+    "particle",
+    "object_sound"
+  ],
   "allowed_unresolved_references": [
+    "material_instances/editor/moon.material",
+    "material_instances/flora/poplar_moss.material",
+    "material_instances/tiled/concrete/concrete_03.material",
+    "material_instances/tiled/floor/concrete_green.material",
+    "material_instances/tiled/floor/floor_burned.material",
+    "material_instances/tiled/floor/floor_trash.material",
+    "material_instances/tiled/trash/trash_dirt.material",
+    "material_instances/tiled/trash/trash_moss.material",
+    "material_instances/tiled/wall/stucco_zal.material",
     "models/flora/fruit/fruit_tree_01.model/walker_collision",
     "models/flora/fruit/fruit_tree_02.model/walker_collision",
     "models/flora/fruit/fruit_tree_03.model/walker_collision",
     "models/flora/fruit/fruit_tree_05.model/walker_collision",
     "models/flora/poplar_04_sux.model/collision",
     "models/props/street/bench_21b.model/walker_collision",
-    "sounds/creature_scream",
-    "sounds/day/cicadas_1",
-    "sounds/day/cicadas_2",
-    "sounds/day/cicadas_3",
-    "sounds/day/cicadas_4",
-    "sounds/day/cicadas_5",
-    "sounds/day/day_insects_01",
-    "sounds/day/day_insects_02",
-    "sounds/day/day_insects_03",
-    "sounds/day/day_insects_04",
-    "sounds/day/day_insects_05",
-    "sounds/day/day_insects_06",
-    "sounds/day/day_insects_07",
-    "sounds/fly_1",
-    "sounds/fly_2",
-    "sounds/fly_3",
-    "sounds/moan_1",
-    "sounds/moan_2",
-    "sounds/wind",
-    "sounds/wind_tree",
-    "sounds/wind_tree(1)",
-    "sounds/wind_tree(2)",
-    "sounds/wolf",
-    "sounds/wood_creak"
+    "textures/flora/poplar_moss.dds",
+    "textures/flora/poplar_moss.options",
+    "textures/props/barrel/barrel_2.dds",
+    "textures/props/barrel/barrel_2.options",
+    "textures/tiled/metal/alpha_metal_spec.dds",
+    "textures/tiled/metal/alpha_metal_spec.options"
   ],
   "spawn_position": [90.887, 15.157, 62.428],
-  "spawn_orientation": 0.709
+  "spawn_orientation": 0.709,
+  "material_template_overrides": {
+    "material_instances/decals/decals_leaking_02.material": "material_instances/decals/decals_leaking_01.material",
+    "material_instances/flora/bark_fruit_2.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_fruit_3.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey_simple.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_rot.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_yabl.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/fruit_green_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_grey_leaves_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_tree_leaves_02.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/flora/fruit_yabl_leaves_lod.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/flora/grass_l01_alt_v2_opaque.material": "material_instances/flora/poplar.material",
+    "material_instances/fx/level_1_anomaly/bubels.material": "material_instances/fx/pfx/water_splash.material",
+    "material_instances/fx/level_1_anomaly/buble_single.material": "material_instances/fx/pfx/water_splash.material",
+    "material_instances/fx/level_1_anomaly/cloud_mesh.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/level_1_anomaly/column_mash.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/level_1_anomaly/water_foam.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/level_1_anomaly/water_splash.material": "material_instances/fx/pfx/water_splash.material",
+    "material_instances/test/clr1.material": "material_instances/props/kitchen/washstend.material",
+    "material_instances/test/taras_fx/smoke_ak.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/tiled/concrete/concrete_old_brick_vc.material": "material_instances/tiled/concrete/concrete_green_moh_vc.material",
+    "material_instances/tiled/concrete/stena_brick_vc.material": "material_instances/tiled/concrete/concrete_column_break_vc.material",
+    "material_instances/tiled/metal/metal_01_burn.material": "material_instances/tiled/metal/metal_column_03_burned_vc.material",
+    "material_instances/tiled/metal/metal_01_metal_rust_02_vc.material": "material_instances/tiled/metal/metal_column_03_burned_vc.material",
+    "material_instances/tiled/metal/metal_03_metal_rust_02_vc.material": "material_instances/tiled/metal/metal_column_03_burned_vc.material",
+    "material_instances/tiled/metal/metal_column_moss.material": "material_instances/tiled/metal/metal_column_03_burned_vc.material",
+    "material_instances/tiled/metal/metal_column_rust_vc.material": "material_instances/tiled/metal/metal_column_03_burned_vc.material",
+    "material_instances/tiled/metal/metal_solanka_metal_rust_02_vc.material": "material_instances/tiled/metal/metal_column_03_burned_vc.material",
+    "material_instances/tiled/stucco/stucco_mask_03_palki_vc.material": "material_instances/tiled/stucco/stucco_cement_brick_02_vc.material",
+    "material_instances/tiled/stucco/stucco_mask_03_stocco_wood_vc.material": "material_instances/tiled/stucco/stucco_cement_brick_02_vc.material",
+    "material_instances/tiled/wall/paper_01_palki_vc.material": "material_instances/tiled/wall/stucco_zal_brick_vc.material",
+    "material_instances/tiled/wood/wood_cut_01_burnwood_vc.material": "material_instances/tiled/trash/trash_concrete_vc.material",
+    "material_instances/tiled/wood/wood_cut_01_moh_vc.material": "material_instances/tiled/trash/trash_concrete_vc.material",
+    "material_instances/tiled/wood/wood_cut_01_stuc_vc.material": "material_instances/tiled/trash/trash_concrete_vc.material",
+    "material_instances/tiled/wood/wood_cut_02_wood_burned_vc.material": "material_instances/tiled/trash/trash_concrete_vc.material",
+    "material_instances/vehicle/azlk.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/azlk_glasses.material": "material_instances/fx/pfx/noise_fractal.material",
+    "material_instances/vehicle/azlk_rust.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/interior.material": "material_instances/props/kitchen/washstend.material",
+    "material_instances/vehicle/interior_fwd.material": "material_instances/fx/pfx/noise_fractal_dirt.material",
+    "material_instances/vehicle/niva.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/truck/uaz_459/grid.material": "material_instances/level/lobby/conc_low.material",
+    "material_instances/vehicle/vaz_2106.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/vaz_2106_carcase.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/vaz_2106_glass.material": "material_instances/fx/pfx/noise_fractal.material",
+    "material_instances/water/water_l1_poison.material": "material_instances/water/water_green.material"
+  },
+  "model_material_overrides": {
+    "models/props/churchyard/cross_02.model/settings": {
+      "concrete_split_s_moss_vc": "tiled/trash/trash_concrete_vc",
+      "trash_s_moss_vc": "tiled/trash/trash_concrete_vc"
+    },
+    "models/props/churchyard/cross_03.model/settings": {
+      "concrete_split_s_moss_vc": "tiled/trash/trash_concrete_vc"
+    },
+    "models/props/churchyard/tomb_01.model/settings": {
+      "trash_s_trash_vc": "tiled/trash/trash_concrete_vc"
+    }
+  },
+  "config_string_replacements": {
+    "vehicle/uaz_452_med": "vehicle/uaz_452",
+    "resources/models/vehicle/uaz_452_med.model/collision": "resources/models/vehicle/uaz_452.model/collision"
+  }
 }

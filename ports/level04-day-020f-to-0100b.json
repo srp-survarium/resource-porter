@@ -7,31 +7,69 @@
   },
   "map_name": "level_04_day_020f",
   "roots": [
-    "projects/level_04/day/client_project",
-    "projects/level_04/day/server_project"
+    "projects/level_04/day/client_project"
   ],
   "path_replacements": {
-    "projects/level_04/day/client_project": "projects/level_04_day_020f/client_project",
-    "projects/level_04/day/server_project": "projects/level_04_day_020f/server_project"
+    "projects/level_04/day/client_project": "projects/level_04_day_020f/client_project"
+  },
+  "target_copies": {
+    "projects/level_03/server_project": "projects/level_04_day_020f/server_project"
   },
   "upgrade_stripped_static_vertex_declarations": true,
   "convert_materials_to_target_schema": true,
+  "convert_split_client_objects_to_legacy": true,
+  "legacy_environment_post_effect": "post_process/level_03_day",
+  "drop_client_object_types": [
+    "ambient_light",
+    "artefact_container",
+    "damage_zone",
+    "effect_zone",
+    "generic_anomaly_core",
+    "particle",
+    "object_sound"
+  ],
   "allowed_unresolved_references": [
+    "material_instances/editor/moon.material",
+    "material_instances/flora/poplar_moss.material",
+    "material_instances/tiled/floor/concrete_green.material",
+    "material_instances/tiled/trash/trash_dirt.material",
     "models/flora/fruit/fruit_tree_01.model/walker_collision",
     "models/flora/fruit/fruit_tree_02.model/walker_collision",
     "models/flora/fruit/fruit_tree_03.model/walker_collision",
     "models/flora/fruit/fruit_tree_05.model/walker_collision",
-    "models/props/electric/soviet_comp_01.model/collision",
-    "sounds/day/cicadas_01",
-    "sounds/day/cicadas_02",
-    "sounds/day/cicadas_03",
-    "sounds/scapes/cicadas_1",
-    "sounds/scapes/crowns",
-    "sounds/scapes/crowns_2",
-    "sounds/scapes/crowns_3",
-    "sounds/scapes/industrial_scape",
-    "sounds/scapes/metal_scape"
+    "textures/flora/poplar_moss.dds",
+    "textures/flora/poplar_moss.options",
+    "textures/props/barrel/barrel_2_spec.dds",
+    "textures/props/barrel/barrel_2_spec.options",
+    "textures/tiled/metal/alpha_metal_spec.dds",
+    "textures/tiled/metal/alpha_metal_spec.options",
+    "textures/tiled/metal/metal_01_spec.dds",
+    "textures/tiled/metal/metal_01_spec.options"
   ],
   "spawn_position": [-81.393, 5.611, 27.846],
-  "spawn_orientation": -1.556
+  "spawn_orientation": -1.556,
+  "material_template_overrides": {
+    "material_instances/anomaly/anomaly_detail.material": "material_instances/item/electrobox_flick.material",
+    "material_instances/anomaly/anomaly_liquid.material": "material_instances/debris/deb_ins_down.material",
+    "material_instances/anomaly/anomaly_moss.material": "material_instances/level/lobby/bench.material",
+    "material_instances/anomaly/anomaly_stump.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/anomaly/new_material.material": "material_instances/fx/pfx/noise_fractal_dirt.material",
+    "material_instances/decals/decal_spot.material": "material_instances/decals/decals_fire_bullet_damage.material",
+    "material_instances/decals/decals_spot.material": "material_instances/decals/decals_fire_bullet_damage.material",
+    "material_instances/flora/bark_fruit_2.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey_simple.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_rot.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/fruit_green_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_tree_leaves_02.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/fx/level_4_anomaly/radial_smoke.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/level_4_anomaly/smoke_sample.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/props/light/light_emitters_glass_emissive.material": "material_instances/weapons/pasted_glass.material",
+    "material_instances/terrain/04_base.material": "material_instances/props/kitchen/washstend.material",
+    "material_instances/tiled/metal/metal_gray_vc.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/vehicle/vagon_hopper.material": "material_instances/props/garbage/dumpser.material",
+    "material_instances/water/water_green_shit.material": "material_instances/water/water_green.material",
+    "material_instances/water/water_l04_deep.material": "material_instances/water/water_green.material",
+    "material_instances/water/water_l04_shallow.material": "material_instances/water/water_green.material"
+  }
 }

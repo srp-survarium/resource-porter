@@ -7,16 +7,33 @@
   },
   "map_name": "level_02_day_020f",
   "roots": [
-    "projects/level_02/day/client_project",
-    "projects/level_02/day/server_project"
+    "projects/level_02/day/client_project"
   ],
   "path_replacements": {
-    "projects/level_02/day/client_project": "projects/level_02_day_020f/client_project",
-    "projects/level_02/day/server_project": "projects/level_02_day_020f/server_project"
+    "projects/level_02/day/client_project": "projects/level_02_day_020f/client_project"
+  },
+  "target_copies": {
+    "projects/level_03/server_project": "projects/level_02_day_020f/server_project"
   },
   "upgrade_stripped_static_vertex_declarations": true,
   "convert_materials_to_target_schema": true,
+  "convert_split_client_objects_to_legacy": true,
+  "legacy_environment_post_effect": "post_process/level_03_day",
+  "drop_client_object_types": [
+    "ambient_light",
+    "artefact_container",
+    "damage_zone",
+    "effect_zone",
+    "generic_anomaly_core",
+    "particle",
+    "object_sound"
+  ],
   "allowed_unresolved_references": [
+    "material_instances/editor/moon.material",
+    "material_instances/flora/poplar_moss.material",
+    "material_instances/tiled/floor/floor_linoleum_02.material",
+    "material_instances/tiled/trash/trash_dirt.material",
+    "material_instances/tiled/wall/stucco_zal.material",
     "models/flora/fruit/fruit_tree_01.model/walker_collision",
     "models/flora/fruit/fruit_tree_02.model/walker_collision",
     "models/flora/fruit/fruit_tree_03.model/walker_collision",
@@ -25,22 +42,53 @@
     "models/flora/poplar_06_sux.model/collision",
     "models/generic/tower/streetlight_dual.model/walker_collision",
     "models/generic/tower/streetlight_single.model/walker_collision",
+    "models/props/electric/radio.model/collision/face_data",
+    "models/props/electric/radio.model/collision/indices",
+    "models/props/electric/radio.model/collision/vertices",
+    "models/props/electric/radio.model/render/elektro_furniture_s/converted_model",
+    "models/props/electric/radio.model/render/elektro_furniture_s/export_properties",
+    "models/props/electric/radio.model/render/export_properties",
+    "models/props/electric/radio.model/settings",
     "models/props/tool/weel_sport_01.model/walker_collision",
-    "sounds/anomaly/rad_crystals_center",
-    "sounds/creatures_line",
-    "sounds/crowns",
-    "sounds/day/cicadas_all",
-    "sounds/day/cicadas_all_2",
-    "sounds/day/cicadas_single",
-    "sounds/day/cicadas_single_2",
-    "sounds/day/cornkracke",
-    "sounds/day/deer",
-    "sounds/fire/fire_1",
-    "sounds/fire/fire_2",
-    "sounds/lamp_bzz",
-    "sounds/wind_on_top_01",
-    "sounds/wind_on_top_02"
+    "textures/flora/poplar_moss.dds",
+    "textures/flora/poplar_moss.options",
+    "textures/props/barrel/barrel_2.dds",
+    "textures/props/barrel/barrel_2.options",
+    "textures/props/tool/gymnasium_tools_spec.dds",
+    "textures/props/tool/gymnasium_tools_spec.options",
+    "textures/tiled/metal/metal_01_spec.dds",
+    "textures/tiled/metal/metal_01_spec.options"
   ],
   "spawn_position": [22.422, 16.156, 191.68],
-  "spawn_orientation": -0.211
+  "spawn_orientation": -0.211,
+  "material_template_overrides": {
+    "material_instances/anomaly/anomaly_fruit.material": "material_instances/props/light/lamp_greenhouse_clone.material",
+    "material_instances/anomaly/anomaly_stalactite.material": "material_instances/level/lobby/electric.material",
+    "material_instances/anomaly/anomaly_stalactite_moss.material": "material_instances/decals/decal_trash.material",
+    "material_instances/backgr/bg_houses_01.material": "material_instances/fabric/fabric.material",
+    "material_instances/flora/bark_fruit_2.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey_simple.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_rot.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/fruit_green_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_grey_leaves_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_tree_leaves_02.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/fx/anomaly/flame1.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/anomaly/flame2.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/anomaly/flame3.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/level_2_anomaly_1/anomaly_smoke_lighted.material": "material_instances/fx/pfx/smoke_trail_small_nmap.material",
+    "material_instances/fx/level_2_anomaly_1/big_explosion.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/level_2_anomaly_1/explosion_smoke.material": "material_instances/fx/pfx/pfx_smoke_03_hi_emiss_nmap.material",
+    "material_instances/fx/level_2_anomaly_1/explosion_smoke1.material": "material_instances/fx/pfx/smoke_trail_small_nmap.material",
+    "material_instances/fx/weapons/ak_trail.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/vehicle/azlk.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/azlk_glasses.material": "material_instances/fx/pfx/noise_fractal.material",
+    "material_instances/vehicle/azlk_rust.material": "material_instances/level/lobby/pipe_set_01.material",
+    "material_instances/vehicle/interior_fwd.material": "material_instances/fx/pfx/noise_fractal_dirt.material",
+    "material_instances/vehicle/truck/uaz_459/grid.material": "material_instances/level/lobby/conc_low.material"
+  },
+  "config_string_replacements": {
+    "vehicle/uaz_452_med": "vehicle/uaz_452",
+    "resources/models/vehicle/uaz_452_med.model/collision": "resources/models/vehicle/uaz_452.model/collision"
+  }
 }

@@ -7,30 +7,61 @@
   },
   "map_name": "level_05_day_020f",
   "roots": [
-    "projects/level_05/day/client_project",
-    "projects/level_05/day/server_project"
+    "projects/level_05/day/client_project"
   ],
   "path_replacements": {
-    "projects/level_05/day/client_project": "projects/level_05_day_020f/client_project",
-    "projects/level_05/day/server_project": "projects/level_05_day_020f/server_project"
+    "projects/level_05/day/client_project": "projects/level_05_day_020f/client_project"
+  },
+  "target_copies": {
+    "projects/level_03/server_project": "projects/level_05_day_020f/server_project"
   },
   "upgrade_stripped_static_vertex_declarations": true,
   "convert_materials_to_target_schema": true,
+  "convert_split_client_objects_to_legacy": true,
+  "legacy_environment_post_effect": "post_process/level_03_day",
+  "drop_client_object_types": [
+    "ambient_light",
+    "artefact_container",
+    "damage_zone",
+    "effect_zone",
+    "generic_anomaly_core",
+    "particle",
+    "object_sound"
+  ],
   "material_template_overrides": {
-    "material_instances/fx/level_5_anomaly/uran_crystals.material": "material_instances/flora/anomaly_tree_leaves.material"
+    "material_instances/fx/level_5_anomaly/uran_crystals.material": "material_instances/flora/anomaly_tree_leaves.material",
+    "material_instances/decals/decal_spider_web.material": "material_instances/decals/decals_fire_bullet_damage.material",
+    "material_instances/decals/decal_spider_web_outdoor.material": "material_instances/fx/pfx/pfx_smoke_03_nmap.material",
+    "material_instances/decals/decal_spot_multiply.material": "material_instances/decals/decals_multiply_01.material",
+    "material_instances/decals/decals_leaking_02.material": "material_instances/decals/decals_leaking_01.material",
+    "material_instances/flora/bark_fruit_2.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_fruit_3.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_grey.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_roots_05.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_rot.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/bark_yabl.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/flora_korni_moss_vc.material": "material_instances/tiled/bricks/brick_02_top_vc.material",
+    "material_instances/flora/fruit_green_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_grey_leaves_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_tree_leaves_02.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/flora/fruit_yabl_leaves_lod.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/flora/moss_tile_vc.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/flora/roots_tree_leaves_05.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/fx/level_5_anomaly/crystals_floor_05_vc.material": "material_instances/tiled/floor/wood_floor_02_burned_vc.material",
+    "material_instances/fx/level_5_anomaly/distortion_cylinder.material": "material_instances/fx/pfx/water_splash.material",
+    "material_instances/level/05/level_05_construction_props.material": "material_instances/props/furniture/shelf.material",
+    "material_instances/level/05/level_05_rock_totem.material": "material_instances/generic/cistern/generic_cistern.material",
+    "material_instances/level/05/level_05_wheel.material": "material_instances/decals/decal_trash.material",
+    "material_instances/level/05/level_05_wood_totem.material": "material_instances/generic/cistern/generic_cistern.material",
+    "material_instances/props/light/light_emitters_glass_emissive.material": "material_instances/weapons/pasted_glass.material",
+    "material_instances/tiled/concrete/concrete_black_crack_vc.material": "material_instances/tiled/concrete/concrete_blocks_break_vc.material",
+    "material_instances/water/water_l05_geyser.material": "material_instances/water/water_green.material"
   },
   "allowed_unresolved_references": [
+    "material_instances/editor/moon.material",
     "models/props/light/barrel_stove_01_fire.model/collision",
-    "sounds/anomaly_center",
-    "sounds/day/cicadas_01",
-    "sounds/day/cicadas_02",
-    "sounds/day/cicadas_03",
-    "sounds/fire_1",
-    "sounds/fire_1(1)",
-    "sounds/fire_2",
-    "sounds/fire_3",
-    "sounds/fire_7",
-    "sounds/fort_ambient"
+    "textures/props/barrel/barrel_2_spec.dds",
+    "textures/props/barrel/barrel_2_spec.options"
   ],
   "spawn_position": [-73.311, 5.91, 10.033],
   "spawn_orientation": -1.46

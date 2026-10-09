@@ -44,8 +44,21 @@
     "industrial_scape"
   ],
   "allowed_unresolved_references": [
-    "sounds/scapes/industrial_scape"
+    "material_instances/editor/moon.material",
+    "material_instances/flora/poplar_moss.material",
+    "material_instances/tiled/floor/concrete_green.material",
+    "textures/flora/poplar_moss.dds",
+    "textures/flora/poplar_moss.options"
   ],
   "spawn_position": [-78.428, 5.611, 31.116],
-  "spawn_orientation": -1.474
+  "spawn_orientation": -1.474,
+  "material_template_overrides": {
+    "material_instances/anomaly/anomaly_detail.material": "material_instances/item/electrobox_flick.material",
+    "material_instances/anomaly/anomaly_liquid.material": "material_instances/debris/deb_ins_down.material",
+    "material_instances/anomaly/anomaly_moss.material": "material_instances/debris/deb_ins_down.material",
+    "material_instances/anomaly/anomaly_stump.material": "material_instances/level/lobby/brick.material",
+    "material_instances/terrain/04_base.material": "material_instances/props/kitchen/washstend.material",
+    "material_instances/tiled/metal/metal_gray_vc.material": "material_instances/tiled/metal/metal_b.material",
+    "material_instances/vehicle/vagon_hopper.material": "material_instances/props/garbage/dumpser.material"
+  }
 }

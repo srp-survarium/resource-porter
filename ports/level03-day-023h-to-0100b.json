@@ -13,11 +13,12 @@
     "projects/level_03/day/client_project": "projects/level_03_day_023h/client_project"
   },
   "target_copies": {
-    "projects/level_03_day_020f/server_project": "projects/level_03_day_023h/server_project"
+    "projects/level_03/server_project": "projects/level_03_day_023h/server_project"
   },
   "upgrade_stripped_static_vertex_declarations": true,
   "convert_materials_to_target_schema": true,
   "convert_split_client_objects_to_legacy": true,
+  "legacy_environment_post_effect": "post_process/level_03_day",
   "drop_client_object_types": [
     "ambient_light",
     "artefact_container",
@@ -28,13 +29,59 @@
     "resupply_zone"
   ],
   "allowed_unresolved_references": [
+    "material_instances/editor/moon.material",
+    "material_instances/flora/bark_sosna.material",
+    "material_instances/tiled/concrete/concrete_03.material",
+    "material_instances/tiled/floor/concrete_green.material",
+    "material_instances/tiled/floor/floor_burned.material",
+    "material_instances/tiled/floor/floor_linoleum_02.material",
+    "material_instances/tiled/floor/floor_trash.material",
+    "material_instances/tiled/floor/floor_trash_02.material",
+    "material_instances/tiled/floor/wood_floor_01.material",
+    "material_instances/tiled/stucco/stucco_cement.material",
+    "material_instances/tiled/trash/trash_brick_alpha.material",
+    "material_instances/tiled/trash/trash_concrete.material",
+    "material_instances/tiled/trash/trash_dirt.material",
+    "material_instances/tiled/trash/trash_moss.material",
+    "material_instances/tiled/wall/stucco_zal.material",
+    "material_instances/tiled/window/window.material",
+    "models/props/electric/radio.model/collision/face_data",
+    "models/props/electric/radio.model/collision/indices",
+    "models/props/electric/radio.model/collision/vertices",
+    "models/props/electric/radio.model/render/elektro_furniture_s/converted_model",
+    "models/props/electric/radio.model/render/elektro_furniture_s/export_properties",
+    "models/props/electric/radio.model/render/export_properties",
+    "models/props/electric/radio.model/settings",
     "sounds/lightbulb/lightbulb_bzz_4",
     "sounds/scapes/creatures",
-    "sounds/scapes/dogs_background",
     "sounds/scapes/metal_construction_scape",
     "sounds/trees/trees_squeak_2",
-    "sounds/trees/trees_squeak_3"
+    "sounds/trees/trees_squeak_3",
+    "textures/character/human/renesanse_scout_1a/renesanse_scout_1a_back_nmap.dds",
+    "textures/character/human/renesanse_scout_1a/renesanse_scout_1a_back_nmap.options",
+    "textures/props/barrel/barrel_2_spec.dds",
+    "textures/props/barrel/barrel_2_spec.options",
+    "textures/props/tool/gymnasium_tools_spec.dds",
+    "textures/props/tool/gymnasium_tools_spec.options",
+    "textures/tiled/metal/alpha_metal_spec.dds",
+    "textures/tiled/metal/alpha_metal_spec.options",
+    "textures/tiled/metal/metal_01_spec.dds",
+    "textures/tiled/metal/metal_01_spec.options",
+    "textures/tiled/roof/roof_04_spec.dds",
+    "textures/tiled/roof/roof_04_spec.options",
+    "textures/tiled/roof/roof_broken_spec.dds",
+    "textures/tiled/roof/roof_broken_spec.options"
   ],
   "spawn_position": [75.552, 0.912, 5.131],
-  "spawn_orientation": 1.37
+  "spawn_orientation": 1.37,
+  "drop_client_objects": [
+    "dogs_background"
+  ],
+  "material_template_overrides": {
+    "material_instances/flora/bark_fruit_2.material": "material_instances/tiled/floor/floor_linoleum_02_vc.material",
+    "material_instances/flora/fruit_grey_leaves_lod.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/flora/fruit_tree_leaves_02.material": "material_instances/tiled/trash/trash_brick_alpha_vc.material",
+    "material_instances/item/container_for_bullet_close_box.material": "material_instances/weapons/pso1.material",
+    "material_instances/water/water_l03_green.material": "material_instances/water/water_green.material"
+  }
 }

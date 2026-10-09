@@ -7,16 +7,18 @@
   },
   "map_name": "level_03_day_020f",
   "roots": [
-    "projects/level_03/day/client_project",
-    "projects/level_03/day/server_project"
+    "projects/level_03/day/client_project"
   ],
   "path_replacements": {
-    "projects/level_03/day/client_project": "projects/level_03_day_020f/client_project",
-    "projects/level_03/day/server_project": "projects/level_03_day_020f/server_project"
+    "projects/level_03/day/client_project": "projects/level_03_day_020f/client_project"
+  },
+  "target_copies": {
+    "projects/level_03/server_project": "projects/level_03_day_020f/server_project"
   },
   "upgrade_stripped_static_vertex_declarations": true,
   "convert_materials_to_target_schema": true,
   "convert_split_client_objects_to_legacy": true,
+  "legacy_environment_post_effect": "post_process/level_03_day",
   "drop_client_object_types": [
     "ambient_light",
     "artefact_container",
@@ -28,14 +30,59 @@
   "material_template_overrides": {
     "material_instances/fx/level_3_anomaly/smoke.material": "material_instances/fx/pfx/pfx_smoke_03_nmap.material",
     "material_instances/fx/level_3_anomaly/smoke_trail.material": "material_instances/fx/pfx/smoke_trail_small_nmap.material",
-    "material_instances/test/taras_fx/normal1.material": "material_instances/fx/pfx/water_splash.material"
+    "material_instances/test/taras_fx/normal1.material": "material_instances/fx/pfx/water_splash.material",
+    "material_instances/fx/anomaly/ground_mini_lightning.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/fx/anomaly/light_idle.material": "material_instances/fx/pfx/spark_old.material",
+    "material_instances/fx/anomaly/mini_flash.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_big.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_flare1.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_flare2.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_smoke.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_sparks.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_uv_scroll1.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_uv_scroll2.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/lightning_uv_scroll3.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/test/taras_fx/new_lightning.material": "material_instances/fx/pfx/blood_smoke.material",
+    "material_instances/water/water_l03_green.material": "material_instances/water/water_green.material"
   },
   "allowed_unresolved_references": [
+    "material_instances/editor/moon.material",
+    "material_instances/flora/bark_sosna.material",
+    "material_instances/flora/poplar_moss.material",
+    "material_instances/tiled/concrete/concrete_03.material",
+    "material_instances/tiled/floor/concrete_green.material",
+    "material_instances/tiled/floor/floor_burned.material",
+    "material_instances/tiled/floor/floor_linoleum_02.material",
+    "material_instances/tiled/floor/floor_trash.material",
+    "material_instances/tiled/floor/wood_floor_01.material",
+    "material_instances/tiled/stucco/stucco_cement.material",
+    "material_instances/tiled/trash/trash_brick_alpha.material",
+    "material_instances/tiled/trash/trash_concrete.material",
+    "material_instances/tiled/trash/trash_dirt.material",
+    "material_instances/tiled/trash/trash_moss.material",
+    "material_instances/tiled/wall/stucco_zal.material",
+    "models/props/electric/radio.model/collision/face_data",
+    "models/props/electric/radio.model/collision/indices",
+    "models/props/electric/radio.model/collision/vertices",
+    "models/props/electric/radio.model/render/elektro_furniture_s/converted_model",
+    "models/props/electric/radio.model/render/elektro_furniture_s/export_properties",
+    "models/props/electric/radio.model/render/export_properties",
+    "models/props/electric/radio.model/settings",
     "sounds/lightbulb/lightbulb_bzz_4",
     "sounds/scapes/creatures",
     "sounds/scapes/metal_construction_scape",
     "sounds/trees/trees_squeak_2",
-    "sounds/trees/trees_squeak_3"
+    "sounds/trees/trees_squeak_3",
+    "textures/flora/poplar_moss.dds",
+    "textures/flora/poplar_moss.options",
+    "textures/props/barrel/barrel_2_spec.dds",
+    "textures/props/barrel/barrel_2_spec.options",
+    "textures/props/tool/gymnasium_tools_spec.dds",
+    "textures/props/tool/gymnasium_tools_spec.options",
+    "textures/tiled/metal/alpha_metal_spec.dds",
+    "textures/tiled/metal/alpha_metal_spec.options",
+    "textures/tiled/metal/metal_01_spec.dds",
+    "textures/tiled/metal/metal_01_spec.options"
   ],
   "spawn_position": [75.552, 0.912, 5.131],
   "spawn_orientation": 1.37
