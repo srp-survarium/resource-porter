@@ -169,15 +169,27 @@ regenerate the deleted `*-probe*.json` / `*-conversion*.json` stat dumps.
 ## Every family in one database — the offline playtest package
 
 `scripts/build-all-maps-package.sh` builds the twelve SoC multiplayer maps and
-Cordon, the outdoor F.E.A.R. worlds (`FEAR_WORLDS`, default `asylum train_yard
-deadwood`), and the Survarium 0.1.1e / 0.20f / 0.23h levels, composes them
-0.20f-first and applies them onto untouched retail in one verified chain:
-`.work/all-maps/release/resources.db` (SHA-256
-`573c5d1c8970c75735f4a3b0f7155c40c8c3729b8353a26d9253ce89a3dfefa4`, 5.28 GB).
-Every map is built with `--camera-at-spawn`, because the offline client inserts
-the player at the client project's `camera.position`. The donor databases are
-the ones `map-porting.txt` inventories (0.1.1e `694e1772…`, 0.20f build 1923
-`5f871046…`, 0.23h `8e5a1530…`).
+Cordon, the Clear Sky Training Camp with its summer meadow, the outdoor
+F.E.A.R. worlds (`FEAR_WORLDS`, default `asylum train_yard deadwood`), and the
+Survarium 0.20f / 0.23h levels, and applies them onto untouched retail in one
+verified chain: `.work/all-maps/release-v2/resources.db` (SHA-256
+`80d0641d5f523a1aef100cd06bb73a41e692b72d40308a515107499b0fc4b725`, 5.41 GB). Every
+map is built with `--camera-at-spawn`, because the offline client inserts the
+player at the client project's `camera.position`. The donor databases are the
+ones `map-porting.txt` inventories (0.20f build 1923 `5f871046…`, 0.23h
+`8e5a1530…`).
+
+The first package, `.work/all-maps/release/resources.db` (SHA-256
+`573c5d1c8970c75735f4a3b0f7155c40c8c3729b8353a26d9253ce89a3dfefa4`), also
+carried the 0.1.1e level 04 (`level_04_011e`, donor `694e1772…`). **It crashes
+on load and is left out until fixed.** The game log shows three cooks failing
+(class 32) — `resources/models/flora/bush_s_002_sux.model/collision`,
+`resources/models/props/cover/tyres_s1.model/walker_collision`,
+`resources/models/props/cover/tyres_s2.model/walker_collision` — and then
+`simple_game_project::insert` → `static_collision::insert` →
+`physics::create_static_rigid_body` +0xb2 reads through a NULL shape (address
+0x108): the project inserts collision whose shape never cooked. Start from
+those three collision resources in the level04-011e bundle.
 
 ## Running a rebuilt map
 
