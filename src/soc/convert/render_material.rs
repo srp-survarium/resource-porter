@@ -199,7 +199,10 @@ pub fn classify_state(class: &str, priority: i32, strict_sorting: bool) -> Optio
     let blended = strict_sorting;
     Some(match (class, blended) {
         // Lightmapped opaque, and the per-level bump-mapped ground variants.
-        ("LM", false) | ("BmmDold", false) => RenderFamily::Opaque,
+        ("LM", false) => RenderFamily::Opaque,
+        // Bump-mapped ground: a colour map, a mask and four tiled details,
+        // which build 802's own terrain effect reproduces.
+        ("BmmDold", false) | ("LmBmmD", false) => RenderFamily::Terrain,
         // Lightmapped cutout, or the same class sorted into a blend.
         ("LM_AREF", false) => RenderFamily::AlphaTested,
         ("LM_AREF", true) => RenderFamily::Translucent,
@@ -422,7 +425,34 @@ pub struct MaterialPlan {
     pub dropped_lightmaps: Vec<String>,
     /// How many merged surfaces use this material.
     pub surface_count: usize,
+    /// X-Ray's own ground composition, for a terrain shader whose blender
+    /// names it.
+    #[serde(default)]
+    pub terrain: Option<TerrainSource>,
 }
+
+/// What a bump-mapped ground blender (`BmmDold`, `LmBmmD`) composes.
+///
+/// X-Ray's `deffer_impl` shader: the base colour map at the mesh UV; a mask
+/// `<base>_mask` at the same UV, normalised by the sum of its channels; four
+/// detail textures, one per mask channel, at the mesh UV times the base
+/// texture's detail scale; and `colour = 2 * base * blended detail`.
+/// `terrain_gbuffer_pass` in build 802 is the same composition: four tiled
+/// layers weighted by a sum-normalised mask, hard-lit by `texture_detail_0`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TerrainSource {
+    /// Detail texture per mask channel R, G, B, A.
+    pub layers: [String; 4],
+    /// The base texture's `_mask`, when the source has one.
+    #[serde(default)]
+    pub mask: Option<String>,
+    /// The base texture's detail scale from `textures.ltx`: how many times the
+    /// detail repeats over one unit of mesh UV.
+    #[serde(default)]
+    pub detail_scale: Option<f32>,
+}
+
+impl Eq for TerrainSource {}
 
 impl MaterialPlan {
     pub fn target_path(&self, namespace: &str) -> String {
@@ -468,6 +498,15 @@ pub fn plan_materials(
             source_normal: None,
             dropped_lightmaps: entry.lightmaps().to_vec(),
             surface_count: *surface_count,
+            terrain: (family == RenderFamily::Terrain)
+                .then(|| library.get(&entry.shader))
+                .flatten()
+                .and_then(|blender| blender.detail_layers.clone())
+                .map(|layers| TerrainSource {
+                    layers,
+                    mask: None,
+                    detail_scale: None,
+                }),
         });
     }
     if !unknown.is_empty() {
@@ -527,7 +566,7 @@ mod tests {
                 RenderFamily::Water
             }
             "effects\\glow" | "details\\lod" => RenderFamily::Emissive,
-            other if other.starts_with("levels\\") => RenderFamily::Opaque,
+            other if other.starts_with("levels\\") => RenderFamily::Terrain,
             other => panic!("{other} has no expected family"),
         }
     }

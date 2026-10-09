@@ -199,6 +199,7 @@ pub fn build_bundle(
             source_normal,
             dropped_lightmaps: Vec::new(),
             surface_count,
+            terrain: None,
         });
     }
     if plans.is_empty() {

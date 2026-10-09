@@ -440,6 +440,7 @@ pub(crate) fn plan_assets(
             source_normal: None,
             dropped_lightmaps: Vec::new(),
             surface_count: surface_counts.get(shader_id).copied().unwrap_or(0),
+            terrain: None,
         });
     }
     plans.sort_by_key(|plan| plan.shader_id);

@@ -80,6 +80,11 @@ pub struct Blender {
     /// `None` when the property block could not be decoded; the class id, which
     /// is what classification needs, is still valid.
     pub common: Option<CommonProperties>,
+    /// The four tiled detail textures a bump-mapped ground blender (`BmmDold`,
+    /// `LmBmmD`) blends by its base texture's `_mask`, in mask channel order
+    /// R, G, B, A. `None` for every other class, and for blenders older than
+    /// version 3, which carry no per-channel names.
+    pub detail_layers: Option<[String; 4]>,
 }
 
 /// Decode `shaders.xr` into a name-keyed library.
@@ -125,12 +130,18 @@ fn parse_blender(payload: &[u8], index: usize) -> Result<Blender> {
     // The property block is best-effort: a class the port has never seen still
     // yields a usable class id.
     let common = parse_common_properties(&payload[DESC_SIZE..]).ok();
+    let detail_layers = if matches!(class_id.tag().as_str(), "BmmDold" | "LmBmmD") && version >= 3 {
+        parse_detail_layers(&payload[DESC_SIZE..]).ok()
+    } else {
+        None
+    };
 
     Ok(Blender {
         name,
         class_id,
         version,
         common,
+        detail_layers,
     })
 }
 
@@ -151,6 +162,27 @@ fn parse_common_properties(bytes: &[u8]) -> Result<CommonProperties> {
         texture: fixed_string(texture)?,
         transform: fixed_string(transform)?,
     })
+}
+
+/// `CBlender_BmmD::Load` at version 3: the common block, a marker, the
+/// legacy detail map and its transform, then the R2 detail texture per mask
+/// channel.
+fn parse_detail_layers(bytes: &[u8]) -> Result<[String; 4]> {
+    let mut cursor = Cursor::new(bytes, "shaders.xr BmmD properties");
+    read_property(&mut cursor, PID_MARKER, 0)?;
+    read_property(&mut cursor, PID_INTEGER, 12)?;
+    read_property(&mut cursor, PID_BOOL, 4)?;
+    read_property(&mut cursor, PID_MARKER, 0)?;
+    read_property(&mut cursor, PID_TEXTURE, 64)?;
+    read_property(&mut cursor, PID_MATRIX, 64)?;
+    read_property(&mut cursor, PID_MARKER, 0)?;
+    read_property(&mut cursor, PID_TEXTURE, 64)?;
+    read_property(&mut cursor, PID_MATRIX, 64)?;
+    let mut layers: [String; 4] = Default::default();
+    for layer in &mut layers {
+        *layer = fixed_string(read_property(&mut cursor, PID_TEXTURE, 64)?)?;
+    }
+    Ok(layers)
 }
 
 /// One property: `u32 type`, a NUL-terminated property name, then fixed data.
@@ -230,6 +262,21 @@ pub(crate) mod fixtures {
         chunk(index, &payload)
     }
 
+    pub fn bmmd(index: u32, name: &str, layers: [&str; 4]) -> Vec<u8> {
+        let mut bytes = blender(index, "BmmDold", name, 1, false);
+        // Drop the chunk header to extend the payload, then rebuild it.
+        let mut payload = bytes.split_off(8);
+        payload.extend(property(PID_MARKER, "Detail map", &[]));
+        payload.extend(property(PID_TEXTURE, "Name", &vec![0_u8; 64]));
+        payload.extend(property(PID_MATRIX, "Transform", &vec![0_u8; 64]));
+        for (channel, layer) in ["R2-R", "R2-G", "R2-B", "R2-A"].iter().zip(layers) {
+            let mut texture = vec![0_u8; 64];
+            texture[..layer.len()].copy_from_slice(layer.as_bytes());
+            payload.extend(property(PID_TEXTURE, channel, &texture));
+        }
+        chunk(index, &payload)
+    }
+
     pub fn library(entries: &[(&str, &str)]) -> Vec<u8> {
         let mut blenders = Vec::new();
         for (index, (tag, name)) in entries.iter().enumerate() {
@@ -263,6 +310,28 @@ mod tests {
         assert_eq!(library["default"].class_id.tag(), "LM");
         assert_eq!(library["def_shaders\\def_aref"].class_id.tag(), "LM_AREF");
         assert_eq!(library["flora\\leaf_wave"].version, 3);
+    }
+
+    #[test]
+    fn reads_the_bump_mapped_ground_detail_layers() {
+        let bytes = chunk(
+            SHADERS_CHUNK_BLENDERS,
+            &bmmd(
+                0,
+                "levels\\escape_grass",
+                [
+                    "detail\\detail_grnd_grass",
+                    "detail\\detail_grnd_asphalt",
+                    "detail\\detail_grnd_earth",
+                    "detail\\detail_grnd_yantar",
+                ],
+            ),
+        );
+        let library = parse_library(&bytes).unwrap();
+        let layers = library["levels\\escape_grass"].detail_layers.as_ref().unwrap();
+        assert_eq!(layers[0], "detail\\detail_grnd_grass");
+        assert_eq!(layers[3], "detail\\detail_grnd_yantar");
+        assert!(library["levels\\escape_grass"].common.is_some());
     }
 
     #[test]

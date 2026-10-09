@@ -123,8 +123,9 @@ pub fn build_bundle(
         *used_shaders.entry(merged.shader_id).or_insert(0) += 1;
     }
     let overrides = manifest.effective_name_overrides();
-    let material_plans =
+    let mut material_plans =
         render_material::plan_materials(&used_shaders, &shader_table, &blenders, &overrides)?;
+    complete_terrain_sources(manifest, &mut source, &mut material_plans)?;
     let bound_shaders: BTreeSet<String> = material_plans
         .iter()
         .map(|plan| plan.source_shader.clone())
@@ -651,6 +652,81 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
     })
 }
 
+/// Find each terrain shader's mask and detail scale in the source.
+///
+/// `CBlender_BmmD` samples `<base>_mask` (`strconcat(L_textures[0], "_mask")`)
+/// and the vertex shader scales the detail UV by `dt_params`, which
+/// `CTextureDescrMngr` reads from the base texture's `[association]` line in
+/// `textures.ltx` (`<base> = <detail>, <scale>`).
+fn complete_terrain_sources(
+    manifest: &SocMapManifest,
+    source: &mut SocSource,
+    plans: &mut [MaterialPlan],
+) -> Result<()> {
+    if !plans.iter().any(|plan| plan.terrain.is_some()) {
+        return Ok(());
+    }
+    let scales = read_detail_scales(source)?;
+    for plan in plans.iter_mut() {
+        let (Some(terrain), Some(base)) = (plan.terrain.as_mut(), plan.source_diffuse.as_ref())
+        else {
+            continue;
+        };
+        let mask = format!("{base}_mask");
+        if source
+            .read_level_texture(&manifest.source_level, &mask)?
+            .is_some()
+        {
+            terrain.mask = Some(mask);
+        }
+        terrain.detail_scale = scales.get(&source::normalize(base)).copied();
+        println!(
+            "terrain {} base={base} mask={:?} scale={:?} layers={:?}",
+            plan.source_shader, terrain.mask, terrain.detail_scale, terrain.layers
+        );
+    }
+    Ok(())
+}
+
+/// `[association]` detail scales from `textures/textures.ltx`, keyed by the
+/// normalised texture name; empty when the source ships no such file.
+fn read_detail_scales(source: &mut SocSource) -> Result<BTreeMap<String, f32>> {
+    let path = "textures/textures.ltx";
+    if !source.contains(path) {
+        return Ok(BTreeMap::new());
+    }
+    let text = String::from_utf8_lossy(&source.read(path)?).into_owned();
+    Ok(parse_detail_scales(&text))
+}
+
+fn parse_detail_scales(text: &str) -> BTreeMap<String, f32> {
+    let mut scales = BTreeMap::new();
+    let mut in_association = false;
+    for line in text.lines() {
+        let line = line.split(';').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            in_association = line.eq_ignore_ascii_case("[association]");
+            continue;
+        }
+        if !in_association {
+            continue;
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
+        let Some(scale) = value
+            .split(',')
+            .nth(1)
+            .and_then(|field| field.trim().split_whitespace().next())
+            .and_then(|field| field.parse::<f32>().ok())
+        else {
+            continue;
+        };
+        scales.insert(source::normalize(name.trim()), scale);
+    }
+    scales
+}
+
 fn plan_textures(
     manifest: &SocMapManifest,
     source: &mut SocSource,
@@ -664,7 +740,15 @@ fn plan_textures(
         // Terrain wants a second texture the shader table never names: the
         // tiled ground detail X-Ray blended over its colour map.
         if plan.family == RenderFamily::Terrain {
-            wanted.insert(terrain_layer_texture(manifest, &plan.source_shader));
+            match &plan.terrain {
+                Some(terrain) => {
+                    wanted.extend(terrain.layers.iter().cloned());
+                    wanted.extend(terrain.mask.iter().cloned());
+                }
+                None => {
+                    wanted.insert(terrain_layer_texture(manifest, &plan.source_shader));
+                }
+            }
         }
     }
     let mut stale: Vec<&String> = manifest
@@ -1298,10 +1382,20 @@ pub(crate) fn write_materials(
         // and each one is part of the permutation key in `shaders/masks`.
         if plan.family == RenderFamily::Terrain {
             let controls = terrain.expect("a terrain plan implies generated terrain controls");
-            material.root.set_path(
-                TERRAIN_MASK_TEXTURE,
-                ConfigValue::String(controls.mask.clone()),
-            )?;
+            // X-Ray's own mask where the level has one; otherwise a generated
+            // constant that weights layer 0.
+            match plan.terrain.as_ref().and_then(|source| source.mask.as_ref()) {
+                Some(mask) => bind_texture(
+                    &mut material,
+                    TERRAIN_MASK_TEXTURE,
+                    &source::target_texture_path(&manifest.namespace, mask)?,
+                    template_path,
+                )?,
+                None => material.root.set_path(
+                    TERRAIN_MASK_TEXTURE,
+                    ConfigValue::String(controls.mask.clone()),
+                )?,
+            }
             let colour_map = plan.source_diffuse.as_ref().with_context(|| {
                 format!("terrain shader {:?} has no colour map", plan.source_shader)
             })?;
@@ -1326,18 +1420,41 @@ pub(crate) fn write_materials(
             // under that colour map: grass, earth/sand, asphalt, or wet silt.
             // Bind it to every live layer so DXT mask quantisation and custom
             // mask weights cannot leak unrelated level_03 template textures.
-            let detail = terrain_layer_texture(manifest, &plan.source_shader);
-            let detail_path = source::target_texture_path(&manifest.namespace, &detail)?;
-            for layer in 0..4 {
+            // X-Ray's four details where its blender names them, in mask
+            // channel order; otherwise the one the shader's name implies, in
+            // every layer.
+            let layers: [String; 4] = match &plan.terrain {
+                Some(terrain) => terrain.layers.clone(),
+                None => std::array::from_fn(|_| terrain_layer_texture(manifest, &plan.source_shader)),
+            };
+            for (layer, detail) in layers.iter().enumerate() {
                 bind_texture(
                     &mut material,
                     &format!("material.g_stage.effect.texture_diffuse_{layer}.value"),
-                    &detail_path,
+                    &source::target_texture_path(&manifest.namespace, detail)?,
                     template_path,
                 )?;
             }
+            let detail = layers[0].clone();
+            if plan.terrain.is_some() {
+                // Each layer's own `_bump`, as `s_dn_r..a` sample them; a layer
+                // without one keeps the template's.
+                for (layer, detail) in layers.iter().enumerate() {
+                    let bump = format!("{detail}_bump");
+                    if manifest.bind_normal_maps && normals.contains(&bump) {
+                        bind_texture(
+                            &mut material,
+                            &format!("material.g_stage.effect.texture_normal_{layer}.value"),
+                            &source::target_texture_path(&manifest.namespace, &bump)?,
+                            template_path,
+                        )?;
+                    }
+                }
+            }
             let source_detail_normal = format!("{detail}_bump");
-            let normal_path = if let Some(target_normal) = manifest
+            let normal_path = if plan.terrain.is_some() {
+                None
+            } else if let Some(target_normal) = manifest
                 .terrain_layer_normal_textures
                 .get(&plan.source_shader)
             {
@@ -1367,7 +1484,16 @@ pub(crate) fn write_materials(
             // metre-sized repeat is the shader's world span per UV unit divided
             // by the size wanted.
             let density = uv_density.get(&plan.shader_id).copied().unwrap_or(0.0);
-            if density > 0.0 && manifest.terrain_layer_metres > 0.0 {
+            // X-Ray's own repeat count where `textures.ltx` gives it: the
+            // detail UV is the mesh UV times that scale, for all four layers.
+            if let Some(scale) = plan.terrain.as_ref().and_then(|source| source.detail_scale) {
+                let tile = (scale.round() as i32).clamp(1, MAX_TERRAIN_TILE);
+                for layer in 0..4 {
+                    material
+                        .root
+                        .set_path(&terrain_tile_path(layer), ConfigValue::Integer(tile))?;
+                }
+            } else if density > 0.0 && manifest.terrain_layer_metres > 0.0 {
                 let tile = (density / manifest.terrain_layer_metres).round();
                 let tile = (tile as i32).clamp(1, MAX_TERRAIN_TILE);
                 for layer in 0..4 {
@@ -2374,6 +2500,16 @@ mod tests {
             named_path(&material.root, "effect.texture_diffuse.value").unwrap(),
             &ConfigValue::String("ported/soc/cordon/prop/bochka".into())
         );
+    }
+
+    #[test]
+    fn reads_association_detail_scales() {
+        let scales = parse_detail_scales(
+            "[association]\nterrain\\terrain_escape = detail\\detail_grnd_grass, 40.000000 ; x\n\
+             [specification]\nterrain\\terrain_escape = bump_mode[none], material[0.0]\n",
+        );
+        assert_eq!(scales.get(&source::normalize("terrain\\terrain_escape")), Some(&40.0));
+        assert_eq!(scales.len(), 1);
     }
 
     #[test]
