@@ -410,6 +410,10 @@ fn transform_client_project(
             ConfigValue::String(manifest.map_name.clone()),
         )?;
     }
+    if manifest.camera_at_spawn {
+        crate::soc::build::set_camera_at_spawn(&mut project.root, manifest.spawn_position)
+            .with_context(|| format!("placing the {path} camera at the spawn"))?;
+    }
     drop_named_objects(
         &mut project.root,
         &manifest.drop_client_objects,

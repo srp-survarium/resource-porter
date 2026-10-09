@@ -267,6 +267,10 @@ enum Command {
         target_db: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Move the client project's camera onto the spawn, where the
+        /// offline client inserts the player.
+        #[arg(long)]
+        camera_at_spawn: bool,
     },
     /// Reconstruct a newer map through explicit v0.100b ABI adapters.
     BuildTargetNativeMap {
@@ -512,6 +516,10 @@ enum Command {
         target_db: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Move the client project's camera onto the spawn, where the
+        /// offline client inserts the player.
+        #[arg(long)]
+        camera_at_spawn: bool,
     },
     /// Build an optional meadow, flower-island, lighting and victory-item layer for an X-Ray map.
     BuildSocMapAddon {
@@ -699,6 +707,10 @@ enum Command {
         target_db: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Move the client project's camera onto the spawn, where the
+        /// offline client inserts the player.
+        #[arg(long)]
+        camera_at_spawn: bool,
     },
     /// Compose overlays in priority order; earlier bundles supersede shared paths.
     Compose {
@@ -1098,8 +1110,10 @@ fn main() -> Result<()> {
             donor_db,
             target_db,
             output,
+            camera_at_spawn,
         } => {
-            let manifest = MapPortManifest::load(manifest)?;
+            let mut manifest = MapPortManifest::load(manifest)?;
+            manifest.camera_at_spawn = camera_at_spawn;
             let record = map_port::build_bundle(&manifest, &donor_db, &target_db, &output)?;
             println!("asset={}", record.asset_id);
             println!("map_name={}", record.map_name);
@@ -1833,8 +1847,10 @@ fn main() -> Result<()> {
             source_root,
             target_db,
             output,
+            camera_at_spawn,
         } => {
-            let manifest = soc::SocMapManifest::load(manifest)?;
+            let mut manifest = soc::SocMapManifest::load(manifest)?;
+            manifest.camera_at_spawn = camera_at_spawn;
             let record = soc::build_bundle(&manifest, &source_root, &target_db, &output)?;
             println!("asset={}", record.asset_id);
             println!("source_level={}", record.source_level);
@@ -2383,8 +2399,10 @@ fn main() -> Result<()> {
             source_root,
             target_db,
             output,
+            camera_at_spawn,
         } => {
-            let manifest = soc::SocMapManifest::load(manifest)?;
+            let mut manifest = soc::SocMapManifest::load(manifest)?;
+            manifest.camera_at_spawn = camera_at_spawn;
             let record = vostok_resource_porter::lilith::build::build_bundle(
                 &manifest,
                 &source_root,

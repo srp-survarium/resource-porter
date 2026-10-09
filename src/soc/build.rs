@@ -1608,6 +1608,10 @@ pub(crate) fn write_projects(
         &bindings.project_name_path,
         ConfigValue::String(manifest.project_name.clone()),
     )?;
+    if manifest.camera_at_spawn {
+        set_camera_at_spawn(&mut client.root, manifest.spawn_position)
+            .context("placing the client project camera at the spawn")?;
+    }
     let visuals = rebuild_instances(
         &client.root,
         &bindings.visual_array_path,
@@ -1677,6 +1681,18 @@ pub(crate) fn write_projects(
         files,
     )?;
     Ok(dropped_objects)
+}
+
+/// Move the client project's `camera.position` onto the spawn.
+///
+/// The template's camera is the editor view of the map it was cloned from;
+/// the offline client inserts the player there, so a cloned project drops the
+/// player wherever that view happened to sit in the other map.
+pub(crate) fn set_camera_at_spawn(root: &mut ConfigValue, spawn: [f32; 3]) -> Result<()> {
+    if root.named("camera").is_none() {
+        bail!("client project has no camera section");
+    }
+    root.set_path("camera.position", ConfigValue::Float3(spawn))
 }
 
 /// Drop every scene object whose meaning is positional.

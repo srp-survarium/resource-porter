@@ -125,6 +125,10 @@ pub struct MapPortManifest {
     pub drop_client_objects: BTreeSet<String>,
     pub spawn_position: [f32; 3],
     pub spawn_orientation: f32,
+    /// Set by `--camera-at-spawn`, never by a manifest: the offline client
+    /// inserts the player at the client project's `camera.position`.
+    #[serde(skip)]
+    pub camera_at_spawn: bool,
 }
 
 /// Fail-closed reconstruction of a newer map into target-native v0.100b

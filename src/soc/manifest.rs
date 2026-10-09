@@ -118,6 +118,11 @@ pub struct SocMapManifest {
     pub spawn_position: [f32; 3],
     #[serde(default)]
     pub spawn_orientation: f32,
+    /// Set by `--camera-at-spawn`, never by a manifest: the offline client
+    /// inserts the player at the client project's `camera.position`, which
+    /// the template inherits from another map.
+    #[serde(skip)]
+    pub camera_at_spawn: bool,
     /// Reviewed additions to the default X-Ray shader classification.
     #[serde(default)]
     pub render_shader_families: BTreeMap<String, RenderFamily>,
@@ -554,6 +559,7 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         surfaces_per_model: 200,
         spawn_position: [0.0, 2.1951056, 0.0],
         spawn_orientation: 0.0,
+        camera_at_spawn: false,
         render_shader_families: BTreeMap::new(),
         collision_material_overrides: BTreeMap::new(),
         material_templates: RenderFamily::ALL
