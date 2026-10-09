@@ -401,6 +401,13 @@ fn transform_client_project(
             applied_string_replacements,
         );
     }
+    // A declared drop removes an object the target cannot satisfy, so it must
+    // happen before that object's contracts are checked.
+    drop_named_objects(
+        &mut project.root,
+        &manifest.drop_client_objects,
+        dropped_client_objects,
+    );
     convert_object_sound_contracts(&mut project.root, path, |sound_name| {
         classify_target_sound_resource(target, sound_name)
     })?;
@@ -414,11 +421,6 @@ fn transform_client_project(
         crate::soc::build::set_camera_at_spawn(&mut project.root, manifest.spawn_position)
             .with_context(|| format!("placing the {path} camera at the spawn"))?;
     }
-    drop_named_objects(
-        &mut project.root,
-        &manifest.drop_client_objects,
-        dropped_client_objects,
-    );
     project.to_bytes()
 }
 
