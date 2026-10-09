@@ -722,6 +722,19 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Drop project collision objects whose collision cannot cook against the
+    /// base database; rewrites the bundle in place and writes collision-report.json.
+    PruneCollision {
+        #[arg(long)]
+        base_db: PathBuf,
+        #[arg(long)]
+        bundle: PathBuf,
+    },
+    /// List project collision objects in a packed database that cannot cook.
+    AuditCollision {
+        #[arg(long)]
+        db: PathBuf,
+    },
     /// Merge a bundle into a target archive and verify every emitted resource.
     Apply {
         #[arg(long)]
@@ -2446,6 +2459,24 @@ fn main() -> Result<()> {
             println!("files={}", record.files.len());
             println!("overwritten_paths={}", record.overwritten_paths.len());
             println!("bundle={}", output.display());
+        }
+        Command::AuditCollision { db } => {
+            let report = vostok_resource_porter::collision_check::audit_database(&db)?;
+            for (project, checked) in &report.checked {
+                let dropped = report.dropped.get(project).map_or(&[][..], Vec::as_slice);
+                println!("{project} checked={checked} uncookable={}", dropped.len());
+                for name in dropped {
+                    println!("  {name}");
+                }
+            }
+        }
+        Command::PruneCollision { base_db, bundle } => {
+            let report =
+                vostok_resource_porter::collision_check::prune_uncookable_collision(&base_db, &bundle)?;
+            for (project, checked) in &report.checked {
+                let dropped = report.dropped.get(project).map_or(0, Vec::len);
+                println!("{project} checked={checked} dropped={dropped}");
+            }
         }
         Command::Apply {
             base_db,

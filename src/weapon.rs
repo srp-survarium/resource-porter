@@ -331,6 +331,21 @@ pub fn compose_bundles(
             .into_iter()
             .filter(|root| owned_model_roots.insert(root.clone()))
             .collect();
+        // Collision folders of suppressed models that no earlier bundle brought.
+        let adopted_collision: BTreeSet<String> = record
+            .files
+            .iter()
+            .filter(|file| {
+                model_root(&file.path).is_some_and(|root| !accepted_model_roots.contains(&root))
+            })
+            .filter_map(|file| collision_folder(&file.path))
+            .filter(|folder| {
+                !files
+                    .range(folder.clone()..)
+                    .next()
+                    .is_some_and(|(existing, _)| existing.starts_with(folder.as_str()))
+            })
+            .collect();
         for mut file in record.files {
             let input_path = safe_join(&bundle.join("overlay"), &file.path)?;
             let bytes = fs::read(&input_path)
@@ -347,6 +362,8 @@ pub fn compose_bundles(
             }
             if let Some(root) = model_root(&file.path)
                 && !accepted_model_roots.contains(&root)
+                && !collision_folder(&file.path)
+                    .is_some_and(|folder| adopted_collision.contains(&folder))
             {
                 overwritten_paths.insert(file.path);
                 continue;
@@ -443,6 +460,22 @@ fn validate_touched_model_surfaces(db: &mut ResourceDb, files: &[BuiltFile]) -> 
         ensure_matching_model_surfaces(&root, &expected_surfaces, &actual_surfaces)?;
     }
     Ok(())
+}
+
+/// The `collision` or `walker_collision` folder a model file sits in.
+///
+/// Collision is its own sub-resource, independent of the surfaces the
+/// first-wins rule protects, so a suppressed bundle's collision folder is
+/// still taken when no earlier bundle brought that folder. An earlier map that
+/// only renders a shared model otherwise leaves a later map's project naming a
+/// path with no node, and the client crashes cooking it.
+fn collision_folder(path: &str) -> Option<String> {
+    let root = model_root(path)?;
+    let rest = path[root.len()..].strip_prefix('/')?;
+    ["collision/", "walker_collision/"]
+        .into_iter()
+        .find(|folder| rest.starts_with(folder))
+        .map(|folder| format!("{root}/{folder}"))
 }
 
 fn model_root(path: &str) -> Option<String> {
@@ -858,6 +891,41 @@ mod tests {
                 .overwritten_paths
                 .iter()
                 .any(|path| path == "models/shared.model/render/body/converted_model")
+        );
+    }
+
+    #[test]
+    fn compose_adopts_a_later_collision_folder_the_owner_lacks() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let first = temp.path().join("first");
+        let later = temp.path().join("later");
+        let output = temp.path().join("composed");
+        write_test_bundle(
+            &first,
+            &[
+                ("models/shared.model/settings", b"first settings"),
+                ("models/shared.model/render/a/converted_model", b"first body"),
+            ],
+        );
+        write_test_bundle(
+            &later,
+            &[
+                ("models/shared.model/settings", b"later settings"),
+                ("models/shared.model/render/b/converted_model", b"later body"),
+                ("models/shared.model/collision/vertices", b"later collision"),
+            ],
+        );
+
+        compose_bundles(&[first, later], &output).unwrap();
+
+        assert_eq!(
+            fs::read(output.join("overlay/models/shared.model/settings")).unwrap(),
+            b"first settings"
+        );
+        assert!(!output.join("overlay/models/shared.model/render/b").exists());
+        assert_eq!(
+            fs::read(output.join("overlay/models/shared.model/collision/vertices")).unwrap(),
+            b"later collision"
         );
     }
 

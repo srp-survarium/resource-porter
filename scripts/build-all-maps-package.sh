@@ -4,8 +4,9 @@
 # One v0.100b resources.db carrying every ported map family for the offline
 # playtest client: the twelve S.T.A.L.K.E.R. multiplayer maps and Cordon, the
 # Clear Sky Training Camp with its summer meadow, the outdoor F.E.A.R. worlds,
-# and the Survarium 0.20f / 0.23h levels. The 0.1.1e level 04 is left out: it
-# crashes on load (docs/rebuilding-map-resources.md).
+# and the Survarium 0.1.1e / 0.20f / 0.23h levels. Every project's collision
+# is checked against the result before packing (prune-collision): a collision
+# name with no node behind it crashes the client.
 # Every client project's camera is placed on the spawn (--camera-at-spawn),
 # because that is where the offline client inserts the player.
 #
@@ -14,7 +15,7 @@
 #   SOC     S.T.A.L.K.E.R. Shadow of Chernobyl install (gamedata.db0..dbd)
 #   CS      S.T.A.L.K.E.R. Clear Sky install (mp/mp_training_camp.db)
 #   FEAR    F.E.A.R. Ultimate Shooter Edition install (Default.archcfg)
-#   DONORS  directory with v020f and v023h resources.db
+#   DONORS  directory with v011e/app, v020f and v023h resources.db
 #   OUT     work directory for bundles
 #   RELEASE the packed database; an existing one is replaced
 set -euo pipefail
@@ -51,7 +52,8 @@ for l in 01 02 03 04 05; do
   order+=("level$l-day-020f-to-0100b")
 done
 build build-map level03-day-023h-to-0100b --donor-db "$DONORS/v023h/resources.db"
-order+=(level03-day-023h-to-0100b)
+build build-map level04-011e-to-0100b --donor-db "$DONORS/v011e/app/resources.db"
+order+=(level03-day-023h-to-0100b level04-011e-to-0100b)
 
 # The summer Training Camp: the converted map, then the meadow addon built
 # against it. The addon rewrites the map's projects and post-process
@@ -81,6 +83,7 @@ done
 
 rm -rf "$OUT/composed" "$OUT/apply-work"
 "$VP" compose $(printf -- "--bundle $B/%s " "${order[@]}") --output "$OUT/composed"
+"$VP" prune-collision --base-db "$TARGET" --bundle "$OUT/composed"
 mkdir -p "$(dirname "$RELEASE")"
 "$VP" apply --base-db "$TARGET" --bundle "$OUT/composed" \
   --work-dir "$OUT/apply-work" --output-db "$RELEASE" --force

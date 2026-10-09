@@ -1,6 +1,7 @@
 pub mod archive;
 pub mod armor;
 pub mod binary_config;
+pub mod collision_check;
 pub mod config_patch;
 pub mod dependency;
 pub mod dirty_bomb;
