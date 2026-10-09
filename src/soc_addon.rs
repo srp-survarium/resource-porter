@@ -52,10 +52,10 @@ const GRASS_MODEL_TEMPLATE: &str = "models/level/03/flora/gra_green_01.model/";
 const CONIFER_GRID: f32 = 12.0;
 const CONIFER_CLUSTER_TREES: usize = 27;
 const CONIFER_CLUSTER_RADIUS: f32 = 13.0;
-const MAX_CONIFER_CLUSTER_RELIEF: f32 = 2.5;
 const BASE_CONIFER_CLUSTERS: usize = 600;
 const OUTSKIRT_FOREST_DISTANCE: f32 = 100.0;
 const CONIFER_BATCH_PREFIX: &str = "ported/cs/training_camp/addons/conifer_batch";
+const SMALL_CONIFER_BATCH_PREFIX: &str = "ported/cs/training_camp/addons/conifer_small_batch";
 const CONIFER_MODEL_TEMPLATE: &str = "models/flora/elka_green_01.model/";
 
 const STATIC_VERTEX_DECLARATION: [u8; 48] = [
@@ -83,6 +83,63 @@ const CONIFER_MODELS: &[&str] = &[
     "flora/elka_green_05",
 ];
 
+/// Tree offsets inside one conifer cluster mesh, in cluster space.
+const CLUSTER_OFFSETS: [[f32; 2]; CONIFER_CLUSTER_TREES] = [
+    [-6.0, -6.0],
+    [-3.0, -6.0],
+    [0.0, -6.0],
+    [3.0, -6.0],
+    [6.0, -6.0],
+    [-6.0, -3.0],
+    [-3.0, -3.0],
+    [0.0, -3.0],
+    [3.0, -3.0],
+    [6.0, -3.0],
+    [-6.0, 0.0],
+    [-3.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [6.0, 0.0],
+    [-6.0, 3.0],
+    [-3.0, 3.0],
+    [0.0, 3.0],
+    [3.0, 3.0],
+    [6.0, 3.0],
+    [-6.0, 6.0],
+    [-3.0, 6.0],
+    [0.0, 6.0],
+    [3.0, 6.0],
+    [6.0, 6.0],
+    [-7.5, 0.0],
+    [7.5, 0.0],
+];
+/// A nine-tree cluster; four of them replace a full cluster on ground too
+/// uneven for it.
+const SMALL_CLUSTER_OFFSETS: [[f32; 2]; 9] = [
+    [-3.0, -3.0],
+    [0.0, -3.0],
+    [3.0, -3.0],
+    [-3.0, 0.0],
+    [0.0, 0.0],
+    [3.0, 0.0],
+    [-3.0, 3.0],
+    [0.0, 3.0],
+    [3.0, 3.0],
+];
+const SMALL_CLUSTER_CENTRES: [[f32; 2]; 4] = [[-4.5, -4.5], [4.5, -4.5], [-4.5, 4.5], [4.5, 4.5]];
+/// Every tree in a cluster mesh is sunk this far below the cluster origin.
+const CLUSTER_TREE_SINK: f32 = 0.45;
+
+fn cluster_tree_model(cluster: usize, tree: usize) -> usize {
+    (cluster + tree) % CONIFER_MODELS.len()
+}
+
+fn cluster_tree_scale(cluster: usize, tree: usize) -> f32 {
+    0.82 + hash_unit(
+        (cluster as u32).wrapping_mul(0x9e37_79b9) ^ (tree as u32).wrapping_mul(0x85eb_ca6b),
+    ) * 0.28
+}
+
 #[derive(Debug, Serialize)]
 pub struct SocAddonRecord {
     format_version: u32,
@@ -91,6 +148,7 @@ pub struct SocAddonRecord {
     pub grass_batches: usize,
     pub conifer_instances: usize,
     pub conifer_batches: usize,
+    pub conifer_placement: ConiferPlacementReport,
     pub flower_instances: usize,
     flower_island_center: [f32; 2],
     flower_island_radius: f32,
@@ -160,13 +218,44 @@ pub fn build_bundle(
     let mut db = ResourceDb::open(base_db)?;
     let mut files = Vec::new();
     let grass_batches = write_grass_batches(&mut db, &overlay, &grass_positions, &mut files)?;
-    let conifer_batches = write_conifer_batches(&mut db, &overlay, &conifer_positions, &mut files)?;
+    let terrain = terrain_ground(&level_data)?;
+    let collision = collision_ground(&level_data.cform);
+    let (clusters, rim_trees, conifer_placement) = plan_conifers(
+        &terrain,
+        &collision,
+        &conifer_positions,
+        &conifer_model_floors(&mut db)?,
+    );
+    let mut cluster_models = write_conifer_batches(
+        &mut db,
+        &overlay,
+        &CLUSTER_OFFSETS,
+        CONIFER_BATCH_PREFIX,
+        &mut files,
+    )?;
+    cluster_models.extend(write_conifer_batches(
+        &mut db,
+        &overlay,
+        &SMALL_CLUSTER_OFFSETS,
+        SMALL_CONIFER_BATCH_PREFIX,
+        &mut files,
+    )?);
+    let conifer_batches: Vec<ConiferBatch> = clusters
+        .into_iter()
+        .map(|cluster| ConiferBatch {
+            model: cluster_models[cluster.mesh].clone(),
+            position: cluster.position,
+            yaw: cluster.yaw,
+            scale: cluster.scale,
+        })
+        .collect();
     write_client_project(
         &mut db,
         &overlay,
         &grass_batches,
         grass_positions.len(),
         &conifer_batches,
+        &rim_trees,
         conifer_positions.len(),
         &flower_positions,
         &victory_item_spawners,
@@ -197,8 +286,11 @@ pub fn build_bundle(
         asset_id: "cs-training-camp-meadow-addon".into(),
         grass_instances: grass_positions.len(),
         grass_batches: grass_batches.len(),
-        conifer_instances: conifer_positions.len() * CONIFER_CLUSTER_TREES,
+        conifer_instances: conifer_placement.cluster_trees
+            + conifer_placement.rim_trees
+            + conifer_placement.slope_trees,
         conifer_batches: conifer_batches.len(),
+        conifer_placement,
         flower_instances: flower_positions.len(),
         flower_island_center: flower_center,
         flower_island_radius: flower_radius,
@@ -319,8 +411,6 @@ fn terrain_conifer_positions(
     struct TerrainCell {
         position: [f32; 3],
         score: f32,
-        minimum_height: f32,
-        maximum_height: f32,
     }
 
     let mut cells: BTreeMap<(i32, i32), TerrainCell> = BTreeMap::new();
@@ -365,51 +455,20 @@ fn terrain_conifer_positions(
             ];
             let score = (position[0] - centre[0]).powi(2) + (position[2] - centre[1]).powi(2);
             if let Some(existing) = cells.get_mut(&cell) {
-                existing.minimum_height = existing.minimum_height.min(position[1]);
-                existing.maximum_height = existing.maximum_height.max(position[1]);
                 if score < existing.score {
                     existing.position = position;
                     existing.score = score;
                 }
             } else {
-                cells.insert(
-                    cell,
-                    TerrainCell {
-                        position,
-                        score,
-                        minimum_height: position[1],
-                        maximum_height: position[1],
-                    },
-                );
+                cells.insert(cell, TerrainCell { position, score });
             }
         }
     }
     let mut candidates = Vec::new();
-    for (&cell_key, cell) in &cells {
-        let mut minimum_height = cell.minimum_height;
-        let mut maximum_height = cell.maximum_height;
-        // A cluster is larger than one placement cell. Include all adjacent
-        // cells when measuring relief so clusters straddling the ravine lip do
-        // not leave their downhill trees suspended in the air.
-        for offset_x in -1..=1 {
-            for offset_z in -1..=1 {
-                let neighbour_key = (cell_key.0 + offset_x, cell_key.1 + offset_z);
-                if let Some(neighbour) = cells.get(&neighbour_key) {
-                    minimum_height = minimum_height.min(neighbour.minimum_height);
-                    maximum_height = maximum_height.max(neighbour.maximum_height);
-                }
-            }
-        }
-        let mut position = cell.position;
-        // Preserve the original forest placement and height on ordinary
-        // terrain. Only a cluster touching a sharp ravine lip needs its shared
-        // transform lowered; the trunks then sink harmlessly instead of the
-        // downhill edge floating in the air.
-        if maximum_height - minimum_height > MAX_CONIFER_CLUSTER_RELIEF {
-            position[1] = minimum_height + 0.05;
-        }
+    // Heights are settled per trunk by plan_conifers.
+    for cell in cells.values() {
         candidates.push(Candidate {
-            position,
+            position: cell.position,
             area: 0.0,
             headroom: f32::INFINITY,
         });
@@ -583,11 +642,6 @@ struct GrassBatch {
     position: [f32; 3],
 }
 
-struct ConiferBatch {
-    model: String,
-    position: [f32; 3],
-}
-
 fn write_grass_batches(
     db: &mut ResourceDb,
     overlay: &Path,
@@ -647,39 +701,11 @@ fn write_grass_batches(
 fn write_conifer_batches(
     db: &mut ResourceDb,
     overlay: &Path,
-    positions: &[[f32; 3]],
+    offsets: &[[f32; 2]],
+    prefix: &str,
     files: &mut Vec<BuiltFile>,
-) -> Result<Vec<ConiferBatch>> {
+) -> Result<Vec<String>> {
     const LODS: [&str; 3] = ["elka_0_sg", "elka_1_sg", "elka_2_sg"];
-    const OFFSETS: [[f32; 2]; CONIFER_CLUSTER_TREES] = [
-        [-6.0, -6.0],
-        [-3.0, -6.0],
-        [0.0, -6.0],
-        [3.0, -6.0],
-        [6.0, -6.0],
-        [-6.0, -3.0],
-        [-3.0, -3.0],
-        [0.0, -3.0],
-        [3.0, -3.0],
-        [6.0, -3.0],
-        [-6.0, 0.0],
-        [-3.0, 0.0],
-        [0.0, 0.0],
-        [3.0, 0.0],
-        [6.0, 0.0],
-        [-6.0, 3.0],
-        [-3.0, 3.0],
-        [0.0, 3.0],
-        [3.0, 3.0],
-        [6.0, 3.0],
-        [-6.0, 6.0],
-        [-3.0, 6.0],
-        [0.0, 6.0],
-        [3.0, 6.0],
-        [6.0, 6.0],
-        [-7.5, 0.0],
-        [7.5, 0.0],
-    ];
     let mut source_meshes: [Vec<StaticMesh>; 3] = std::array::from_fn(|_| Vec::new());
     for model in CONIFER_MODELS {
         for (lod_index, lod) in LODS.iter().enumerate() {
@@ -695,14 +721,10 @@ fn write_conifer_batches(
     let mut cluster_models = Vec::with_capacity(CONIFER_MODELS.len());
     for cluster_index in 0..CONIFER_MODELS.len() {
         let mut meshes: [StaticMesh; 3] = std::array::from_fn(|_| StaticMesh::empty());
-        for (tree_index, offset) in OFFSETS.iter().enumerate() {
-            let model = (cluster_index + tree_index) % CONIFER_MODELS.len();
-            let translation = [offset[0], -0.45, offset[1]];
-            let scale = 0.82
-                + hash_unit(
-                    (cluster_index as u32).wrapping_mul(0x9e37_79b9)
-                        ^ (tree_index as u32).wrapping_mul(0x85eb_ca6b),
-                ) * 0.28;
+        for (tree_index, offset) in offsets.iter().enumerate() {
+            let model = cluster_tree_model(cluster_index, tree_index);
+            let translation = [offset[0], -CLUSTER_TREE_SINK, offset[1]];
+            let scale = cluster_tree_scale(cluster_index, tree_index);
             for lod_index in 0..LODS.len() {
                 append_static_mesh(
                     &mut meshes[lod_index],
@@ -712,19 +734,28 @@ fn write_conifer_batches(
                 )?;
             }
         }
-        let model = format!("{CONIFER_BATCH_PREFIX}_{cluster_index:03}");
+        let model = format!("{prefix}_{cluster_index:03}");
         write_conifer_batch_model(db, overlay, &model, &meshes, files)?;
         cluster_models.push(model);
     }
+    Ok(cluster_models)
+}
 
-    let mut batches = Vec::with_capacity(positions.len());
-    for (index, position) in positions.iter().copied().enumerate() {
-        batches.push(ConiferBatch {
-            model: cluster_models[index % cluster_models.len()].clone(),
-            position,
-        });
+/// The lowest point of each conifer model over all its LODs: its trunk base.
+fn conifer_model_floors(db: &mut ResourceDb) -> Result<Vec<f32>> {
+    const LODS: [&str; 3] = ["elka_0_sg", "elka_1_sg", "elka_2_sg"];
+    let mut floors = Vec::with_capacity(CONIFER_MODELS.len());
+    for model in CONIFER_MODELS {
+        let mut floor = f32::INFINITY;
+        for lod in LODS {
+            let mesh = parse_static_mesh(
+                &db.read(&format!("models/{model}.model/render/{lod}/converted_model"))?,
+            )?;
+            floor = floor.min(mesh_bounds(&mesh)?.0[1]);
+        }
+        floors.push(floor);
     }
-    Ok(batches)
+    Ok(floors)
 }
 
 fn grass_scale(seed: usize) -> f32 {
@@ -1036,12 +1067,14 @@ fn set_surface_bounds(config: &mut BinaryConfig, bounds: ([f32; 3], [f32; 3])) -
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn write_client_project(
     db: &mut ResourceDb,
     overlay: &Path,
     grass_batches: &[GrassBatch],
     grass_count: usize,
     conifer_batches: &[ConiferBatch],
+    rim_trees: &[RimTree],
     conifer_count: usize,
     flowers: &[[f32; 3]],
     victory_items: &[[f32; 3]],
@@ -1070,13 +1103,22 @@ fn write_client_project(
             1.0,
         )?);
     }
-    for (index, batch) in conifer_batches.iter().enumerate() {
-        visuals.push(visual_instance(
+    for batch in conifer_batches {
+        visuals.push(fixed_visual_instance(
             &prototype,
             &batch.model,
             batch.position,
-            index + grass_count,
-            1.0,
+            batch.yaw,
+            batch.scale,
+        )?);
+    }
+    for tree in rim_trees {
+        visuals.push(fixed_visual_instance(
+            &prototype,
+            tree.model,
+            tree.position,
+            tree.yaw,
+            tree.scale,
         )?);
     }
     for (index, position) in flowers.iter().enumerate() {
@@ -1441,9 +1483,398 @@ fn write_resource(
     Ok(())
 }
 
+/// A height field over a triangle soup, sampled straight down.
+struct Ground {
+    cell: f32,
+    triangles: Vec<[[f32; 3]; 3]>,
+    grid: BTreeMap<(i32, i32), Vec<u32>>,
+}
+
+impl Ground {
+    fn new(triangles: Vec<[[f32; 3]; 3]>) -> Self {
+        const CELL: f32 = 4.0;
+        let mut grid: BTreeMap<(i32, i32), Vec<u32>> = BTreeMap::new();
+        for (index, triangle) in triangles.iter().enumerate() {
+            let min_x = triangle.iter().map(|v| v[0]).fold(f32::INFINITY, f32::min);
+            let max_x = triangle.iter().map(|v| v[0]).fold(f32::NEG_INFINITY, f32::max);
+            let min_z = triangle.iter().map(|v| v[2]).fold(f32::INFINITY, f32::min);
+            let max_z = triangle.iter().map(|v| v[2]).fold(f32::NEG_INFINITY, f32::max);
+            for x in (min_x / CELL).floor() as i32..=(max_x / CELL).floor() as i32 {
+                for z in (min_z / CELL).floor() as i32..=(max_z / CELL).floor() as i32 {
+                    grid.entry((x, z)).or_default().push(index as u32);
+                }
+            }
+        }
+        Self {
+            cell: CELL,
+            triangles,
+            grid,
+        }
+    }
+
+    /// Heights of every triangle straight above or below `(x, z)`.
+    fn heights(&self, x: f32, z: f32) -> impl Iterator<Item = f32> + '_ {
+        let key = ((x / self.cell).floor() as i32, (z / self.cell).floor() as i32);
+        self.grid
+            .get(&key)
+            .into_iter()
+            .flatten()
+            .filter_map(move |&index| triangle_height(&self.triangles[index as usize], x, z))
+    }
+
+    /// The highest surface at `(x, z)`, or `None` outside the footprint.
+    fn top(&self, x: f32, z: f32) -> Option<f32> {
+        self.heights(x, z).reduce(f32::max)
+    }
+
+    /// The highest surface at `(x, z)` that is not above `ceiling`.
+    fn top_below(&self, x: f32, z: f32, ceiling: f32) -> Option<f32> {
+        self.heights(x, z).filter(|height| *height <= ceiling).reduce(f32::max)
+    }
+
+    /// Lowest and highest ground over the centre and an eight-point ring, or
+    /// `None` when any sample falls outside the footprint.
+    fn ring(&self, x: f32, z: f32, radius: f32) -> Option<(f32, f32)> {
+        let mut range = (f32::INFINITY, f32::NEG_INFINITY);
+        for step in 0..9 {
+            let (dx, dz) = if step == 8 {
+                (0.0, 0.0)
+            } else {
+                let angle = step as f32 * std::f32::consts::FRAC_PI_4;
+                (angle.cos() * radius, angle.sin() * radius)
+            };
+            let height = self.top(x + dx, z + dz)?;
+            range = (range.0.min(height), range.1.max(height));
+        }
+        Some(range)
+    }
+}
+
+fn triangle_height(triangle: &[[f32; 3]; 3], x: f32, z: f32) -> Option<f32> {
+    let [a, b, c] = *triangle;
+    let denominator = (b[2] - c[2]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[2] - c[2]);
+    if denominator.abs() < 1e-9 {
+        return None;
+    }
+    let w0 = ((b[2] - c[2]) * (x - c[0]) + (c[0] - b[0]) * (z - c[2])) / denominator;
+    let w1 = ((c[2] - a[2]) * (x - c[0]) + (a[0] - c[0]) * (z - c[2])) / denominator;
+    let w2 = 1.0 - w0 - w1;
+    const EDGE: f32 = -1e-4;
+    (w0 >= EDGE && w1 >= EDGE && w2 >= EDGE).then(|| w0 * a[1] + w1 * b[1] + w2 * c[1])
+}
+
+/// The rendered terrain the trees stand on: the grass-mask shaders' upward
+/// triangles.
+fn terrain_ground(level: &crate::soc::build::DecodedLevel) -> Result<Ground> {
+    let (surfaces, _) =
+        crate::soc::convert::surface::merge_visuals(&level.visuals, &level.buffers)?;
+    let mut triangles = Vec::new();
+    for surface in surfaces {
+        let shader = &level.shader_table.get(surface.shader_id)?.shader;
+        if !GRASS_TERRAIN_SHADERS.contains(&shader.as_str()) {
+            continue;
+        }
+        for triangle in surface.indices.chunks_exact(3) {
+            let triangle = [0, 1, 2].map(|corner| surface.vertices[usize::from(triangle[corner])].position);
+            if upward(&triangle) > 0.05 {
+                triangles.push(triangle);
+            }
+        }
+    }
+    if triangles.is_empty() {
+        bail!("the level has no upward-facing terrain triangles");
+    }
+    Ok(Ground::new(triangles))
+}
+
+/// The collision mesh's walkable faces: an independent ground for checking
+/// where the trees ended up.
+fn collision_ground(cform: &crate::soc::codec::cform::Cform) -> Ground {
+    Ground::new(
+        cform
+            .faces
+            .iter()
+            .map(|face| face.vertices.map(|index| cform.vertices[index as usize]))
+            .filter(|triangle| upward(triangle).abs() > 0.3)
+            .collect(),
+    )
+}
+
+fn upward(triangle: &[[f32; 3]; 3]) -> f32 {
+    let [a, b, c] = *triangle;
+    let edge0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let edge1 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let normal = [
+        edge0[1] * edge1[2] - edge0[2] * edge1[1],
+        edge0[2] * edge1[0] - edge0[0] * edge1[2],
+        edge0[0] * edge1[1] - edge0[1] * edge1[0],
+    ];
+    let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    if length.is_normal() { normal[1] / length } else { 0.0 }
+}
+
+/// Ground within this distance of a tree must exist, so no crown overhangs
+/// the edge of the terrain.
+const TREE_FOOTPRINT_MARGIN: f32 = 3.0;
+/// A full cluster needs terrain this far around every trunk, a nine-tree
+/// cluster this far; nearer the terrain's edge only single, smaller trees
+/// are planted, so the rim is a band of small trees.
+const LARGE_CLUSTER_MARGIN: f32 = 10.0;
+const SMALL_CLUSTER_MARGIN: f32 = 6.0;
+/// Ground relief under a cluster's trunks it may span. The shared origin
+/// sits on the lowest trunk, so the uphill trunks are buried by up to this.
+const MAX_CLUSTER_RELIEF: f32 = 1.5;
+const MAX_SMALL_CLUSTER_RELIEF: f32 = 2.0;
+/// Ground relief under a single trunk beyond which a tree is not planted.
+const MAX_TRUNK_RELIEF: f32 = 1.2;
+/// Radius sampled under each trunk for its relief.
+const TRUNK_RADIUS: f32 = 0.8;
+/// Every placed trunk base ends this far below the lowest ground under it.
+const TRUNK_SINK: f32 = 0.05;
+const RIM_TREE_SCALE: [f32; 2] = [0.5, 0.75];
+const SLOPE_TREE_SCALE: [f32; 2] = [0.75, 1.0];
+
+struct ConiferBatch {
+    model: String,
+    position: [f32; 3],
+    yaw: f32,
+    scale: f32,
+}
+
+struct RimTree {
+    model: &'static str,
+    position: [f32; 3],
+    yaw: f32,
+    scale: f32,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct ConiferPlacementReport {
+    pub candidate_clusters: usize,
+    pub kept_clusters: usize,
+    pub split_clusters: usize,
+    pub small_clusters: usize,
+    pub cluster_trees: usize,
+    pub rim_trees: usize,
+    pub slope_trees: usize,
+    pub thinned_trees: usize,
+    pub culled_trees: usize,
+    pub terrain_extent: ([f32; 2], [f32; 2]),
+    pub terrain_centre: [f32; 2],
+    /// Largest trunk base above the terrain under it (never positive).
+    pub max_float_above_terrain: f32,
+    pub max_sink_below_terrain: f32,
+    /// Largest trunk base above the nearest collision floor beneath it.
+    pub max_float_above_collision: f32,
+    pub trees_over_no_collision: usize,
+}
+
+/// One shared cluster mesh placed in the world.
+struct PlacedCluster {
+    mesh: usize,
+    position: [f32; 3],
+    yaw: f32,
+    scale: f32,
+}
+
+/// Plant every cluster position, coarsest first, so no trunk floats.
+///
+/// A full 27-tree cluster is kept where all of its trunks stand on terrain
+/// that is nearly level and well inside the terrain's edge. Otherwise its
+/// area is retried as four nine-tree clusters, and any of those that still
+/// do not fit leave their trees to be planted singly: smaller trees, each on
+/// the ground under its own trunk. A tree with no terrain within
+/// `TREE_FOOTPRINT_MARGIN`, or on a cliff, is not planted.
+fn plan_conifers(
+    terrain: &Ground,
+    collision: &Ground,
+    clusters: &[[f32; 3]],
+    model_floors: &[f32],
+) -> (Vec<PlacedCluster>, Vec<RimTree>, ConiferPlacementReport) {
+    let mut report = ConiferPlacementReport {
+        candidate_clusters: clusters.len(),
+        max_float_above_terrain: f32::NEG_INFINITY,
+        max_float_above_collision: f32::NEG_INFINITY,
+        ..ConiferPlacementReport::default()
+    };
+    let (mut minimum, mut maximum) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
+    for vertex in terrain.triangles.iter().flatten() {
+        minimum = [minimum[0].min(vertex[0]), minimum[1].min(vertex[2])];
+        maximum = [maximum[0].max(vertex[0]), maximum[1].max(vertex[2])];
+    }
+    report.terrain_extent = (minimum, maximum);
+    report.terrain_centre = [(minimum[0] + maximum[0]) * 0.5, (minimum[1] + maximum[1]) * 0.5];
+
+    let mut placed = Vec::new();
+    let mut singles = Vec::new();
+    let mut trunks: Vec<[f32; 3]> = Vec::new();
+    for (index, centre) in clusters.iter().enumerate() {
+        let variant = index % CONIFER_MODELS.len();
+        let seed = (index as u32).wrapping_mul(0x2c1b_3c6d);
+        // Only the half turn: it maps the offset grids to themselves whichever
+        // way the engine winds a yaw, so trunk positions are exact.
+        let yaw = if hash_unit(seed) < 0.5 { 0.0 } else { std::f32::consts::PI };
+        let sign = if yaw == 0.0 { 1.0 } else { -1.0 };
+        let scale = 0.85 + hash_unit(seed ^ 0x68e3_1da4) * 0.3;
+        let at = |origin: [f32; 2], offset: [f32; 2]| {
+            [origin[0] + sign * scale * offset[0], origin[1] + sign * scale * offset[1]]
+        };
+        let base = |tree: usize| {
+            let model = cluster_tree_model(variant, tree);
+            scale * (-CLUSTER_TREE_SINK + cluster_tree_scale(variant, tree) * model_floors[model])
+        };
+        let centre_xz = [centre[0], centre[2]];
+
+        let large: Vec<([f32; 2], f32)> = CLUSTER_OFFSETS
+            .iter()
+            .enumerate()
+            .map(|(tree, offset)| (at(centre_xz, *offset), base(tree)))
+            .collect();
+        if let Some(origin_y) =
+            settle_group(terrain, &large, LARGE_CLUSTER_MARGIN, MAX_CLUSTER_RELIEF)
+        {
+            trunks.extend(large.iter().map(|(xz, b)| [xz[0], xz[1], origin_y + b]));
+            report.kept_clusters += 1;
+            report.cluster_trees += large.len();
+            placed.push(PlacedCluster {
+                mesh: variant,
+                position: [centre[0], origin_y, centre[2]],
+                yaw,
+                scale,
+            });
+            continue;
+        }
+
+        report.split_clusters += 1;
+        for (part, sub_centre) in SMALL_CLUSTER_CENTRES.iter().enumerate() {
+            let origin = at(centre_xz, *sub_centre);
+            let small: Vec<([f32; 2], f32)> = SMALL_CLUSTER_OFFSETS
+                .iter()
+                .enumerate()
+                .map(|(tree, offset)| (at(origin, *offset), base(tree)))
+                .collect();
+            if let Some(origin_y) =
+                settle_group(terrain, &small, SMALL_CLUSTER_MARGIN, MAX_SMALL_CLUSTER_RELIEF)
+            {
+                trunks.extend(small.iter().map(|(xz, b)| [xz[0], xz[1], origin_y + b]));
+                report.small_clusters += 1;
+                report.cluster_trees += small.len();
+                placed.push(PlacedCluster {
+                    mesh: CONIFER_MODELS.len() + variant,
+                    position: [origin[0], origin_y, origin[1]],
+                    yaw,
+                    scale,
+                });
+                continue;
+            }
+            // Near the terrain's edge every tree is kept, smaller; on a slope
+            // too steep for a nine-tree cluster every other one, full size.
+            let near_rim = small
+                .iter()
+                .any(|(xz, _)| terrain.ring(xz[0], xz[1], SMALL_CLUSTER_MARGIN).is_none());
+            for (tree, (xz, _)) in small.iter().enumerate() {
+                if !near_rim && tree % 2 == 1 {
+                    report.thinned_trees += 1;
+                    continue;
+                }
+                let ground = terrain
+                    .ring(xz[0], xz[1], TREE_FOOTPRINT_MARGIN)
+                    .and_then(|_| terrain.ring(xz[0], xz[1], TRUNK_RADIUS));
+                let Some(ground) = ground.filter(|g| g.1 - g.0 <= MAX_TRUNK_RELIEF) else {
+                    report.culled_trees += 1;
+                    continue;
+                };
+                let model = cluster_tree_model(variant, tree);
+                let tree_seed =
+                    seed ^ ((part * SMALL_CLUSTER_OFFSETS.len() + tree) as u32).wrapping_mul(0x9e37_79b9);
+                let range = if near_rim { RIM_TREE_SCALE } else { SLOPE_TREE_SCALE };
+                let tree_scale = range[0] + hash_unit(tree_seed) * (range[1] - range[0]);
+                if near_rim {
+                    report.rim_trees += 1;
+                } else {
+                    report.slope_trees += 1;
+                }
+                let trunk = ground.0 - TRUNK_SINK;
+                trunks.push([xz[0], xz[1], trunk]);
+                singles.push(RimTree {
+                    model: CONIFER_MODELS[model],
+                    position: [xz[0], trunk - tree_scale * model_floors[model], xz[1]],
+                    yaw: hash_unit(tree_seed ^ 0x5bd1_e995) * std::f32::consts::TAU,
+                    scale: tree_scale,
+                });
+            }
+        }
+    }
+
+    for trunk in &trunks {
+        if let Some(ground) = terrain.top(trunk[0], trunk[1]) {
+            report.max_float_above_terrain = report.max_float_above_terrain.max(trunk[2] - ground);
+            report.max_sink_below_terrain = report.max_sink_below_terrain.max(ground - trunk[2]);
+        }
+        match collision.top_below(trunk[0], trunk[1], trunk[2] + 2.0) {
+            Some(floor) => {
+                report.max_float_above_collision =
+                    report.max_float_above_collision.max(trunk[2] - floor);
+            }
+            None => report.trees_over_no_collision += 1,
+        }
+    }
+    (placed, singles, report)
+}
+
+/// The origin height that grounds every trunk of a group, or `None` when a
+/// trunk lacks terrain within `margin` or the trunks' ground spans more
+/// than `relief`.
+fn settle_group(
+    terrain: &Ground,
+    trees: &[([f32; 2], f32)],
+    margin: f32,
+    relief: f32,
+) -> Option<f32> {
+    let mut lowest = f32::INFINITY;
+    let mut highest = f32::NEG_INFINITY;
+    let mut origin = f32::INFINITY;
+    for (xz, base) in trees {
+        terrain.ring(xz[0], xz[1], margin)?;
+        let ground = terrain.ring(xz[0], xz[1], TRUNK_RADIUS)?;
+        lowest = lowest.min(ground.0);
+        highest = highest.max(ground.1);
+        origin = origin.min(ground.0 - TRUNK_SINK - base);
+    }
+    (highest - lowest <= relief).then_some(origin)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ground_samples_terrain_and_rejects_its_edge() {
+        let ground = Ground::new(vec![
+            [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 10.0]],
+            [[10.0, 0.0, 0.0], [10.0, 10.0, 10.0], [0.0, 10.0, 10.0]],
+        ]);
+        assert!((ground.top(5.0, 5.0).unwrap() - 5.0).abs() < 1e-4);
+        assert_eq!(ground.top(11.0, 5.0), None);
+        let (low, high) = ground.ring(5.0, 5.0, 1.0).unwrap();
+        assert!((low - 4.0).abs() < 1e-4 && (high - 6.0).abs() < 1e-4);
+        assert_eq!(ground.ring(9.5, 5.0, 1.0), None);
+    }
+
+    #[test]
+    fn settled_group_grounds_its_lowest_trunk_and_rejects_relief() {
+        let ground = Ground::new(vec![
+            [[-50.0, 0.0, -50.0], [50.0, 0.0, -50.0], [-50.0, 2.0, 50.0]],
+            [[50.0, 0.0, -50.0], [50.0, 2.0, 50.0], [-50.0, 2.0, 50.0]],
+        ]);
+        let trees = [([0.0, -3.0], -0.45), ([0.0, 3.0], -0.45)];
+        let origin = settle_group(&ground, &trees, 3.0, 1.0).unwrap();
+        for (xz, base) in trees {
+            assert!(origin + base <= ground.top(xz[0], xz[1]).unwrap() - TRUNK_SINK + 0.13);
+            assert!(origin + base <= ground.ring(xz[0], xz[1], TRUNK_RADIUS).unwrap().0);
+        }
+        assert_eq!(settle_group(&ground, &trees, 3.0, 0.05), None);
+    }
 
     #[test]
     fn farthest_selection_spreads_points() {
