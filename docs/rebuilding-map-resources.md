@@ -166,6 +166,19 @@ names (`.work/dirty-bomb-<map>-resources-v<N>.db`); repeat for `canal`,
 (`dirty-bomb-inventory`, `dirty-bomb-probe-map`, `dirty-bomb-probe-conversion`)
 regenerate the deleted `*-probe*.json` / `*-conversion*.json` stat dumps.
 
+## Every family in one database — the offline playtest package
+
+`scripts/build-all-maps-package.sh` builds the twelve SoC multiplayer maps and
+Cordon, the outdoor F.E.A.R. worlds (`FEAR_WORLDS`, default `asylum train_yard
+deadwood`), and the Survarium 0.1.1e / 0.20f / 0.23h levels, composes them
+0.20f-first and applies them onto untouched retail in one verified chain:
+`.work/all-maps/release/resources.db` (SHA-256
+`573c5d1c8970c75735f4a3b0f7155c40c8c3729b8353a26d9253ce89a3dfefa4`, 5.28 GB).
+Every map is built with `--camera-at-spawn`, because the offline client inserts
+the player at the client project's `camera.position`. The donor databases are
+the ones `map-porting.txt` inventories (0.1.1e `694e1772…`, 0.20f build 1923
+`5f871046…`, 0.23h `8e5a1530…`).
+
 ## Running a rebuilt map
 
 ```sh
