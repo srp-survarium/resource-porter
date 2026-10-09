@@ -536,7 +536,7 @@ enum Command {
         output: PathBuf,
         #[arg(long, default_value_t = 16500)]
         grass_limit: usize,
-        #[arg(long, default_value_t = 21600)]
+        #[arg(long, default_value_t = 32400)]
         conifer_limit: usize,
         /// Centre of the wildflower island. The retail Steam Training Camp
         /// has only four standable cells around the earlier [-40, 189]; the
