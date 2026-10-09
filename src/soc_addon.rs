@@ -1017,6 +1017,11 @@ fn set_bounds(config: &mut BinaryConfig, bounds: ([f32; 3], [f32; 3])) -> Result
 
 fn set_surface_bounds(config: &mut BinaryConfig, bounds: ([f32; 3], [f32; 3])) -> Result<()> {
     set_bounds(config, bounds)?;
+    // Grass LOD surfaces carry only a box; adding a sphere they never had is a
+    // patch the config cannot take.
+    if config.root.named("bounding_sphere").is_none() {
+        return Ok(());
+    }
     let center = std::array::from_fn(|axis| (bounds.0[axis] + bounds.1[axis]) * 0.5);
     let radius = (0..3)
         .map(|axis| (bounds.1[axis] - center[axis]).powi(2))

@@ -538,11 +538,14 @@ enum Command {
         grass_limit: usize,
         #[arg(long, default_value_t = 21600)]
         conifer_limit: usize,
-        #[arg(long, default_value_t = -40.0, allow_hyphen_values = true)]
+        /// Centre of the wildflower island. The retail Steam Training Camp
+        /// has only four standable cells around the earlier [-40, 189]; the
+        /// nearest island with room for a full meadow is [-12, 138].
+        #[arg(long, default_value_t = -12.0, allow_hyphen_values = true)]
         flower_center_x: f32,
-        #[arg(long, default_value_t = 189.0, allow_hyphen_values = true)]
+        #[arg(long, default_value_t = 138.0, allow_hyphen_values = true)]
         flower_center_z: f32,
-        #[arg(long, default_value_t = 24.0)]
+        #[arg(long, default_value_t = 30.0)]
         flower_radius: f32,
         #[arg(long, default_value_t = 900)]
         flower_limit: usize,
