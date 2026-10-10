@@ -364,6 +364,8 @@ fn donor_game_material_names() -> BTreeMap<String, String> {
         ("mud_walkable", "mud"),
         ("gravel_walkable", "gravel"),
         ("brick_walkable", "brick"),
+        // A stale editor name on one 0.20f prop; its id is already brick's.
+        ("red brick", "brick"),
         ("concrete_walkable", "concrete"),
         ("schiefer", "stone"),
         ("metal_car", "metall_thick"),
