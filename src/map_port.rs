@@ -447,6 +447,14 @@ fn transform_client_project(
             dropped_client_object_types,
         )?;
         convert_environment_probe_contracts(&mut project.root, path)?;
+        if let Some(scale) = manifest.environment_probe_light_scale
+            && scale_environment_probe_light(&mut project.root, path, scale)? == 0
+        {
+            bail!("{path} declares environment_probe_light_scale but has no environment probes");
+        }
+        if let Some(max_radius) = manifest.environment_probe_max_radius {
+            cap_environment_probe_radius(&mut project.root, path, max_radius)?;
+        }
         if let Some(post_effect) = &manifest.legacy_environment_post_effect {
             let material_path = format!("material_instances/{post_effect}.material");
             if !target.contains(&material_path) {
@@ -658,6 +666,90 @@ fn convert_environment_probe_contracts(root: &mut ConfigValue, path: &str) -> Re
         converted += 1;
     }
     Ok(converted)
+}
+
+/// Rescale every environment probe's diffuse and specular multipliers, the
+/// two fields v0.100b passes to its probe shader as `color_parameters`.
+fn scale_environment_probe_light(root: &mut ConfigValue, path: &str, scale: f32) -> Result<usize> {
+    if !scale.is_finite() || scale <= 0.0 {
+        bail!("{path} environment_probe_light_scale {scale} is not a positive factor");
+    }
+    let ConfigValue::Indexed(objects) = root
+        .named_mut("objects")
+        .with_context(|| format!("{path} has no legacy objects table after conversion"))?
+    else {
+        bail!("{path} legacy objects is not an indexed table");
+    };
+
+    let mut scaled = 0;
+    for (object_index, object) in objects.iter_mut().enumerate() {
+        if !matches!(
+            object.named("game_object_type"),
+            Some(ConfigValue::String(kind)) if kind == "environment_probe"
+        ) {
+            continue;
+        }
+        for name in ["diffuse_multiplier", "specular_multiplier"] {
+            let field = object.named_mut(name).with_context(|| {
+                format!("{path} environment probe object {object_index} has no {name}")
+            })?;
+            let value = match *field {
+                ConfigValue::Integer(value) => value as f32,
+                ConfigValue::Float(value) => value,
+                _ => bail!(
+                    "{path} environment probe object {object_index} field {name} is not numeric"
+                ),
+            };
+            *field = ConfigValue::Float(value * scale);
+        }
+        scaled += 1;
+    }
+    Ok(scaled)
+}
+
+/// Shrink sphere environment probes whose volume would reach past the
+/// target camera's far plane. Box probes are sized by their transform and
+/// keep theirs. Returns how many probes were shrunk.
+fn cap_environment_probe_radius(
+    root: &mut ConfigValue,
+    path: &str,
+    max_radius: f32,
+) -> Result<usize> {
+    if !max_radius.is_finite() || max_radius <= 0.0 {
+        bail!("{path} environment_probe_max_radius {max_radius} is not a positive radius");
+    }
+    let ConfigValue::Indexed(objects) = root
+        .named_mut("objects")
+        .with_context(|| format!("{path} has no legacy objects table after conversion"))?
+    else {
+        bail!("{path} legacy objects is not an indexed table");
+    };
+
+    let mut capped = 0;
+    for (object_index, object) in objects.iter_mut().enumerate() {
+        if !matches!(
+            object.named("game_object_type"),
+            Some(ConfigValue::String(kind)) if kind == "environment_probe"
+        ) {
+            continue;
+        }
+        let number = |value: Option<&ConfigValue>, name: &str| match value {
+            Some(ConfigValue::Integer(value)) => Ok(*value as f32),
+            Some(ConfigValue::Float(value)) => Ok(*value),
+            _ => bail!("{path} environment probe object {object_index} has no numeric {name}"),
+        };
+        // v0.100b reads geometry 0 as a sphere of `radius`, anything else as
+        // a box (stage_ambient_lighting.cpp).
+        if number(object.named("geometry"), "geometry")? != 0.0 {
+            continue;
+        }
+        if number(object.named("radius"), "radius")? > max_radius {
+            *object.named_mut("radius").expect("radius was just read") =
+                ConfigValue::Float(max_radius);
+            capped += 1;
+        }
+    }
+    Ok(capped)
 }
 
 fn convert_environment_contracts(
@@ -3006,6 +3098,92 @@ mod tests {
                 Some(&ConfigValue::Boolean(false))
             );
         }
+    }
+
+    #[test]
+    fn quarters_donor_environment_probe_light() {
+        let named = |name: &str, value| NamedValue {
+            name: name.into(),
+            value,
+        };
+        let mut root = ConfigValue::Named(vec![named(
+            "objects",
+            ConfigValue::Indexed(vec![
+                ConfigValue::Named(vec![
+                    named(
+                        "game_object_type",
+                        ConfigValue::String("environment_probe".into()),
+                    ),
+                    named("diffuse_multiplier", ConfigValue::Float(7.3)),
+                    named("specular_multiplier", ConfigValue::Integer(1)),
+                ]),
+                ConfigValue::Named(vec![
+                    named("game_object_type", ConfigValue::String("light".into())),
+                    named("intensity", ConfigValue::Float(2.14)),
+                ]),
+            ]),
+        )]);
+
+        assert_eq!(
+            scale_environment_probe_light(&mut root, "projects/test/client_project", 0.25).unwrap(),
+            1
+        );
+        let ConfigValue::Indexed(objects) = root.named("objects").unwrap() else {
+            panic!("objects must remain indexed");
+        };
+        assert_eq!(
+            objects[0].named("diffuse_multiplier"),
+            Some(&ConfigValue::Float(7.3 * 0.25))
+        );
+        assert_eq!(
+            objects[0].named("specular_multiplier"),
+            Some(&ConfigValue::Float(0.25))
+        );
+        assert_eq!(
+            objects[1].named("intensity"),
+            Some(&ConfigValue::Float(2.14))
+        );
+
+        let error = scale_environment_probe_light(&mut root, "projects/test/client_project", 0.0)
+            .unwrap_err();
+        assert!(error.to_string().contains("is not a positive factor"));
+    }
+
+    #[test]
+    fn keeps_sphere_probes_inside_the_target_far_plane() {
+        let named = |name: &str, value| NamedValue {
+            name: name.into(),
+            value,
+        };
+        let probe = |geometry, radius| {
+            ConfigValue::Named(vec![
+                named(
+                    "game_object_type",
+                    ConfigValue::String("environment_probe".into()),
+                ),
+                named("geometry", ConfigValue::Integer(geometry)),
+                named("radius", radius),
+            ])
+        };
+        let mut root = ConfigValue::Named(vec![named(
+            "objects",
+            ConfigValue::Indexed(vec![
+                probe(0, ConfigValue::Float(664.9)),
+                probe(0, ConfigValue::Float(19.2)),
+                probe(1, ConfigValue::Integer(500)),
+            ]),
+        )]);
+
+        assert_eq!(
+            cap_environment_probe_radius(&mut root, "projects/test/client_project", 300.0).unwrap(),
+            1
+        );
+        let ConfigValue::Indexed(objects) = root.named("objects").unwrap() else {
+            panic!("objects must remain indexed");
+        };
+        assert_eq!(objects[0].named("radius"), Some(&ConfigValue::Float(300.0)));
+        assert_eq!(objects[1].named("radius"), Some(&ConfigValue::Float(19.2)));
+        assert_eq!(objects[2].named("radius"), Some(&ConfigValue::Integer(500)));
     }
 
     #[test]

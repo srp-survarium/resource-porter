@@ -184,3 +184,35 @@ textures among them, which is what X-Ray terrain needs to stop looking flat.
 **The general rule:** before enabling any material flag the port does not
 already set, check that its position varies in the shipped permutations. The
 material schema is not a promise that the shader exists.
+
+## Environment probes are drawn at full strength, inside a 500 m far plane
+
+**Status in 802:** two properties of the probe pass decide how a probe
+authored for a later build looks here.
+
+* `environment_probe_lighting.ps` reads the cubemap as `pow(rgb/a, 2.2)` and
+  scales it only by the probe's `diffuse_multiplier`/`specular_multiplier`.
+  The 0.20f and 0.23h shaders multiply every sample by a literal `0.25` on top
+  (disassembled from the shipped blobs with `vkd3d-compiler -x dxbc-tpf -b
+  d3d-asm`). Their probes were baked for that quarter, so drawn by 802 they
+  are about four times too bright.
+* The camera's far plane is 500 m (`s_camera_far_plane`), and a sphere probe
+  the camera is inside is drawn through its back faces. The donor global
+  probe of level_03 is 664.9 m: its back faces lie 605+ m away, so the far
+  plane clips them except towards the screen edges, where view depth is
+  shorter than distance. The probe then lights a ring of the screen and not
+  its centre.
+
+**Consequence:** on level_03_day_020f the screen centre looked right with sun
+shadows while everything towards the edges was washed out, shaded walls lit,
+and distant trees pinkish white; it vanished when looking at the sky. The
+manifests of the 0.20f and 0.23h maps set `environment_probe_light_scale:
+0.25` and `environment_probe_max_radius: 300` (retail level_03's global probe
+is 300 m; the furthest respawn point is 130 m from it, inside 500).
+level_04_011e needs neither: 0.1.1e's probe shader has no quarter, its probes
+are retail-bright, and its 340.9 m global probe stays within 500 m from every
+respawn point.
+
+**Re-test:** disassemble the new build's `environment_probe_lighting.ps` and
+look for the constant, and check the camera far plane against the largest
+sphere probe radius plus the furthest camera position from its centre.

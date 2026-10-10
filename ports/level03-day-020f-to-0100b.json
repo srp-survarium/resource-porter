@@ -19,6 +19,8 @@
   "convert_materials_to_target_schema": true,
   "convert_split_client_objects_to_legacy": true,
   "legacy_environment_post_effect": "post_process/level_03_day",
+  "environment_probe_light_scale": 0.25,
+  "environment_probe_max_radius": 300.0,
   "drop_client_object_types": [
     "ambient_light",
     "artefact_container",

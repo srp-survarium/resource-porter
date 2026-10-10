@@ -111,6 +111,22 @@ pub struct MapPortManifest {
     /// v0.100b unconditionally requests the legacy `post_effect` string.
     #[serde(default)]
     pub legacy_environment_post_effect: Option<String>,
+    /// Factor applied to every converted `environment_probe`'s
+    /// `diffuse_multiplier` and `specular_multiplier`. The 0.20f and 0.23h
+    /// `environment_probe_lighting.ps` multiply each cubemap sample by a
+    /// literal 0.25 that v0.100b's does not, so their probes were baked four
+    /// times brighter than v0.100b draws at full strength.
+    #[serde(default)]
+    pub environment_probe_light_scale: Option<f32>,
+    /// Largest radius a converted sphere `environment_probe` keeps. v0.100b
+    /// draws a probe the camera is inside through its back faces, and its
+    /// camera clips them at 500 m (`s_camera_far_plane`): a donor global
+    /// probe of 640+ m is then drawn only towards the screen edges, where
+    /// view depth is shorter than distance, which shows as an unshadowed,
+    /// washed-out ring around a correctly lit centre. Retail level_03's
+    /// global probe is 300 m.
+    #[serde(default)]
+    pub environment_probe_max_radius: Option<f32>,
     /// Optional target-build client project used as the outer legacy schema.
     /// Only sections named by legacy_client_project_sections are copied from
     /// the converted donor project; all other sections remain target-native.
