@@ -78,7 +78,8 @@ set_ps_constant( m_c_skylight_parameters1,
 material, and `level_03_day` sets `0..5` for terrain running y = -0.6..3.97.
 
 **Consequence:** every converted map emits its own post-process material with
-that band re-anchored under its own geometry. See `the porting guide`.
+that band re-anchored under its own geometry. See the
+[SoC conversion guide](soc-map-porting.md).
 
 **Re-test:** check whether the new build's post-process schema still exposes
 `skylight_lower`/`skylight_upper` at `material.post_process`, and whether its

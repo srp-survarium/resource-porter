@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `UStaticMesh` native serializer for Dirty Bomb's cooked PC packages.
 //!
 //! The layout follows `UStaticMesh::Serialize` and

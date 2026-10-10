@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Fail-closed reader for the cooked UE3 package ABI used by Dirty Bomb.
 
 use std::collections::BTreeSet;

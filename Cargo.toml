@@ -1,9 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 [package]
 name = "vostok-resource-porter"
 version = "0.1.0"
 edition = "2024"
-description = "Cross-version Survarium and STK2 asset importer for the v0.100b client"
-license = "MIT"
+description = "Map and asset converter for the Survarium v0.100b client"
+license = "GPL-3.0-or-later"
+readme = "README.md"
+repository = "https://github.com/srp-survarium/resource-porter"
+publish = false
+
+[workspace]
+members = ["deps/vostok-resources-db"]
+resolver = "3"
 
 [[bin]]
 name = "vostok-port"

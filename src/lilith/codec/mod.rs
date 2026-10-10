@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Decoders for the Jupiter EX formats the port reads.
 //!
 //! Everything here is pure: bytes in, structures out, `Result` on anything

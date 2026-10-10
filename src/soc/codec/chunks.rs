@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! X-Ray chunked-container reader.
 //!
 //! Every X-Ray 1.x container file is a flat sequence of

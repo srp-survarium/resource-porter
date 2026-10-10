@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Optional vegetation, lighting and objective-item layer for an X-Ray map.
 //!
 //! This intentionally emits an ordinary overlay bundle. The converted map is
@@ -755,9 +756,9 @@ fn conifer_model_floors(db: &mut ResourceDb) -> Result<Vec<f32>> {
     for model in CONIFER_MODELS {
         let mut floor = f32::INFINITY;
         for lod in LODS {
-            let mesh = parse_static_mesh(
-                &db.read(&format!("models/{model}.model/render/{lod}/converted_model"))?,
-            )?;
+            let mesh = parse_static_mesh(&db.read(&format!(
+                "models/{model}.model/render/{lod}/converted_model"
+            ))?)?;
             floor = floor.min(mesh_bounds(&mesh)?.0[1]);
         }
         floors.push(floor);
@@ -1503,9 +1504,15 @@ impl Ground {
         let mut grid: BTreeMap<(i32, i32), Vec<u32>> = BTreeMap::new();
         for (index, triangle) in triangles.iter().enumerate() {
             let min_x = triangle.iter().map(|v| v[0]).fold(f32::INFINITY, f32::min);
-            let max_x = triangle.iter().map(|v| v[0]).fold(f32::NEG_INFINITY, f32::max);
+            let max_x = triangle
+                .iter()
+                .map(|v| v[0])
+                .fold(f32::NEG_INFINITY, f32::max);
             let min_z = triangle.iter().map(|v| v[2]).fold(f32::INFINITY, f32::min);
-            let max_z = triangle.iter().map(|v| v[2]).fold(f32::NEG_INFINITY, f32::max);
+            let max_z = triangle
+                .iter()
+                .map(|v| v[2])
+                .fold(f32::NEG_INFINITY, f32::max);
             for x in (min_x / CELL).floor() as i32..=(max_x / CELL).floor() as i32 {
                 for z in (min_z / CELL).floor() as i32..=(max_z / CELL).floor() as i32 {
                     grid.entry((x, z)).or_default().push(index as u32);
@@ -1521,7 +1528,10 @@ impl Ground {
 
     /// Heights of every triangle straight above or below `(x, z)`.
     fn heights(&self, x: f32, z: f32) -> impl Iterator<Item = f32> + '_ {
-        let key = ((x / self.cell).floor() as i32, (z / self.cell).floor() as i32);
+        let key = (
+            (x / self.cell).floor() as i32,
+            (z / self.cell).floor() as i32,
+        );
         self.grid
             .get(&key)
             .into_iter()
@@ -1536,7 +1546,9 @@ impl Ground {
 
     /// The highest surface at `(x, z)` that is not above `ceiling`.
     fn top_below(&self, x: f32, z: f32, ceiling: f32) -> Option<f32> {
-        self.heights(x, z).filter(|height| *height <= ceiling).reduce(f32::max)
+        self.heights(x, z)
+            .filter(|height| *height <= ceiling)
+            .reduce(f32::max)
     }
 
     /// Lowest and highest ground over the centre and an eight-point ring, or
@@ -1582,7 +1594,8 @@ fn terrain_ground(level: &crate::soc::build::DecodedLevel) -> Result<Ground> {
             continue;
         }
         for triangle in surface.indices.chunks_exact(3) {
-            let triangle = [0, 1, 2].map(|corner| surface.vertices[usize::from(triangle[corner])].position);
+            let triangle =
+                [0, 1, 2].map(|corner| surface.vertices[usize::from(triangle[corner])].position);
             if upward(&triangle) > 0.05 {
                 triangles.push(triangle);
             }
@@ -1617,7 +1630,11 @@ fn upward(triangle: &[[f32; 3]; 3]) -> f32 {
         edge0[0] * edge1[1] - edge0[1] * edge1[0],
     ];
     let length = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
-    if length.is_normal() { normal[1] / length } else { 0.0 }
+    if length.is_normal() {
+        normal[1] / length
+    } else {
+        0.0
+    }
 }
 
 /// Ground within this distance of a tree must exist, so no crown overhangs
@@ -1710,7 +1727,10 @@ fn plan_conifers(
         maximum = [maximum[0].max(vertex[0]), maximum[1].max(vertex[2])];
     }
     report.terrain_extent = (minimum, maximum);
-    report.terrain_centre = [(minimum[0] + maximum[0]) * 0.5, (minimum[1] + maximum[1]) * 0.5];
+    report.terrain_centre = [
+        (minimum[0] + maximum[0]) * 0.5,
+        (minimum[1] + maximum[1]) * 0.5,
+    ];
 
     let mut placed = Vec::new();
     let mut singles = Vec::new();
@@ -1720,11 +1740,18 @@ fn plan_conifers(
         let seed = (index as u32).wrapping_mul(0x2c1b_3c6d);
         // Only the half turn: it maps the offset grids to themselves whichever
         // way the engine winds a yaw, so trunk positions are exact.
-        let yaw = if hash_unit(seed) < 0.5 { 0.0 } else { std::f32::consts::PI };
+        let yaw = if hash_unit(seed) < 0.5 {
+            0.0
+        } else {
+            std::f32::consts::PI
+        };
         let sign = if yaw == 0.0 { 1.0 } else { -1.0 };
         let scale = 0.85 + hash_unit(seed ^ 0x68e3_1da4) * 0.3;
         let at = |origin: [f32; 2], offset: [f32; 2]| {
-            [origin[0] + sign * scale * offset[0], origin[1] + sign * scale * offset[1]]
+            [
+                origin[0] + sign * scale * offset[0],
+                origin[1] + sign * scale * offset[1],
+            ]
         };
         let base = |tree: usize| {
             let model = cluster_tree_model(variant, tree);
@@ -1760,9 +1787,12 @@ fn plan_conifers(
                 .enumerate()
                 .map(|(tree, offset)| (at(origin, *offset), base(tree)))
                 .collect();
-            if let Some(origin_y) =
-                settle_group(terrain, &small, SMALL_CLUSTER_MARGIN, MAX_SMALL_CLUSTER_RELIEF)
-            {
+            if let Some(origin_y) = settle_group(
+                terrain,
+                &small,
+                SMALL_CLUSTER_MARGIN,
+                MAX_SMALL_CLUSTER_RELIEF,
+            ) {
                 trunks.extend(small.iter().map(|(xz, b)| [xz[0], xz[1], origin_y + b]));
                 report.small_clusters += 1;
                 report.cluster_trees += small.len();
@@ -1792,9 +1822,14 @@ fn plan_conifers(
                     continue;
                 };
                 let model = cluster_tree_model(variant, tree);
-                let tree_seed =
-                    seed ^ ((part * SMALL_CLUSTER_OFFSETS.len() + tree) as u32).wrapping_mul(0x9e37_79b9);
-                let range = if near_rim { RIM_TREE_SCALE } else { SLOPE_TREE_SCALE };
+                let tree_seed = seed
+                    ^ ((part * SMALL_CLUSTER_OFFSETS.len() + tree) as u32)
+                        .wrapping_mul(0x9e37_79b9);
+                let range = if near_rim {
+                    RIM_TREE_SCALE
+                } else {
+                    SLOPE_TREE_SCALE
+                };
                 let tree_scale = range[0] + hash_unit(tree_seed) * (range[1] - range[0]);
                 if near_rim {
                     report.rim_trees += 1;

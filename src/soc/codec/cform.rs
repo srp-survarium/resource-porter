@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `level.cform`: the compiled collision mesh of an X-Ray 1.x level.
 //!
 //! The file is a flat header followed by two packed arrays. Unlike the render

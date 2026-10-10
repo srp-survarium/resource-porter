@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Read;
@@ -410,7 +411,12 @@ pub fn extract_bundle(db_path: &Path, prefixes: &[String], output: &Path) -> Res
     let paths: Vec<String> = db
         .entries()
         .keys()
-        .filter(|path| db.is_file(path) && prefixes.iter().any(|prefix| path.starts_with(prefix.as_str())))
+        .filter(|path| {
+            db.is_file(path)
+                && prefixes
+                    .iter()
+                    .any(|prefix| path.starts_with(prefix.as_str()))
+        })
         .cloned()
         .collect();
     if paths.is_empty() {
@@ -950,14 +956,20 @@ mod tests {
             &first,
             &[
                 ("models/shared.model/settings", b"first settings"),
-                ("models/shared.model/render/a/converted_model", b"first body"),
+                (
+                    "models/shared.model/render/a/converted_model",
+                    b"first body",
+                ),
             ],
         );
         write_test_bundle(
             &later,
             &[
                 ("models/shared.model/settings", b"later settings"),
-                ("models/shared.model/render/b/converted_model", b"later body"),
+                (
+                    "models/shared.model/render/b/converted_model",
+                    b"later body",
+                ),
                 ("models/shared.model/collision/vertices", b"later collision"),
             ],
         );

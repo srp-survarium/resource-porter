@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The declaration of one Shadow of Chernobyl map port.
 //!
 //! Like the other porter manifests this file records *intent*, not procedure.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Emit a v0.100b bundle from a compiled Shadow of Chernobyl level.
 //!
 //! This module owns the only side effects in the SoC path: reading the source
@@ -1389,7 +1390,11 @@ pub(crate) fn write_materials(
             let controls = terrain.expect("a terrain plan implies generated terrain controls");
             // X-Ray's own mask where the level has one; otherwise a generated
             // constant that weights layer 0.
-            match plan.terrain.as_ref().and_then(|source| source.mask.as_ref()) {
+            match plan
+                .terrain
+                .as_ref()
+                .and_then(|source| source.mask.as_ref())
+            {
                 Some(mask) => bind_texture(
                     &mut material,
                     TERRAIN_MASK_TEXTURE,
@@ -1430,7 +1435,9 @@ pub(crate) fn write_materials(
             // every layer.
             let layers: [String; 4] = match &plan.terrain {
                 Some(terrain) => terrain.layers.clone(),
-                None => std::array::from_fn(|_| terrain_layer_texture(manifest, &plan.source_shader)),
+                None => {
+                    std::array::from_fn(|_| terrain_layer_texture(manifest, &plan.source_shader))
+                }
             };
             for (layer, detail) in layers.iter().enumerate() {
                 bind_texture(
@@ -2513,7 +2520,10 @@ mod tests {
             "[association]\nterrain\\terrain_escape = detail\\detail_grnd_grass, 40.000000 ; x\n\
              [specification]\nterrain\\terrain_escape = bump_mode[none], material[0.0]\n",
         );
-        assert_eq!(scales.get(&source::normalize("terrain\\terrain_escape")), Some(&40.0));
+        assert_eq!(
+            scales.get(&source::normalize("terrain\\terrain_escape")),
+            Some(&40.0)
+        );
         assert_eq!(scales.len(), 1);
     }
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Static collision a project names must exist in the database it runs on.
 //!
 //! The client cooks every `collision_objects[].lib_name` through the class-32
@@ -72,7 +73,12 @@ fn present(db: &ResourceDb, path: &str) -> bool {
 }
 
 /// Drop every `collision_objects` entry whose folder cannot cook.
-fn prune(value: &mut ConfigValue, exists: &dyn Fn(&str) -> bool, checked: &mut usize, dropped: &mut Vec<String>) {
+fn prune(
+    value: &mut ConfigValue,
+    exists: &dyn Fn(&str) -> bool,
+    checked: &mut usize,
+    dropped: &mut Vec<String>,
+) {
     match value {
         ConfigValue::Named(fields) => {
             for field in fields {
@@ -143,8 +149,8 @@ pub fn prune_uncookable_collision(base_db: &Path, bundle: &Path) -> Result<Colli
             continue;
         }
         let disk = safe_join(&bundle.join("overlay"), &path)?;
-        let mut project = BinaryConfig::parse(&fs::read(&disk)?)
-            .with_context(|| format!("parsing {path}"))?;
+        let mut project =
+            BinaryConfig::parse(&fs::read(&disk)?).with_context(|| format!("parsing {path}"))?;
         let (mut checked, mut dropped) = (0, Vec::new());
         prune(&mut project.root, &exists, &mut checked, &mut dropped);
         report.checked.insert(path.clone(), checked);
@@ -206,7 +212,9 @@ pub fn audit_database(db: &Path) -> Result<CollisionReport> {
     let settings: Vec<String> = db
         .entries()
         .keys()
-        .filter(|path| path.ends_with(".model/settings") || path.ends_with(".skinned_model/settings"))
+        .filter(|path| {
+            path.ends_with(".model/settings") || path.ends_with(".skinned_model/settings")
+        })
         .cloned()
         .collect();
     for path in settings {

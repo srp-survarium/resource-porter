@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 work_dir="${repo_dir}/.work"
 client_dir="${CLIENT_DIR:-${work_dir}/client-v0100b-akmn}"
-srp_repo="${SRP_REPO_DIR:-/home/sheep/Projects/surv/srp}"
+srp_repo="${SRP_REPO_DIR:-${repo_dir}/../srp}"
 srp_runtime_dir="${SRP_RUNTIME_DIR:-${srp_repo}}"
 srp_bin_dir="${SRP_BIN_DIR:-${work_dir}/srp-0100b-target/debug}"
 wine_prefix="${WINE_PREFIX:-${work_dir}/wineprefix}"

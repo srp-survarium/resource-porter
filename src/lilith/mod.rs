@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! F.E.A.R. (LithTech Jupiter EX) map conversion.
 //!
 //! A fifth map-building path, shaped like [`crate::soc`]: the source is a

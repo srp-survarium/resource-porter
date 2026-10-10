@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! X-Ray 1.x motion banks (`.omf`).
 //!
 //! A bank is a chunked container holding two chunks that matter:

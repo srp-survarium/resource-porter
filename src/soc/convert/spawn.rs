@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Find places on a level's collision mesh where a player can stand.
 //!
 //! A converted map inherits no spawn points: Shadow of Chernobyl keeps them in

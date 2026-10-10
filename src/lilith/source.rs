@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Read an installed F.E.A.R. archive set the way the engine mounts it.
 //!
 //! An install root carries `Default.archcfg` — an ordered list of `.Arch00`

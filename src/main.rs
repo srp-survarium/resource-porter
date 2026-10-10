@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -2505,7 +2506,11 @@ fn main() -> Result<()> {
             println!("overwritten_paths={}", record.overwritten_paths.len());
             println!("bundle={}", output.display());
         }
-        Command::ExtractBundle { db, prefixes, output } => {
+        Command::ExtractBundle {
+            db,
+            prefixes,
+            output,
+        } => {
             let count = weapon::extract_bundle(&db, &prefixes, &output)?;
             println!("files={count}");
             println!("bundle={}", output.display());
@@ -2522,11 +2527,15 @@ fn main() -> Result<()> {
             for (model, wrong) in &report.game_material_mismatches {
                 println!("game-material mismatch {model}: {}", wrong.join(", "));
             }
-            println!("game_material_mismatches={}", report.game_material_mismatches.len());
+            println!(
+                "game_material_mismatches={}",
+                report.game_material_mismatches.len()
+            );
         }
         Command::PruneCollision { base_db, bundle } => {
-            let report =
-                vostok_resource_porter::collision_check::prune_uncookable_collision(&base_db, &bundle)?;
+            let report = vostok_resource_porter::collision_check::prune_uncookable_collision(
+                &base_db, &bundle,
+            )?;
             for (project, checked) in &report.checked {
                 let dropped = report.dropped.get(project).map_or(0, Vec::len);
                 println!("{project} checked={checked} dropped={dropped}");

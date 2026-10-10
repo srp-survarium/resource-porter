@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The skeleton an X-Ray 1.x actor model carries.
 //!
 //! A motion bank names its bones but says nothing about how they are joined or

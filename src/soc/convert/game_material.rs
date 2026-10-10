@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Translate X-Ray physical materials into v0.100b ones.
 //!
 //! Numeric physical-material identifiers are build-local in both engines, so

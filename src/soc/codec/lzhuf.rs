@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! LZHUF decompression.
 //!
 //! X-Ray compresses an archive's file table with Haruyasu Yoshizaki's LZHUF:

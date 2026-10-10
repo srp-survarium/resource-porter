@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Locate cooked Dirty Bomb maps without depending on a Steam library layout.
 
 use std::fs;

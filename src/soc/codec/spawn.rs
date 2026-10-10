@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Decode the spawn points an X-Ray multiplayer level declares.
 //!
 //! A converted map inherits no spawn points, and neither of the obvious

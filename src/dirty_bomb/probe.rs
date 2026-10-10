@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Inventory and decode reports for one streamed Dirty Bomb map graph.
 
 use std::collections::{BTreeMap, BTreeSet};

@@ -1,8 +1,8 @@
 # Porting F.E.A.R. multiplayer maps to v0.100b
 
-Why the lilith path is shaped the way it is. The *how* — commands, manifest
-fields, failure modes — belongs in `the porting guide` alongside the SoC pipeline it
-reuses; this file records what is different about a Jupiter EX source and the
+Why the lilith path is shaped the way it is. Build commands are in the
+[README](../README.md) and [rebuilding guide](rebuilding-map-resources.md).
+This file records what is different about a Jupiter EX source and the
 judgements that difference forced.
 
 The name honours the lineage: LithTech begat Jupiter, Jupiter begat Jupiter

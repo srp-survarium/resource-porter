@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Resolve cooked UE3 materials and extract their diffuse `Texture2D` data.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};

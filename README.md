@@ -1,453 +1,153 @@
 # Vostok resource porter
 
-`vostok-port` builds explicit, reproducible cross-version asset bundles for the
-Survarium v0.100b / build 802 client. The goal is to add weapons and maps as new
-content, not replace old resources.
+Tools for converting maps and assets into additive resource bundles for
+Survarium v0.100b / build 802. The porter reads source game files, converts
+geometry, collision, textures and configuration, then overlays the bundle onto
+a target `resources.db`. Every emitted resource is recorded with its origin,
+size and SHA-256 and can be verified after packing.
 
-The repository deliberately keeps two layers separate:
+Supported conversion paths include:
 
-- `deps/vostok-resources-db` reads and writes the Vostok archive container;
-- this tool owns dependency discovery, binary-config transformations,
-  version-specific schemas, dictionary IDs, localization, manifests, and
-  validation.
+- S.T.A.L.K.E.R.: Shadow of Chernobyl maps and Clear Sky Training Camp;
+- F.E.A.R. multiplayer worlds;
+- Dirty Bomb cooked UE3 maps;
+- later Survarium maps, weapons and other assets;
+- STK2 static maps, weapons and character assets.
 
-## Current vertical slice
-
-`ports/akmn-020e-to-0100b.json` adds:
-
-- AKMN as dictionary ID 74;
-- 7.62x39 ammunition as dictionary ID 75;
-- old-schema weapon/ammunition configs generated from v0.100b templates;
-- AKMN model, both body and wooden-stock materials, textures, and skeleton from
-  v0.20e;
-- Russian localization entries;
-- a provenance manifest containing every output file's size and SHA-256.
-
-`ports/sks-020e-to-0100b.json` then adds SKS as dictionary ID 76. It reuses
-ammunition ID 75, converts the newer weapon definition to the old schema, and
-copies the SKS model, material, textures, original animation skeleton, and SKS
-item/reload animations. The first-pass configuration is semi-automatic with a
-10-round magazine. The old state machine is retained, but its AK-74u item and
-reload paths are translated to compatible SKS donor animations. Its material is
-regenerated from the old `ak74_u` material schema with SKS texture
-substitutions; copying the newer material directly left `shader_source` null in
-the v0.100b renderer.
-
-`ports/dolg-exoskeleton-stk2-to-0100b.json` adds the cancelled STK2 Duty
-exoskeleton as torso armor ID 77. The importer reads its nested
-`.skinned_model` archive and reproduces Vostok's PC hardware-skinning
-conversion for all six surfaces. The first runtime bundle deliberately uses
-existing v0.100b character materials and the `scavengers_01` animation
-skeleton; original texture conversion follows after geometry and bone-order
-validation.
-
-It intentionally shares the v0.100b AK animation, particle, and sound resources
-for the first runtime milestone. Those are shared dependencies, not replacement
-assets. Dedicated donor sounds, animation conversion, and inventory-atlas
-entries can be introduced after the new items load and fire reliably. AKMN
-currently uses the old AK-74u inventory icon; SKS requests donor icon index 10,
-which still needs an old-client atlas check.
+Support and visual fidelity vary by source and target build. Resource
+verification checks the packed bytes; client playtesting checks rendering,
+collision and gameplay. Supply game installations and databases separately.
+Converted bundles and client binaries are not included.
 
 ## Build
 
-Clone with the archive-format submodule:
+The archive reader and writer are included under `deps/vostok-resources-db`;
+no submodule initialization is needed. Clone the repository, then build with
+a stable Rust toolchain and a C linker installed:
 
 ```sh
-git clone --recursive <repository>
-cd vostok-resource-porter
-nix develop
-cargo build --release
+git clone https://github.com/srp-survarium/resource-porter.git
+cd resource-porter
+cargo build --locked --release
+cargo test --locked --all-targets
+export PATH="$PWD/target/release:$PATH"
+vostok-port --help
 ```
 
-## Build weapon bundles
+The binaries are `vostok-port` and `vostok-sdk-backend`. On Linux, `nix develop`
+provides Rust, a C compiler, ImageMagick and the runtime tools. ImageMagick's
+`magick` command is required for normal-map repacking and image conversion.
+Building and running unit tests does not require game data, Wine or SRP.
 
-```sh
-vostok-port build-weapon \
-  --manifest ports/akmn-020e-to-0100b.json \
-  --target-db /path/to/v0100b/resources.db \
-  --donor-db /path/to/v020e/resources.db \
-  --output .work/akmn-bundle
-```
+## Build a map bundle
 
-This creates:
-
-```text
-.work/akmn-bundle/
-  overlay/              generated and copied virtual resource tree
-  port-manifest.json    provenance, hashes, IDs, dependency report
-  server/
-    srp-content.json    additive SRP catalog and test loadout
-```
-
-The command rejects occupied dictionary IDs, existing localization keys,
-missing donor resources, unknown manifest fields, unsafe paths, unsupported
-text encodings, and nonempty output directories.
-
-Build SKS against the already-ported AKMN database so its manifest can verify
-the shared ammunition entry:
-
-```sh
-vostok-port build-weapon \
-  --manifest ports/sks-020e-to-0100b.json \
-  --target-db .work/resources-v0100b-akmn.db \
-  --donor-db /path/to/v020e/resources.db \
-  --output .work/sks-bundle
-```
-
-## Build and verify a target database
-
-```sh
-vostok-port apply \
-  --base-db /path/to/v0100b/resources.db \
-  --bundle .work/akmn-bundle \
-  --work-dir .work/akmn-pack \
-  --output-db .work/resources-akmn.db
-```
-
-`apply` extracts the target tree once, overlays the bundle, packs it using the
-pinned v0.100b writer, then reopens the result and verifies every bundle entry
-against its recorded SHA-256. Existing output/work paths are not reused unless
-`--force` is supplied.
-
-## Build the STK2 exoskeleton
-
-Extract only the externally supplied compiled model with the CLI:
-
-```sh
-7z x -y -o.work/stk2-character-source /path/to/stk_2.7z \
-  resources/exported/models/character/human/dolg/dolg_exo.skinned_model
-```
-
-Then build the additive armor bundle against the current combined database:
-
-```sh
-vostok-port build-armor \
-  --manifest ports/dolg-exoskeleton-stk2-to-0100b.json \
-  --donor-model-archive \
-    .work/stk2-character-source/resources/exported/models/character/human/dolg/dolg_exo.skinned_model \
-  --donor-texture-dir \
-    .work/stk2-character-source/resources/sources/textures/character/human/dolg \
-  --target-db .work/resources-v0100b-akmn-sks.db \
-  --output .work/dolg-exoskeleton-bundle
-```
-
-The converter validates four-weight source geometry, retargets it against the
-v0.100b bind pose, converts 76-byte donor vertices to the 48-byte hardware
-layout, compiles target-schema model/material settings, converts STK2 texture
-pixels to DXT1 and DXT5nm DDS resources with target `.options`, and records
-every output hash.
-
-## Build a Shadow of Chernobyl map
-
-`build-soc-map` converts a compiled X-Ray 1.x level into an additive v0.100b
-bundle:
+For Shadow of Chernobyl, `--source-root` accepts either the retail installation
+containing `gamedata.db0` through `gamedata.dbd` or an unpacked `gamedata` tree:
 
 ```sh
 vostok-port build-soc-map \
   --manifest ports/soc-cordon-to-0100b.json \
-  --source-root /path/to/unpacked/gamedata \
+  --source-root /path/to/STALKER \
   --target-db /path/to/v0100b/resources.db \
-  --output .work/soc-cordon-bundle
+  --output .work/cordon-bundle
 ```
 
-It decodes `level`, `level.geom`, `level.cform` and `gamemtl.xr`, regroups the
-world's visuals by shader into merged target surfaces, translates the collision
-material dictionary through reviewed names, and clones reviewed v0.100b
-templates for settings, materials, options and the project pair.
-
-`--source-root` accepts a retail installation directly: the reader decodes the
-LZHUF-compressed, obfuscated file tables of `gamedata.db0`..`gamedata.dbd`. An
-unpacked `gamedata` tree also works and is detected automatically.
-
-Two investigation commands need no target database:
+For F.E.A.R., use the installation directory containing `Default.archcfg`:
 
 ```sh
-vostok-port soc-inventory --install-root "$SOC_INSTALL"
-vostok-port soc-probe-level --source-root "$SOC_INSTALL" --level all
+vostok-port build-lilith-map \
+  --manifest ports/lilith-office-to-0100b.json \
+  --source-root /path/to/FEAR \
+  --target-db /path/to/v0100b/resources.db \
+  --output .work/office-bundle
 ```
 
-`soc-probe-level` decodes a level and reports what a port would contain. Every
-one of Shadow of Chernobyl's 30 levels decodes, and probing Cordon reproduces
-eight of the nine counters the lost converter recorded.
-
-This path reimplements a converter whose original source was lost. See
-[`docs/soc-map-porting.md`](docs/soc-map-porting.md) for what the recovered
-manifests prove, what the probe confirms, what was never implemented, what is
-still provisional, and which parts of the rewrite are re-derived rather than
-recovered.
-
-## Build a Dirty Bomb map
-
-The Dirty Bomb path reads the retail UE3 cooked package graph directly. It
-supports compressed package chunks, streamed `.umap` levels, placed static
-meshes, cooked BSP, per-component material overrides, mirrored transforms,
-collision, textures, material instances, and authored player starts.
-
-Inventory and probe commands do not write a target database:
-
-```sh
-vostok-port dirty-bomb-inventory \
-  --install-root /path/to/DirtyBomb \
-  --list-packages
-
-vostok-port dirty-bomb-probe-map \
-  --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
-  --map EXE_Overground \
-  --output .work/dirty-bomb-overground-probe.json
-
-vostok-port dirty-bomb-probe-conversion \
-  --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
-  --map EXE_Overground \
-  --output .work/dirty-bomb-overground-conversion.json
-```
-
-Build and validate a v0.100b overlay with one of the reviewed manifests under
-`ports/`:
+For Dirty Bomb, point at the cooked package directory:
 
 ```sh
 vostok-port build-dirty-bomb-map \
   --manifest ports/dirty-bomb-overground-to-0100b.json \
   --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
   --target-db /path/to/v0100b/resources.db \
-  --output .work/dirty-bomb-overground-bundle
-
-vostok-port validate-overlay \
-  --base-db /path/to/v0100b/resources.db \
-  --overlay .work/dirty-bomb-overground-bundle/overlay
+  --output .work/overground-bundle
 ```
 
-Manifests are included for `EXE_Overground`, `EXE_Canal`, `EXE_Gallery`, and
-`OBJ_Castle`. Material aliases and diffuse, opacity, or shader-family overrides
-are reviewed per source material and recorded in the bundle report. An
-unresolved or unusable source material is deliberately classified `UNKNOWN`
-and rendered with the manifest's concrete diagnostic material; the porter does
-not silently select a different texture. This keeps questionable surfaces
-visible and traceable for later correction.
+Each bundle contains an `overlay/` virtual resource tree and a
+`port-manifest.json` provenance record. The reviewed manifests in `ports/`
+declare source levels, namespaces, target templates and conversion overrides.
 
-After `apply`, the local runtime launcher profiles are
-`dirty-bomb-overground`, `dirty-bomb-canal`, `dirty-bomb-gallery`, and
-`dirty-bomb-castle`. `scripts/run-map-demo.sh PROFILE --check` verifies the
-selected database and runtime layout without starting Wine.
-
-## Other useful commands
+## Pack and verify
 
 ```sh
-vostok-port inventory --db /path/to/resources.db
-
-vostok-port stat \
-  --db /path/to/resources.db \
-  --path game_materials/game.materials
-
-vostok-port scan \
-  --target-db /path/to/v0100b/resources.db \
-  --donor-db /path/to/donor/resources.db \
-  --root gameplay/items/weapons/wpn_akmn.options
+vostok-port apply \
+  --base-db /path/to/v0100b/resources.db \
+  --bundle .work/cordon-bundle \
+  --work-dir .work/cordon-apply \
+  --output-db .work/cordon-release/resources.db
 
 vostok-port verify \
-  --db .work/resources-akmn.db \
-  --bundle .work/akmn-bundle
+  --db .work/cordon-release/resources.db \
+  --bundle .work/cordon-bundle
 ```
 
-## Runtime integration
+`apply` validates and packs the overlaid tree, then reopens the database and
+checks the bundle's hashes. Existing work/output paths require `--force`.
 
-The packed client resource is only one half of a genuinely new item. SRP branch
-`feature/akmn-content`, based directly on `0.100b`, adds weapon IDs 74 and 76
-and ammunition ID 75 to the lobby inventory, declares both compatibility
-pairs, and exposes all three IDs through the shop catalog. It also adds
-exoskeleton armor ID 77. Commits `a86099f33`, `3627de347`, and `72b4405a6`
-contain those changes and their preservation tests. Existing weapons,
-ammunition, and armor remain available.
-
-Each generated bundle also includes `server/srp-content.json` as a
-machine-readable additive catalog for batch importers and newer SRP consumers.
-The tested `0.100b` branch predates runtime content-manifest support, so the
-current launcher uses the dedicated SRP branch above.
-
-## Inputs and host prerequisites
-
-The repository does not redistribute retail game data or SRP. Supply these
-outside Git:
-
-- a complete v0.100b/build 802 Windows client;
-- its original `resources.db`;
-- a v0.20e `resources.db` for the current AKMN donor;
-- an SRP checkout at `../srp`, or set `SRP_REPO_DIR`;
-- the four SRP binaries built from `feature/akmn-content`;
-- SRP's `certs/survarium_login_server.{crt,key}` files.
-
-The Linux runtime needs a Wine build capable of running 32-bit Windows
-programs, working 32-bit graphics-driver libraries, X11 or XWayland, `unshare`,
-`ip`, `ss`, and `curl`. Unprivileged user namespaces must be enabled. Entering
-`nix develop` supplies the command-line tools and Wine; GPU driver integration
-remains a host-system responsibility.
-
-Use throwaway login details. The experimental v0.100b SRP login server currently
-writes the supplied account name and password to its local log.
-
-## Local v0.100b runtime layout
-
-Large generated artifacts stay out of Git under `.work/`, but remain in the
-`surv` project tree:
-
-```text
-.work/
-  akmn-bundle/
-  sks-bundle/
-  client-v0100b-akmn/
-  resources-v0100b-akmn-sks.db
-  srp-0100b-target/debug/
-  wineprefix/
-```
-
-On Linux, the stock client requires the browser service on privileged port 80.
-The launcher puts SRP and Wine in one unprivileged user/network namespace, where
-that port can be used without `sudo`, capabilities, or host firewall changes:
+Compose multiple bundles before applying. The first bundle wins shared paths:
 
 ```sh
-./scripts/run-akmn-demo.sh
+vostok-port compose \
+  --bundle .work/cordon-bundle \
+  --bundle .work/office-bundle \
+  --output .work/composed
 ```
 
-The runtime server is built from SRP branch `feature/akmn-content`, based
-directly on `0.100b`. Its four logs are written to `.work/srp-0100b-logs/`.
-The client log is `.work/client-v0100b-akmn.log`. The launcher kills any
-prefix-local wineserver before entering the namespace; this is required so
-Wine and SRP genuinely share the same `127.0.0.1`. Closing Wine also terminates
-all four private server processes.
+## Inspect source data
 
-Before starting SRP or Wine, the launcher patches build 802's retired
-Vostok Games crash-report recipient to the non-resolving
-`crash-reports@localhost.invalid` address. It refuses an unknown executable and
-retains a stock-image backup. See
-[`docs/crash-report-email-safety.md`](docs/crash-report-email-safety.md) for
-the exact bytes, hashes, and standalone verification command.
-
-The private namespace includes both loopback and a dummy `10.100.0.1/24`
-adapter. With loopback alone, build 802 under Wine stayed at `Connecting...`
-without opening a login connection, although SRP was listening. The dummy
-adapter reproduces the non-loopback interface available on Windows. An HTTP
-probe is run before Wine starts and retained at
-`.work/browser-loopback-probe.txt`; startup aborts if it cannot reach SRP.
-
-The tested path is:
-
-1. launch with `./scripts/run-akmn-demo.sh`;
-2. enter any throwaway email-shaped account and password;
-3. allow the first TLS attempt to retry if necessary;
-4. inspect `.work/srp-0100b-logs/` if the lobby does not appear.
-
-The successful Linux run reached login, browser, and lobby services. The client
-then equipped inventory instance 48 / dictionary ID 74 (AKMN) and instance 49 /
-dictionary ID 75 (7.62x39), confirming that both added resources are recognized
-by the v0.100b client. The current SRP branch also issues instance 50 /
-dictionary ID 76 (SKS) and instance 51 / dictionary ID 77 (Duty exoskeleton).
-
-## Canonical retail → STK2 map + weapons demo
-
-The canonical combined demo has one explicit resource chain:
-
-```text
-untouched retail v0.100b resources.db
-  + runtime-tested STK2 A01 map module
-  + retail-derived STK2 tir1/tir2/tir3 weapon module
-  = one verified resources.db used by the matching SRP map profile
-```
-
-Build, validate, and launch the complete chain with:
+These commands inspect Shadow of Chernobyl without a target database:
 
 ```sh
-./scripts/run-canonical-stk2-a01-weapons-demo.sh
+vostok-port soc-inventory --install-root /path/to/STALKER
+vostok-port soc-probe-level --source-root /path/to/STALKER --level all
+vostok-port soc-audit-shaders --source-root /path/to/STALKER --level all
 ```
 
-Use `--build-only` to stop after database verification, or
-`--rebuild-weapons` to regenerate the weapon module from the extracted STK2
-source. The script refuses a retail database whose SHA-256 is not
-`160dc7180b3e89279570d087442c3ad867aa5fe25bb2bf7789a8f7aaea628409`.
-It intentionally excludes the exoskeleton and all earlier AKMN/SKS experiments.
-The SRP `stk2-weapons` profile gives tir1 and tir2 to the local player and tir3
-to the remote test character.
+Use `vostok-port COMMAND --help` for other source families, weapon and armor
+conversion, material patches, dependency scans and model validation.
+`vostok-sdk-backend` exposes map decompile/preview operations through JSON
+requests; examples are in `examples/sdk/`.
 
-An extended checkpoint keeps that database intact and adds an exoskeleton
-module built against its final dictionary:
+## Run in the client
 
-```sh
-./scripts/run-canonical-stk2-a01-mixed-roster-demo.sh
-```
+The scripts under `scripts/` support local Wine/SRP demos. They require a
+complete build 802 Windows client, the matching database, an external SRP
+checkout and built server binaries. Place SRP at `../srp` or set
+`SRP_REPO_DIR`; server content and map profiles must match the database and
+spawn points.
 
-The `stk2-mixed-roster` profile gives the local player stock Black Market
-equipment with STK2 exoskeleton gloves, an AKS-74U, and a Remington 870. Two
-complete STK2 Duty exoskeleton guards carrying tir1 and tir2 start symmetrically
-in front of the player at the railroad. Seven additional stock/mixed references
-are distributed across A01 with tir3 and a selection of stock weapons, for ten
-characters in total. Client suicide is handled by SRP and respawns the local
-player on the central concrete structure after ten seconds. Use `--reuse` to
-launch the runtime-verified database (SHA-256
-`5cfecbd2f850ddefc2fe1f01ba42ecf63c512fb9f562e25b2a6a9a7b40384e3f`)
-without rebuilding the resource chain.
+The Linux launchers use unprivileged user/network namespaces so the browser
+service can bind port 80. Wine needs 32-bit graphics support and X11/XWayland.
+Logs and runtime data live under `.work/`. Use throwaway login credentials:
+experimental SRP versions may log them.
 
-The subsequent masonry checkpoint fixes the close-range concrete, brick, floor,
-metal-tile, ruberoid, and wood-roof transition without changing the verified
-map/content/server chain:
+## Documentation
 
-```sh
-./scripts/run-canonical-stk2-a01-masonry-nearfix-demo.sh
-```
+- [Shadow of Chernobyl conversion](docs/soc-map-porting.md)
+- [F.E.A.R. conversion](docs/fear-map-porting.md)
+- [Rebuilding map databases](docs/rebuilding-map-resources.md)
+- [Engine resources and converter architecture](docs/engine-resource-primer.md)
+- [Water conversion](docs/porting-water.md)
+- [Retargeting another Survarium build](docs/retargeting-a-later-build.md)
+- [SDK backend](docs/sdk-recovery.md)
+- [Texture defect reports](docs/texture-defect-vocabulary.md)
+- [Contributing](CONTRIBUTING.md)
 
-Use `--build-only` to rebuild and validate the material-only patch, or `--reuse`
-to launch the runtime-tested database (SHA-256
-`4a51b1a80540e93766851674c9c4e9041960a66ef15f06139a6183f2e0795174`).
-The patch uses a v0.100b material template that supports static vertex-color
-meshes while disabling the unrelated vertex-blended dirt layer. Other
-vertex-painted props and debris remain unchanged intentionally.
+## License
 
-## Client-reported hit demo
+The project's code, manifests, documentation and included generated flower
+atlas use the [GNU General Public License, version 3 or later](LICENSE),
+matching Vostok. See [THIRD_PARTY.md](THIRD_PARTY.md) for dependency provenance.
 
-The next isolated demo keeps the frozen masonry-v3 database and selectively
-uses the SRP client-hit work without merging its PR stack:
-
-```sh
-./scripts/run-canonical-stk2-a01-hit-demo.sh
-./scripts/run-canonical-stk2-a01-hit-demo.sh --reuse
-```
-
-The first command rebuilds the match server and 32-bit client patch; `--reuse`
-launches the already-built artifacts. The injected DLL fills the shipped
-client's otherwise-empty `network_client::on_player_hit_received` callback and
-sends the locally computed target/body-part data to SRP. The server ignores the
-reported attacker, damage, and armor-piercing values, authenticates the only
-network player as player 0, and applies fixed 25-point damage to existing
-server-spawned players 1–9. It emits the stock `hit_player` response for each
-accepted hit and `kill_player` at zero health. Remote demo characters remain
-dead; the existing local-player suicide/roof-respawn path is unchanged.
-
-This is deliberately a client-authoritative collision demonstration, not a
-production anti-cheat design. See
-[`docs/client-reported-hit-demo.md`](docs/client-reported-hit-demo.md).
-
-## STK2 character experiments
-
-The later Survarium databases contain five exoskeleton material definitions and
-one Bloodsucker-eye material, but not the corresponding model and textures.
-The complete source is in the externally supplied `stk_2.7z`/`STK2.7z`
-archives:
-
-- exported `dolg_exo.skinned_model` and `dolg_exo_static.model`;
-- exported `krovosos/krovosos.model`;
-- exoskeleton and Bloodsucker materials;
-- their high-resolution source textures;
-- Bloodsucker rig/pose source scenes.
-
-These archives must be indexed and selectively extracted with the `7z` CLI;
-the launcher never opens a desktop archive program. The intended first pass is
-deliberately permissive: add exoskeleton as switchable armor and Bloodsucker as
-a switchable whole-body player visual, retain their original available rig
-data, and accept attachment, IK, camera, and hitbox bugs. Neither replaces the
-normal player assets. See `docs/stk2-character-assets.md` for exact paths and
-conversion details.
-
-The next importer stages are:
-
-1. runtime AKMN load/equip/fire validation;
-2. dedicated sound and icon import;
-3. generalized batch weapon manifests;
-4. static-model conversion for STK2;
-5. render-only map conversion, followed by collision and gameplay objects.
+Input game data and assets copied or converted into output bundles remain
+subject to their rights holders' terms. The project license covers the
+contributors' work and does not grant rights to those game assets.

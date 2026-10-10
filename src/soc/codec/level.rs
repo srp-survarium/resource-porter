@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `level` and `level.geom` readers for X-Ray 1.x compiled levels.
 //!
 //! A compiled level is split across two containers:

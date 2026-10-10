@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;

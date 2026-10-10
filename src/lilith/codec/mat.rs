@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The Jupiter EX `.Mat00` material instance (`LTMI` version 1).
 //!
 //! A material is a shader reference plus typed properties:

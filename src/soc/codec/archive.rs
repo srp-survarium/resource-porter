@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The X-Ray `.db` / `.xdb` archive container.
 //!
 //! An archive is the same `u32 id / u32 size / payload` chunk sequence used

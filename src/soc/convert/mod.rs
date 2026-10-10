@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Turn decoded Shadow of Chernobyl data into v0.100b structures.
 //!
 //! Each submodule owns one boundary between the engines, and each is written so

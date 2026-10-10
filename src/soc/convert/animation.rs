@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Retarget a Shadow of Chernobyl motion onto the v0.100b character rig.
 //!
 //! Both engines store a pose the same way — every bone carries a complete

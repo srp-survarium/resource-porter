@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Decoders for the Shadow of Chernobyl on-disk formats.
 //!
 //! Everything in this module is a pure, allocation-only decode of bytes that

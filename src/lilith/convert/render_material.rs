@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Classify Jupiter EX shaders into the target's render families.
 //!
 //! Where the SoC classifier had to reason from blender classes and sorting

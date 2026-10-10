@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Emit a v0.100b bundle from a compiled F.E.A.R. multiplayer world.
 //!
 //! This module owns the only side effects in the lilith path. The emit half

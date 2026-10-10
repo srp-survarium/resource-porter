@@ -1,5 +1,36 @@
-/target
+# Build outputs and local working data
+target/
 /.work
 /logs
-*.resources.db
+/result
+/result-*
+/_temp
 .vostok-port-normal-repack/
+*.log
+__pycache__/
+
+# Game databases, extracted resources, installers and archives
+*.db
+*.dds
+*.model
+*.skinned_model
+*.exe
+*.dll
+*.pdb
+*.7z
+*.zip
+*.rar
+*.iso
+
+# Credentials and local settings
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+/.aws/
+/.codex/
+/.agents/
+/AGENTS.md

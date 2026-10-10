@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Regroup a world's render surfaces into target static surfaces.
 //!
 //! F.E.A.R. batches draw calls per material already, so unlike the SoC path

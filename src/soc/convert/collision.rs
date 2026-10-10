@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Encode a v0.100b collision family from a parsed `level.cform`.
 //!
 //! Collision is an atomic family: vertices, indices, the per-face material

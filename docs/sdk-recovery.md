@@ -116,7 +116,8 @@ the absent proprietary Scaleform `libgfxexpat.lib`. A complete editor binary
 additionally requires the VS2008-era .NET Framework 3.5 SDK (`alink.dll` and
 framework registry keys), the SDK's Release-native library configurations, and
 a `resgen`/managed-resource stage for `.resx` inputs that the current graph
-converter cannot emit. See the recovery matrix.
+converter cannot emit. The backend rejects unsupported preview inputs rather
+than inventing compatible resources.
 
 The backend currently builds on the Linux recovery host. Packaging its Windows
 `.exe` requires an i686 Windows Rust target/linker, which is not installed in

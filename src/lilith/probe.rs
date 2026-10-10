@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Decode-and-report helpers behind the `lilith-*` CLI probes.
 //!
 //! The probe is the regression net for the world decoder: it decodes every

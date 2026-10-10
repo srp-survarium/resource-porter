@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Versioned process boundary used by the recovered Vostok world editor.
 //!
 //! The legacy C++/CLI editor deliberately does not link Rust code.  It starts

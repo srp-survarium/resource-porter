@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Dirty Bomb (UE3 package 868/licensee 9) map source family.
 //!
 //! This path deliberately starts at the cooked-package boundary.  A package

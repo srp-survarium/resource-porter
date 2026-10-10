@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Write a v0.100b skeleton animation.
 //!
 //! A clip is two resources. `<clip>.bones_names` is a binary config listing the

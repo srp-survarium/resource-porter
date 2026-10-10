@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Apply a fixed-size binary patch after validating the original bytes."""
 
 from __future__ import annotations

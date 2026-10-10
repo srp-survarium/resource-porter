@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! X-Ray 1.x map conversion, initially built for Shadow of Chernobyl.
 //!
 //! This is a fourth map-building path alongside `build-map`,

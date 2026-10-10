@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Merge level visuals into target render surfaces.
 //!
 //! A compiled X-Ray level is cut into thousands of small visuals so the sector

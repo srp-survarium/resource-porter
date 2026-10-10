@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `gamemtl.xr`: the X-Ray physical-material library.
 //!
 //! Only the identifier and name of each material are decoded. Friction,

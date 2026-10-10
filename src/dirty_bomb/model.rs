@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Cooked UE3 `UModel` (BSP) decoder used by Dirty Bomb map packages.
 
 use anyhow::{Context, Result, bail};

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The Jupiter EX `.Arch00` archive container (`LTAR` version 3).
 //!
 //! Layout, confirmed against every archive in the F.E.A.R. Ultimate Shooter

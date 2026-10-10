@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! `shaders.xr`: the shader library a compiled level's shader table indexes.
 //!
 //! A level surface names a shader as a *string* (`def_shaders\def_aref`). That
@@ -328,7 +329,10 @@ mod tests {
             ),
         );
         let library = parse_library(&bytes).unwrap();
-        let layers = library["levels\\escape_grass"].detail_layers.as_ref().unwrap();
+        let layers = library["levels\\escape_grass"]
+            .detail_layers
+            .as_ref()
+            .unwrap();
         assert_eq!(layers[0], "detail\\detail_grnd_grass");
         assert_eq!(layers[3], "detail\\detail_grnd_yantar");
         assert!(library["levels\\escape_grass"].common.is_some());

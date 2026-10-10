@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Emit a Survarium v0.100b bundle from a cooked Dirty Bomb map graph.
 //!
 //! Geometry, placement and collision are source-derived. The first milestone

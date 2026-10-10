@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 pub mod archive;
 pub mod armor;
 pub mod binary_config;

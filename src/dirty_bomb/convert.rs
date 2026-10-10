@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Convert Dirty Bomb's placed UE3 static meshes into Vostok world geometry.
 
 use std::collections::{BTreeMap, HashMap};

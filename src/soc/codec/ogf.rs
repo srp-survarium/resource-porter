@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! OGF v4 visual headers as embedded in a compiled level.
 //!
 //! Level visuals are a narrow slice of the OGF format: they never carry their

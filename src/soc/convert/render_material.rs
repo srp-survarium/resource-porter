@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Classify X-Ray render shaders into v0.100b material families.
 //!
 //! A compiled level binds render state by *name*: the shader table stores

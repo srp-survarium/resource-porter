@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Turn a world's visible geometry into the SoC pipeline's collision mesh.
 //!
 //! Jupiter EX carries three collision-shaped things per world, and none of

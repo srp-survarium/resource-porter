@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Access to retail X-Ray 1.x source data.
 //!
 //! Two backends, one interface:

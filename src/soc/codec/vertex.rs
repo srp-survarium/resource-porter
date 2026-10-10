@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! Direct3D 9 vertex declarations as stored in `level.geom`.
 //!
 //! X-Ray 1.x writes the literal `D3DVERTEXELEMENT9` array in front of every

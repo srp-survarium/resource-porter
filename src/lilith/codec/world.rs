@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The Jupiter EX compiled world, `.World00p` version 113.
 //!
 //! One file carries everything the engine loads for a map, in five sections

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 //! The X-Ray archive obfuscation.
 //!
 //! Retail Shadow of Chernobyl archives keep their *file table* behind a
