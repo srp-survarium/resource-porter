@@ -90,17 +90,35 @@ pub fn build_bundle(
             project_overrides.insert(path.clone(), transformed);
         }
     }
+    let relocation_root = match (
+        manifest.relocated_donor_models.is_empty(),
+        &manifest.relocated_model_root,
+    ) {
+        (true, _) => None,
+        (false, Some(root)) => Some(root.trim_matches('/').to_owned()),
+        (false, None) => bail!("relocated_donor_models needs a relocated_model_root"),
+    };
+    let relocated_directories: Vec<String> = manifest
+        .relocated_donor_models
+        .iter()
+        .map(|model| crate::model_relocation::model_directory(model))
+        .collect();
     let plan = dependency::scan_with_forced_donor_and_overrides(
         &mut donor,
         &mut target,
         manifest.roots.clone(),
-        manifest.forced_donor_paths.iter().cloned(),
+        manifest
+            .forced_donor_paths
+            .iter()
+            .cloned()
+            .chain(relocated_directories.iter().cloned()),
         &project_overrides,
     )?;
     let forced_paths: Vec<&str> = manifest
         .roots
         .iter()
         .chain(manifest.forced_donor_paths.iter())
+        .chain(relocated_directories.iter())
         .map(String::as_str)
         .collect();
     for path in &plan.donor_files {
@@ -142,12 +160,25 @@ pub fn build_bundle(
     let mut converted_static_models = Vec::new();
     let mut converted_materials = std::collections::BTreeMap::new();
     let mut applied_material_overrides = BTreeSet::<(String, String)>::new();
+    let mut relocated_references = BTreeMap::<String, usize>::new();
+    let mut relocated_files = BTreeMap::<String, usize>::new();
     for path in &plan.donor_files {
         let transformed_project = project_overrides.get(path);
         let mut bytes = transformed_project.cloned().unwrap_or(donor.read(path)?);
         let mut source = format!("donor:{}", manifest.asset.donor_build);
         if transformed_project.is_some() {
             source.push_str("+transformed-client-project");
+            if let Some(root) = &relocation_root {
+                let mut project = BinaryConfig::parse(&bytes)
+                    .with_context(|| format!("parsing transformed client project {path}"))?;
+                crate::model_relocation::relocate_references(
+                    &mut project.root,
+                    &manifest.relocated_donor_models,
+                    root,
+                    &mut relocated_references,
+                );
+                bytes = project.to_bytes()?;
+            }
         }
         if path.starts_with("material_instances/") && path.ends_with(".material") {
             if let Some(catalog) = &material_catalog {
@@ -214,11 +245,44 @@ pub fn build_bundle(
                 }
             }
         }
+        let relocated = relocation_root.as_deref().and_then(|root| {
+            crate::model_relocation::relocated_path(path, &manifest.relocated_donor_models, root)
+        });
+        if relocated.is_some() {
+            let model = manifest
+                .relocated_donor_models
+                .iter()
+                .find(|model| {
+                    path.starts_with(&format!(
+                        "{}/",
+                        crate::model_relocation::model_directory(model)
+                    ))
+                })
+                .expect("a relocated path belongs to a relocated model");
+            *relocated_files.entry(model.clone()).or_default() += 1;
+            source.push_str("+relocated");
+        }
         let output_path = manifest
             .path_replacements
             .get(path)
-            .map_or(path.as_str(), String::as_str);
+            .map(String::as_str)
+            .or(relocated.as_deref())
+            .unwrap_or(path.as_str());
         write_bundle_resource(&overlay, output_path, &bytes, &source, &mut files)?;
+    }
+    let unrelocated: Vec<_> = manifest
+        .relocated_donor_models
+        .iter()
+        .filter(|model| {
+            !relocated_files.contains_key(*model) || !relocated_references.contains_key(*model)
+        })
+        .cloned()
+        .collect();
+    if !unrelocated.is_empty() {
+        bail!(
+            "relocated donor models emitted no files or are not referenced by the client project: {:?}",
+            unrelocated
+        );
     }
     if manifest.convert_split_client_objects_to_legacy && !converted_split_client_project {
         bail!("map requested split client-object conversion but emitted no client project");
@@ -3004,7 +3068,7 @@ fn validate_static_indices(
     Ok(())
 }
 
-fn explicit_vertex_declaration_size(bytes: &[u8]) -> Option<usize> {
+pub(crate) fn explicit_vertex_declaration_size(bytes: &[u8]) -> Option<usize> {
     let declaration = bytes.get(8..)?;
     let first = declaration.get(..8)?;
     if u16::from_le_bytes(first[..2].try_into().ok()?) != 0

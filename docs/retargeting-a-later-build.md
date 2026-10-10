@@ -216,3 +216,37 @@ respawn point.
 **Re-test:** disassemble the new build's `environment_probe_lighting.ps` and
 look for the constant, and check the camera far plane against the largest
 sphere probe radius plus the furthest camera position from its centre.
+
+## A later build edits the level's own models, at the same paths
+
+**Status in 802:** v0.100b ships level_03's architecture (`models/level/03/*`)
+in an older revision than 0.20f and 0.23h, at the same paths, and a map
+bundle resolves every shared path to the target.
+
+**Consequence:** level_03_day_020f had a black hole you fell through left of
+the small concrete bridge at about (0, 0, -47). 0.20f's `terrain_all` leaves
+a trench there that its own `level/03/blocks` fills with steps
+(`stupeni_s`, collision boxes 103-106); v0.100b's `blocks` has no steps, so
+the render showed `terrain_all/darken`, the black plane under the level, and
+there was no collision. Twelve more level_03 models differ in geometry, six
+in their render surfaces, and the rest in collision. Two related path
+collisions came from the same rule: 0.23h's level_03 rendered 0.20f's
+`terrain_all` (compose is first-wins), and level_04_011e used 0.20f's
+`level/04` models.
+
+`list-relocatable-models` compares every model a donor client project
+references under a prefix (`level/` by default) with the target by surfaces,
+vertex positions and collision bytes, and also lists donor-only ones. A map
+manifest names them in `relocated_donor_models`; they are emitted from the
+donor under `relocated_model_root` (`ported/survarium/<map>`) and every
+render, collision and vegetation reference in the client project follows.
+Retail level_03 keeps its own models. Set on level03-day-020f (77 models),
+level03-day-023h (78) and level04-011e (90). The 0.20f levels 01, 02, 04 and
+05 do not exist in v0.100b and share one donor build, so they need none.
+
+Still first-wins, and not addressed: props and materials outside `level/`
+that 0.1.1e and 0.20f both ship, such as `flora/bush_s_*` and
+`material_instances/anomaly/*`, where level_04_011e gets 0.20f's version.
+
+**Re-test:** rerun `list-relocatable-models` for each donor map against the
+new target; an empty list means the level's models match.

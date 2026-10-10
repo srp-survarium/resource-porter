@@ -272,6 +272,19 @@ enum Command {
         #[arg(long)]
         camera_at_spawn: bool,
     },
+    /// List the models a donor client project references under a prefix that
+    /// the target ships differently (or not at all): candidates for a map
+    /// manifest's `relocated_donor_models`.
+    ListRelocatableModels {
+        #[arg(long)]
+        donor_db: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        client_project: String,
+        #[arg(long, default_value = "level/")]
+        prefix: String,
+    },
     /// Reconstruct a newer map through explicit v0.100b ABI adapters.
     BuildTargetNativeMap {
         #[arg(long)]
@@ -1148,6 +1161,25 @@ fn main() -> Result<()> {
             println!("files={}", record.files.len());
             println!("shared_dependencies={}", record.shared_dependencies.len());
             println!("bundle={}", output.display());
+        }
+        Command::ListRelocatableModels {
+            donor_db,
+            target_db,
+            client_project,
+            prefix,
+        } => {
+            let mut donor = ResourceDb::open(&donor_db)?;
+            let mut target = ResourceDb::open(&target_db)?;
+            let relocations = vostok_resource_porter::model_relocation::list_relocations(
+                &mut donor,
+                &mut target,
+                &client_project,
+                &prefix,
+            )?;
+            for (model, reason) in &relocations {
+                println!("{model}\t{reason}");
+            }
+            println!("relocatable={}", relocations.len());
         }
         Command::BuildTargetNativeMap {
             manifest,

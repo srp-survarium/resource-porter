@@ -67,6 +67,15 @@ pub struct MapPortManifest {
     /// always donor-owned; all other shared dependencies prefer the target DB.
     #[serde(default)]
     pub forced_donor_paths: BTreeSet<String>,
+    /// Models (as the project names them, `level/03/blocks`) emitted from the
+    /// donor under `relocated_model_root` rather than resolved to the target's
+    /// copy of the same path, with every client-project reference following.
+    /// For a level's own architecture, which a later build edits together
+    /// with its terrain; `list-relocatable-models` derives the list.
+    #[serde(default)]
+    pub relocated_donor_models: BTreeSet<String>,
+    #[serde(default)]
+    pub relocated_model_root: Option<String>,
     #[serde(default)]
     pub path_replacements: BTreeMap<String, String>,
     /// Resources cloned from the target DB into versioned output paths.

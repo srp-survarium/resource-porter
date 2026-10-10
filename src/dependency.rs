@@ -117,6 +117,25 @@ pub fn scan_with_forced_donor_and_overrides(
             for candidate in candidates {
                 let candidate_policy =
                     dependency_policy(&candidate, from_donor, &forced_donor_paths);
+                // A reference into a donor-owned directory resolves to the
+                // target's files when the target ships that directory too.
+                // Its own files are the donor's: take its directory instead,
+                // so a file only the target has is neither required nor
+                // imported.
+                if candidate_policy == SourcePolicy::DonorRequired
+                    && select_path(donor, &candidate).is_none()
+                    && let Some(directory) = forced_donor_paths.iter().find(|forced| {
+                        candidate
+                            .strip_prefix(forced.trim_end_matches('/'))
+                            .is_some_and(|tail| tail.starts_with('/'))
+                    })
+                {
+                    queue.push_back((
+                        directory.trim_end_matches('/').to_owned(),
+                        SourcePolicy::DonorRequired,
+                    ));
+                    continue;
+                }
                 queue.push_back((candidate, candidate_policy));
             }
         }
