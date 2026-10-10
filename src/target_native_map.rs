@@ -1795,7 +1795,7 @@ fn validate_all_render_materials_empty(
     Ok(())
 }
 
-fn remap_game_material_settings(
+pub(crate) fn remap_game_material_settings(
     root: &mut ConfigValue,
     path: &str,
     game_materials: &BTreeMap<String, i32>,

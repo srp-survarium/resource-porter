@@ -302,6 +302,7 @@ pub fn build_bundle(
         let source = format!("{}+normalized-surface-contract", file.source);
         *file = record_file(&settings_path, &source, &bytes);
     }
+    remap_overlay_game_materials(&mut target, &overlay, &mut files)?;
     files.sort_by(|left, right| left.path.cmp(&right.path));
     reject_duplicate_outputs(&files)?;
     crate::model_validation::validate_effective_overlay(target_db, &overlay)
@@ -338,6 +339,86 @@ pub fn build_bundle(
         &record,
     )?;
     Ok(record)
+}
+
+/// Newer donors' names for game materials v0.100b knows under another name.
+///
+/// 0.20f and 0.23h grew the dictionary from v0.100b's 43 entries to 56 and
+/// renamed two (ids 24 and 35); a donor model keeps its own ids, so ids 43-68
+/// index past the end of v0.100b's table and a bullet hit picks up some other
+/// material's decals. Each entry is the v0.100b material with the same
+/// physical behaviour.
+fn donor_game_material_names() -> BTreeMap<String, String> {
+    [
+        ("foliage_coniferous", "foliage"),
+        ("foliage_deciduous", "foliage"),
+        ("foliage_dry", "foliage"),
+        ("wood_thin", "wood_tin"),
+        ("wood_tree", "wood_silent"),
+        ("wood_tree_walkable", "wood_silent"),
+        ("wood_bridge", "wood_squeak"),
+        ("grass_soft", "grass"),
+        ("grass_walkable", "grass"),
+        ("ground_walkable", "ground"),
+        ("ground_not_walkable", "ground"),
+        ("mud_walkable", "mud"),
+        ("gravel_walkable", "gravel"),
+        ("brick_walkable", "brick"),
+        ("concrete_walkable", "concrete"),
+        ("schiefer", "stone"),
+        ("metal_car", "metall_thick"),
+        ("metall_tank", "metall_thick"),
+        ("metal_gas_tank", "metall_thin"),
+        ("grenade", "metall_thin"),
+        ("glass_car", "glass"),
+        ("actor_sprint", "actor"),
+        ("actor_crouch", "actor"),
+        ("actor_local_sprint", "actor_local"),
+        ("actor_local_crouch", "actor_local"),
+    ]
+    .into_iter()
+    .map(|(source, target)| (source.to_owned(), target.to_owned()))
+    .collect()
+}
+
+/// Rebind every emitted model's game materials to v0.100b's dictionary by
+/// name, rewriting the id each surface carries.
+fn remap_overlay_game_materials(
+    target: &mut ResourceDb,
+    overlay: &Path,
+    files: &mut [crate::manifest::BuiltFile],
+) -> Result<()> {
+    let game_materials = crate::target_native_map::load_game_materials(target)?;
+    let names = donor_game_material_names();
+    for file in files.iter_mut() {
+        if !(file.path.ends_with(".model/settings")
+            || file.path.ends_with(".skinned_model/settings"))
+        {
+            continue;
+        }
+        let output = safe_join(overlay, &file.path)?;
+        let bytes = fs::read(&output)?;
+        let Ok(mut config) = BinaryConfig::parse(&bytes) else {
+            continue;
+        };
+        if config.root.named("game_material_settings").is_none() {
+            continue;
+        }
+        crate::target_native_map::remap_game_material_settings(
+            &mut config.root,
+            &file.path,
+            &game_materials,
+            &names,
+            None,
+        )?;
+        let remapped = config.to_bytes()?;
+        if remapped != bytes {
+            fs::write(&output, &remapped)?;
+            let source = format!("{}+v0100b-game-material-ids", file.source);
+            *file = record_file(&file.path, &source, &remapped);
+        }
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]

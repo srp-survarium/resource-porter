@@ -32,6 +32,10 @@ pub struct CollisionReport {
     pub checked: BTreeMap<String, usize>,
     /// Project path -> dropped references, as named in the project.
     pub dropped: BTreeMap<String, Vec<String>>,
+    /// Model settings -> surface game materials whose id is not the
+    /// database dictionary's id for that name (audit only).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub game_material_mismatches: BTreeMap<String, Vec<String>>,
 }
 
 /// The resource folder a `lib_name` names: `resources/` and any `#[...]`
@@ -192,6 +196,46 @@ pub fn audit_database(db: &Path) -> Result<CollisionReport> {
         report.checked.insert(path.clone(), checked);
         if !dropped.is_empty() {
             report.dropped.insert(path, dropped);
+        }
+    }
+
+    // Every model's surfaces must bind a game material the dictionary has,
+    // under the name it has: an id past the table's end selects another
+    // material's decals and sounds.
+    let dictionary = crate::target_native_map::load_game_materials(&mut db)?;
+    let settings: Vec<String> = db
+        .entries()
+        .keys()
+        .filter(|path| path.ends_with(".model/settings") || path.ends_with(".skinned_model/settings"))
+        .cloned()
+        .collect();
+    for path in settings {
+        let Ok(config) = BinaryConfig::parse(&db.read(&path)?) else {
+            continue;
+        };
+        let Some(ConfigValue::Named(entries)) = config.root.named("game_material_settings") else {
+            continue;
+        };
+        let mut wrong = Vec::new();
+        for entry in entries {
+            let id = match entry.value.named("game_material_id") {
+                Some(ConfigValue::Integer(id)) => *id,
+                _ => continue,
+            };
+            let name = match entry.value.named("game_material_name") {
+                Some(ConfigValue::String(name)) => name.clone(),
+                _ => String::new(),
+            };
+            if id == 65_535 {
+                continue;
+            }
+            let expected = dictionary.get(&name).copied();
+            if expected != Some(id) || !dictionary.values().any(|known| *known == id) {
+                wrong.push(format!("{}={id}:{name}", entry.name));
+            }
+        }
+        if !wrong.is_empty() {
+            report.game_material_mismatches.insert(path, wrong);
         }
     }
     Ok(report)

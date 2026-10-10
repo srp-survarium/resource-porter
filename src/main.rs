@@ -2483,6 +2483,10 @@ fn main() -> Result<()> {
                     println!("  {name}");
                 }
             }
+            for (model, wrong) in &report.game_material_mismatches {
+                println!("game-material mismatch {model}: {}", wrong.join(", "));
+            }
+            println!("game_material_mismatches={}", report.game_material_mismatches.len());
         }
         Command::PruneCollision { base_db, bundle } => {
             let report =
