@@ -12,10 +12,12 @@
 #
 # Inputs (override by environment):
 #   TARGET  untouched retail resources.db, SHA-256 160dc718...28409
-#   SOC     S.T.A.L.K.E.R. Shadow of Chernobyl install (gamedata.db0..dbd)
+#   SOC     S.T.A.L.K.E.R. Shadow of Chernobyl root (gamedata.db0..dbd)
 #   CS      S.T.A.L.K.E.R. Clear Sky install (mp/mp_training_camp.db)
-#   FEAR    F.E.A.R. Ultimate Shooter Edition install (Default.archcfg)
-#   DONORS  directory with v011e/app, v020f and v023h resources.db
+#   FEAR    F.E.A.R. Ultimate Shooter Edition root (Default.archcfg)
+#   DONORS  directory with 0.1.1e/app, 0.20f and 0.23h resources.db
+# SoC, F.E.A.R. and the Survarium donors default to the verified copies on
+# the archive drive (each beside a .sha256 manifest); Steam installs work too.
 #   OUT     work directory for bundles
 #   RELEASE the packed database; an existing one is replaced
 #   CS_FROM_DB  a previous release to carry the Training Camp forward from,
@@ -24,10 +26,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 TARGET=${TARGET:-../game-v0.100b/resources.db}
-SOC=${SOC:-$HOME/.local/share/Steam/steamapps/common/STALKER Shadow of Chernobyl}
+ARCHIVE=${ARCHIVE:-/mnt/toshiba/surv-resources}
+SOC=${SOC:-$ARCHIVE/donor-games/stalker-soc}
 CS=${CS:-$HOME/.local/share/Steam/steamapps/common/STALKER Clear Sky}
-FEAR=${FEAR:-$HOME/.local/share/Steam/steamapps/common/FEAR Ultimate Shooter Edition}
-DONORS=${DONORS:-.work/map-donors}
+FEAR=${FEAR:-$ARCHIVE/donor-games/fear}
+DONORS=${DONORS:-$ARCHIVE}
 OUT=${OUT:-.work/all-maps}
 RELEASE=${RELEASE:-$OUT/release-v3/resources.db}
 CS_FROM_DB=${CS_FROM_DB:-}
@@ -51,11 +54,11 @@ build() { # kind manifest-name extra-args...
 # Compose is first-wins on shared paths.
 order=()
 for l in 01 02 03 04 05; do
-  build build-map "level$l-day-020f-to-0100b" --donor-db "$DONORS/v020f/resources.db"
+  build build-map "level$l-day-020f-to-0100b" --donor-db "$DONORS/0.20f/resources.db"
   order+=("level$l-day-020f-to-0100b")
 done
-build build-map level03-day-023h-to-0100b --donor-db "$DONORS/v023h/resources.db"
-build build-map level04-011e-to-0100b --donor-db "$DONORS/v011e/app/resources.db"
+build build-map level03-day-023h-to-0100b --donor-db "$DONORS/0.23h/resources.db"
+build build-map level04-011e-to-0100b --donor-db "$DONORS/0.1.1e/app/resources.db"
 order+=(level03-day-023h-to-0100b level04-011e-to-0100b)
 
 # The summer Training Camp: the converted map, then the meadow addon built

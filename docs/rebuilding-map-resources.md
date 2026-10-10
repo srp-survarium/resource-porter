@@ -178,6 +178,15 @@ inserts the player at the client project's `camera.position`. The donor
 databases are the ones `map-porting.txt` inventories (0.1.1e `694e1772…`, 0.20f
 build 1923 `5f871046…`, 0.23h `8e5a1530…`).
 
+Its inputs default to the archive drive (`ARCHIVE`, `/mnt/toshiba/surv-resources`):
+`donor-games/stalker-soc` and `donor-games/fear` are copies of the Steam
+install roots with the same layout (each beside a `.sha256` manifest), and the
+Survarium donors sit at `0.1.1e/app`, `0.20f` and `0.23h`. Set `SOC`, `FEAR`,
+`CS` or `DONORS` to point anywhere else. The F.E.A.R. copy made on 2026-10-10
+lacks `FEARXP2/FEARM_XP.arch00` (lower-case extension), which holds the
+multiplayer worlds' data: until it is added, `build-lilith-map` stops at
+`Default.archcfg lists FEARM_XP.Arch00`.
+
 | release | SHA-256 | what changed |
 | --- | --- | --- |
 | `release/` | `573c5d1c…a4` | first package; `level_04_011e` crashes on load |
