@@ -250,3 +250,32 @@ that 0.1.1e and 0.20f both ship, such as `flora/bush_s_*` and
 
 **Re-test:** rerun `list-relocatable-models` for each donor map against the
 new target; an empty list means the level's models match.
+
+## The sun belongs to the environment, and templates bring their own blends
+
+**Status in 802:** `sun.ps` lights with `pow(light.color, 2.2) *
+light.intensity` from the `sun` light object, and the map's post-process
+material, which the 0.20f/0.23h ports borrow from retail
+(`post_process/level_03_day`), was tuned against retail level_03's sun:
+intensity 1.29, colour [0.918, 0.722, 0.522]. The later builds drive the sun
+from the environment's `properties` (`sun_intensity` 3, `sun_color`) under
+their own exposure and colour grading, which v0.100b strips; their light
+objects say 2.14 and [1.0, 0.867, 0.663], which v0.100b turns into 2.0x, 2.5x
+and 2.8x retail's red, green and blue sunlight.
+
+**Consequence:** the ported level_03 looked washed out everywhere, ground
+included: over-bright, whitish, low in contrast. The six 0.20f/0.23h
+manifests set `legacy_sun_light_template: projects/level_03/client_project`,
+so the donor sun keeps its direction and takes retail's intensity and colour.
+level_04_011e's sun (1.51, [1.0, 0.808, 0.675]) is 0.1-era and was left alone.
+
+Separately, a converted material keeps its template's shader switches. The
+terrain `_vc` materials came out on retail `floor_linoleum_02_vc`, which
+blends `tiled/floor/floor_trash_02` in by vertex colour; the donor materials
+blend nothing. The conversion now points the blend textures at the material's
+own diffuse and normal whenever the donor does not blend, which keeps the
+retail shader permutation and makes the blend a no-op.
+
+**Re-test:** compare a later build's sun light object with its environment
+`properties.sun_intensity`; if the light object becomes authoritative, the
+template sun can go.

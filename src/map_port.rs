@@ -519,6 +519,15 @@ fn transform_client_project(
         if let Some(max_radius) = manifest.environment_probe_max_radius {
             cap_environment_probe_radius(&mut project.root, path, max_radius)?;
         }
+        if let Some(template_path) = &manifest.legacy_sun_light_template {
+            let template = BinaryConfig::parse(
+                &target
+                    .read(template_path)
+                    .with_context(|| format!("reading sun template project {template_path}"))?,
+            )
+            .with_context(|| format!("parsing sun template project {template_path}"))?;
+            adopt_template_sun(&mut project.root, &template.root, path, template_path)?;
+        }
         if let Some(post_effect) = &manifest.legacy_environment_post_effect {
             let material_path = format!("material_instances/{post_effect}.material");
             if !target.contains(&material_path) {
@@ -730,6 +739,57 @@ fn convert_environment_probe_contracts(root: &mut ConfigValue, path: &str) -> Re
         converted += 1;
     }
     Ok(converted)
+}
+
+fn sun_objects(objects: &mut [ConfigValue]) -> impl Iterator<Item = &mut ConfigValue> {
+    objects.iter_mut().filter(|object| {
+        matches!(object.named("game_object_type"), Some(ConfigValue::String(kind)) if kind == "light")
+            && matches!(object.named("lib_name"), Some(ConfigValue::String(name)) if name == "sun")
+    })
+}
+
+/// Give every donor sun the template sun's `intensity` and `color`.
+fn adopt_template_sun(
+    root: &mut ConfigValue,
+    template: &ConfigValue,
+    path: &str,
+    template_path: &str,
+) -> Result<()> {
+    let Some(ConfigValue::Indexed(template_objects)) = template.named("objects") else {
+        bail!("{template_path} has no indexed objects table");
+    };
+    let mut template_objects = template_objects.clone();
+    let template_sun = sun_objects(&mut template_objects)
+        .next()
+        .with_context(|| format!("{template_path} has no sun"))?;
+    let fields: Vec<(&str, ConfigValue)> = ["intensity", "color"]
+        .into_iter()
+        .map(|name| {
+            template_sun
+                .named(name)
+                .cloned()
+                .map(|value| (name, value))
+                .with_context(|| format!("{template_path} sun has no {name}"))
+        })
+        .collect::<Result<_>>()?;
+    let ConfigValue::Indexed(objects) = root
+        .named_mut("objects")
+        .with_context(|| format!("{path} has no legacy objects table after conversion"))?
+    else {
+        bail!("{path} legacy objects is not an indexed table");
+    };
+    let mut adopted = 0;
+    for sun in sun_objects(objects) {
+        for (name, value) in &fields {
+            *sun.named_mut(name)
+                .with_context(|| format!("{path} sun has no {name}"))? = value.clone();
+        }
+        adopted += 1;
+    }
+    if adopted == 0 {
+        bail!("{path} declares legacy_sun_light_template but has no sun");
+    }
+    Ok(())
 }
 
 /// Rescale every environment probe's diffuse and specular multipliers, the
@@ -3211,6 +3271,68 @@ mod tests {
         let error = scale_environment_probe_light(&mut root, "projects/test/client_project", 0.0)
             .unwrap_err();
         assert!(error.to_string().contains("is not a positive factor"));
+    }
+
+    #[test]
+    fn lights_the_donor_sun_like_the_template_sun() {
+        let light = |lib: &str, intensity: f32, color: [f32; 3]| {
+            ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("light".into()),
+                },
+                NamedValue {
+                    name: "lib_name".into(),
+                    value: ConfigValue::String(lib.into()),
+                },
+                NamedValue {
+                    name: "intensity".into(),
+                    value: ConfigValue::Float(intensity),
+                },
+                NamedValue {
+                    name: "color".into(),
+                    value: ConfigValue::Float3(color),
+                },
+                NamedValue {
+                    name: "rotation".into(),
+                    value: ConfigValue::Float3([2.481, 0.88, 3.138]),
+                },
+            ])
+        };
+        let project = |objects| {
+            ConfigValue::Named(vec![NamedValue {
+                name: "objects".into(),
+                value: ConfigValue::Indexed(objects),
+            }])
+        };
+        let template = project(vec![light("sun", 1.29, [0.918, 0.722, 0.522])]);
+        let mut donor = project(vec![
+            light("spot_light", 1.0, [1.0, 0.863, 0.624]),
+            light("sun", 2.14, [1.0, 0.867, 0.663]),
+        ]);
+        adopt_template_sun(&mut donor, &template, "donor", "template").unwrap();
+        let ConfigValue::Indexed(objects) = donor.named("objects").unwrap() else {
+            panic!("objects must stay indexed");
+        };
+        assert_eq!(
+            objects[1].named("intensity"),
+            Some(&ConfigValue::Float(1.29))
+        );
+        assert_eq!(
+            objects[1].named("color"),
+            Some(&ConfigValue::Float3([0.918, 0.722, 0.522]))
+        );
+        assert_eq!(
+            objects[1].named("rotation"),
+            Some(&ConfigValue::Float3([2.481, 0.88, 3.138]))
+        );
+        assert_eq!(
+            objects[0].named("intensity"),
+            Some(&ConfigValue::Float(1.0))
+        );
+
+        let mut sunless = project(vec![light("spot_light", 1.0, [1.0, 1.0, 1.0])]);
+        assert!(adopt_template_sun(&mut sunless, &template, "donor", "template").is_err());
     }
 
     #[test]

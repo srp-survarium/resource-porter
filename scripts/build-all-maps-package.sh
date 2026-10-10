@@ -11,7 +11,8 @@
 # because that is where the offline client inserts the player.
 #
 # Inputs (override by environment):
-#   TARGET  untouched retail resources.db, SHA-256 160dc718...28409
+#   TARGET  untouched retail resources.db, SHA-256 160dc718...28409; by
+#           default the vostok flake's survarium.resources output
 #   SOC     S.T.A.L.K.E.R. Shadow of Chernobyl root (gamedata.db0..dbd)
 #   CS      S.T.A.L.K.E.R. Clear Sky install (mp/mp_training_camp.db)
 #   FEAR    F.E.A.R. Ultimate Shooter Edition root (Default.archcfg)
@@ -25,7 +26,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TARGET=${TARGET:-../game-v0.100b/resources.db}
+if [ -z "${TARGET:-}" ]; then
+  # The vostok flake fetches the installer and pins the retail database.
+  TARGET=$(nix build --no-link --print-out-paths ../vostok#survarium.resources)/resources.db
+fi
 ARCHIVE=${ARCHIVE:-/mnt/toshiba/surv-resources}
 SOC=${SOC:-$ARCHIVE/donor-games/stalker-soc}
 CS=${CS:-$HOME/.local/share/Steam/steamapps/common/STALKER Clear Sky}

@@ -167,6 +167,7 @@ impl MaterialCatalog {
             &|texture| texture_exists(texture, donor, target),
             &mut donor_texture_bindings,
         );
+        neutralize_template_vertex_blending(&mut converted.root, &donor_config.root);
         Ok(ConvertedMaterial {
             bytes: converted.to_bytes()?,
             template_path: template.path.clone(),
@@ -535,6 +536,64 @@ fn merge_safe_visual_values(
     }
 }
 
+/// A template whose shader blends a second texture set by vertex colour,
+/// converting a donor material that does not, would paint the template's own
+/// blend textures (retail floor_linoleum_02_vc's `tiled/floor/floor_trash_02`)
+/// over the donor's surface wherever its vertex colour asks for them. The
+/// feature flag selects the shader permutation and stays; the blend
+/// textures become the material's own, so the blend changes nothing.
+fn neutralize_template_vertex_blending(converted: &mut ConfigValue, donor: &ConfigValue) {
+    let Some(ConfigValue::Named(stages)) = converted.named_mut("material") else {
+        return;
+    };
+    for stage in stages {
+        let donor_effect = donor
+            .named("material")
+            .and_then(|stages| stages.named(&stage.name))
+            .and_then(|stage| stage.named("effect"));
+        let Some(effect) = stage.value.named_mut("effect") else {
+            continue;
+        };
+        for (feature, blended, own) in [
+            (
+                "use_vertex_blended_diffuse",
+                "texture_vertex_blended_diffuse",
+                "texture_diffuse",
+            ),
+            (
+                "use_vertex_blended_normal",
+                "texture_vertex_blended_normal",
+                "texture_normal",
+            ),
+        ] {
+            let enabled = |effect: Option<&ConfigValue>| {
+                matches!(
+                    effect
+                        .and_then(|effect| effect.named(feature))
+                        .and_then(|parameter| parameter.named("value")),
+                    Some(ConfigValue::Boolean(true))
+                )
+            };
+            if !enabled(Some(effect)) || enabled(donor_effect) {
+                continue;
+            }
+            let Some(own_texture) = effect
+                .named(own)
+                .and_then(|parameter| parameter.named("value"))
+                .cloned()
+            else {
+                continue;
+            };
+            if let Some(value) = effect
+                .named_mut(blended)
+                .and_then(|parameter| parameter.named_mut("value"))
+            {
+                *value = own_texture;
+            }
+        }
+    }
+}
+
 fn is_texture_parameter(name: &str) -> bool {
     name.starts_with("texture_") || name.ends_with("_texture")
 }
@@ -575,6 +634,72 @@ mod tests {
             name: name.into(),
             value,
         }
+    }
+
+    #[test]
+    fn blends_a_donor_without_vertex_blending_only_with_itself() {
+        let parameter = |value| ConfigValue::Named(vec![named("value", value)]);
+        let string = |text: &str| parameter(ConfigValue::String(text.into()));
+        let material = |use_blend: bool, blended: &str| {
+            ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named(
+                    "g_stage",
+                    ConfigValue::Named(vec![named(
+                        "effect",
+                        ConfigValue::Named(vec![
+                            named(
+                                "use_vertex_blended_diffuse",
+                                parameter(ConfigValue::Boolean(use_blend)),
+                            ),
+                            named(
+                                "use_vertex_blended_normal",
+                                parameter(ConfigValue::Boolean(use_blend)),
+                            ),
+                            named("texture_diffuse", string("terrain_tiled/ground")),
+                            named("texture_normal", string("terrain_tiled/ground_nmap")),
+                            named("texture_vertex_blended_diffuse", string(blended)),
+                            named(
+                                "texture_vertex_blended_normal",
+                                string("terrain_tiled/sand_nmap"),
+                            ),
+                        ]),
+                    )]),
+                )]),
+            )])
+        };
+        let effect_value = |material: &ConfigValue, name: &str| {
+            material
+                .named("material")
+                .and_then(|stages| stages.named("g_stage"))
+                .and_then(|stage| stage.named("effect"))
+                .and_then(|effect| effect.named(name))
+                .and_then(|parameter| parameter.named("value"))
+                .cloned()
+        };
+
+        let mut converted = material(true, "tiled/floor/floor_trash_02");
+        neutralize_template_vertex_blending(&mut converted, &material(false, ""));
+        assert_eq!(
+            effect_value(&converted, "texture_vertex_blended_diffuse"),
+            Some(ConfigValue::String("terrain_tiled/ground".into()))
+        );
+        assert_eq!(
+            effect_value(&converted, "texture_vertex_blended_normal"),
+            Some(ConfigValue::String("terrain_tiled/ground_nmap".into()))
+        );
+        assert_eq!(
+            effect_value(&converted, "use_vertex_blended_diffuse"),
+            Some(ConfigValue::Boolean(true))
+        );
+
+        // A donor that blends keeps its own blend textures.
+        let mut converted = material(true, "terrain_tiled/moss");
+        neutralize_template_vertex_blending(&mut converted, &material(true, "terrain_tiled/moss"));
+        assert_eq!(
+            effect_value(&converted, "texture_vertex_blended_diffuse"),
+            Some(ConfigValue::String("terrain_tiled/moss".into()))
+        );
     }
 
     #[test]

@@ -136,6 +136,14 @@ pub struct MapPortManifest {
     /// global probe is 300 m.
     #[serde(default)]
     pub environment_probe_max_radius: Option<f32>,
+    /// Target client project whose sun (`lib_name` `sun`) lends its
+    /// `intensity` and `color` to the donor's. Later builds light the sun from
+    /// the environment's `properties` (sun_intensity, sun_color, their own
+    /// exposure and colour grading), which v0.100b strips; the light object's
+    /// own values then meet v0.100b's post-process, which was tuned with
+    /// retail's sun. Direction stays the donor's.
+    #[serde(default)]
+    pub legacy_sun_light_template: Option<String>,
     /// Optional target-build client project used as the outer legacy schema.
     /// Only sections named by legacy_client_project_sections are copied from
     /// the converted donor project; all other sections remain target-native.
