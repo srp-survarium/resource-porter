@@ -194,6 +194,7 @@ multiplayer worlds' data: until it is added, `build-lilith-map` stops at
 | `release-v3/` | `e3737dc1…64` | X-Ray terrain composition on SoC maps, collision pruning, `level_04_011e` back |
 | `release-v4/` | `1e47d55d…c0` | X-Ray foliage without wind, normal maps repacked to DXT5nm, donor game-material ids rebound by name |
 | `release-v5/` | `fac7edab…a2` | 0.20f/0.23h environment probes quartered and kept inside the 500 m far plane, Training Camp meadow over the whole bowl |
+| `release-v6/` | `4120a892…d7` | level_03 (0.20f, 0.23h) and level_04_011e keep their own level models (`relocated_donor_models`), closing level_03_day_020f's trench hole |
 
 `release-v3` and `release-v4` carried the Training Camp over from `release-v2`
 with `CS_FROM_DB` (`extract-bundle`), because the Clear Sky install was not
@@ -213,6 +214,10 @@ SHA-256 `70df4884…25`) with Shadow of Chernobyl's archives beside it under
 not depend on it: HEAD's addon built that way against v2's `cs-base`
 (`11e03a15…5b`) reproduces all 950 files of v2's meadow byte for byte. The
 map's foliage wind and normal-map fixes still need the full Clear Sky install.
+
+`release-v6` is v5's bundles with level03-day-020f, level03-day-023h and
+level04-011e rebuilt (`.work/all-maps/v6`, same order). The retail database
+is the flake's store path; `../game-v0.100b` no longer exists.
 
 ### Why maps crashed on load
 
