@@ -348,6 +348,65 @@ fn chain_bytes(info: DdsInfo, levels: u32) -> Result<usize> {
 ///
 /// The reserved header block is cleared: a producer tag left there is enough on
 /// its own to fail the cooker.
+/// How a source normal map lays out its tangent-space axes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NormalPacking {
+    /// X-Ray `_bump`: `deffer_impl` reads `tex.wzyx`, so X is alpha, Y blue
+    /// and Z green.
+    XRayBump,
+    /// Plain RGB: X red, Y green, Z blue (F.E.A.R. `_n`).
+    Rgb,
+}
+
+/// Re-encode a normal map in the layout v0.100b samples.
+///
+/// Build 802's shaders read a `NORMAL_MAP` texture as DXT5nm: X from alpha
+/// and Y from green (`terrain_gbuffer_pass`: `tex.wy * 2 - 1`), with Z
+/// rebuilt; red and blue are never read. Copied unchanged, an X-Ray bump puts
+/// its Z in green and an RGB map puts nothing but its height in alpha, and
+/// either way the surface is lit as if steeply tilted -- black contours at
+/// grazing angles. The pixels are swizzled and recompressed with ImageMagick.
+pub fn repack_normal_dds(bytes: &[u8], packing: NormalPacking, label: &str) -> Result<Vec<u8>> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let info = parse_dds(bytes, label)?;
+    let swap = match packing {
+        NormalPacking::XRayBump => "green<=>blue",
+        NormalPacking::Rgb => "red<=>alpha",
+    };
+    // Beside the work, not in TMPDIR: a nix-shell TMPDIR is not always visible
+    // to the `magick` process.
+    let scratch = std::env::current_dir()?.join(".vostok-port-normal-repack");
+    fs::create_dir_all(&scratch)?;
+    let stem = scratch.join(format!(
+        "vostok-port-normal-{}-{}",
+        std::process::id(),
+        SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let input = stem.with_extension("in.dds");
+    let output = stem.with_extension("out.dds");
+    fs::write(&input, bytes)?;
+    let result = std::process::Command::new("magick")
+        .arg(&input)
+        .args(["-channel-fx", swap, "-define", "dds:compression=dxt5"])
+        .arg("-define")
+        .arg(format!("dds:mipmaps={}", info.mip_levels.saturating_sub(1)))
+        .arg(&output)
+        .output()
+        .context("starting ImageMagick to repack a normal map")?;
+    let _ = fs::remove_file(&input);
+    if !result.status.success() {
+        let _ = fs::remove_file(&output);
+        bail!(
+            "ImageMagick could not repack {label}: {}",
+            String::from_utf8_lossy(&result.stderr).trim()
+        );
+    }
+    let repacked = fs::read(&output)?;
+    let _ = fs::remove_file(&output);
+    Ok(repacked)
+}
+
 pub fn canonicalize_dds(bytes: &[u8], info: DdsInfo, srgb: bool) -> Result<Vec<u8>> {
     // Trim, never invent: some source textures — the per-level terrain sheets
     // in particular — ship a single level, and asking for the full chain would

@@ -786,12 +786,17 @@ fn plan_textures(
             missing.push(name.clone());
             continue;
         };
+        let is_normal = name.ends_with("_bump");
+        let bytes = if is_normal {
+            source::repack_normal_dds(&bytes, source::NormalPacking::XRayBump, name)?
+        } else {
+            bytes
+        };
         let info = source::parse_dds(&bytes, name)?;
         // Source chains run to 1x1; the target stops at the last complete 4x4
         // block and expects a trailing colour-space byte. Rewriting the
         // container is what the recovered port's `identity:SoC-DDS` copy did
         // not do.
-        let is_normal = name.ends_with("_bump");
         let srgb = !is_normal && !is_terrain_texture(name);
         let bytes = if manifest.allow_untrimmed_mip_chains {
             bytes

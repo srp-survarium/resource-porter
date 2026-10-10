@@ -449,6 +449,11 @@ fn add_texture(
         }
         return Ok(());
     }
+    let bytes = if is_normal {
+        soc_source::repack_normal_dds(&bytes, soc_source::NormalPacking::Rgb, source_path)?
+    } else {
+        bytes
+    };
     let info = soc_source::parse_dds(&bytes, source_path)?;
     let bytes = soc_source::canonicalize_dds(&bytes, info, !is_normal)?;
     let target_options = target_dds

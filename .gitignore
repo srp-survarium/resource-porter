@@ -2,3 +2,4 @@
 /.work
 /logs
 *.resources.db
+.vostok-port-normal-repack/
