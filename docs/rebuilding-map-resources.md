@@ -192,9 +192,14 @@ multiplayer worlds' data: until it is added, `build-lilith-map` stops at
 | `release/` | `573c5d1c…a4` | first package; `level_04_011e` crashes on load |
 | `release-v2/` | `80d0641d…25` | summer Training Camp, `level_04_011e` left out |
 | `release-v3/` | `e3737dc1…64` | X-Ray terrain composition on SoC maps, collision pruning, `level_04_011e` back |
+| `release-v4/` | `1e47d55d…c0` | X-Ray foliage without wind, normal maps repacked to DXT5nm, donor game-material ids rebound by name |
 
-`release-v3` carried the Training Camp over from `release-v2` with
-`CS_FROM_DB` (`extract-bundle`), because the Clear Sky install was not present.
+`release-v3` and `release-v4` carried the Training Camp over from `release-v2`
+with `CS_FROM_DB` (`extract-bundle`), because the Clear Sky install was not
+present; its foliage wind and normal packing are therefore still v2's.
+`release-v4`'s `fear_asylum` and `fear_deadwood` are v3's bundles for the same
+reason (the archive copy lacks `FEARM_XP.arch00`); `fear_train_yard` was built
+with the repacked normals before the install was removed.
 
 ### Why maps crashed on load
 
