@@ -18,6 +18,8 @@
 #   DONORS  directory with v011e/app, v020f and v023h resources.db
 #   OUT     work directory for bundles
 #   RELEASE the packed database; an existing one is replaced
+#   CS_FROM_DB  a previous release to carry the Training Camp forward from,
+#           when the Clear Sky install is not at hand
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,7 +29,8 @@ CS=${CS:-$HOME/.local/share/Steam/steamapps/common/STALKER Clear Sky}
 FEAR=${FEAR:-$HOME/.local/share/Steam/steamapps/common/FEAR Ultimate Shooter Edition}
 DONORS=${DONORS:-.work/map-donors}
 OUT=${OUT:-.work/all-maps}
-RELEASE=${RELEASE:-$OUT/release-v2/resources.db}
+RELEASE=${RELEASE:-$OUT/release-v3/resources.db}
+CS_FROM_DB=${CS_FROM_DB:-}
 VP=${VP:-target/release/vostok-port}
 FEAR_WORLDS=${FEAR_WORLDS:-"asylum train_yard deadwood"}
 
@@ -58,9 +61,18 @@ order+=(level03-day-023h-to-0100b level04-011e-to-0100b)
 # The summer Training Camp: the converted map, then the meadow addon built
 # against it. The addon rewrites the map's projects and post-process
 # material, so it composes ahead of the map.
-build build-soc-map cs-training_camp-to-0100b --source-root "$CS"
 meadow=cs-training_camp-meadow
-if [ ! -e "$B/$meadow/port-manifest.json" ]; then
+if [ -n "$CS_FROM_DB" ]; then
+  # Map and meadow together, exactly as the earlier release packed them.
+  meadow=cs-training_camp-from-release
+  [ -e "$B/$meadow/port-manifest.json" ] || "$VP" extract-bundle --db "$CS_FROM_DB" \
+    --prefix projects/cs_training_camp/ --prefix models/ported/cs/ \
+    --prefix material_instances/ported/cs/ --prefix textures/ported/cs/ \
+    --output "$B/$meadow"
+else
+  build build-soc-map cs-training_camp-to-0100b --source-root "$CS"
+fi
+if [ -z "$CS_FROM_DB" ] && [ ! -e "$B/$meadow/port-manifest.json" ]; then
   rm -rf "$OUT/cs-base" "${B:?}/$meadow"
   "$VP" apply --base-db "$TARGET" --bundle "$B/cs-training_camp-to-0100b" \
     --work-dir "$OUT/cs-base/work" --output-db "$OUT/cs-base/resources.db"
@@ -70,7 +82,8 @@ if [ ! -e "$B/$meadow/port-manifest.json" ]; then
     --output "$B/$meadow"
   rm -rf "$OUT/cs-base"
 fi
-order+=("$meadow" cs-training_camp-to-0100b)
+order+=("$meadow")
+[ -n "$CS_FROM_DB" ] || order+=(cs-training_camp-to-0100b)
 for m in ports/soc-mp_pool-to-0100b.json ports/soc-*.json; do
   name=$(basename "$m" .json)
   build build-soc-map "$name" --source-root "$SOC"
