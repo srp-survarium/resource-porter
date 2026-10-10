@@ -27,6 +27,7 @@
     "retained_object_types": ["sky", "environment", "volume_fog", "light"]
   },
   "surfaces_per_model": 200,
+  "disable_foliage_wind": true,
   "spawn_position": [139.13, -6.22, -69.30],
   "material_templates": {
     "opaque": "material_instances/tiled/concrete/concrete_01.material",
