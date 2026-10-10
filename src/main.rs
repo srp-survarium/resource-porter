@@ -534,7 +534,10 @@ enum Command {
         flower_png: PathBuf,
         #[arg(long)]
         output: PathBuf,
-        #[arg(long, default_value_t = 16500)]
+        /// About 2.2 tufts per square metre over the Training Camp bowl, its
+        /// slopes and the fade into the forest: v2's density over the
+        /// whole meadow rather than the fenced rectangle.
+        #[arg(long, default_value_t = 50000)]
         grass_limit: usize,
         #[arg(long, default_value_t = 32400)]
         conifer_limit: usize,
@@ -1929,6 +1932,7 @@ fn main() -> Result<()> {
                 skylight_power,
             )?;
             println!("grass_instances={}", record.grass_instances);
+            println!("grass_fade_instances={}", record.grass_fade_instances);
             println!("grass_batches={}", record.grass_batches);
             println!("conifer_instances={}", record.conifer_instances);
             println!("conifer_batches={}", record.conifer_batches);

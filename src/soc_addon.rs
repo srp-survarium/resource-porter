@@ -38,14 +38,14 @@ const GRASS_TERRAIN_SHADERS: &[&str] = &[
 // Training Camp enclosure at x=-9.2..65.3, z=-30.1..37.8.
 const FENCE_MIN: [f32; 2] = [-9.2, -30.1];
 const FENCE_MAX: [f32; 2] = [65.3, 37.8];
-// Keep an inward margin so upright grass cards do not poke through the fence.
-const FENCED_ARENA_MIN: [f32; 2] = [-8.2, -29.1];
-const FENCED_ARENA_MAX: [f32; 2] = [64.3, 36.8];
-// The eroded southern channel continues well beyond the fence. Keep the
-// meadow continuous down to the end of its authored terrain instead of
-// cutting it off at the fence's rectangular bounding box.
-const SOUTH_RAVINE_MIN: [f32; 2] = [-8.5, -67.0];
-const SOUTH_RAVINE_MAX: [f32; 2] = [53.0, FENCED_ARENA_MIN[1]];
+// The camp sits in a round bowl. In level.cform its floor is ringed by
+// `materials\earth_slide` faces 50..71 m from (24.4, 7.4), the slope up to
+// the plateau where the forest starts. The meadow covers the floor and the
+// slopes at full density, then thins out over the first metres of forest so
+// it never ends in an edge.
+const MEADOW_CENTRE: [f32; 2] = [24.4, 7.4];
+const MEADOW_RADIUS: f32 = 68.0;
+const MEADOW_FADE: f32 = 18.0;
 const GRASS_BATCH_TILE: f32 = 8.0;
 const GRASS_BATCH_PREFIX: &str = "ported/cs/training_camp/addons/grass_batch";
 const GRASS_MODEL_TEMPLATE: &str = "models/level/03/flora/gra_green_01.model/";
@@ -145,6 +145,8 @@ pub struct SocAddonRecord {
     format_version: u32,
     asset_id: String,
     pub grass_instances: usize,
+    /// Of those, the ones thinning out past the bowl's rim.
+    pub grass_fade_instances: usize,
     pub grass_batches: usize,
     pub conifer_instances: usize,
     pub conifer_batches: usize,
@@ -285,6 +287,10 @@ pub fn build_bundle(
         format_version: 1,
         asset_id: "cs-training-camp-meadow-addon".into(),
         grass_instances: grass_positions.len(),
+        grass_fade_instances: grass_positions
+            .iter()
+            .filter(|position| meadow_density(**position) < 1.0)
+            .count(),
         grass_batches: grass_batches.len(),
         conifer_instances: conifer_placement.cluster_trees
             + conifer_placement.rim_trees
@@ -337,10 +343,11 @@ fn terrain_grass_positions(
             }
 
             // Generate more points than the project can ultimately hold, then
-            // evenly limit them below. This gives the enclosed terrain an
-            // approximately 0.35-square-metre sampling grid without patterns
-            // following the compiler's triangle edges.
-            let samples = ((double_area * 0.5 / 0.35).ceil() as usize).clamp(1, 64);
+            // evenly limit them below. This gives the meadow an approximately
+            // 0.35-square-metre sampling grid without patterns following the
+            // compiler's triangle edges. The cap only bounds the work: the
+            // coarse slope and forest triangles must not come out sparser.
+            let samples = ((double_area * 0.5 / 0.35).ceil() as usize).clamp(1, 4096);
             let triangle_seed = u32::from(surface.shader_id).wrapping_mul(0x9e37_79b9)
                 ^ (triangle_index as u32).wrapping_mul(0x85eb_ca6b);
             for sample in 0..samples {
@@ -358,7 +365,9 @@ fn terrain_grass_positions(
                     a[1] * weights[0] + b[1] * weights[1] + c[1] * weights[2] + 0.03,
                     a[2] * weights[0] + b[2] * weights[1] + c[2] * weights[2],
                 ];
-                if inside_grass_region(position) {
+                let keep =
+                    hash_unit(triangle_seed.rotate_left(7) ^ sample.wrapping_mul(0x51ed_270b));
+                if keep < meadow_density(position) {
                     positions.push(position);
                 }
             }
@@ -379,14 +388,12 @@ fn terrain_grass_positions(
         .collect())
 }
 
-fn inside_grass_region(position: [f32; 3]) -> bool {
-    let inside = |minimum: [f32; 2], maximum: [f32; 2]| {
-        position[0] >= minimum[0]
-            && position[0] <= maximum[0]
-            && position[2] >= minimum[1]
-            && position[2] <= maximum[1]
-    };
-    inside(FENCED_ARENA_MIN, FENCED_ARENA_MAX) || inside(SOUTH_RAVINE_MIN, SOUTH_RAVINE_MAX)
+/// Share of grass kept at `position`: all of it across the bowl and its
+/// slopes, then a smooth falloff to none over the first metres of forest.
+fn meadow_density(position: [f32; 3]) -> f32 {
+    let distance = (position[0] - MEADOW_CENTRE[0]).hypot(position[2] - MEADOW_CENTRE[1]);
+    let t = ((distance - MEADOW_RADIUS) / MEADOW_FADE).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
 }
 
 fn hash_unit(mut value: u32) -> f32 {
@@ -1930,10 +1937,30 @@ mod tests {
     }
 
     #[test]
-    fn grass_region_includes_the_southern_ravine_but_not_the_outer_world() {
-        assert!(inside_grass_region([20.0, 0.0, 0.0]));
-        assert!(inside_grass_region([20.0, -2.0, -60.0]));
-        assert!(!inside_grass_region([80.0, 0.0, -60.0]));
-        assert!(!inside_grass_region([20.0, 0.0, -80.0]));
+    fn meadow_fills_the_bowl_and_fades_out_in_the_forest() {
+        let at = |angle: f32, distance: f32| {
+            meadow_density([
+                MEADOW_CENTRE[0] + distance * angle.to_radians().cos(),
+                0.0,
+                MEADOW_CENTRE[1] + distance * angle.to_radians().sin(),
+            ])
+        };
+        // The fence corners, the southern ravine and the slope tops.
+        assert_eq!(meadow_density([FENCE_MAX[0], 0.0, FENCE_MAX[1]]), 1.0);
+        assert_eq!(meadow_density([FENCE_MIN[0], 0.0, FENCE_MIN[1]]), 1.0);
+        assert_eq!(meadow_density([20.0, -2.0, -60.0]), 1.0);
+        for angle in (0..360).step_by(15) {
+            let angle = angle as f32;
+            assert_eq!(at(angle, MEADOW_RADIUS), 1.0);
+            // Round, not rectangular: the same distance thins the same way.
+            assert!((at(angle, MEADOW_RADIUS + 9.0) - 0.5).abs() < 0.001);
+            assert_eq!(at(angle, MEADOW_RADIUS + MEADOW_FADE), 0.0);
+        }
+        let mut previous = 1.0;
+        for step in 0..=36 {
+            let density = at(30.0, MEADOW_RADIUS + step as f32 * 0.5);
+            assert!(density <= previous);
+            previous = density;
+        }
     }
 }
