@@ -140,7 +140,7 @@ pub enum RenderFamily {
 impl RenderFamily {
     /// Every family. A manifest must name a v0.100b template for each, because
     /// the family is chosen from the source and cannot be declined later.
-    /// `Unknown` is omitted: established non-Dirty-Bomb manifests never
+    /// `Unknown` is omitted: the reviewed source manifests never
     /// produce it, while importers that do may declare an explicit template or
     /// use the opaque placeholder fallback in `write_materials`.
     pub const ALL: &'static [Self] = &[

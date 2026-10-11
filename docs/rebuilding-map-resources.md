@@ -15,7 +15,6 @@ export TARGET=/path/to/v0100b/resources.db
 export SOC=/path/to/STALKER-Shadow-of-Chernobyl
 export CS=/path/to/STALKER-Clear-Sky
 export FEAR=/path/to/FEAR
-export DIRTY_BOMB=/path/to/DirtyBomb/ShooterGame/CookedPC
 export PATH="$PWD/target/release:$PATH"
 ```
 
@@ -58,7 +57,6 @@ Other families use the same final three stages:
 | --- | --- | --- | --- |
 | Clear Sky | `build-soc-map` | `ports/cs-training_camp-to-0100b.json` | `$CS` |
 | F.E.A.R. | `build-lilith-map` | `ports/lilith-*.json` | `$FEAR` |
-| Dirty Bomb | `build-dirty-bomb-map` | `ports/dirty-bomb-*.json` | `$DIRTY_BOMB` |
 
 The Clear Sky meadow addon is an optional second bundle built against the
 packed base map:

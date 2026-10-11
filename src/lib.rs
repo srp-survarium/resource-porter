@@ -5,7 +5,6 @@ pub mod binary_config;
 pub mod collision_check;
 pub mod config_patch;
 pub mod dependency;
-pub mod dirty_bomb;
 pub mod lilith;
 pub mod manifest;
 pub mod map_compare;

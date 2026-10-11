@@ -24,7 +24,7 @@ game and mod textures used in local experiments.
 
 ## External game inputs
 
-Survarium, S.T.A.L.K.E.R., F.E.A.R., Dirty Bomb and STK2 input files are supplied
+Survarium, S.T.A.L.K.E.R., F.E.A.R. and STK2 input files are supplied
 outside this repository. Their names and resource paths identify supported
 formats and conversions. Game assets retain their rights holders' terms,
 including when copied or converted into bundles; the project license applies

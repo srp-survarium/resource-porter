@@ -10,7 +10,6 @@ Supported conversion paths include:
 
 - S.T.A.L.K.E.R.: Shadow of Chernobyl maps and Clear Sky Training Camp;
 - F.E.A.R. multiplayer worlds;
-- Dirty Bomb cooked UE3 maps;
 - later Survarium maps, weapons and other assets;
 - STK2 static maps, weapons and character assets.
 
@@ -60,16 +59,6 @@ vostok-port build-lilith-map \
   --source-root /path/to/FEAR \
   --target-db /path/to/v0100b/resources.db \
   --output .work/office-bundle
-```
-
-For Dirty Bomb, point at the cooked package directory:
-
-```sh
-vostok-port build-dirty-bomb-map \
-  --manifest ports/dirty-bomb-overground-to-0100b.json \
-  --source-root /path/to/DirtyBomb/ShooterGame/CookedPC \
-  --target-db /path/to/v0100b/resources.db \
-  --output .work/overground-bundle
 ```
 
 Each bundle contains an `overlay/` virtual resource tree and a

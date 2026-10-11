@@ -191,22 +191,6 @@ pub struct SocMapManifest {
     /// the world names them, compared case-insensitively.
     #[serde(default)]
     pub material_aliases: BTreeMap<String, String>,
-    /// Reviewed diffuse-texture choices for materials whose UE3 parameter
-    /// names are ambiguous or misleading. Keys are source material paths and
-    /// values are source `Texture2D` paths, compared case-insensitively.
-    ///
-    /// Dirty Bomb decal instances sometimes expose a channel mask through a
-    /// parameter named `DiffuseMap`; selecting that mask by name produces a
-    /// large white polygon. Keep those exceptions in the manifest instead of
-    /// adding another silent naming heuristic.
-    #[serde(default)]
-    pub material_diffuse_overrides: BTreeMap<String, String>,
-    /// Reviewed opacity-texture choices paired with
-    /// `material_diffuse_overrides`. Vostok has no independent opacity
-    /// sampler for the alpha-tested templates, so the porter bakes this mask
-    /// into the selected diffuse texture's alpha channel.
-    #[serde(default)]
-    pub material_opacity_overrides: BTreeMap<String, String>,
     /// Reflection probe a converted water material samples.
     ///
     /// `water/water_green` names a probe from a project this database does not
@@ -596,8 +580,6 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         texture_aliases: BTreeMap::new(),
         normal_texture_overrides: BTreeMap::new(),
         material_aliases: BTreeMap::new(),
-        material_diffuse_overrides: BTreeMap::new(),
-        material_opacity_overrides: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,
     }
 }
