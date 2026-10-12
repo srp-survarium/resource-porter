@@ -1,7 +1,7 @@
 # Vostok resource porter
 
-Tools for converting maps and assets into additive resource bundles for
-Survarium v0.100b / build 802. The porter reads source game files, converts
+Map conversion tools and playable-map scripts for Survarium v0.100b / build 802
+and v0.26g0 / build 2777. The porter reads source game files, converts
 geometry, collision, textures and configuration, then overlays the bundle onto
 a target `resources.db`. Every emitted resource is recorded with its origin,
 size and SHA-256 and can be verified after packing.
@@ -11,7 +11,8 @@ Supported conversion paths include:
 - S.T.A.L.K.E.R.: Shadow of Chernobyl maps and Clear Sky Training Camp;
 - F.E.A.R. multiplayer worlds;
 - later Survarium maps, weapons and other assets;
-- STK2 static maps, weapons and character assets.
+- STK2 static maps, weapons and character assets;
+- retail 0.21d maps in 0.26g, plus a native 0.26g School variant with dense fog.
 
 Support and visual fidelity vary by source and target build. Resource
 verification checks the packed bytes; client playtesting checks rendering,
@@ -37,6 +38,26 @@ The binaries are `vostok-port` and `vostok-sdk-backend`. On Linux, `nix develop`
 provides Rust, a C compiler, ImageMagick and the runtime tools. ImageMagick's
 `magick` command is required for normal-map repacking and image conversion.
 Building and running unit tests does not require game data, Wine or SRP.
+
+## Playable maps for 0.26
+
+The [0.26 script collection](docs/playable-maps-026.md) covers building a
+database, preparing the matching client and running a local two-client match.
+
+| Script | Purpose |
+| --- | --- |
+| `scripts/build-026-maps.py fog-school` | Native School with dense volume fog and an overcast sky; aiming fix included (`noise_scale = 0`). |
+| `scripts/build-026-maps.py 021-maps` | Import six 0.21 maps with day, evening and rain variants, retaining 0.26 shaders. |
+| `tools/patch-026-map-resources.py` | Prepare the reviewed SRP client to accept rebuilt resource archives. |
+| `scripts/run-026-map.py` | Stage a separate client directory and run a server plus two English Wine clients. |
+
+```sh
+python3 scripts/build-026-maps.py fog-school \
+  --target-db /path/to/retail-026g/resources.db --output .work/fog-school
+```
+
+Use the matching retail databases and SRP client described in the guide.
+Other conversion families below continue to target build 802.
 
 ## Build a map bundle
 
@@ -121,6 +142,8 @@ experimental SRP versions may log them.
 
 ## Documentation
 
+- [Playable 0.26 maps and launcher scripts](docs/playable-maps-026.md)
+- [Retail 0.21 maps in 0.26](docs/survarium-021-to-026.md)
 - [Shadow of Chernobyl conversion](docs/soc-map-porting.md)
 - [F.E.A.R. conversion](docs/fear-map-porting.md)
 - [Rebuilding map databases](docs/rebuilding-map-resources.md)

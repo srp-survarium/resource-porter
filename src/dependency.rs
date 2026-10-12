@@ -108,7 +108,11 @@ pub fn scan_with_forced_donor_and_overrides(
             continue;
         };
         let mut strings = Vec::new();
-        config.root.collect_strings(&mut strings);
+        if path.ends_with("/client_project") || path.ends_with("/server_project") {
+            collect_project_references(&config.root, &mut strings);
+        } else {
+            config.root.collect_strings(&mut strings);
+        }
         for reference in strings {
             let (candidates, relative) = resolve_candidates_from(reference, &path, donor, target);
             if let Some(resolved) = relative {
@@ -118,13 +122,10 @@ pub fn scan_with_forced_donor_and_overrides(
             for candidate in candidates {
                 let candidate_policy =
                     dependency_policy(&candidate, from_donor, &forced_donor_paths);
-                // A reference into a donor-owned directory resolves to the
-                // target's files when the target ships that directory too.
-                // Its own files are the donor's: take its directory instead,
-                // so a file only the target has is neither required nor
-                // imported.
+                // A donor-owned directory must be traversed in full. Target
+                // enumeration can otherwise silently omit donor-only surfaces
+                // and collision children even when every shared child exists.
                 if candidate_policy == SourcePolicy::DonorRequired
-                    && select_path(donor, &candidate).is_none()
                     && let Some(directory) = forced_donor_paths.iter().find(|forced| {
                         candidate
                             .strip_prefix(forced.trim_end_matches('/'))
@@ -142,6 +143,35 @@ pub fn scan_with_forced_donor_and_overrides(
         }
     }
     Ok(plan)
+}
+
+// Scene labels can look like resource paths (e.g. sounds/rain/thunder).
+// They identify placed objects, while sound_name/model_name identify assets.
+fn collect_project_references<'a>(value: &'a crate::ConfigValue, strings: &mut Vec<&'a str>) {
+    use crate::ConfigValue;
+    match value {
+        ConfigValue::Named(fields) => {
+            for field in fields {
+                if field.name == "model_def" {
+                    field.value.collect_strings(strings);
+                    continue;
+                }
+                if !matches!(
+                    field.name.as_str(),
+                    "full_name" | "name" | "lib_guid" | "layer" | "tool_name"
+                ) {
+                    collect_project_references(&field.value, strings);
+                }
+            }
+        }
+        ConfigValue::Indexed(values) => {
+            for v in values {
+                collect_project_references(v, strings)
+            }
+        }
+        ConfigValue::String(s) => strings.push(s),
+        _ => (),
+    }
 }
 
 fn dependency_policy(
@@ -313,6 +343,7 @@ fn resolve_global_candidates(
             format!("{normalized}.sound_collection"),
             format!("{normalized}.single_sound_options"),
             format!("{normalized}.clip"),
+            format!("{normalized}.skeleton"),
             format!("{normalized}.b-spline"),
             format!("{normalized}.bones_names"),
             format!("models/{normalized}.model/"),
@@ -327,7 +358,15 @@ fn resolve_global_candidates(
             format!("{sound_base}.single_sound_options"),
             format!("{single_sound_base}.high.ogg"),
             format!("{single_sound_base}.single_sound_options"),
+            format!("{single_sound_base}.raw_options"),
+            format!("{single_sound_base}.high.rms"),
             sound_collection,
+            format!(
+                "sounds/composite/{}.composite_sound",
+                normalized
+                    .trim_start_matches("sounds/composite/")
+                    .trim_start_matches("sounds/")
+            ),
             format!("{animation_base}.b-spline"),
             format!("{animation_base}.bones_names"),
         ]);
@@ -346,9 +385,31 @@ fn resolve_global_candidates(
             || target.is_file(&format!("{single_sound_base}.high.ogg"))
             || target.is_file(&format!("{single_sound_base}.single_sound_options"))
         {
+            let native = donor.is_file(&format!("{single_sound_base}.raw_options"))
+                || target.is_file(&format!("{single_sound_base}.raw_options"));
             required_companions.extend([
                 format!("{single_sound_base}.high.ogg"),
-                format!("{single_sound_base}.single_sound_options"),
+                format!(
+                    "{single_sound_base}.{}",
+                    if native {
+                        "raw_options"
+                    } else {
+                        "single_sound_options"
+                    }
+                ),
+            ]);
+            if native {
+                required_companions.push(format!("{single_sound_base}.high.rms"));
+            }
+        }
+        if texture_base.contains("/environment_probes/")
+            && !texture_base.ends_with("_diffuse")
+            && (donor.is_file(&format!("{texture_base}_diffuse.dds"))
+                || target.is_file(&format!("{texture_base}_diffuse.dds")))
+        {
+            required_companions.extend([
+                format!("{texture_base}_diffuse.dds"),
+                format!("{texture_base}_diffuse.options"),
             ]);
         }
         if animation_base.starts_with("animations/single/")
@@ -437,6 +498,27 @@ mod tests {
 
     fn pack_fixture(root: &Path, output: &Path) {
         pack::assemble_to_file(&pack::build_src_tree(root).unwrap(), output).unwrap();
+    }
+
+    #[test]
+    fn scene_labels_are_not_assets_but_model_lib_names_are() {
+        let value = ConfigValue::Named(vec![
+            NamedValue {
+                name: "full_name".into(),
+                value: ConfigValue::String("sounds/rain/thunder".into()),
+            },
+            NamedValue {
+                name: "lib_name".into(),
+                value: ConfigValue::String("level/03/ground".into()),
+            },
+            NamedValue {
+                name: "sound_name".into(),
+                value: ConfigValue::String("weather/thunder".into()),
+            },
+        ]);
+        let mut refs = Vec::new();
+        collect_project_references(&value, &mut refs);
+        assert_eq!(refs, vec!["level/03/ground", "weather/thunder"]);
     }
 
     #[test]
@@ -739,6 +821,147 @@ mod tests {
     }
 
     #[test]
+    fn forced_model_imports_donor_only_children_when_target_is_a_subset() {
+        let temp = TempDir::new().unwrap();
+        let source = temp.path().join("source");
+        let targetroot = temp.path().join("target");
+        let config = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "lib_name".into(),
+                value: ConfigValue::String("props/model".into()),
+            }]),
+        }
+        .to_bytes()
+        .unwrap();
+        write_file(&source, "projects/old/client_project", &config);
+        write_file(
+            &source,
+            "models/props/model.model/settings",
+            b"source settings",
+        );
+        write_file(
+            &source,
+            "models/props/model.model/collision/vertices",
+            b"source collision",
+        );
+        write_file(
+            &targetroot,
+            "models/props/model.model/settings",
+            b"target settings",
+        );
+        let a = temp.path().join("a.db");
+        let b = temp.path().join("b.db");
+        pack_fixture(&source, &a);
+        pack_fixture(&targetroot, &b);
+        let mut donor = ResourceDb::open(a).unwrap();
+        let mut target = ResourceDb::open(b).unwrap();
+        let plan = scan_with_forced_donor(
+            &mut donor,
+            &mut target,
+            ["projects/old/client_project".into()],
+            ["models/props/model.model".into()],
+        )
+        .unwrap();
+        assert!(
+            plan.donor_files
+                .contains("models/props/model.model/collision/vertices")
+        );
+        assert!(plan.unresolved_references.is_empty());
+    }
+
+    #[test]
+    fn environment_probe_includes_implicit_diffuse_cube() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("source");
+        let config = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "probe".into(),
+                value: ConfigValue::String("environment_probes/old/probe".into()),
+            }]),
+        }
+        .to_bytes()
+        .unwrap();
+        write_file(&root, "projects/old/client_project", &config);
+        for ext in [".dds", ".options", "_diffuse.dds", "_diffuse.options"] {
+            write_file(
+                &root,
+                &format!("textures/environment_probes/old/probe{ext}"),
+                b"payload",
+            );
+        }
+        let path = temp.path().join("source.db");
+        pack_fixture(&root, &path);
+        let mut donor = ResourceDb::open(&path).unwrap();
+        let mut target = ResourceDb::open(&path).unwrap();
+        let plan = scan(
+            &mut donor,
+            &mut target,
+            ["projects/old/client_project".into()],
+        )
+        .unwrap();
+        assert!(
+            plan.target_files
+                .contains("textures/environment_probes/old/probe_diffuse.dds")
+        );
+        assert!(
+            plan.target_files
+                .contains("textures/environment_probes/old/probe_diffuse.options")
+        );
+    }
+
+    #[test]
+    fn old_composite_sounds_are_followed_to_their_children() {
+        let temp = TempDir::new().unwrap();
+        let donor_root = temp.path().join("donor");
+        let target_root = temp.path().join("target");
+        let reference = |name: &str| {
+            BinaryConfig {
+                root: ConfigValue::Named(vec![NamedValue {
+                    name: "sound_name".into(),
+                    value: ConfigValue::String(name.into()),
+                }]),
+            }
+            .to_bytes()
+            .unwrap()
+        };
+        write_file(
+            &donor_root,
+            "projects/old/client_project",
+            &reference("old/electric"),
+        );
+        write_file(
+            &donor_root,
+            "sounds/composite/old/electric.composite_sound",
+            &reference("child"),
+        );
+        for ext in ["high.ogg", "high.rms", "raw_options"] {
+            write_file(
+                &target_root,
+                &format!("sounds/single/child.{ext}"),
+                b"sound",
+            );
+        }
+        let donor_db = temp.path().join("donor.db");
+        let target_db = temp.path().join("target.db");
+        pack_fixture(&donor_root, &donor_db);
+        pack_fixture(&target_root, &target_db);
+        let mut donor = ResourceDb::open(donor_db).unwrap();
+        let mut target = ResourceDb::open(target_db).unwrap();
+        let plan = scan(
+            &mut donor,
+            &mut target,
+            ["projects/old/client_project".into()],
+        )
+        .unwrap();
+        assert!(
+            plan.donor_files
+                .contains("sounds/composite/old/electric.composite_sound")
+        );
+        assert!(plan.target_files.contains("sounds/single/child.high.ogg"));
+        assert!(plan.unresolved_references.is_empty());
+    }
+
+    #[test]
     fn logical_sound_name_resolves_target_single_sound_payload() {
         let temp = TempDir::new().unwrap();
         let donor_root = temp.path().join("donor");
@@ -784,6 +1007,65 @@ mod tests {
         assert!(
             plan.target_files
                 .contains("sounds/single/scapes/creatures/creatures_line.single_sound_options")
+        );
+        assert!(plan.unresolved_references.is_empty());
+    }
+
+    #[test]
+    fn native_sound_uses_raw_options_and_rms_not_legacy_options() {
+        let temp = TempDir::new().unwrap();
+        let donor_root = temp.path().join("donor");
+        let target_root = temp.path().join("target");
+        let project = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "sound_name".into(),
+                value: ConfigValue::String("scapes/creatures/creatures_line".into()),
+            }]),
+        }
+        .to_bytes()
+        .unwrap();
+        write_file(&donor_root, "projects/imported/client_project", &project);
+        write_file(
+            &target_root,
+            "sounds/single/scapes/creatures/creatures_line.high.ogg",
+            b"target sound",
+        );
+        write_file(
+            &target_root,
+            "sounds/single/scapes/creatures/creatures_line.raw_options",
+            b"target options",
+        );
+
+        write_file(
+            &target_root,
+            "sounds/single/scapes/creatures/creatures_line.high.rms",
+            b"target rms",
+        );
+        let donor_db = temp.path().join("donor.db");
+        let target_db = temp.path().join("target.db");
+        pack_fixture(&donor_root, &donor_db);
+        pack_fixture(&target_root, &target_db);
+        let mut donor = ResourceDb::open(donor_db).unwrap();
+        let mut target = ResourceDb::open(target_db).unwrap();
+
+        let plan = scan(
+            &mut donor,
+            &mut target,
+            ["projects/imported/client_project".into()],
+        )
+        .unwrap();
+
+        assert!(
+            plan.target_files
+                .contains("sounds/single/scapes/creatures/creatures_line.high.ogg")
+        );
+        assert!(
+            plan.target_files
+                .contains("sounds/single/scapes/creatures/creatures_line.raw_options")
+        );
+        assert!(
+            plan.target_files
+                .contains("sounds/single/scapes/creatures/creatures_line.high.rms")
         );
         assert!(plan.unresolved_references.is_empty());
     }

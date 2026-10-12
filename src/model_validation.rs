@@ -27,7 +27,9 @@ pub fn validate_effective_overlay(base_db: &Path, overlay: &Path) -> Result<Mode
         .cloned()
         .collect();
     paths.extend(overlay_files.keys().cloned());
-    validate_resource_pairs(&paths)?;
+    let native = has_native_project_schema(&mut base)?;
+    let changed: BTreeSet<String> = overlay_files.keys().cloned().collect();
+    validate_resource_pairs(&paths, native.then_some(&changed))?;
     let mut report = validate_paths(&mut base, &overlay_files, &paths)?;
     report.overlay_configs = validate_overlay_configs(&overlay_files)?;
     validate_overlay_collision_chunks(&overlay_files)?;
@@ -42,25 +44,56 @@ pub fn validate_database(db_path: &Path) -> Result<ModelValidationReport> {
         .filter(|path| db.is_file(path))
         .cloned()
         .collect();
-    validate_resource_pairs(&paths)?;
+    validate_resource_pairs(&paths, None)?;
     validate_paths(&mut db, &BTreeMap::new(), &paths)
 }
 
-fn validate_resource_pairs(paths: &BTreeSet<String>) -> Result<()> {
+fn has_native_project_schema(base: &mut ResourceDb) -> Result<bool> {
+    for path in [
+        "projects/level_03/day/client_project",
+        "projects/level_03/day_2/client_project",
+    ] {
+        if base.is_file(path) {
+            let project = BinaryConfig::parse(&base.read(path)?)?;
+            if matches!(
+                project.root.named("client_objects"),
+                Some(ConfigValue::Indexed(_))
+            ) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn validate_resource_pairs(
+    paths: &BTreeSet<String>,
+    changed: Option<&BTreeSet<String>>,
+) -> Result<()> {
     for path in paths {
+        if changed.is_some_and(|changed| !changed.contains(path)) {
+            continue;
+        }
         let counterpart = if path.starts_with("textures/") && path.ends_with(".dds") {
             Some(format!("{}.options", path.trim_end_matches(".dds")))
         } else if path.starts_with("textures/") && path.ends_with(".options") {
             Some(format!("{}.dds", path.trim_end_matches(".options")))
         } else if path.starts_with("sounds/single/") && path.ends_with(".high.ogg") {
-            Some(format!(
-                "{}.single_sound_options",
-                path.trim_end_matches(".high.ogg")
-            ))
+            let stem = path.trim_end_matches(".high.ogg");
+            Some(if paths.contains(&format!("{stem}.raw_options")) {
+                format!("{stem}.raw_options")
+            } else {
+                format!("{stem}.single_sound_options")
+            })
         } else if path.starts_with("sounds/single/") && path.ends_with(".single_sound_options") {
             Some(format!(
                 "{}.high.ogg",
                 path.trim_end_matches(".single_sound_options")
+            ))
+        } else if path.starts_with("sounds/single/") && path.ends_with(".raw_options") {
+            Some(format!(
+                "{}.high.ogg",
+                path.trim_end_matches(".raw_options")
             ))
         } else if path.starts_with("animations/single/") && path.ends_with(".b-spline") {
             Some(format!(
@@ -184,6 +217,13 @@ fn validate_paths(
     overlay_files: &BTreeMap<String, PathBuf>,
     paths: &BTreeSet<String>,
 ) -> Result<ModelValidationReport> {
+    let native = has_native_project_schema(base)?;
+    // Replacing stock materials can affect models outside the overlay. In that
+    // case retain the conservative full model validation rather than exempting
+    // their users as untouched native stock.
+    let replaces_material = overlay_files
+        .keys()
+        .any(|path| path.starts_with("material_instances/") && base.is_file(path));
     let mut surfaces = BTreeMap::<String, BTreeSet<String>>::new();
     let mut material_vertex_color_gates = BTreeMap::<String, Option<bool>>::new();
     for path in paths {
@@ -193,7 +233,21 @@ fn validate_paths(
         surfaces.entry(model).or_default().insert(surface);
     }
 
+    let mut validated_models = 0;
     for (model, actual) in &surfaces {
+        // Untouched native retail models have their own historical omissions.
+        // Validate each model changed by the overlay against the full effective
+        // namespace; do not mistake archived donor defects for new output.
+        if native
+            && !replaces_material
+            && !overlay_files.is_empty()
+            && !overlay_files
+                .keys()
+                .any(|path| path.starts_with(&format!("{model}/")))
+        {
+            continue;
+        }
+        validated_models += 1;
         let settings_path = format!("{model}/settings");
         let render_properties = format!("{model}/render/export_properties");
         if !paths.contains(&render_properties) {
@@ -236,7 +290,7 @@ fn validate_paths(
                 expected
             );
         }
-        validate_runtime_lod_contract(&settings, &settings_path, actual)?;
+        validate_runtime_lod_contract(&settings, &settings_path, actual, native)?;
         validate_surface_material_vertex_contracts(
             base,
             overlay_files,
@@ -249,7 +303,7 @@ fn validate_paths(
     }
 
     Ok(ModelValidationReport {
-        models: surfaces.len(),
+        models: validated_models,
         overlay_configs: 0,
     })
 }
@@ -352,6 +406,7 @@ fn validate_runtime_lod_contract(
     settings: &BinaryConfig,
     settings_path: &str,
     actual: &BTreeSet<String>,
+    native_lods: bool,
 ) -> Result<()> {
     let ConfigValue::Named(levels) = settings.root.named("lod_hierrarchy").with_context(|| {
         format!(
@@ -363,10 +418,12 @@ fn validate_runtime_lod_contract(
     };
     let mut lod0_count = 0;
     for level_name in ["LOD0", "LOD1", "LOD2"] {
-        let level = levels
-            .iter()
-            .find(|entry| entry.name == level_name)
-            .with_context(|| format!("{settings_path}.lod_hierrarchy has no {level_name}"))?;
+        let level = levels.iter().find(|entry| entry.name == level_name);
+        if native_lods && level_name != "LOD0" && level.is_none() {
+            continue;
+        }
+        let level =
+            level.with_context(|| format!("{settings_path}.lod_hierrarchy has no {level_name}"))?;
         let ConfigValue::Named(fields) = &level.value else {
             bail!("{settings_path}.lod_hierrarchy.{level_name} is not a named table");
         };
@@ -374,6 +431,10 @@ fn validate_runtime_lod_contract(
         let Some(surfaces) = surfaces else {
             continue;
         };
+        if native_lods && matches!(&surfaces.value, ConfigValue::Named(fields) if fields.is_empty())
+        {
+            continue;
+        }
         let ConfigValue::Indexed(surfaces) = &surfaces.value else {
             bail!("{settings_path}.lod_hierrarchy.{level_name}.surfaces is not an indexed table");
         };
@@ -699,7 +760,42 @@ mod tests {
                 "lod1_body".into()
             )]))
         );
-        validate_runtime_lod_contract(&settings, "model/settings", &actual).unwrap();
+        validate_runtime_lod_contract(&settings, "model/settings", &actual, false).unwrap();
+    }
+
+    #[test]
+    fn overlay_pair_validation_does_not_excuse_new_missing_companions() {
+        let stock = "sounds/single/stock.high.ogg".to_string();
+        let new = "textures/ported/new.dds".to_string();
+        let paths = BTreeSet::from([
+            stock.clone(),
+            new.clone(),
+            "textures/ported/new.options".into(),
+        ]);
+        let changed = BTreeSet::from([new.clone()]);
+        validate_resource_pairs(&paths, Some(&changed)).unwrap();
+        assert!(validate_resource_pairs(&BTreeSet::from([stock, new]), Some(&changed)).is_err());
+    }
+
+    #[test]
+    fn native_lods_allow_single_level_but_legacy_requires_three() {
+        let settings = BinaryConfig {
+            root: ConfigValue::Named(vec![NamedValue {
+                name: "lod_hierrarchy".into(),
+                value: ConfigValue::Named(vec![NamedValue {
+                    name: "LOD0".into(),
+                    value: ConfigValue::Named(vec![NamedValue {
+                        name: "surfaces".into(),
+                        value: ConfigValue::Indexed(vec![ConfigValue::String("body".into())]),
+                    }]),
+                }]),
+            }]),
+        };
+        let actual = BTreeSet::from(["body".into()]);
+        validate_runtime_lod_contract(&settings, "model/settings", &actual, true).unwrap();
+        assert!(
+            validate_runtime_lod_contract(&settings, "model/settings", &actual, false).is_err()
+        );
     }
 
     #[test]
@@ -717,6 +813,7 @@ mod tests {
             &settings,
             "model/settings",
             &BTreeSet::from(["body".into()]),
+            false,
         )
         .unwrap_err()
         .to_string();

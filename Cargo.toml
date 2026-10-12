@@ -3,7 +3,7 @@
 name = "vostok-resource-porter"
 version = "0.1.0"
 edition = "2024"
-description = "Map and asset converter for the Survarium v0.100b client"
+description = "Map and asset converter for Survarium v0.100b and v0.26g clients"
 license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/srp-survarium/resource-porter"

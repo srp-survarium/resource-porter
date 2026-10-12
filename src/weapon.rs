@@ -234,6 +234,8 @@ pub fn apply_bundle(
     #[derive(serde::Deserialize)]
     struct ApplyRecord {
         #[serde(default)]
+        target_db_sha256: Option<String>,
+        #[serde(default)]
         materialize_target_hard_links: BTreeSet<String>,
     }
 
@@ -246,6 +248,11 @@ pub fn apply_bundle(
     let overlay = bundle.join("overlay");
     if !overlay.is_dir() {
         bail!("bundle overlay does not exist: {}", overlay.display());
+    }
+    let apply_record: ApplyRecord =
+        serde_json::from_reader(fs::File::open(bundle.join("port-manifest.json"))?)?;
+    if let Some(expected) = &apply_record.target_db_sha256 {
+        crate::survarium_026::check_hash(base_db, expected)?;
     }
     crate::model_validation::validate_effective_overlay(base_db, &overlay)
         .context("validating effective model surface/settings contracts before packing")?;
@@ -262,8 +269,7 @@ pub fn apply_bundle(
     if let Some(parent) = output_db.parent() {
         fs::create_dir_all(parent)?;
     }
-    let apply_record: ApplyRecord =
-        serde_json::from_reader(fs::File::open(bundle.join("port-manifest.json"))?)?;
+
     let materialized_paths: Vec<Vec<u8>> = apply_record
         .materialize_target_hard_links
         .into_iter()

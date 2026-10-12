@@ -258,6 +258,24 @@ enum Command {
         #[arg(long)]
         preserve_lobby: bool,
     },
+    /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
+    BuildSurvarium021Maps {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        donor_db: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Give native 0.26g School an overcast environment and map-wide volume fog.
+    BuildSurvarium026Fog {
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Build a complete cross-version map overlay from a dependency closure.
     BuildMap {
         #[arg(long)]
@@ -1093,6 +1111,27 @@ fn main() -> Result<()> {
             println!("weapon_dict_ids={:?}", record.weapon_dict_ids);
             println!("replaced_project={}", record.replaced_project);
             println!("bundle={}", output.display());
+        }
+        Command::BuildSurvarium021Maps {
+            manifest,
+            donor_db,
+            target_db,
+            output,
+        } => {
+            let record = vostok_resource_porter::survarium_026::build(
+                &manifest, &donor_db, &target_db, &output,
+            )?;
+            println!(
+                "maps={} files={} materials={}",
+                record.maps.len(),
+                record.files.len(),
+                record.converted_materials.len()
+            );
+            println!("bundle={}", output.display());
+        }
+        Command::BuildSurvarium026Fog { target_db, output } => {
+            vostok_resource_porter::survarium_026::build_native_fog(&target_db, &output)?;
+            println!("bundle={} map=67", output.display());
         }
         Command::BuildMap {
             manifest,
