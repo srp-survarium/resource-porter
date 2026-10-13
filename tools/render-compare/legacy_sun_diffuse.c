@@ -9,6 +9,11 @@ static ID3D11BlendState *sun_aux_blend;
 static ID3D11DepthStencilState *sun_aux_depth[1];
 static unsigned sun_aux_frame,sun_aux_draws,sun_aux_capture_id;
 static int sun_aux_enabled,sun_aux_ready,sun_aux_translucency;
+static ID3D11ShaderResourceView *source_full_diffuse_view(void) {
+    return sun_aux_enabled && sun_aux_translucency && sun_aux_ready && sun_aux_frame==present_calls &&
+        sun_aux_draws==2 && source_ambient_valid() && !legacy_local_failures && !legacy_local_unhandled
+        ?legacy_local_diffuse_view:NULL;
+}
 static int configure_sun_aux(void) {
     char directory[MAX_PATH],path[MAX_PATH];
     DWORD length=GetEnvironmentVariableA("SRP_DIAGNOSTIC_SOURCE_SUN_DIR",directory,sizeof(directory));

@@ -21,6 +21,9 @@ Texture2D t_diffuse_accumulation : register(t4);
 Texture2D t_specular_accumulation : register(t5);
 Texture2D t_sun_shadow_and_scattering : register(t6);
 Texture2D t_rain_shadow_map : register(t7);
+#ifdef CONFIG_FULL_ENCODED_DIFFUSE
+Texture2D t_full_encoded_diffuse : register(t15);
+#endif
 SamplerState s_position : register(s0);
 SamplerState s_normal : register(s1);
 SamplerState s_accumulator : register(s2);
@@ -90,7 +93,10 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
     float3 specular_color=lerp(tint*1.3,parameters.www,saturate(1.04-4*parameters.x*parameters.x+fresnel));
     float3 ambient=max(t_diffuse_accumulation.SampleLevel(s_accumulator,uv,0).xyz,0);
     float3 specular=max(t_specular_accumulation.SampleLevel(s_accumulator,uv,0).xyz,0)+sun_specular;
-#ifdef CONFIG_ENCODED_ADDITION
+#ifdef CONFIG_FULL_ENCODED_DIFFUSE
+    float3 encoded=saturate(t_full_encoded_diffuse.SampleLevel(s_accumulator,uv,0).rgb);
+    float3 lighting=8*encoded*encoded;
+#elif defined(CONFIG_ENCODED_ADDITION)
     // Isolate the old sun/resolve contract. Re-encoding the already combined
     // ambient buffer does NOT reproduce the old blending of individual probes
     // or local lights; those require their own matched producer changes.

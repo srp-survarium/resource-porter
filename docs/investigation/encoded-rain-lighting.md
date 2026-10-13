@@ -406,3 +406,29 @@ is still .02134. Matching quantized depth and means cannot establish
 matching foliage, normals, material values or shadow phase. The report
 retains all three stage boundaries, looser masks and regional errors so
 these remaining differences are not hidden by an overall mean.
+
+## Same-frame composition comparison
+
+`SRP_DIAGNOSTIC_COMPOSITION_SOURCE_DIFFUSE=1` pairs with
+`SRP_LEGACY_COMPOSITION_REFERENCE` compiled from
+`legacy_composition_control.hlsl` with `CONFIG_FULL_ENCODED_DIFFUSE=1` and
+`CONFIG_NO_RAIN_DARKENING=1`. The diagnostic binds the complete private
+UNORM accumulator at t15 and replaces only diffuse lighting with `8*E*E`.
+Native albedo conversion, specular accumulation, sun specular and material
+tint remain fixed. AO, sun and translucency are already in E and are not
+added again. This is a pre-fog comparison, not full composition parity.
+
+The replay requires current-frame ambient, both sun/translucency draws and
+zero local failures. It restores t15 before redrawing the displayed shader.
+`pipeline-factory-full-diffuse-comparison` completed all five views with no
+hook errors. Outputs are rt00 preserved approximation, rt01 native, rt02
+full diffuse, and rt03 restored approximation. Every rt03 is byte-identical
+to rt00. The exact loaded build and reproduction scripts are preserved in
+`reproduction/factory-full-diffuse-comparison-20261013`.
+
+Fixed-exposure previews show the upper background hill recovering source
+illumination, but some surfaces still differ. Original composition runs
+before its sky is drawn; the native target already contains sky. Equal
+depth alone includes shared far-clear pixels (499.75), so geometry metrics
+must exclude sky using actual stencil and clear-depth evidence. Previews
+use one fixed display conversion without exposure fitting.

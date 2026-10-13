@@ -84,6 +84,8 @@ static ID3D11PixelShader *native_composition_shader;
 static ID3D11PixelShader *comparison_composition_shader;
 static void *comparison_composition_code;
 static size_t comparison_composition_size;
+static int comparison_source_diffuse;
+static ID3D11ShaderResourceView *source_full_diffuse_view(void);
 static const GUID composition_guid={0x94bd30e1,0x2601,0x49c4,{0xa4,0x37,0x72,0x15,0x6b,0x1d,0x4c,0xe2}};
 static unsigned composition_output_id;
 static void *legacy_ambient_decode_code;
@@ -678,16 +680,31 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
         if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
         dump_texture(texture,base,file,"native_same_inputs",1,NULL);
         if (comparison_composition_shader) {
-            ID3D11DeviceContext_PSSetShader(context,comparison_composition_shader,NULL,0);
-            if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
-            fputs(",",file); dump_texture(texture,base,file,"comparison_same_inputs",2,NULL);
-            snprintf(path,sizeof(path),"%s.comparison.dxbc",base);
-            if (!write_bytes(path,comparison_composition_code,comparison_composition_size))
-                error("cannot save composition comparison shader");
+            ID3D11ShaderResourceView *source_view=comparison_source_diffuse?source_full_diffuse_view():NULL;
+            ID3D11ShaderResourceView *saved_view=NULL;
+            int ready=!comparison_source_diffuse || source_view;
+            if (comparison_source_diffuse && !ready) error("composition comparison requires current complete source diffuse");
+            if (comparison_source_diffuse && ready) {
+                ID3D11DeviceContext_PSGetShaderResources(context,15,1,&saved_view);
+                ID3D11DeviceContext_PSSetShaderResources(context,15,1,&source_view);
+            }
+            if (ready) {
+                ID3D11DeviceContext_PSSetShader(context,comparison_composition_shader,NULL,0);
+                if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
+                fputs(",",file); dump_texture(texture,base,file,comparison_source_diffuse?"comparison_source_diffuse":"comparison_same_inputs",2,NULL);
+                snprintf(path,sizeof(path),"%s.comparison.dxbc",base);
+                if (!write_bytes(path,comparison_composition_code,comparison_composition_size))
+                    error("cannot save composition comparison shader");
+            }
+            if (comparison_source_diffuse && ready) {
+                ID3D11DeviceContext_PSSetShaderResources(context,15,1,&saved_view);
+                if (saved_view) ID3D11ShaderResourceView_Release(saved_view);
+            }
         }
-        fputs("]\n",file); fclose(file);
         ID3D11DeviceContext_PSSetShader(context,shader,NULL,0);
         if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
+        if (comparison_source_diffuse) { fputs(",",file); dump_texture(texture,base,file,"restored_override",3,NULL); }
+        fputs("]\n",file); fclose(file);
         composition_output_id=camera.id;
     }
     ID3D11Texture2D_Release(texture); ID3D11PixelShader_Release(shader);
@@ -901,6 +918,10 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     if (!configure_legacy_ssao()) return 0;
     if (!configure_ambient_diffuse()) return 0;
     if (!configure_sun_aux()) return 0;
+    comparison_source_diffuse=GetEnvironmentVariableA("SRP_DIAGNOSTIC_COMPOSITION_SOURCE_DIFFUSE",enabled,sizeof(enabled))==1 && enabled[0]=='1';
+    if (comparison_source_diffuse && (!comparison_composition_code || !sun_aux_enabled || !sun_aux_translucency)) {
+        error("source diffuse comparison requires reference shader and sun/translucency auxiliary"); return 0;
+    }
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
