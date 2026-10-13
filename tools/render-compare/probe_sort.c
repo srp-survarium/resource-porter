@@ -40,7 +40,7 @@ static void __attribute__((used,noinline)) legacy_probe_sort(DWORD *begin,DWORD 
         memcpy(&row->geometry,object+0x33c,4);
         memcpy(row->position,object+0x314,12);
         row->key=row->native_key;
-        if (!isfinite(row->key) || row->key<=0) { probe_sort_line=__LINE__; ++probe_sort_rejections; return; }
+        if (row->geometry>1 || !isfinite(row->key) || row->key<=0) { probe_sort_line=__LINE__; ++probe_sort_rejections; return; }
         if (row->geometry) {
             float matrix[16],maximum=0;
             memcpy(matrix,object+0x234,sizeof(matrix));
@@ -83,15 +83,15 @@ static void __attribute__((used,noinline)) legacy_probe_sort(DWORD *begin,DWORD 
 }
 
 /* Native usercall: EAX=begin, EDI=end, one caller-cleaned stack argument.
-   Preserve its result registers/flags after running the unchanged native sort. */
+   Preserve its result general registers/flags after running the unchanged native sort. */
 static void __attribute__((naked,used)) legacy_probe_sort_bridge(void) {
     __asm__ volatile(
         "push %edi\n\tpush %eax\n\tpushl 12(%esp)\n\t"
-        "call *_probe_native_final_sort\n\tadd $4,%esp\n\t"
+        "call *_probe_native_final_sort\n\tlea 4(%esp),%esp\n\t"
         "pushfl\n\tpushal\n\t"
         "mov 36(%esp),%eax\n\tmov 40(%esp),%edx\n\t"
         "push %edx\n\tpush %eax\n\tcall _legacy_probe_sort\n\tadd $8,%esp\n\t"
-        "popal\n\tpopfl\n\tadd $8,%esp\n\tret\n\t");
+        "popal\n\tpopfl\n\tlea 8(%esp),%esp\n\tret\n\t");
 }
 
 static int probe_sort_enabled;
