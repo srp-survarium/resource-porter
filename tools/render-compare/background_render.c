@@ -3,6 +3,9 @@
 static int capture_background_enabled, capture_background_owned;
 static unsigned char capture_background_original;
 static unsigned capture_background_writes;
+static DWORD capture_background_vtable,capture_background_state,capture_background_protect,capture_background_type;
+static SIZE_T capture_background_query;
+static unsigned capture_background_rejection;
 static char capture_background_switch[MAX_PATH+32];
 
 static int capture_background_read(uintptr_t address,void *out,SIZE_T size) {
@@ -11,20 +14,24 @@ static int capture_background_read(uintptr_t address,void *out,SIZE_T size) {
 }
 
 static int capture_background_guard(unsigned char *gate) {
-    DWORD vtable=0;
-    MEMORY_BASIC_INFORMATION memory;
-    return capture_background_read(0xa7b6b8,&vtable,sizeof(vtable)) && vtable==0x9db60c &&
-        VirtualQuery((const void *)0xa7b9cb,&memory,sizeof(memory))==sizeof(memory) &&
-        memory.State==MEM_COMMIT && memory.Protect==PAGE_READWRITE &&
-        capture_background_read(0xa7b9cb,gate,1) && *gate<=1;
+    MEMORY_BASIC_INFORMATION memory;memset(&memory,0,sizeof(memory));
+    int table_ok=capture_background_read(0xa7b6b8,&capture_background_vtable,sizeof(capture_background_vtable));
+    capture_background_query=VirtualQuery((const void *)0xa7b9cb,&memory,sizeof(memory));
+    capture_background_state=memory.State;capture_background_protect=memory.Protect;capture_background_type=memory.Type;
+    int gate_ok=capture_background_read(0xa7b9cb,gate,1);
+    capture_background_rejection=!table_ok?1:capture_background_vtable!=0x9db60c?2:
+        capture_background_query!=sizeof(memory)?3:memory.State!=MEM_COMMIT?4:
+        memory.Protect!=PAGE_READWRITE?5:!gate_ok?6:*gate>1?7:0;
+    return !capture_background_rejection;
 }
 
 static void capture_background_record(const char *event,unsigned char gate) {
     char path[MAX_PATH+40];snprintf(path,sizeof(path),"%s.background-render.json",control);
     FILE *file=fopen(path,"w");if (!file) return;
-    fprintf(file,"{\"event\":\"%s\",\"enabled\":%s,\"owned\":%s,\"original_gate\":%u,\"current_gate\":%u,\"writes\":%u}\n",
+    fprintf(file,"{\"event\":\"%s\",\"enabled\":%s,\"owned\":%s,\"original_gate\":%u,\"current_gate\":%u,\"writes\":%u,\"guard_rejection\":%u,\"vtable\":%lu,\"query_bytes\":%lu,\"page_state\":%lu,\"page_protect\":%lu,\"page_type\":%lu}\n",
         event,capture_background_enabled?"true":"false",capture_background_owned?"true":"false",
-        capture_background_original,gate,capture_background_writes);
+        capture_background_original,gate,capture_background_writes,capture_background_rejection,
+        capture_background_vtable,(unsigned long)capture_background_query,capture_background_state,capture_background_protect,capture_background_type);
     fclose(file);
 }
 
@@ -52,6 +59,7 @@ static int configure_capture_background(void) {
         error("background capture requires the verified 0.26 activity gate"); return 0;
     }
     snprintf(capture_background_switch,sizeof(capture_background_switch),"%s.background-render",control);
+    capture_background_record("configured",0);
     return 1;
 }
 
@@ -61,7 +69,13 @@ static void capture_background_step(void) {
     FILE *file=fopen(capture_background_switch,"r");
     if (file) { int option=fgetc(file); fclose(file); if (option=='0') enabled=0; }
     unsigned char gate=0;
-    if (!capture_background_guard(&gate)) return; // Engine may not be constructed yet.
+    if (!capture_background_guard(&gate)) {
+        static unsigned last_rejection;static DWORD last_vtable,last_protect;
+        if (last_rejection!=capture_background_rejection || last_vtable!=capture_background_vtable || last_protect!=capture_background_protect)
+            capture_background_record("guard-rejected",gate);
+        last_rejection=capture_background_rejection;last_vtable=capture_background_vtable;last_protect=capture_background_protect;
+        return; // Engine may not be constructed yet; rejected pages are never changed.
+    }
     if (!enabled) {
         if (capture_background_owned) {
             capture_background_restore();
