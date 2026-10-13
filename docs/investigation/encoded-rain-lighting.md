@@ -294,3 +294,43 @@ pixels respectively. This verifies sky arithmetic, scheduling and monotone
 encoded addition. It does not prove all probe equations, exact local raster
 coverage or original-vs-target material parity. Native changed-pixel masks
 can omit source-only illumination when the shadow kernels differ.
+
+## Source and native stencil meanings
+
+Source `geometry_type.h:7–18` assigns 0x80 plus geometry class: terrain 1,
+static 2, speedtree 3, translucency 4, skeletal 5 and particles 6.
+`stage_gbuffer.cpp:370–382` explicitly selects the static/skeletal/translucent
+references for their batches. `effect_gstage_default_materials.cpp:116–126`
+also selects 0x84 when the material uses a translucency texture. Source sky
+and sun use NOT_EQUAL 0 across all stencil bits. Source translucency uses
+EQUAL reference 0xff with read mask 0x04, which includes classes 4, 5 and 6.
+This is not an independent material boolean bit.
+
+Native 026 has a different producer contract. In the shipped default-material
+compiler, VA 0x1de6ec–0x1de6fe masks a byte to six bits, compares it with
+0x800, and computes reference 0x81; VA 0x1de749 writes that reference.
+The six-bit value cannot equal 0x800. Terrain (VA 0x1e4ab3) and no-material
+(VA 0x1bfdc2) compilers explicitly write 0x81 too. Native
+`stage_gbuffer::execute` at VA 0x177a20 no longer contains the three source
+stencil-reference batches. Therefore copying source translucency's 0x04
+mask onto native stencil is unjustified. Final native stencil can still
+support a nonzero-geometry sun diagnostic, but its actual values must be
+captured. Temporary volume INVERT operations turn 0x81 into 0x7e, changing
+bit 0x04; use the actual post-light DSV, not an arbitrary pre-light snapshot.
+
+Source `translucency.ps:68–70` separately checks the original albedo alpha's
+high bit. The packed five-bit translucency amount alone is insufficient:
+non-translucent source materials can still store a nonzero amount. Native
+material shaders `93d3718d4821d653d85cf4c1e4ea58ae` and
+`c7681c727775f38ce61f2d72ab3cc80a` write parameters.z from the translucency
+texture's red channel; inspected non-translucent producers write zero.
+
+`audit_translucency_gate.py ORIGINAL_POSES NATIVE_POSES --output REPORT.json`
+compares those semantics on the same-weather, exactly matching R16F depth
+subset. Across the five Factory views, that subset contains 2,148,079 pixels.
+Of these, 1,977,056 have a nonzero original packed amount with its material
+flag off. Native positive-z versus original flag-off occurs at 170 pixels:
+163 in upper foliage and 7 near the streetlamp. Quantized depth equality
+does not establish matching material/UV at moving foliage edges, so these
+exceptions remain unresolved. Native positive-z is a useful candidate gate,
+not a proof of source stencil coverage or a replacement for that audit.
