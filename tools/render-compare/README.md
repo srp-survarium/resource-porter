@@ -100,3 +100,42 @@ for diffuse RGB sums above 0.0001. It measures attenuation within 0.26; it is no
 a similarity score against 0.10b. Existing reference images in
 `010b/poses-quality1` are frozen with `010b/reference-manifest.json`; further
 iterations use only 0.26. A rendered map during countdown is sufficient.
+
+## Active shader inputs and optional atmosphere experiments
+
+Buffer capture also records the first recognized probe, cloud, sky, geometry-fog
+and post-process draw after a pose settles. `*.{probe,cloud,sky,fog,post}-draw.*`
+contains the actual DXBC, bound constant buffers, texture metadata and blend
+state. Some bound slots are leftovers unused by that shader; consult the DXBC
+reflection. Texture names include the view's DXGI format, which can differ from
+the underlying typeless resource. Compressed textures and cubes are described
+but not read back. Interior views may omit sky/cloud draws entirely.
+
+`build_shaders.py --wine WINE --fxc FXC --output DIRECTORY` builds the diagnostic
+shaders with `/WX /O3 /T ps_4_0`, recording hashes. Wine's Z drive must expose the
+host root. In addition to `SRP_CAPTURE_BUFFERS=1`, set any of these variables to
+the corresponding compiled shader's Windows path:
+
+| Variable | Shader |
+| --- | --- |
+| `SRP_LEGACY_ATMOSPHERE_LUT` | `legacy-atmosphere-lut.dxbc` |
+| `SRP_LEGACY_GEOMETRY_FOG` | `legacy-geometry-fog.dxbc` |
+| `SRP_LEGACY_SKY` | `legacy-sky.dxbc` |
+| `SRP_LEGACY_RAIN_CLOUDS` | `legacy-rain-clouds.dxbc` |
+
+These change rendering only when explicitly enabled. Replacement requires the
+original shader's exact DXBC size and header digest. The hook records successful
+creation counts in `camera.txt.shader-overrides.json`; inspect it every run.
+Geometry fog adds the previously unbound Mie table at t2 for its draw and restores
+the prior binding afterward. Its single alpha-blended draw reproduces the old
+0.1 distance attenuation plus additive scattering. The observed native blend is
+SRC_ALPHA / INV_SRC_ALPHA, ADD. Sky/cloud register layouts are adapted separately.
+
+The cloud experiment is specific to Factory rain: its legacy tint multiplier 10,
+UV scale 1, fade power 2 and fade band 0.5 are explicit shader constants because
+the later stage does not upload those old fields. It is not a general map fix.
+The combined diagnostic also disables height-based ambient and multiplies diffuse
+probe intensity by 10, approximating the legacy 2.5 SSAO gain versus the later
+0.25 probe decode. Probe exponent, material, exposure and grading differences
+remain. Four-pose validation restores distant haze but shows overbright interior
+surfaces and differing light patterns; this is not visual parity or a release.

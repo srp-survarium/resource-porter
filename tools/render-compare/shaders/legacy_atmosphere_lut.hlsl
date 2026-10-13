@@ -1,0 +1,107 @@
+// Diagnostic port of the v0.10b scattering-table equations.
+// 0.26 uses the same 256x128 outputs and two-float4 constant-buffer layout.
+
+cbuffer LegacyAtmosphere : register(b0)
+{
+    float4 to_sun_direction_parameter;
+    float4 atmosphere_rayleigh_mie_parameters;
+};
+
+struct v2p_make_mie_rayleigh_texture
+{
+	float4	hpos	: SV_POSITION;
+	float2	tc		: TEXCOORD0;
+};
+
+struct p_make_mie_rayleigh_texture
+{
+	float4	rayleigh	: SV_Target0;
+	float4	mie			: SV_Target1;
+};
+
+void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O )
+{
+	float2	angles			= ( float2( I.hpos.y, I.hpos.x) - 0.5f)*float2( 0.02473695f, 0.0068444284f);
+
+	float3	direction		= normalize( float3(
+								sin( angles.y)*cos( angles.x),
+								cos( angles.y),
+								sin( angles.y)*sin( angles.x)));
+
+	float3	camera			= float3( 0.0f, 6356.7534f, 0.0f);
+
+	float	projection		= -6356.7534f*direction.y;
+	float	ray_length		= projection + sqrt( 41629640.0f - ( 40408312.0f - projection*projection));
+
+	float2	ray_step		= ray_length*float2( 0.05f, 0.0005243768f);
+
+	float3	position		= direction*ray_step.x*0.5f + camera;
+
+	float3	rayleigh_extinction	= atmosphere_rayleigh_mie_parameters.z*float3( -0.17599343f, -0.297612f, -0.61712825f);
+	float	mie_extinction		= atmosphere_rayleigh_mie_parameters.w*0.012566371f;
+
+	float3	rayleigh_sum	= 0.0f;
+	float3	mie_sum			= 0.0f;
+
+	for (int i = 0; i < 20; i++)
+	{
+		float	altitude	= sqrt( dot( position, position)) - 6356.7524f;
+		float2	density		= exp2( altitude*float2( -0.050434384f, -0.15130316f));
+
+		density				= density*ray_step.y;
+
+		float3	to_camera	= camera - position;
+		float	view_length	= sqrt( dot( to_camera, to_camera));
+		float3	view_ray	= to_camera/view_length;
+		float2	view_step	= view_length*float2( 0.02f, 0.00020975071f);
+		float3	view_sample	= view_ray*view_step.x*0.5f + position;
+
+		float2	view_depth	= 0.0f;
+
+		for (int j = 0; j < 50; j++)
+		{
+			float	h		= sqrt( dot( view_sample, view_sample)) - 6356.7524f;
+
+			view_depth		+= exp2( h*float2( -0.050434384f, -0.15130316f));
+			view_sample		= view_ray*view_step.x + view_sample;
+		}
+
+		float4	optical_depth	= float4( view_depth.xxx, view_depth.y)*view_step.y;
+
+		float3	to_center	= -position;
+		float	sun_project	= dot( to_center, to_sun_direction_parameter.xyz);
+		float	sun_length	= sun_project + sqrt( 41629640.0f - ( dot( to_center, to_center) - sun_project*sun_project));
+		float3	sun_ray		= sun_length*to_sun_direction_parameter.xyz;
+		float	sun_travel	= sqrt( dot( sun_ray, sun_ray));
+
+		sun_ray				= sun_ray/sun_travel;
+
+		float2	sun_step	= sun_travel*float2( 0.02f, 0.00020975071f);
+		float3	sun_sample	= sun_ray*sun_step.x*0.5f + position;
+
+		float2	sun_depth	= 0.0f;
+
+		for (int k = 0; k < 50; k++)
+		{
+			float	h		= sqrt( dot( sun_sample, sun_sample)) - 6356.7524f;
+
+			sun_depth		= sun_depth + exp2( h*float2( -0.050434384f, -0.15130316f));
+			sun_sample		= sun_ray*sun_step.x + sun_sample;
+		}
+
+		optical_depth		= float4( sun_depth.xxx, sun_depth.y)*sun_step.y + optical_depth;
+
+		float3	transmittance	= exp( rayleigh_extinction*optical_depth.xyz - mie_extinction*optical_depth.w);
+
+		rayleigh_sum		+= density.x*transmittance;
+		mie_sum				+= density.y*transmittance;
+
+		position			= direction*ray_step.x + position;
+	}
+
+	float3	rayleigh	= atmosphere_rayleigh_mie_parameters.x*rayleigh_sum;
+	float3	mie			= atmosphere_rayleigh_mie_parameters.y*mie_sum;
+
+	O.mie		= float4( mie*float3( 0.02871989f, 0.032069717f, 0.037377253f), 1.0f);
+	O.rayleigh	= float4( rayleigh*float3( 0.28013024f, 0.47371158f, 0.98228836f), 1.0001f);
+}

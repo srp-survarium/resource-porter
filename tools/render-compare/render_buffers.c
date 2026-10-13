@@ -1,5 +1,8 @@
 // Included by camera_hook.c: v0.26 stage entry verified against 0.21 symbols.
 static unsigned ambient_id, ambient_after_id;
+static ID3D11ShaderResourceView *legacy_mie_view;
+static ID3D11Texture2D *legacy_mie_texture;
+static int legacy_fog_enabled;
 void *post_trampoline, *ambient_trampoline, *ambient_after_trampoline;
 
 static int readable(const void *pointer, size_t bytes) {
@@ -12,7 +15,7 @@ static int readable(const void *pointer, size_t bytes) {
 static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, const char *name, unsigned slot) {
     D3D11_TEXTURE2D_DESC desc;
     ID3D11Texture2D_GetDesc(buffer,&desc);
-    fprintf(index,"{\"slot\":%u,\"name\":\"%s\",\"width\":%u,\"height\":%u,\"format\":%u",slot,name,desc.Width,desc.Height,desc.Format);
+    fprintf(index,"{\"slot\":%u,\"name\":\"%s\",\"width\":%u,\"height\":%u,\"format\":%u,\"array_size\":%u",slot,name,desc.Width,desc.Height,desc.Format,desc.ArraySize);
     unsigned bytes;
     switch (desc.Format) {
         case DXGI_FORMAT_R32G32B32A32_FLOAT: bytes=16; break;
@@ -64,11 +67,25 @@ static void capture_stage_inputs(unsigned char *stage, unsigned *last_id, const 
     if (last_id==&buffers_id && ambient_after_id!=applied.id) take=0;
     camera=applied;
     LeaveCriticalSection(&lock);
-    if (!take) return;
+    if (!take && !legacy_fog_enabled) return;
     if (!readable(stage,8)) return;
     unsigned char *context=*(void **)(stage+4);
     if (!readable(context,0x11a0)) return;
     unsigned char *targets=*(void **)(context+0x119c);
+    if (legacy_fog_enabled && readable(targets,72*0xa0)) {
+        unsigned char *target=*(void **)(targets+71*0xa0+0x98);
+        if (readable(target,0x10)) {
+            ID3D11Texture2D *texture=*(void **)(target+0xc);
+            if (texture && texture!=legacy_mie_texture) {
+                ID3D11Device *device=NULL; ID3D11Texture2D_GetDevice(texture,&device);
+                if (legacy_mie_view) ID3D11ShaderResourceView_Release(legacy_mie_view);
+                legacy_mie_view=NULL; legacy_mie_texture=NULL;
+                if (SUCCEEDED(ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)texture,NULL,&legacy_mie_view))) legacy_mie_texture=texture;
+                ID3D11Device_Release(device);
+            }
+        }
+    }
+    if (!take) return;
     char base[MAX_PATH+32], path[MAX_PATH+64];
     snprintf(base,sizeof(base),"%s%s",camera.output,suffix);
     snprintf(path,sizeof(path),"%s.targets.json",base);

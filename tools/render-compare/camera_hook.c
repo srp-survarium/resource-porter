@@ -28,6 +28,7 @@ static char control[MAX_PATH], status_path[MAX_PATH+16], build[16], error_text[1
 static void *selected_director;
 void *camera_trampoline;
 static HRESULT (STDMETHODCALLTYPE *original_present)(IDXGISwapChain *, UINT, UINT);
+static int install_shader_capture(ID3D11Device *device, ID3D11DeviceContext *context);
 
 static void error(const char *message) {
     EnterCriticalSection(&lock);
@@ -217,6 +218,7 @@ static int install_present(void) {
     DWORD protection;
     int ok=VirtualProtect(&vtable[8],sizeof(void *),PAGE_READWRITE,&protection);
     if (ok) { vtable[8]=(void *)present; VirtualProtect(&vtable[8],sizeof(void *),protection,&protection); }
+    if (ok) ok=install_shader_capture(device,context);
     ID3D11DeviceContext_Release(context);
     ID3D11Device_Release(device);
     IDXGISwapChain_Release(swapchain);
@@ -269,6 +271,7 @@ static DWORD WINAPI worker(void *unused) {
 }
 
 #include "render_buffers.c"
+#include "shader_capture.c"
 
 __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     GetEnvironmentVariableA("SRP_CAPTURE_BUILD",build,sizeof(build));
