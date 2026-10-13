@@ -86,6 +86,7 @@ static ID3D11PixelShader *comparison_composition_shader;
 static void *comparison_composition_code;
 static size_t comparison_composition_size;
 static int comparison_source_diffuse;
+static int live_source_diffuse;
 static ID3D11ShaderResourceView *source_full_diffuse_view(void);
 static const GUID composition_guid={0x94bd30e1,0x2601,0x49c4,{0xa4,0x37,0x72,0x15,0x6b,0x1d,0x4c,0xe2}};
 static unsigned composition_output_id;
@@ -244,6 +245,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         (contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")) ||
         (contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")) ||
         (capture_materials_enabled && contains(code,size,"deferred_material_parameters")) ||
+        contains(code,size,"t_full_encoded_diffuse") ||
         (contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation"))))
         ID3D11PixelShader_SetPrivateData(*shader,&post_code_guid,(UINT)size,code);
     return hr;
@@ -340,7 +342,7 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     HRESULT reference_hr=reference_capture?ID3D11PixelShader_GetPrivateData(shader,&reference_kind_guid,&reference_kind_size,&reference_kind):S_OK;
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr) || FAILED(reference_hr)) { free(code); return; }
-    unsigned kind=capture_emissives_enabled && is_native_emissive(code,size)?21:is_native_aberration(code,size)?22:contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
+    unsigned kind=capture_emissives_enabled && is_native_emissive(code,size)?21:is_native_aberration(code,size)?22:contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:(contains(code,size,"t_full_encoded_diffuse") || (contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")))?7:
         capture_materials_enabled && contains(code,size,"deferred_material_parameters")?8:
         contains(code,size,"hba_parameters") || contains(code,size,"t_encoded_ambient") || (contains(code,size,"t_ssao_accumulator") && !contains(code,size,"t_probe_cubemap_diffuse"))?5:contains(code,size,"skylight_parameters0")?6:
         contains(code,size,"t_frame_luminance")?0:(contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture"))?1:
@@ -705,7 +707,7 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
         }
         ID3D11DeviceContext_PSSetShader(context,shader,NULL,0);
         if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
-        if (comparison_source_diffuse) { fputs(",",file); dump_texture(texture,base,file,"restored_override",3,NULL); }
+        if (comparison_source_diffuse || live_source_diffuse) { fputs(",",file); dump_texture(texture,base,file,"restored_override",3,NULL); }
         fputs("]\n",file); fclose(file);
         composition_output_id=camera.id;
     }
@@ -773,6 +775,49 @@ static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
 #include "legacy_ambient_diffuse.c"
 #include "legacy_sun_diffuse.c"
 #include "legacy_rain_shells.c"
+typedef struct { ID3D11ShaderResourceView *view; ID3D11PixelShader *shader; int bound; } FullDiffuseState;
+static void bind_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *state) {
+    memset(state,0,sizeof(*state));
+    if (!live_source_diffuse) return;
+    ID3D11PixelShader *shader=NULL; ID3D11DeviceContext_PSGetShader(context,&shader,NULL,NULL);
+    if (!shader) return;
+    unsigned flag=0; UINT size=sizeof(flag);
+    HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&composition_guid,&size,&flag);
+    if (FAILED(hr) || flag!=1) { ID3D11PixelShader_Release(shader); return; }
+    ID3D11ShaderResourceView *view=source_full_diffuse_view();
+    if (view) {
+        ID3D11DeviceContext_PSGetShaderResources(context,15,1,&state->view);
+        ID3D11DeviceContext_PSSetShaderResources(context,15,1,&view); state->bound=1;
+        ID3D11PixelShader_Release(shader);
+    } else {
+        // Menu/loading has no scene accumulator. Keep native composition until
+        // every producer completed for this frame; never sample stale lighting.
+        state->shader=shader;
+        ID3D11DeviceContext_PSSetShader(context,native_composition_shader,NULL,0);
+    }
+    Camera camera; EnterCriticalSection(&lock); camera=applied;
+    int take=camera.enabled && capture_frame_id==camera.id && captured_id!=camera.id && draw_ids[7]!=camera.id;
+    LeaveCriticalSection(&lock);
+    if (take) {
+        char path[MAX_PATH+48]; snprintf(path,sizeof(path),"%s.full-diffuse-live.json",camera.output);
+        FILE *file=fopen(path,"w");
+        if (file) {
+            fprintf(file,"{\"present\":%u,\"diffuse_present\":%u,\"source_diffuse_bound\":%s,\"native_fallback\":%s}\n",present_calls,sun_aux_frame,view?"true":"false",view?"false":"true");
+            fclose(file);
+        }
+        if (!view) error("live source diffuse capture used native fallback");
+    }
+}
+static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *state) {
+    if (state->bound) {
+        ID3D11DeviceContext_PSSetShaderResources(context,15,1,&state->view);
+        if (state->view) ID3D11ShaderResourceView_Release(state->view);
+    }
+    if (state->shader) {
+        ID3D11DeviceContext_PSSetShader(context,state->shader,NULL,0);
+        ID3D11PixelShader_Release(state->shader);
+    }
+}
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
@@ -784,10 +829,11 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     if (local.ready) capture_ambient_diffuse(context);
     render_sun_aux(context,count,start,0,0);
     render_source_rain(context);
+    FullDiffuseState full; bind_full_diffuse(context,&full);
     capture_post_draw(context,count,start,0,0); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,0,0);
     finish_ambient_diffuse(context,&ambient,count,start,0,0);
-    capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
+    capture_composition_outputs(context,count,start,0,0); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
     prepare_early_legacy_ssao(context);
@@ -800,10 +846,11 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     if (local.ready) capture_ambient_diffuse(context);
     render_sun_aux(context,count,start,base,1);
     render_source_rain(context);
+    FullDiffuseState full; bind_full_diffuse(context,&full);
     capture_post_draw(context,count,start,base,1); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,base,1);
     finish_ambient_diffuse(context,&ambient,count,start,base,1);
-    capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
+    capture_composition_outputs(context,count,start,base,1); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static int replace_method(void *object,size_t offset,void *hook,void **original) {
     void **method=(void **)((char *)*(void **)object+offset); DWORD protection;
@@ -897,7 +944,12 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         error("original post tail requires paired grading, grain texture and final gamma shaders"); return 0;
     }
     if (!configure_grainless_aberration(original_tail)) return 0;
-    int source_translucency=legacy_composition_code && contains(legacy_composition_code,legacy_composition_size,"t_legacy_sun_projection");
+    int full_diffuse_shader=legacy_composition_code && contains(legacy_composition_code,legacy_composition_size,"t_full_encoded_diffuse");
+    live_source_diffuse=GetEnvironmentVariableA("SRP_LEGACY_FULL_DIFFUSE",enabled,sizeof(enabled))==1 && enabled[0]=='1';
+    if (live_source_diffuse!=full_diffuse_shader) {
+        error("full diffuse composition requires explicit SRP_LEGACY_FULL_DIFFUSE opt-in and paired shader"); return 0;
+    }
+    int source_translucency=full_diffuse_shader || (legacy_composition_code && contains(legacy_composition_code,legacy_composition_size,"t_legacy_sun_projection"));
     if (source_translucency!=!!legacy_sun_projection_code) {
         error("source translucency requires its paired sun projection helper"); return 0;
     }
@@ -923,6 +975,9 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     if (!configure_legacy_ssao()) return 0;
     if (!configure_ambient_diffuse()) return 0;
     if (!configure_sun_aux()) return 0;
+    if (live_source_diffuse && (!sun_aux_enabled || !sun_aux_translucency)) {
+        error("live source diffuse requires complete ambient/local/sun/translucency auxiliary"); return 0;
+    }
     if (!configure_source_rain()) return 0;
     comparison_source_diffuse=GetEnvironmentVariableA("SRP_DIAGNOSTIC_COMPOSITION_SOURCE_DIFFUSE",enabled,sizeof(enabled))==1 && enabled[0]=='1';
     if (comparison_source_diffuse && (!comparison_composition_code || !sun_aux_enabled || !sun_aux_translucency)) {

@@ -55,7 +55,14 @@ def audit(index, original, stride, exposure):
     def read(base, suffix):
         return Path(str(base)+suffix).read_bytes()
     views = json.loads(index.read_text())
-    expected = ('override', 'native_same_inputs', 'comparison_source_diffuse', 'restored_override')
+    recipes_order = RECIPES
+    live_path = Path(stem+'.full-diffuse-live.json')
+    live = json.loads(live_path.read_text()) if live_path.exists() else None
+    if live:
+        if not live['source_diffuse_bound'] or live['native_fallback'] or live['present'] != live['diffuse_present']:
+            raise ValueError('live composition did not consume current complete diffuse')
+        recipes_order = ('full_encoded_diffuse', 'native_same_inputs', 'previous_approximation')
+    expected = ('override', 'native_same_inputs', 'comparison_same_inputs' if live else 'comparison_source_diffuse', 'restored_override')
     if tuple(v['name'] for v in views) != expected:
         raise ValueError(f'{index}: incomplete diagnostic output')
     old_view = json.loads(read(old, '.composition-output.targets.json'))[0]
@@ -68,7 +75,7 @@ def audit(index, original, stride, exposure):
         raise ValueError('incomplete composition output')
     restored_equal = targets[0] == targets[3]
     nonfinite = {}
-    for name, data in zip(('original',)+RECIPES+('restored',), [source]+targets):
+    for name, data in zip(('original',)+recipes_order+('restored',), [source]+targets):
         nonfinite[name] = sum(any(not math.isfinite(v) for v in unpack(word))
                               for (word,) in struct.iter_unpack('<I', data))
     if any(nonfinite.values()):
@@ -99,9 +106,9 @@ def audit(index, original, stride, exposure):
     geometry = bytearray(bool(s) and all(0 < d[i] < 499.75 for d in depths)
                          for i, s in enumerate(stencil))
     matched = bytearray(geometry[i] and a == b for i, (a, b) in enumerate(zip(*depths)))
-    totals = {mask: {recipe: empty() for recipe in RECIPES} for mask in MASKS}
+    totals = {mask: {recipe: empty() for recipe in recipes_order} for mask in MASKS}
     rects = REGIONS.get(Path(stem).stem, {})
-    regions = {region: {recipe: empty() for recipe in RECIPES} for region in rects}
+    regions = {region: {recipe: empty() for recipe in recipes_order} for region in rects}
     for y in range(1, 719, stride):
         for x in range(1, 1279, stride):
             i = y*1280+x
@@ -115,7 +122,7 @@ def audit(index, original, stride, exposure):
             if all(matched[i+dy*1280+dx] for dy in (-1, 0, 1) for dx in (-1, 0, 1)):
                 masks.append('exact_depth_3x3')
             reference = unpack(struct.unpack_from('<I', source, i*4)[0])
-            for recipe, data in zip(RECIPES, targets):
+            for recipe, data in zip(recipes_order, targets):
                 target = unpack(struct.unpack_from('<I', data, i*4)[0])
                 for mask in masks:
                     accumulate(totals[mask][recipe], reference, target, exposure)
@@ -123,7 +130,7 @@ def audit(index, original, stride, exposure):
                     for name, (x0, y0, x1, y1) in rects.items():
                         if x0 <= x < x1 and y0 <= y < y1:
                             accumulate(regions[name][recipe], reference, target, exposure)
-    return {'pose': Path(stem).name, 'displayed_restored_byte_equal': restored_equal,
+    return {'pose': Path(stem).name, 'live_source_diffuse': live, 'displayed_restored_byte_equal': restored_equal,
             'geometry_gate': {'native_stencil_nonzero_pixels': sum(bool(s) for s in stencil),
                               'far_clear_depth': clear_depths[0],
                               'both_depths_geometry_pixels': sum(geometry)},
