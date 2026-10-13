@@ -317,7 +317,7 @@ The root `reproduction/source-volume-post-contract-checkpoint` preserves 397
 files and hashes 1,575 successful solo-capture files plus 425 files from the
 failed overlap batch. Its four-view beam check verifies original sphere slot14
 and all six mips; bulb size and beam brightness still differ. During the overlap
-stall, logic/render/channel counters all stayed895 for about26seconds while
-matching queue head/tail addresses cycled. GPU usage was17–21%, with4720MiB of
-8192MiB used. This does not show GPU exhaustion or the previously hypothesized
+stall, logic/render/channel counters all stayed 895 for about 26 seconds while
+matching queue head/tail addresses cycled. GPU usage was 17–21%, with 4720 MiB of
+8192 MiB used. This does not show GPU exhaustion or the previously hypothesized
 logic/render counter disparity; it does not prove concurrency caused the stall.
