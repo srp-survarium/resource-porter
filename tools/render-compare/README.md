@@ -428,3 +428,43 @@ material/specular behavior and distant atmosphere remain incomplete. The saved
 recipe is `reproduction/post-tail-checkpoint/`; the runtime capture folder is
 `026g/pipeline-original-post-tail-verified`. The beautiful preset and original
 reference captures remain separate.
+
+## Original-client intermediate reference and fog sampler
+
+`SRP_CAPTURE_BUFFERS=1` also supports the pinned 0.10b client. It identifies
+18 archived bytecodes across ten pass families using `reference_shader_index.h`.
+`reference_shader_index.py --database DB --index ENTRIES_JSON --output HEADER`
+regenerates that table. The original branch observes D3D draws and ignores all
+shader overrides; it does not install the 0.26 target-layout hooks.
+
+For each requested frame it saves the first recognized draw of each family,
+including shader, constants, samplers, inputs and two render targets before and
+after the draw. This is a bounded pass capture, not a complete GPU frame trace.
+The original uses the temporal SSAO upsample, so the spatial-only family is
+absent. Screenshot acknowledgment follows the final copy after post-processing.
+The four original captures are preserved in `010b/poses-buffers`; reuse them.
+The earlier frozen screenshot reference remains unchanged.
+
+The captured original fog uses linear-clamp sampling; native 0.26 s0 wraps.
+The geometry-fog adapter now binds a clamp sampler only during its draw and
+restores the native sampler afterward. Mie coordinates near the first texel
+previously blended with the opposite texture edge. No shader arithmetic or
+brightness multiplier changed. Both clients' fog distance is 300; the adapter's
+`globals[16].y` is an atmosphere parameter, not the camera far plane.
+
+`audit_fog_capture.py ORIGINAL_FOLDER CURRENT_FOLDER` checks actual bindings,
+compares scattering tables and reports regional before/after linear RGB means.
+The current Rayleigh table remains about seven times the original; its input
+mapping is unresolved. Mie tables agree to half-float rounding. The sampled
+forest deficit also exists before fog. Between original composition and fog,
+the saved interior difference contains the missing light shafts; the same target
+interval is unchanged. The source stage order includes sky and forward draws in
+that interval. This localizes the difference without identifying the missing draw.
+
+`pipeline-fog-clamp` improves forest displayed brightness from about .1811 to
+.1971 against .2519 in the frozen reference. North-wall brightness also improves;
+south-wall/interior means move slightly farther away. These are separate-frame
+regional statistics, not a perceptual similarity score. Gamma checks pass in all
+four original and corrected target views; target ambient checks also pass. C
+builds with warnings as errors. No game tests were added. Close visual parity
+remains incomplete. Artifacts are in `reproduction/reference-buffers-checkpoint`.
