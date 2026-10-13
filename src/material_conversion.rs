@@ -447,7 +447,9 @@ fn semantic_domain_rank(donor_path: &str, target_path: &str) -> Option<usize> {
     let donor_domain = *donor_parts.first()?;
     let target_domain = *target_parts.first()?;
     if donor_domain == target_domain {
-        if donor_parts.get(1) == target_parts.get(1) {
+        let donor_subdomain = donor_parts.get(1).filter(|_| donor_parts.len() > 2);
+        let target_subdomain = target_parts.get(1).filter(|_| target_parts.len() > 2);
+        if donor_subdomain == target_subdomain {
             return Some(0);
         }
         return Some(1);
@@ -849,11 +851,14 @@ mod tests {
                 ConfigValue::Boolean(false),
             )
             .unwrap();
-        std::fs::write(
-            input.join(closer),
-            BinaryConfig { root: config }.to_bytes().unwrap(),
-        )
-        .unwrap();
+        let different_features = BinaryConfig { root: config }.to_bytes().unwrap();
+        std::fs::write(input.join(closer), &different_features).unwrap();
+        // A filename directly under flora is not a semantic subdirectory.
+        std::fs::create_dir_all(input.join("material_instances/flora")).unwrap();
+        let flat_closer = "material_instances/flora/big_oak_tile.material";
+        let flat_matching = "material_instances/flora/big_oak_tile_rust.material";
+        std::fs::write(input.join(flat_closer), &different_features).unwrap();
+        std::fs::write(input.join(flat_matching), &donor).unwrap();
         let archive = temp.path().join("materials.db");
         resources_db::pack::assemble_to_file(
             &resources_db::pack::build_src_tree(&input).unwrap(),
@@ -865,6 +870,17 @@ mod tests {
         let path = "material_instances/props/light/lamp_greenhouse_clone.material";
         let converted = catalog.convert(path, &donor, None, &db, &db).unwrap();
         assert_eq!(converted.template_path, matching);
+        assert_eq!(
+            catalog
+                .convert(flat_closer, &donor, None, &db, &db)
+                .unwrap()
+                .template_path,
+            flat_matching,
+        );
+        assert_eq!(
+            catalog.rank_templates(flat_closer, &donor).unwrap()[0].path,
+            flat_matching
+        );
         assert_eq!(
             catalog.rank_templates(path, &donor).unwrap()[0].path,
             matching

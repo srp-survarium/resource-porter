@@ -341,3 +341,12 @@ two textured-translucency constants need separate cross-version semantics:
 the original texture overrides the constant, while the native producer may
 multiply by it. Do not replace their effective multiplier1 without checking
 that contract. Audit/rebuild artifacts are in the heldout-materials checkpoint.
+
+Flat material paths exposed a second template-selection issue: the filename in
+`flora/big_oak_tile.material` was treated as a semantic subdirectory. Thus the
+same-name parallax-enabled template outranked a closer feature match. Subdomain
+ranking now uses directories only. With authored values merged, oak tile selects
+`big_oak_tile_rust`, roots select `big_oak_det`; each changes only the runtime
+shader switch `use_parallax` from true to the authored false. Existing oak detail
+and rusty-tile selections stay unchanged. All270 tests pass; the existing
+selection test includes flat-directory matching. Runtime validation is pending.
