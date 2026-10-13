@@ -89,6 +89,19 @@ names and 3,408 permutations. Every recorded blob hash was checked against the
 actual donor archive. Full DXBC is available there; five selected assembly
 listings are stored in that directory's `shader-assembly` subdirectory.
 
+Further recovered HLSL lives in
+`vostok-shader-evolution/recovered/v0.1.1a/`, with the four revised probe,
+terrain, vertex and shadow-vertex sources. Its `ship-source-from-debug-blobs`
+subdirectory retains original v0.11a god-ray and post-process source from SDBG;
+`recovered/ship-headers` splits those pools into individual source/header files.
+These sources and their recovery notes are copied into this checkpoint. The
+recovery report proves 22/32 probe permutations, including every quality-3
+permutation, rather than claiming complete recovery of every shader.
+
+The v0.11a probe source gathers eight diffuse taps and divides by eight at high
+quality; v0.10b divided its eight taps by nine. That version-specific difference
+must be retained when comparing this map against its own original client.
+
 The local 0.10b→0.11a comparison records instruction changes in five shader names:
 `environment_probe_lighting.ps`, `gbuffer_pass.ps`, `god_rays.ps`,
 `terrain_gbuffer_pass.ps`, and `vertex_base.vs`. The translucency shader is
