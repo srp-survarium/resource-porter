@@ -706,3 +706,39 @@ these histograms do not establish whether conversion, a shader feature,
 or producer semantics removed the amount. `specular-amount-mapping.json`
 preserves counts and all ambiguous vectors. No material or runtime patch
 is applied by either audit.
+
+### Factory rain cloud coordinates
+
+The streetlamp's large final-screen sky residual is a separate coordinate
+contract. `audit_factory_cloud_coordinates.py` replays fixed, shader-derived
+phase/vertical-scale hypotheses against frozen cloud before/output buffers.
+It decodes the original BC3 sRGB texture and its three sampled mips, uses
+the source captured view-projection matrix, and restricts samples to common
+far-clear sky with the source minimap excluded. Sphere interpolation and BC3
+filtering are approximate; these are not exact raster arithmetic checks.
+
+In `pipeline-factory-live-diffuse-v2`, source and target cloud mip0 bytes
+are identical (SHA256 `c3e8db1ee38b307815a03f471665ca6512a92b208e095e9ed7622a85a2a47edc`).
+Source tint47.455070 equals the target4.745507 times the adapter's factor10;
+fade parameters and multiplicative blend also match. The captured source
+VS uploads `(cos180,sin180)=(-1,~0)` and has no clock input. The native VS
+contract uploads `(sin,cos)`, multiplies mesh V by .96, and can add
+`.01*rotation_speed*scene_time` to U. The early converter sets that speed
+to zero; the next native VS capture must confirm the live upload.
+
+Across 1,613 common streetlamp sky samples, the source pass agrees best
+with the equation-derived world-U phase+.75 and Vscale1 (HDR MAE .00431),
+versus .06163 with native coordinates. The target pass independently agrees
+with phase+.5 and Vscale.96 (MAE .00463); source coordinates against the
+unchanged target output give .06022. Other quarter-turn/sign hypotheses are
+retained in `factory-cloud-phase.json`, along with final screenshot sky-only
+RGB MAE .09034. This supports the same quarter-turn/vertical-scale correction
+found independently for Chemical Plant, rather than a time-alignment fit.
+
+`legacy_rain_clouds_source_coordinates.hlsl` is an opt-in Factory010 rain
+wrapper adding U+.25 and dividing V by .96 through the existing coordinate
+adapter. It leaves texture, tint, fade, blend and prior shader assets intact;
+compilation rejects the day/evening/Chemical weather defines. Its assumptions
+are source U tiling1, zero native cloud rotation speed and the verified native
+VS ABI. Runtime validation and actual native VS upload capture are pending;
+this CPU evidence does not promote it into the preserved displayed recipe.
