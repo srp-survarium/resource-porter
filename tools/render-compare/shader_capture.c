@@ -752,6 +752,7 @@ static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
 }
 #include "legacy_local_diffuse.c"
 #include "legacy_ambient_diffuse.c"
+#include "legacy_sun_diffuse.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
@@ -761,6 +762,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     LocalDiffuseDraw local; prepare_local_diffuse(context,&local);
     AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
     if (local.ready) capture_ambient_diffuse(context);
+    render_sun_aux(context,count,start,0,0);
     capture_post_draw(context,count,start,0,0); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,0,0);
     finish_ambient_diffuse(context,&ambient,count,start,0,0);
@@ -775,6 +777,7 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     LocalDiffuseDraw local; prepare_local_diffuse(context,&local);
     AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
     if (local.ready) capture_ambient_diffuse(context);
+    render_sun_aux(context,count,start,base,1);
     capture_post_draw(context,count,start,base,1); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,base,1);
     finish_ambient_diffuse(context,&ambient,count,start,base,1);
@@ -897,6 +900,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     }
     if (!configure_legacy_ssao()) return 0;
     if (!configure_ambient_diffuse()) return 0;
+    if (!configure_sun_aux()) return 0;
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&

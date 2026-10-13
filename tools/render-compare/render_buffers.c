@@ -64,7 +64,8 @@ static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, 
     switch (desc.Format) {
         case DXGI_FORMAT_R32G32B32A32_FLOAT: bytes=16; break;
         case DXGI_FORMAT_R16G16B16A16_FLOAT: bytes=8; break;
-        case DXGI_FORMAT_R32G32_FLOAT: bytes=8; break;
+        case DXGI_FORMAT_R32G32_FLOAT: case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: bytes=8; break;
+        case DXGI_FORMAT_R24G8_TYPELESS: case DXGI_FORMAT_D24_UNORM_S8_UINT:
         case DXGI_FORMAT_R16G16_FLOAT: case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R10G10B10A2_UNORM: case DXGI_FORMAT_R11G11B10_FLOAT: case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8A8_UNORM:

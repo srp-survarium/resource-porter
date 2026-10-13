@@ -6,7 +6,8 @@ static ID3D11SamplerState *legacy_local_shadow_sampler;
 static ID3D11Texture2D *legacy_local_diffuse_texture,*legacy_local_depth_texture;
 static ID3D11RenderTargetView *legacy_local_diffuse_target;
 static ID3D11ShaderResourceView *legacy_local_diffuse_view;
-static ID3D11DepthStencilView *legacy_local_depth_view;
+static ID3D11DepthStencilView *legacy_local_depth_view,*legacy_scene_depth_view;
+static unsigned legacy_scene_depth_frame;
 static D3D11_TEXTURE2D_DESC legacy_local_depth_desc;
 static D3D11_DEPTH_STENCIL_VIEW_DESC legacy_local_depth_view_desc;
 static unsigned legacy_local_frame,legacy_local_draws,legacy_local_unhandled,legacy_local_failures;
@@ -98,7 +99,15 @@ static int prepare_local_targets(ID3D11DeviceContext *context,LocalDiffuseDraw *
         hr=ID3D11Device_CreateSamplerState(device,&sampler,&legacy_local_shadow_sampler);
     }
     ID3D11Device_Release(device);
-    return SUCCEEDED(hr) && legacy_local_diffuse_shader && legacy_local_shadow_sampler;
+    int ready=SUCCEEDED(hr) && legacy_local_diffuse_shader && legacy_local_shadow_sampler;
+    if (ready) {
+        if (legacy_scene_depth_view!=state->depth) {
+            if (legacy_scene_depth_view) ID3D11DepthStencilView_Release(legacy_scene_depth_view);
+            legacy_scene_depth_view=state->depth; ID3D11DepthStencilView_AddRef(legacy_scene_depth_view);
+        }
+        legacy_scene_depth_frame=present_calls;
+    }
+    return ready;
 }
 static void prepare_local_diffuse(ID3D11DeviceContext *context,LocalDiffuseDraw *state) {
     memset(state,0,sizeof(*state)); if (!legacy_local_diffuse_code) return;

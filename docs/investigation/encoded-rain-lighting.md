@@ -349,6 +349,23 @@ a cascade, not the source translucent material class.
 
 ## Sun/translucency auxiliary replay and source-stage comparison
 
+`SRP_DIAGNOSTIC_SOURCE_SUN_DIR` enables the guarded source sun shaders and
+captured constants after the private sky/probe/local accumulator is ready.
+`SRP_DIAGNOSTIC_TRANSLUCENCY_PARAMETER_GATE=1` adds the diagnostic material
+gate described above. Both paths preserve the displayed scene and rain.
+The helper copies the actual final native depth/stencil at composition,
+checks current-frame ambient and sun-projection readiness, and restores all
+modified D3D state. Loading screens without scene probes are skipped;
+an armed, settled capture without those inputs reports an error.
+
+`audit_sun_auxiliary.py CAPTURE_DIRECTORY --output REPORT.json` checks both
+changed and unchanged sun samples against the source equation on captured
+native inputs. All 271,060 stride-17 samples in five views are within one
+10-bit step (maximum .000549118), including 70,541 changed samples.
+This establishes arithmetic and scheduling, not original shadow coverage.
+`reproduction/factory-encoded-sun-20261013` preserves the exact loaded DLL,
+helper source, shader assets, launch scripts, CPU reports and capture hashes.
+
 ```sh
 python tools/render-compare/audit_translucency_auxiliary.py CAPTURE_DIRECTORY \
   --original ORIGINAL_POSES --output translucency-auxiliary-audit.json
