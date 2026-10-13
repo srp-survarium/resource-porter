@@ -9,7 +9,9 @@ cbuffer PostConstants : register(b0)
 Texture2D t_frame_color : register(t0);
 Texture3D t_color_grading_lut : register(t1);
 Texture2D t_frame_luminance : register(t2);
+#ifndef CONFIG_ORIGINAL_POST_TAIL
 Texture2D t_light_scattering_result : register(t3);
+#endif
 Texture2D t_bloom_combine : register(t4);
 #ifdef CONFIG_ORIGINAL_POST_TAIL
 Texture2D t_legacy_grain : register(t12);
@@ -22,7 +24,11 @@ float4 main(float4 position : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET
 {
     float3 frame=t_frame_color.SampleLevel(s_material1,uv,0).xyz;
     float3 bloom=t_bloom_combine.SampleLevel(s_material1,uv,0).xyz;
-    float3 color=lerp(frame,bloom,bloom_parameters.x)+t_light_scattering_result.Sample(s_linear,uv).xyz;
+    float3 color=lerp(frame,bloom,bloom_parameters.x);
+#ifndef CONFIG_ORIGINAL_POST_TAIL
+    // All 68 frozen original post draws omit the god-ray texture binding.
+    color+=t_light_scattering_result.Sample(s_linear,uv).xyz;
+#endif
 #ifdef CONFIG_ORIGINAL_POST_TAIL
     float level=dot(float3(.3,.7,.2),color);
     if (level<.03) color=lerp(color,dot(float3(.2125,.7154,.0721),color),pow(1-saturate(level/.03),2));
