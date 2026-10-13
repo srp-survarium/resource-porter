@@ -16,6 +16,12 @@ FAMILIES = {
     'copy_image.ps': 9,
     'ssao_accumulation.ps': 10,
     'ssao_filter_upsample.ps': 11,
+    'forward_volume_cone_base.ps': 12,
+    'environment_probe_lighting.ps': 13,
+    'sun.ps': 14,
+    'translucency.ps': 15,
+    'skylight.ps': 16,
+    'accum_sun_mask.ps': 17,
 }
 
 def generate(database, index, output):

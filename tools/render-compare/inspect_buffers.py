@@ -15,6 +15,9 @@ def pixels(data, fmt):
             if fmt in (28, 29, 87, 49, 61): channels = tuple(v/255 for v in channels)
             if fmt == 87: channels = (channels[2], channels[1], channels[0], channels[3])
             yield channels
+    elif fmt == 24:
+        for (value,) in struct.iter_unpack('<I', data):
+            yield (value & 1023)/1023, ((value >> 10) & 1023)/1023, ((value >> 20) & 1023)/1023, (value >> 30)/3
     elif fmt == 26:
         def decode(v, bits):
             exponent, mantissa = v >> bits, v & ((1 << bits)-1)
