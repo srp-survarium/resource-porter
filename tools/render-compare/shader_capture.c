@@ -3,7 +3,7 @@ static const GUID post_code_guid={0x9205d461,0x758c,0x44fe,{0xad,0x61,0xa1,0x13,
 static HRESULT (STDMETHODCALLTYPE *original_create_ps)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11PixelShader **);
 static void (STDMETHODCALLTYPE *original_draw)(ID3D11DeviceContext *,UINT,UINT);
 static void (STDMETHODCALLTYPE *original_draw_indexed)(ID3D11DeviceContext *,UINT,UINT,INT);
-static unsigned draw_ids[21];
+static unsigned draw_ids[23];
 static int reference_capture;
 static int disable_legacy_god_rays;
 static int skip_legacy_god_rays(ID3D11DeviceContext *context);
@@ -11,6 +11,9 @@ static const GUID god_rays_apply_guid={0x6dc7fd40,0x9815,0x4f33,{0xaa,0x59,0x45,
 static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,0x11,0x76,0x44,0xa1,0x09}};
 #include "reference_shader_index.h"
 #include "native_god_rays_index.h"
+#include "native_aberration_index.h"
+static void *grainless_aberration_code[8];
+static unsigned grainless_aberration_uses;
 static const char *reference_labels[]={"post","cloud","probe","fog-add","sky","ssao-temporal","fog-mul","composition","material","present","ssao-accumulation","ssao-upsample","volume","probe","sun","translucency","skylight","sun-mask"};
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix);
 static unsigned post_output_pending, post_output_kind;
@@ -85,6 +88,12 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     }
     const unsigned char volume_expected[]={0x2a,0xdd,0xeb,0x6d,0xf0,0x2a,0xa8,0xdb,0x8c,0x81,0x01,0x78,0x6d,0xde,0x95,0xe9};
     int volume_replaced=legacy_volume_code && size==3752 && !memcmp((const char *)code+4,volume_expected,16);
+    int aberration_index=native_aberration_index(code,size);
+    int grain_replaced=aberration_index>=0 && grainless_aberration_code[aberration_index];
+    if (grain_replaced) {
+        unsigned paired=native_aberration_shaders[aberration_index].grainless;
+        code=grainless_aberration_code[aberration_index]; size=native_aberration_shaders[paired].size;
+    }
     const unsigned char fog_expected[]={0x0f,0x99,0x55,0x0b,0xd7,0x4e,0x29,0x0a,0xcf,0x08,0xab,0x46,0xdd,0xc5,0xed,0x20};
     int fog_replaced=legacy_fog_code && size==3608 && !memcmp((const char *)code+4,fog_expected,16);
     const unsigned char sky_expected[]={0xe7,0x17,0xa1,0x72,0x3c,0x00,0x86,0x3f,0x9d,0x5f,0x7b,0x57,0x62,0x15,0x5e,0x57};
@@ -134,6 +143,17 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
             if (file) { fprintf(file,"{\"uses\":%u,\"factory_attenuation_scale\":13}\n",legacy_volume_uses); fclose(file); }
         }
     }
+    if (grain_replaced) {
+        if (SUCCEEDED(hr) && shader && *shader) {
+            unsigned flag=3+native_aberration_shaders[aberration_index].sampler_count;
+            ID3D11PixelShader_SetPrivateData(*shader,&legacy_fog_guid,sizeof(flag),&flag);
+        }
+        if (FAILED(hr)) error("native grainless aberration shader rejected");
+        else ++grainless_aberration_uses;
+        char path[MAX_PATH+32]; snprintf(path,sizeof(path),"%s.grain-fix.json",control);
+        FILE *file=fopen(path,"w");
+        if (file) { fprintf(file,"{\"replacements\":%u,\"native_index\":%d,\"paired_index\":%u,\"hresult\":%ld}\n",grainless_aberration_uses,aberration_index,native_aberration_shaders[aberration_index].grainless,hr); fclose(file); }
+    }
     if (SUCCEEDED(hr) && shader && *shader) mark_sun_projection(*shader,code,size);
     if (SUCCEEDED(hr) && shader && *shader && native_god_rays_kind(code,size)==18) {
         unsigned flag=1; ID3D11PixelShader_SetPrivateData(*shader,&god_rays_apply_guid,sizeof(flag),&flag);
@@ -166,7 +186,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"legacy_composition_uses\":%u,\"legacy_ambient_decode_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,legacy_composition_uses,legacy_ambient_decode_uses,hr); fclose(file); }
     }
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
-        (ssao_reference || native_god_rays_kind(code,size) || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
+        (is_native_aberration(code,size) || ssao_reference || native_god_rays_kind(code,size) || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
         (contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture")) || contains(code,size,"t_probe_cubemap_diffuse") ||
         contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
         contains(code,size,"skylight_parameters0") ||
@@ -256,7 +276,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     HRESULT reference_hr=reference_capture?ID3D11PixelShader_GetPrivateData(shader,&reference_kind_guid,&reference_kind_size,&reference_kind):S_OK;
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr) || FAILED(reference_hr)) { free(code); return; }
-    unsigned kind=contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
+    unsigned kind=is_native_aberration(code,size)?22:contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
         capture_materials_enabled && contains(code,size,"deferred_material_parameters")?8:
         contains(code,size,"hba_parameters") || contains(code,size,"t_encoded_ambient") || (contains(code,size,"t_ssao_accumulator") && !contains(code,size,"t_probe_cubemap_diffuse"))?5:contains(code,size,"skylight_parameters0")?6:
         contains(code,size,"t_frame_luminance")?0:(contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture"))?1:
@@ -281,7 +301,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         (kind==5 && !reference_capture && ambient_id!=camera.id)) { free(code); return; }
     if (kind==2 && !probe_variant) capture_probe_initial(context,camera.output);
     char base[MAX_PATH+48],path[MAX_PATH+80];
-    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw","sun-shadow-draw","unused14","unused15","unused16","unused17","god-rays-apply-draw","god-rays-draw","god-rays-mask-draw"};
+    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw","sun-shadow-draw","unused14","unused15","unused16","unused17","god-rays-apply-draw","god-rays-draw","god-rays-mask-draw","unused21","aberration-draw"};
     if (reference_capture) snprintf(base,sizeof(base),"%s.%s-draw",camera.output,reference_labels[kind]);
     else if (kind==8)
         snprintf(base,sizeof(base),"%s.material-draw-%u",camera.output,material_variant);
@@ -389,6 +409,8 @@ typedef struct {
     ID3D11BlendState *blend;
     ID3D11SamplerState *sampler;
     int sampler_bound;
+    ID3D11SamplerState *grain_samplers[2];
+    unsigned grain_sampler_count;
     float factor[4];
     UINT mask;
     int bound,blend_bound;
@@ -403,6 +425,19 @@ static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *sta
     HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&legacy_fog_guid,&size,&flag);
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr) || !flag) return;
+    if (flag==4 || flag==5) {
+        // The authentic no-grain permutation omits s_nofilter at slot0.
+        // Preserve the engine's original bindings by shifting only retained
+        // samplers for this draw, then restoring the previous slots.
+        unsigned count=flag-3;
+        ID3D11SamplerState *mapped[2]={0};
+        ID3D11DeviceContext_PSGetSamplers(context,0,count,state->grain_samplers);
+        ID3D11DeviceContext_PSGetSamplers(context,1,count,mapped);
+        ID3D11DeviceContext_PSSetSamplers(context,0,count,mapped);
+        for (unsigned i=0;i<count;++i) if (mapped[i]) ID3D11SamplerState_Release(mapped[i]);
+        state->grain_sampler_count=count;
+        return;
+    }
     if (flag==1) {
         // Original s_material1 clamps at the LUT edges. Native s_linear wraps;
         // short-distance Mie coordinates straddle the first texel boundary.
@@ -479,6 +514,11 @@ static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *sta
     ID3D11DeviceContext_PSSetShaderResources(context,state->extra_slot,1,&view); state->bound=1;
 }
 static void restore_extra(ID3D11DeviceContext *context,LegacyExtraState *state) {
+    if (state->grain_sampler_count) {
+        ID3D11DeviceContext_PSSetSamplers(context,0,state->grain_sampler_count,state->grain_samplers);
+        for (unsigned i=0;i<state->grain_sampler_count;++i)
+            if (state->grain_samplers[i]) ID3D11SamplerState_Release(state->grain_samplers[i]);
+    }
     if (state->sampler_bound) {
         ID3D11DeviceContext_PSSetSamplers(context,0,1,&state->sampler);
         if (state->sampler) ID3D11SamplerState_Release(state->sampler);
@@ -550,7 +590,7 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
 }
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix) {
     ID3D11RenderTargetView *targets[2]={0}; ID3D11DeviceContext_OMGetRenderTargets(context,2,targets,NULL);
-    const char *label=reference_capture?reference_labels[kind]:kind==13?"sun-shadow":kind==18?"god-rays-apply":kind==19?"god-rays":kind==20?"god-rays-mask":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
+    const char *label=reference_capture?reference_labels[kind]:kind==22?"aberration":kind==13?"sun-shadow":kind==18?"god-rays-apply":kind==19?"god-rays":kind==20?"god-rays-mask":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
     char base[MAX_PATH+48],path[MAX_PATH+80];
     snprintf(base,sizeof(base),"%s.%s-%s",camera->output,label,suffix);
     snprintf(path,sizeof(path),"%s.targets.json",base); FILE *file=fopen(path,"w");
@@ -637,6 +677,32 @@ static int load_shader_override(const char *variable,void **code,size_t *size) {
     }
     return 1;
 }
+static int configure_grainless_aberration(int original_tail) {
+    char directory[MAX_PATH];
+    DWORD length=GetEnvironmentVariableA("SRP_LEGACY_GRAINLESS_ABERRATION_DIR",directory,sizeof(directory));
+    if (!length) return 1;
+    if (length>=sizeof(directory) || !original_tail) {
+        error("grainless aberration requires the paired original post tail"); return 0;
+    }
+    for (unsigned i=0;i<sizeof(native_aberration_shaders)/sizeof(native_aberration_shaders[0]);++i) {
+        unsigned paired=native_aberration_shaders[i].grainless;
+        if (paired==i) continue;
+        char path[MAX_PATH];
+        int count=snprintf(path,sizeof(path),"%s/%s",directory,native_aberration_shaders[paired].file);
+        if (count<0 || (size_t)count>=sizeof(path)) return 0;
+        FILE *file=fopen(path,"rb");
+        if (!file) { error("native grainless aberration shader missing"); return 0; }
+        size_t size=native_aberration_shaders[paired].size;
+        void *code=malloc(size);
+        int ok=code && fread(code,1,size,file)==size && fgetc(file)==EOF;
+        fclose(file);
+        if (!ok || memcmp(code,"DXBC",4) || native_aberration_index(code,size)!=(int)paired) {
+            free(code); error("unexpected native grainless aberration shader"); return 0;
+        }
+        grainless_aberration_code[i]=code;
+    }
+    return 1;
+}
 #include "legacy_ssao.c"
 
 static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *context) {
@@ -672,6 +738,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     if (original_tail!=!!legacy_present_code || original_tail!=!!grain_path_length || grain_path_length>=sizeof(legacy_post_grain_path)) {
         error("original post tail requires paired grading, grain texture and final gamma shaders"); return 0;
     }
+    if (!configure_grainless_aberration(original_tail)) return 0;
     int source_translucency=legacy_composition_code && contains(legacy_composition_code,legacy_composition_size,"t_legacy_sun_projection");
     if (source_translucency!=!!legacy_sun_projection_code) {
         error("source translucency requires its paired sun projection helper"); return 0;
