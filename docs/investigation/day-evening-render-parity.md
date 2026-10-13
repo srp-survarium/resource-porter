@@ -390,3 +390,21 @@ converted contracts, one-byte patch, scripts, metrics and hashed capture
 manifests. Runtime sequences are `026g/day-tree-cards-baseline` and
 `026g/day-tree-cards-fixed`. The corrected material remains applied in the worker's
 private archive for final weather validation. No game test functions were added.
+
+### Final combined validation checkpoint
+
+`final-weather-20261013` contains the complete day/evening replay dependencies,
+including the observer, exact shaders, both archive patch plans and a wrapper
+that stops only the private runtime on completion. Per-pose `buffers:false`
+requests preserve shader overrides while omitting readbacks. Four views per
+weather retain full buffers; the other 28 retain screenshots and camera status.
+Do not use `SRP_CAPTURE_BUFFERS=0` for adapted recipes: it also disables override
+initialization.
+
+Chemical Plant found and verified a shared cloud shader input-layout error:
+the compact replacement placed TEXCOORD3 in register1, while the native vertex
+shader supplies it in register4. Keeping the full native input structure fixes
+that contract without changing cloud equations. Day/evening/rain variants all
+compile with `/WX` and their saved input signatures confirm register4.xy.
+Weather runtime validation remains pending; the prepared 64-view batch is held
+while the user tests Factory personally. No weather client is left running.
