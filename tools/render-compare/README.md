@@ -671,3 +671,37 @@ its empty target records do not establish the lamp's emission contract.
 The generator also excludes 23 permutations with emission disabled, checking
 their feature key against the reflected emission constant. The corrected
 interior capture records four emitting draws with color targets.
+
+## Factory manual-play checkpoint, 2026-10-13
+
+`reproduction/playable-factory-20261013` preserves the user-tested map182
+variant with normal character controls and HUD. Its 70 hashed files include
+the actual client DLL, checkpoint-local shader inputs, tree-wind patch, launch
+recipe and four user screenshots. `reproduce.py --verify` checks those files
+without launching; replay requires the existing prepared archive, client,
+private prefix and server binary. It refuses to replace an active client or
+server. The archive was not duplicated, and saving did not alter the live game.
+Verification and CLI parsing passed; the new replay wrapper has not been
+launched during the user's session.
+
+The screenshots at 13:57:50 and 13:58:05/15/17 report green brick edges,
+apparently low streetlamp glow and changing roof details. These remain open:
+
+- Original and converted streetlamp geometry have identical 997 positions and
+  indices. The audited cone and pole placements also match. Moving the authored
+  geometry is not justified by this evidence; cone shading needs a matched view.
+- The emitting interior draw retains color `[5,5,5,1]`, additive blending and
+  a linear BC1 texture view. Its HDR output changes 99 pixels, 97 within the
+  bulb region. This establishes emission, not parity of the later bloom/blur.
+- Native-only vertex-blend settings are a candidate for the green brick edges.
+  No matched draw has yet established the cause or validated a correction.
+- Candidate building LOD memberships and thresholds match the original. Native
+  default thresholds also match, and current shading quality disables shader
+  LOD selection. The changing roof surface/pass still needs identification.
+- Factory010 rain draws textured cones around the camera
+  (`stage_rain.cpp:140–167` in the original source). School021 uses particle
+  quads. School's independently prepared rain-shadow projection correction is
+  not a replacement for Factory's original rain path.
+
+The earlier four-view fidelity measurements predate the cloud input fix in
+this playable variant; they do not validate its complete current appearance.
