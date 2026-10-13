@@ -406,5 +406,76 @@ the compact replacement placed TEXCOORD3 in register1, while the native vertex
 shader supplies it in register4. Keeping the full native input structure fixes
 that contract without changing cloud equations. Day/evening/rain variants all
 compile with `/WX` and their saved input signatures confirm register4.xy.
-Weather runtime validation remains pending; the prepared 64-view batch is held
-while the user tests Factory personally. No weather client is left running.
+All 64 predefined views completed after the user released the capture slot.
+Both clients stopped normally; UI was off and capture began during countdown.
+The preliminary rich/screenshot-only interior pair has mean scene luma
+.083253/.083188, with unchanged camera and visually matching rendering. The rich
+frame has 259 readback sidecars; screenshot-only has none. This validates the
+per-pose switch without disabling the shader adapters.
+
+Across all 32 views per weather, the combined recipe improves the previous
+connected result:
+
+| Weather | Luma MAE, previous → combined | Block SSIM, previous → combined | Improved MAE / SSIM views |
+| --- | --- | --- | --- |
+| Day | .03573 → .03217 | .81639 → .83553 | 27 / 29 |
+| Evening | .03342 → .03111 | .82988 → .84795 | 23 / 29 |
+
+These are the existing fixed-mask, four-pixel-grid comparisons of separately
+animated frames, not proof of parity or attribution to one change. All eight
+contact sheets were reviewed, including the 14 spatial coverage holdouts per
+weather. The unwanted evening red streaks are gone; foliage, haze, shadow and
+some wall-material differences remain. The cloud pass now changes actual pixels
+in every rich view (925–77,463 day; 965–76,648 evening), with the corrected native
+input layout. Native duplicate-grain removal reports four replacements per run.
+
+The checkpoint's `validation/` preserves metrics, contact sheets and manifests
+hashing the captures in place. Outputs are `026g/day-final` and
+`026g/evening-final`; four rich views and 28 screenshot-only views per weather
+avoid duplicating full buffers for the entire batch. `run-final-weather.py`
+accepts wineserver's status 1 when the private prefix was already stopped, then
+requires its explicit wait to succeed. No weather client remains running.
+
+### User-reported green edges and roof detail changes
+
+The 13:57:50 screenshot shows green marks along hangar brick/concrete edges;
+13:58:15 and 13:58:17 show changing light patches near the exterior roof edge.
+The screenshots are preserved in `reproduction/playable-factory-20261013`.
+Neither issue is claimed fixed by the combined weather batch.
+
+Three hangar material candidates retain their original diffuse/blend textures,
+but inherit native-only `vertex_blend_technique=1`, tiled-mask enable and
+strength 2–4. Original `gbuffer_pass.ps` mixes base and secondary diffuse/normal
+using vertex alpha directly. Actual native draw15 at factory-upper has checksum
+`9a04f5e8e20fb7361976bd6c676cc2bf`; the cached Microsoft disassembly confirms:
+
+```
+base_weight = saturate(pow(abs(vertex_alpha),
+                          (1 - tiled_mask.r)^2 * falloff) * strength)
+```
+
+Thirteen frozen material draws across four day views actively bind this mask
+(six unique shaders); these are live controls, not unused template fields.
+Disabling only the tiled mask is insufficient: the neighboring shipped shader
+uses the base texture's alpha instead. A direct-blend selector or narrow shader
+adaptation needs verification before applying a correction. Exact attribution
+of the green screenshot pixels to these material candidates remains open.
+
+Original and converted hangar, arsenal and bunker model bounds, LOD memberships
+and authored thresholds match. Both clients use geometry/shading quality 1.
+Native `select_lod` at VA0x16eec0 uses the original default thresholds
+20/40/240 and .4/.2/.001. Native `get_shader_lod_index` at VA0x158d20 returns
+zero at shading quality 1, ruling out shader LOD for the current screenshots.
+This does not rule out geometry LOD, surface selection or culling differences.
+
+The colored vertex bytes are preserved. Bunker roof-height concrete vertices
+have alpha255 in both LODs, so a changing blend-alpha field on that surface does
+not explain the roof patches. Hangar upper brick has mostly alpha0 at LOD0 and
+alpha255 at LOD1 in the original geometry; this authored difference can interact
+with the changed blending equation. The precise changing roof surface and its
+runtime LOD still need identification.
+
+The logged empty border material and missing `metal_column_nmap` /
+`vehicles_spec` textures also occur in frozen original captures. They are
+inherited source errors, not evidence of newly dropped port resources; no
+invented replacement was applied.
