@@ -55,6 +55,22 @@ request during loading or a scene transition. Unsupported backbuffer formats
 and mismatched camera bytes fail explicitly. The supported capture formats are
 single-sample RGBA8/BGRA8, including sRGB variants.
 
+Request mode `3` captures one screenshot from the actual player camera, without
+writing its view or projection. It uses the same request fields and acknowledgment
+as modes `1` (fixed view with buffers) and `2` (fixed view, screenshot only), but
+ignores the supplied pose. Mode `0` follows the player without taking a screenshot.
+Use fresh request IDs and wait for the match to start before testing movement.
+
+`capture_gameplay.py --control PATH --output NEW_DIRECTORY --wine WINE
+--exe ABSOLUTE_WINDOWS_EXE_PATH` records seven actual-player views and rain
+telemetry around four 2.5-second WASD inputs. Its `walk_client.exe` helper requires
+exactly one visible window belonging to that executable, refuses an already-held
+key, verifies foreground ownership, and releases input if focus changes. On a
+compositor that rejects Win32 focus requests, focus the verified private client
+through the compositor first. Build the helper as a GUI executable (`-mwindows`)
+so its Wine console cannot steal focus. Failed input remains a failed validation with its
+partial screenshots and report; camera displacement is required for success.
+
 An initial CreateRemoteThread/WriteProcessMemory launcher was abandoned because
 this host has `kernel.yama.ptrace_scope=2`. The current normal DLL import method
 needs no change to that policy. Preserve the executable's embedded certificate:

@@ -68,7 +68,7 @@ void __cdecl override_camera(uint32_t *saved) {
     if (!selected_director) selected_director = director;
     if (director == selected_director) {
         ++camera_calls;
-        if (requested.enabled) {
+        if (requested.enabled==1 || requested.enabled==2) {
             float view[16], projection[16];
             matrices(&requested, view, projection);
             memcpy((char *)director + 4, view, sizeof(view));
@@ -79,8 +79,8 @@ void __cdecl override_camera(uint32_t *saved) {
             }
             applied = requested;
         } else {
-            applied.enabled=0;
-            applied.id=requested.id;
+            if (applied_id != requested.id) applied_at=GetTickCount();
+            applied=requested;
             applied_id=requested.id;
             float *view=(float *)((char *)director+4);
             float *projection=(float *)((char *)director+0x44);
@@ -203,7 +203,7 @@ static HRESULT STDMETHODCALLTYPE present(IDXGISwapChain *swapchain, UINT interva
         applied_id!=captured_id && GetTickCount()-applied_at>=applied.settle_ms)
         capture_frame_id=applied_id;
     if (!(flags & DXGI_PRESENT_TEST) && applied.enabled && applied_id != captured_id &&
-        (!buffers_enabled || applied.enabled==2 || buffers_id==applied_id) &&
+        (!buffers_enabled || applied.enabled==2 || applied.enabled==3 || buffers_id==applied_id) &&
         GetTickCount()-applied_at >= applied.settle_ms) { camera=applied; take=1; }
     LeaveCriticalSection(&lock);
     if (take && capture(swapchain, &camera)) {
@@ -251,7 +251,7 @@ static void read_request(void) {
     if (!line) return;
     camera.output[strcspn(camera.output,"\r\n")]=0;
     float horizontal=camera.forward[0]*camera.forward[0]+camera.forward[2]*camera.forward[2];
-    if (!camera.id || !camera.output[0] || !isfinite(horizontal) || horizontal<1e-8f ||
+    if (camera.enabled<0 || camera.enabled>3 || !camera.id || !camera.output[0] || !isfinite(horizontal) || horizontal<1e-8f ||
         !isfinite(camera.aspect) || !isfinite(camera.near_z) || !isfinite(camera.far_z) ||
         !(camera.fov>1 && camera.fov<170 && camera.aspect>0 && camera.near_z>0 && camera.far_z>camera.near_z)) return;
     for (int i=0;i<3;++i) if (!isfinite(camera.position[i]) || !isfinite(camera.forward[i])) return;

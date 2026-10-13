@@ -9,6 +9,10 @@ cd -- "$(dirname -- "$0")"
 # shellcheck disable=SC2086
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror -static viewport.c \
   -o viewport.exe ${LDFLAGS:-}
+# Keep the input helper from creating its own console window.
+# shellcheck disable=SC2086
+"$CC" -std=c11 -O2 -Wall -Wextra -Werror -static -mwindows walk_client.c \
+  -o walk_client.exe ${LDFLAGS:-}
 # shellcheck disable=SC2086
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror -static replay_ssao.c \
   -o replay_ssao.exe ${LDFLAGS:-} -ld3d11 -ldxgi -ldxguid

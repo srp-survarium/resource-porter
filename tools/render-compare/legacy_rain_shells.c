@@ -278,7 +278,7 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     Camera camera; EnterCriticalSection(&lock); camera=applied;
     int take=camera.enabled && capture_frame_id==camera.id && captured_id!=camera.id && source_rain_capture_id!=camera.id;
     LeaveCriticalSection(&lock);
-    ++source_rain_attempts; source_rain_status(0,camera.enabled);
+    ++source_rain_attempts; source_rain_status(0,camera.enabled==1 || camera.enabled==2);
     // A native particle stage may issue multiple draws. Render once, then let
     // apply_source_rain validate the exact target before suppressing each draw.
     if (source_rain_pending_target && source_rain_ready_frame==present_calls) {
@@ -289,11 +289,11 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     }
     source_rain_applied=0;
     if (!source_full_diffuse_view() || !source_rain_position || source_rain_position_frame!=present_calls) {
-        source_rain_reject(take,camera.enabled,1,"source rain requires current complete lighting and position",NULL,-1,-1,0);
+        source_rain_reject(take,camera.enabled==1 || camera.enabled==2,1,"source rain requires current complete lighting and position",NULL,-1,-1,0);
         ID3D11PixelShader_Release(ps); return 0;
     }
     ID3D11GeometryShader *gs=NULL; ID3D11DeviceContext_GSGetShader(context,&gs,NULL,NULL);
-    if (gs) { ID3D11GeometryShader_Release(gs); ID3D11PixelShader_Release(ps); source_rain_reject(take,camera.enabled,2,"source rain requires no geometry shader",NULL,-1,-1,0); return 0; }
+    if (gs) { ID3D11GeometryShader_Release(gs); ID3D11PixelShader_Release(ps); source_rain_reject(take,camera.enabled==1 || camera.enabled==2,2,"source rain requires no geometry shader",NULL,-1,-1,0); return 0; }
     ID3D11RenderTargetView *targets[8]={0}; ID3D11DepthStencilView *depth=NULL;
     ID3D11Buffer *vcb[2]={0},*pcb[2]={0}; ID3D11ShaderResourceView *views[5]={0};
     ID3D11DeviceContext_OMGetRenderTargets(context,8,targets,&depth);
@@ -303,11 +303,11 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     int have_globals=source_rain_read_buffer(context,vcb[1],globals,sizeof(globals));
     if (!targets[0] || targets[1] || !depth || !views[1] || !have_globals ||
         !source_rain_read_buffer(context,pcb[0],shadow,sizeof(shadow))) {
-        source_rain_reject(take,camera.enabled,3,"source rain native inputs absent",have_globals?globals:NULL,-1,-1,0); goto release;
+        source_rain_reject(take,camera.enabled==1 || camera.enabled==2,3,"source rain native inputs absent",have_globals?globals:NULL,-1,-1,0); goto release;
     }
-    for (unsigned i=1;i<8;++i) if (targets[i]) { source_rain_reject(take,camera.enabled,4,"source rain requires one color target",globals,-1,-1,0); goto release; }
-    for (unsigned i=0;i<104;++i) if (!isfinite(globals[i])) { source_rain_reject(take,camera.enabled,5,"source rain globals nonfinite",globals,(int)i,-1,globals[i]); goto release; }
-    for (unsigned i=0;i<16;++i) if (!isfinite(shadow[i])) { source_rain_reject(take,camera.enabled,6,"source rain shadow nonfinite",globals,(int)i,-1,shadow[i]); goto release; }
+    for (unsigned i=1;i<8;++i) if (targets[i]) { source_rain_reject(take,camera.enabled==1 || camera.enabled==2,4,"source rain requires one color target",globals,-1,-1,0); goto release; }
+    for (unsigned i=0;i<104;++i) if (!isfinite(globals[i])) { source_rain_reject(take,camera.enabled==1 || camera.enabled==2,5,"source rain globals nonfinite",globals,(int)i,-1,globals[i]); goto release; }
+    for (unsigned i=0;i<16;++i) if (!isfinite(shadow[i])) { source_rain_reject(take,camera.enabled==1 || camera.enabled==2,6,"source rain shadow nonfinite",globals,(int)i,-1,shadow[i]); goto release; }
     // m_V2W is unused/unpopulated in native particles. Reconstruct it from
     // actual m_V, supporting the validated affine transform of player cameras.
     float inverse[16]; int inverse_row=-1,inverse_column=-1; double inverse_failure=0;
@@ -317,10 +317,10 @@ static int render_source_rain(ID3D11DeviceContext *context) {
                             inverse_rejection==14?"source rain inverse residual invalid":
                             inverse_rejection==15?"source rain projection and view disagree":
                             "source rain view is ill-conditioned";
-        source_rain_reject(take,camera.enabled,inverse_rejection,message,globals,inverse_row,inverse_column,inverse_failure); goto release;
+        source_rain_reject(take,camera.enabled==1 || camera.enabled==2,inverse_rejection,message,globals,inverse_row,inverse_column,inverse_failure); goto release;
     }
     for (unsigned r=0;r<3;++r) {
-        if (fabsf(inverse[r*4+3]-globals[80+r])>.001f) { source_rain_reject(take,camera.enabled,8,"source rain inverse view differs from eye",globals,(int)r,-1,inverse[r*4+3]-globals[80+r]); goto release; }
+        if (fabsf(inverse[r*4+3]-globals[80+r])>.001f) { source_rain_reject(take,camera.enabled==1 || camera.enabled==2,8,"source rain inverse view differs from eye",globals,(int)r,-1,inverse[r*4+3]-globals[80+r]); goto release; }
     }
     // Director poses are not the player's camera. Use only the globals actually
     // bound to this particle draw, including on non-capture/live gameplay frames.
@@ -334,7 +334,7 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     if (!take && !source_rain_live) goto release;
     ID3D11RenderTargetView_GetResource(targets[0],&resource);
     hr=ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&native); ID3D11Resource_Release(resource);
-    if (FAILED(hr) || !init_source_rain(context,native)) { source_rain_reject(take,camera.enabled,9,"cannot initialize source rain targets",globals,-1,-1,0); goto release; }
+    if (FAILED(hr) || !init_source_rain(context,native)) { source_rain_reject(take,camera.enabled==1 || camera.enabled==2,9,"cannot initialize source rain targets",globals,-1,-1,0); goto release; }
     D3D11_TEXTURE2D_DESC color_desc; ID3D11Texture2D_GetDesc(native,&color_desc);
     // Native particle shaders do not consume screen_res; the engine may leave
     // its reflected CB slot zero. The original PS needs actual pixel dimensions.
@@ -343,18 +343,18 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     if (viewport_count!=1 || viewport.TopLeftX!=0 || viewport.TopLeftY!=0 ||
         viewport.Width!=color_desc.Width || viewport.Height!=color_desc.Height ||
         viewport.MinDepth!=0 || viewport.MaxDepth!=1 || !color_desc.Width || !color_desc.Height) {
-        source_rain_reject(take,camera.enabled,10,"source rain viewport mismatch",globals,-1,-1,0); goto release;
+        source_rain_reject(take,camera.enabled==1 || camera.enabled==2,10,"source rain viewport mismatch",globals,-1,-1,0); goto release;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC position_desc,shadow_desc;
     ID3D11ShaderResourceView_GetDesc(source_rain_position,&position_desc); ID3D11ShaderResourceView_GetDesc(views[1],&shadow_desc);
     if (position_desc.Format!=DXGI_FORMAT_R16_FLOAT || shadow_desc.Format!=DXGI_FORMAT_R16_UNORM ||
         position_desc.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D || shadow_desc.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D) {
-        source_rain_reject(take,camera.enabled,11,"source rain depth or shadow format changed",globals,-1,-1,0); goto release;
+        source_rain_reject(take,camera.enabled==1 || camera.enabled==2,11,"source rain depth or shadow format changed",globals,-1,-1,0); goto release;
     }
     if (!source_rain_view_matches(source_rain_position,color_desc.Width,color_desc.Height) ||
         !source_rain_view_matches(source_full_diffuse_view(),color_desc.Width,color_desc.Height) ||
         shadow_desc.Texture2D.MostDetailedMip!=0) {
-        source_rain_reject(take,camera.enabled,12,"source rain input dimensions or mip changed",globals,-1,-1,0); goto release;
+        source_rain_reject(take,camera.enabled==1 || camera.enabled==2,12,"source rain input dimensions or mip changed",globals,-1,-1,0); goto release;
     }
     float old_globals[76]={0},parameters[28]={0},world[5][12],radii[5];
     memcpy(old_globals,globals,176); memcpy(old_globals+44,inverse,48);
@@ -472,7 +472,7 @@ static int apply_source_rain(ID3D11DeviceContext *context) {
         int take=camera.enabled && capture_frame_id==camera.id && captured_id!=camera.id && source_rain_capture_id==camera.id;
         LeaveCriticalSection(&lock);
         if (take) {
-            source_rain_status(1,camera.enabled);
+            source_rain_status(1,camera.enabled==1 || camera.enabled==2);
             char path[MAX_PATH+80]; snprintf(path,sizeof(path),"%s.source-rain-apply.json",camera.output);
             FILE *file=fopen(path,"w");
             if (file) { fprintf(file,"{\"present\":%u,\"live\":true,\"copied_to_native\":true,\"native_particles_suppressed\":true}\n",present_calls); fclose(file); }
