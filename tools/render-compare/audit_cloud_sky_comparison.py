@@ -53,6 +53,20 @@ def audit(original,baseline,current,pose,stride):
     return dict(pose=pose,current_geometry_readback=cd is not None,recipes=rows)
 
 
+def current_only(original,current,pose,stride):
+    depth=(original/(pose+'.composition-draw.rt00.bin')).read_bytes()
+    groups={'original_sky_mask':[],'original_geometry_mask':[],'fixed_mask':[]}
+    for y in range(stride//2,544,stride):
+        for x in range(stride//2,1280,stride):
+            if (x<224 and y<224) or (x>=640 and y>=384) or (608<=x<672 and 320<=y<384):continue
+            groups['fixed_mask'].append((x,y));z=struct.unpack_from('<e',depth,2*(y*1280+x))[0]
+            if z==499.75:groups['original_sky_mask'].append((x,y))
+            elif 0<z<499.75:groups['original_geometry_mask'].append((x,y))
+    source,target=bmp(original/pose),bmp(current/pose)
+    return dict(pose=pose,scope='Original versus corrected screenshot only. No previous baseline; sky/geometry masks refer to source only.',
+                metrics={k:metrics(source,target,v) for k,v in groups.items()})
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('original',type=Path);p.add_argument('baseline',type=Path);p.add_argument('current',type=Path)
     p.add_argument('--stride',type=int,default=16);p.add_argument('--output',type=Path,required=True)
@@ -62,5 +76,7 @@ if __name__=='__main__':
     if not poses:p.error('no common captured poses')
     rows=[audit(a.original,a.baseline,a.current,pose,a.stride) for pose in poses]
     result=dict(scope='Common far-clear sky, or common non-clear geometry, excluding fixed HUD/weapon areas. Final screenshots include all later passes and animation phase. Missing current depth explicitly reuses original/baseline mask; no current geometry equivalence then implied.',stride=a.stride,original=str(a.original),baseline=str(a.baseline),current=str(a.current),views=rows)
+    extras=sorted(f.name for f in a.current.glob('*.bmp') if (a.original/f.name).exists() and not (a.baseline/f.name).exists())
+    result['additional_current_only_views']=[current_only(a.original,a.current,pose,a.stride) for pose in extras]
     a.output.write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps([dict(pose=r['pose'],sky={k:v['final_sky']['rgb_mae'] for k,v in r['recipes'].items()},samples=r['recipes']['current']['final_sky']['samples']) for r in rows]))

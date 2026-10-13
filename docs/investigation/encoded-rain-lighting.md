@@ -800,3 +800,29 @@ have only1–3 sky samples. Final lamp validation awaits the separate recovery
 batch. Reports `factory-cloud-corrected-pass.json`,
 `factory-cloud-corrected-pass-comparison.json` and
 `factory-cloud-corrected-four-comparison.json` preserve this boundary.
+
+### Completed cloud candidate validation
+
+`pipeline-factory-live-rain-clouds-complete` combines the four completed
+main-run poses with the recovered lamp and two additional hangar views;
+its provenance file identifies each source run. The recovered lamp passes
+the same native VS/PS/texture/sampler guards. On the shared1,542 sky pixels,
+final screenshot RGB MAE falls .091236→.022251 (75.6%). The full fixed-mask
+lamp error falls .074108→.022720; common geometry changes only
+.022287→.021565. Thus the large gain is specifically in the sky, as the
+cloud-pass diagnosis predicted.
+
+For the other four existing views, full fixed-mask MAE changes interior
+.006943→.006509, upper .020020→.017769, north .006670→.006657, and south
+.010614→.010817. Retain the small south regression; later rain/animation
+also differs between captures. The upper sky improvement uses only53 samples,
+and the other three sky masks have1–3, so the lamp remains the strongest
+sky validation.
+
+The two new hangar poses have no previous live-rain baseline and are
+screenshot-only. Report them separately against the original: fixed-mask
+MAE .007568 north-up and .007144 south-up, each2,108 samples. Source-only
+sky masks have44/20 pixels; there is no current depth equivalence claim.
+The comparison tool automatically keeps such additional poses separate.
+`factory-cloud-corrected-comparison.json` and
+`factory-cloud-corrected-final-phase.json` contain the completed results.
