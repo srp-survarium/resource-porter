@@ -487,6 +487,19 @@ remains incomplete. Artifacts are in `reproduction/reference-buffers-checkpoint`
 
 ## Numeric material conversion and light cones
 
+`SRP_LEGACY_VOLUME_CONE` selects the experimental `legacy_volume.hlsl` shader for
+the verified native cone PS identity. Pair it with `SRP_LEGACY_VOLUME_ASSETS`, a
+directory containing original `old-spot_falloff.dds` and `old-sphere_falloff.dds`.
+The adapter restores original cone/sphere opacity and sRGB falloff sampling while
+preserving native geometry, blend state and dust animation. It currently pins
+Factory's authored attenuation scale 13; it is not a general material adapter.
+All 40 lamp/cone placements and both audited meshes match the source. Cone UV
+quantization is below .00044, so no placement shift was applied. Four rain views
+completed with the replacement shader. Above-lamp luma error falls .03544→.01094;
+the beam's regional error falls .04780→.03743, but its average brightness remains
+above the original. First-capture metadata omitted sphere slot 14; the observer
+now records slots 0–15 and material mip ranges for subsequent validation.
+
 The converter now copies integer visual values into float template fields while
 preserving shader feature switches. An audit of 247 converted materials found
 58 differing fields across 41 materials. Fresh conversion verifies all 58 fixes.
