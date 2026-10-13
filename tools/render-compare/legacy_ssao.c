@@ -12,6 +12,8 @@ static ID3D11RenderTargetView *ssao_half_rt, *ssao_full_rt;
 static ID3D11SamplerState *ssao_samplers[2];
 static ID3D11Buffer *ssao_constants[2];
 static ID3D11RasterizerState *ssao_raster;
+static unsigned ssao_captured_id;
+static ID3D11Texture2D *ssao_ready_depth;
 
 static void *ssao_file(const char *root,const char *name,size_t *size,int shader) {
     char path[MAX_PATH];
@@ -32,6 +34,12 @@ static int configure_legacy_ssao(void) {
     int decoder=legacy_ambient_decode_code && contains(legacy_ambient_decode_code,legacy_ambient_decode_size,"t_legacy_ssao");
     if (!!length!=decoder || length>=sizeof(ssao_asset_root)) { error("original SSAO requires its paired ambient decoder and asset directory"); return 0; }
     legacy_ssao_enabled=length!=0;
+    char early[8];
+    DWORD early_length=GetEnvironmentVariableA("SRP_LEGACY_SSAO_EARLY_PROBES",early,sizeof(early));
+    legacy_ssao_early=early_length==1 && early[0]=='1';
+    if (legacy_ssao_early && (!legacy_ssao_enabled || strcmp(build,"026g") || !legacy_probe_code || !legacy_probe_box_code)) {
+        error("early SSAO requires paired source probes and source SSAO on 026g"); return 0;
+    }
     return 1;
 }
 static int init_legacy_ssao(ID3D11Device *device,ID3D11DeviceContext *context) {
@@ -90,15 +98,32 @@ fail:
     error("cannot initialize archived SSAO experiment (requires D3D11.1 context state)"); return 0;
 #undef SSAO_TRY
 }
-static void run_legacy_ssao(unsigned char *targets,const Camera *camera,int take) {
-    if (!legacy_ssao_enabled) return;
-    legacy_ssao_ready=0;
-    if (!readable(targets,10*0xa0) || strcmp((char *)targets+9*0xa0+0xc,"$user$position")) {
-        error("original SSAO depth target missing"); return;
+static void capture_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camera,int take) {
+    if (!take || !legacy_ssao_ready || ssao_ready_present!=present_calls || ssao_captured_id==camera->id) return;
+    char base[MAX_PATH+32],path[MAX_PATH+64];
+    snprintf(base,sizeof(base),"%s.ssao-live",camera->output);
+    snprintf(path,sizeof(path),"%s.targets.json",base);
+    FILE *file=fopen(path,"w");
+    if (file) {
+        fputs("[",file); dump_texture(depth,base,file,"depth",0,NULL);
+        fputs(",",file); dump_texture(ssao_half,base,file,"archived_accumulation",1,NULL);
+        fputs(",",file); dump_texture(ssao_full,base,file,"archived_spatial_upsample",2,NULL);
+        fputs("]\n",file); fclose(file); ssao_captured_id=camera->id;
+        snprintf(path,sizeof(path),"%s.state.json",base);
+        file=fopen(path,"w");
+        if (file) {
+            fprintf(file,"{\"capture_id\":%u,\"rendered_present\":%u,\"capture_present\":%u,\"early_probes\":%s}\n",
+                    camera->id,ssao_ready_present,present_calls,legacy_ssao_early?"true":"false");
+            fclose(file);
+        }
     }
-    unsigned char *target=*(void **)(targets+9*0xa0+0x98);
-    if (!readable(target,0x10)) { error("original SSAO depth texture missing"); return; }
-    ID3D11Texture2D *depth=*(void **)(target+0xc);
+}
+static void run_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camera,int take) {
+    if (!legacy_ssao_enabled) return;
+    if (legacy_ssao_ready && ssao_ready_present==present_calls && depth==ssao_ready_depth) {
+        capture_legacy_ssao_depth(depth,camera,take); return;
+    }
+    legacy_ssao_ready=0;
     if (!depth) { error("original SSAO depth texture null"); return; }
     D3D11_TEXTURE2D_DESC desc; ID3D11Texture2D_GetDesc(depth,&desc);
     if (desc.Width!=1280 || desc.Height!=720 || desc.Format!=DXGI_FORMAT_R16_FLOAT || desc.ArraySize!=1 || desc.SampleDesc.Count!=1) {
@@ -140,20 +165,51 @@ static void run_legacy_ssao(unsigned char *targets,const Camera *camera,int take
         ID3D11DeviceContext_ClearState(context);
         ID3D11DeviceContext1_SwapDeviceContextState(ssao_context1,previous,NULL);
         if (previous) ID3DDeviceContextState_Release(previous);
-        legacy_ssao_ready=1;
-        if (take) {
-            char base[MAX_PATH+32],path[MAX_PATH+64];
-            snprintf(base,sizeof(base),"%s.ssao-live",camera->output);
-            snprintf(path,sizeof(path),"%s.targets.json",base);
-            FILE *file=fopen(path,"w");
-            if (file) {
-                fputs("[",file); dump_texture(depth,base,file,"depth",0,NULL);
-                fputs(",",file); dump_texture(ssao_half,base,file,"archived_accumulation",1,NULL);
-                fputs(",",file); dump_texture(ssao_full,base,file,"archived_spatial_upsample",2,NULL);
-                fputs("]\n",file); fclose(file);
-            }
+        legacy_ssao_ready=1; ssao_ready_present=present_calls;
+        if (ssao_ready_depth!=depth) {
+            if (ssao_ready_depth) ID3D11Texture2D_Release(ssao_ready_depth);
+            ssao_ready_depth=depth; ID3D11Texture2D_AddRef(depth);
         }
+        capture_legacy_ssao_depth(depth,camera,take);
     } else error("cannot bind original SSAO depth");
     if (depth_view) ID3D11ShaderResourceView_Release(depth_view);
     ID3D11DeviceContext_Release(context); ID3D11Device_Release(device);
+}
+
+static void run_legacy_ssao(unsigned char *targets,const Camera *camera,int take) {
+    if (!legacy_ssao_enabled) return;
+    if (!readable(targets,10*0xa0) || strcmp((char *)targets+9*0xa0+0xc,"$user$position")) {
+        error("original SSAO depth target missing"); return;
+    }
+    unsigned char *target=*(void **)(targets+9*0xa0+0x98);
+    if (!readable(target,0x10)) { error("original SSAO depth texture missing"); return; }
+    ID3D11Texture2D *depth=*(void **)(target+0xc);
+    if (!depth) { error("original SSAO depth texture null"); return; }
+    run_legacy_ssao_depth(depth,camera,take);
+}
+// Called before the verified source probe draws, while their current G-buffer
+// depth is already bound. The later stage entry reuses this Present's result.
+static void prepare_early_legacy_ssao(ID3D11DeviceContext *context) {
+    if (!legacy_ssao_early) return;
+    ID3D11PixelShader *shader=NULL; ID3D11DeviceContext_PSGetShader(context,&shader,NULL,NULL);
+    if (!shader) return;
+    unsigned marker=0; UINT size=sizeof(marker);
+    HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&early_ssao_probe_guid,&size,&marker);
+    ID3D11PixelShader_Release(shader);
+    if (FAILED(hr) || size!=sizeof(marker) || marker!=1) return;
+    ID3D11ShaderResourceView *view=NULL; ID3D11DeviceContext_PSGetShaderResources(context,2,1,&view);
+    if (!view) { error("early SSAO probe depth missing"); return; }
+    D3D11_SHADER_RESOURCE_VIEW_DESC desc; ID3D11ShaderResourceView_GetDesc(view,&desc);
+    ID3D11Resource *resource=NULL; ID3D11Texture2D *depth=NULL;
+    ID3D11ShaderResourceView_GetResource(view,&resource);
+    hr=ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&depth);
+    ID3D11Resource_Release(resource); ID3D11ShaderResourceView_Release(view);
+    if (FAILED(hr) || desc.Format!=DXGI_FORMAT_R16_FLOAT || desc.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D || desc.Texture2D.MostDetailedMip) {
+        if (depth) ID3D11Texture2D_Release(depth);
+        error("early SSAO probe depth view contract changed"); return;
+    }
+    Camera camera; EnterCriticalSection(&lock); camera=applied;
+    int take=camera.enabled && capture_frame_id==camera.id && captured_id!=camera.id && GetTickCount()-applied_at>=camera.settle_ms;
+    LeaveCriticalSection(&lock);
+    run_legacy_ssao_depth(depth,&camera,take); ID3D11Texture2D_Release(depth);
 }

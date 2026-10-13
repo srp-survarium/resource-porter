@@ -220,6 +220,9 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         FILE *file=fopen(path,"w");
         if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"legacy_composition_uses\":%u,\"legacy_ambient_decode_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,legacy_composition_uses,legacy_ambient_decode_uses,hr); fclose(file); }
     }
+    if (legacy_ssao_early && (probe_replaced || probe_box_replaced) && SUCCEEDED(hr) && shader && *shader) {
+        unsigned marker=1; ID3D11PixelShader_SetPrivateData(*shader,&early_ssao_probe_guid,sizeof(marker),&marker);
+    }
     if (SUCCEEDED(hr) && shader && *shader) tag_source_local(*shader,code,size);
     int local_index=local_light_index(code,size);
     if (local_index>=0 && SUCCEEDED(hr)) ++local_light_created[local_light_shaders[local_index].family];
@@ -563,7 +566,7 @@ static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *sta
     state->extra_slot=flag==3?12:2;
     if (!view) { error("legacy draw extra resource missing"); return; }
     if (flag==2 && legacy_ssao_enabled) {
-        if (!legacy_ssao_ready) { error("original SSAO was not rendered this frame"); return; }
+        if (!legacy_ssao_ready || ssao_ready_present!=present_calls) { error("original SSAO was not rendered this frame"); return; }
         ID3D11DeviceContext_PSGetShaderResources(context,0,1,&state->native_ao);
         Camera camera;
         EnterCriticalSection(&lock); camera=applied;
@@ -741,6 +744,7 @@ static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
 }
 #include "legacy_local_diffuse.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
+    prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
@@ -751,6 +755,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
+    prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,base,1);
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);

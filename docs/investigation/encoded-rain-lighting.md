@@ -151,3 +151,54 @@ files and a manifest of 4,868 capture files (4,693,926,506 bytes). It includes
 the exact loaded DLL, compiled shader and source, launch recipe, CPU replay,
 coverage and numeric results. Paths are relative to the main resource-porter
 `.work/render-compare` directory. The private client/server stopped cleanly.
+## Preparing ambient replay before local lights
+
+`SRP_LEGACY_SSAO_EARLY_PROBES=1` is an opt-in scheduling experiment. It requires
+the existing source SSAO assets/decoder and both source probe replacements on
+026g. It recognizes only marked replacement probe shaders, obtains their
+bound R16F depth at t2, and renders the existing source SSAO implementation
+before the first probe. The later ambient hook reuses the result only when
+both the Present serial and depth texture match. Ambient decoding rejects
+stale SSAO. Context-state swapping preserves the interrupted native draw.
+Rich captures add `.ssao-live.state.json` with rendered/captured Present
+serials; this schedule has passed the C build but needs runtime validation.
+
+The separate `legacy_probe_ambient_aux.hlsl` and
+`legacy_probe_box_ambient_aux.hlsl` variants apply source AO to each probe
+before its clamp, Fresnel and encoded output. They repack supplied smoothness
+and Fresnel into source seven-bit fields and write diffuse only. They are
+auxiliary replay shaders, **not replacements for native MRT probe draws**:
+their private target must retain source probe ordering and alpha blend while
+the existing native specular output continues normally.
+
+`legacy_skylight_ambient_aux.hlsl` initializes an auxiliary target with the
+010b source cube, wrap and height-ramp equation. It uses the native probe's
+G-buffer/view bindings and an additional b3 containing the eight original
+sky parameter vectors. Native skylight is a constant-only shader, so its
+unused legacy fields cannot substitute for these source weather constants.
+The initial sky replay must preserve source coverage/stencil; a fullscreen
+unmasked initialization is not yet justified. None of these auxiliary
+ambient shaders is wired to the scene or rain in this preparation commit.
+All three compile with FXC `/WX /O3 /T ps_4_0 /E main`; the observer C build
+also passes warnings as errors. No game tests were added.
+
+Reproduce the source equation audit and export the weather CB with:
+
+```sh
+python tools/render-compare/audit_original_skylight.py ORIGINAL_POSES \
+  --output skylight-audit.json --constants source-skylight.bin
+```
+
+This pins original shader `21c28f59ef738c2db31065650ff8249f`, validates input
+formats and unblended output, and refuses mixed-weather constant exports.
+On the seven frozen Factory-rain references (stride 8), all 92,658 changed
+sample pixels agree within one 10-bit step; maximum channel error is .000550.
+The report also preserves all 8,142 unchanged samples separately: many do not
+match an unconditional shader evaluation, so this validates shader arithmetic,
+not stencil behavior. The common 128-byte CB SHA256 is
+`c440f33e565ef28dc19d3aae3f52b10eb5b93fbf6f5461ec7c976da6fd126bcf`.
+
+Factory's original authored project contains 36 environment probes and no
+ambient-light objects. That does not prove runtime absence of additional
+ambient producers. School 021 has authored ambient lights and byte-identical
+021/026 skylight shaders; this 010b sky equation must not be applied there.

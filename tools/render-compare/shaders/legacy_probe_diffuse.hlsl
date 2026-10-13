@@ -31,13 +31,20 @@ Texture2D t_ssao_accumulator : register(t3);
 TextureCube t_probe_cubemap : register(t4);
 TextureCube t_probe_cubemap_diffuse : register(t5);
 Texture2D t_probe_brdf : register(t6);
+#ifdef CONFIG_SOURCE_AMBIENT_AO
+Texture2D t_legacy_ssao : register(t14);
+#endif
 SamplerState s_linear : register(s0);
 SamplerState s_base : register(s1);
 SamplerState s_position : register(s2);
 SamplerState s_normal : register(s3);
 SamplerState s_accumulator : register(s4);
 SamplerState s_material1 : register(s5);
-struct Result { float4 diffuse : SV_Target0; float4 specular : SV_Target1; };
+struct Result { float4 diffuse : SV_Target0;
+#ifndef CONFIG_SOURCE_DIFFUSE_ONLY
+    float4 specular : SV_Target1;
+#endif
+};
 float3 native_sample(float3 direction,float mip) {
     float4 value=t_probe_cubemap.SampleLevel(s_base,direction,mip);
     return value.rgb*value.rgb/(value.a*value.a)*.25;
@@ -65,6 +72,9 @@ Result main(float4 pixel : SV_POSITION) {
     float3 normal=clamp(normalize(float3(f*sqrt(abs(1-r*.25)),r*.5-1)),-1,1);
     float3 world_normal=normalize(mul((float3x3)m_V2W,normal));
     float4 parameters=t_parameters.SampleLevel(s_accumulator,uv,0);
+#ifdef CONFIG_SOURCE_AMBIENT_AO
+    parameters.xy=floor(saturate(parameters.xy)*127)/127;
+#endif
     // The converted diffuse cube begins at the old 16x16 mip; mip 1 is the
     // original 8x8 mip. Retail quality 1 maps to shader quality 3, whose
     // eight directional samples are deliberately divided by nine.
@@ -84,17 +94,24 @@ Result main(float4 pixel : SV_POSITION) {
     float3 diffuse=source_diffuse_sample(world_normal);
 #endif
     diffuse*=color_parameters.x;
+#ifdef CONFIG_SOURCE_AMBIENT_AO
+    // Source applies AO to each probe before min(diffuse,10), Fresnel and
+    // encoding. Multiplying the already blended accumulator is not equivalent.
+    diffuse*=t_legacy_ssao.SampleLevel(s_linear,uv,0).x*2.5;
+#endif
     float3 eye_ray=float3((1-2*uv)*s_eye_ray_corner.xy/s_eye_ray_corner.z,1);
     float3 world_position=mul(m_V2W,float4(eye_ray*t_position.SampleLevel(s_position,uv,0).x,1));
     float3 view_direction=normalize(eye_position-world_position);
     float view_dot_normal=saturate(dot(world_normal,view_direction));
     float3 reflection=-reflect(view_direction,world_normal);
+#ifndef CONFIG_SOURCE_DIFFUSE_ONLY
     float mip=(num_mips-1)*sqrt(view_dot_normal)*parameters.y;
     float2 brdf=t_probe_brdf.SampleLevel(s_material1,float2(view_dot_normal,parameters.y),0).xy;
     brdf*=brdf;
     float brdf_factor=brdf.x*(parameters.x-.04)+brdf.y;
     float3 specular=lerp(native_sample(reflection,floor(mip)),native_sample(reflection,floor(mip)+1),frac(mip))*brdf_factor;
     specular*=t_ssao_accumulator.SampleLevel(s_linear,uv,0).x*color_parameters.y;
+#endif
 #ifdef CONFIG_PROBE_BOX
     float3 probe_space=mul(world_to_outer_probe,float4(world_position,1)).xyz;
 #ifdef CONFIG_SOURCE_FALLOFF
@@ -139,7 +156,9 @@ Result main(float4 pixel : SV_POSITION) {
 #else
     result.diffuse=float4(diffuse*(1-parameters.x),attenuation);
 #endif
+#ifndef CONFIG_SOURCE_DIFFUSE_ONLY
     result.specular=float4(specular,attenuation);
+#endif
 #ifdef CONFIG_ENCODED_PROBE
     result.diffuse.rgb=sqrt(saturate(result.diffuse.rgb*.125));
 #endif
