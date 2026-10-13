@@ -2,6 +2,8 @@
 // Diagnostic 0.10b rain predicate. Recompute the original size formula without
 // changing the native surface's cached factor, occlusion, geometry or bounds.
 // Original caching for unseen surfaces is not reproduced by this experiment.
+static int rain_source_cache_enabled;
+static float rain_source_cached_factor(uintptr_t instance,uintptr_t parent);
 static unsigned rain_caster_calls, rain_caster_skipped, rain_caster_fallbacks;
 static unsigned rain_caster_disagreements, rain_caster_log_id, rain_caster_seen_count;
 static uintptr_t rain_caster_seen[2048];
@@ -91,6 +93,7 @@ static int __attribute__((used)) rain_source_caster(uintptr_t instance,const flo
     for (unsigned i=0;i<3;++i) if (!isfinite(eye[i]) || box[i]>box[i+3]) goto fallback;
     if (fabsf(matrix[3])+fabsf(matrix[7])+fabsf(matrix[11])>1e-5f || fabsf(matrix[15]-1)>1e-5f) goto fallback;
     factor=rain_source_factor(box,matrix,eye,world);
+    if (rain_source_cache_enabled) factor=rain_source_cached_factor(instance,parent);
     if (!isfinite(factor)) goto fallback;
     int result=!(factor<.004f);
     if (!result) ++rain_caster_skipped;
@@ -124,7 +127,7 @@ static void __attribute__((naked,used)) rain_caster_bridge(void) {
 
 static int install_factory_rain_casters(void) {
     char option[8];
-    if (GetEnvironmentVariableA("SRP_DIAGNOSTIC_FACTORY_RAIN_CASTERS",option,sizeof(option))!=1 || option[0]!='1') return 1;
+    if (!rain_source_cache_enabled && (GetEnvironmentVariableA("SRP_DIAGNOSTIC_FACTORY_RAIN_CASTERS",option,sizeof(option))!=1 || option[0]!='1')) return 1;
     static const unsigned char predicate[]={0x8b,0x4b,0x3c,0x80,0xb9,0x16,0x01,0,0,0,0x74,0x12,0xf3,0x0f,0x10,0x43,0x58,0xf3,0x0f,0x10,0x0d,0x5c,0xd7,0xa2,0,0x0f,0x2f,0xc8,0x77,0x4c};
     static const unsigned char getter[]={0x8b,0x89,0x90,0x02,0,0,0x8b,0x44,0x24,0x04,0xf3,0x0f,0x7e,0x81,0x08,0x01,0,0};
     static const unsigned char save_camera[]={0xf3,0x0f,0x7e,0x80,0xa4,0x54,0,0,0x66,0x0f,0xd6,0x44,0x24,0x54};
@@ -147,7 +150,7 @@ static int install_factory_rain_casters(void) {
     char path[MAX_PATH+48]; snprintf(path,sizeof(path),"%s.factory-rain-casters.json",control);
     FILE *file=fopen(path,"w");
     if (file) {
-        fputs("{\"mode\":\"diagnostic_recomputed_source_factor\",\"source_shader_lods\":true,\"source_threshold\":0.004,\"native_threshold\":10,\"conditional_occlusion_unchanged\":true,\"original_stale_cache_reproduced\":false,\"unknown_parent_native_fallback\":true,\"row_decisions\":{\"0\":\"skip\",\"1\":\"keep\",\"2\":\"native_fallback\"}}\n",file);
+        fprintf(file,"{\"mode\":\"%s\",\"source_shader_lods\":true,\"source_threshold\":0.004,\"native_threshold\":10,\"conditional_occlusion_unchanged\":true,\"original_visibility_identity_proven\":false,\"unknown_parent_native_fallback\":true,\"row_decisions\":{\"0\":\"skip\",\"1\":\"keep\",\"2\":\"native_fallback\"}}\n",rain_source_cache_enabled?"diagnostic_source_factor_cache":"diagnostic_recomputed_source_factor");
         fclose(file);
     }
     return 1;
