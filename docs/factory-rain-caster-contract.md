@@ -3,7 +3,8 @@
 `SRP_DIAGNOSTIC_FACTORY_RAIN_CASTERS=1` enables a default-off diagnostic for the
 pinned 0.26 client. It recomputes the original 0.10b size predicate for static
 model instances. It does not reproduce the original factor cache and is not a
-validated rendering preset. Runtime depth comparison is still required.
+validated rendering preset. The five-view runtime comparison below improves
+some depths but leaves most outdoor caster discrepancies unresolved.
 
 ## Verified contracts
 
@@ -73,7 +74,73 @@ sites to investigate, not proof that native cadence matches the original.
 Validation so far: C builds with warnings as errors; emitted bridge/fallback
 instructions inspected; four analytic and 2,000 seeded affine numerical cases
 pass. Maximum world-AABB error against independently transformed corners was
-2.12e-5 and factor error 1.77e-7. No game tests were added. No runtime capture
-has been made with this diagnostic.
+2.12e-5 and factor error 1.77e-7. No game tests were added.
 
 Evidence bundle: `.work/chemical-plant-011a/comparison/checkpoint/factory-rain-casters`.
+
+## Five-view runtime result
+
+The isolated observer combined root `6299478` (validated rain-shadow camera)
+with `79ecae1` (caster diagnostic), producing validation commit `bab8d42`.
+All five loaded, UI-free poses completed with the diagnostic active. Saved main
+camera positions match the requested poses within 8e-6; all 1,293 logged
+candidates matched the proven static layout, with zero native fallbacks.
+World-to-shadow matrices still match original references within 5.97e-8.
+Reserved client 2247 was stopped and both prior DLLs restored by SHA-256.
+
+| Pose | Extra caster texels, camera only → diagnostic | Depth MAE, camera only → diagnostic |
+| --- | --- | --- |
+| Interior | 8 → 0 | .0079825 → .0072657 |
+| Yard north | 4,025 → 4,025 | .1836555 → .1836496 |
+| Yard south | 2,022 → 1,976 | .0930310 → .0900853 |
+| Upper | 5,848 → 5,340 | .2588021 → .2358587 |
+| Streetlamp | 0 → 0 | .0010927 → .0003972 |
+
+Extra casters mean original-clear depth texels filled in the target. The south
+view also gains seven missing-caster texels (2 → 9). This is useful evidence for
+the size-contract difference, not grounds to adopt the diagnostic generally.
+
+CPU replay then compared **250 original static surface payloads** with the
+actual runtime archive: every position and index payload matched exactly.
+Rasterizing those original triangles with captured transforms explains
+3,347/4,025 remaining extra texels in north, 1,844/1,976 in south and
+4,478/5,340 in upper, within .0001 normalized depth. The dominant matching
+surfaces are `terrain_p_09/l3terr_` in both yard views and
+`terrain_p_06/l3terr_`, `terrain_p_04/l3terr_` in upper. Their recomputed source
+factors (.05267, .006291, .01356) exceed .004. Geometry conversion therefore
+does not explain these terrain discrepancies.
+
+The replay removes the lookup matrix's original -.001 Z bias before comparing
+raster depth (`stage_pre_rain.cpp:201`). It considers both winding directions
+and all source LOD surfaces; it proves matching geometry at those depths,
+not the exact native draw/LOD owner. Remaining source cache history, visibility,
+Hi-Z results and earlier candidate selection are unresolved. No occlusion
+change or additional original-client launch was made.
+
+Capture directory: `.work/render-compare/026g/pipeline-factory-rain-casters-source`.
+The evidence bundle includes the launch/restoration scripts, exact observer
+sources/DLL, numerical checks, per-pose caster decisions, matrix/depth/geometry
+reports, source references and SHA-256 manifests for all five frozen captures.
+
+## Additional selection-camera difference
+
+Original rain call `0x62bb32..0x62bb57` passes context `+0x4204` to
+`scene::select_models` after installing the shadow view. This is the shadow
+camera: `renderer_context::set_v` updates `m_view_pos`. Native
+`0x17c6e7..0x17c710` instead passes the saved main camera. The source static
+model `select_lod` uses this argument for distance-based geometry LODs.
+For example, unchanged `terrain_p_09` settings specify distances 80/200/300;
+at the yard poses the main camera is 29.79 units from its center, while the
+rain camera is over 100 units away. These choose different LOD surfaces.
+The original profile uses geometry quality 1, so the quality-zero .75 scale
+does not apply.
+
+This also interacts with the per-surface cached factor. At the preceding
+interior pose, terrain09's formula would yield .002076 (<.004); at the yard
+poses terrain06/04 would yield .002643/.003021, before their later upper-view
+values exceed .004. These are conditional calculations, **not observed cache
+values**: updating requires that exact LOD surface to be selected for the
+G-buffer. Frozen captures lack per-instance original visibility/cache logs,
+and readiness began at another pose. The camera-argument difference is
+proven; its role in each missing caster still requires a controlled selection
+or cache observation. Do not replace a cache with guessed pose history.
