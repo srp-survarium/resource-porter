@@ -740,6 +740,23 @@ draw is another cone at `(-20.702,9.914,-8.903)`, so that draw does not explain
 the displayed lamp. Capture the correct instance before changing its transform
 or opacity.
 
+## Observe native local lights
+
+`SRP_CAPTURE_LOCAL_LIGHTS=1` separately enables the read-only native local-light
+observer (kind 26). It pins 19 bytecodes across point, spot, plane-spot, OBB and
+capsule families. Every matching draw is counted, including repeated shaders
+with different light constants. The first 32 draws per rich pose save pixel
+and vertex bytecodes/constants, inputs, samplers, geometry, depth/stencil and
+blend state, plus diffuse/specular targets before and after that draw.
+`.local-light-counts.json` reports explicit zero, overflow and first/last
+Present serials. `verify_local_light_capture.py` checks these artifacts and
+rejects captures spanning frames. This adds readbacks only; rendering and the
+lighting equations are unchanged. Rebuild `local_light_index.h` using
+`local_light_index.py` with the pinned native archive and its entry index.
+
+The observer is preparation for a source-compatible encoded lighting buffer;
+see [the accumulator contract](../../docs/investigation/encoded-rain-lighting.md).
+
 ## Select one native volume for observation
 
 Set `SRP_CAPTURE_VOLUME_ORIGIN=11.152,10.196,18.044,0.1` to capture the
