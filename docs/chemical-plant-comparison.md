@@ -58,6 +58,60 @@ disabled, and uses separate animated frames; it is not a parity proof.
 | Diagnostic/detail (28) | .0867 / .4851 | .0497 / .7181 | .0334 / .8241 |
 | Held-out stations (24) | .1046 / .4748 | .0364 / .8116 | .0364 / .8135 |
 
+The later curated cloud/grain batch gives .0431 / .7670 on diagnostic/detail
+views and .0298 / .8365 on held-out stations. The diagnostic regression is
+concentrated in the east hall. A fully settled verification frame has nearly
+identical depth, normal, albedo and material buffers to its earlier baseline,
+while the lighting buffers differ. A subsequent CPU replay identifies swapped
+draw order of overlapping environment probes (5) and (11), both authored radius 5. Their
+diffuse multipliers are 11.4 and 3, and alpha-over blending is order-dependent.
+The capture also directly shows other equal-authored-radius probes changing
+their first-draw order.
+Before the probe pass, diffuse/specular accumulators are byte-identical; after
+it, 99.999888% of the diffuse difference lies within the two east probes' overlap.
+Replaying only the order swap with original BC3 textures, eight source samples,
+captured geometry/materials and source falloff gives encoded RGB RMSE .001108
+over 2,962 pixels, against an observed difference RMS .032909. The reverse swap
+gives .066448. Cubemap edge filtering is approximated in the CPU replay.
+Thus the preserved baseline draws (5) then (11), while the brighter run draws
+(11) then (5). The material archive reversion was successful.
+
+Further source and binary tracing explains why these probes should not tie:
+original 0.11a `environment_probe::set_properties` replaces each box radius
+with `0.75 * max(transform basis-vector lengths)` before sorting. The verified
+0.11a instructions at VA `0x70a2dd..0x70a3f4` reproduce that source operation;
+the multiplier at `0x9862ec` is 0.75. Probes (5)/(11) therefore sort by
+11.7045/10.57725, respectively. Native 0.26 keeps authored radius for boxes and adds a small per-probe
+perturbation at object offset `0x380` (constructor VA `0x1c2f40..0x1c2fac`).
+The captured east keys were 5.000649/5.023615, directly explaining the reversed
+order. It is not necessary for an unstable sort to reorder truly equal keys.
+Across all 13 authored Chemical probes, this causes 21 unequal-key pairwise
+order disagreements and 18 native ties resolved by the original key. These
+counts describe the complete scene, not simultaneous visibility at every pose.
+
+The default-off `SRP_LEGACY_PROBE_SORT_011A=1` capture experiment in
+`probe_sort.c` reorders only visible probe pointers after native sorting. It
+uses the original derived box key and retains the native sphere key; it never
+writes probe radii, transforms, bounds, textures or shader constants. It keeps
+native order for genuinely equal derived keys. Exact 0.26 instruction guards
+cover the sort call, comparator and box transform layout. The candidate builds
+with warnings as errors. Three initialized runtime views completed with
+thousands of successful sort calls and zero rejected objects. East-hall 180°
+improved from MAE .04688 / SSIM .75243 to .01659 / .93186; east-hall 90°
+improved from .05735 / .60291 to .01685 / .91886. The south-yard control was
+essentially unchanged (.04191 / .70669 → .04168 / .70984). The earlier close
+east-hall 180° baseline was .01656 / .92614. Native influence bounds and
+material/archive bytes are unchanged. A tie-only repair is insufficient
+because it preserves the 21 unequal-key disagreements. The one genuine
+equal-derived-key pair (7)/(8) retains native order; original source does not
+specify a deterministic tie-breaker. The immediate same-session no-op baseline also gives .04660 / .75596 and
+.05779 / .59740 for those two east views; its depth, normal and material
+RMS differences from the fixed run are only .000051 / .000068 / .000068 on
+the same image grid, while diffuse lighting RMS changes .03047.
+Full-map recapture remains pending.
+The final batch therefore improves held-out coverage but is not uniformly
+closer to the original than the earlier preserved variant.
+
 All 52 lighting+UV captures use the expected composition, post, fog, sky,
 present and ambient-decode bytecode hashes. Shader creation counters alone do
 not prove a pass was drawn.
@@ -123,3 +177,21 @@ not prove a pass was drawn.
   after serialization. This does not rule out per-mesh consumption differences
   or authored blockers. Runtime traversal with camera override disabled remains
   necessary.
+
+## Direct-light accumulator limitation
+
+The original lighting accumulator is encoded before blending. In the recovered
+source, `point_light_accumulator.ps:19–31` and `sun_light_accumulator.ps:307–308`
+output `sqrt(saturate(contribution / 8))` for each direct light.
+`point_light_effect.h:37,62` enables additive ONE/ONE blending of those encoded
+values, and `resolve_lighting.ps` decodes the final saturated accumulator as
+`8 * accumulator²`. These files live under `vostok/resources/sources/shaders/`
+and `vostok/sources/vostok/render/engine/sources/`, respectively.
+
+Our legacy ambient decoder runs before native direct lights. Consequently,
+`sqrt(saturate(native_accumulator / 8))` restores an encoded scale but cannot
+reconstruct the original sum of individually encoded light contributions.
+This matters when adapting old passes such as rain that sample the diffuse
+accumulator directly. Exact restoration needs a separate encoded accumulation
+or compatible direct-light passes; it cannot be inferred from the aggregate
+linear buffer alone. This is a remaining limitation, not a validated change.

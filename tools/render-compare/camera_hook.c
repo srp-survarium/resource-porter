@@ -274,6 +274,7 @@ static void write_status(void) {
 
 #include "frame_state_diagnostic.c"
 #include "background_render.c"
+#include "probe_sort.c"
 
 static DWORD WINAPI worker(void *unused) {
     (void)unused;
@@ -281,7 +282,7 @@ static DWORD WINAPI worker(void *unused) {
     int frames=GetEnvironmentVariableA("SRP_CAPTURE_FRAME_STATE",NULL,0)!=0;
     for (;;) {
         read_request(); capture_background_step(); write_status();
-        if (frames && !(tick++%10)) diagnostic_frame_state();
+        if (frames && !(tick++%10)) { diagnostic_frame_state(); probe_sort_status(); }
         Sleep(100);
     }
     return 0;
@@ -294,7 +295,7 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     GetEnvironmentVariableA("SRP_CAPTURE_BUILD",build,sizeof(build));
     GetEnvironmentVariableA("SRP_CAPTURE_CONTROL",control,sizeof(control));
     snprintf(status_path,sizeof(status_path),"%s.status.json",control);
-    int ok=control[0] && configure_capture_background() && install_camera() && install_present() && install_post();
+    int ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_camera() && install_present() && install_post();
     write_status();
     if (!ok) ExitProcess(1);
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);
