@@ -646,3 +646,63 @@ material specular amount is not recoverable from native parameter z alone:
 opaque source materials retain a specular-intensity texture there while
 native z is zero. Producer validation and material-resolve parity therefore
 remain separate work.
+
+### Guarded probe controls and material amount mapping
+
+`audit_probe_controls.py PROJECT CAPTURES... --output REPORT` resolves a
+sphere from its active `probe_location` (b0 byte176). A box center is the
+solution of `A*center=-translation` for `world_to_outer_probe` (b0 byte128),
+not its unused `probe_location` field. Box scale comes from the active
+`outer_cube_side_sizes` or the reciprocal row norms of that inverse matrix.
+Matching requires a unique authored center and geometry kind within .001,
+and box dimensions within .001; unknown or ambiguous identities fail.
+
+Across 154 frozen root Factory probe draws, these checks identify ten of
+36 authored probes. Maximum center error is .00000373 and box-size error
+.00000079. None of the six clip-enabled probes occurs among these captured
+first-per-kind draws. Their absence from that observer is not proof that
+they never render. The authored controls to recognize are:
+
+| Probe | Kind | Center | Box half-size / sphere radius |
+| --- | --- | --- | --- |
+| 26 | box | 31.824, 1.908, 7.192 | 6.288, 6.754, 6.119 |
+| 36 | box | -36.515, 2.150, -93.385 | 4.221, 2.093, 5.512 |
+| 10 | box | -48.615, 2.360, -100.006 | 4.200, 1.979, 12.529 |
+| 11 | sphere | -32.573, 8.002, -6.428 | 5.700 |
+| 28 | box | -36.515, 2.150, -103.909 | 4.221, 2.093, 5.512 |
+| 31 | sphere | -21.537, 28.220, -13.724 | 7.400 |
+
+All six have zero authored rotation and no cube shadows. For these boxes,
+the expected inverse matrix has diagonal `1/scale` and translation
+`-center/scale`; off-diagonal terms are zero. A future replay can upload
+source center and clip flag through its own restored constant buffer only
+after matching these controls and confirming the bound cube identity and
+source multipliers. The source attenuation multiplier is exactly
+`saturate(dot(normalize(center-world_position),world_normal)+.75)`, applied
+before probe shadowing. Do not reuse a rain control table for day/evening:
+those projects contain different probe placements. `probe-controls.json`
+retains all authored controls, captured identities and the missing coverage.
+
+`audit_specular_amount.py ORIGINAL CURRENT --output REPORT` isolates the
+material-resolve issue on the two fixed wall rectangles. All 17,000 south
+pixels have source amount31, translucent flag0, native z0/w255: their
+material amount agrees at one, so the large specular difference there is a
+producer discrepancy. Backwall has 7,410 such pixels, but the remaining
+2,390 retain source amounts0–20 with native z0/w255. Twenty-five identical
+native parameter vectors map to multiple source amounts. For example,
+[10,252,0,255] covers 988 pixels with source amounts3,4 or31. Thus even the
+whole native parameter vector cannot uniquely reconstruct the original
+amount on these frozen surfaces.
+
+Original `gbuffer_pass.ps:342–345` builds opaque amount from
+`abs(specular_color_parameter.x)^2.2`, optionally base-texture red and the
+specular-intensity texture/range, then stores five gamma-encoded bits.
+Translucent materials override that input. The inspected native static
+producer instead stores texture/range times its specular-color parameter
+in parameter w, without the source packing. It has z0 for opaque materials.
+Neither a global w-to-source conversion nor copying z is justified. The
+backwall pixels still need exact material/draw and feature attribution;
+these histograms do not establish whether conversion, a shader feature,
+or producer semantics removed the amount. `specular-amount-mapping.json`
+preserves counts and all ambiguous vectors. No material or runtime patch
+is applied by either audit.
