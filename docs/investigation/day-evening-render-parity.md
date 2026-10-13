@@ -321,3 +321,23 @@ stall, logic/render/channel counters all stayed 895 for about 26 seconds while
 matching queue head/tail addresses cycled. GPU usage was 17–21%, with 4720 MiB of
 8192 MiB used. This does not show GPU exhaustion or the previously hypothesized
 logic/render counter disparity; it does not prove concurrency caused the stall.
+
+### Fractional material scalars
+
+A follow-up over247 authored/converted materials finds156 Float-to-Integer-template
+value losses in82 materials. The earlier scalar fix handled only the reverse
+conversion. Grass roughness minimum is one active example: authored0.3 became0;
+the shader reader uses a float minimum/range, so truncating it is incorrect.
+The config reader accepts either integer or float scalar storage.
+
+The converter now preserves the authored Float type for numeric parameters,
+while shader feature selectors remain native. Rebuilding all82 materials with
+their previous explicit templates retains all156 authored values. The existing
+merge test now checks fractional preservation through binary serialization and
+selector exclusion; all270 library tests pass with no added test functions.
+
+This is a conversion correction, not blanket runtime validation. In particular,
+two textured-translucency constants need separate cross-version semantics:
+the original texture overrides the constant, while the native producer may
+multiply by it. Do not replace their effective multiplier1 without checking
+that contract. Audit/rebuild artifacts are in the heldout-materials checkpoint.

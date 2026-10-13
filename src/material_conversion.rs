@@ -523,6 +523,13 @@ fn merge_safe_visual_values(
         {
             *target = *donor as f32;
         }
+        (target @ ConfigValue::Integer(_), donor @ ConfigValue::Float(_))
+            if !is_shader_feature(parameter) =>
+        {
+            // Numeric material readers accept either scalar type. Preserve the
+            // authored fraction instead of keeping the template or truncating it.
+            *target = donor.clone();
+        }
         (target @ ConfigValue::Integer(_), donor @ ConfigValue::Integer(_))
             if !is_shader_feature(parameter) =>
         {
@@ -714,6 +721,11 @@ mod tests {
             named("use_nmap", ConfigValue::Boolean(false)),
             named("with_static_meshes", ConfigValue::Boolean(true)),
             named("constant_power", ConfigValue::Float(1.0)),
+            named("wind_motion", ConfigValue::Integer(2)),
+            named(
+                "constant_roughness_min",
+                ConfigValue::Named(vec![named("value", ConfigValue::Integer(0))]),
+            ),
             named("lighting_model", ConfigValue::Float(2.0)),
             named(
                 "constant_transparency",
@@ -726,6 +738,11 @@ mod tests {
             named("use_nmap", ConfigValue::Boolean(true)),
             named("with_static_meshes", ConfigValue::Boolean(false)),
             named("constant_power", ConfigValue::Float(3.0)),
+            named("wind_motion", ConfigValue::Float(1.0)),
+            named(
+                "constant_roughness_min",
+                ConfigValue::Named(vec![named("value", ConfigValue::Float(0.3))]),
+            ),
             named("lighting_model", ConfigValue::Integer(1)),
             named(
                 "constant_transparency",
@@ -742,6 +759,15 @@ mod tests {
             "",
             &|name| name == "new",
             &mut donor_textures,
+        );
+        let bytes = BinaryConfig { root: target }.to_bytes().unwrap();
+        let target = BinaryConfig::parse(&bytes).unwrap().root;
+        assert_eq!(target.named("wind_motion"), Some(&ConfigValue::Integer(2)));
+        assert_eq!(
+            target
+                .named("constant_roughness_min")
+                .and_then(|value| value.named("value")),
+            Some(&ConfigValue::Float(0.3))
         );
         assert_eq!(target.named("use_nmap"), Some(&ConfigValue::Boolean(false)));
         assert_eq!(
