@@ -77,3 +77,30 @@ Restoring rain now requires the original layered geometry, camera-relative
 transforms and movement offsets, original texture and lighting input, and
 compatible shadow projection. The native particle draw is not equivalent.
 Reuse this frozen reference batch for subsequent target-only iteration.
+
+`legacy_rain_motion.py` now reproduces all 35 captured world matrices from
+the original seed-1000 generator, layer scaling and scene-clock motion.
+The original compiled `float2(random(), random())` evaluates the second
+argument first: using textual x/y order fails the observed rotations.
+Each layer's rotation phase is `scene_time * 0.2`; no fitted phase is needed.
+The sequential replay also reproduces camera-relative scrolling across all
+seven poses, starting from the first capture's observed scroll state.
+It preserves `help_math::frac`'s magnitude/truncation behavior, including
+negative offsets. The largest matrix-entry error is below 0.0002.
+
+`prepare_legacy_rain.py` packages the exact source VS/PS, geometry and sRGB
+BC3 rain texture mip zero. It checks the shader identity, layout and texture
+view, and verifies geometry against `sphere_geometry(24,3)` (maximum vertex
+error 0.000000321; indices exact). This prepares assets, not a target override.
+The assets and replay evidence are preserved in
+`reproduction/factory-rain-motion-20261013`.
+
+The lighting input prevents a geometry-only restoration from being complete.
+Original local lights add `sqrt(saturate(linear/8))` contributions into the
+encoded diffuse buffer; resolve then decodes the clipped sum. Native local
+lights accumulate linear contributions, and the current compatibility
+composition re-encodes that aggregate. Inverting the native total does not
+recover the original encoded sum. Original local-light Fresnel and shadow
+placement also differ. An encoded auxiliary accumulator must reproduce the
+original producers before it can supply faithful rain opacity; the local-light
+observer is being extended to capture the active contracts.
