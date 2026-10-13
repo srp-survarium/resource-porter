@@ -15,6 +15,10 @@ static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,
 #include "native_emissive_index.h"
 #include "rain_shader_index.h"
 #include "volume_capture_filter.c"
+static void *legacy_local_diffuse_code;
+static size_t legacy_local_diffuse_size;
+static void tag_source_local(ID3D11PixelShader *shader,const void *code,SIZE_T size);
+static void capture_local_diffuse(ID3D11DeviceContext *context,const Camera *camera);
 #include "local_light_capture.c"
 static int capture_rain_enabled;
 static unsigned rain_request_id, rain_draw_counts[3], rain_draw_variant;
@@ -216,6 +220,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         FILE *file=fopen(path,"w");
         if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"legacy_composition_uses\":%u,\"legacy_ambient_decode_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,legacy_composition_uses,legacy_ambient_decode_uses,hr); fclose(file); }
     }
+    if (SUCCEEDED(hr) && shader && *shader) tag_source_local(*shader,code,size);
     int local_index=local_light_index(code,size);
     if (local_index>=0 && SUCCEEDED(hr)) ++local_light_created[local_light_shaders[local_index].family];
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
@@ -332,7 +337,11 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     else if (rain_kind(code,size)) kind=rain_kind(code,size);
     else if (native_god_rays_kind(code,size)) kind=native_god_rays_kind(code,size);
     int local_index=local_light_index(code,size);
-    if (!reference_capture && local_index>=0) kind=26;
+    if (!reference_capture && local_index>=0) {
+        if (!capture_local_lights_enabled) { free(code); return; }
+        kind=26;
+    }
+    if (!reference_capture && kind==7) capture_local_diffuse(context,&camera);
     if (!reference_capture && kind==12 && draw_ids[kind]!=camera.id && !select_volume_capture(context,&camera)) { free(code); return; }
     unsigned probe_variant=0;
     unsigned material_variant=0;
@@ -730,12 +739,15 @@ static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
     return target->BlendEnable && target->SrcBlend==D3D11_BLEND_ONE &&
         target->DestBlend==D3D11_BLEND_ONE && target->BlendOp==D3D11_BLEND_OP_ADD;
 }
+#include "legacy_local_diffuse.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     render_sun_projection(context,count,start,0,0);
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
     VolumeState volume; bind_volume(context,&volume);
+    LocalDiffuseDraw local; prepare_local_diffuse(context,&local);
     capture_post_draw(context,count,start,0,0); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
+    finish_local_diffuse(context,&local,count,start,0,0);
     capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
@@ -743,7 +755,9 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
     VolumeState volume; bind_volume(context,&volume);
+    LocalDiffuseDraw local; prepare_local_diffuse(context,&local);
     capture_post_draw(context,count,start,base,1); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
+    finish_local_diffuse(context,&local,count,start,base,1);
     capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static int replace_method(void *object,size_t offset,void *hook,void **original) {
@@ -810,6 +824,8 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,DrawIndexed),draw_indexed,(void **)&original_draw_indexed);
     }
+    if (!load_shader_override("SRP_LEGACY_LOCAL_DIFFUSE",&legacy_local_diffuse_code,&legacy_local_diffuse_size)) return 0;
+    if (legacy_local_diffuse_code && (strcmp(build,"026g") || !contains(legacy_local_diffuse_code,legacy_local_diffuse_size,"SourceSpotConstants"))) { error("source local diffuse requires 026g and the source spot adapter"); return 0; }
     disable_legacy_god_rays=GetEnvironmentVariableA("SRP_LEGACY_DISABLE_GOD_RAYS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     if (!configure_volume_filter() || (volume_filter_enabled && !replace_method(device,offsetof(ID3D11DeviceVtbl,CreateVertexShader),volume_filter_create_vs,(void **)&volume_filter_original_create_vs))) return 0;
     capture_emissives_enabled=GetEnvironmentVariableA("SRP_CAPTURE_EMISSIVES",enabled,sizeof(enabled)) && !strcmp(enabled,"1");

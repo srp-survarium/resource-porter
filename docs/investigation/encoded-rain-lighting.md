@@ -67,5 +67,51 @@ archive permutation alone does not prove that Factory draws it.
    available for A/B. Validate intermediate encoded buffers and masked final
    images, including lamp interiors and unlit outdoor regions.
 
-No producer adapter is enabled by this work. Active local-light contracts and
-the source/native parameter upload mapping remain the next required evidence.
+## Active Factory contracts and isolated local replay
+
+The three lamp/hangar views captured 56 draws, all the same shadowed spot
+identity `33204e907519b2ad0afa798e6154aebc`: 16 streetlamp, 10 south partition,
+30 north partition. All reports are single-frame with zero overflow. The
+paired draws per light use different culling/depth tests and stencil INVERT
+operations. A replay must copy the bound DSV before the native draw and use
+that private snapshot; merely disabling stencil writes after the native draw
+would still test against the wrong stencil contents.
+
+`audit_local_light_authored.py ORIGINAL_PROJECT.json CAPTURE_DIRECTORY`
+matches world-space positions reconstructed from the captured view constants.
+Across all 56 draws, maximum position error is 8.68e-6, native color matches
+`pow(round(authored_color*255)/255,2.2)` within 1.53e-7, and range matches
+`authored_range / sin(penumbra/2)` within 1.05e-6. Intensity and attenuation
+power match exactly. Every matched source diffuse influence is 1. Source
+`light.cpp:125–131` also uses byte color divided by 255. Archived original
+shadowed spot identity `cf1f1efdbb715fb563b4fccda358c400` confirms its sixteen
+Poisson taps, normal offset of 12/map_size, and encoded output.
+
+`legacy_spot_diffuse_encoded.hlsl` uses those native bindings with the source
+diffuse Fresnel, attenuation, angular falloff and shadow equations. The active
+native shader uses N·L for diffuse Fresnel, four shadow taps, and offset
+`normalize(L + .75*N) * 24/map_size`. The adapter uses V·H, the source >.99
+Fresnel fallback, sixteen Poisson taps and `N * 12/map_size`. It repacks the
+supplied target Fresnel into seven bits; it cannot recover source material
+values or normals already lost or changed in the target G-buffer.
+
+`SRP_LEGACY_LOCAL_DIFFUSE=PATH_TO_COMPILED_ADAPTER` enables the isolated helper.
+It keeps native draws intact, copies depth/stencil before each matched draw,
+then replays into its own R10G10B10A2 buffer with the private DSV. It restores
+OM targets, PS and the comparison sampler. The encoded target starts at zero
+each Present. The source comparison sampler uses linear comparison filtering,
+clamp addressing and LESS_EQUAL. Unknown local-light identities and resource
+contract failures are counted, not silently treated as supported.
+
+Rich composition captures save `.local-encoded.json` and the auxiliary buffer;
+metadata labels it **local-light-only, zero ambient**. The helper does not bind
+this buffer to composition or rain. Its C build passes warnings as errors and
+the shader passes FXC `/WX /O3 /T ps_4_0`; runtime replay remains unverified.
+
+Full ambient initialization remains open: the current source SSAO helper runs
+after probes, beside `copy_encoded_ambient`. Faithful source probe replay must
+instead obtain current-frame SSAO before probes, or retain each probe's draw
+state for later replay. No aggregate inverse or post-blend AO shortcut is
+promoted as equivalent. All seven new original views confirm rain's t4,
+resolve's t3 and translucency-output rt0 are byte-identical, so the completed
+source accumulator can serve both consumers.

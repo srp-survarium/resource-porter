@@ -7,7 +7,7 @@ static unsigned local_light_first_present,local_light_last_present;
 static unsigned local_light_created[5],local_light_observed[5];
 #define LOCAL_LIGHT_CAPTURE_CAP 32
 static int local_light_index(const void *code,SIZE_T size) {
-    if (!capture_local_lights_enabled || size<32) return -1;
+    if ((!capture_local_lights_enabled && !legacy_local_diffuse_code) || size<32) return -1;
     for (unsigned i=0;i<sizeof(local_light_shaders)/sizeof(local_light_shaders[0]);++i)
         if (size==local_light_shaders[i].size && !memcmp((const char *)code+4,local_light_shaders[i].digest,16)) return (int)i;
     return -1;
