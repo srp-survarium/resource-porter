@@ -714,7 +714,7 @@ later draws use `rain-draw-N` and paired `rain-N-before/output` targets. Each
 includes VS/PS bytecode, constant buffers, textures, and bound vertex/index
 buffers with draw ranges. Slice those buffers using their recorded offsets;
 the allocation can contain unrelated geometry. This observer changes no rain
-shading. Its multi-draw extension is compiler-validated, awaiting runtime checks.
+shading. The five-view Factory runtime batch passes its coverage checks.
 Zero observed draws are explicit. Reports include first/last Present serials;
 `verify_rain_capture.py FRAME.rain-counts.json` rejects multiple-frame capture,
 overflow, missing geometry/output and out-of-bounds draw ranges. Coverage applies
@@ -729,3 +729,13 @@ and uses four biased shadow comparisons. Those archive differences alone do
 not prove which path the target executes. Capture the live draws before choosing
 a shader adapter, and retain the original diffuse-lighting dependency if that
 adapter is needed.
+
+`reproduction/rain-lamp-observer-20261013` preserves the five-view target
+diagnostic and hashes its raw captures in place. Every view records one native
+particle draw (30,720 indices), with zero cone/resolve draws and a single Present
+serial. Restoring Factory010 rain therefore requires its original layered
+geometry and shading; replacing an unused cone shader cannot change this run.
+The added streetlamp view reproduces the low glow. Its first recorded volume
+draw is another cone at `(-20.702,9.914,-8.903)`, so that draw does not explain
+the displayed lamp. Capture the correct instance before changing its transform
+or opacity.
