@@ -755,3 +755,30 @@ and the 180-degree, zero-speed upload before interpreting the phase result.
 Using the target pre-cloud sky with corrected coordinates predicts original
 cloud-output MAE .00750 versus .06207 with current coordinates. That remains
 a CPU counterfactual; final-screen improvement awaits target capture.
+
+`pipeline-factory-live-rain-v2` supplies the missing live vertex contract.
+All five draws use native VS `0a351e7ae0d6ca39d2286ec07af70b62`, identity
+m_W and cloud parameters `[-8.74228e-8,-1,0,100000]`: rotation180, zero
+speed, and the same source sphere radius100000. Scene time advances from
+18.68 to95.00 seconds without changing these controls. The guarded replay
+passes and repeats the coordinate result on 1,576 common lamp sky samples:
+source+.75/V1 MAE .00433, native+.5/V.96 MAE .00480. Final sky RGB MAE
+remains .09055. This closes the upload ambiguity and rules out native cloud
+clock phase for this captured recipe.
+
+`audit_cloud_sky_comparison.py ORIGINAL BASELINE CURRENT --output REPORT`
+prepares final candidate validation. It uses the intersection of source,
+baseline and current far-clear depth, excludes fixed HUD/weapon regions,
+and reports sky, geometry and full fixed-mask screenshot errors separately.
+When current depth is absent for a screenshot-only pose, that limitation is
+explicit and the original/baseline mask is reused. Available HDR cloud
+before/output buffers get separate sky metrics; later rain/post effects in
+screenshots cannot then be confused with the cloud pass itself.
+
+For the two uncorrected live runs, the shared lamp sky mask has 1,542 pixels
+and screenshot MAE .09181/.09124. Upper has only53 sky samples; the other
+three views have1–3 and cannot substantiate a broad sky claim. Reports
+`factory-cloud-live-rain-phase.json` and
+`factory-cloud-live-rain-comparison.json` preserve those counts. The next
+candidate run should reuse these views and report its geometry regions too;
+no new original capture is required.
