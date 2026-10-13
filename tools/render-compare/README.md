@@ -661,10 +661,13 @@ only in isolated capture clients; initial compiler validation is not runtime
 proof of recovery or permission to run uncoordinated concurrent clients.
 
 `SRP_CAPTURE_EMISSIVES=1` adds read-only capture of native emissive draws,
-recognized by 63 archived shader identities. It records up to 64 draws per
+recognized by 40 emitting shader identities from the native archive. It records up to 64 draws per
 requested frame with separate shader, material inputs and before/output targets
 (`emissive-draw-N`, `emissive-N-before`, `emissive-N-output`). The cap is explicit;
 64 records may mean the capture is incomplete. This option changes no shaders.
 Depth-only draws are excluded because they can share an archived emissive
 shader identity. The first Factory diagnostic exhausted the cap on those draws;
 its empty target records do not establish the lamp's emission contract.
+The generator also excludes 23 permutations with emission disabled, checking
+their feature key against the reflected emission constant. The corrected
+interior capture records four emitting draws with color targets.
