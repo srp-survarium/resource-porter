@@ -144,3 +144,37 @@ G-buffer. Frozen captures lack per-instance original visibility/cache logs,
 and readiness began at another pose. The camera-argument difference is
 proven; its role in each missing caster still requires a controlled selection
 or cache observation. Do not replace a cache with guessed pose history.
+
+## Independent selection diagnostic
+
+`SRP_DIAGNOSTIC_FACTORY_RAIN_SELECTION=1` is a separate default-off hook at
+`0x17c6e7`. It replaces the saved-main-camera pointer with the installed context
+shadow-camera pointer (`+0x54a4`) only for this rain `select_models` call.
+Guards verify the context load, replaced instructions, shadow-view setter,
+setter's position write and selection call. The bridge restores all registers,
+flags and floating-point state before executing the replacement LEA and the
+unchanged following LEA. `<image>.rain-selection.json` records both camera
+positions during rich captures; `<control>.factory-rain-selection.json`
+records installation. This hook does not modify factor caches, size rejection,
+geometry, occlusion or other selection calls.
+
+CPU validation reads the three implicated terrain models' **actual runtime
+archive settings** and original settings, asserting exact LOD hierarchy and
+switch-distance equality. Source distance-selection boundary behavior and
+empty-LOD fallback are reproduced, with geometry quality 1. Shadow camera
+positions are reconstructed from the captured original lookup matrices by
+undoing the -.001 texture-space bias and .1 near-plane offset. The tested
+source selections are:
+
+| Pose | Terrain09 main → shadow | Terrain06 main → shadow | Terrain04 main → shadow |
+| --- | --- | --- | --- |
+| Interior | 1 → 1 | 0 → 1 | 0 → 1 |
+| Yard north/south | 0 → 1 | 1 → 1 | 1 → 1 |
+| Upper | 1 → 1 | 0 → 1 | 0 → 1 |
+| Streetlamp | 0 → 1 | 1 → 1 | 1 → 1 |
+
+The intended five-pose A/B uses the validated shadow projection in both runs:
+selection-camera correction alone, then selection correction plus the separate
+recomputed-factor diagnostic. Existing camera-only and factor-only captures
+remain controls. Runtime results are pending; CPU LOD predictions do not prove
+original cached factors or actual per-surface visibility.
