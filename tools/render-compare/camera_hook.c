@@ -276,6 +276,7 @@ static void write_status(void) {
 #include "background_render.c"
 #include "probe_sort.c"
 #include "factory_rain_shadow.c"
+#include "factory_rain_casters.c"
 
 static DWORD WINAPI worker(void *unused) {
     (void)unused;
@@ -296,7 +297,7 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     GetEnvironmentVariableA("SRP_CAPTURE_BUILD",build,sizeof(build));
     GetEnvironmentVariableA("SRP_CAPTURE_CONTROL",control,sizeof(control));
     snprintf(status_path,sizeof(status_path),"%s.status.json",control);
-    int ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_camera() && install_present() && install_post();
+    int ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_casters() && install_camera() && install_present() && install_post();
     write_status();
     if (!ok) ExitProcess(1);
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);
