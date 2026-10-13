@@ -705,3 +705,27 @@ apparently low streetlamp glow and changing roof details. These remain open:
 
 The earlier four-view fidelity measurements predate the cloud input fix in
 this playable variant; they do not validate its complete current appearance.
+
+`SRP_CAPTURE_RAIN=1` enables exact-identity rain capture for archived 0.10b and
+0.26 cone, particle and resolve shaders. It records every matching draw in the
+requested frame, up to 128 per family, with observed counts (including overflow)
+in `FRAME.rain-counts.json`. The first draw retains `rain-draw` filenames;
+later draws use `rain-draw-N` and paired `rain-N-before/output` targets. Each
+includes VS/PS bytecode, constant buffers, textures, and bound vertex/index
+buffers with draw ranges. Slice those buffers using their recorded offsets;
+the allocation can contain unrelated geometry. This observer changes no rain
+shading. Its multi-draw extension is compiler-validated, awaiting runtime checks.
+Zero observed draws are explicit. Reports include first/last Present serials;
+`verify_rain_capture.py FRAME.rain-counts.json` rejects multiple-frame capture,
+overflow, missing geometry/output and out-of-bounds draw ranges. Coverage applies
+to the intercepted `Draw`/`DrawIndexed` methods, not indirect or instanced draws.
+With `SRP_CAPTURE_MATERIALS=1`, volume-cone captures also include VS and geometry
+evidence for checking lamp-beam placement.
+
+The original and native archived rain-cone VS instruction streams and input
+signatures match. Their PS equations differ: the original uses diffuse lighting
+and a single shadow comparison; the native shader changes rain color and alpha
+and uses four biased shadow comparisons. Those archive differences alone do
+not prove which path the target executes. Capture the live draws before choosing
+a shader adapter, and retain the original diffuse-lighting dependency if that
+adapter is needed.
