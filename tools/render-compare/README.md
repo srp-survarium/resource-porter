@@ -511,12 +511,14 @@ data is unavailable in the saved reference; do not infer their contents.
 
 ## Probe smoothness and foliage base-light experiment
 
-The source G-buffer stores `smoothness = 1 - roughness`; its probe shader calls
-that field `gloss`. The adapter now takes the corresponding complements when
-forming its halfway direction and diffuse Fresnel factor. This corrects an
-earlier mapping mistake, but does not reproduce source seven-bit quantization or
-prove that the material producers deliver equivalent roughness. The correction
-slightly darkens the sampled forest and therefore does not explain its deficit.
+Both G-buffer producers store smoothness. The verified 0.26 constant-material
+shader writes `(1 - roughness) * smoothness_multiplier` to `t_parameters.y`;
+the textured shader applies the same complement after sampling texture green.
+The original samples texture red and packs smoothness into seven bits.
+Commit 8bb781c corrects the mistaken extra inversion introduced by a7d0612:
+source probe gloss now uses `parameters.y` directly. Across 64 day/evening views,
+the worker measured mean per-view smoothness error about .022, versus .886 for
+the inverted field. Texture channels and packing remain separate differences.
 
 `legacy-composition-translucency-base.dxbc` is a controlled partial experiment.
 It replaces the native base scattering term `light_color * translucency * .02`
@@ -543,3 +545,30 @@ the reserved client's user config was verified in four captures under
 `.work/render-compare/026g/pipeline-ui-hidden/`; no shader changes were needed.
 The earlier `pipeline-translucency-base` captures retain UI. The original
 reference client was not relaunched for this change.
+
+## Observed sun shadows and original translucency
+
+The observer now saves the first native sun-shadow draw's shader, bindings,
+inputs and before/output targets under `sun-shadow-*`. It captures R16 typeless
+shadow textures with their explicit R16 UNORM SRV format; the preview decoder
+uses that view format. Four UI-free rain views selected the same 4324-byte shader
+(SHA256 b2f936a24eadb595e83cede97db93f796431e8d30751b785843d07d82ddf1341).
+Its green output is `1 - pow(saturate((depth_delta - .001) / .0015), .11)`.
+This capture samples the first draw, not every cascade.
+
+The original behavior is different from the earlier raw-depth assumption:
+original sun MRT2 stores `(filtered_depth, shadow_visibility)`, but translucency
+reads **green**, so its attenuation subtracts visibility from projected depth.
+Both captured bytecodes confirm this. `audit_original_translucency.py CAPTURE
+--stride 97` replays both channel hypotheses against saved before/output buffers.
+Across 32 day and 32 evening views, all 86,334 sampled translucent pixels match
+within one 10-bit output step using green. Raw red does not. A denser four-view
+sample retains two upper-view outliers with unchanged outputs; stencil rejection
+is a possible explanation, not verified because stencil was not captured.
+
+The corrected probe plus existing base-light experiment is captured in
+`pipeline-probe-smoothness`. Gamma and ambient checks pass for all four views;
+forest pre-fog RGB is [.023932,.021851,.016833] versus original
+[.023915,.022080,.017464]. These regional means do not establish image parity.
+Full source translucency, sun BRDF, fog and other remaining differences still
+need work. No game tests were added.

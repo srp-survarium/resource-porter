@@ -9,10 +9,11 @@ import zlib
 
 
 def pixels(data, fmt):
-    formats = {2: '<ffff', 10: '<eeee', 16: '<ff', 34: '<ee', 41: '<f', 54: '<e', 28: 'BBBB', 29: 'BBBB', 87: 'BBBB', 49: 'BB', 61: 'B'}
+    formats = {2: '<ffff', 10: '<eeee', 16: '<ff', 34: '<ee', 41: '<f', 54: '<e', 28: 'BBBB', 29: 'BBBB', 87: 'BBBB', 49: 'BB', 61: 'B', 56: '<H'}
     if fmt in formats:
         for channels in struct.iter_unpack(formats[fmt], data):
             if fmt in (28, 29, 87, 49, 61): channels = tuple(v/255 for v in channels)
+            if fmt == 56: channels = tuple(v/65535 for v in channels)
             if fmt == 87: channels = (channels[2], channels[1], channels[0], channels[3])
             yield channels
     elif fmt == 24:
@@ -42,7 +43,9 @@ def inspect(index):
         if not item.get('written'): continue
         file=Path(str(base)+f".{'vol' if 'depth' in item else 'rt'}{item['slot']:02d}.bin")
         output=bytearray(); totals=[0.,0.,0.]; minima=[math.inf]*3; maxima=[-math.inf]*3; count=0; nonfinite=0; examples=[]
-        for pixel in pixels(file.read_bytes(),item['format']):
+        # Typeless depth needs its captured SRV interpretation.
+        fmt = item.get('view_format', item['format']) if item['format'] == 53 else item['format']
+        for pixel in pixels(file.read_bytes(),fmt):
             if len(examples)<4:examples.append(pixel)
             rgb=(pixel[:3] if len(pixel)>=3 else (pixel[0],)*3)
             if not all(math.isfinite(v) for v in rgb):

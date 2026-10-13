@@ -64,7 +64,8 @@ static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, 
         case DXGI_FORMAT_R16G16_FLOAT: case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R10G10B10A2_UNORM: case DXGI_FORMAT_R11G11B10_FLOAT: case DXGI_FORMAT_R8G8B8A8_UNORM:
         case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8A8_UNORM: bytes=4; break;
-        case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_R8G8_UNORM: bytes=2; break;
+        case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_R16_TYPELESS:
+        case DXGI_FORMAT_R16_UNORM: case DXGI_FORMAT_R8G8_UNORM: bytes=2; break;
         case DXGI_FORMAT_R8_UNORM: bytes=1; break;
         default: fprintf(index,",\"skipped\":\"format\"}"); return 0;
     }

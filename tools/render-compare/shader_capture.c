@@ -147,6 +147,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
         contains(code,size,"skylight_parameters0") ||
         (contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")) ||
+        (contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")) ||
         (contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")) ||
         (capture_materials_enabled && contains(code,size,"deferred_material_parameters")) ||
         (contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation"))))
@@ -231,7 +232,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     HRESULT reference_hr=reference_capture?ID3D11PixelShader_GetPrivateData(shader,&reference_kind_guid,&reference_kind_size,&reference_kind):S_OK;
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr) || FAILED(reference_hr)) { free(code); return; }
-    unsigned kind=contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
+    unsigned kind=contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
         capture_materials_enabled && contains(code,size,"deferred_material_parameters")?8:
         contains(code,size,"hba_parameters") || contains(code,size,"t_encoded_ambient") || (contains(code,size,"t_ssao_accumulator") && !contains(code,size,"t_probe_cubemap_diffuse"))?5:contains(code,size,"skylight_parameters0")?6:
         contains(code,size,"t_frame_luminance")?0:contains(code,size,"sky_clouds_parameters0")?1:
@@ -255,7 +256,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         (kind==5 && !reference_capture && ambient_id!=camera.id)) { free(code); return; }
     if (kind==2 && !probe_variant) capture_probe_initial(context,camera.output);
     char base[MAX_PATH+48],path[MAX_PATH+80];
-    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw"};
+    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw","sun-shadow-draw"};
     if (reference_capture) snprintf(base,sizeof(base),"%s.%s-draw",camera.output,reference_labels[kind]);
     else if (kind==8)
         snprintf(base,sizeof(base),"%s.material-draw-%u",camera.output,material_variant);
@@ -346,7 +347,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         }
         fputs("]\n",index); fclose(index);
     }
-    if (reference_capture || kind==0 || kind==3 || kind==9 || kind==12) {
+    if (reference_capture || kind==0 || kind==3 || kind==9 || kind==12 || kind==13) {
         capture_draw_target(context,&camera,kind,"before");
         post_output_pending=camera.id; post_output_kind=kind;
     }
@@ -520,7 +521,7 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
 }
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix) {
     ID3D11RenderTargetView *targets[2]={0}; ID3D11DeviceContext_OMGetRenderTargets(context,2,targets,NULL);
-    const char *label=reference_capture?reference_labels[kind]:kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
+    const char *label=reference_capture?reference_labels[kind]:kind==13?"sun-shadow":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
     char base[MAX_PATH+48],path[MAX_PATH+80];
     snprintf(base,sizeof(base),"%s.%s-%s",camera->output,label,suffix);
     snprintf(path,sizeof(path),"%s.targets.json",base); FILE *file=fopen(path,"w");
