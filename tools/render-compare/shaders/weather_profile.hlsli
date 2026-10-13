@@ -1,5 +1,7 @@
 // Authored Factory post/sky settings; original post constants confirmed by capture.
 #if defined(LEGACY_WEATHER_CHEMICAL_DAY)
+#define LEGACY_CLOUD_U_OFFSET .25
+#define LEGACY_CLOUD_V_SCALE (1.0/.96)
 // v0.11a level_04_day.material, confirmed against shipped post shader source.
 #define LEGACY_FILMIC_TOE .0004
 #define LEGACY_FILMIC_LINEAR 6.8

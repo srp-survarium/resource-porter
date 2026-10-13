@@ -97,12 +97,24 @@ not prove a pass was drawn.
   916,356 upward-view pixels. Texture, constants, equations and geometry were
   unchanged; the active replacement bytecode was captured in both views.
   Evidence: `026g/vertex-cloud-contract` and `026g/cloud-full-input`.
-  Cloud placement still differs from the frozen original, including native
-  vertical UV scaling by .96, and sun glare is stronger. Cloud appearance remains
-  separate from the corrected duplicate-grain noise source.
+  The Chemical profile also restores the source quarter-turn cloud orientation
+  and reverses native vertical UV scaling by .96. All four frozen original sky
+  headings independently support the quarter-turn, and four corrected runtime
+  views achieve block SSIM .896–.921. At sky_000 the coordinate correction improves
+  MAE .06344 to .03239 and SSIM .78381 to .91481 relative to the input-layout fix
+  alone. The stronger pink sun glare remains unresolved. Evidence:
+  `026g/cloud-source-coordinates-background/sky`.
 - **Glossy pipes/rails:** the user's screenshots are preserved with timestamps.
   A source-red/native-green roughness-channel adaptation must retain sRGB and
-  be checked against the exact material/SRV. No global gloss adjustment adopted.
+  be checked against the exact material/SRV. A separate audit found 167 authored
+  Float values lost to Integer templates in 83 materials. A reversible experiment
+  restored 166, excluding translucency pending semantics. Six matched views gave
+  mixed/worse results (east_hall_180 MAE .01656 to .04641), so the archive patch
+  was reverted before final panoramas. Numeric preservation alone does not prove
+  compatible runtime semantics; exact active-material correspondence remains
+  necessary. No global gloss adjustment adopted. Baseline and experiment buffers:
+  `026g/cloud-source-coordinates-background/material-baseline` and
+  `026g/material-scalars/poses`.
 - **Localized invisible collision:** all 599 retained collision instances preserve
   source position, rotation and scale exactly; no added instances or new
   duplicates. The original has 600; the sole omission is the documented absent

@@ -20,6 +20,11 @@ struct CloudInput
 float4 main(CloudInput input) : SV_TARGET
 {
     float2 uv=input.uv;
+#ifdef LEGACY_CLOUD_U_OFFSET
+    // Source Chemical Plant rotates the sphere a quarter turn at authored zero.
+    uv.x+=LEGACY_CLOUD_U_OFFSET;
+    uv.y*=LEGACY_CLOUD_V_SCALE;
+#endif
     clip(uv.y>=.5?-1:1);
     float fade=min(pow(1-saturate((1-uv.y*2)/LEGACY_CLOUD_BAND),LEGACY_CLOUD_POWER),1);
     float2 tc=float2(uv.x,uv.y*2);
