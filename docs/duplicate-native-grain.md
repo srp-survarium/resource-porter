@@ -18,6 +18,12 @@ Durable evidence: `.work/chemical-plant-011a/comparison` in the main resource-po
 
 Frozen original sky measures 0.005923 by the same method. Raw temporal RMS remains affected by brightness/cloud changes: sky 0.019298 → 0.014282. Independent cloud, foliage, moss and lighting animation phases are not synchronized. The correction removes a proven extra noise source; it does not establish that all stationary shimmer is fixed. Missing cloud appearance, glossy materials, localized collision reports and remaining near-surface variation stay open.
 
+A full-image CPU replay of the corrected pass uses the captured input, actual
+channel offsets and linear-clamp interpolation. All 5,529,600 RGB samples across
+one sky and one geometry view match the captured output within one byte
+(maximum 0.951, mean about 0.16 byte). The preserved script is
+`checkpoint/duplicate-grain/replay-grainless.py`.
+
 The C hook builds with warnings treated as errors. The extraction audit checks all four binding contracts. Runtime verifies the active corrected bytecode and sampler mapping across the captured sequences; other feature combinations have structural checks but no separate runtime scenes yet.
 
 One initial baseline attempt stalled after its material capture while a separate Wine compiler prefix initialized. The read-only activity trace showed `application_active=0`, `application_activated=0`, `activity_gate=1`, `activity_allows_tick=0`, with equal stationary logic/render counters. Its logs are preserved under `native-aberration-contract`; that failed sequence is excluded. A fresh baseline without concurrent compiler activity completed all 24 frames.

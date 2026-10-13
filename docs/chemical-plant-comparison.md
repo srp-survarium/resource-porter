@@ -62,27 +62,52 @@ All 52 lighting+UV captures use the expected composition, post, fog, sky,
 present and ambient-decode bytecode hashes. Shader creation counters alone do
 not prove a pass was drawn.
 
-## Explicitly unfinished
+## Runtime contract checks
+
+- **UV consumer review completed:** material flags show no active detail tiling, sequence,
+  scrolling, variation or vertex-blended masks on the six moss surfaces. A
+  dedicated capture identified the actual moss pixel shader through its authored
+  diffuse and fuzziness constants. All four active texture samples use the same
+  unmodified UV with anisotropic wrap; detail/scroll/displacement constants are
+  unused. Bound UV tiling is [1,1]. The captured native vertex shader passes the
+  source UV directly (`mov o7.xy, v4.xyxx`), with no upstream scaling, offset or
+  UV-derived masks. The matching pixel shader samples all four textures directly
+  from `v7.xy` using anisotropic WRAP. This proves integer-offset periodicity for
+  these six opted-in moss surfaces; it is not a general claim for other materials.
+  Evidence: `026g/vertex-cloud-contract/poses/south_yard_000.bmp.material-draw-16.*`.
+
+## Remaining limits
 
 - **Sky:** four additional upward-facing headings and a twelve-frame fixed-camera
-  sequence were captured in each engine. The target lacks the original's cloud
-  appearance and has stronger temporal noise. Mean temporal luma standard
+  sequence were captured in each engine. Before the grain and cloud corrections,
+  the target lacked clouds and had stronger temporal noise. Mean temporal luma standard
   deviation is .00567 original versus .01408 target; spatial high-pass RMS is
   .00646 versus .01671. Cloud projection/binding, grain, post processing and
   native god rays remain separate hypotheses. The original alpha-blend cloud
   pass was missing from the observer's identity table; optimized target cloud
-  constants also escaped tagging. Observer coverage is extended before further
-  cloud-buffer capture. These new tags are compiled, not yet runtime-verified.
+  constants also escaped tagging. Target cloud tagging is now runtime-verified: the
+  authored BGRA cloud texture uses sRGB view 91 and source-alpha blending. The
+  native final aberration pass added duplicate grain; the opt-in correction and
+  matched stationary measurements are documented in [duplicate-native-grain.md](duplicate-native-grain.md).
+  A separate cloud input-layout error is now corrected: the compact adapted
+  pixel shader placed TEXCOORD3 at register 1, while the native vertex shader
+  supplies that UV at register 4. Preserving the complete native input structure
+  restores the expected layout. The isolated two-view A/B changed cloud-pass
+  contribution from zero pixels in both views to 131,953 ground-view pixels and
+  916,356 upward-view pixels. Texture, constants, equations and geometry were
+  unchanged; the active replacement bytecode was captured in both views.
+  Evidence: `026g/vertex-cloud-contract` and `026g/cloud-full-input`.
+  Cloud placement still differs from the frozen original, including native
+  vertical UV scaling by .96, and sun glare is stronger. Cloud appearance remains
+  separate from the corrected duplicate-grain noise source.
 - **Glossy pipes/rails:** the user's screenshots are preserved with timestamps.
   A source-red/native-green roughness-channel adaptation must retain sRGB and
   be checked against the exact material/SRV. No global gloss adjustment adopted.
 - **Localized invisible collision:** all 599 retained collision instances preserve
   source position, rotation and scale exactly; no added instances or new
   duplicates. The original has 600; the sole omission is the documented absent
-  soviet_comp_01 payload. This does not rule out per-mesh consumption differences
+  soviet_comp_01 payload. All 445 retained collision payload files were checked:
+  285 are byte-identical and 160 primitive configs have identical decoded values
+  after serialization. This does not rule out per-mesh consumption differences
   or authored blockers. Runtime traversal with camera override disabled remains
   necessary.
-- **UV consumer review:** material flags show no active detail tiling, sequence,
-  scrolling, variation or vertex-blended masks on the six moss surfaces. A
-  dedicated capture of the actual material permutation and samplers remains
-  pending to complete the GPU-side periodic-sampling audit.

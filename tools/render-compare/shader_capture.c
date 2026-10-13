@@ -208,6 +208,8 @@ static int write_bytes(const char *path,const void *data,size_t size) {
     return fclose(file)==0 && ok;
 }
 
+#include "material_vertex_capture.c"
+
 static void capture_probe_initial(ID3D11DeviceContext *context,const char *output) {
     ID3D11RenderTargetView *views[2]={0};
     ID3D11DeviceContext_OMGetRenderTargets(context,2,views,NULL);
@@ -328,6 +330,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     }
     if (kind==2) memcpy(probe_shader_digests[probe_shader_count++],(char *)code+4,16);
     if (kind==8) memcpy(material_shader_digests[material_shader_count++],(char *)code+4,16);
+    if ((kind==8 || kind==1) && capture_materials_enabled) capture_material_vertex(context,base);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);
     if (!ok) { error("cannot save active post-process shader"); return; }
@@ -410,7 +413,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         }
         fputs("]\n",index); fclose(index);
     }
-    if (reference_capture || kind==0 || kind==3 || kind==9 || kind==12 || kind==13 || kind>=18) {
+    if (reference_capture || kind==0 || kind==1 || kind==3 || kind==9 || kind==12 || kind==13 || kind>=18) {
         capture_draw_target(context,&camera,kind,"before");
         post_output_pending=camera.id; post_output_kind=kind;
     }
@@ -604,7 +607,7 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
 }
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix) {
     ID3D11RenderTargetView *targets[2]={0}; ID3D11DeviceContext_OMGetRenderTargets(context,2,targets,NULL);
-    const char *label=reference_capture?reference_labels[kind]:kind==22?"aberration":kind==13?"sun-shadow":kind==18?"god-rays-apply":kind==19?"god-rays":kind==20?"god-rays-mask":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
+    const char *label=reference_capture?reference_labels[kind]:kind==22?"aberration":kind==13?"sun-shadow":kind==18?"god-rays-apply":kind==19?"god-rays":kind==20?"god-rays-mask":kind==12?"volume":kind==9?"present":kind==3?"fog":kind==1?"cloud":"post";
     char base[MAX_PATH+48],path[MAX_PATH+80];
     if (kind==21) snprintf(base,sizeof(base),"%s.emissive-%u-%s",camera->output,emissive_draw_variant,suffix);
     else snprintf(base,sizeof(base),"%s.%s-%s",camera->output,label,suffix);
@@ -724,13 +727,14 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     char enabled[8];
     if (!GetEnvironmentVariableA("SRP_CAPTURE_BUFFERS",enabled,sizeof(enabled)) || strcmp(enabled,"1")) return 1;
     reference_capture=!strcmp(build,"010b") || !strcmp(build,"011a");
+    capture_materials_enabled=GetEnvironmentVariableA("SRP_CAPTURE_MATERIALS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
+    if (capture_materials_enabled && !replace_method(device,offsetof(ID3D11DeviceVtbl,CreateVertexShader),create_material_vs,(void **)&original_create_vs)) return 0;
     if (reference_capture) {
         return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,DrawIndexed),draw_indexed,(void **)&original_draw_indexed);
     }
     disable_legacy_god_rays=GetEnvironmentVariableA("SRP_LEGACY_DISABLE_GOD_RAYS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
-    capture_materials_enabled=GetEnvironmentVariableA("SRP_CAPTURE_MATERIALS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     capture_emissives_enabled=GetEnvironmentVariableA("SRP_CAPTURE_EMISSIVES",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     DWORD volume_assets_length=GetEnvironmentVariableA("SRP_LEGACY_VOLUME_ASSETS",legacy_volume_assets,sizeof(legacy_volume_assets));
     if (!load_shader_override("SRP_LEGACY_VOLUME_CONE",&legacy_volume_code,&legacy_volume_size)) return 0;

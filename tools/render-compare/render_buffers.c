@@ -56,14 +56,18 @@ static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, 
             view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBE || view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBEARRAY)
             fprintf(index,",\"view_most_detailed_mip\":%u,\"view_mip_levels\":%u",view->Texture2D.MostDetailedMip,view->Texture2D.MipLevels);
     }
-    unsigned bytes;
+    unsigned bytes, block=1;
     switch (desc.Format) {
         case DXGI_FORMAT_R32G32B32A32_FLOAT: bytes=16; break;
         case DXGI_FORMAT_R16G16B16A16_FLOAT: bytes=8; break;
         case DXGI_FORMAT_R32G32_FLOAT: bytes=8; break;
         case DXGI_FORMAT_R16G16_FLOAT: case DXGI_FORMAT_R32_FLOAT:
         case DXGI_FORMAT_R10G10B10A2_UNORM: case DXGI_FORMAT_R11G11B10_FLOAT: case DXGI_FORMAT_R8G8B8A8_UNORM:
-        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8A8_UNORM: bytes=4; break;
+        case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_B8G8R8A8_UNORM:
+        case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: bytes=4; break;
+        case DXGI_FORMAT_BC1_TYPELESS: case DXGI_FORMAT_BC1_UNORM: case DXGI_FORMAT_BC1_UNORM_SRGB: bytes=8; block=4; break;
+        case DXGI_FORMAT_BC2_TYPELESS: case DXGI_FORMAT_BC2_UNORM: case DXGI_FORMAT_BC2_UNORM_SRGB:
+        case DXGI_FORMAT_BC3_TYPELESS: case DXGI_FORMAT_BC3_UNORM: case DXGI_FORMAT_BC3_UNORM_SRGB: bytes=16; block=4; break;
         case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_R16_TYPELESS:
         case DXGI_FORMAT_R16_UNORM: case DXGI_FORMAT_R8G8_UNORM: bytes=2; break;
         case DXGI_FORMAT_R8_UNORM: bytes=1; break;
@@ -87,14 +91,17 @@ static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, 
             FILE *file=fopen(path,"wb");
             if (file) {
                 ok=1;
-                for (unsigned y=0;y<desc.Height;++y)
-                    if (fwrite((char *)mapped.pData+y*mapped.RowPitch,desc.Width*bytes,1,file)!=1) ok=0;
+                unsigned rows=(desc.Height+block-1)/block, row_bytes=((desc.Width+block-1)/block)*bytes;
+                for (unsigned y=0;y<rows;++y)
+                    if (fwrite((char *)mapped.pData+y*mapped.RowPitch,row_bytes,1,file)!=1) ok=0;
                 if (fclose(file)) ok=0;
             }
             ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
         }
     }
-    fprintf(index,",\"bytes_per_pixel\":%u,\"written\":%s,\"hresult\":%ld}",bytes,ok?"true":"false",hr);
+    if (block==1) fprintf(index,",\"bytes_per_pixel\":%u",bytes);
+    else fprintf(index,",\"block_width\":4,\"block_height\":4,\"bytes_per_block\":%u",bytes);
+    fprintf(index,",\"written\":%s,\"hresult\":%ld}",ok?"true":"false",hr);
     if (staging) ID3D11Texture2D_Release(staging);
     ID3D11DeviceContext_Release(context); ID3D11Device_Release(device);
     return ok;
