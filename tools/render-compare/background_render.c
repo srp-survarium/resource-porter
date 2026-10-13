@@ -21,7 +21,8 @@ static int capture_background_guard(unsigned char *gate) {
     int gate_ok=capture_background_read(0xa7b9cb,gate,1);
     capture_background_rejection=!table_ok?1:capture_background_vtable!=0x9db60c?2:
         capture_background_query!=sizeof(memory)?3:memory.State!=MEM_COMMIT?4:
-        memory.Protect!=PAGE_READWRITE?5:!gate_ok?6:*gate>1?7:0;
+        !(memory.Protect==PAGE_READWRITE || (memory.Protect==PAGE_WRITECOPY &&
+            memory.Type==MEM_IMAGE && (uintptr_t)memory.AllocationBase==0x10000))?5:!gate_ok?6:*gate>1?7:0;
     return !capture_background_rejection;
 }
 
@@ -70,10 +71,10 @@ static void capture_background_step(void) {
     if (file) { int option=fgetc(file); fclose(file); if (option=='0') enabled=0; }
     unsigned char gate=0;
     if (!capture_background_guard(&gate)) {
-        static unsigned last_rejection;static DWORD last_vtable,last_protect;
-        if (last_rejection!=capture_background_rejection || last_vtable!=capture_background_vtable || last_protect!=capture_background_protect)
+        static unsigned last_rejection;static DWORD last_vtable,last_protect;static unsigned char last_gate;
+        if (last_rejection!=capture_background_rejection || last_vtable!=capture_background_vtable || last_protect!=capture_background_protect || last_gate!=gate)
             capture_background_record("guard-rejected",gate);
-        last_rejection=capture_background_rejection;last_vtable=capture_background_vtable;last_protect=capture_background_protect;
+        last_rejection=capture_background_rejection;last_vtable=capture_background_vtable;last_protect=capture_background_protect;last_gate=gate;
         return; // Engine may not be constructed yet; rejected pages are never changed.
     }
     if (!enabled) {
