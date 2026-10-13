@@ -181,7 +181,7 @@ not prove a pass was drawn.
 ## Direct-light accumulator limitation
 
 The original lighting accumulator is encoded before blending. In the recovered
-source, `point_light_accumulator.ps:19–31` and `sun_light_accumulator.ps:307–308`
+source, `point_light_accumulator.ps:19–31` and `sun.ps:307–308`
 output `sqrt(saturate(contribution / 8))` for each direct light.
 `point_light_effect.h:37,62` enables additive ONE/ONE blending of those encoded
 values, and `resolve_lighting.ps` decodes the final saturated accumulator as
