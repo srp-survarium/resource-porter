@@ -60,7 +60,7 @@ static void matrices(const Camera *c, float *view, float *projection) {
     projection[14] = -c->near_z*projection[10];
 }
 
-// Both verified retail implementations receive camera_director in EDX.
+// The verified retail implementations receive camera_director in EDX.
 // Override before base_game_scene copies the matrices and queues rendering.
 void __cdecl override_camera(uint32_t *saved) {
     void *director = (void *)(uintptr_t)saved[5];
@@ -101,6 +101,7 @@ __attribute__((naked)) static void camera_entry(void) {
 static int install_camera(void) {
     uintptr_t rva;
     if (!strcmp(build, "010b")) rva = 0x5c72b0;
+    else if (!strcmp(build, "011a")) rva = 0x5c6050;
     else if (!strcmp(build, "026g")) rva = 0x22ddd0;
     else { error("unknown build"); return 0; }
     unsigned char *entry = (unsigned char *)GetModuleHandleW(NULL) + rva;
@@ -271,9 +272,17 @@ static void write_status(void) {
     MoveFileExA(temporary,status_path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
 }
 
+#include "frame_state_diagnostic.c"
+
 static DWORD WINAPI worker(void *unused) {
     (void)unused;
-    for (;;) { read_request(); write_status(); Sleep(100); }
+    unsigned tick=0;
+    int frames=GetEnvironmentVariableA("SRP_CAPTURE_FRAME_STATE",NULL,0)!=0;
+    for (;;) {
+        read_request(); write_status();
+        if (frames && !(tick++%10)) diagnostic_frame_state();
+        Sleep(100);
+    }
     return 0;
 }
 

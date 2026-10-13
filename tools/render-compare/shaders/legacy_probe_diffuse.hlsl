@@ -75,7 +75,11 @@ Result main(float4 pixel : SV_POSITION) {
         float3 direction=normalize(mul(float3x3(cone,cone.zxy,cone.yzx),world_normal));
         diffuse+=source_diffuse_sample(direction);
     }
+    #ifdef LEGACY_SOURCE_011A
+    diffuse*=1./8;
+#else
     diffuse*=1./9;
+#endif
 #else
     float3 diffuse=source_diffuse_sample(world_normal);
 #endif

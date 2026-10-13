@@ -225,7 +225,7 @@ static int install_post(void) {
     char enabled[8];
     if (!GetEnvironmentVariableA("SRP_CAPTURE_BUFFERS",enabled,sizeof(enabled)) || strcmp(enabled,"1")) return 1;
     // Original-client capture uses D3D draw identities, without target-layout hooks.
-    if (!strcmp(build,"010b")) { buffers_enabled=1; return 1; }
+    if (!strcmp(build,"010b") || !strcmp(build,"011a")) { buffers_enabled=1; return 1; }
     if (strcmp(build,"026g")) { error("unsupported buffer capture build"); return 0; }
     buffers_enabled=1;
     const unsigned char entry[]={0x55,0x8b,0xec,0x83,0xe4,0xf8};

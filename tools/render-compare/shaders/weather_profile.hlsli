@@ -1,5 +1,18 @@
 // Authored Factory post/sky settings; original post constants confirmed by capture.
-#if defined(LEGACY_WEATHER_DAY)
+#if defined(LEGACY_WEATHER_CHEMICAL_DAY)
+// v0.11a level_04_day.material, confirmed against shipped post shader source.
+#define LEGACY_FILMIC_TOE .0004
+#define LEGACY_FILMIC_LINEAR 6.8
+#define LEGACY_FILMIC_ANGLE .5
+#define LEGACY_FILMIC_STRENGTH 6.2
+#define LEGACY_FILMIC_NUMERATOR 1.7
+#define LEGACY_FILMIC_DENOMINATOR .06
+#define LEGACY_CLOUD_BAND .15
+#define LEGACY_CLOUD_POWER 10
+#define LEGACY_CLOUD_TINT 1
+#define LEGACY_CLOUD_COLOR pow(float3(.9860015,.9614621,.8960299),2.2)
+#define LEGACY_CLOUD_ALPHA_BLEND
+#elif defined(LEGACY_WEATHER_DAY)
 #define LEGACY_FILMIC_TOE .003
 #define LEGACY_FILMIC_LINEAR 6.2
 #define LEGACY_FILMIC_STRENGTH 5.9
@@ -30,4 +43,8 @@
 #define LEGACY_CLOUD_BAND .5
 #define LEGACY_CLOUD_POWER 2
 #define LEGACY_CLOUD_TINT 10
+#endif
+
+#ifndef LEGACY_FILMIC_ANGLE
+#define LEGACY_FILMIC_ANGLE .2
 #endif

@@ -167,7 +167,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     }
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
         (ssao_reference || native_god_rays_kind(code,size) || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
-        contains(code,size,"sky_clouds_parameters0") || contains(code,size,"t_probe_cubemap_diffuse") ||
+        (contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture")) || contains(code,size,"t_probe_cubemap_diffuse") ||
         contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
         contains(code,size,"skylight_parameters0") ||
         (contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")) ||
@@ -259,7 +259,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     unsigned kind=contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
         capture_materials_enabled && contains(code,size,"deferred_material_parameters")?8:
         contains(code,size,"hba_parameters") || contains(code,size,"t_encoded_ambient") || (contains(code,size,"t_ssao_accumulator") && !contains(code,size,"t_probe_cubemap_diffuse"))?5:contains(code,size,"skylight_parameters0")?6:
-        contains(code,size,"t_frame_luminance")?0:contains(code,size,"sky_clouds_parameters0")?1:
+        contains(code,size,"t_frame_luminance")?0:(contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture"))?1:
         contains(code,size,"t_probe_cubemap_diffuse")?2:contains(code,size,"t_position")?3:4;
     if (reference_capture) kind=reference_kind;
     else if (native_god_rays_kind(code,size)) kind=native_god_rays_kind(code,size);
@@ -642,7 +642,7 @@ static int load_shader_override(const char *variable,void **code,size_t *size) {
 static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *context) {
     char enabled[8];
     if (!GetEnvironmentVariableA("SRP_CAPTURE_BUFFERS",enabled,sizeof(enabled)) || strcmp(enabled,"1")) return 1;
-    reference_capture=!strcmp(build,"010b");
+    reference_capture=!strcmp(build,"010b") || !strcmp(build,"011a");
     if (reference_capture) {
         return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&

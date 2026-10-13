@@ -35,7 +35,7 @@ float4 main(float4 position : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET
 #endif
     float average=clamp(t_frame_luminance.Sample(s_accumulator,float2(.5,.5)).x,.09,.4);
     float3 x=max(color*pow(.25/average,.2)-LEGACY_FILMIC_TOE,0);
-    color=pow((x*(LEGACY_FILMIC_LINEAR*x+.2))/(x*(LEGACY_FILMIC_STRENGTH*x+LEGACY_FILMIC_NUMERATOR)+LEGACY_FILMIC_DENOMINATOR),2.2);
+    color=pow((x*(LEGACY_FILMIC_LINEAR*x+LEGACY_FILMIC_ANGLE))/(x*(LEGACY_FILMIC_STRENGTH*x+LEGACY_FILMIC_NUMERATOR)+LEGACY_FILMIC_DENOMINATOR),2.2);
 #ifdef CONFIG_ORIGINAL_POST_TAIL
     uint width,height; t_frame_color.GetDimensions(width,height);
     int2 noise_pixel=int2(floor((uv+image_grain_parameters.xy*2-1)*float2(width,height))) & 63;

@@ -8,6 +8,7 @@ import struct
 PINNED = {
     '026g': '6a35b09ed3f9e48b18e19cdd4bf8ba8a5518eceeb75bba9049ad80150658e4cf',
     '010b': 'f7459d65611d20fcafc8b1db5e3fa3aae1013c22238c779787a79e70e4fd50f7',
+    '011a': 'fd30e15c1a300df2bec6711074d98ad500e139f243c13e5924afd7c2ab994573',
 }
 
 def prepare(source, output, build):
