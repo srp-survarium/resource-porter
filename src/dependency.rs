@@ -428,6 +428,15 @@ fn resolve_global_candidates(
     let mut resolved = BTreeSet::new();
     let mut target_path_exists = false;
     for probe in probes {
+        // Keep the native sound's companion files together instead of also
+        // importing a legacy options file from the donor.
+        if let Some(stem) = probe.strip_suffix(".single_sound_options") {
+            if target.is_file(&format!("{stem}.raw_options"))
+                || donor.is_file(&format!("{stem}.raw_options"))
+            {
+                continue;
+            }
+        }
         let target_matches = matching_files(target, &probe);
         if target.contains(&probe) {
             // Some old FATs expose collision payloads as opaque folder-like
@@ -1026,6 +1035,16 @@ mod tests {
         .unwrap();
         write_file(&donor_root, "projects/imported/client_project", &project);
         write_file(
+            &donor_root,
+            "sounds/single/scapes/creatures/creatures_line.single_sound_options",
+            b"legacy options",
+        );
+        write_file(
+            &donor_root,
+            "sounds/single/scapes/creatures/creatures_line.high.ogg",
+            b"old sound",
+        );
+        write_file(
             &target_root,
             "sounds/single/scapes/creatures/creatures_line.high.ogg",
             b"target sound",
@@ -1068,6 +1087,7 @@ mod tests {
                 .contains("sounds/single/scapes/creatures/creatures_line.high.rms")
         );
         assert!(plan.unresolved_references.is_empty());
+        assert!(!plan.donor_files.iter().any(|p| p.starts_with("sounds/")));
     }
 
     #[test]

@@ -12,12 +12,45 @@ use std::{
     path::Path,
 };
 
+mod early;
+
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
-const NAMESPACE: &str = "ported/v021d";
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub enum SourceBuild {
+    #[serde(rename = "0.10b")]
+    V010b,
+    #[serde(rename = "0.11a")]
+    V011a,
+    #[default]
+    #[serde(rename = "0.21d")]
+    V021d,
+}
+
+impl SourceBuild {
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::V010b => "v010b",
+            Self::V011a => "v011a",
+            Self::V021d => "v021d",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::V010b => "0.10b-802",
+            Self::V011a => "0.11a-816",
+            Self::V021d => "0.21d-2010",
+        }
+    }
+    fn early(self) -> bool {
+        self != Self::V021d
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default)]
+    pub source_build: SourceBuild,
     pub donor_sha256: String,
     pub target_sha256: String,
     pub maps: Vec<Map>,
@@ -41,17 +74,35 @@ pub struct Map {
     pub weather: String,
 }
 impl Map {
-    fn donor_project(&self) -> String {
-        format!("projects/{}/{}/client_project", self.level, self.weather)
+    fn donor_project(&self, source: SourceBuild) -> String {
+        if source.early() {
+            let suffix = match self.weather.as_str() {
+                "day" => "",
+                "evening" => "_evn",
+                "rain" => "_rain",
+                _ => unreachable!(),
+            };
+            format!("projects/{}{suffix}/client_project", self.level)
+        } else {
+            format!("projects/{}/{}/client_project", self.level, self.weather)
+        }
     }
     fn target_project(&self) -> String {
         format!("projects/{}/{}_2/client_project", self.level, self.weather)
     }
-    fn project_name(&self) -> String {
-        format!("v021d_{}/{}_2", self.level, self.weather)
+    fn project_name(&self, source: SourceBuild) -> String {
+        let root = if source.early() {
+            self.donor_project(source)
+                .trim_start_matches("projects/")
+                .trim_end_matches("/client_project")
+                .to_owned()
+        } else {
+            self.level.clone()
+        };
+        format!("{}_{root}/{}_2", source.prefix(), self.weather)
     }
-    fn output_project(&self) -> String {
-        format!("projects/{}/client_project", self.project_name())
+    fn output_project(&self, source: SourceBuild) -> String {
+        format!("projects/{}/client_project", self.project_name(source))
     }
     fn mode(&self) -> String {
         format!(
@@ -80,6 +131,9 @@ pub struct Record {
     pub repaired_model_settings: BTreeSet<String>,
     pub adapted_particles: BTreeSet<String>,
     pub collision_repairs: BTreeMap<String, String>,
+    pub converted_geometry: BTreeSet<String>,
+    pub compatibility_notes: Vec<String>,
+    pub vegetation_instances: BTreeMap<String, usize>,
 }
 
 pub fn check_hash(path: &Path, expected: &str) -> Result<()> {
@@ -335,31 +389,37 @@ fn validate_gameplay(project: &ConfigValue) -> Result<()> {
     check(groups, &names)
 }
 
-fn relocate_path(path: &str) -> String {
+fn relocate_path(path: &str, source: SourceBuild) -> String {
+    let namespace = format!("ported/{}", source.prefix());
     for family in ["sounds/single/", "sounds/collections/", "sounds/composite/"] {
         if let Some(tail) = path.strip_prefix(family) {
-            return format!("{family}{NAMESPACE}/{tail}");
+            if source.early() && family == "sounds/single/" {
+                if let Some(stem) = tail.strip_suffix(".single_sound_options") {
+                    return format!("{family}{namespace}/{stem}.raw_options");
+                }
+            }
+            return format!("{family}{namespace}/{tail}");
         }
     }
     let (family, tail) = path.split_once('/').expect("resource has a family");
     if family == "projects" {
-        format!("projects/v021d_{tail}")
+        format!("projects/{}_{tail}", source.prefix())
     } else {
-        format!("{family}/{NAMESPACE}/{tail}")
+        format!("{family}/{namespace}/{tail}")
     }
 }
 
-fn replacements(paths: &BTreeSet<String>) -> BTreeMap<String, String> {
+fn replacements(paths: &BTreeSet<String>, source: SourceBuild) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
     for path in paths {
-        let dest = relocate_path(path);
+        let dest = relocate_path(path, source);
         result.insert(path.clone(), dest.clone());
         result.insert(format!("resources/{path}"), format!("resources/{dest}"));
         for marker in [".model/", ".skinned_model/"] {
             if let Some((model, _)) = path.split_once(marker) {
                 let model_ext = &marker[..marker.len() - 1];
                 let full = format!("{model}{model_ext}");
-                let relocated = relocate_path(&full);
+                let relocated = relocate_path(&full, source);
                 result.insert(full.clone(), relocated.clone());
                 result.insert(
                     format!("resources/{full}"),
@@ -380,13 +440,17 @@ fn replacements(paths: &BTreeSet<String>) -> BTreeMap<String, String> {
             ("particles/", ".particle"),
             ("particles/", ".binary_particle"),
             ("sounds/single/", ".raw_options"),
+            ("sounds/single/", ".single_sound_options"),
             ("sounds/collections/", ".sound_collection"),
             ("sounds/composite/", ".composite_sound"),
         ] {
             if path.starts_with(family) && path.ends_with(ext) {
                 result.insert(
                     path.trim_start_matches(family).trim_end_matches(ext).into(),
-                    dest.trim_start_matches(family).trim_end_matches(ext).into(),
+                    dest.trim_start_matches(family)
+                        .trim_end_matches(ext)
+                        .trim_end_matches(".raw_options")
+                        .into(),
                 );
             }
         }
@@ -419,6 +483,7 @@ fn rewrite_inner(
                     "material" => &[("material_instances/", ".material")],
                     "sound" => &[
                         ("sounds/single/", ".raw_options"),
+                        ("sounds/single/", ".single_sound_options"),
                         ("sounds/collections/", ".sound_collection"),
                         ("sounds/composite/", ".composite_sound"),
                     ],
@@ -428,11 +493,15 @@ fn rewrite_inner(
                     if let Some(dest) =
                         substitutions.get(&format!("{prefix}{normalized}{extension}"))
                     {
-                        *s = dest
-                            .strip_prefix(prefix)
-                            .unwrap()
+                        let short = dest.strip_prefix(prefix).unwrap();
+                        *s = short
                             .strip_suffix(extension)
-                            .unwrap()
+                            .or_else(|| {
+                                (*extension == ".single_sound_options")
+                                    .then(|| short.strip_suffix(".raw_options"))
+                                    .flatten()
+                            })
+                            .expect("relocated resource extension")
                             .into();
                         return;
                     }
@@ -919,7 +988,7 @@ pub fn build(
             "unsupported weather"
         );
         ensure!(
-            ids.insert(map.id) && projects.insert(map.donor_project()),
+            ids.insert(map.id) && projects.insert(map.donor_project(m.source_build)),
             "duplicate map ID or project"
         );
     }
@@ -960,26 +1029,54 @@ pub fn build(
         }
         target_projects.insert(map.target_project(), project);
     }
+    if m.source_build.early() {
+        // Factory no longer authors a fog volume in 0.26. Use the native
+        // Rudnya schema only to supply fields absent from the old object.
+        let fallback = cfg(&mut target, "projects/level_01/day_2/client_project")?;
+        templates.extend(
+            array(
+                fallback
+                    .named("client_objects")
+                    .context("fallback objects")?,
+            )?
+            .iter()
+            .cloned(),
+        );
+    }
     let mut overrides = BTreeMap::new();
     let mut collision_repairs = BTreeMap::new();
+    let mut compatibility_notes = Vec::new();
     for map in &m.maps {
+        let raw = cfg(&mut donor, &map.donor_project(m.source_build))?;
+        let raw = if m.source_build.early() {
+            early::project(
+                raw,
+                &mut donor,
+                &target_projects[&map.target_project()],
+                map,
+                m.source_build,
+                &mut compatibility_notes,
+            )?
+        } else {
+            raw
+        };
         let mut project = adapt_project(
-            cfg(&mut donor, &map.donor_project())?,
+            raw,
             &target_projects[&map.target_project()],
             map,
             &templates,
         )
-        .with_context(|| format!("adapting {}", map.donor_project()))?;
+        .with_context(|| format!("adapting {}", map.donor_project(m.source_build)))?;
         adapt_collisions(
             &mut project,
             &donor,
             &m.missing_collision_resources,
-            &map.donor_project(),
+            &map.donor_project(m.source_build),
             &mut collision_repairs,
         )?;
         rewrite(&mut project, &m.reference_replacements);
         overrides.insert(
-            map.donor_project(),
+            map.donor_project(m.source_build),
             BinaryConfig { root: project }.to_bytes()?,
         );
     }
@@ -1049,9 +1146,12 @@ pub fn build(
             );
         }
     }
-    let mut substitutions = replacements(&plan.donor_files);
+    let mut substitutions = replacements(&plan.donor_files, m.source_build);
     for map in &m.maps {
-        substitutions.insert(map.donor_project(), map.output_project());
+        substitutions.insert(
+            map.donor_project(m.source_build),
+            map.output_project(m.source_build),
+        );
     }
     // Grass loading prepends the project resource directory to filenames.
     // The namespace preserves each project's directory layout, so relative
@@ -1064,7 +1164,7 @@ pub fn build(
     // Missing render/collision assets must fail even when generic string
     // scanning mistakes a scene label for a non-resource identifier.
     for map in &m.maps {
-        let project = BinaryConfig::parse(&overrides[&map.donor_project()])?;
+        let project = BinaryConfig::parse(&overrides[&map.donor_project(m.source_build)])?;
         for group in ["render_visuals", "collision_objects"] {
             for object in array(
                 project
@@ -1094,10 +1194,17 @@ pub fn build(
         }
     }
     let catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
+    let game_materials = crate::target_native_map::load_game_materials(&mut target)?;
+    let material_names = BTreeMap::from([
+        ("foliage".into(), "foliage_coniferous".into()),
+        ("wood_tin".into(), "wood_thin".into()),
+    ]);
     let particle_defaults = particle_defaults(&mut target)?;
     let mut adapted_particles = BTreeSet::new();
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
+    let mut converted_geometry = BTreeSet::new();
+    let mut vegetation_instances = BTreeMap::new();
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
     for path in &plan.donor_files {
@@ -1106,12 +1213,30 @@ pub fn build(
         } else {
             donor.read(path)?
         };
+        if m.source_build.early() && path.ends_with("/converted_model") {
+            bytes = early::geometry(&bytes)
+                .with_context(|| format!("converting early geometry {path}"))?;
+            converted_geometry.insert(path.clone());
+        }
+        if path.ends_with(".veg") {
+            vegetation_instances.insert(
+                path.clone(),
+                early::vegetation_instances(&bytes)
+                    .with_context(|| format!("checking original vegetation {path}"))?,
+            );
+        }
+        if m.source_build.early() && path.ends_with(".single_sound_options") {
+            bytes = target.read("sounds/single/weather/wind/wind_day.raw_options")?;
+            compatibility_notes.push(format!("{path}: original audio retained with native wind ambience attenuation; legacy SPL curve not reproduced"));
+        }
         if path.starts_with("material_instances/") && path.ends_with(".material") {
             let explicit = m
                 .material_templates
                 .get(path)
                 .map(String::as_str)
-                .or_else(|| target.is_file(path).then_some(path.as_str()));
+                .or_else(|| {
+                    (!m.source_build.early() && target.is_file(path)).then_some(path.as_str())
+                });
             let converted = catalog
                 .convert(path, &bytes, explicit, &donor, &target)
                 .with_context(|| format!("converting {path}"))?;
@@ -1125,6 +1250,15 @@ pub fn build(
                 adapted_particles.insert(path.clone());
             }
             if let Some(model) = path.strip_suffix(".model/settings") {
+                if m.source_build.early() && c.root.named("game_material_settings").is_some() {
+                    crate::target_native_map::remap_game_material_settings(
+                        &mut c.root,
+                        path,
+                        &game_materials,
+                        &material_names,
+                        None,
+                    )?;
+                }
                 let prefix = format!("{model}.model/render/");
                 let actual: BTreeSet<_> = plan
                     .donor_files
@@ -1187,18 +1321,73 @@ pub fn build(
             !target.contains(dest),
             "would overwrite native resource {dest}"
         );
-        emit(output, dest, &bytes, "0.21d+0.26g-adapter", &mut files)?;
+        let diffuse_probe = if m.source_build.early()
+            && path.contains("/environment_probes/")
+            && path.ends_with(".dds")
+            && !path.ends_with("_diffuse.dds")
+        {
+            Some(
+                early::diffuse_probe(&bytes)
+                    .with_context(|| format!("deriving diffuse probe {path}"))?,
+            )
+        } else {
+            None
+        };
+        emit(
+            output,
+            dest,
+            &bytes,
+            &format!("{}+0.26g-adapter", m.source_build.label()),
+            &mut files,
+        )?;
+        if m.source_build.early() && path.ends_with(".high.ogg") {
+            let rms =
+                early::sound_rms(&bytes).with_context(|| format!("generating RMS for {path}"))?;
+            emit(
+                output,
+                &(dest.trim_end_matches(".ogg").to_owned() + ".rms"),
+                &rms,
+                "original-audio-rms",
+                &mut files,
+            )?;
+        }
+        if let Some(diffuse) = diffuse_probe {
+            let diffuse_path = dest.trim_end_matches(".dds").to_owned() + "_diffuse.dds";
+            ensure!(
+                !target.contains(&diffuse_path),
+                "derived probe overwrites native resource"
+            );
+            emit(
+                output,
+                &diffuse_path,
+                &diffuse,
+                "early-probe-coarse-mips",
+                &mut files,
+            )?;
+            let options_path = path.trim_end_matches(".dds").to_owned() + ".options";
+            let options = donor.read(&options_path)?;
+            emit(
+                output,
+                &(dest.trim_end_matches(".dds").to_owned() + "_diffuse.options"),
+                &options,
+                "early-probe-options",
+                &mut files,
+            )?;
+            compatibility_notes.push(format!(
+                "{diffuse_path}: source HDR bytes retained; source 16x16 mip tail approximates diffuse irradiance"
+            ));
+        }
     }
     for map in &m.maps {
-        let mode_name = format!("v021d_{}", map.mode());
+        let mode_name = format!("{}_{}", m.source_build.prefix(), map.mode());
         let mut mode = cfg(&mut target, &format!("gameplay/game_modes/{}", map.mode()))?;
         mode.set_path(
             "mode.name",
-            ConfigValue::String(format!("v021d_{}_2", map.level)),
+            ConfigValue::String(format!("{}_{}_2", m.source_build.prefix(), map.level)),
         )?;
         mode.set_path(
             "mode.match_making_params.map_name",
-            ConfigValue::String(map.project_name()),
+            ConfigValue::String(map.project_name(m.source_build)),
         )?;
         let path = format!("gameplay/game_modes/{mode_name}");
         ensure!(!target.contains(&path), "mode already exists");
@@ -1232,8 +1421,8 @@ pub fn build(
     )?;
     let record = Record {
         format_version: 1,
-        asset_id: "retail-021d-maps-to-026g".into(),
-        donor_build: "0.21d-2010".into(),
+        asset_id: format!("retail-{}-maps-to-026g", m.source_build.prefix()),
+        donor_build: m.source_build.label().into(),
         target_build: "0.26g0-2777".into(),
         target_db_sha256: m.target_sha256,
         maps: m.maps,
@@ -1243,6 +1432,9 @@ pub fn build(
         repaired_model_settings,
         adapted_particles,
         collision_repairs,
+        converted_geometry,
+        compatibility_notes,
+        vegetation_instances,
     };
     serde_json::to_writer_pretty(
         fs::File::create(output.join("port-manifest.json"))?,
@@ -1272,7 +1464,12 @@ mod tests {
                 ConfigValue::String("fx/lights/oil_lamp".into()),
             ),
         ]);
-        rewrite_inner(&mut scene, &replacements(&paths), true, None);
+        rewrite_inner(
+            &mut scene,
+            &replacements(&paths, SourceBuild::V021d),
+            true,
+            None,
+        );
         assert_eq!(string(&scene, "lib_name"), Some("fx/lights/oil_lamp"));
         assert_eq!(
             string(scene.named("texture_diffuse").unwrap(), "value"),
@@ -1286,7 +1483,12 @@ mod tests {
             "particles/fx/lights/oil_lamp.particle".into(),
             "textures/fx/lights/oil_lamp.dds".into(),
         ]);
-        rewrite_inner(&mut scene, &replacements(&paths), true, None);
+        rewrite_inner(
+            &mut scene,
+            &replacements(&paths, SourceBuild::V021d),
+            true,
+            None,
+        );
         assert_eq!(
             string(&scene, "lib_name"),
             Some("ported/v021d/fx/lights/oil_lamp")
@@ -1340,10 +1542,13 @@ mod tests {
         let output = adapt_project(donor.clone(), &donor, &map, &[]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
         assert_eq!(
-            map.output_project(),
+            map.output_project(SourceBuild::V021d),
             "projects/v021d_level_02/rain_2/client_project"
         );
-        assert_eq!(map.project_name(), "v021d_level_02/rain_2");
+        assert_eq!(
+            map.project_name(SourceBuild::V021d),
+            "v021d_level_02/rain_2"
+        );
     }
     #[test]
     fn new_particle_fields_do_not_replace_authored_properties() {
@@ -1576,7 +1781,7 @@ mod tests {
             "textures/a.dds".into(),
             "material_instances/a.material".into(),
         ]);
-        let swaps = replacements(&paths);
+        let swaps = replacements(&paths, SourceBuild::V021d);
         for (before, after) in [
             ("item/quest/container", "ported/v021d/item/quest/container"),
             (

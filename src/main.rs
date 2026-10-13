@@ -258,7 +258,8 @@ enum Command {
         #[arg(long)]
         preserve_lobby: bool,
     },
-    /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
+    /// Add reviewed retail Survarium maps to 0.26g using native shaders.
+    #[command(name = "build-survarium-maps-026", alias = "build-survarium021-maps")]
     BuildSurvarium021Maps {
         #[arg(long)]
         manifest: PathBuf,
