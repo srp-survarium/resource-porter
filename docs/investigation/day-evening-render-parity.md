@@ -324,17 +324,17 @@ logic/render counter disparity; it does not prove concurrency caused the stall.
 
 ### Fractional material scalars
 
-A follow-up over247 authored/converted materials finds156 Float-to-Integer-template
-value losses in82 materials. The earlier scalar fix handled only the reverse
-conversion. Grass roughness minimum is one active example: authored0.3 became0;
+A follow-up over 247 authored/converted materials finds 156 Float-to-Integer-template
+value losses in 82 materials. The earlier scalar fix handled only the reverse
+conversion. Grass roughness minimum is one active example: authored 0.3 became 0;
 the shader reader uses a float minimum/range, so truncating it is incorrect.
 The config reader accepts either integer or float scalar storage.
 
 The converter now preserves the authored Float type for numeric parameters,
-while shader feature selectors remain native. Rebuilding all82 materials with
-their previous explicit templates retains all156 authored values. The existing
+while shader feature selectors remain native. Rebuilding all 82 materials with
+their previous explicit templates retains all 156 authored values. The existing
 merge test now checks fractional preservation through binary serialization and
-selector exclusion; all270 library tests pass with no added test functions.
+selector exclusion; all 270 library tests pass with no added test functions.
 
 This is a conversion correction, not blanket runtime validation. In particular,
 two textured-translucency constants need separate cross-version semantics:
@@ -348,5 +348,45 @@ same-name parallax-enabled template outranked a closer feature match. Subdomain
 ranking now uses directories only. With authored values merged, oak tile selects
 `big_oak_tile_rust`, roots select `big_oak_det`; each changes only the runtime
 shader switch `use_parallax` from true to the authored false. Existing oak detail
-and rusty-tile selections stay unchanged. All270 tests pass; the existing
+and rusty-tile selections stay unchanged. All 270 tests pass; the existing
 selection test includes flat-directory matching. Runtime validation is pending.
+
+Four matched day views now validate the isolated material changes with duplicate
+native grain and unwanted god rays already disabled in both runs. The private
+patch restores 154 fractional values and disables unauthored parallax on two oak
+materials; the two textured-translucency constants remain excluded. MAE/SSIM
+improve in yard-north, hospital-south-path and officer-terrace. Terrace SSIM rises
+from .787 to .824; factory-upper falls from .752 to .737 across independently
+animated foliage frames. This is not uniform visual parity. Both recipes and
+full captures are preserved as `day-material-baseline`/`day-material-corrected`.
+
+### Moving background tree cards
+
+The user's two stationary screenshots show hillside tree tops moving 6–9 pixels
+in 1.96 seconds while the building and foreground trunk remain fixed. These are
+Factory `level/03/back_01` through `back_05` meshes, whose original and converted
+settings bind `flora/sosna_bark_lod`. Its authored `wind_motion=0` became native
+`wind_motion=2` through the earlier same-name template choice. The native
+`sosna_bark_lod_not_move` template has the required zero selector; feature-first
+ranking now prefers it. This is separate from modeled foliage wind and camera
+billboarding.
+
+`prepare_static_tree_wind.py` prepares an archive-specific, reversible correction
+for the frozen port. It verifies all five source/converted model bindings and
+the source/native selector contracts, then changes exactly one material data
+byte from 2 to 0. Original `is_cast_shadow=true` remains intact; the stationary
+native template's false shadow flag is not copied. Apply/revert with
+`patch_archive_entries.py` only while that archive's client is stopped.
+
+Six fixed-camera frames before and after the correction reproduce the user's
+issue at officer-terrace. Three hillside patches move up to 6/6/9 pixels before;
+all five comparisons per patch are (0,0) afterward. Their demeaned temporal luma
+RMS falls .03039/.04580/.02191 to .00460/.00430/.00372. Building/trunk remain
+stationary in both runs, and other foliage remains animated. Residual grain and
+lighting variation mean zero temporal image difference is not expected.
+
+`reproduction/tree-cards-20261013` preserves the user's screenshots, source and
+converted contracts, one-byte patch, scripts, metrics and hashed capture
+manifests. Runtime sequences are `026g/day-tree-cards-baseline` and
+`026g/day-tree-cards-fixed`. The corrected material remains applied in the worker's
+private archive for final weather validation. No game test functions were added.
