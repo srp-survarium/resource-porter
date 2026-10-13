@@ -124,6 +124,7 @@ the corresponding compiled shader's Windows path:
 | `SRP_LEGACY_RAIN_CLOUDS` | `legacy-rain-clouds.dxbc` |
 | `SRP_LEGACY_RAIN_TONEMAP` | `legacy-rain-tonemap.dxbc` |
 | `SRP_LEGACY_PROBE_DIFFUSE` | `legacy-probe-diffuse.dxbc` |
+| `SRP_LEGACY_PROBE_DIFFUSE_BOX` | `legacy-probe-diffuse-box.dxbc` |
 
 These change rendering only when explicitly enabled. Replacement requires the
 original shader's exact DXBC size and header digest. The hook records successful
@@ -169,3 +170,23 @@ Native-shader captures with that correction restore wall detail without changing
 exposure. The old exponential falloff and encoded-light blending remain distinct
 from the target's smoothstep/linear-light contract. See the main investigation
 document and `reproduction/probe-width-checkpoint` for controlled comparisons.
+
+Probe capture records the first draw of each distinct active probe shader, up
+to 16 variants per pose. The first keeps `probe-draw`; subsequent variants use
+`probe-draw-1`, etc. Factory rain uses two observed variants: sphere (6104 bytes)
+and box (6116 bytes). Earlier sphere-only overrides left local box probes native.
+`composition-draw` records the actual scene-composition shader and inputs; it
+contains inline sun lighting as well as material response and rain darkening.
+
+For a separate falloff experiment, set the two probe override variables to
+`legacy-probe-source.dxbc` and `legacy-probe-source-box.dxbc`. They use the old
+sphere/box falloff formulas, diffuse cap and Fresnel expression with the target
+G-buffer parameters. Specular and linear accumulator blending remain native;
+this is not complete old-pipeline equivalence. Include-file hashes are recorded
+by `build_shaders.py` so the shared implementation is part of the build manifest.
+
+The all-probe comparisons improve some regions and worsen others. Disabling
+height ambient and replacing probe decode/falloff/tone mapping has not produced
+a close four-view match. Captures and run recipes are preserved under
+`reproduction/probe-variants-checkpoint`; none of these diagnostic combinations
+is a release preset.

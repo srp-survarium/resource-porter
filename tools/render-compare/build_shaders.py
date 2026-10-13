@@ -4,7 +4,19 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
+
+
+def source_hashes(source, found=None):
+    found = {} if found is None else found
+    if source.name in found:
+        return found
+    data = source.read_bytes()
+    found[source.name] = hashlib.sha256(data).hexdigest()
+    for name in re.findall(rb'^\s*#include\s+"([^"]+)"', data, re.MULTILINE):
+        source_hashes(source.parent / name.decode(), found)
+    return found
 
 
 if __name__ == '__main__':
@@ -23,6 +35,7 @@ if __name__ == '__main__':
                         '/E', 'main', '/O3', '/Fo', win(target), win(source)], check=True)
         manifest[source.name] = {
             'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
+            'source_dependencies': source_hashes(source),
             'output': target.name,
             'output_sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
         }

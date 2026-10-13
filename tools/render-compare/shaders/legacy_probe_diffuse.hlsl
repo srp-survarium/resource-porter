@@ -2,10 +2,18 @@
 // Native specular, material response and probe falloff are retained.
 cbuffer ProbeConstants : register(b0) {
     float3 s_eye_ray_corner : packoffset(c7);
+#ifdef CONFIG_PROBE_BOX
+    row_major float4x4 world_to_outer_probe : packoffset(c8);
+    float4 color_parameters : packoffset(c16);
+    float3 outer_cube_side_sizes : packoffset(c17);
+    float3 inner_cube_side_sizes : packoffset(c18);
+    int num_mips : packoffset(c20);
+#else
     float4 color_parameters : packoffset(c8);
     float3 probe_location : packoffset(c11);
     float inner_radius : packoffset(c11.w);
     int num_mips : packoffset(c12);
+#endif
 };
 cbuffer StaticGlobals : register(b1) {
     row_major float3x4 m_V2W : packoffset(c11);
@@ -53,9 +61,31 @@ Result main(float4 pixel : SV_POSITION) {
     float brdf_factor=brdf.x*(parameters.x-.04)+brdf.y;
     float3 specular=lerp(native_sample(reflection,floor(mip)),native_sample(reflection,floor(mip)+1),frac(mip))*brdf_factor;
     specular*=t_ssao_accumulator.SampleLevel(s_linear,uv,0).x*color_parameters.y;
+#ifdef CONFIG_PROBE_BOX
+    float3 probe_space=mul(world_to_outer_probe,float4(world_position,1)).xyz;
+#ifdef CONFIG_SOURCE_FALLOFF
+    float3 falloff=1-exp(-6*sqrt(saturate(1-abs(probe_space))));
+    float attenuation=pow(falloff.x*falloff.y*falloff.z,2);
+#else
+    float3 falloff=1-smoothstep(inner_cube_side_sizes,outer_cube_side_sizes,abs(probe_space)*outer_cube_side_sizes);
+    float attenuation=falloff.x*falloff.y*falloff.z;
+#endif
+#else
+#ifdef CONFIG_SOURCE_FALLOFF
+    // Undo the target's 2% outer-volume contraction to recover source radius.
+    float source_radius=light_range/.98;
+    float attenuation=exp(-8*pow(length(probe_location-world_position)/(source_radius*.95),6));
+#else
     float attenuation=1-smoothstep(inner_radius,light_range,length(probe_location-world_position));
+#endif
+#endif
     Result result;
+#ifdef CONFIG_SOURCE_FALLOFF
+    float fresnel=parameters.x+(1-parameters.x)*pow(1-view_dot_normal,5);
+    result.diffuse=float4(min(diffuse,10)*(1-fresnel*(1-parameters.y)),attenuation);
+#else
     result.diffuse=float4(diffuse*(1-parameters.x),attenuation);
+#endif
     result.specular=float4(specular,attenuation);
     return result;
 }
