@@ -137,6 +137,16 @@ def run(catalog, args):
                 subprocess.run([str(wine.parent/'wineserver'), '-k'], env=env, timeout=20)
                 subprocess.run([str(wine.parent/'wineserver'), '-w'], env=env, check=True, timeout=20)
             game = slot/'client'
+            # Copied Wine DLLs retain read-only source modes. Replace owned
+            # runtime files after stopping the prefix so switching maps works.
+            for source in (PACKAGE/'client').rglob('*'):
+                if not source.is_file():
+                    continue
+                target = game/source.relative_to(PACKAGE/'client')
+                if target.is_symlink():
+                    raise RuntimeError('unexpected runtime asset symlink: '+str(target))
+                if target.is_file():
+                    target.unlink()
             shutil.copytree(PACKAGE/'client', game, dirs_exist_ok=True)
             binary = game/'binaries/x86'
             shutil.copy2(PACKAGE/recipe['hook'], binary/'camera_hook.dll')
