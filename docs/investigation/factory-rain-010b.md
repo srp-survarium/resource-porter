@@ -47,6 +47,33 @@ and hashes are saved in
 source renderer and exact shader/binding audit in that checkpoint.
 Use the original texture when reconstructing the original layered renderer.
 
-Next validation needs one targeted original capture batch with the new rain
-observer to record live layer matrices/constants and the outdoor lamp view
-missing from the frozen reference set. Reuse existing references elsewhere.
+The targeted original batch is now frozen at
+`010b/rain-lamp-contract-sized`, with reproduction tools and a 2,512-file
+capture manifest in `reproduction/reference-rain-lamp-20261013`.
+All seven views render loaded geometry at 1280×720. The source HUD is visible;
+mask it in final-image comparisons. A preceding 1272×686 attempt is retained
+at `010b/rain-lamp-contract` but excluded from matched-image comparisons.
+The executable-scoped viewport helper corrected the private window without
+resizing another client. Both runs stopped their private client/server and
+restored the previous profile.
+
+`audit_reference_rain.py` checks draw coverage and the original pixel-shader
+identity before decoding live constants. Every view contains five shell
+draws and no particle/resolve draw, all within one Present serial. All 35
+draws use identical 100-vertex/432-index geometry. Live radii are 5, 6.6,
+8.47, 10.648 and 13.176901; UV scales are (1,1), density 0.8, speed 2.
+These match source layer indices 5–9 with a radius multiplier of 1.1.
+Captured world matrices and shadow projections are preserved per draw;
+they are evidence, not camera-independent replacement constants.
+
+The matched outdoor lamp reference also has a dark head and a detached beam
+below it. The current port's beam looks warmer and stronger; these images
+do not justify moving its authored geometry. The observer's first native
+volume draw belongs to another cone, so diagnosing the target lamp's shading
+requires selecting that instance. The batch also adds two upward hangar
+views for the separate brick/blending and disappearing-object investigation.
+
+Restoring rain now requires the original layered geometry, camera-relative
+transforms and movement offsets, original texture and lighting input, and
+compatible shadow projection. The native particle draw is not equivalent.
+Reuse this frozen reference batch for subsequent target-only iteration.
