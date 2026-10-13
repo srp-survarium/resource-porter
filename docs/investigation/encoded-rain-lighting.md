@@ -274,3 +274,23 @@ local lights and explicitly reports whether ambient initialization was valid.
 Future source sun/scattering helpers must call `capture_ambient_diffuse()`
 before their first addition, including frames without local lights. This
 preserves a reviewable ambient-only boundary before the full accumulator.
+
+The first five-view runtime (`pipeline-factory-encoded-ambient`) completed
+with one sky initialization each, 112 probe draws and 72 local draws, zero
+failures and matching AO/ambient/local Present serials. Reproduce the audit:
+
+```sh
+python tools/render-compare/audit_ambient_auxiliary.py CAPTURE_DIRECTORY \
+  --output ambient-auxiliary-audit.json
+```
+
+All 64,475 nonzero sampled sky pixels match the source equation using the
+actual target G-buffer and current-frame source AO within one 10-bit step;
+maximum channel error is .000549. The first probe's captured depth/stencil
+state matches the source effect in every view. Local accumulation never
+decreases RGB across all 4,608,000 pixels. Yard north/south receive no local
+RGB change; interior, upper and streetlamp gain 132,755, 9,371 and 21,819
+pixels respectively. This verifies sky arithmetic, scheduling and monotone
+encoded addition. It does not prove all probe equations, exact local raster
+coverage or original-vs-target material parity. Native changed-pixel masks
+can omit source-only illumination when the shadow kernels differ.

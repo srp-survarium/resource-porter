@@ -12,6 +12,28 @@ def clamp(value):
     return max(0., min(1., value))
 
 
+def evaluate_skylight(p, eye, matrix, normal_xy, depth, ao, x, y, width=1280, height=720):
+    """Source equation, with AO supplied as the stored [0,1] channel."""
+    angle = math.acos(p[6][0])+math.pi if -p[6][2]>0 else math.acos(-p[6][0])
+    cosine, sine = math.cos(angle), math.sin(angle)
+    f = [v*4-2 for v in normal_xy]
+    radius = sum(v*v for v in f)
+    normal = [f[0]*math.sqrt(abs(1-radius*.25)), f[1]*math.sqrt(abs(1-radius*.25)), radius*.5-1]
+    length = math.sqrt(sum(v*v for v in normal))
+    normal = [v/length for v in normal]
+    world = [sum(row[i]*normal[i] for i in range(3)) for row in matrix]
+    basis = [world[0]*cosine-world[2]*sine, world[1], world[0]*sine+world[2]*cosine]
+    cube = [p[2][:3] if basis[0]<0 else p[3][:3],
+            (p[5][3],p[6][3],p[7][3]) if basis[1]<0 else p[4][:3],
+            (p[2][3],p[3][3],p[4][3]) if basis[2]<0 else p[5][:3]]
+    wrap = clamp(-sum(world[i]*p[6][i] for i in range(3)))
+    color = [sum(basis[i]**2*cube[i][c] for i in range(3))+wrap*p[7][c] for c in range(3)]
+    position = [(1-2*(x+.5)/width)*eye[0]/eye[2]*depth, (1-2*(y+.5)/height)*eye[1]/eye[2]*depth,depth]
+    world_height = sum(matrix[1][i]*position[i] for i in range(3))+matrix[1][3]
+    ramp = clamp((world_height-p[1][0])/p[1][1])**p[1][2]
+    return [math.sqrt(clamp(color[c]*ramp*ao*2.5*p[0][c]*.125)) for c in range(3)]
+
+
 def audit(base, stride):
     def read(suffix):
         return Path(str(base) + suffix).read_bytes()
@@ -31,31 +53,14 @@ def audit(base, stride):
     depth, normals, ao = [read(f'.skylight-draw.rt{i:02d}.bin') for i in range(3)]
     observed = read('.skylight-output.rt00.bin')
     before = read('.skylight-before.rt00.bin')
-    angle = math.acos(p[6][0])+math.pi if -p[6][2]>0 else math.acos(-p[6][0])
-    cosine, sine = math.cos(angle), math.sin(angle)
     count = failures = unchanged = changed_failures = 0
     total = maximum = changed_total = changed_maximum = 0.
     for y in range(stride//2, 720, stride):
         for x in range(stride//2, 1280, stride):
             index = y*1280+x
             packed = struct.unpack_from('<I', normals, index*4)[0]
-            f = [(packed & 1023)/1023*4-2, ((packed>>10)&1023)/1023*4-2]
-            radius = sum(v*v for v in f)
-            normal = [f[0]*math.sqrt(abs(1-radius*.25)), f[1]*math.sqrt(abs(1-radius*.25)), radius*.5-1]
-            length = math.sqrt(sum(v*v for v in normal))
-            normal = [v/length for v in normal]
-            world = [sum(row[i]*normal[i] for i in range(3)) for row in matrix]
-            basis = [world[0]*cosine-world[2]*sine, world[1], world[0]*sine+world[2]*cosine]
-            cube = [p[2][:3] if basis[0]<0 else p[3][:3],
-                    (p[5][3],p[6][3],p[7][3]) if basis[1]<0 else p[4][:3],
-                    (p[2][3],p[3][3],p[4][3]) if basis[2]<0 else p[5][:3]]
-            wrap = clamp(-sum(world[i]*p[6][i] for i in range(3)))
-            color = [sum(basis[i]**2*cube[i][c] for i in range(3))+wrap*p[7][c] for c in range(3)]
             z = struct.unpack_from('<e', depth, index*2)[0]
-            position = [(1-2*(x+.5)/1280)*eye[0]/eye[2]*z, (1-2*(y+.5)/720)*eye[1]/eye[2]*z,z]
-            height = sum(matrix[1][i]*position[i] for i in range(3))+matrix[1][3]
-            ramp = clamp((height-p[1][0])/p[1][1])**p[1][2]
-            predicted = [math.sqrt(clamp(color[c]*ramp*ao[index*2]/255*2.5*p[0][c]*.125)) for c in range(3)]
+            predicted = evaluate_skylight(p,eye,matrix,((packed&1023)/1023,((packed>>10)&1023)/1023),z,ao[index*2]/255,x,y)
             result = struct.unpack_from('<I', observed,index*4)[0]
             errors = [abs(predicted[c]-((result>>(10*c))&1023)/1023) for c in range(3)]
             error = max(errors)
