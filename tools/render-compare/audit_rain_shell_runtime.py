@@ -132,7 +132,13 @@ def main():
         assert globals_source[60:63] == globals_native[80:83]
         assert globals_source[68:71] == globals_native[40:43]
         assert globals_source[71] == globals_native[100]
-        assert globals_source[72:76] == globals_native[56:60]
+        dimensions = read_json(target('.source-rain-0.targets.json'))[0]
+        width, height = dimensions['width'], dimensions['height']
+        assert globals_source[72:76] == (float(width), float(height), f32(1/width), f32(1/height))
+        if metadata.get('screen_source'):
+            assert metadata['screen_source'] == 'validated full-target viewport'
+        else:  # Historical private captures copied a populated native field.
+            assert globals_source[72:76] == globals_native[56:60]
         inv = inverse_view(globals_native)
         inverse_error = max(abs(a-b) for a,b in zip(globals_source[44:56], (v for row in inv[:3] for v in row)))
         assert inverse_error < .00005
@@ -184,7 +190,15 @@ def main():
         private = [color_words(target(f'.source-rain-{i}.rt00.bin'), width, height) for i in range(6)]
         original_before = color_words(old('.rain-before.rt00.bin'), width, height)
         original_after = color_words(old('.rain-4-output.rt00.bin'), width, height)
-        native_after = color_words(target('.rain-drops-output.rt00.bin'), width, height)
+        displayed_after = color_words(target('.rain-drops-output.rt00.bin'), width, height)
+        live = metadata.get('live_requested', False)
+        if live:
+            applied = read_json(target('.source-rain-apply.json'))
+            assert applied['present'] == metadata['present']
+            assert applied['live'] and applied['copied_to_native'] and applied['native_particles_suppressed']
+            assert displayed_after == private[5], (stem, 'live target differs from final private shells')
+            identities['live_output_is_final_private_shells'] = hashlib.sha256(target('.rain-drops-output.rt00.bin').read_bytes()).hexdigest()
+        displayed_label = 'live_source_shells' if live else 'native_particles'
         verify(old('.rain-counts.json'))
         assert read_json(old('.rain-counts.json'))['observed_draws'] == [5, 0, 0]
         contributions = {}
@@ -192,9 +206,9 @@ def main():
             contributions[name] = {'rectangle': rectangle,
                 'original_shells': contribution(original_before, original_after, width, rectangle, args.step),
                 'private_shells': contribution(private[0], private[5], width, rectangle, args.step),
-                'native_particles': contribution(private[0], native_after, width, rectangle, args.step)}
+                displayed_label: contribution(private[0], displayed_after, width, rectangle, args.step)}
         layer_contributions = [contribution(private[i], private[i+1], width, rectangles['full'], args.step) for i in range(5)]
-        rows.append({'pose': stem, 'frame': metadata['present'], 'identities': identities,
+        rows.append({'pose': stem, 'frame': metadata['present'], 'live': live, 'identities': identities,
                      'layers': layer_checks, 'inverse_view_max_error': inverse_error, 'native_geometry_after_restore': geometry,
                      'layer_contributions': layer_contributions, 'regions': contributions,
                      'source_time': floats(old('.rain-draw.cb1.bin'))[71],
@@ -204,7 +218,7 @@ def main():
     if not rows:
         raise ValueError('no source-rain capture metadata found')
     report = {'target': str(args.target), 'reference': str(args.reference), 'sample_step': args.step,
-              'scope': 'Raw HDR contribution distributions in a predefined uniform3x3 grid, not pixel-phase parity. Original/current clock, scroll history, pre-rain color, lighting and depth differ. Private draw counts are runtime-declared5x432 plus five observed target steps; native draw count/geometry is independently intercepted. Unchanged native before and restored shader/IA/SRV/sampler evidence do not independently capture every OM/raster state.',
+              'scope': 'Raw HDR contribution distributions in a predefined uniform3x3 grid, not pixel-phase parity. Original/current clock, scroll history, pre-rain color, lighting and depth differ. Private draw counts are runtime-declared5x432 plus five observed target steps; native draw count/geometry is independently intercepted, including commands suppressed in live mode (not executed native GPU primitives). Unchanged native before and restored shader/IA/SRV/sampler evidence do not independently capture every OM/raster state.',
               'poses': rows}
     args.output.write_text(json.dumps(report, indent=2)+'\n')
 
