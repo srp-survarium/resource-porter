@@ -739,3 +739,27 @@ The added streetlamp view reproduces the low glow. Its first recorded volume
 draw is another cone at `(-20.702,9.914,-8.903)`, so that draw does not explain
 the displayed lamp. Capture the correct instance before changing its transform
 or opacity.
+
+## Select one native volume for observation
+
+Set `SRP_CAPTURE_VOLUME_ORIGIN=11.152,10.196,18.044,0.1` to capture the
+Factory streetlamp cone whose authored world origin is at that position,
+within a 0.1-unit radius. Leave it unset for the usual first-volume capture.
+This is a 0.26-only readback filter: it never skips draws, replaces shaders,
+or changes transforms. Use `SRP_CAPTURE_MATERIALS=1` with observers that also
+save the selected vertex shader, constants and geometry.
+
+The filter accepts only the verified 3,584-byte cone vertex shader with DXBC
+identity `4a1720d500461354ffd2faddf8958307`. Its 160-byte VS constant buffer at
+slot 0 stores row-major `m_W` at byte 112; translation is at bytes 124, 140,
+and 156. Unknown shaders or failed readbacks do not silently select another
+cone. Per-pose `.volume-selection.jsonl` records candidate origins and whether
+they match. If none matches, there is no volume dump for that pose. Candidate
+records are bounded to 128 distinct origins per request; existing files append
+records carrying the request ID, so use a fresh output directory for a batch.
+
+The previously captured streetlamp view selected a different cone at
+`[-20.702, 9.914, -8.903]`. The original and target streetlamp images both show
+a detached low beam, so this mismatch in observation does not justify moving
+the geometry. This filter has passed the compiler checks; runtime selection
+must be verified before using its result to assess the lamp.

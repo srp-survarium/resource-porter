@@ -14,6 +14,7 @@ static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,
 #include "native_aberration_index.h"
 #include "native_emissive_index.h"
 #include "rain_shader_index.h"
+#include "volume_capture_filter.c"
 static int capture_rain_enabled;
 static unsigned rain_request_id, rain_draw_counts[3], rain_draw_variant;
 static unsigned rain_first_present, rain_last_present;
@@ -326,6 +327,7 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     if (reference_capture) kind=reference_kind;
     else if (rain_kind(code,size)) kind=rain_kind(code,size);
     else if (native_god_rays_kind(code,size)) kind=native_god_rays_kind(code,size);
+    if (!reference_capture && kind==12 && draw_ids[kind]!=camera.id && !select_volume_capture(context,&camera)) { free(code); return; }
     unsigned probe_variant=0;
     unsigned material_variant=0;
     if (kind>=23 && kind<=25) {
@@ -790,6 +792,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,DrawIndexed),draw_indexed,(void **)&original_draw_indexed);
     }
     disable_legacy_god_rays=GetEnvironmentVariableA("SRP_LEGACY_DISABLE_GOD_RAYS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
+    if (!configure_volume_filter() || (volume_filter_enabled && !replace_method(device,offsetof(ID3D11DeviceVtbl,CreateVertexShader),volume_filter_create_vs,(void **)&volume_filter_original_create_vs))) return 0;
     capture_emissives_enabled=GetEnvironmentVariableA("SRP_CAPTURE_EMISSIVES",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     DWORD volume_assets_length=GetEnvironmentVariableA("SRP_LEGACY_VOLUME_ASSETS",legacy_volume_assets,sizeof(legacy_volume_assets));
     if (!load_shader_override("SRP_LEGACY_VOLUME_CONE",&legacy_volume_code,&legacy_volume_size)) return 0;
