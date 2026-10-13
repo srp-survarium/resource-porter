@@ -117,8 +117,8 @@ impl MaterialCatalog {
                     );
                     (
                         semantic_domain_rank(path, &candidate.path).unwrap(),
-                        score.1,
                         score.0,
+                        score.1,
                         score.2,
                     )
                 });
@@ -142,8 +142,8 @@ impl MaterialCatalog {
                                 );
                                 (
                                     semantic_domain_rank(path, &candidate.path).unwrap(),
-                                    score.1,
                                     score.0,
+                                    score.1,
                                     score.2,
                                 )
                             })
@@ -778,7 +778,7 @@ mod tests {
 
     #[test]
     fn stage_selectors_participate_in_template_matching_outside_effect_blocks() {
-        let config = ConfigValue::Named(vec![named(
+        let mut config = ConfigValue::Named(vec![named(
             "material",
             ConfigValue::Named(vec![named(
                 "forward",
@@ -798,6 +798,61 @@ mod tests {
             feature_signature(&config)
                 .values()
                 .any(|value| value == "true")
+        );
+
+        config
+            .set_path(
+                "material.forward.effect.use_emissive",
+                ConfigValue::Boolean(true),
+            )
+            .unwrap();
+        let donor = BinaryConfig {
+            root: config.clone(),
+        }
+        .to_bytes()
+        .unwrap();
+        let matching = "material_instances/props/light/lamp_lights_light.material";
+        let closer = "material_instances/props/light/lamp_greenhouse.material";
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input");
+        std::fs::create_dir_all(input.join("material_instances/props/light")).unwrap();
+        std::fs::write(input.join(matching), &donor).unwrap();
+        config
+            .set_path(
+                "material.forward.effect.use_emissive",
+                ConfigValue::Boolean(false),
+            )
+            .unwrap();
+        std::fs::write(
+            input.join(closer),
+            BinaryConfig { root: config }.to_bytes().unwrap(),
+        )
+        .unwrap();
+        let archive = temp.path().join("materials.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&input).unwrap(),
+            &archive,
+        )
+        .unwrap();
+        let mut db = ResourceDb::open(archive).unwrap();
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
+        let path = "material_instances/props/light/lamp_greenhouse_clone.material";
+        let converted = catalog.convert(path, &donor, None, &db, &db).unwrap();
+        assert_eq!(converted.template_path, matching);
+        assert_eq!(
+            catalog.rank_templates(path, &donor).unwrap()[0].path,
+            matching
+        );
+        assert_eq!(
+            feature_signature(&BinaryConfig::parse(&converted.bytes).unwrap().root),
+            feature_signature(&BinaryConfig::parse(&donor).unwrap().root),
+        );
+        assert_eq!(
+            catalog
+                .convert(path, &donor, Some(closer), &db, &db)
+                .unwrap()
+                .template_path,
+            closer,
         );
     }
 }
