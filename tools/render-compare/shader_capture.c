@@ -3,10 +3,14 @@ static const GUID post_code_guid={0x9205d461,0x758c,0x44fe,{0xad,0x61,0xa1,0x13,
 static HRESULT (STDMETHODCALLTYPE *original_create_ps)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11PixelShader **);
 static void (STDMETHODCALLTYPE *original_draw)(ID3D11DeviceContext *,UINT,UINT);
 static void (STDMETHODCALLTYPE *original_draw_indexed)(ID3D11DeviceContext *,UINT,UINT,INT);
-static unsigned draw_ids[18];
+static unsigned draw_ids[21];
 static int reference_capture;
+static int disable_legacy_god_rays;
+static int skip_legacy_god_rays(ID3D11DeviceContext *context);
+static const GUID god_rays_apply_guid={0x6dc7fd40,0x9815,0x4f33,{0xaa,0x59,0x45,0x82,0x0b,0x15,0x67,0x2e}};
 static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,0x11,0x76,0x44,0xa1,0x09}};
 #include "reference_shader_index.h"
+#include "native_god_rays_index.h"
 static const char *reference_labels[]={"post","cloud","probe","fog-add","sky","ssao-temporal","fog-mul","composition","material","present","ssao-accumulation","ssao-upsample","volume","probe","sun","translucency","skylight","sun-mask"};
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix);
 static unsigned post_output_pending, post_output_kind;
@@ -131,6 +135,9 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         }
     }
     if (SUCCEEDED(hr) && shader && *shader) mark_sun_projection(*shader,code,size);
+    if (SUCCEEDED(hr) && shader && *shader && native_god_rays_kind(code,size)==18) {
+        unsigned flag=1; ID3D11PixelShader_SetPrivateData(*shader,&god_rays_apply_guid,sizeof(flag),&flag);
+    }
     if (composition_replaced && SUCCEEDED(hr) && shader && *shader) {
         unsigned flag=1; ID3D11PixelShader_SetPrivateData(*shader,&composition_guid,sizeof(flag),&flag);
     }
@@ -159,7 +166,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"legacy_composition_uses\":%u,\"legacy_ambient_decode_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,legacy_composition_uses,legacy_ambient_decode_uses,hr); fclose(file); }
     }
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
-        (ssao_reference || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
+        (ssao_reference || native_god_rays_kind(code,size) || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
         contains(code,size,"sky_clouds_parameters0") || contains(code,size,"t_probe_cubemap_diffuse") ||
         contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
         contains(code,size,"skylight_parameters0") ||
@@ -255,6 +262,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         contains(code,size,"t_frame_luminance")?0:contains(code,size,"sky_clouds_parameters0")?1:
         contains(code,size,"t_probe_cubemap_diffuse")?2:contains(code,size,"t_position")?3:4;
     if (reference_capture) kind=reference_kind;
+    else if (native_god_rays_kind(code,size)) kind=native_god_rays_kind(code,size);
     unsigned probe_variant=0;
     unsigned material_variant=0;
     if (kind==2) {
@@ -273,13 +281,17 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         (kind==5 && !reference_capture && ambient_id!=camera.id)) { free(code); return; }
     if (kind==2 && !probe_variant) capture_probe_initial(context,camera.output);
     char base[MAX_PATH+48],path[MAX_PATH+80];
-    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw","sun-shadow-draw"};
+    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw","sun-shadow-draw","unused14","unused15","unused16","unused17","god-rays-apply-draw","god-rays-draw","god-rays-mask-draw"};
     if (reference_capture) snprintf(base,sizeof(base),"%s.%s-draw",camera.output,reference_labels[kind]);
     else if (kind==8)
         snprintf(base,sizeof(base),"%s.material-draw-%u",camera.output,material_variant);
     else if (kind==2 && probe_variant)
         snprintf(base,sizeof(base),"%s.probe-draw-%u",camera.output,probe_variant);
     else snprintf(base,sizeof(base),"%s.%s",camera.output,labels[kind]);
+    if (!reference_capture && kind==18) {
+        snprintf(path,sizeof(path),"%s.compatibility.json",base); FILE *metadata=fopen(path,"w");
+        if (metadata) { fprintf(metadata,"{\"disable_god_rays_requested\":%s,\"draw_skipped\":%s}\n",disable_legacy_god_rays?"true":"false",skip_legacy_god_rays(context)?"true":"false"); fclose(metadata); }
+    }
     if (kind==2) memcpy(probe_shader_digests[probe_shader_count++],(char *)code+4,16);
     if (kind==8) memcpy(material_shader_digests[material_shader_count++],(char *)code+4,16);
     snprintf(path,sizeof(path),"%s.dxbc",base);
@@ -364,7 +376,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         }
         fputs("]\n",index); fclose(index);
     }
-    if (reference_capture || kind==0 || kind==3 || kind==9 || kind==12 || kind==13) {
+    if (reference_capture || kind==0 || kind==3 || kind==9 || kind==12 || kind==13 || kind>=18) {
         capture_draw_target(context,&camera,kind,"before");
         post_output_pending=camera.id; post_output_kind=kind;
     }
@@ -538,7 +550,7 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
 }
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix) {
     ID3D11RenderTargetView *targets[2]={0}; ID3D11DeviceContext_OMGetRenderTargets(context,2,targets,NULL);
-    const char *label=reference_capture?reference_labels[kind]:kind==13?"sun-shadow":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
+    const char *label=reference_capture?reference_labels[kind]:kind==13?"sun-shadow":kind==18?"god-rays-apply":kind==19?"god-rays":kind==20?"god-rays-mask":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
     char base[MAX_PATH+48],path[MAX_PATH+80];
     snprintf(base,sizeof(base),"%s.%s-%s",camera->output,label,suffix);
     snprintf(path,sizeof(path),"%s.targets.json",base); FILE *file=fopen(path,"w");
@@ -570,12 +582,29 @@ static void capture_post_output(ID3D11DeviceContext *context) {
         EnterCriticalSection(&lock); buffers_id=camera.id; LeaveCriticalSection(&lock);
     }
 }
+// Original reference captures use r_use_god_rays off. Native 0.26 applies
+// this optional effect earlier, so omitting it only in the post shader is insufficient.
+static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
+    if (!disable_legacy_god_rays || reference_capture) return 0;
+    ID3D11PixelShader *shader=NULL; ID3D11DeviceContext_PSGetShader(context,&shader,NULL,NULL);
+    if (!shader) return 0;
+    unsigned flag=0,size=sizeof(flag);
+    HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&god_rays_apply_guid,&size,&flag);
+    ID3D11PixelShader_Release(shader);
+    if (FAILED(hr) || flag!=1) return 0;
+    ID3D11BlendState *blend=NULL; ID3D11DeviceContext_OMGetBlendState(context,&blend,NULL,NULL);
+    if (!blend) return 0;
+    D3D11_BLEND_DESC desc; ID3D11BlendState_GetDesc(blend,&desc); ID3D11BlendState_Release(blend);
+    const D3D11_RENDER_TARGET_BLEND_DESC *target=&desc.RenderTarget[0];
+    return target->BlendEnable && target->SrcBlend==D3D11_BLEND_ONE &&
+        target->DestBlend==D3D11_BLEND_ONE && target->BlendOp==D3D11_BLEND_OP_ADD;
+}
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     render_sun_projection(context,count,start,0,0);
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
     VolumeState volume; bind_volume(context,&volume);
-    capture_post_draw(context); original_draw(context,count,start); capture_post_output(context);
+    capture_post_draw(context); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
     capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
@@ -583,7 +612,7 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
     VolumeState volume; bind_volume(context,&volume);
-    capture_post_draw(context); original_draw_indexed(context,count,start,base); capture_post_output(context);
+    capture_post_draw(context); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
     capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static int replace_method(void *object,size_t offset,void *hook,void **original) {
@@ -619,6 +648,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,DrawIndexed),draw_indexed,(void **)&original_draw_indexed);
     }
+    disable_legacy_god_rays=GetEnvironmentVariableA("SRP_LEGACY_DISABLE_GOD_RAYS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     capture_materials_enabled=GetEnvironmentVariableA("SRP_CAPTURE_MATERIALS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     DWORD volume_assets_length=GetEnvironmentVariableA("SRP_LEGACY_VOLUME_ASSETS",legacy_volume_assets,sizeof(legacy_volume_assets));
     if (!load_shader_override("SRP_LEGACY_VOLUME_CONE",&legacy_volume_code,&legacy_volume_size)) return 0;

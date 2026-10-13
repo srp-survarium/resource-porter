@@ -231,7 +231,7 @@ improves both luma MAE and block SSIM over its native baseline. Day's mean scene
 luma is 5.6% above original; evening is 2.9% below. Light placement, shadowed
 surfaces and atmosphere are substantially closer across buildings and exterior
 routes. Residual differences remain in foliage/filtering, atmospheric haze,
-scattering, and an evening red lens flare. This is broad improvement, not full
+scattering, and evening red rays (subsequently traced below). This is broad improvement, not full
 renderer parity or validation of the separate full-scattering experiment.
 
 The paired base-term audit covers all 64 full-resolution frames. Exact shader
@@ -267,3 +267,31 @@ The separate `reproduction/roughness-contracts-20261013` bundle contains ten
 hashed files: reports, standard-library Python audits, poses and replay
 instructions. The same-weather replay reproduces its JSON byte-for-byte.
 No clients were launched, runtimes changed or game tests added for this audit.
+
+### Evening red rays: optional native pass
+
+All 68 frozen original post shaders (rain, day and evening) omit the scattering
+texture; the original profile has `r_use_god_rays off`. Native post slot3 is
+zero in all 64 connected weather captures, so excluding it from the adapted
+post shader corrects the contract but does not remove the visible red streaks.
+
+The separate native `god_rays_apply.ps` adds half-resolution scattering earlier,
+using ONE/ONE additive blending. Four evening diagnostic captures retain its
+input, before/output targets, sampler, blend and exact DXBC. CPU bilinear replay
+agrees within one R11/G11/B10 quantization step for all 2,764,800 sampled channel
+values. The yard-north doorway receives +.02219 red and +.00032 green, explaining
+the streak rather than an authored lamp or general ambient-light change.
+
+`SRP_LEGACY_DISABLE_GOD_RAYS=1` omits only the pinned apply shader when its blend
+is additive ONE/ONE. Native defaults and original-client capture stay unchanged.
+Four validation views have byte-identical apply before/output buffers; the red
+doorway streak disappears. Whole-image MAE/SSIM changes are mixed across these
+separately animated frames, so this is a verified feature-setting correction,
+not a claim of uniform whole-image improvement. Broad weather validation remains
+pending. Original lens flares are a separate, still-unmatched feature.
+
+Artifacts: `026g/evening-god-rays-diagnostic`, `evening-god-rays-disabled`, and
+`evening-god-rays-overlap` beneath the day/evening comparison root. The overlap
+experiment completed two worker readbacks while root stalled after one; this
+does not establish safe concurrent capture. Compiler checks use existing
+`-Wall -Wextra -Werror`; no game tests were added.

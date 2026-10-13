@@ -625,3 +625,15 @@ a supported shader equation does not establish overall visual improvement.
 Run diagnostic clients sequentially. After concurrent runs stalled, both the
 rain experiment and the worker's broad day run completed with one client at a
 time. This is an observed workaround, not a proven diagnosis of the stall.
+
+## Optional god-ray parity
+
+`SRP_LEGACY_DISABLE_GOD_RAYS=1` with buffer capture skips the exact archived
+0.26 god-ray apply shader only with its verified additive blend. Use it only
+for an original reference captured with `r_use_god_rays off`. The native effect
+otherwise remains enabled. Captures include the apply/mask/ray shader inputs,
+before/output buffers and compatibility metadata. Run
+`python3 audit_native_god_rays.py CAPTURE_DIRECTORY` on an enabled diagnostic
+batch to replay its bilinear additive pass. Disabled batches must instead have
+identical apply before/output bytes, since their nonzero input is deliberately
+not added.
