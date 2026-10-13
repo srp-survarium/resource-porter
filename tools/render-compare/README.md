@@ -266,6 +266,16 @@ captures retain their original shaders; the correction is not retroactive.
 
 ## Material and texture-view diagnostics
 
+`adapt_roughness_channels.py` builds an experimental v0.10b texture overlay for
+original-red versus native-green roughness sampling. It clones selected textures
+as BGRA8, copies decoded red into RGB at every authored mip, and changes only the
+enabled roughness bindings. It preserves alpha and the source DDS/options sRGB
+flags: captured native roughness views can be sRGB. Forcing linear sampling made
+the first experiment worse. The revised overlay passed archive verification and
+four UI-hidden rain captures, with the cloned textures bound through sRGB views.
+Image metrics improve slightly overall but material correspondence remains
+incomplete; it is not part of the accepted weather recipes.
+
 `SRP_CAPTURE_MATERIALS=1` records the first draw of each distinct deferred-material
 pixel shader, up to 128 variants per pose: bytecode, constants, blend state and
 texture metadata. It does not enumerate every material instance or copy material
