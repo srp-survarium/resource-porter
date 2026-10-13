@@ -742,3 +742,16 @@ compilation rejects the day/evening/Chemical weather defines. Its assumptions
 are source U tiling1, zero native cloud rotation speed and the verified native
 VS ABI. Runtime validation and actual native VS upload capture are pending;
 this CPU evidence does not promote it into the preserved displayed recipe.
+
+The coordinate candidate compiled with `/WX /O3`: 1,580 bytes, DXBC
+`8bedbb39b27f204457b180888029e8e0`, SHA256
+`b7e9de309913721cce3b5f20dc6279dc8d57bbbae5c73b67178f4d9a662b3087`.
+`encoded-rain-lighting/cloud-source-coordinates/build.json` pins source and
+assembly hashes. Both captured cloud samplers are linear wrap (filter21,
+address1/1/1) with unrestricted mip range; both texture SRVs are BC3 sRGB,
+4096×1024, nine mips starting at zero. The portable audit now guards these
+contracts and, when native VS capture is present, requires its known identity
+and the 180-degree, zero-speed upload before interpreting the phase result.
+Using the target pre-cloud sky with corrected coordinates predicts original
+cloud-output MAE .00750 versus .06207 with current coordinates. That remains
+a CPU counterfactual; final-screen improvement awaits target capture.

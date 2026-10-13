@@ -14,6 +14,11 @@ with args.archive.open('rb') as f:f.seek(offset);dds=f.read(length)
 if dds[84:88]!=b'DXT5':raise ValueError('source cloud texture format changed')
 w,h=struct.unpack_from('<II',dds,12)[::-1]
 for folder in [old,new]:
+ sampler=json.loads((folder/(pose+'.cloud-draw.samplers.json')).read_text())[0]
+ if sampler['slot']!=0 or sampler['filter']!=21 or sampler['address']!=[1,1,1] or sampler['min_lod']!=0 or sampler['max_lod']<2:raise ValueError('cloud sampler contract changed')
+ slot=0 if folder==old else 1
+ texinfo=next(v for v in json.loads((folder/(pose+'.cloud-draw.targets.json')).read_text()) if v['slot']==slot)
+ if (texinfo['view_format'],texinfo['width'],texinfo['height'],texinfo['view_most_detailed_mip'],texinfo['view_mip_levels'])!=(78,4096,1024,0,9):raise ValueError('cloud texture SRV contract changed')
  for suffix in ['cloud-before','cloud-output']:
   view=json.loads((folder/(pose+'.'+suffix+'.targets.json')).read_text())[0]
   if (view['width'],view['height'],view['format'],view['written'])!=(1280,720,26,True):raise ValueError('cloud output contract changed')
@@ -35,7 +40,14 @@ def sample(m,u,v):
    weight=(fx if dx else 1-fx)*(fy if dy else 1-fy)
    for c,z in enumerate(pixel(m,x+dx,y+dy)):r[c]+=weight*z
  return r
-_,cb=constants(old/(pose+'.cloud-draw.vs.dxbc'));M=cb['m_VP'];mat=[list(M[i*4:i*4+4])+[int(i==j) for j in range(4)] for i in range(4)]
+source_vs,cb=constants(old/(pose+'.cloud-draw.vs.dxbc'))
+if source_vs!='31a5fddd2245b56972991d86e805430f' or max(abs(a-b) for a,b in zip(cb['sky_clouds_parameters2'],[-1,0,0,0]))>1e-6:raise ValueError('source cloud VS/180degree upload changed')
+native_vs_path=new/(pose+'.cloud-draw.vs.dxbc');native_vs={'captured':False}
+if native_vs_path.exists():
+ digest,values=constants(native_vs_path);rotation=values['sky_clouds_parameters2']
+ if digest!='0a351e7ae0d6ca39d2286ec07af70b62' or max(abs(a-b) for a,b in zip(rotation[:3],[0,-1,0]))>1e-6:raise ValueError('native cloud VS/180degree zero-speed upload changed')
+ native_vs={'captured':True,'digest':digest,'rotation_speed_radius':rotation,'scene_time':values['scene_time']}
+M=cb['m_VP'];mat=[list(M[i*4:i*4+4])+[int(i==j) for j in range(4)] for i in range(4)]
 for c in range(4):
  k=max(range(c,4),key=lambda i:abs(mat[i][c]));mat[c],mat[k]=mat[k],mat[c];q=mat[c][c];mat[c]=[x/q for x in mat[c]]
  for i in range(4):
@@ -53,7 +65,7 @@ for y in range(8,544,16):
   xx,yy=2*(x+.5)/1280-1,1-2*(y+.5)/720;near,far=unproject(xx,yy,0),unproject(xx,yy,.9);v=[b-a for a,b in zip(near,far)];l=math.sqrt(sum(z*z for z in v));v=[z/l for z in v];points.append((x,y,math.atan2(v[2],v[0])/(2*math.pi),math.acos(v[1])/math.pi))
 if not points:raise ValueError('pose has no common clear-sky samples')
 source_output=(old/(pose+'.cloud-output.rt00.bin')).read_bytes()
-report={'scope':'Fixed shader-derived coordinate hypotheses; original and native HDR before/output. Sphere-direction interpolation and BC3 filtering are approximate, not an exact raster replay. No empirical phase search or clock fit.', 'samples':len(points),'texture_sha256':hashlib.sha256(tex[:w*h]).hexdigest(),'source_rotation':cb['sky_clouds_parameters2'],'hypotheses':{}}
+report={'scope':'Fixed shader-derived coordinate hypotheses; original and native HDR before/output. Sphere-direction interpolation and BC3 filtering are approximate, not an exact raster replay. No empirical phase search or clock fit.', 'samples':len(points),'texture_sha256':hashlib.sha256(tex[:w*h]).hexdigest(),'source_rotation':cb['sky_clouds_parameters2'],'native_vs':native_vs,'hypotheses':{}}
 for label,folder in [('source',old),('native',new)]:
  before=(folder/(pose+'.cloud-before.rt00.bin')).read_bytes();after=(folder/(pose+'.cloud-output.rt00.bin')).read_bytes();_,ps=constants(folder/(pose+'.cloud-draw.dxbc'));tint=ps['sky_clouds_parameters0'][0]*(1 if label=='source' else 10);results=[]
  for sign in [1,-1]:
