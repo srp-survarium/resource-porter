@@ -13,6 +13,7 @@ parser.add_argument('capture',type=Path)
 parser.add_argument('assets',type=Path,help='Original SSAO shaders, noise and fullscreen-vs.dxbc')
 parser.add_argument('output',type=Path)
 parser.add_argument('--runtime',type=Path,required=True,help='replay_ssao.exe with matching d3d11.dll and dxgi.dll')
+parser.add_argument('--live',action='store_true',help='Verify live archived-pass readbacks against an independent replay on the exact captured depth')
 parser.add_argument('--wine',required=True)
 parser.add_argument('--prefix',required=True)
 args=parser.parse_args()
@@ -31,7 +32,8 @@ from inspect_buffers import png
 def stats(values):
     return {'minimum':min(values),'maximum':max(values),'mean':statistics.fmean(values),'median':statistics.median(values)}
 
-jobs={'flat':out/'flat-depth.r16f',**{p:capture/(p+'.bmp.probe-draw.rt02.bin') for p in REGIONS}}
+depth_suffix='.ssao-live.rt00.bin' if args.live else '.probe-draw.rt02.bin'
+jobs={'flat':out/'flat-depth.r16f',**{p:capture/(p+'.bmp'+depth_suffix) for p in REGIONS}}
 result={}
 for pose,depth in jobs.items():
     subprocess.run(cmd+[win(depth),win(tmp/'old-ssao-noise.bgra'),win(out/pose)],env=env,cwd=runtime,check=True)
@@ -57,10 +59,15 @@ for pose,depth in jobs.items():
         result[pose]={'expected_unquantized':expected,'observed_half':half[0][0],'observed_full':raw[0]/255,'passed':True}
         continue
     old=[x*2.5/255 for x in raw]
-    native=[x/255 for x in (capture/(pose+'.bmp.hba-draw.rt00.bin')).read_bytes()]
+    native_suffix='.ssao-native.rt00.bin' if args.live else '.hba-draw.rt00.bin'
+    native=[x/255 for x in (capture/(pose+'.bmp'+native_suffix)).read_bytes()]
     assert len(native)==len(old)
     png(out/(pose+'.png'),1280,720,b''.join(bytes([min(round(x*255),255)])*3 for x in old))
     result[pose]={'depth_sampling_footprint_verified':True,'old_normalized':stats(old),'target':stats(native),'regions':{}}
+    if args.live:
+        assert (out/(pose+'.half.rg16f')).read_bytes()==(capture/(pose+'.bmp.ssao-live.rt01.bin')).read_bytes(), 'live accumulation differs from offline replay'
+        assert full==(capture/(pose+'.bmp.ssao-live.rt02.bin')).read_bytes(), 'live upsample differs from offline replay'
+        result[pose]['live_half_and_full_byte_identical']=True
     for name,(x0,y0,x1,y1) in REGIONS[pose].items():
         indices=[y*1280+x for y in range(y0,y1) for x in range(x0,x1)]
         o=[old[i] for i in indices];n=[native[i] for i in indices]

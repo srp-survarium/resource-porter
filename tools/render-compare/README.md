@@ -352,3 +352,37 @@ native AO. These compare algorithms on the same target geometry. They do not
 reproduce old geometry or temporal history and have not been applied live.
 The frozen profile disables light propagation volumes, so its quality-3 LPV
 resolve branch receives the disabled stage's cleared buffer.
+
+## Live archived SSAO experiment
+
+Pair `SRP_LEGACY_AMBIENT_DECODE=.../legacy-ambient-decode-ssao.dxbc` with
+`SRP_LEGACY_SSAO_DIR=.../ASSET_DIRECTORY`. That directory must contain
+`fullscreen-vs.dxbc`, `old-ssao-3.dxbc`, `old-ssao-upsample.dxbc`, and the original
+64-byte `old-ssao-noise.bgra`. The encoded sphere/box pair remains required.
+The hook rejects a decoder/directory mismatch. This is the fixed 1280x720
+Factory-rain experiment: radius 1.5, saturation 2, 32 samples, spatial filtering
+only. It does not implement the old temporal filter or replace specular AO.
+
+The hook allocates GPU resources on the scene depth texture's device, after
+startup. The temporary device used to discover hook vtables is unsuitable.
+It runs before ambient decode, in a separate D3D11.1 context state, and restores
+native state before returning. Original raw RG8 AO replaces t0 only for the
+decoder draw; the shader applies the old 2.5 normalization there. Values above
+one remain representable. The native t0 binding is restored afterward.
+The state isolation uses [SwapDeviceContextState](https://learn.microsoft.com/en-us/windows/win32/api/d3d11_1/nf-d3d11_1-id3d11devicecontext1-swapdevicecontextstate).
+
+Each requested frame saves `.ssao-live.rt00.bin` (exact R16F depth), `rt01.bin`
+(half-size RG16F accumulation), and `rt02.bin` (full-size RG8 spatial result),
+plus `.ssao-native.rt00.bin` (native AO before substitution). Run the existing
+`replay_ssao.py` command with `--live` to require byte-identical half/full outputs
+from an independent replay. `verify_ambient_decode.py` recognizes the paired
+shader and verifies `8 * encoded^2 * raw_ao * 2.5`, exact AO binding, unchanged
+specular and the overwrite blend. The original native-AO verifier remains valid.
+
+All four views pass both checks. Final-image improvement is limited: the forest
+region gains about 56% diffuse ambient energy but only 5% in display-encoded
+luma; the interior remains substantially darker than the frozen reference.
+The south wall becomes slightly darker. These measurements do not establish
+visual parity, temporal quality, performance suitability, or other-map support.
+The replayable checkpoint is `reproduction/live-ssao-checkpoint/` in the main
+checkout's `.work/render-compare/` directory.

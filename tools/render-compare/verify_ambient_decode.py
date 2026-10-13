@@ -15,12 +15,17 @@ def verify(base):
 
     textures = {t['slot']: t for t in json.loads(read('.hba-draw.targets.json'))}
     width, height = textures[0]['width'], textures[0]['height']
-    assert textures[0]['format'] == 61 and textures[2]['format'] == 26
+    original_ssao = b't_legacy_ssao\0' in read('.hba-draw.dxbc')
+    assert textures[0]['format'] == (49 if original_ssao else 61) and textures[2]['format'] == 26
     assert (textures[2]['width'], textures[2]['height']) == (width, height)
     encoded, copied = read('.before-hba.rt31.bin'), read('.hba-draw.rt02.bin')
     actual, ao = read('.after-hba.rt31.bin'), read('.hba-draw.rt00.bin')
     assert len(encoded) == len(copied) == len(actual) == width * height * 4
-    assert len(ao) == width * height
+    assert len(ao) == width * height * (2 if original_ssao else 1)
+    if original_ssao:
+        assert ao == read('.ssao-live.rt02.bin'), 'decoder did not consume the live archived AO'
+        assert not any(ao[1::2]), 'unexpected second channel in archived AO'
+        ao = ao[::2]
     assert encoded == copied, 'decoder copy differs from the encoded accumulator'
     assert not any(read('.probe-initial.rt00.bin')), 'initial ambient is not black'
     blend = json.loads(read('.hba-draw.blend.json'))
@@ -34,7 +39,7 @@ def verify(base):
             e = unsigned_float((before >> shift) & mask, mantissa)
             bits = (after >> shift) & mask
             result = unsigned_float(bits, mantissa)
-            predicted = 8 * e * e * (occlusion / 255)
+            predicted = 8 * e * e * (occlusion / 255) * (2.5 if original_ssao else 1)
             if not math.isfinite(result) or not math.isfinite(predicted):
                 nonfinite += 1
                 continue
@@ -48,6 +53,7 @@ def verify(base):
     relative.sort()
     return {
         'pixels': width * height,
+        'ao_source': 'archived_spatial_no_temporal' if original_ssao else 'native',
         'initial_ambient_black': True,
         'copy_identical': True,
         'overwrite_blend_verified': True,

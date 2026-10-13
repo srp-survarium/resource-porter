@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #define COBJMACROS
 #include <windows.h>
-#include <d3d11.h>
+#include <d3d11_1.h>
+#include <float.h>
 #include <dxgi.h>
 #include <stdint.h>
 #include <stdio.h>

@@ -6,6 +6,9 @@ static int legacy_fog_enabled;
 static int legacy_ambient_decode_enabled;
 static ID3D11ShaderResourceView *legacy_ambient_view;
 static ID3D11Texture2D *legacy_ambient_copy, *legacy_ambient_source;
+static int legacy_ssao_enabled, legacy_ssao_ready;
+static ID3D11ShaderResourceView *legacy_ssao_view;
+static void run_legacy_ssao(unsigned char *targets,const Camera *camera,int take);
 void *post_trampoline, *ambient_trampoline, *ambient_after_trampoline;
 
 static int readable(const void *pointer, size_t bytes) {
@@ -109,7 +112,10 @@ static void capture_stage_inputs(unsigned char *stage, unsigned *last_id, const 
     unsigned char *context=*(void **)(stage+4);
     if (!readable(context,0x11a0)) return;
     unsigned char *targets=*(void **)(context+0x119c);
-    if (legacy_ambient_decode_enabled && last_id==&ambient_id) copy_encoded_ambient(targets);
+    if (legacy_ambient_decode_enabled && last_id==&ambient_id) {
+        copy_encoded_ambient(targets);
+        run_legacy_ssao(targets,&camera,take);
+    }
     if (legacy_fog_enabled && readable(targets,72*0xa0)) {
         unsigned char *target=*(void **)(targets+71*0xa0+0x98);
         if (readable(target,0x10)) {

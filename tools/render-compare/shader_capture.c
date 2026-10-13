@@ -258,7 +258,8 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
 }
 
 typedef struct {
-    ID3D11ShaderResourceView *view;
+    ID3D11ShaderResourceView *view, *native_ao;
+    int ao_bound;
     ID3D11BlendState *blend;
     float factor[4];
     UINT mask;
@@ -275,6 +276,28 @@ static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *sta
     if (FAILED(hr) || !flag) return;
     ID3D11ShaderResourceView *view=flag==1?legacy_mie_view:flag==2?legacy_ambient_view:NULL;
     if (!view) { error("legacy draw extra resource missing"); return; }
+    if (flag==2 && legacy_ssao_enabled) {
+        if (!legacy_ssao_ready) { error("original SSAO was not rendered this frame"); return; }
+        ID3D11DeviceContext_PSGetShaderResources(context,0,1,&state->native_ao);
+        Camera camera;
+        EnterCriticalSection(&lock); camera=applied;
+        int take=camera.enabled && capture_frame_id==camera.id && draw_ids[5]!=camera.id;
+        LeaveCriticalSection(&lock);
+        if (take && state->native_ao) {
+            ID3D11Resource *resource=NULL; ID3D11Texture2D *texture=NULL;
+            ID3D11ShaderResourceView_GetResource(state->native_ao,&resource);
+            if (SUCCEEDED(ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&texture))) {
+                char base[MAX_PATH+32],path[MAX_PATH+64];
+                snprintf(base,sizeof(base),"%s.ssao-native",camera.output);
+                snprintf(path,sizeof(path),"%s.targets.json",base);
+                FILE *file=fopen(path,"w");
+                if (file) { fputs("[",file); dump_texture(texture,base,file,"native_ssao",0,NULL); fputs("]\n",file); fclose(file); }
+                ID3D11Texture2D_Release(texture);
+            }
+            ID3D11Resource_Release(resource);
+        }
+        ID3D11DeviceContext_PSSetShaderResources(context,0,1,&legacy_ssao_view); state->ao_bound=1;
+    }
     if (flag==2) {
         if (!legacy_decode_blend) {
             ID3D11Device *device=NULL; ID3D11DeviceContext_GetDevice(context,&device);
@@ -298,6 +321,10 @@ static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *sta
     ID3D11DeviceContext_PSSetShaderResources(context,2,1,&view); state->bound=1;
 }
 static void restore_extra(ID3D11DeviceContext *context,LegacyExtraState *state) {
+    if (state->ao_bound) {
+        ID3D11DeviceContext_PSSetShaderResources(context,0,1,&state->native_ao);
+        if (state->native_ao) ID3D11ShaderResourceView_Release(state->native_ao);
+    }
     if (state->bound) {
         ID3D11DeviceContext_PSSetShaderResources(context,2,1,&state->view);
         if (state->view) ID3D11ShaderResourceView_Release(state->view);
@@ -391,6 +418,8 @@ static int load_shader_override(const char *variable,void **code,size_t *size) {
     }
     return 1;
 }
+#include "legacy_ssao.c"
+
 static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *context) {
     char enabled[8];
     if (!GetEnvironmentVariableA("SRP_CAPTURE_BUFFERS",enabled,sizeof(enabled)) || strcmp(enabled,"1")) return 1;
@@ -414,6 +443,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         ((encoded_sphere || encoded_box) && !legacy_ambient_decode_code)) {
         error("encoded probes require paired sphere, box and ambient decoder"); return 0;
     }
+    if (!configure_legacy_ssao()) return 0;
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
