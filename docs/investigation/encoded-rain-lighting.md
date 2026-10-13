@@ -426,9 +426,43 @@ full diffuse, and rt03 restored approximation. Every rt03 is byte-identical
 to rt00. The exact loaded build and reproduction scripts are preserved in
 `reproduction/factory-full-diffuse-comparison-20261013`.
 
-Fixed-exposure previews show the upper background hill recovering source
-illumination, but some surfaces still differ. Original composition runs
-before its sky is drawn; the native target already contains sky. Equal
-depth alone includes shared far-clear pixels (499.75), so geometry metrics
-must exclude sky using actual stencil and clear-depth evidence. Previews
-use one fixed display conversion without exposure fitting.
+`audit_full_diffuse_composition.py CAPTURES --original ORIGINAL_POSES
+--output REPORT.json` compares R11G11B10_FLOAT outputs from the displayed
+approximation, native composition and the full encoded diffuse diagnostic.
+The audit also checks every pixel for nonfinite
+values and requires the restored displayed output to equal its original
+bytes. Known zero/unit HDR decoding and error metrics were checked directly;
+no game test functions were added.
+
+The completed five-view `pipeline-factory-full-diffuse-comparison` passes
+restoration equality and finiteness for all outputs. Geometry-only HDR RGB
+MAE against original composition, on the fixed exclusion mask and stride-4
+grid:
+
+| View | Samples | Displayed approximation | Full encoded diffuse |
+| --- | ---: | ---: | ---: |
+| Interior | 33,704 | .001595 | .001252 |
+| Upper | 32,734 | .015502 | .008635 |
+| Streetlamp | 8,446 | .010417 | .006029 |
+| Yard north | 33,669 | .001612 | .001525 |
+| Yard south | 33,688 | .003235 | .003458 |
+
+The south view regresses 6.9%; the fixed back-wall and forest regions also
+regress slightly (.000568→.000621 and .006644→.006817, respectively). These
+regions have only 630 and 323 exact-depth samples. Upper's strict 3×3
+exact-depth geometry subset contains just 646 samples. All counts and
+regional errors remain in the report. A common exposure diagnostic metric
+uses the same `((exposure*x)/(1+exposure*x))^(1/2.2)` mapping for every image;
+it supports the same whole-view improvement/regression directions without
+claiming to reproduce the game's tone mapping.
+
+Sky needs explicit rejection here: both clients store finite far-clear
+depth 499.75, but original composition precedes sky while native composition
+preserves already drawn sky. Exact depth alone therefore admits a large
+false mismatch. The audit requires actual native nonzero stencil and both
+depths below that verified clear value, and refuses an unexpected clear
+contract. The first sky-contaminated report is retained as excluded evidence.
+Earlier encoded-buffer comparisons used a looser finite-depth mask; their
+counts must not be substituted for these geometry-only counts. This remains
+a pre-fog diffuse experiment, not proof of downstream rain/fog or full
+material parity, and the displayed recipe was not changed.
