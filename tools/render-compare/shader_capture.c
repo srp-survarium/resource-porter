@@ -24,6 +24,7 @@ static int source_ambient_valid(void);
 static void capture_ambient_diffuse(ID3D11DeviceContext *context);
 #include "local_light_capture.c"
 static int capture_rain_enabled;
+static void tag_source_rain(ID3D11PixelShader *shader,const void *code,SIZE_T size);
 static unsigned rain_request_id, rain_draw_counts[3], rain_draw_variant;
 static unsigned rain_first_present, rain_last_present;
 static const char *rain_labels[]={"rain","rain-drops","rain-resolve"};
@@ -231,6 +232,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         ID3D11PixelShader_SetPrivateData(*shader,&early_ssao_probe_guid,sizeof(marker),&marker);
     }
     if (SUCCEEDED(hr) && shader && *shader) tag_source_local(*shader,code,size);
+    if (SUCCEEDED(hr) && shader && *shader) tag_source_rain(*shader,code,size);
     int local_index=local_light_index(code,size);
     if (local_index>=0 && SUCCEEDED(hr)) ++local_light_created[local_light_shaders[local_index].family];
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
@@ -770,6 +772,7 @@ static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
 #include "legacy_local_diffuse.c"
 #include "legacy_ambient_diffuse.c"
 #include "legacy_sun_diffuse.c"
+#include "legacy_rain_shells.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
@@ -780,6 +783,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
     if (local.ready) capture_ambient_diffuse(context);
     render_sun_aux(context,count,start,0,0);
+    render_source_rain(context);
     capture_post_draw(context,count,start,0,0); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,0,0);
     finish_ambient_diffuse(context,&ambient,count,start,0,0);
@@ -795,6 +799,7 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
     if (local.ready) capture_ambient_diffuse(context);
     render_sun_aux(context,count,start,base,1);
+    render_source_rain(context);
     capture_post_draw(context,count,start,base,1); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,base,1);
     finish_ambient_diffuse(context,&ambient,count,start,base,1);
@@ -918,6 +923,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     if (!configure_legacy_ssao()) return 0;
     if (!configure_ambient_diffuse()) return 0;
     if (!configure_sun_aux()) return 0;
+    if (!configure_source_rain()) return 0;
     comparison_source_diffuse=GetEnvironmentVariableA("SRP_DIAGNOSTIC_COMPOSITION_SOURCE_DIFFUSE",enabled,sizeof(enabled))==1 && enabled[0]=='1';
     if (comparison_source_diffuse && (!comparison_composition_code || !sun_aux_enabled || !sun_aux_translucency)) {
         error("source diffuse comparison requires reference shader and sun/translucency auxiliary"); return 0;

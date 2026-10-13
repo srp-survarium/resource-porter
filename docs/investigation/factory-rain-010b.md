@@ -124,3 +124,54 @@ the upward streetlamp view's shadow Z translation is 0.268874 versus source
 0.322356. Therefore School's independently validated projection half-scale
 hook alone cannot restore the older Factory shadow contract. Preserve both
 projection and camera-position behavior before comparing caster depth maps.
+
+## Private source-shell runtime
+
+`SRP_DIAGNOSTIC_SOURCE_RAIN_DIR` now loads the verified source assets from
+`prepare_legacy_rain.py`. It requires the complete source diffuse auxiliary
+(including material-gated translucency) and `SRP_LEGACY_FACTORY_RAIN_SHADOW=1`.
+The five-view run also enables the independently audited shadow-camera
+selection and private factor cache described in
+[`factory-rain-caster-contract.md`](../factory-rain-caster-contract.md).
+All switches are opt-in and specific to the pinned 0.26 Factory experiment.
+
+`legacy_rain_shells.c` intercepts the identified native particle pass. On a
+capture frame it copies the current pre-rain color into a private target and
+a fixed frame-input texture, then draws the original five shells there.
+Depth comes from this frame's composition input, lighting from the complete
+private encoded accumulator, and shadow depth from the actual rain pass.
+The original shaders, 100 vertices, 432 indices, texture and sampler states
+are retained. Source depth testing is LESS_EQUAL with no writes, culling is
+disabled, and blending is SRC_ALPHA/INV_SRC_ALPHA. All modified D3D state is
+restored before the native particle draw. The displayed scene is unchanged.
+
+`legacy_rain_math.h` reproduces the seed-1000 rotations, layer scales and
+signed camera-scroll wrapping. Independent host execution matches all 35
+frozen source world matrices within .0001 and the seven-pose scroll sequence
+within .000016 in origin. The initial source scroll state is inferred from
+the first frozen capture; the live adapter starts from its own first rain
+frame. This does not synchronize clock phase or camera history between games.
+
+The native particle VS declares `m_V2W` and `eye_direction` but leaves both
+zero in all five captured views. Its populated `m_V` must be inverted before
+forming source `view_to_shadow = world_to_shadow * inverse(m_V)`.
+The runtime verifies orthonormality and agreement with the uploaded eye.
+Using the declared inverse matrix directly would produce invalid shadows.
+Retained PS b1 is not a substitute: it can contain an unrelated 96-byte buffer.
+Source pinned shaders use only m_W from their dynamic transform buffer;
+unused m_WV/m_WVP rows need not be reconstructed.
+
+`026g/pipeline-factory-source-rain-shells` completed all five 1280×720 views
+without hook errors. Captures contain private step 0 before rain and steps
+1–5 after each shell, all source inputs, globals, world/parameter buffers and
+frame metadata. Private step 0 equals the independently captured native
+pre-rain output byte for byte. The exact loaded DLL, source overlays, assets,
+scripts, fixed-exposure previews and capture hashes are preserved in
+`reproduction/factory-source-rain-shells-20261013`.
+
+The private output restores dense source-like rain where native particles
+are sparse. It still uses the current pre-rain scene color and native depth,
+while source diffuse/material/shadow differences remain under investigation.
+Comparisons of rain contribution must subtract each engine's own pre-rain
+frame and retain the unsynchronized phase/history limitation. This runtime
+establishes a working source-shell path, not final-image or temporal parity.
