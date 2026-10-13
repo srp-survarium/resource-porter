@@ -3,7 +3,7 @@ static const GUID post_code_guid={0x9205d461,0x758c,0x44fe,{0xad,0x61,0xa1,0x13,
 static HRESULT (STDMETHODCALLTYPE *original_create_ps)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11PixelShader **);
 static void (STDMETHODCALLTYPE *original_draw)(ID3D11DeviceContext *,UINT,UINT);
 static void (STDMETHODCALLTYPE *original_draw_indexed)(ID3D11DeviceContext *,UINT,UINT,INT);
-static unsigned draw_ids[5];
+static unsigned draw_ids[7];
 static void *legacy_lut_code;
 static size_t legacy_lut_size;
 static unsigned legacy_lut_uses;
@@ -14,6 +14,12 @@ static unsigned legacy_fog_uses;
 static void *legacy_sky_code, *legacy_cloud_code;
 static size_t legacy_sky_size, legacy_cloud_size;
 static unsigned legacy_sky_uses, legacy_cloud_uses;
+static void *legacy_post_code;
+static size_t legacy_post_size;
+static unsigned legacy_post_uses;
+static void *legacy_probe_code;
+static size_t legacy_probe_size;
+static unsigned legacy_probe_uses;
 
 static int contains(const void *data, size_t length, const char *text) {
     size_t size=strlen(text)+1;
@@ -31,28 +37,37 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     const unsigned char cloud_expected[]={0xd2,0xef,0x52,0xb2,0x15,0x6d,0xeb,0x31,0xd3,0x83,0x18,0xc3,0x8e,0x13,0x02,0xb5};
     int sky_replaced=legacy_sky_code && size==2588 && !memcmp((const char *)code+4,sky_expected,16);
     int cloud_replaced=legacy_cloud_code && size==4132 && !memcmp((const char *)code+4,cloud_expected,16);
+    const unsigned char post_expected[]={0x22,0xa1,0xd1,0x39,0x98,0x9d,0x32,0x3c,0x71,0xb8,0x68,0x2b,0x30,0xbe,0xeb,0x48};
+    int post_replaced=legacy_post_code && size==3972 && !memcmp((const char *)code+4,post_expected,16);
+    const unsigned char probe_expected[]={0xa7,0x0e,0x27,0x2e,0x38,0xe4,0x26,0x66,0xe1,0x39,0xc6,0xc9,0xdb,0x33,0x51,0x66};
+    int probe_replaced=legacy_probe_code && size==6104 && !memcmp((const char *)code+4,probe_expected,16);
     if (replaced) { code=legacy_lut_code; size=legacy_lut_size; }
     if (fog_replaced) { code=legacy_fog_code; size=legacy_fog_size; }
     if (sky_replaced) { code=legacy_sky_code; size=legacy_sky_size; }
     if (cloud_replaced) { code=legacy_cloud_code; size=legacy_cloud_size; }
+    if (post_replaced) { code=legacy_post_code; size=legacy_post_size; }
+    if (probe_replaced) { code=legacy_probe_code; size=legacy_probe_size; }
     HRESULT hr=original_create_ps(device,code,size,linkage,shader);
     if (fog_replaced && SUCCEEDED(hr) && shader && *shader) {
         unsigned flag=1; ID3D11PixelShader_SetPrivateData(*shader,&legacy_fog_guid,sizeof(flag),&flag);
     }
-    if (replaced || fog_replaced || sky_replaced || cloud_replaced) {
+    if (replaced || fog_replaced || sky_replaced || cloud_replaced || post_replaced || probe_replaced) {
         if (FAILED(hr)) error("legacy atmosphere shader rejected");
         else if (replaced) ++legacy_lut_uses;
         else if (fog_replaced) ++legacy_fog_uses;
         else if (sky_replaced) ++legacy_sky_uses;
-        else ++legacy_cloud_uses;
+        else if (cloud_replaced) ++legacy_cloud_uses;
+        else if (post_replaced) ++legacy_post_uses;
+        else ++legacy_probe_uses;
         char path[MAX_PATH+32]; snprintf(path,sizeof(path),"%s.shader-overrides.json",control);
         FILE *file=fopen(path,"w");
-        if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,hr); fclose(file); }
+        if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,hr); fclose(file); }
     }
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
-        ((contains(code,size,"filmic_tonemap_packed_parameters_0") && contains(code,size,"t_frame_luminance")) ||
+        ((contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
         contains(code,size,"sky_clouds_parameters0") || contains(code,size,"t_probe_cubemap_diffuse") ||
-        contains(code,size,"t_rayleigh_scattering")))
+        contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
+        contains(code,size,"skylight_parameters0")))
         ID3D11PixelShader_SetPrivateData(*shader,&post_code_guid,(UINT)size,code);
     return hr;
 }
@@ -68,7 +83,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     EnterCriticalSection(&lock);
     int take=applied.enabled && captured_id!=applied.id && GetTickCount()-applied_at>=applied.settle_ms &&
         (draw_ids[0]!=applied.id || draw_ids[1]!=applied.id || draw_ids[2]!=applied.id ||
-         draw_ids[3]!=applied.id || draw_ids[4]!=applied.id);
+         draw_ids[3]!=applied.id || draw_ids[4]!=applied.id || draw_ids[5]!=applied.id || draw_ids[6]!=applied.id);
     camera=applied;
     LeaveCriticalSection(&lock);
     if (!take) return;
@@ -83,11 +98,12 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     hr=ID3D11PixelShader_GetPrivateData(shader,&post_code_guid,&size,code);
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr)) { free(code); return; }
-    unsigned kind=contains(code,size,"t_frame_luminance")?0:contains(code,size,"sky_clouds_parameters0")?1:
+    unsigned kind=contains(code,size,"hba_parameters")?5:contains(code,size,"skylight_parameters0")?6:
+        contains(code,size,"t_frame_luminance")?0:contains(code,size,"sky_clouds_parameters0")?1:
         contains(code,size,"t_probe_cubemap_diffuse")?2:contains(code,size,"t_position")?3:4;
     if (draw_ids[kind]==camera.id || (kind==0 && buffers_id!=camera.id)) { free(code); return; }
     char base[MAX_PATH+32],path[MAX_PATH+64];
-    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw"};
+    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw"};
     snprintf(base,sizeof(base),"%s.%s",camera.output,labels[kind]);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);
@@ -200,7 +216,9 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     if (!load_shader_override("SRP_LEGACY_ATMOSPHERE_LUT",&legacy_lut_code,&legacy_lut_size) ||
         !load_shader_override("SRP_LEGACY_GEOMETRY_FOG",&legacy_fog_code,&legacy_fog_size) ||
         !load_shader_override("SRP_LEGACY_SKY",&legacy_sky_code,&legacy_sky_size) ||
-        !load_shader_override("SRP_LEGACY_RAIN_CLOUDS",&legacy_cloud_code,&legacy_cloud_size)) return 0;
+        !load_shader_override("SRP_LEGACY_RAIN_CLOUDS",&legacy_cloud_code,&legacy_cloud_size) ||
+        !load_shader_override("SRP_LEGACY_RAIN_TONEMAP",&legacy_post_code,&legacy_post_size) ||
+        !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE",&legacy_probe_code,&legacy_probe_size)) return 0;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
         replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&

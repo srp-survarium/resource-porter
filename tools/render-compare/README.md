@@ -122,6 +122,8 @@ the corresponding compiled shader's Windows path:
 | `SRP_LEGACY_GEOMETRY_FOG` | `legacy-geometry-fog.dxbc` |
 | `SRP_LEGACY_SKY` | `legacy-sky.dxbc` |
 | `SRP_LEGACY_RAIN_CLOUDS` | `legacy-rain-clouds.dxbc` |
+| `SRP_LEGACY_RAIN_TONEMAP` | `legacy-rain-tonemap.dxbc` |
+| `SRP_LEGACY_PROBE_DIFFUSE` | `legacy-probe-diffuse.dxbc` |
 
 These change rendering only when explicitly enabled. Replacement requires the
 original shader's exact DXBC size and header digest. The hook records successful
@@ -139,3 +141,31 @@ probe intensity by 10, approximating the legacy 2.5 SSAO gain versus the later
 0.25 probe decode. Probe exponent, material, exposure and grading differences
 remain. Four-pose validation restores distant haze but shows overbright interior
 surfaces and differing light patterns; this is not visual parity or a release.
+
+The optional rain tone mapper isolates the old exposure and filmic curve while
+retaining the target's bloom inputs, grading conversion and vignette. It reduces
+some interior overbrightness but does not reproduce the full old post pipeline.
+Its parameters are specific to Factory rain.
+
+The subsequent sun-only comparison uses no shader overrides. The importer had
+the wrong azimuth convention: target to-sun is
+`(-cos(az)*cos(el), sin(el), -sin(az)*cos(el))`. Correcting Factory rain's azimuth
+from 50.317974 to 219.682029 degrees reproduces the source direction in the
+captured shader constants within 1e-5. The direct-light placement improves, but
+unlit surfaces remain too dark. This is a confirmed conversion fix, separate
+from the experimental renderer changes.
+
+Ambient capture also recognizes the height-ambient draw (`hba-draw`) and the
+skylight shader when drawn (`skylight-draw`). The probe diffuse experiment reads
+mip 1 of the converted 16x16 cube (the source 8x8 mip) and decodes RGB/alpha with
+power 2.2. It retains target specular and falloff; it is not a complete old probe
+implementation. In particular, it cannot fix an inverted falloff interval.
+
+Captured Factory rain constants revealed that the radius-300 probe had inner
+radius 299.01 but outer radius 294.06, making its interior blend weight zero.
+The target contracts the outer sphere by 2%; the inherited width of one metre
+was too small. The importer now uses `1 + 0.02 * radius` for spherical probes.
+Native-shader captures with that correction restore wall detail without changing
+exposure. The old exponential falloff and encoded-light blending remain distinct
+from the target's smoothstep/linear-light contract. See the main investigation
+document and `reproduction/probe-width-checkpoint` for controlled comparisons.
