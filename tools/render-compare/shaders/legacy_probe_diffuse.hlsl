@@ -42,6 +42,22 @@ float3 native_sample(float3 direction,float mip) {
     float4 value=t_probe_cubemap.SampleLevel(s_base,direction,mip);
     return value.rgb*value.rgb/(value.a*value.a)*.25;
 }
+float3 source_diffuse_sample(float3 direction) {
+    float4 encoded=t_probe_cubemap_diffuse.SampleLevel(s_material1,direction,1);
+    return pow(abs(encoded.rgb/encoded.a),2.2);
+}
+#ifdef CONFIG_SOURCE_QUALITY3
+static const float3 source_cones[8]={
+    float3(.99725014,-.029667195,.06791174),
+    float3(.948293,-.029853212,-.31598923),
+    float3(.89564174,-.095602594,.43438),
+    float3(.8242554,.55417657,.11615242),
+    float3(.7863557,-.6177587,.004354838),
+    float3(.7716971,.4068773,-.48880917),
+    float3(.75259656,-.34534776,-.56065434),
+    float3(.7230467,.28388765,.6297708)
+};
+#endif
 Result main(float4 pixel : SV_POSITION) {
     float2 uv=pixel.xy*screen_res.zw;
     float2 f=t_normal.SampleLevel(s_normal,uv,0).xy*4-2;
@@ -50,9 +66,20 @@ Result main(float4 pixel : SV_POSITION) {
     float3 world_normal=normalize(mul((float3x3)m_V2W,normal));
     float4 parameters=t_parameters.SampleLevel(s_accumulator,uv,0);
     // The converted diffuse cube begins at the old 16x16 mip; mip 1 is the
-    // original 8x8 gather used by v0.10b at lighting quality 1.
-    float4 encoded=t_probe_cubemap_diffuse.SampleLevel(s_material1,world_normal,1);
-    float3 diffuse=pow(abs(encoded.rgb/encoded.a),2.2)*color_parameters.x;
+    // original 8x8 mip. Retail quality 1 maps to shader quality 3, whose
+    // eight directional samples are deliberately divided by nine.
+#ifdef CONFIG_SOURCE_QUALITY3
+    float3 diffuse=0;
+    [unroll] for (int tap=0;tap<8;++tap) {
+        float3 cone=source_cones[tap];
+        float3 direction=normalize(mul(float3x3(cone,cone.zxy,cone.yzx),world_normal));
+        diffuse+=source_diffuse_sample(direction);
+    }
+    diffuse*=1./9;
+#else
+    float3 diffuse=source_diffuse_sample(world_normal);
+#endif
+    diffuse*=color_parameters.x;
     float3 eye_ray=float3((1-2*uv)*s_eye_ray_corner.xy/s_eye_ray_corner.z,1);
     float3 world_position=mul(m_V2W,float4(eye_ray*t_position.SampleLevel(s_position,uv,0).x,1));
     float3 view_direction=normalize(eye_position-world_position);
@@ -88,7 +115,17 @@ Result main(float4 pixel : SV_POSITION) {
 #endif
     Result result;
 #ifdef CONFIG_SOURCE_FALLOFF
-    float fresnel=parameters.x+(1-parameters.x)*pow(1-view_dot_normal,5);
+#ifdef CONFIG_SOURCE_QUALITY3
+    float3 half_direction=normalize(world_normal+reflection);
+    float3 direction=lerp(half_direction,reflection,pow(saturate(1-parameters.y),.8));
+    float3 mirror_direction=normalize(direction);
+    float3 light_direction=lerp(mirror_direction,normalize(world_normal+mirror_direction),parameters.y);
+    float3 halfway_direction=normalize(light_direction+view_direction);
+    float fresnel_dot=max(dot(view_direction,halfway_direction),0);
+#else
+    float fresnel_dot=view_dot_normal;
+#endif
+    float fresnel=parameters.x+(1-parameters.x)*pow(1-fresnel_dot,5);
     result.diffuse=float4(min(diffuse,10)*(1-fresnel*(1-parameters.y)),attenuation);
 #else
     result.diffuse=float4(diffuse*(1-parameters.x),attenuation);

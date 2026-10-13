@@ -301,7 +301,54 @@ on sphere coverage and subsequent ordinary alpha blending. It is below 0.0004%
 of ambient energy in both south-wall regions; it cannot explain that wall's
 visible gap. Regions crossing outside the sphere have no aggregate bound.
 
-The archived old low-quality SSAO shader differs from the current reconstructed
-`ssao_accumulation.ps` source: it samples depth without normals and caps output
-at 0.5 after nonlinear scaling. Validate against shipped bytecode before using
-that source as an oracle. Its existence does not justify a uniform 2.5 gain.
+Correction: the earlier SSAO source audit read the inactive `SSAO_METHOD==0`
+branch. The file defines `SSAO_METHOD 1`; that active depth-based algorithm
+agrees with the archived shader, including nonlinear scaling and the 0.5 cap.
+The frozen profile has post-process quality 3, selecting the 32-sample variant.
+Neither the active source nor the bytecode justifies a uniform 2.5 gain.
+
+## Reference shader quality and offline SSAO
+
+The reference profile's console settings are 1 for lighting/shading/shadows and
+3 for post-processing. Retail `render_cc_u32::fill_macro` maps any nonzero value
+other than 3 to shader macro 3. This is verified at reference-executable VA
+0x12b7a0 (RVA 1161120, 350 bytes); the four macro-name strings and branch to
+`push 3` were checked directly. Earlier single-tap probe experiments therefore
+used the wrong source quality branch.
+
+`legacy_probe_quality3.hlsl` and its box wrapper retain the encoded accumulation
+contract and implement the archived quality-3 diffuse response: eight rotated
+8x8 samples divided by nine, plus its halfway-vector Fresnel. Native specular
+remains. The original sphere DXBC digest is `cc45055d632b75e94160d8a1595b5393`.
+All four `pipeline-probe-quality3` captures use the requested sphere/box shaders
+and pass the ambient-decoder check. The wall response is visibly closer, but
+the four-view comparison still does not establish parity.
+
+`replay_ssao.c` runs the unchanged archived SSAO and spatial-upsample bytecode
+against captured target depth, without a client or window. It uses the original
+4x4 noise texture, sampler modes, full-size screen constants, half-size RG16F
+accumulation and full-size RG8 output. Factory-rain parameters are saturation 2
+and radius scale 1.5. Build it with `build.sh`; `build_shaders.py` also produces
+the fullscreen vertex shader. Supply the executable and matching DXVK DLLs in
+the runtime directory:
+
+```sh
+python3 replay_ssao.py CAPTURE_FOLDER ORIGINAL_SHADER_ASSETS OUTPUT_FOLDER \
+  --runtime REPLAY_RUNTIME --wine WINE --prefix DIAGNOSTIC_PREFIX
+```
+
+The Python driver checks a flat-depth analytic result, finite/ranged outputs,
+and the depth channel's point-sampling footprint at every half-size pixel.
+Those sample centers lie on full-size texel boundaries; interpolation rounding
+may select any of the four adjacent texels. The first strict center-index check
+failed on that assumption, and was corrected after verifying every sample lies
+within that footprint. The flat case gives 0.386962890625 before upsampling and 99/255 after it;
+the lighting factor after the original 2.5 scale is 0.9705882353.
+
+On saved `pipeline-probe-quality3` depth, spatially filtered source AO means are
+about 2–3% lower on the south wall, 13% higher at the interior back wall, 17%
+higher in the north region and 60% higher in the forest region than captured
+native AO. These compare algorithms on the same target geometry. They do not
+reproduce old geometry or temporal history and have not been applied live.
+The frozen profile disables light propagation volumes, so its quality-3 LPV
+resolve branch receives the disabled stage's cleared buffer.

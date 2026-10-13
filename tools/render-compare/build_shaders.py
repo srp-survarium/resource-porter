@@ -29,11 +29,15 @@ if __name__ == '__main__':
     manifest = {}
     def win(path):
         return 'Z:' + str(path.resolve()).replace('/', '\\')
-    for source in sorted(Path(__file__).parent.joinpath('shaders').glob('legacy_*.hlsl')):
+    shader_dir = Path(__file__).parent / 'shaders'
+    sources = sorted(shader_dir.glob('legacy_*.hlsl')) + [shader_dir / 'fullscreen_vs.hlsl']
+    for source in sources:
         target = args.output / (source.stem.replace('_', '-') + '.dxbc')
-        subprocess.run([args.wine, str(args.fxc), '/nologo', '/WX', '/T', 'ps_4_0',
+        profile = 'vs_4_0' if source.name == 'fullscreen_vs.hlsl' else 'ps_4_0'
+        subprocess.run([args.wine, str(args.fxc), '/nologo', '/WX', '/T', profile,
                         '/E', 'main', '/O3', '/Fo', win(target), win(source)], check=True)
         manifest[source.name] = {
+            'profile': profile,
             'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
             'source_dependencies': source_hashes(source),
             'output': target.name,

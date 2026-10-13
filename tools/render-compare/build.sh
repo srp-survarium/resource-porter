@@ -9,3 +9,6 @@ cd -- "$(dirname -- "$0")"
 # shellcheck disable=SC2086
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror -static viewport.c \
   -o viewport.exe ${LDFLAGS:-}
+# shellcheck disable=SC2086
+"$CC" -std=c11 -O2 -Wall -Wextra -Werror -static replay_ssao.c \
+  -o replay_ssao.exe ${LDFLAGS:-} -ld3d11 -ldxgi -ldxguid
