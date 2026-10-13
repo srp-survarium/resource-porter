@@ -468,3 +468,29 @@ regional statistics, not a perceptual similarity score. Gamma checks pass in all
 four original and corrected target views; target ambient checks also pass. C
 builds with warnings as errors. No game tests were added. Close visual parity
 remains incomplete. Artifacts are in `reproduction/reference-buffers-checkpoint`.
+
+## Numeric material conversion and light cones
+
+The converter now copies integer visual values into float template fields while
+preserving shader feature switches. An audit of 247 converted materials found
+58 differing fields across 41 materials. Fresh conversion verifies all 58 fixes.
+The existing regression test was extended; all 270 library tests pass, with no
+increase in test count.
+
+The cone's opacity was .05 instead of the original 1. Actual PS bindings confirm
+both values before/after correction. `volume-draw`, `volume-before` and
+`volume-output` capture the first matching cone draw per view. The native shader's
+attenuation field is unused; its captured bytes are not a valid attenuation
+measurement. Its alpha equation also differs from the original source.
+
+The lamp rectangle's displayed luma changes .15342 -> .20930 (original .21605).
+Applying all 58 numeric corrections yields .20914 there and .19707 in the forest
+(original .25186). These separate-frame regional means do not establish visual
+parity. Gamma and ambient checks pass in all four `pipeline-numeric-materials`
+views. The outdoor deficit remains.
+
+`patch_archive_entries.py ARCHIVE PLAN inspect|apply|revert` checks saved material
+hashes, lengths, archive offsets and CRCs before applying a same-length experiment.
+Stop the client first. `reproduction/numeric-material-checkpoint` contains the
+replay script and baseline/fixed material bytes. Revert that plan before replaying
+an earlier checkpoint that predates material corrections.

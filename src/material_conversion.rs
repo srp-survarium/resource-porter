@@ -518,6 +518,11 @@ fn merge_safe_visual_values(
         | (target @ ConfigValue::Float4(_), donor @ ConfigValue::Float4(_)) => {
             *target = donor.clone();
         }
+        (ConfigValue::Float(target), ConfigValue::Integer(donor))
+            if !is_shader_feature(parameter) =>
+        {
+            *target = *donor as f32;
+        }
         (target @ ConfigValue::Integer(_), donor @ ConfigValue::Integer(_))
             if !is_shader_feature(parameter) =>
         {
@@ -709,6 +714,11 @@ mod tests {
             named("use_nmap", ConfigValue::Boolean(false)),
             named("with_static_meshes", ConfigValue::Boolean(true)),
             named("constant_power", ConfigValue::Float(1.0)),
+            named("lighting_model", ConfigValue::Float(2.0)),
+            named(
+                "constant_transparency",
+                ConfigValue::Named(vec![named("value", ConfigValue::Float(0.05))]),
+            ),
             named("texture_diffuse", ConfigValue::String("old".into())),
             named("effect_id", ConfigValue::String("forward_default".into())),
         ]);
@@ -716,6 +726,11 @@ mod tests {
             named("use_nmap", ConfigValue::Boolean(true)),
             named("with_static_meshes", ConfigValue::Boolean(false)),
             named("constant_power", ConfigValue::Float(3.0)),
+            named("lighting_model", ConfigValue::Integer(1)),
+            named(
+                "constant_transparency",
+                ConfigValue::Named(vec![named("value", ConfigValue::Integer(1))]),
+            ),
             named("texture_diffuse", ConfigValue::String("new".into())),
             named("effect_id", ConfigValue::String("new_effect".into())),
         ]);
@@ -730,12 +745,22 @@ mod tests {
         );
         assert_eq!(target.named("use_nmap"), Some(&ConfigValue::Boolean(false)));
         assert_eq!(
+            target.named("lighting_model"),
+            Some(&ConfigValue::Float(2.0))
+        );
+        assert_eq!(
             target.named("with_static_meshes"),
             Some(&ConfigValue::Boolean(true))
         );
         assert_eq!(
             target.named("constant_power"),
             Some(&ConfigValue::Float(3.0))
+        );
+        assert_eq!(
+            target
+                .named("constant_transparency")
+                .and_then(|value| value.named("value")),
+            Some(&ConfigValue::Float(1.0))
         );
         assert_eq!(
             target.named("texture_diffuse"),
