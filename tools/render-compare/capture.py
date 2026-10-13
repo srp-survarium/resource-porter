@@ -23,7 +23,8 @@ def capture(control, poses, output, timeout=30):
         if len(values) != 10 or not all(math.isfinite(v) for v in values):
             raise ValueError('invalid camera values')
         temporary = control.with_suffix('.tmp')
-        temporary.write_text(f'{request} 1 ' + ' '.join(map(str, values)) + f" {pose.get('settle_ms', 3000)}\nZ:" + str(destination).replace('/', '\\') + '\n')
+        mode = 1 if pose.get('buffers', True) else 2
+        temporary.write_text(f'{request} {mode} ' + ' '.join(map(str, values)) + f" {pose.get('settle_ms', 3000)}\nZ:" + str(destination).replace('/', '\\') + '\n')
         temporary.replace(control)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

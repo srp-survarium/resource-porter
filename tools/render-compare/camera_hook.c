@@ -196,11 +196,11 @@ static HRESULT STDMETHODCALLTYPE present(IDXGISwapChain *swapchain, UINT interva
     ++present_calls;
     // Arm GPU readbacks at a frame boundary after settling. Otherwise a request
     // can miss geometry draws yet capture lighting later in that same frame.
-    if (!(flags & DXGI_PRESENT_TEST) && buffers_enabled && applied.enabled &&
+    if (!(flags & DXGI_PRESENT_TEST) && buffers_enabled && applied.enabled==1 &&
         applied_id!=captured_id && GetTickCount()-applied_at>=applied.settle_ms)
         capture_frame_id=applied_id;
     if (!(flags & DXGI_PRESENT_TEST) && applied.enabled && applied_id != captured_id &&
-        (!buffers_enabled || buffers_id==applied_id) &&
+        (!buffers_enabled || applied.enabled==2 || buffers_id==applied_id) &&
         GetTickCount()-applied_at >= applied.settle_ms) { camera=applied; take=1; }
     LeaveCriticalSection(&lock);
     if (take && capture(swapchain, &camera)) {
