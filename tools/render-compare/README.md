@@ -125,6 +125,7 @@ the corresponding compiled shader's Windows path:
 | `SRP_LEGACY_RAIN_TONEMAP` | `legacy-rain-tonemap.dxbc` |
 | `SRP_LEGACY_PROBE_DIFFUSE` | `legacy-probe-diffuse.dxbc` |
 | `SRP_LEGACY_PROBE_DIFFUSE_BOX` | `legacy-probe-diffuse-box.dxbc` |
+| `SRP_LEGACY_COMPOSITION` | `legacy-composition-control.dxbc` or `legacy-composition-encoded.dxbc` |
 
 These change rendering only when explicitly enabled. Replacement requires the
 original shader's exact DXBC size and header digest. The hook records successful
@@ -137,7 +138,7 @@ SRC_ALPHA / INV_SRC_ALPHA, ADD. Sky/cloud register layouts are adapted separatel
 The cloud experiment is specific to Factory rain: its legacy tint multiplier 10,
 UV scale 1, fade power 2 and fade band 0.5 are explicit shader constants because
 the later stage does not upload those old fields. It is not a general map fix.
-The combined diagnostic also disables height-based ambient and multiplies diffuse
+An early diagnostic also disabled height-based ambient and multiplied diffuse
 probe intensity by 10, approximating the legacy 2.5 SSAO gain versus the later
 0.25 probe decode. Probe exponent, material, exposure and grading differences
 remain. Four-pose validation restores distant haze but shows overbright interior
@@ -190,3 +191,30 @@ height ambient and replacing probe decode/falloff/tone mapping has not produced
 a close four-view match. Captures and run recipes are preserved under
 `reproduction/probe-variants-checkpoint`; none of these diagnostic combinations
 is a release preset.
+
+## Same-frame composition comparison
+
+The composition override matches only the captured 8416-byte shader with digest
+`de3e7a631834e15db4ae347359867c30`. It retains the native shader as a reference.
+On a settled capture, the hook reads the override output, repeats the draw with
+the native shader and identical inputs, reads that output, and redraws the
+override before continuing. It refuses a blending pass. The two RT0 readbacks
+are `composition-output.rt00.bin` (override) and `.rt01.bin` (native).
+
+```sh
+python3 compare_composition.py CAPTURE_FOLDER
+```
+
+The control reconstructs native composition. In `pipeline-composition-validated`,
+three views match bit for bit; the upper view differs by one stored-value step
+in one pixel. The encoded variant changes only the combination of ambient, sun
+and scattering diffuse light: encode each with `sqrt(saturate(light/8))`, apply
+sun visibility to its encoded value, add, then decode with `8*saturate(sum)^2`.
+Materials, rain darkening, specular and the supplied ambient buffer remain fixed.
+This restores the south-wall sun patch in `pipeline-composition-encoded`.
+
+The source basis is `sun.ps`, `resolve_lighting.ps` and `effect_sun.cpp` in the
+0.10b tree. Re-encoding a combined target ambient buffer does not reproduce
+source blending between individual probes/local lights. The interior, north
+view and distant forest still differ substantially from the frozen reference.
+This is a controlled contract experiment, not complete renderer compatibility.
