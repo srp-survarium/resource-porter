@@ -10,17 +10,39 @@ matrices and camera positions in capture order.
 The review found one input bug: native particle VS b1 declares `m_V2W` at
 byte176 but contains zeros there in all five views. Retained PS b1 is not a
 safe substitute: it is only 96 bytes in yard-north. The runtime now reconstructs
-the inverse from populated native `m_V`, verifies orthonormality and recovered
-eye position, then calculates `world_to_shadow × inverse(m_V)`. CPU replay
+the inverse from populated native `m_V`, verifies the recovered eye and
+`P × V = VP`, then calculates `world_to_shadow × inverse(m_V)`. CPU replay
 matches original `view_to_shadow` within 1.27e-7 across the five views.
 
 | Constant | Native input | Original destination |
 | --- | --- | --- |
 | Projection/view matrices | VS b1 bytes0–175 | b1 bytes0–175 |
 | Scene time | VS b1 byte400 | b1 byte284 |
-| Screen resolution | VS b1 byte224 | b1 byte288 |
+| Screen resolution | Validated full-target viewport width/height and reciprocals | b1 byte288 |
 | Shadow transform | PS b0 world transform × reconstructed inverse view | PS b0 byte48 |
 | Layer world matrix | Motion helper | VS b0 byte112 |
+
+The first live run exposed a coherent **affine player camera**, not empty startup
+constants: its view determinant is 1.01511606, the general inverse recovers the
+GPU eye within 0.000003, and `P × V` agrees with the uploaded VP within 0.000003.
+The previous orthonormal-only guard correctly rejected its shear but prevented
+live rain during gameplay. The runtime now computes the full inverse for affine
+views, retaining the existing transpose path for orthonormal capture cameras.
+Relative determinant, condition, inverse-product, projection and eye checks reject
+singular or inconsistent inputs; no orthonormal tolerance was loosened. The actual
+C helper passes ten frozen fixed-pose buffers and the rejected player buffer;
+zero/singular views and deliberately inconsistent VP fail validation. The fixed
+rotation coefficients remain identical; host-versus-captured inverse translation
+rounding differs by at most 0.00000382.
+
+Screen resolution at native byte224 is also unused and can be zero. Source rain
+now requires one viewport covering the complete target and derives its constants
+from those validated dimensions. Invalid unarmed frames preserve native rain and
+save the first rejected globals per reason; an armed capture still requires valid
+inputs. Live output is opt-in and copied only after private rendering and target
+validation. The five v2 live captures pass the input/math audit and final output is
+byte-identical to private shell5. Actual player-camera runtime validation remains
+pending after the affine inverse change.
 
 RDEF and SHDR confirm that source VS dynamic reads are only cb0 rows7–9
 (`m_W`); `m_WVP` and `m_WV` are unused. Source PS uses cb0 rows1–6 and cb1

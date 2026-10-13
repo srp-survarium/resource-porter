@@ -26,13 +26,30 @@ def f32(value):
 
 
 def inverse_view(values):
-    # Same guarded orthonormal transpose as the reviewed runtime implementation.
+    # Match runtime: keep historical orthonormal results, invert affine player views.
     view = [values[32+i*4:36+i*4] for i in range(3)]
-    error = max(abs(sum(view[r][k]*view[c][k] for k in range(3))-(r == c))
+    error = max(abs(sum(f32(view[r][k]*view[c][k]) for k in range(3))-(r == c))
                 for r in range(3) for c in range(3))
-    assert error < 1e-5
-    inverse = [[view[c][r] for c in range(3)] +
-               [f32(-sum(f32(view[k][r]*view[k][3]) for k in range(3)))] for r in range(3)]
+    a,b,c = view[0][:3]; d,e,f = view[1][:3]; g,h,i = view[2][:3]
+    cofactors = [[e*i-f*h,c*h-b*i,b*f-c*e],
+                 [f*g-d*i,a*i-c*g,c*d-a*f],
+                 [d*h-e*g,b*g-a*h,a*e-b*d]]
+    determinant = a*cofactors[0][0]+b*cofactors[1][0]+c*cofactors[2][0]
+    norm = max(sum(abs(x) for x in row[:3]) for row in view)
+    assert norm and abs(determinant) > 1e-8*norm**3
+    inverse = [[view[c][r] if error <= 1e-5 else f32(cofactors[r][c]/determinant)
+                for c in range(3)] for r in range(3)]
+    assert norm*max(sum(abs(x) for x in row) for row in inverse) <= 1e6
+    for row in inverse:
+        row.append(f32(-sum(f32(row[k]*view[k][3]) for k in range(3))))
+    for r in range(3):
+        for c in range(4):
+            actual = sum(view[r][k]*inverse[k][c] for k in range(3)) + (view[r][3] if c == 3 else 0)
+            assert abs(actual-(r == c)) <= (.001 if c == 3 else 1e-5)
+    for r in range(4):
+        for c in range(4):
+            actual = sum(values[r*4+k]*view[k][c] for k in range(3)) + (values[r*4+3] if c == 3 else 0)
+            assert abs(actual-values[16+r*4+c]) <= 1e-5*max(1,abs(values[16+r*4+c]))
     inverse.append([0, 0, 0, 1])
     assert max(abs(inverse[r][3]-values[80+r]) for r in range(3)) < .001
     return inverse

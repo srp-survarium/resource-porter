@@ -23,8 +23,9 @@ static void source_rain_status(int force,int director_enabled) {
     for (unsigned i=0;i<12;++i) fprintf(file,"%s%.9g",i?",":"",source_rain_gpu_view[i]);
     fprintf(file,"],\"rejected_draws\":%u,\"last_rejection_reason\":%u}\n",source_rain_rejected,source_rain_last_reject); fclose(file);
 }
-// Startup/menu constants can be empty. Reject that draw without poisoning the
-// client-wide error latch; a requested capture still requires valid inputs.
+// Invalid input draws must not poison the client-wide error latch. Player
+// cameras can be affine; reject inconsistent/singular inputs, not camera shear.
+// A requested capture still requires valid inputs.
 // Save each distinct reason once, plus the first available rejected GPU buffer.
 static void source_rain_reject(int take,int director,unsigned reason,const char *message,
                                const float *globals,int row,int column,double value) {
@@ -202,6 +203,66 @@ static void source_rain_capture_inputs(const Camera *camera,ID3D11ShaderResource
     }
     fputs("]\n",file); fclose(file);
 }
+// Actual player cameras can contain shear/scale. Preserve the proven transpose
+// result for orthonormal captures; otherwise compute the full affine inverse.
+// Return a rejection reason, with the failing scalar and matrix coordinates.
+static unsigned source_rain_inverse_view(const float globals[104],float inverse[16],
+                                         int *row,int *column,double *failed) {
+    double a=globals[32],b=globals[33],c=globals[34];
+    double d=globals[36],e=globals[37],f=globals[38];
+    double g=globals[40],h=globals[41],i=globals[42];
+    double cofactors[9]={e*i-f*h,c*h-b*i,b*f-c*e,
+                         f*g-d*i,a*i-c*g,c*d-a*f,
+                         d*h-e*g,b*g-a*h,a*e-b*d};
+    double determinant=a*cofactors[0]+b*cofactors[3]+c*cofactors[6],norm=0;
+    int orthonormal=1;
+    for (unsigned r=0;r<3;++r) {
+        double sum=0; for (unsigned k=0;k<3;++k) sum+=fabs(globals[32+r*4+k]);
+        if (sum>norm) norm=sum;
+        for (unsigned c2=0;c2<3;++c2) {
+            double dot=0;
+            for (unsigned k=0;k<3;++k) dot+=globals[32+r*4+k]*globals[32+c2*4+k];
+            if (fabs(dot-(r==c2?1:0))>1e-5) orthonormal=0;
+        }
+    }
+    if (!isfinite(determinant) || !isfinite(norm) || norm==0 || fabs(determinant)<=1e-8*norm*norm*norm) {
+        *failed=determinant; return 13;
+    }
+    double inverse_norm=0;
+    memset(inverse,0,16*sizeof(float)); inverse[15]=1;
+    for (unsigned r=0;r<3;++r) {
+        double sum=0;
+        for (unsigned c2=0;c2<3;++c2) {
+            inverse[r*4+c2]=orthonormal?globals[32+c2*4+r]:(float)(cofactors[r*3+c2]/determinant);
+            sum+=fabs(inverse[r*4+c2]);
+        }
+        if (sum>inverse_norm) inverse_norm=sum;
+        double translation=0;
+        for (unsigned k=0;k<3;++k) translation-=inverse[r*4+k]*globals[35+k*4];
+        inverse[r*4+3]=(float)translation;
+    }
+    if (!isfinite(norm*inverse_norm) || norm*inverse_norm>1e6) { *failed=norm*inverse_norm; return 16; }
+    // Validate the emitted float inverse, including translated camera origin.
+    for (unsigned r=0;r<3;++r) for (unsigned c2=0;c2<4;++c2) {
+        double value=c2==3?globals[35+r*4]:0;
+        for (unsigned k=0;k<3;++k) value+=(double)globals[32+r*4+k]*inverse[k*4+c2];
+        double residual=value-(r==c2?1:0);
+        if (!isfinite(residual) || fabs(residual)>(c2==3?.001:1e-5)) {
+            *row=(int)r; *column=(int)c2; *failed=residual; return 14;
+        }
+    }
+    // Native VP is used by the particle shader; this checks that P and V are
+    // coherent uploads before reusing V for original source shader constants.
+    for (unsigned r=0;r<4;++r) for (unsigned c2=0;c2<4;++c2) {
+        double value=c2==3?globals[r*4+3]:0;
+        for (unsigned k=0;k<3;++k) value+=(double)globals[r*4+k]*globals[32+k*4+c2];
+        double residual=value-globals[16+r*4+c2];
+        if (!isfinite(residual) || fabs(residual)>1e-5*fmax(1,fabs(globals[16+r*4+c2]))) {
+            *row=(int)r; *column=(int)c2; *failed=residual; return 15;
+        }
+    }
+    return 0;
+}
 static int render_source_rain(ID3D11DeviceContext *context) {
     if (!source_rain_enabled) return 0;
     ID3D11PixelShader *ps=NULL; ID3D11DeviceContext_PSGetShader(context,&ps,NULL,NULL); if (!ps) return 0;
@@ -247,19 +308,18 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     for (unsigned i=1;i<8;++i) if (targets[i]) { source_rain_reject(take,camera.enabled,4,"source rain requires one color target",globals,-1,-1,0); goto release; }
     for (unsigned i=0;i<104;++i) if (!isfinite(globals[i])) { source_rain_reject(take,camera.enabled,5,"source rain globals nonfinite",globals,(int)i,-1,globals[i]); goto release; }
     for (unsigned i=0;i<16;++i) if (!isfinite(shadow[i])) { source_rain_reject(take,camera.enabled,6,"source rain shadow nonfinite",globals,(int)i,-1,shadow[i]); goto release; }
-    // Particle VS globals declare m_V2W but never upload it. Recover the
-    // inverse from its actual orthonormal m_V instead of reading those zeros.
-    float inverse[16]={0}; inverse[15]=1;
-    for (unsigned r=0;r<3;++r) for (unsigned c=0;c<3;++c) {
-        double dot=0;
-        for (unsigned k=0;k<3;++k) dot+=globals[32+r*4+k]*globals[32+c*4+k];
-        if (fabs(dot-(r==c?1:0))>1e-5) { source_rain_reject(take,camera.enabled,7,"source rain view is not orthonormal",globals,(int)r,(int)c,dot); goto release; }
-        inverse[r*4+c]=globals[32+c*4+r];
+    // m_V2W is unused/unpopulated in native particles. Reconstruct it from
+    // actual m_V, supporting the validated affine transform of player cameras.
+    float inverse[16]; int inverse_row=-1,inverse_column=-1; double inverse_failure=0;
+    unsigned inverse_rejection=source_rain_inverse_view(globals,inverse,&inverse_row,&inverse_column,&inverse_failure);
+    if (inverse_rejection) {
+        const char *message=inverse_rejection==13?"source rain view determinant invalid":
+                            inverse_rejection==14?"source rain inverse residual invalid":
+                            inverse_rejection==15?"source rain projection and view disagree":
+                            "source rain view is ill-conditioned";
+        source_rain_reject(take,camera.enabled,inverse_rejection,message,globals,inverse_row,inverse_column,inverse_failure); goto release;
     }
     for (unsigned r=0;r<3;++r) {
-        double translation=0;
-        for (unsigned k=0;k<3;++k) translation-=inverse[r*4+k]*globals[35+k*4];
-        inverse[r*4+3]=(float)translation;
         if (fabsf(inverse[r*4+3]-globals[80+r])>.001f) { source_rain_reject(take,camera.enabled,8,"source rain inverse view differs from eye",globals,(int)r,-1,inverse[r*4+3]-globals[80+r]); goto release; }
     }
     // Director poses are not the player's camera. Use only the globals actually
