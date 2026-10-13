@@ -406,7 +406,7 @@ fn half(value: f32) -> Result<u16> {
     Ok(sign | (((exponent + 15) as u16) << 10) | mantissa)
 }
 
-pub(super) fn geometry(bytes: &[u8]) -> Result<Vec<u8>> {
+pub(super) fn geometry(bytes: &[u8], rebase_wrapped_uv: bool) -> Result<Vec<u8>> {
     ensure!(
         matches!(
             crate::map_port::upgrade_stripped_static_model(bytes)?,
@@ -425,19 +425,74 @@ pub(super) fn geometry(bytes: &[u8]) -> Result<Vec<u8>> {
     let start = declaration + 12;
     let stride = (end - start) / count;
     ensure!(matches!(stride, 32 | 36), "unsupported early static stride");
+    let mut uv: Vec<[f32; 2]> = bytes[start..end]
+        .chunks_exact(stride)
+        .map(|v| {
+            [24, 28].map(|offset| f32::from_le_bytes(v[offset..offset + 4].try_into().unwrap()))
+        })
+        .collect();
+    if rebase_wrapped_uv {
+        ensure!(uv.iter().flatten().all(|v| v.is_finite()), "nonfinite UV");
+        ensure!(
+            bytes.get(end..end + 4) == Some(&4u32.to_le_bytes()),
+            "expected index chunk"
+        );
+        let index_bytes = bytes
+            .get(end + 12..end + 8 + u32_at(end + 4))
+            .context("truncated indices")?;
+        ensure!(
+            index_bytes.len() == u32_at(end + 8) * 2 && index_bytes.len() % 6 == 0,
+            "invalid triangle indices"
+        );
+        let mut parent: Vec<_> = (0..count).collect();
+        fn root(parent: &mut [usize], mut i: usize) -> usize {
+            while parent[i] != i {
+                parent[i] = parent[parent[i]];
+                i = parent[i];
+            }
+            i
+        }
+        for triangle in index_bytes.chunks_exact(6) {
+            let ids = [0, 2, 4]
+                .map(|i| u16::from_le_bytes(triangle[i..i + 2].try_into().unwrap()) as usize);
+            ensure!(ids.iter().all(|&i| i < count), "index outside vertices");
+            let first = root(&mut parent, ids[0]);
+            for i in &ids[1..] {
+                let other = root(&mut parent, *i);
+                parent[other] = first;
+            }
+        }
+        let mut islands: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for i in 0..count {
+            islands.entry(root(&mut parent, i)).or_default().push(i);
+        }
+        for island in islands.values() {
+            let shift = [0, 1].map(|axis| {
+                let min = island
+                    .iter()
+                    .map(|&i| uv[i][axis])
+                    .fold(f32::INFINITY, f32::min);
+                let max = island
+                    .iter()
+                    .map(|&i| uv[i][axis])
+                    .fold(f32::NEG_INFINITY, f32::max);
+                ((min + max) * 0.5).round_ties_even()
+            });
+            for &i in island {
+                for axis in 0..2 {
+                    uv[i][axis] -= shift[axis];
+                }
+            }
+        }
+    }
     let mut result = Vec::new();
     result.extend(3u32.to_le_bytes());
     result.extend(u32::try_from(4 + count * (stride - 4))?.to_le_bytes());
     result.extend(u32::try_from(count)?.to_le_bytes());
-    for vertex in bytes[start..end].chunks_exact(stride) {
+    for (vertex, uv) in bytes[start..end].chunks_exact(stride).zip(uv) {
         result.extend(&vertex[..24]);
-        for offset in [24, 28] {
-            result.extend(
-                half(f32::from_le_bytes(
-                    vertex[offset..offset + 4].try_into().unwrap(),
-                ))?
-                .to_le_bytes(),
-            );
+        for value in uv {
+            result.extend(half(value)?.to_le_bytes());
         }
         if stride == 36 {
             result.extend(&vertex[32..36]);
@@ -758,9 +813,56 @@ mod tests {
             else {
                 panic!("expected old layout");
             };
-            assert_eq!(geometry(&old).unwrap(), native);
-            assert!(geometry(&old[..old.len() - 1]).is_err());
+            assert_eq!(geometry(&old, false).unwrap(), native);
+            assert!(geometry(&old[..old.len() - 1], false).is_err());
         }
+        // Large authored repeat offsets can collapse distinct UVs in half precision.
+        let mut native = Vec::new();
+        native.extend(3u32.to_le_bytes());
+        native.extend(88u32.to_le_bytes());
+        native.extend(3u32.to_le_bytes());
+        for _ in 0..3 {
+            native.extend([0u8; 28]);
+        }
+        native.extend(4u32.to_le_bytes());
+        native.extend(10u32.to_le_bytes());
+        native.extend(3u32.to_le_bytes());
+        native.extend([0, 0, 1, 0, 2, 0]);
+        let crate::map_port::StaticUpgrade::Converted(mut old) =
+            crate::map_port::upgrade_stripped_static_model(&native).unwrap()
+        else {
+            panic!("expected old layout");
+        };
+        let end = 8 + u32::from_le_bytes(old[4..8].try_into().unwrap()) as usize;
+        let start = end - 3 * 32;
+        for (i, uv) in [[-128.9f32, 112.4f32], [-128.89, 112.4], [-128.9, 112.41]]
+            .iter()
+            .enumerate()
+        {
+            for (axis, v) in uv.iter().enumerate() {
+                old[start + i * 32 + 24 + axis * 4..start + i * 32 + 28 + axis * 4]
+                    .copy_from_slice(&v.to_le_bytes());
+            }
+        }
+        let packed = geometry(&old, false).unwrap();
+        let fixed = geometry(&old, true).unwrap();
+        assert_eq!(&packed[36..40], &packed[64..68]);
+        assert_ne!(&fixed[36..40], &fixed[64..68]);
+        for i in 0..3 {
+            assert_eq!(
+                &fixed[12 + i * 28..36 + i * 28],
+                &packed[12 + i * 28..36 + i * 28]
+            );
+        }
+        assert_eq!(&fixed[96..], &packed[96..]);
+        assert_eq!(
+            &fixed[36..40],
+            &[
+                half(-128.9 + 129.).unwrap().to_le_bytes(),
+                half(112.4 - 112.).unwrap().to_le_bytes()
+            ]
+            .concat()
+        );
     }
 
     #[test]

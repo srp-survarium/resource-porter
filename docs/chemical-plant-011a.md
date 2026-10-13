@@ -111,3 +111,34 @@ are interchangeable with them.
 Evidence is retained under `resource-porter/.work/chemical-plant-011a`: archive,
 bundle manifest, source snapshot, build and test logs, shader verification,
 material audits, launch recipe, screenshot, and failed controlled-camera request.
+
+## Wrapped UV precision correction (2026-10-13)
+
+The striped mound in `south_yard_000` is `level/04/moss` surface
+`anomaly_moss_base_sg`. Pixel (670,510) unprojects to approximately
+(30.230,2.847,3.547). Nearby source UVs are around (-128.89,112.40).
+Packing these float32 coordinates directly into native half precision collapses
+1,007 originally nondegenerate UV triangles on that surface. Across the six
+listed moss base/LOD surfaces, 1,244 triangles collapse. The stripes are already
+present in the captured albedo, independently of lighting.
+
+The `wrapped_uv_surfaces` manifest field opts in only audited repeating-material
+surfaces. Conversion subtracts a single integer UV origin per index-connected
+island before half packing. This preserves periodic sampling and improves the
+representable precision; positions, normal/tangent fields, optional vertex
+colors and triangle indices remain unchanged. Do not opt in clamp-sampled or
+nonperiodically transformed materials without checking their sampling contract.
+The Chemical Plant and combined 0.11a manifests list the six affected surfaces.
+No general texture or brightness adjustment is involved.
+
+All 1,244 newly collapsed triangles are eliminated. The exact user screenshot
+location and all 52 comparison views were captured again; stripes disappear.
+A production manifest rebuild reproduced all six runtime-tested mesh blobs
+byte-for-byte. The existing geometry regression now covers the collapse and
+integer rebase; all 279 library tests pass, with no new test function.
+
+Evidence is preserved in `.work/chemical-plant-011a/comparison/uv-patch/`, with
+source UV ranges, triangle counts, per-island offsets, before/after blobs and a
+reversible archive patch. Captures are `026g/source-lighting/poses` before and
+`026g/source-lighting-uv/poses` after. Sky appearance/noise, glossy pipes and
+localized collision reports are separate open issues.

@@ -64,6 +64,9 @@ pub struct Manifest {
     pub lod0_promotions: BTreeSet<String>,
     #[serde(default)]
     pub missing_collision_resources: BTreeSet<String>,
+    /// Surfaces audited to use repeating UVs; integer island offsets preserve sampling.
+    #[serde(default)]
+    pub wrapped_uv_surfaces: BTreeSet<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1207,6 +1210,14 @@ pub fn build(
     let mut vegetation_instances = BTreeMap::new();
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
+    for path in &m.wrapped_uv_surfaces {
+        ensure!(
+            m.source_build.early()
+                && path.ends_with("/converted_model")
+                && plan.donor_files.contains(path),
+            "wrapped UV surface must name a selected early geometry resource: {path}"
+        );
+    }
     for path in &plan.donor_files {
         let mut bytes = if let Some(b) = overrides.get(path) {
             b.clone()
@@ -1214,8 +1225,11 @@ pub fn build(
             donor.read(path)?
         };
         if m.source_build.early() && path.ends_with("/converted_model") {
-            bytes = early::geometry(&bytes)
+            bytes = early::geometry(&bytes, m.wrapped_uv_surfaces.contains(path))
                 .with_context(|| format!("converting early geometry {path}"))?;
+            if m.wrapped_uv_surfaces.contains(path) {
+                compatibility_notes.push(format!("{path}: integer UV island offsets removed before half packing; repeating material sampling preserved"));
+            }
             converted_geometry.insert(path.clone());
         }
         if path.ends_with(".veg") {

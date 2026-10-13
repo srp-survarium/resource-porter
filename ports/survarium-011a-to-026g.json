@@ -42,5 +42,13 @@
     "material_instances/water/water.material": "material_instances/water/water.material",
     "material_instances/water/water_green.material": "material_instances/water/water_green.material",
     "material_instances/water/water_green_shit.material": "material_instances/water/water_green_shit.material"
-  }
+  },
+  "wrapped_uv_surfaces": [
+    "models/level/04/moss2.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss2.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_base_sg/converted_model"
+  ]
 }
