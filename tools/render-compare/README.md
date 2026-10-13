@@ -276,3 +276,32 @@ mip: both expose the complete 16x16, three-level cube, making LOD 1 an 8x8 mip.
 
 Visual parity still fails. These diagnostics establish intermediate behavior;
 they do not validate the combined old/new rendering pipeline.
+
+## Isolated composition rain response
+
+`SRP_LEGACY_COMPOSITION_REFERENCE` optionally supplies a second composition
+shader. On each requested capture it is drawn with the same inputs as the
+override and native reference, then the override is restored. Its output is
+`composition-output.rt02.bin`; its bytecode is `.comparison.dxbc`. A composition
+override is required. Compare it with `compare_composition.py CAPTURE_FOLDER
+--reference-slot 2`.
+
+`legacy_composition_dry_response.hlsl` removes only the diffuse rain multiplier
+from encoded composition. `pipeline-composition-rain-isolated` pairs it with
+the unchanged encoded shader and retains the project's rain flag. All four
+captures have finite outputs and no channels decreasing by more than one stored
+step. `audit_rain_response.py` measures the same-frame RGB-sum increase: about
+17% in the two south-wall regions, 17% in the interior back-wall region, 27% in
+the north region and 58% in the forest region. This is intermediate HDR energy,
+not final perceived brightness. All four views still differ from 0.10b.
+
+`audit_surface_light.py` bounds the missing skylight underneath the global
+probe using captured depth/transforms and source falloff. The bound is conditional
+on sphere coverage and subsequent ordinary alpha blending. It is below 0.0004%
+of ambient energy in both south-wall regions; it cannot explain that wall's
+visible gap. Regions crossing outside the sphere have no aggregate bound.
+
+The archived old low-quality SSAO shader differs from the current reconstructed
+`ssao_accumulation.ps` source: it samples depth without normals and caps output
+at 0.5 after nonlinear scaling. Validate against shipped bytecode before using
+that source as an oracle. Its existence does not justify a uniform 2.5 gain.

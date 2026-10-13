@@ -31,6 +31,9 @@ static void *legacy_composition_code;
 static size_t legacy_composition_size;
 static unsigned legacy_composition_uses;
 static ID3D11PixelShader *native_composition_shader;
+static ID3D11PixelShader *comparison_composition_shader;
+static void *comparison_composition_code;
+static size_t comparison_composition_size;
 static const GUID composition_guid={0x94bd30e1,0x2601,0x49c4,{0xa4,0x37,0x72,0x15,0x6b,0x1d,0x4c,0xe2}};
 static unsigned composition_output_id;
 static void *legacy_ambient_decode_code;
@@ -68,6 +71,11 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (composition_replaced && !native_composition_shader &&
         FAILED(original_create_ps(device,code,size,linkage,&native_composition_shader))) {
         error("cannot create native composition reference");
+        composition_replaced=0;
+    }
+    if (composition_replaced && comparison_composition_code && !comparison_composition_shader &&
+        FAILED(original_create_ps(device,comparison_composition_code,comparison_composition_size,linkage,&comparison_composition_shader))) {
+        error("cannot create composition comparison shader");
         composition_replaced=0;
     }
     if (replaced) { code=legacy_lut_code; size=legacy_lut_size; }
@@ -335,7 +343,16 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
         fputs("[",file); dump_texture(texture,base,file,"override",0,NULL); fputs(",",file);
         ID3D11DeviceContext_PSSetShader(context,native_composition_shader,NULL,0);
         if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
-        dump_texture(texture,base,file,"native_same_inputs",1,NULL); fputs("]\n",file); fclose(file);
+        dump_texture(texture,base,file,"native_same_inputs",1,NULL);
+        if (comparison_composition_shader) {
+            ID3D11DeviceContext_PSSetShader(context,comparison_composition_shader,NULL,0);
+            if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
+            fputs(",",file); dump_texture(texture,base,file,"comparison_same_inputs",2,NULL);
+            snprintf(path,sizeof(path),"%s.comparison.dxbc",base);
+            if (!write_bytes(path,comparison_composition_code,comparison_composition_size))
+                error("cannot save composition comparison shader");
+        }
+        fputs("]\n",file); fclose(file);
         ID3D11DeviceContext_PSSetShader(context,shader,NULL,0);
         if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
         composition_output_id=camera.id;
@@ -386,7 +403,11 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE",&legacy_probe_code,&legacy_probe_size) ||
         !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE_BOX",&legacy_probe_box_code,&legacy_probe_box_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION",&legacy_composition_code,&legacy_composition_size) ||
+        !load_shader_override("SRP_LEGACY_COMPOSITION_REFERENCE",&comparison_composition_code,&comparison_composition_size) ||
         !load_shader_override("SRP_LEGACY_AMBIENT_DECODE",&legacy_ambient_decode_code,&legacy_ambient_decode_size)) return 0;
+    if (comparison_composition_code && !legacy_composition_code) {
+        error("composition comparison requires a composition override"); return 0;
+    }
     int encoded_sphere=legacy_probe_code && contains(legacy_probe_code,legacy_probe_size,"encoded_color_parameters");
     int encoded_box=legacy_probe_box_code && contains(legacy_probe_box_code,legacy_probe_box_size,"encoded_color_parameters");
     if ((legacy_ambient_decode_code && (!encoded_sphere || !encoded_box)) ||

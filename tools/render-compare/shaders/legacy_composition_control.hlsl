@@ -76,6 +76,7 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
     float3 lighting=ambient+sunlight*shadow.x+scattering;
 #endif
     float3 diffuse_result=albedo*debug_multipliers.x*lighting;
+#ifndef CONFIG_NO_RAIN_DARKENING
     if (use_rain>.5) {
         float4 projected=mul(view_to_shadow,float4(position+normal*1.3,1));
         float3 tc=projected.xyz/projected.w;
@@ -90,5 +91,6 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
         float wet=saturate(parameters.x*330-500)*saturate((parameters.y-.5)*10);
         diffuse_result*=.85+rain*(5*(.9*wet+.1)-.85);
     }
+#endif
     return float4(diffuse_result+specular_color*debug_multipliers.y*specular,0);
 }
