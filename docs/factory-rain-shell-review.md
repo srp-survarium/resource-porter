@@ -41,8 +41,19 @@ from those validated dimensions. Invalid unarmed frames preserve native rain and
 save the first rejected globals per reason; an armed capture still requires valid
 inputs. Live output is opt-in and copied only after private rendering and target
 validation. The five v2 live captures pass the input/math audit and final output is
-byte-identical to private shell5. Actual player-camera runtime validation remains
-pending after the affine inverse change.
+byte-identical to private shell5. The final assembled `pipeline-factory-live-rain-clouds-complete` also passes all
+five full-pixel rain audits; its seven acknowledged BMP/pose groups match their
+recorded original session byte-for-byte, with no within-pose frame mixing.
+
+The six-second director-disabled test passed with no rejected draws: three unique
+disabled status samples show 241 additional applied frames across 4.017 scene
+seconds, and GPU eye changes from the fixed pose `[42,2,19]` to the standing
+player camera `[-35.8509,1.9937,-74.446]`. Rendered/applied/suppressed counters and
+input frame serials agree. This indicates approximately 60 FPS in that standing
+run; two-second status reporting and no matched performance baseline prevent an
+overhead claim. No movement input was injected. The sampled standing view was
+orthonormal, so execution of the affine branch is established by CPU replay of
+the earlier sheared GPU buffer, not by those final status samples.
 
 RDEF and SHDR confirm that source VS dynamic reads are only cb0 rows7–9
 (`m_W`); `m_WVP` and `m_WV` are unused. Source PS uses cb0 rows1–6 and cb1
