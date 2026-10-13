@@ -295,3 +295,29 @@ Artifacts: `026g/evening-god-rays-diagnostic`, `evening-god-rays-disabled`, and
 experiment completed two worker readbacks while root stalled after one; this
 does not establish safe concurrent capture. Compiler checks use existing
 `-Wall -Wextra -Werror`; no game tests were added.
+
+### Stationary noise at a distance
+
+The user reports noise on distant surfaces while standing still, across maps;
+this is not limited to sky or camera movement. Factory rain's four saved views
+also differ after the gamma-copy draw. Final/gamma spatial high-pass RMS ratios
+are .654/.656/.763/.660 in the original and .794/.774/.903/.890 in 0.26
+(interior/north/south/upper). The target's final mean luma rises .0051–.0132;
+the original falls .0006–.0012. These single-frame statistics include edges,
+so they establish a late-stage mismatch, not temporal or distance attribution.
+
+A shared candidate is duplicate grain: the compatibility post restores source
+grain, while native `aberration.ps` has grain-enabled permutations downstream.
+The original source's aberration shader has no grain; its complex post blend
+adds grain once using frame-index-driven random offsets. Active native shader
+capture and a selective correction are pending. Preserve intentional original
+grain rather than removing noise indiscriminately.
+
+The root `reproduction/source-volume-post-contract-checkpoint` preserves 397
+files and hashes 1,575 successful solo-capture files plus 425 files from the
+failed overlap batch. Its four-view beam check verifies original sphere slot14
+and all six mips; bulb size and beam brightness still differ. During the overlap
+stall, logic/render/channel counters all stayed895 for about26seconds while
+matching queue head/tail addresses cycled. GPU usage was17–21%, with4720MiB of
+8192MiB used. This does not show GPU exhaustion or the previously hypothesized
+logic/render counter disparity; it does not prove concurrency caused the stall.
