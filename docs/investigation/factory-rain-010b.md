@@ -104,3 +104,23 @@ recover the original encoded sum. Original local-light Fresnel and shadow
 placement also differ. An encoded auxiliary accumulator must reproduce the
 original producers before it can supply faithful rain opacity; the local-light
 observer is being extended to capture the active contracts.
+
+The target-only `026g/pipeline-lamp-hangar-local-light` batch now records the
+selected outdoor cone and both matched hangar views. All 56 local-light draws
+use the shadowed spot family, with no overflow and one Present per view.
+The 4,856 capture files, loaded DLL and reproduction inputs are preserved in
+`reproduction/lamp-hangar-local-light-20261013`. The lamp selector matches
+`(11.152,10.196,18.044)` after rejecting two other cones; neither hangar view
+contains that cone, and no substitute volume is captured. Local lights use
+two geometry passes with stencil writes, so auxiliary replay must preserve
+the pre-draw depth/stencil state rather than reuse it after the native draw.
+
+Rain-shadow coverage also differs. Multiplying each original captured
+`view_to_shadow` by its captured view matrix gives world-space XY scale 1/64
+in all five paired views, versus native 1/128. Original `stage_pre_rain.cpp`
+places the shadow camera at `camera - rain_direction*100 + view_direction*32`,
+including the vertical view component. The current native center differs:
+the upward streetlamp view's shadow Z translation is 0.268874 versus source
+0.322356. Therefore School's independently validated projection half-scale
+hook alone cannot restore the older Factory shadow contract. Preserve both
+projection and camera-position behavior before comparing caster depth maps.

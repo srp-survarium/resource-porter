@@ -778,5 +778,7 @@ records carrying the request ID, so use a fresh output directory for a batch.
 The previously captured streetlamp view selected a different cone at
 `[-20.702, 9.914, -8.903]`. The original and target streetlamp images both show
 a detached low beam, so this mismatch in observation does not justify moving
-the geometry. This filter has passed the compiler checks; runtime selection
-must be verified before using its result to assess the lamp.
+the geometry. The three-view `pipeline-lamp-hangar-local-light` runtime batch
+selects the exact outdoor cone after rejecting two other origins. Both hangar
+views reject their unrelated cones and correctly produce no selected-volume
+readback. The capture checkpoint preserves this evidence and the loaded DLL.
