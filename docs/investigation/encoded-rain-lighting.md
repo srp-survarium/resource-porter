@@ -466,3 +466,45 @@ Earlier encoded-buffer comparisons used a looser finite-depth mask; their
 counts must not be substituted for these geometry-only counts. This remains
 a pre-fog diffuse experiment, not proof of downstream rain/fog or full
 material parity, and the displayed recipe was not changed.
+
+## Wall residual decomposition
+
+`audit_wall_composition.py CAPTURES --original ORIGINAL_POSES --output REPORT`
+uses every exactly matching depth pixel in the predefined south shadow-wall
+and interior back-wall rectangles: 17,000 and 9,800 respectively. In both
+clients, final encoded diffuse equals ambient encoded diffuse at every one
+of these pixels; direct sun/local/translucency additions cannot explain the
+residual. Component substitutions below are CPU counterfactuals, not fitted
+gains or proposed image replacements.
+
+South's native linear albedo averages .3380/.3332/.3399 versus source
+.3274/.3215/.3239. Substituting only the frozen source albedo reduces HDR
+MAE from .002748 to .001162; substituting lighting alone gives .002674.
+Changing the target albedo decode to gamma 2.2 instead makes it worse,
+.002858. The mismatch is upstream of resolve; identify the bound material
+and its G-buffer production before changing it. A global gamma correction
+is not supported by this evidence.
+
+Back-wall linear albedo means agree within .000113. Its private ambient
+blue lighting is .03967 versus source .03723. Substituting source lighting
+reduces HDR MAE .000618→.000327; source albedo alone gives .000589. This
+points to ambient/probe production and the remaining native specular path,
+not the same albedo issue as the south wall.
+
+To separate specular from output rounding, the audit also checks exact
+source and native composition arithmetic on shadowed dielectric pixels
+where both specular tint formulas simplify. All 17,000 south and 9,332
+back-wall samples replay within one R11G11B10 channel ULP. South source
+specular averages about .0000009 per channel versus native .000395;
+back-wall source averages .0000065 versus native .000148. Native sun
+visibility is zero on this subset, so the excess is in the accumulated
+specular input. These are small absolute terms but materially affect these
+dark surfaces.
+
+`environment_probe_lighting.ps:224–233` applies source `(1-gloss^3)`, AO to
+the fifth power, a cap of four and encoded alpha blending to specular.
+The retained native branch in `legacy_probe_diffuse.hlsl` has different
+cube decoding, BRDF/mip selection and linear AO, and lacks that cubic
+suppression. The next justified lighting experiment is a separate source
+specular producer/accumulator; adding an empirical gain to full diffuse
+would conceal two distinct remaining contracts.
