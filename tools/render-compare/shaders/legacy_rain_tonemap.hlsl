@@ -10,6 +10,9 @@ Texture3D t_color_grading_lut : register(t1);
 Texture2D t_frame_luminance : register(t2);
 Texture2D t_light_scattering_result : register(t3);
 Texture2D t_bloom_combine : register(t4);
+#ifdef CONFIG_ORIGINAL_POST_TAIL
+Texture2D t_legacy_grain : register(t12);
+#endif
 SamplerState s_linear : register(s0);
 SamplerState s_accumulator : register(s1);
 SamplerState s_material1 : register(s2);
@@ -19,12 +22,27 @@ float4 main(float4 position : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET
     float3 frame=t_frame_color.SampleLevel(s_material1,uv,0).xyz;
     float3 bloom=t_bloom_combine.SampleLevel(s_material1,uv,0).xyz;
     float3 color=lerp(frame,bloom,bloom_parameters.x)+t_light_scattering_result.Sample(s_linear,uv).xyz;
+#ifdef CONFIG_ORIGINAL_POST_TAIL
+    float level=dot(float3(.3,.7,.2),color);
+    if (level<.03) color=lerp(color,dot(float3(.2125,.7154,.0721),color),pow(1-saturate(level/.03),2));
+#endif
     float average=clamp(t_frame_luminance.Sample(s_accumulator,float2(.5,.5)).x,.09,.4);
     float3 x=max(color*pow(.25/average,.2)-.0015,0);
     color=pow((x*(6.2*x+.2))/(x*(5.9*x+1.5)+.04),2.2);
+#ifdef CONFIG_ORIGINAL_POST_TAIL
+    uint width,height; t_frame_color.GetDimensions(width,height);
+    int2 noise_pixel=int2(floor((uv+image_grain_parameters.xy*2-1)*float2(width,height))) & 63;
+    color=saturate(color+t_legacy_grain.Load(int3(noise_pixel,0)).rgb*.08*pow(color,.6));
+    float3 encoded=pow(abs(color),1/2.2);
+#else
     float3 encoded=1.055*pow(abs(color),1/2.4)-.055;
+#endif
     float3 graded=t_color_grading_lut.SampleLevel(s_material1,encoded*(15./16)+(.5/16),0).xyz;
+#ifdef CONFIG_ORIGINAL_POST_TAIL
+    color=pow(abs(graded),2.2);
+#else
     color=pow((abs(graded)+.055)/1.055,2.4);
+#endif
     if (image_grain_parameters.w>.1)
         color*=min(pow(abs(1-dot(uv-.5,uv-.5)),image_grain_parameters.w+1),1);
     return float4(color,0);

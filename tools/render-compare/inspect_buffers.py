@@ -37,7 +37,7 @@ def inspect(index):
     summary=[]
     for item in json.loads(index.read_text()):
         if not item.get('written'): continue
-        file=Path(str(base)+f".rt{item['slot']:02d}.bin")
+        file=Path(str(base)+f".{'vol' if 'depth' in item else 'rt'}{item['slot']:02d}.bin")
         output=bytearray(); totals=[0.,0.,0.]; minima=[math.inf]*3; maxima=[-math.inf]*3; count=0; nonfinite=0; examples=[]
         for pixel in pixels(file.read_bytes(),item['format']):
             if len(examples)<4:examples.append(pixel)
@@ -52,7 +52,7 @@ def inspect(index):
             count+=1
         item=dict(item,mean=[v/count for v in totals],minimum=minima,maximum=maxima,nonfinite=nonfinite,first_pixels=examples)
         summary.append(item)
-        png(file.with_suffix('.png'),item['width'],item['height'],output)
+        png(file.with_suffix('.png'),item['width'],item['height']*item.get('depth',1),output)
     result=Path(str(base)+'.summary.json');result.write_text(json.dumps(summary,indent=2)+'\n')
     for item in summary:print(item['slot'],item['name'],item['format'],item['width'],item['height'],'mean',item['mean'])
 

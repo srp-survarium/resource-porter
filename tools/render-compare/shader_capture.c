@@ -3,7 +3,8 @@ static const GUID post_code_guid={0x9205d461,0x758c,0x44fe,{0xad,0x61,0xa1,0x13,
 static HRESULT (STDMETHODCALLTYPE *original_create_ps)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11PixelShader **);
 static void (STDMETHODCALLTYPE *original_draw)(ID3D11DeviceContext *,UINT,UINT);
 static void (STDMETHODCALLTYPE *original_draw_indexed)(ID3D11DeviceContext *,UINT,UINT,INT);
-static unsigned draw_ids[9];
+static unsigned draw_ids[10];
+static unsigned post_output_pending, post_output_kind;
 static unsigned probe_request_id, probe_shader_count;
 static unsigned char probe_shader_digests[16][16];
 static int capture_materials_enabled;
@@ -21,7 +22,10 @@ static size_t legacy_sky_size, legacy_cloud_size;
 static unsigned legacy_sky_uses, legacy_cloud_uses;
 static void *legacy_post_code;
 static size_t legacy_post_size;
-static unsigned legacy_post_uses;
+static unsigned legacy_post_uses, legacy_present_uses;
+static void *legacy_present_code; static size_t legacy_present_size;
+static char legacy_post_grain_path[MAX_PATH];
+static ID3D11ShaderResourceView *legacy_post_grain_view;
 static void *legacy_probe_code;
 static size_t legacy_probe_size;
 static unsigned legacy_probe_uses;
@@ -50,6 +54,8 @@ static int contains(const void *data, size_t length, const char *text) {
 
 static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code,SIZE_T size,ID3D11ClassLinkage *linkage,ID3D11PixelShader **shader) {
     const unsigned char expected[]={0x18,0x28,0x29,0x05,0xd7,0x75,0xeb,0xa6,0xbb,0x7b,0x12,0xe0,0x57,0x71,0x0d,0xfe};
+    const unsigned char present_expected[]={0x20,0x02,0x37,0x28,0x32,0x61,0xd9,0xb2,0x6a,0x85,0xaf,0xf8,0x8a,0x85,0x99,0x29};
+    int present_replaced=legacy_present_code && size==976 && !memcmp((const char *)code+4,present_expected,16);
     int replaced=legacy_lut_code && size==3508 && !memcmp((const char *)code+4,expected,16);
     const unsigned char fog_expected[]={0x0f,0x99,0x55,0x0b,0xd7,0x4e,0x29,0x0a,0xcf,0x08,0xab,0x46,0xdd,0xc5,0xed,0x20};
     int fog_replaced=legacy_fog_code && size==3608 && !memcmp((const char *)code+4,fog_expected,16);
@@ -82,6 +88,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (fog_replaced) { code=legacy_fog_code; size=legacy_fog_size; }
     if (sky_replaced) { code=legacy_sky_code; size=legacy_sky_size; }
     if (cloud_replaced) { code=legacy_cloud_code; size=legacy_cloud_size; }
+    if (present_replaced) { code=legacy_present_code; size=legacy_present_size; }
     if (post_replaced) { code=legacy_post_code; size=legacy_post_size; }
     if (probe_replaced) { code=legacy_probe_code; size=legacy_probe_size; }
     if (probe_box_replaced) { code=legacy_probe_box_code; size=legacy_probe_box_size; }
@@ -94,16 +101,20 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (fog_replaced && SUCCEEDED(hr) && shader && *shader) {
         unsigned flag=1; ID3D11PixelShader_SetPrivateData(*shader,&legacy_fog_guid,sizeof(flag),&flag);
     }
+    if (post_replaced && SUCCEEDED(hr) && shader && *shader && contains(code,size,"t_legacy_grain")) {
+        unsigned flag=3; ID3D11PixelShader_SetPrivateData(*shader,&legacy_fog_guid,sizeof(flag),&flag);
+    }
     if (ambient_decode_replaced && SUCCEEDED(hr) && shader && *shader) {
         unsigned flag=2; ID3D11PixelShader_SetPrivateData(*shader,&legacy_fog_guid,sizeof(flag),&flag);
     }
-    if (replaced || fog_replaced || sky_replaced || cloud_replaced || post_replaced || probe_replaced || probe_box_replaced || composition_replaced || ambient_decode_replaced) {
+    if (replaced || fog_replaced || sky_replaced || cloud_replaced || post_replaced || probe_replaced || probe_box_replaced || composition_replaced || ambient_decode_replaced || present_replaced) {
         if (FAILED(hr)) error("legacy atmosphere shader rejected");
         else if (replaced) ++legacy_lut_uses;
         else if (fog_replaced) ++legacy_fog_uses;
         else if (sky_replaced) ++legacy_sky_uses;
         else if (cloud_replaced) ++legacy_cloud_uses;
         else if (post_replaced) ++legacy_post_uses;
+        else if (present_replaced) ++legacy_present_uses;
         else if (composition_replaced) ++legacy_composition_uses;
         else if (ambient_decode_replaced) ++legacy_ambient_decode_uses;
         else ++legacy_probe_uses;
@@ -116,6 +127,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         contains(code,size,"sky_clouds_parameters0") || contains(code,size,"t_probe_cubemap_diffuse") ||
         contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
         contains(code,size,"skylight_parameters0") ||
+        (contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")) ||
         (capture_materials_enabled && contains(code,size,"deferred_material_parameters")) ||
         (contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation"))))
         ID3D11PixelShader_SetPrivateData(*shader,&post_code_guid,(UINT)size,code);
@@ -148,6 +160,37 @@ static void capture_probe_initial(ID3D11DeviceContext *context,const char *outpu
     if (file) { fputs("]\n",file); fclose(file); }
 }
 
+static void dump_volume(ID3D11Texture3D *texture,const char *base,FILE *index,unsigned slot,const D3D11_SHADER_RESOURCE_VIEW_DESC *view) {
+    D3D11_TEXTURE3D_DESC desc; ID3D11Texture3D_GetDesc(texture,&desc);
+    fprintf(index,"{\"slot\":%u,\"name\":\"volume_input_%u\",\"width\":%u,\"height\":%u,\"depth\":%u,\"format\":%u,\"view_format\":%u,\"view_dimension\":%u,\"view_most_detailed_mip\":%u",slot,slot,desc.Width,desc.Height,desc.Depth,desc.Format,view->Format,view->ViewDimension,view->Texture3D.MostDetailedMip);
+    if (desc.Width>64 || desc.Height>64 || desc.Depth>64 || (desc.Format!=DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format!=DXGI_FORMAT_B8G8R8A8_UNORM) || view->Texture3D.MostDetailedMip) {
+        fputs(",\"skipped\":\"volume contract\"}",index); return;
+    }
+    ID3D11Device *device=NULL; ID3D11DeviceContext *context=NULL; ID3D11Texture3D *staging=NULL;
+    ID3D11Texture3D_GetDevice(texture,&device); ID3D11Device_GetImmediateContext(device,&context);
+    desc.Usage=D3D11_USAGE_STAGING; desc.BindFlags=0; desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ; desc.MiscFlags=0; desc.MipLevels=1;
+    HRESULT hr=ID3D11Device_CreateTexture3D(device,&desc,NULL,&staging); int ok=0;
+    if (SUCCEEDED(hr)) {
+        ID3D11DeviceContext_CopySubresourceRegion(context,(ID3D11Resource *)staging,0,0,0,0,(ID3D11Resource *)texture,0,NULL);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        hr=ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped);
+        if (SUCCEEDED(hr)) {
+            char path[MAX_PATH+80]; snprintf(path,sizeof(path),"%s.vol%02u.bin",base,slot);
+            FILE *file=fopen(path,"wb");
+            if (file) {
+                ok=1;
+                for (UINT z=0;z<desc.Depth;++z) for (UINT y=0;y<desc.Height;++y)
+                    if (fwrite((char *)mapped.pData+z*mapped.DepthPitch+y*mapped.RowPitch,desc.Width*4,1,file)!=1) ok=0;
+                if (fclose(file)) ok=0;
+            }
+            ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
+        }
+    }
+    fprintf(index,",\"bytes_per_pixel\":4,\"written\":%s,\"hresult\":%ld}",ok?"true":"false",hr);
+    if (staging) ID3D11Texture3D_Release(staging);
+    ID3D11DeviceContext_Release(context); ID3D11Device_Release(device);
+}
+
 static void capture_post_draw(ID3D11DeviceContext *context) {
     Camera camera;
     EnterCriticalSection(&lock);
@@ -166,7 +209,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     hr=ID3D11PixelShader_GetPrivateData(shader,&post_code_guid,&size,code);
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr)) { free(code); return; }
-    unsigned kind=contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
+    unsigned kind=contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
         capture_materials_enabled && contains(code,size,"deferred_material_parameters")?8:
         contains(code,size,"hba_parameters") || contains(code,size,"t_encoded_ambient") || (contains(code,size,"t_ssao_accumulator") && !contains(code,size,"t_probe_cubemap_diffuse"))?5:contains(code,size,"skylight_parameters0")?6:
         contains(code,size,"t_frame_luminance")?0:contains(code,size,"sky_clouds_parameters0")?1:
@@ -185,11 +228,11 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         for (unsigned i=0;i<material_shader_count;++i)
             if (!memcmp(material_shader_digests[i],(char *)code+4,16)) { free(code); return; }
         material_variant=material_shader_count;
-    } else if (draw_ids[kind]==camera.id || (kind==0 && buffers_id!=camera.id) ||
+    } else if (draw_ids[kind]==camera.id || (kind==0 && buffers_id!=camera.id) || (kind==9 && draw_ids[0]!=camera.id) ||
         (kind==5 && ambient_id!=camera.id)) { free(code); return; }
     if (kind==2 && !probe_variant) capture_probe_initial(context,camera.output);
     char base[MAX_PATH+48],path[MAX_PATH+80];
-    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw"};
+    const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw"};
     if (kind==8)
         snprintf(base,sizeof(base),"%s.material-draw-%u",camera.output,material_variant);
     else if (kind==2 && probe_variant)
@@ -229,13 +272,27 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
         ID3D11Buffer_Release(buffers[i]);
     }
     ID3D11Device_Release(device);
+    if (kind==0) {
+        snprintf(path,sizeof(path),"%s.samplers.json",base); FILE *file=fopen(path,"w");
+        if (file) {
+            ID3D11SamplerState *samplers[3]={0}; ID3D11DeviceContext_PSGetSamplers(context,0,3,samplers);
+            fputs("[",file); unsigned count=0;
+            for (unsigned i=0;i<3;++i) if (samplers[i]) {
+                D3D11_SAMPLER_DESC desc; ID3D11SamplerState_GetDesc(samplers[i],&desc);
+                if (count++) fputs(",",file);
+                fprintf(file,"{\"slot\":%u,\"filter\":%u,\"address\":[%u,%u,%u],\"min_lod\":%.9g,\"max_lod\":%.9g}",i,desc.Filter,desc.AddressU,desc.AddressV,desc.AddressW,desc.MinLOD,desc.MaxLOD);
+                ID3D11SamplerState_Release(samplers[i]);
+            }
+            fputs("]\n",file); fclose(file);
+        }
+    }
     snprintf(path,sizeof(path),"%s.targets.json",base);
     FILE *index=fopen(path,"w");
     if (index) {
-        ID3D11ShaderResourceView *views[12]={0};
-        ID3D11DeviceContext_PSGetShaderResources(context,0,12,views);
+        ID3D11ShaderResourceView *views[13]={0};
+        ID3D11DeviceContext_PSGetShaderResources(context,0,13,views);
         fputs("[",index); unsigned count=0;
-        for (unsigned i=0;i<12;++i) if (views[i]) {
+        for (unsigned i=0;i<13;++i) if (views[i]) {
             ID3D11Resource *resource=NULL; ID3D11ShaderResourceView_GetResource(views[i],&resource);
             ID3D11Texture2D *texture=NULL;
             hr=ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&texture);
@@ -250,10 +307,22 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
                 } else dump_texture(texture,base,index,name,i,&view_desc);
                 ID3D11Texture2D_Release(texture);
             }
+            if (kind==0) {
+                D3D11_RESOURCE_DIMENSION dimension; ID3D11Resource_GetType(resource,&dimension);
+                if (dimension==D3D11_RESOURCE_DIMENSION_TEXTURE3D) {
+                    ID3D11Texture3D *volume=NULL;
+                    if (SUCCEEDED(ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture3D,(void **)&volume))) {
+                        D3D11_SHADER_RESOURCE_VIEW_DESC view_desc; ID3D11ShaderResourceView_GetDesc(views[i],&view_desc);
+                        if (count++) fputs(",",index);
+                        dump_volume(volume,base,index,i,&view_desc); ID3D11Texture3D_Release(volume);
+                    }
+                }
+            }
             ID3D11Resource_Release(resource); ID3D11ShaderResourceView_Release(views[i]);
         }
         fputs("]\n",index); fclose(index);
     }
+    if (kind==0 || kind==9) { post_output_pending=camera.id; post_output_kind=kind; }
     EnterCriticalSection(&lock); draw_ids[kind]=camera.id; LeaveCriticalSection(&lock);
 }
 
@@ -264,17 +333,33 @@ typedef struct {
     float factor[4];
     UINT mask;
     int bound,blend_bound;
+    UINT extra_slot;
 } LegacyExtraState;
 static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *state) {
     memset(state,0,sizeof(*state));
-    if (!legacy_fog_code && !legacy_ambient_decode_code) return;
+    if (!legacy_fog_code && !legacy_ambient_decode_code && !legacy_post_grain_path[0]) return;
     ID3D11PixelShader *shader=NULL; ID3D11DeviceContext_PSGetShader(context,&shader,NULL,NULL);
     if (!shader) return;
     unsigned flag=0; UINT size=sizeof(flag);
     HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&legacy_fog_guid,&size,&flag);
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr) || !flag) return;
-    ID3D11ShaderResourceView *view=flag==1?legacy_mie_view:flag==2?legacy_ambient_view:NULL;
+    if (flag==3 && !legacy_post_grain_view) {
+        unsigned char bytes[2048]; FILE *file=fopen(legacy_post_grain_path,"rb");
+        if (!file) { error("original grain texture missing"); return; }
+        int ok=fread(bytes,1,sizeof(bytes),file)==sizeof(bytes) && fgetc(file)==EOF; fclose(file);
+        if (!ok) { error("original grain texture must be 64x64 BC1 mip zero"); return; }
+        ID3D11Device *device=NULL; ID3D11DeviceContext_GetDevice(context,&device);
+        D3D11_TEXTURE2D_DESC desc={0}; desc.Width=desc.Height=64; desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
+        desc.Format=DXGI_FORMAT_BC1_UNORM; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA initial={bytes,128,0}; ID3D11Texture2D *texture=NULL;
+        hr=ID3D11Device_CreateTexture2D(device,&desc,&initial,&texture);
+        if (SUCCEEDED(hr)) { hr=ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)texture,NULL,&legacy_post_grain_view); ID3D11Texture2D_Release(texture); }
+        ID3D11Device_Release(device);
+        if (FAILED(hr)) { error("cannot allocate original grain texture on scene device"); return; }
+    }
+    ID3D11ShaderResourceView *view=flag==1?legacy_mie_view:flag==2?legacy_ambient_view:flag==3?legacy_post_grain_view:NULL;
+    state->extra_slot=flag==3?12:2;
     if (!view) { error("legacy draw extra resource missing"); return; }
     if (flag==2 && legacy_ssao_enabled) {
         if (!legacy_ssao_ready) { error("original SSAO was not rendered this frame"); return; }
@@ -317,8 +402,8 @@ static void bind_legacy_extra(ID3D11DeviceContext *context,LegacyExtraState *sta
         ID3D11DeviceContext_OMSetBlendState(context,legacy_decode_blend,state->factor,state->mask);
         state->blend_bound=1;
     }
-    ID3D11DeviceContext_PSGetShaderResources(context,2,1,&state->view);
-    ID3D11DeviceContext_PSSetShaderResources(context,2,1,&view); state->bound=1;
+    ID3D11DeviceContext_PSGetShaderResources(context,state->extra_slot,1,&state->view);
+    ID3D11DeviceContext_PSSetShaderResources(context,state->extra_slot,1,&view); state->bound=1;
 }
 static void restore_extra(ID3D11DeviceContext *context,LegacyExtraState *state) {
     if (state->ao_bound) {
@@ -326,7 +411,7 @@ static void restore_extra(ID3D11DeviceContext *context,LegacyExtraState *state) 
         if (state->native_ao) ID3D11ShaderResourceView_Release(state->native_ao);
     }
     if (state->bound) {
-        ID3D11DeviceContext_PSSetShaderResources(context,2,1,&state->view);
+        ID3D11DeviceContext_PSSetShaderResources(context,state->extra_slot,1,&state->view);
         if (state->view) ID3D11ShaderResourceView_Release(state->view);
     }
     if (state->blend_bound) {
@@ -386,14 +471,35 @@ static void capture_composition_outputs(ID3D11DeviceContext *context,UINT count,
     }
     ID3D11Texture2D_Release(texture); ID3D11PixelShader_Release(shader);
 }
+static void capture_post_output(ID3D11DeviceContext *context) {
+    if (!post_output_pending) return;
+    Camera camera;
+    EnterCriticalSection(&lock); camera=applied; LeaveCriticalSection(&lock);
+    unsigned pending=post_output_pending; post_output_pending=0;
+    if (camera.id!=pending) return;
+    ID3D11RenderTargetView *target=NULL; ID3D11DeviceContext_OMGetRenderTargets(context,1,&target,NULL);
+    if (!target) return;
+    ID3D11Resource *resource=NULL; ID3D11Texture2D *texture=NULL; ID3D11RenderTargetView_GetResource(target,&resource);
+    if (SUCCEEDED(ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&texture))) {
+        char base[MAX_PATH+32],path[MAX_PATH+64];
+        snprintf(base,sizeof(base),"%s.%s-output",camera.output,post_output_kind==9?"present":"post"); snprintf(path,sizeof(path),"%s.targets.json",base);
+        FILE *file=fopen(path,"w");
+        if (file) { fputs("[",file); dump_texture(texture,base,file,"post_linear_output",0,NULL); fputs("]\n",file); fclose(file); }
+        D3D11_RENDER_TARGET_VIEW_DESC view; ID3D11RenderTargetView_GetDesc(target,&view);
+        snprintf(path,sizeof(path),"%s.view.json",base); file=fopen(path,"w");
+        if (file) { fprintf(file,"{\"format\":%u,\"dimension\":%u}\n",view.Format,view.ViewDimension); fclose(file); }
+        ID3D11Texture2D_Release(texture);
+    }
+    ID3D11Resource_Release(resource); ID3D11RenderTargetView_Release(target);
+}
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     LegacyExtraState state; bind_legacy_extra(context,&state);
-    capture_post_draw(context); original_draw(context,count,start);
+    capture_post_draw(context); original_draw(context,count,start); capture_post_output(context);
     capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
     LegacyExtraState state; bind_legacy_extra(context,&state);
-    capture_post_draw(context); original_draw_indexed(context,count,start,base);
+    capture_post_draw(context); original_draw_indexed(context,count,start,base); capture_post_output(context);
     capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state);
 }
 static int replace_method(void *object,size_t offset,void *hook,void **original) {
@@ -428,12 +534,18 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         !load_shader_override("SRP_LEGACY_GEOMETRY_FOG",&legacy_fog_code,&legacy_fog_size) ||
         !load_shader_override("SRP_LEGACY_SKY",&legacy_sky_code,&legacy_sky_size) ||
         !load_shader_override("SRP_LEGACY_RAIN_CLOUDS",&legacy_cloud_code,&legacy_cloud_size) ||
+        !load_shader_override("SRP_LEGACY_PRESENT_GAMMA",&legacy_present_code,&legacy_present_size) ||
         !load_shader_override("SRP_LEGACY_RAIN_TONEMAP",&legacy_post_code,&legacy_post_size) ||
         !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE",&legacy_probe_code,&legacy_probe_size) ||
         !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE_BOX",&legacy_probe_box_code,&legacy_probe_box_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION",&legacy_composition_code,&legacy_composition_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION_REFERENCE",&comparison_composition_code,&comparison_composition_size) ||
         !load_shader_override("SRP_LEGACY_AMBIENT_DECODE",&legacy_ambient_decode_code,&legacy_ambient_decode_size)) return 0;
+    DWORD grain_path_length=GetEnvironmentVariableA("SRP_LEGACY_POST_GRAIN",legacy_post_grain_path,sizeof(legacy_post_grain_path));
+    int original_tail=legacy_post_code && contains(legacy_post_code,legacy_post_size,"t_legacy_grain");
+    if (original_tail!=!!legacy_present_code || original_tail!=!!grain_path_length || grain_path_length>=sizeof(legacy_post_grain_path)) {
+        error("original post tail requires paired grading, grain texture and final gamma shaders"); return 0;
+    }
     if (comparison_composition_code && !legacy_composition_code) {
         error("composition comparison requires a composition override"); return 0;
     }

@@ -386,3 +386,45 @@ The south wall becomes slightly darker. These measurements do not establish
 visual parity, temporal quality, performance suitability, or other-map support.
 The replayable checkpoint is `reproduction/live-ssao-checkpoint/` in the main
 checkout's `.work/render-compare/` directory.
+
+## Original rain grading and output conversion
+
+The connected post-tail experiment requires all three Windows paths:
+
+| Variable | Input |
+| --- | --- |
+| `SRP_LEGACY_RAIN_TONEMAP` | `legacy-rain-post-tail.dxbc` |
+| `SRP_LEGACY_PRESENT_GAMMA` | `legacy-present-gamma.dxbc` |
+| `SRP_LEGACY_POST_GRAIN` | Original `engine/noise_64x64.dds` BC1 mip-zero payload (2048 bytes, no DDS header) |
+
+The loader rejects an incomplete set. Grain is allocated on the scene device
+and bound at t12 only for the post draw. The source tail restores dark-range
+desaturation (limit .03), positive grain (rain-material scale .08), 2.2-power
+conversions around grading, and the final 2.2-power copy. These constants come
+from the archived rain material; the noise phase follows current frame offsets.
+The frozen original frame's phase is unknown. The matched LUT is unchanged:
+all 16x16x16 BGRA texels equal the original `color_grading_rdn` asset.
+
+Capture includes `.post-draw.vol01.bin`, sampler metadata, `.post-output.*`,
+`.present-draw.*`, and `.present-output.*`. Volume rows are tightly packed with
+Z slices outermost; `inspect_buffers.py` renders a vertical slice atlas.
+`verify_present_gamma.py CAPTURE_FOLDER` checks the final copy before subsequent
+AA/HUD passes, including exact post-to-copy input, RTV format, blend and gamma.
+Every pixel in all four final views passes within one UNORM8 step. Ambient
+verification also still passes; actual paired shaders and grain binding are
+checked separately against the saved recipe.
+
+`audit_post_chain.py BASELINE_CAPTURE --noise ORIGINAL_NOISE_DDS --output JSON`
+is an experimental CPU reconstruction of the preceding hybrid. Its strict
+one-R11G11B10-step check currently fails on some channels. It records that
+failure and exits nonzero; its counterfactual means are estimates, not validation
+of the full post shader. Texture filtering has finite precision, but the exact
+remaining discrepancy has not been isolated. Do not relax its threshold merely
+to make it pass.
+
+Final regional brightness is closer at all five sampled rectangles; this does
+not establish visual parity. Native bloom/DOF producers, temporal filtering,
+material/specular behavior and distant atmosphere remain incomplete. The saved
+recipe is `reproduction/post-tail-checkpoint/`; the runtime capture folder is
+`026g/pipeline-original-post-tail-verified`. The beautiful preset and original
+reference captures remain separate.
