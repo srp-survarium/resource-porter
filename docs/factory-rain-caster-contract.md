@@ -209,3 +209,51 @@ and `pipeline-factory-rain-selection-factor`. Full four-way reports, exact
 observer build, launch/restoration scripts, source/runtime LOD settings,
 per-pose argument and decision logs, depth grid and capture hashes are in
 `.work/chemical-plant-011a/comparison/checkpoint/factory-rain-selection`.
+
+
+## Private factor-cache diagnostic
+
+`SRP_DIAGNOSTIC_FACTORY_RAIN_CACHE=1` replaces rain-time recomputation with a
+separate cache keyed by the actual native surface-instance address. It is
+mutually exclusive with `SRP_DIAGNOSTIC_FACTORY_RAIN_CASTERS=1`; selection-camera
+correction remains independent. The original constructor defaults its factor
+to 1 (`render_surface_instance.h:20`). Original `renderer::fill_opaque_models`
+updates it only for visible surfaces with a G-buffer effect while shader LODs
+are enabled (`renderer.cpp:673–722`); unselected LODs and other ineligible
+surfaces retain their previous value. The shader-LOD index calculation does
+not gate that update: even a resulting shader LOD 2 receives the new factor.
+
+The native equivalent opaque-list loop (`0x13bed0..0x13bf48`) is too late for
+this observation. Native visibility removes Hi-Z-occluded entries at
+`0x1b7392`, whereas the original visibility stage only marks them before
+`fill_opaque_models`. The diagnostic therefore observes the native main-view
+list at `0x1b7360`, before removal, and reproduces the pure material lookup
+from `0x16b070` to test the selected variant's G-buffer effect. It skips probe
+passes and reads the verified `r_use_shader_lods` option at `+0x131`. The source
+formula uses the main eye and transformed whole-parent AABB. Neither the
+native cached factor nor shader LOD, occlusion flag, visibility list or bounds
+is written.
+
+A second guarded hook at the native surface constructor (`0x158c97`) resets
+the private entry to 1 on every lifetime, preventing stale data from surviving
+address reuse. The 65,536-entry table does not evict previous factors; a missing
+or overflowed entry uses 1 and reports the condition. Unknown/default-material
+eligibility and non-static parent layouts are not guessed. Unknown material
+candidates are counted and skipped; unsupported rain parents retain the native
+predicate. Constructor and update access is protected by a critical section.
+
+Each rich capture saves `.rain-cache.jsonl`: surface/parent identity, factor,
+constructor generation, update count, last update frame/eye, default status,
+rejections and overflow. Together with `.rain-casters.jsonl`, this separates
+current, stale and never-updated rain surfaces. Startup status explicitly says
+that original visibility identity is unproven: the native pre-removal list and
+material eligibility are known, but equal original frustum/LOD candidates and
+original cache history are not. This is still a diagnostic, not exact parity.
+
+CPU validation exercises the extracted helpers for constructor reset,
+material-variant selection, occluded entries, disabled shader LODs, probe
+passes, absent G-buffer effects, unknown materials, unseen/stale entries,
+hash collisions and full-table retention. All four opcode guards match the
+pinned client PE. The compiled bridges preserve registers, flags and floating
+point state and replay their displaced instructions. The observer builds with
+`-Wall -Wextra -Werror`; runtime depth validation is still pending.

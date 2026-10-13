@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Diagnostic 0.10b rain predicate. Recompute the original size formula without
-// changing the native surface's cached factor, occlusion, geometry or bounds.
-// Original caching for unseen surfaces is not reproduced by this experiment.
+// Diagnostic 0.10b rain predicate: recomputed factor or private source-like cache.
+// Native surface factors, occlusion, geometry and bounds remain unchanged.
 static int rain_source_cache_enabled;
 static float rain_source_cached_factor(uintptr_t instance,uintptr_t parent);
 static unsigned rain_caster_calls, rain_caster_skipped, rain_caster_fallbacks;
