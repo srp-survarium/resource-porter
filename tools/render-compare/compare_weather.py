@@ -29,7 +29,7 @@ def compare(original,current,poses):
         # Block statistics are over 8x8 samples (32x32 full-resolution pixels).
         for by in range(0,544,32):
             for bx in range(0,1280,32):
-                if bx<224 and by<224:continue
+                if (bx<224 and by<224) or (bx>=640 and by>=384) or (608<=bx<672 and 320<=by<384):continue
                 a=[];b=[]
                 for y in range(by,by+32,4):
                     for x in range(bx,bx+32,4):
@@ -49,7 +49,7 @@ def compare(original,current,poses):
                        'block_ssim_mean':sum(ssim)/len(ssim),
                        'original_block_contrast':sum(p[0] for p in contrast)/len(contrast),
                        'target_block_contrast':sum(p[1] for p in contrast)/len(contrast)})
-    return {'scope':'Fixed four-pixel grid across image; excludes x<224,y<224 and y>=544 for original HUD/player. Display-encoded RGB/luma, 32-pixel block SSIM, separate animated frames. These metrics are not a proof of visual parity.','views':output}
+    return {'scope':'Fixed four-pixel grid across image; excludes original minimap (x<224,y<224), lower strip (y>=544), target weapon (x>=640,y>=384), and original crosshair (608<=x<672,320<=y<384). Display-encoded RGB/luma, 32-pixel block SSIM, separate animated frames. These metrics are not a proof of visual parity.','views':output}
 
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('original',type=Path);p.add_argument('current',type=Path);p.add_argument('--poses',type=Path,default=Path(__file__).with_name('poses-day-evening-expanded.json'));a=p.parse_args()

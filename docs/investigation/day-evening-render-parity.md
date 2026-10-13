@@ -77,7 +77,7 @@ Actual original post-draw constant buffers confirm these filmic parameters:
 Day uses `color_grading/nt`; evening uses `color_grading/evn`. Both captured
 original variants upload grain strength .08 and dark-desaturation limit .03.
 The rain shader's fixed tone curve must not be applied unchanged to these maps.
-Native target baselines must be retained before adapting the connected pipeline.
+Native target baselines were retained before adapting the connected pipeline.
 
 The optional original translucency base experiment was brought in from rain.
 Its initial probe complement was subsequently disproved by producer evidence;
@@ -97,7 +97,7 @@ The same process eventually produced a matching camera ID, dimensions and pose;
 that record is explicitly marked `recovered_late_acknowledgment`. The remaining
 views continued from that client. No missing frame was silently counted.
 
-The native baselines have UI visible. Subsequent target sampling uses the native
+The native baselines have UI visible. All subsequent target sampling recipes, including native, use the native
 `ui off` setting in the private prefix. That setting suppresses Flash HUD/UI;
 weapon geometry remains. Image comparison masks exclude the original HUD/player
 regions. The metric tool samples a fixed four-pixel grid, with display RGB RMSE,
@@ -117,8 +117,12 @@ textured: o2.y = (1 - (roughness_min + roughness_range * texture.g))
 ```
 
 Original textured material code samples `texture.r`. The different texture
-channel is a separate contract to investigate; it does not justify complementing
-all materials. Captured target material draws 24 (constant) and 20 (textured)
+channel is a separate contract mismatch; it does not justify complementing
+all materials. Four original/ported roughness DDS pairs are byte-identical.
+Their unweighted mip-zero red/green MAE is .0165 for fir_translucence, .0402
+for flora_tree_bough, .0474 for bark_sosna and .0271 for poplar_leaves_02.
+These differences are not yet visibility/material-range weighted, and no
+texture-channel correction has been applied. Captured target material draws 24 (constant) and 20 (textured)
 provide active-producer evidence, in addition to archived bytecode.
 
 Across 64 matched day/evening views, depth-matched samples have mean per-view
@@ -183,3 +187,54 @@ thread samples are retained. Explicit X11 focus on the verified private PID did
 not resume rendering. A native `-debug_single_thread` diagnostic also failed to finish initialization.
 The private client/server were then stopped to permit a rain-only diagnostic.
 No behavior change is being presented as a lighting fix.
+
+The durable support bundle `reproduction/weather-support-20261013/` preserves
+the original server source and both server/client binaries, normal target
+launch/capture helpers without scratch-directory dependencies, metric reports
+and temporary diagnostics. `README.txt` gives exact replay commands. Existing
+private runtimes and pinned Nix dependencies remain required; archived original
+references should be reused. All launch helpers now set `ui off` unconditionally
+and record that command, including for native recipes.
+
+## Sequential connected validation
+
+With the rain client stopped, the unchanged connected day recipe completed all
+32 views. Evening then completed all 32 in the same private prefix. Each frozen
+batch contains 5,784 hashed files and 2,013 written buffers. The private client
+and server were stopped afterwards. The timing implicates concurrent runtime
+interaction in the earlier stalls, but does not prove its exact cause.
+
+Actual captured DXBC matches the saved weather recipe for seven shader families
+in every view: composition, post, fog, sky, present, ambient decode and probe.
+Launch records confirm `ui off`; visual inspection confirms no HUD, minimap,
+crosshair or text. The target weapon remains separate foreground geometry.
+
+The revised common scene mask excludes the original minimap, original
+crosshair, lower HUD strip and target-only weapon. This correction is applied to
+both baselines and both connected variants. Earlier metric files remain as v1;
+`*-metrics-v2.json` records the exact common mask. Contact sheets retain whole
+images and use columns original / native / connected. All 64 triplets were
+inspected, including every distant coverage location.
+
+| Variant / views | Native luma MAE | Connected luma MAE | Native block SSIM | Connected block SSIM |
+| --- | ---: | ---: | ---: | ---: |
+| Day, all 32 | .1388 | .0357 | .2423 | .8164 |
+| Day, 6 initial held-out | .1535 | .0338 | .2922 | .8209 |
+| Day, 14 distant held-out | .1661 | .0440 | .2222 | .7857 |
+| Evening, all 32 | .1610 | .0334 | .1425 | .8299 |
+| Evening, 6 initial held-out | .1280 | .0228 | .1137 | .8622 |
+| Evening, 14 distant held-out | .1949 | .0463 | .1851 | .7875 |
+
+These are means of per-view fixed-grid diagnostics. Every day and evening view
+improves both luma MAE and block SSIM over its native baseline. Day's mean scene
+luma is 5.6% above original; evening is 2.9% below. Light placement, shadowed
+surfaces and atmosphere are substantially closer across buildings and exterior
+routes. Residual differences remain in foliage/filtering, atmospheric haze,
+scattering, and an evening red lens flare. This is broad improvement, not full
+renderer parity or validation of the separate full-scattering experiment.
+
+The paired base-term audit covers all 64 full-resolution frames. Exact shader
+identities, buffer formats and lengths are checked. No pixel with zero native
+translucency changes, and no nonfinite packed-light value is introduced by the base-term
+counterfactual. This isolates that equation's effect; it does not validate every
+remaining native producer. No game tests were added.
