@@ -176,5 +176,36 @@ source selections are:
 The intended five-pose A/B uses the validated shadow projection in both runs:
 selection-camera correction alone, then selection correction plus the separate
 recomputed-factor diagnostic. Existing camera-only and factor-only captures
-remain controls. Runtime results are pending; CPU LOD predictions do not prove
-original cached factors or actual per-surface visibility.
+remain controls. CPU LOD predictions do not prove original cached factors or
+actual per-surface visibility; runtime outcomes are recorded below.
+
+
+## Selection-camera runtime A/B
+
+Both five-view batches completed on validation build `5c87c35`. Their recorded
+shadow-camera arguments match the frozen original matrix-derived positions
+within 2e-5, and saved main-camera positions match the requested views within
+8e-6. The reserved client/server were stopped after each batch and exact prior
+sun-v2 DLL bytes restored (client SHA-256
+`164d337d6a1f472f591b0661af6b9e1edcd13ff88e8240f3e52168186f0efe29`).
+
+| Pose | Shadow projection only | + Selection camera | + Selection camera and recomputed factor |
+| --- | --- | --- | --- |
+| Interior depth MAE | .00798250 | .00057604 | .00019889 |
+| Yard north | .18365555 | .18047304 | .18047116 |
+| Yard south | .09303097 | .09306666 | .08978055 |
+| Upper | .25880209 | .25652793 | .23379353 |
+| Streetlamp | .00109267 | .00084401 | .00021410 |
+
+Selection-camera correction accounts for much of the interior geometry-depth
+mismatch. It does not remove the major outdoor extra casters: the combined
+variant still has 4,025 north, 1,976 south and 5,340 upper extra texels. Unlike
+the factor-only variant, the combined south view introduces no missing-caster
+texels. Source per-LOD cache/visibility behavior remains unresolved. Both
+switches remain opt-in diagnostics; the ordinary playable recipe is unchanged.
+
+Frozen captures: `.work/render-compare/026g/pipeline-factory-rain-selection`
+and `pipeline-factory-rain-selection-factor`. Full four-way reports, exact
+observer build, launch/restoration scripts, source/runtime LOD settings,
+per-pose argument and decision logs, depth grid and capture hashes are in
+`.work/chemical-plant-011a/comparison/checkpoint/factory-rain-selection`.
