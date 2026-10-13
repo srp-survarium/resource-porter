@@ -239,3 +239,31 @@ identities, buffer formats and lengths are checked. No pixel with zero native
 translucency changes, and no nonfinite packed-light value is introduced by the base-term
 counterfactual. This isolates that equation's effect; it does not validate every
 remaining native producer. No game tests were added.
+
+### CPU roughness follow-up
+
+Frozen same-weather connected captures give smoothness MAE .02101 day/.02033
+evening on depth-matched samples. Requiring matching encoded normals, albedo
+and translucency lowers this to .00886/.00950 over 24,561/40,546 samples;
+old seven-bit quantization lowers it further to .00789/.00858. The strongest
+repeatable translucent residuals are hospital-south-path (~.022) and
+officer-terrace (~.019) in both variants. These selective metrics are not
+whole-image parity scores.
+
+All four authored roughness textures retain their sRGB flag. Applying their
+material ranges, unweighted mip-zero channel differences produce smoothness
+MAE .00298/.02931/.03387/.01665 for fir/bough/bark/poplar. Forcing the original
+red channel linear instead produces .03184/.23848/.21281/.20448. Transfer
+changes therefore dominate the intended channel correction.
+
+All 78 textured draws sampled per rain recipe use smoothness multiplier 1.
+The corrected adapter is bound through sRGB view 91 in four draws, but those
+resources are only 64×64. Original references lack material SRV captures;
+resource identity, mip correspondence and per-pixel material attribution
+remain unverified. Draw ordinals differ between runs. Five traced foliage
+materials preserve their roughness ranges and texture-selection flags.
+
+The separate `reproduction/roughness-contracts-20261013` bundle contains ten
+hashed files: reports, standard-library Python audits, poses and replay
+instructions. The same-weather replay reproduces its JSON byte-for-byte.
+No clients were launched, runtimes changed or game tests added for this audit.
