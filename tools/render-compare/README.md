@@ -637,3 +637,10 @@ before/output buffers and compatibility metadata. Run
 batch to replay its bilinear additive pass. Disabled batches must instead have
 identical apply before/output bytes, since their nonzero input is deliberately
 not added.
+
+`audit_temporal_noise.py FRAME.bmp ... --region far:X0,Y0,X1,Y1` measures
+stationary temporal variation on a fixed pixel grid. It rejects sequences with
+changed camera metadata and reports both raw temporal RMS and RMS after removing
+each frame's regional mean. Specify near, distant and sky regions separately;
+region names do not infer depth. Rain, foliage and exposure can also contribute,
+so use matched fixed-camera sequences to validate a suspected noise correction.
