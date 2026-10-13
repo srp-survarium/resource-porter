@@ -659,3 +659,9 @@ resume the opt-in override. The observer also restores on DLL detach. Its
 count; frame-state diagnostics expose activity flags independently. Use this
 only in isolated capture clients; initial compiler validation is not runtime
 proof of recovery or permission to run uncoordinated concurrent clients.
+
+`SRP_CAPTURE_EMISSIVES=1` adds read-only capture of native emissive draws,
+recognized by 63 archived shader identities. It records up to 64 draws per
+requested frame with separate shader, material inputs and before/output targets
+(`emissive-draw-N`, `emissive-N-before`, `emissive-N-output`). The cap is explicit;
+64 records may mean the capture is incomplete. This option changes no shaders.

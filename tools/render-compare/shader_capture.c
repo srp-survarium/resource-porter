@@ -12,6 +12,9 @@ static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,
 #include "reference_shader_index.h"
 #include "native_god_rays_index.h"
 #include "native_aberration_index.h"
+#include "native_emissive_index.h"
+static int capture_emissives_enabled;
+static unsigned emissive_request_id, emissive_draw_count, emissive_draw_variant;
 static void *grainless_aberration_code[8];
 static unsigned grainless_aberration_uses;
 static const char *reference_labels[]={"post","cloud","probe","fog-add","sky","ssao-temporal","fog-mul","composition","material","present","ssao-accumulation","ssao-upsample","volume","probe","sun","translucency","skylight","sun-mask"};
@@ -186,7 +189,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"legacy_composition_uses\":%u,\"legacy_ambient_decode_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,legacy_composition_uses,legacy_ambient_decode_uses,hr); fclose(file); }
     }
     if (SUCCEEDED(hr) && shader && *shader && size<=1024*1024 &&
-        (is_native_aberration(code,size) || ssao_reference || native_god_rays_kind(code,size) || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
+        ((capture_emissives_enabled && is_native_emissive(code,size)) || is_native_aberration(code,size) || ssao_reference || native_god_rays_kind(code,size) || (contains(code,size,"t_color_grading_lut") && contains(code,size,"t_frame_luminance")) ||
         (contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture")) || contains(code,size,"t_probe_cubemap_diffuse") ||
         contains(code,size,"t_rayleigh_scattering") || contains(code,size,"hba_parameters") ||
         contains(code,size,"skylight_parameters0") ||
@@ -276,7 +279,7 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     HRESULT reference_hr=reference_capture?ID3D11PixelShader_GetPrivateData(shader,&reference_kind_guid,&reference_kind_size,&reference_kind):S_OK;
     ID3D11PixelShader_Release(shader);
     if (FAILED(hr) || FAILED(reference_hr)) { free(code); return; }
-    unsigned kind=is_native_aberration(code,size)?22:contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
+    unsigned kind=capture_emissives_enabled && is_native_emissive(code,size)?21:is_native_aberration(code,size)?22:contains(code,size,"sun_direction_parameter") && contains(code,size,"shadow_filter_radius")?13:contains(code,size,"volume_color") && contains(code,size,"attenuation_scale")?12:contains(code,size,"gamma_correction_factor") && contains(code,size,"t_base")?9:contains(code,size,"t_diffuse_accumulation") && contains(code,size,"t_specular_accumulation")?7:
         capture_materials_enabled && contains(code,size,"deferred_material_parameters")?8:
         contains(code,size,"hba_parameters") || contains(code,size,"t_encoded_ambient") || (contains(code,size,"t_ssao_accumulator") && !contains(code,size,"t_probe_cubemap_diffuse"))?5:contains(code,size,"skylight_parameters0")?6:
         contains(code,size,"t_frame_luminance")?0:(contains(code,size,"sky_clouds_parameters0") || contains(code,size,"sky_clouds_texture"))?1:
@@ -285,7 +288,11 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     else if (native_god_rays_kind(code,size)) kind=native_god_rays_kind(code,size);
     unsigned probe_variant=0;
     unsigned material_variant=0;
-    if (kind==2) {
+    if (kind==21) {
+        if (emissive_request_id!=camera.id) { emissive_request_id=camera.id; emissive_draw_count=0; }
+        if (emissive_draw_count>=64) { free(code); return; }
+        emissive_draw_variant=emissive_draw_count++;
+    } else if (kind==2) {
         if (probe_request_id!=camera.id) { probe_request_id=camera.id; probe_shader_count=0; }
         if (size<20 || probe_shader_count>=16) { free(code); return; }
         for (unsigned i=0;i<probe_shader_count;++i)
@@ -303,6 +310,8 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     char base[MAX_PATH+48],path[MAX_PATH+80];
     const char *labels[]={"post-draw","cloud-draw","probe-draw","fog-draw","sky-draw","hba-draw","skylight-draw","composition-draw","material-draw","present-draw","unused10","unused11","volume-draw","sun-shadow-draw","unused14","unused15","unused16","unused17","god-rays-apply-draw","god-rays-draw","god-rays-mask-draw","unused21","aberration-draw"};
     if (reference_capture) snprintf(base,sizeof(base),"%s.%s-draw",camera.output,reference_labels[kind]);
+    else if (kind==21)
+        snprintf(base,sizeof(base),"%s.emissive-draw-%u",camera.output,emissive_draw_variant);
     else if (kind==8)
         snprintf(base,sizeof(base),"%s.material-draw-%u",camera.output,material_variant);
     else if (kind==2 && probe_variant)
@@ -592,7 +601,8 @@ static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camer
     ID3D11RenderTargetView *targets[2]={0}; ID3D11DeviceContext_OMGetRenderTargets(context,2,targets,NULL);
     const char *label=reference_capture?reference_labels[kind]:kind==22?"aberration":kind==13?"sun-shadow":kind==18?"god-rays-apply":kind==19?"god-rays":kind==20?"god-rays-mask":kind==12?"volume":kind==9?"present":kind==3?"fog":"post";
     char base[MAX_PATH+48],path[MAX_PATH+80];
-    snprintf(base,sizeof(base),"%s.%s-%s",camera->output,label,suffix);
+    if (kind==21) snprintf(base,sizeof(base),"%s.emissive-%u-%s",camera->output,emissive_draw_variant,suffix);
+    else snprintf(base,sizeof(base),"%s.%s-%s",camera->output,label,suffix);
     snprintf(path,sizeof(path),"%s.targets.json",base); FILE *file=fopen(path,"w");
     if (file) fputs("[",file);
     unsigned count=0;
@@ -716,6 +726,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     }
     disable_legacy_god_rays=GetEnvironmentVariableA("SRP_LEGACY_DISABLE_GOD_RAYS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     capture_materials_enabled=GetEnvironmentVariableA("SRP_CAPTURE_MATERIALS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
+    capture_emissives_enabled=GetEnvironmentVariableA("SRP_CAPTURE_EMISSIVES",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     DWORD volume_assets_length=GetEnvironmentVariableA("SRP_LEGACY_VOLUME_ASSETS",legacy_volume_assets,sizeof(legacy_volume_assets));
     if (!load_shader_override("SRP_LEGACY_VOLUME_CONE",&legacy_volume_code,&legacy_volume_size)) return 0;
     if (!!legacy_volume_code!=!!volume_assets_length || volume_assets_length>=sizeof(legacy_volume_assets)) {
