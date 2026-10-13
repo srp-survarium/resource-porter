@@ -21,3 +21,24 @@ Frozen original sky measures 0.005923 by the same method. Raw temporal RMS remai
 The C hook builds with warnings treated as errors. The extraction audit checks all four binding contracts. Runtime verifies the active corrected bytecode and sampler mapping across the captured sequences; other feature combinations have structural checks but no separate runtime scenes yet.
 
 One initial baseline attempt stalled after its material capture while a separate Wine compiler prefix initialized. The read-only activity trace showed `application_active=0`, `application_activated=0`, `activity_gate=1`, `activity_allows_tick=0`, with equal stationary logic/render counters. Its logs are preserved under `native-aberration-contract`; that failed sequence is excluded. A fresh baseline without concurrent compiler activity completed all 24 frames.
+
+Factory rain independently validates the shared correction in four viewpoints
+and six stationary upper-view frames (`026g/pipeline-grain-corrected*`). All four
+captures retain the source post shader and use the exact native grain-off shader
+with linear-clamp sampler0; god-ray apply is skipped to match the source setting.
+The original cone shader and both falloff resources remain correct in two views.
+
+| View | Original final/gamma high-pass ratio | Previous 0.26 | Corrected 0.26 |
+|---|---:|---:|---:|
+| Interior | .6542 | .7937 | .6535 |
+| North yard | .6555 | .7735 | .6506 |
+| South yard | .7633 | .9035 | .7725 |
+| Upper factory | .6596 | .8900 | .6486 |
+
+Block SSIM improves in all four views (.9577/.9661/.9369/.8398), but upper-view
+luma MAE rises to .0255 across separately animated frames. Rain streaks and lamp
+brightness still differ. The six Factory frames provide a regional stationary
+baseline, not a paired before/after temporal claim. The reproducible checkpoint
+is `reproduction/grain-corrected-checkpoint`; its replay stops the reserved client
+and server after capture. The requested background-render guard did not apply in
+this run, and all activity flags stayed true, so recovery remains unverified.
