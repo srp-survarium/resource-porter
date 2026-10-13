@@ -24,6 +24,7 @@ if __name__ == '__main__':
     parser.add_argument('--wine', required=True)
     parser.add_argument('--fxc', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--weather', choices=('rain', 'day', 'evening'), default='rain')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     manifest = {}
@@ -34,10 +35,12 @@ if __name__ == '__main__':
     for source in sources:
         target = args.output / (source.stem.replace('_', '-') + '.dxbc')
         profile = 'vs_4_0' if source.name == 'fullscreen_vs.hlsl' else 'ps_4_0'
+        defines = [] if args.weather == 'rain' else ['/D', 'LEGACY_WEATHER_' + args.weather.upper()]
         subprocess.run([args.wine, str(args.fxc), '/nologo', '/WX', '/T', profile,
-                        '/E', 'main', '/O3', '/Fo', win(target), win(source)], check=True)
+                        '/E', 'main', '/O3', *defines, '/Fo', win(target), win(source)], check=True)
         manifest[source.name] = {
             'profile': profile,
+            'weather': args.weather,
             'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
             'source_dependencies': source_hashes(source),
             'output': target.name,

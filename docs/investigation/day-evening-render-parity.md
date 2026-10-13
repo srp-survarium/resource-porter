@@ -79,9 +79,107 @@ original variants upload grain strength .08 and dark-desaturation limit .03.
 The rain shader's fixed tone curve must not be applied unchanged to these maps.
 Native target baselines must be retained before adapting the connected pipeline.
 
-Shared rain experiment `a7d0612` was cherry-picked as `d33a2e7`: probe gloss
-complement correction and an optional original translucency base term. That
-experiment is not yet validated for day or evening. Further work must compare
-same-weather normal/roughness inputs, lighting buffers and whole images across
-the expanded locations. Regional brightness alone is insufficient evidence of
-visual parity.
+The optional original translucency base experiment was brought in from rain.
+Its initial probe complement was subsequently disproved by producer evidence;
+`bf67e33` applies the verified direct-smoothness mapping from `8bb781c`.
+
+## Completed baseline evidence
+
+Both target native baselines now contain all 32 views, with 5,692 hashed files
+and 1,825 written buffers per variant. These use native shaders and the existing
+58 numeric scalar repairs across 41 materials; they are not unmodified retail
+captures. Original manifests contain 3,568 files for initial day, 2,830 for day
+coverage, and 6,398 for evening. All written texture dimensions and byte counts
+were checked before freezing the manifests.
+
+One evening capture acknowledged its requested pose after a controller timeout.
+The same process eventually produced a matching camera ID, dimensions and pose;
+that record is explicitly marked `recovered_late_acknowledgment`. The remaining
+views continued from that client. No missing frame was silently counted.
+
+The native baselines have UI visible. Subsequent target sampling uses the native
+`ui off` setting in the private prefix. That setting suppresses Flash HUD/UI;
+weapon geometry remains. Image comparison masks exclude the original HUD/player
+regions. The metric tool samples a fixed four-pixel grid, with display RGB RMSE,
+luma error, block contrast and 32-pixel block SSIM. These are diagnostics over
+separate animated frames, not proof of visual parity.
+
+## Verified surface contracts
+
+The original normal buffer stores seven-bit **smoothness**, not roughness.
+Both archived native G-buffer producers and actual captured producers confirm
+that target `parameters.y` is also smoothness:
+
+```
+constant: o2.y = (1 - roughness) * smoothness_multiplier
+textured: o2.y = (1 - (roughness_min + roughness_range * texture.g))
+                  * smoothness_multiplier
+```
+
+Original textured material code samples `texture.r`. The different texture
+channel is a separate contract to investigate; it does not justify complementing
+all materials. Captured target material draws 24 (constant) and 20 (textured)
+provide active-producer evidence, in addition to archived bytecode.
+
+Across 64 matched day/evening views, depth-matched samples have mean per-view
+smoothness MAE .0223/.0219 with direct mapping, versus .8864/.8865 with a
+complement. This invalidates the earlier downstream-name-based interpretation
+of `parameters.y` as roughness. The probe correction now uses direct mapping.
+
+The original translucency scalar is five-bit gamma encoded. Across 137,654 day
+and 138,734 evening depth-matched translucent samples, original decoded means
+are .1558/.1578, compared with native parameter-z means .1645/.1671. Re-encoding
+and truncating the native scalar to the old five-bit representation gives means
+.1545/.1571. Corresponding MAE falls from .0252/.0256 to .0198/.0201. Applying an
+extra gamma power to native z is substantially worse (.0909/.0911 MAE). Packing
+explains much of the mean difference; filtering, animation and material
+correspondence still limit per-pixel agreement.
+
+The rain worker independently replayed original translucency using these frozen
+references. All 86,334 sampled pixels across 64 views match within one ten-bit
+step when the helper's **green shadow-visibility** channel is used in the old
+attenuation equation. Using red raw depth does not reproduce the original.
+This establishes a source contract, not completed target scattering parity.
+
+## Weather adapter draft and reproducibility
+
+`build_shaders.py --weather day|evening` selects actual authored post curves and
+cloud settings. Rain remains the default. The day/evening cloud fade band is
+.15 with power 10, versus rain .5/power 2. Their authored cloud multipliers are
+1 and 2.5. Original CPU code uploads `pow(color, 2.2) * multiplier`; the native
+cloud upload adds a different sunlight multiplier, so the weather adapter uses
+the original authored upload. Day/evening use alpha blending, whereas the
+existing rain path uses modulation. The original observer did not recognize the
+alpha-cloud shader, so these cloud contracts are supported by original source,
+archive material and whole images, not a captured alpha-cloud intermediate.
+
+Both weather shader sets compiled with warnings as errors. The private archive
+has guarded project edits for the sun-azimuth convention, original ambient
+pipeline and seven probe extents. No rain project/archive is modified. The
+connected draft uses the optional original translucency **base** term; it is
+not the complete original directional scattering equation.
+
+Inputs are preserved in
+`.work/render-compare/day-evening/reproduction/connected-v1/`, including 142
+hashed files, shader source/build outputs, recipes, project bytes and patch
+plan, tools and producer evidence. Historical launch helpers still reference
+scratch paths; that checkpoint is not yet a portable one-command replay.
+
+## Runtime stall investigation
+
+The first connected day attempt produced no images: camera and present counters
+stopped before the first capture. An earlier material-observer diagnostic also
+failed. Both are retained as failures, not validation results. A native-shader,
+UI-on diagnostic also stalled, so neither the weather shader math nor UI
+suppression alone explains the problem.
+
+Linux ptrace is prohibited for both attachment and debugger-launched children.
+A temporary observer instead sampled its own thread contexts and stack address
+words. The busy logic thread repeatedly writes journal record type 2
+(`logic_wait`) while waiting for rendering; the main render thread waits for a
+renderer command-queue entry. This accounts for high CPU and a growing journal
+but does not yet identify the originating fault. Bounded journal excerpts and
+thread samples are retained. Explicit X11 focus on the verified private PID did
+not resume rendering. A native `-debug_single_thread` diagnostic also failed to finish initialization.
+The private client/server were then stopped to permit a rain-only diagnostic.
+No behavior change is being presented as a lighting fix.
