@@ -115,11 +115,11 @@ Result main(float4 pixel : SV_POSITION) {
 #endif
     Result result;
 #ifdef CONFIG_SOURCE_FALLOFF
-    // The source G-buffer stores smoothness = 1 - material roughness. Its
+    // Both G-buffer producers store smoothness = (1 - roughness) * multiplier.
     // probe shader calls that stored value gloss, then derives diffuse_gloss
-    // as 1 - gloss. The target parameter is already material roughness.
-    float source_gloss=1-parameters.y;
-    float source_diffuse_gloss=parameters.y;
+    // as 1 - gloss. Target t_parameters.y is smoothness, despite consumer names.
+    float source_gloss=parameters.y;
+    float source_diffuse_gloss=1-parameters.y;
 #ifdef CONFIG_SOURCE_QUALITY3
     float3 half_direction=normalize(world_normal+reflection);
     float3 direction=lerp(half_direction,reflection,pow(saturate(source_diffuse_gloss),.8));
