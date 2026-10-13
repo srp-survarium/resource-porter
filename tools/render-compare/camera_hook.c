@@ -79,6 +79,9 @@ void __cdecl override_camera(uint32_t *saved) {
             }
             applied = requested;
         } else {
+            applied.enabled=0;
+            applied.id=requested.id;
+            applied_id=requested.id;
             float *view=(float *)((char *)director+4);
             float *projection=(float *)((char *)director+0x44);
             memcpy(applied.position,view+12,3*sizeof(float));

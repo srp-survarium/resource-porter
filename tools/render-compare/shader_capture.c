@@ -422,7 +422,8 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     }
     if (kind==2) memcpy(probe_shader_digests[probe_shader_count++],(char *)code+4,16);
     if (kind==8) memcpy(material_shader_digests[material_shader_count++],(char *)code+4,16);
-    if ((kind==8 || kind==1 || kind==12) && capture_materials_enabled) capture_material_vertex(context,base);
+    if (((kind==8 || kind==1 || kind==12) && capture_materials_enabled) ||
+        (kind==1 && capture_rain_enabled)) capture_material_vertex(context,base);
     if (kind==12 && capture_materials_enabled) capture_rain_geometry(context,base,count,start,base_vertex,indexed);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);
@@ -828,9 +829,9 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
     if (local.ready) capture_ambient_diffuse(context);
     render_sun_aux(context,count,start,0,0);
-    render_source_rain(context);
+    int source_rain_ready=render_source_rain(context);
     FullDiffuseState full; bind_full_diffuse(context,&full);
-    capture_post_draw(context,count,start,0,0); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
+    capture_post_draw(context,count,start,0,0); if (!(source_rain_ready && apply_source_rain(context)) && !skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,0,0);
     finish_ambient_diffuse(context,&ambient,count,start,0,0);
     capture_composition_outputs(context,count,start,0,0); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
@@ -845,9 +846,9 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
     if (local.ready) capture_ambient_diffuse(context);
     render_sun_aux(context,count,start,base,1);
-    render_source_rain(context);
+    int source_rain_ready=render_source_rain(context);
     FullDiffuseState full; bind_full_diffuse(context,&full);
-    capture_post_draw(context,count,start,base,1); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
+    capture_post_draw(context,count,start,base,1); if (!(source_rain_ready && apply_source_rain(context)) && !skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,base,1);
     finish_ambient_diffuse(context,&ambient,count,start,base,1);
     capture_composition_outputs(context,count,start,base,1); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);

@@ -41,6 +41,63 @@ layouts, checks live frame identity, and labels the previous approximation
 separately from the displayed full result. Reports and loaded DLL/source are
 preserved under `reproduction/factory-live-diffuse-20261013`.
 
+## Combined live rain and corrected clouds
+
+`SRP_LEGACY_SOURCE_RAIN_LIVE=1` uses the pinned original five-shell rain assets
+and replaces native particles only after a complete same-frame replay and
+target validation. Motion uses the actual GPU camera. Native camera matrices
+can contain shear; their full affine inverse is validated against projection,
+eye position and matrix-product residuals. The fixed-camera transpose shortcut
+alone was insufficient for gameplay. Screen dimensions come from the validated
+viewport because the native unused constant slot can be zero.
+
+The Factory rain cloud wrapper corrects U by +.25 and V by / .96. Captured
+native VS constants prove the rotation convention differs from the original;
+animation speed is zero. The source and target texture bytes, tint, samplers
+and blend agree. On 1,542 common sky pixels the corrected cloud pass reduces
+HDR MAE .061651→.005928, with byte-identical pre-cloud sky between target
+variants. Final sky RGB MAE improves .091236→.022251.
+
+The combined checkpoint has five full-buffer views and two additional hangar
+screenshots. Fixed-mask final screen luminance MAE / block SSIM:
+
+| View | MAE | SSIM |
+| --- | ---: | ---: |
+| Interior | .00574 | .9713 |
+| North | .00510 | .9727 |
+| South | .00898 | .9371 |
+| Upper | .01595 | .8664 |
+| Streetlamp | .02048 | .9399 |
+| Hangar south-up | .00635 | .9578 |
+| Hangar north-up | .00580 | .9822 |
+
+The lamp's prior live-rain screen MAE was .07365 (SSIM .7624). These are
+separate animated frames; geometry-only and common-sky audits accompany the
+screen metrics. Hangar screenshots have no new depth evidence. Reflections,
+material packing, probe clipping, and remaining lamp/lighting differences
+still prevent a general parity claim.
+
+The standing character-camera check ran for six seconds after disabling the
+director: 360 additional rain applications, changed GPU eye, no rejections,
+and about 60 frames/s. This is a short standing check, not a movement or load
+benchmark. Synchronous constant-buffer readbacks remain a performance risk.
+Disabling the director now also clears its applied enabled flag/id, which had
+otherwise left observer bookkeeping stale.
+
+The first combined run acknowledged four views but its lamp readback exceeded
+the original 30-second capture deadline. The remaining lamp and two hangars
+were captured in a second session with the same DLL/assets and a 120-second
+readback allowance. `capture.py --timeout` controls this deadline. The complete
+directory hardlinks whole acknowledged pose groups and records their sessions
+in `provenance.json`; no pose combines buffers from separate frames.
+
+Evidence: `026g/pipeline-factory-live-rain-clouds-complete`; replay checkpoint:
+`reproduction/factory-live-rain-clouds-20261013`. The checkpoint includes the
+tested DLL, render-tool source, shader/constant assets, original launch scripts,
+reports, capture hashes and a `replay.py` that resolves its assets locally.
+It still requires the installed private client/archive, Wine runtime and match
+server. The earlier preferred playable preset is preserved separately.
+
 ## Completed archive transfer
 
 Three cold batches (`pipeline-factory-encoded-ambient`,

@@ -56,5 +56,9 @@ if __name__ == '__main__':
     parser.add_argument('--control', type=Path, required=True)
     parser.add_argument('--poses', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--timeout', type=float, default=30,
+                        help='seconds allowed per pose, including GPU buffer readback')
     args = parser.parse_args()
-    capture(args.control, json.loads(args.poses.read_text()), args.output)
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error('timeout must be positive and finite')
+    capture(args.control, json.loads(args.poses.read_text()), args.output, args.timeout)

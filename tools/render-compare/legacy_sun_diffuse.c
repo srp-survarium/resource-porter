@@ -1,5 +1,5 @@
-// Diagnostic source sun and optional material-gated translucency on native inputs.
-// The result stays private until original shadow/stencil equivalence is proved.
+// Source sun and optional material-gated translucency on native inputs.
+// A private accumulator; explicit live composition requires current-frame completion.
 static void *sun_aux_code[2];
 static size_t sun_aux_size[2];
 static float sun_aux_values[8];
@@ -145,7 +145,7 @@ static void render_sun_aux(ID3D11DeviceContext *context,UINT count,UINT start,IN
     if (take) {
         char path[MAX_PATH+64]; snprintf(path,sizeof(path),"%s.sun-encoded.json",camera.output); FILE *file=fopen(path,"w");
         if (file) {
-            fprintf(file,"{\"present\":%u,\"draws\":%u,\"ready\":true,\"native_depth_present\":%u,\"projection_present\":%u,\"scope\":\"source sun; optional translucency uses native positive parameter and nonzero geometry, not original stencil; private diagnostic only\",\"source_constants\":[",present_calls,sun_aux_draws,legacy_scene_depth_frame,legacy_sun_projection_frame);
+            fprintf(file,"{\"present\":%u,\"draws\":%u,\"ready\":true,\"native_depth_present\":%u,\"projection_present\":%u,\"scope\":\"source sun; optional translucency uses native positive parameter and nonzero geometry, not original stencil; private accumulator with optional guarded live resolve\",\"source_constants\":[",present_calls,sun_aux_draws,legacy_scene_depth_frame,legacy_sun_projection_frame);
             for (unsigned i=0;i<8;++i) fprintf(file,"%s%.9g",i?",":"",sun_aux_values[i]);
             fputs("]}\n",file); fclose(file);
         }
