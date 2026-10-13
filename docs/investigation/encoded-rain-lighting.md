@@ -202,3 +202,40 @@ Factory's original authored project contains 36 environment probes and no
 ambient-light objects. That does not prove runtime absence of additional
 ambient producers. School 021 has authored ambient lights and byte-identical
 021/026 skylight shaders; this 010b sky equation must not be applied there.
+
+## Sun and translucency preparation
+
+`audit_original_sun_diffuse.py` reconstructs the original sun diffuse BRDF,
+encoding and additive blend from frozen source G-buffer/constants. It uses the
+captured final sun visibility, so it does not independently verify cascades,
+shadow filtering or stencil coverage. At stride 17, all 79,848 changed samples
+across seven original views agree within one 10-bit step (maximum .000563).
+Unchanged samples are reported separately; one interior sample differs beyond
+that tolerance, consistent with a coverage difference that remains unproven.
+
+The optional 32-byte constants export contains source linear diffuse color
+and shadow transparency, followed by the original translucency color. The
+original source first quantizes the weather color to bytes. For these captures,
+source sun diffuse is [.065842059,.065842059,.070000000], while translucency
+uses [.064392105,.064392105,.070000000]. All seven views agree. Native
+composition uses [.065909237,.065909237,.070000000]; the earlier translucency
+helper used [.064481713,.064481713,.070000000]. Using unquantized authored
+color therefore introduces a small additional mismatch.
+
+`legacy_sun_diffuse_encoded.hlsl` and `legacy_translucency_encoded.hlsl` prepare
+separate additive outputs on the native composition bindings, with the exported
+source constants at b3. Sun uses source V·H Fresnel and applies visibility after
+encoding. Translucency keeps its separate encoding and source five-bit material
+packing. These shaders are not wired into the live accumulator yet.
+
+Their native visibility/projection inputs still differ from original shadow
+rasterization; they are not a replacement for that work. The caller must also
+reproduce source coverage: sun uses stencil NOT_EQUAL zero, and translucency
+uses EQUAL with reference 0xff/read mask 0x04. Native stencil-bit mapping must
+be proved before enabling the latter. A nonzero translucency parameter alone
+does not prove source coverage.
+
+Both auxiliary shaders pass FXC `/WX /O3 /T ps_4_0`. The 19-file checkpoint
+`reproduction/source-sun-aux-20261013` preserves their exact compiled outputs,
+source, compiler commands, exported constants, original source contracts and
+CPU audit results; its hashes verify. Target runtime validation remains open.
