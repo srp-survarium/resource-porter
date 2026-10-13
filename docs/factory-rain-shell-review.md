@@ -60,3 +60,38 @@ preserved `rain-math-test.c`. Run `audit_rain_math.py --motion-tools DIR
 arguments plus `--reference ORIGINAL_POSES --target TARGET_CAPTURE`.
 
 Evidence: `.work/chemical-plant-011a/comparison/checkpoint/factory-rain-shell-review`.
+
+## Full-pixel comparison of two runtime batches
+
+All contract checks pass independently for both five-view batches. The table
+shows full-frame **mean raw HDR luma added by rain**, not image MAE:
+
+| View | Original shells | First private replay | Last-mip private replay | First native particles |
+| --- | --- | --- | --- | --- |
+| Interior | .00003107 | .00002573 | .00002324 | .000000582 |
+| Upper | .00131534 | .00126206 | .00124173 | .00002254 |
+| Streetlamp | .00057257 | .00057916 | .00060774 | .00001432 |
+| Yard north | .00001020 | .00001185 | .00000909 | .000000944 |
+| Yard south | .000000647 | .000002811 | .000001830 | .0000000315 |
+
+Across the 45 predefined grid cells, the first replay's mean contribution is
+closer to the original than native particles in 27 cells, farther in three,
+and equal in 15. The last-mip variant has 25 closer, four farther and 16 equal.
+Mean absolute differences between regional mean contributions are .00003316
+and .00004445 respectively, versus native particles' .00037848 and .00037627.
+These distribution comparisons support restoring the original rain's strength
+and coverage, not matching individual drops or proving the mip variant better.
+The variants have different clocks/history and pre-rain inputs.
+
+Upper-view pixels changed by rain are 18.76% original, 18.84% first replay and
+0.97% native particles. Streetlamp coverage is 8.90%, 9.57% and 0.61%. Sparse
+south rain remains discrepant despite its small absolute contribution. Some
+individual layers correctly produce no changed pixels in sheltered views;
+all five output steps are preserved, including those unchanged steps.
+
+Batches: `pipeline-factory-source-rain-shells` and
+`pipeline-factory-source-rain-mip-last`. Separate complete reports are
+`rain-shell-runtime-audit-full.json` and `rain-shell-mip-last-audit-full.json`
+in the review checkpoint. The audit defaults to every pixel; optional coarser
+sampling uses a globally aligned grid and should not replace full-pixel
+statistics for narrow, sparse rain streaks.
