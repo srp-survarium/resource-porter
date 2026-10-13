@@ -550,3 +550,59 @@ is not fully reproduced. Yard south contributes zero samples after the
 coverage restriction. These limits are explicit: the exact mip contract
 comes from shader/upload/SRV/sampler/asset evidence, not a claimed perfect
 CPU replay or an image-based fit. Target runtime validation remains pending.
+
+### Last-mip target validation
+
+`pipeline-factory-source-rain-mip-last` completed five views with mip 2,
+one sky initialization each, and 16/32/30/8/26 probes. Ambient, SSAO,
+local lights, final native depth and sun/translucency share each view's
+Present serial. No failed or unhandled draws were recorded. The sky and
+translucency CPU replays remain within one 10-bit step; all five restored
+composition outputs are byte-identical to their displayed counterparts.
+
+Against `pipeline-factory-full-diffuse-comparison`, full-diffuse pre-fog
+HDR MAE on the fixed geometry mask changes as follows. These are separate
+captures, not an isolated same-frame mip substitution:
+
+| View | Prior mip 1 | Corrected mip 2 |
+| --- | ---: | ---: |
+| Interior | .001252 | .000933 |
+| Upper | .008635 | .008474 |
+| Streetlamp | .006029 | .005790 |
+| North | .001525 | .001676 |
+| South | .003458 | .002361 |
+
+North's broad-mask regression remains explicit; its exact-depth error
+instead slightly improves (.001453→.001431). Outdoor depth and material
+bytes differ between captures, so these aggregate changes cannot all be
+attributed to mip choice. The encoded-stage audit now also rejects the
+499.75 far-clear depth and zero native stencil, matching the composition
+geometry gate. Previous encoded metrics admitting clear sky are superseded.
+
+The two predefined static wall regions give stronger local evidence.
+All 17,000 south-wall and 9,800 back-wall depths still match the source,
+and neither region receives local/sun/translucency contributions. Corrected
+south diffuse RGB means are [.052860, .056429, .055789] versus source
+[.052871, .056425, .055791]. Back-wall means are [.042311, .042037, .037202]
+versus [.042307, .042056, .037231], removing its previous blue excess.
+Back-wall albedo means are unchanged between target runs; HDR MAE improves
+.000618→.000328. South albedo differs between runs and remains above the
+source, so its .002748→.001467 HDR improvement has mixed causes. Native
+specular and source material decoding remain unresolved; accurate diffuse
+does not establish complete composition parity.
+
+Reports are preserved under `encoded-rain-lighting/` as
+`mip-last-readiness.json`, `ambient-mip-last-audit.json`,
+`translucency-mip-last-audit.json`, `mip-stage-comparison.json`,
+`full-diffuse-mip-last-audit.json`, and `wall-mip-last-audit.json`.
+
+`audit_common_encoded_pixels.py ORIGINAL PRIOR CURRENT --output REPORT`
+additionally intersects exact-depth geometry masks across both target
+runs. Requiring identical target normal/albedo/parameter bytes leaves
+31,361 interior, 5,573 upper and 2,831 streetlamp samples. Their encoded
+ambient MAE improves .003390→.000696, .011267→.010594 and
+.006915→.005447 respectively; final encoded MAE also improves. North has
+only 28 such pixels and south zero, so that stronger subset cannot support
+an outdoor-wall claim. The report explicitly retains these counts and
+notes that identical G-buffer bytes do not establish identical AO or probe
+coverage. `mip-common-pixels.json` preserves the result.

@@ -49,6 +49,13 @@ def compare_stages(original,stem,stride):
     old=original/Path(stem).name
     def read(base,suffix): return Path(str(base)+suffix).read_bytes()
     od=read(old,'.composition-draw.rt00.bin');nd=read(stem,'.composition-draw.rt03.bin')
+    ds_info=json.loads(read(stem,'.sun-encoded-0.targets.json'))[1]
+    ds=read(stem,'.sun-encoded-0.rt01.bin')
+    if not ds_info['written']: raise ValueError('no final native stencil for geometry comparison')
+    if ds_info['format'] in (44,45): stencil=ds[3::4]
+    elif ds_info['format'] in (19,20): stencil=ds[4::8]
+    else: raise ValueError('unsupported native stencil format')
+    if len(stencil)!=1280*720: raise ValueError('incomplete geometry stencil')
     if read(old,'.translucency-output.rt00.bin')!=read(old,'.composition-draw.rt03.bin'):
         raise ValueError('original final accumulator continuity changed')
     stages={'ambient':(read(old,'.sun-before.rt00.bin'),read(stem,'.ambient-encoded.rt00.bin')),
@@ -58,12 +65,12 @@ def compare_stages(original,stem,stride):
     regions={name:{stage:stats() for stage in stages} for name in REGIONS.get(Path(stem).stem,{})}
     matched=bytearray(1280*720)
     for i in range(len(matched)):
-        if od[i*2:i*2+2]==nd[i*2:i*2+2] and 0<struct.unpack_from('<e',od,i*2)[0]<1000:
+        if stencil[i] and od[i*2:i*2+2]==nd[i*2:i*2+2] and 0<struct.unpack_from('<e',od,i*2)[0]<499.75:
             matched[i]=1
     for y in range(1,719,stride):
         for x in range(1,1279,stride):
             i=y*1280+x
-            if not (0<struct.unpack_from('<e',od,i*2)[0]<1000 and 0<struct.unpack_from('<e',nd,i*2)[0]<1000): continue
+            if not (stencil[i] and 0<struct.unpack_from('<e',od,i*2)[0]<499.75 and 0<struct.unpack_from('<e',nd,i*2)[0]<499.75): continue
             # Same conservative HUD/weapon exclusion as broad weather metrics.
             if y>=544 or (x<224 and y<224) or (x>=640 and y>=384) or (608<=x<672 and 320<=y<384): continue
             masks=['fixed_mask_geometry']
