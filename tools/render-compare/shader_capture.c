@@ -58,6 +58,8 @@ static int contains(const void *data, size_t length, const char *text) {
     return 0;
 }
 
+#include "legacy_translucency.c"
+
 static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code,SIZE_T size,ID3D11ClassLinkage *linkage,ID3D11PixelShader **shader) {
     const unsigned char expected[]={0x18,0x28,0x29,0x05,0xd7,0x75,0xeb,0xa6,0xbb,0x7b,0x12,0xe0,0x57,0x71,0x0d,0xfe};
     const unsigned char present_expected[]={0x20,0x02,0x37,0x28,0x32,0x61,0xd9,0xb2,0x6a,0x85,0xaf,0xf8,0x8a,0x85,0x99,0x29};
@@ -114,6 +116,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (composition_replaced) { code=legacy_composition_code; size=legacy_composition_size; }
     if (ambient_decode_replaced) { code=legacy_ambient_decode_code; size=legacy_ambient_decode_size; }
     HRESULT hr=original_create_ps(device,code,size,linkage,shader);
+    if (SUCCEEDED(hr) && shader && *shader) mark_sun_projection(*shader,code,size);
     if (composition_replaced && SUCCEEDED(hr) && shader && *shader) {
         unsigned flag=1; ID3D11PixelShader_SetPrivateData(*shader,&composition_guid,sizeof(flag),&flag);
     }
@@ -314,10 +317,10 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     snprintf(path,sizeof(path),"%s.targets.json",base);
     FILE *index=fopen(path,"w");
     if (index) {
-        ID3D11ShaderResourceView *views[13]={0};
-        ID3D11DeviceContext_PSGetShaderResources(context,0,13,views);
+        ID3D11ShaderResourceView *views[14]={0};
+        ID3D11DeviceContext_PSGetShaderResources(context,0,14,views);
         fputs("[",index); unsigned count=0;
-        for (unsigned i=0;i<13;++i) if (views[i]) {
+        for (unsigned i=0;i<14;++i) if (views[i]) {
             ID3D11Resource *resource=NULL; ID3D11ShaderResourceView_GetResource(views[i],&resource);
             ID3D11Texture2D *texture=NULL;
             hr=ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&texture);
@@ -554,14 +557,18 @@ static void capture_post_output(ID3D11DeviceContext *context) {
     }
 }
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
+    render_sun_projection(context,count,start,0,0);
+    TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
     capture_post_draw(context); original_draw(context,count,start); capture_post_output(context);
-    capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state);
+    capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state); restore_translucency(context,&translucency);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
+    render_sun_projection(context,count,start,base,1);
+    TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
     capture_post_draw(context); original_draw_indexed(context,count,start,base); capture_post_output(context);
-    capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state);
+    capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state); restore_translucency(context,&translucency);
 }
 static int replace_method(void *object,size_t offset,void *hook,void **original) {
     void **method=(void **)((char *)*(void **)object+offset); DWORD protection;
@@ -605,6 +612,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         !load_shader_override("SRP_LEGACY_RAIN_TONEMAP",&legacy_post_code,&legacy_post_size) ||
         !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE",&legacy_probe_code,&legacy_probe_size) ||
         !load_shader_override("SRP_LEGACY_PROBE_DIFFUSE_BOX",&legacy_probe_box_code,&legacy_probe_box_size) ||
+        !load_shader_override("SRP_LEGACY_SUN_PROJECTION",&legacy_sun_projection_code,&legacy_sun_projection_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION",&legacy_composition_code,&legacy_composition_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION_REFERENCE",&comparison_composition_code,&comparison_composition_size) ||
         !load_shader_override("SRP_LEGACY_AMBIENT_DECODE",&legacy_ambient_decode_code,&legacy_ambient_decode_size)) return 0;
@@ -612,6 +620,20 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     int original_tail=legacy_post_code && contains(legacy_post_code,legacy_post_size,"t_legacy_grain");
     if (original_tail!=!!legacy_present_code || original_tail!=!!grain_path_length || grain_path_length>=sizeof(legacy_post_grain_path)) {
         error("original post tail requires paired grading, grain texture and final gamma shaders"); return 0;
+    }
+    int source_translucency=legacy_composition_code && contains(legacy_composition_code,legacy_composition_size,"t_legacy_sun_projection");
+    if (source_translucency!=!!legacy_sun_projection_code) {
+        error("source translucency requires its paired sun projection helper"); return 0;
+    }
+    if (source_translucency) {
+        char path[MAX_PATH];
+        DWORD length=GetEnvironmentVariableA("SRP_LEGACY_TRANSLUCENCY_CONSTANTS",path,sizeof(path));
+        FILE *file=length && length<sizeof(path)?fopen(path,"rb"):NULL;
+        if (!file) { error("source translucency constants missing"); return 0; }
+        int ok=fread(legacy_translucency_color,1,sizeof(legacy_translucency_color),file)==sizeof(legacy_translucency_color) && fgetc(file)==EOF;
+        fclose(file);
+        for (unsigned i=0;i<4;++i) ok=ok && isfinite(legacy_translucency_color[i]) && legacy_translucency_color[i]>=0;
+        if (!ok) { error("invalid source translucency sun constants"); return 0; }
     }
     if (comparison_composition_code && !legacy_composition_code) {
         error("composition comparison requires a composition override"); return 0;

@@ -26,6 +26,11 @@ SamplerState s_normal : register(s1);
 SamplerState s_accumulator : register(s2);
 SamplerComparisonState s_shmap : register(s3);
 
+#ifdef CONFIG_SOURCE_TRANSLUCENCY
+cbuffer TranslucencyConstants : register(b2) { float4 source_sun_color; };
+Texture2D t_legacy_sun_projection : register(t13);
+#endif
+
 float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
     float3 position=float3((1-2*uv)*s_eye_ray_corner.xy/s_eye_ray_corner.z,1)
         *t_position.SampleLevel(s_position,uv,0).x;
@@ -53,6 +58,21 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
         sun_specular=light_color*shadow.x*(nl*geometry*fv*min(distribution,1000));
     }
     float3 scattering=0;
+#ifdef CONFIG_SOURCE_TRANSLUCENCY
+    // Original material packing stores five gamma-space bits, then decodes 2.2.
+    float translucency=pow(floor(pow(saturate(parameters.z),1/2.2)*31)/31,2.2);
+    if (translucency>0) {
+        float projected_depth=t_legacy_sun_projection.SampleLevel(s_position,uv,0).x;
+        // Original sun helper GREEN is visibility, not its RED raw shadow depth.
+        float attenuation=pow(1-saturate((projected_depth-shadow.x)/(translucency*.035)),10);
+        float back_light=dot(normal,light_direction);
+        float forward=saturate(dot(-normalize(position),light_direction));
+        scattering=translucency*.1
+            +source_sun_color.xyz*back_light*attenuation*translucency*1.5
+            +translucency*back_light*.1*source_sun_color.xyz
+            +source_sun_color.xyz*forward*forward*forward*translucency*attenuation*2;
+    }
+#else
     if (parameters.z>.001) {
         scattering=light_color*(max(dot(normal,light_direction),0)*shadow.y*parameters.z+parameters.z*.02);
 #ifdef CONFIG_SOURCE_TRANSLUCENCY_BASE
@@ -63,6 +83,7 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
         float world_y=normalize(mul((float3x3)m_V2W,normal)).y;
         scattering+=saturate(-world_y)*parameters.z*(-world_y*eye_direction.y);
     }
+#endif
     float3 square_color=albedo*albedo;
     float3 tint=sqrt(square_color/max(length(square_color),.0001))*parameters.w;
     float fresnel=pow(1-saturate(dot(normal,-normalize(position))),5);
