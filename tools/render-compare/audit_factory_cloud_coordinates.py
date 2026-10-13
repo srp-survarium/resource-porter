@@ -8,6 +8,7 @@ parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('original',type=pathlib.Path);parser.add_argument('target',type=pathlib.Path)
 parser.add_argument('--archive',type=pathlib.Path,required=True);parser.add_argument('--index',type=pathlib.Path,required=True)
 parser.add_argument('--pose',default='streetlamp-user-area.bmp');parser.add_argument('--output',type=pathlib.Path,required=True)
+parser.add_argument('--pass-only',action='store_true',help='Audit completed cloud buffers without requiring a final screenshot')
 args=parser.parse_args();old,new,pose=args.original,args.target,args.pose
 idx=json.loads(args.index.read_text());offset,length=idx['textures/sky/cgskies_cloud.dds']
 with args.archive.open('rb') as f:f.seek(offset);dds=f.read(length)
@@ -79,5 +80,9 @@ for label,folder in [('source',old),('native',new)]:
      i=y*1280+x;b=unpack(struct.unpack_from('<I',before,i*4)[0]);a=unpack(struct.unpack_from('<I',after,i*4)[0]);error+=sum(abs(b[c]*factor[c]-a[c]) for c in range(3));ref=unpack(struct.unpack_from('<I',source_output,i*4)[0]);source_error+=sum(abs(b[c]*factor[c]-ref[c]) for c in range(3));n+=1
     results.append(dict(sign=sign,phase=phase,v_scale=scale,samples=n,rgb_mae=error/(3*n),predicted_source_output_mae=source_error/(3*n)))
  report['hypotheses'][label]=sorted(results,key=lambda v:v['rgb_mae'])
-op,np=bmp(old/pose),bmp(new/pose);report['sky_bmp_rgb_mae']=sum(abs(a-b) for x,y,_,_ in points for a,b in zip(op(x,y),np(x,y)))/(len(points)*3)
+target_output=(new/(pose+'.cloud-output.rt00.bin')).read_bytes()
+report['actual_cloud_output_sky_rgb_mae']=sum(abs(a-b) for x,y,_,_ in points for a,b in zip(unpack(struct.unpack_from('<I',source_output,4*(y*1280+x))[0]),unpack(struct.unpack_from('<I',target_output,4*(y*1280+x))[0])))/(len(points)*3)
+report['sky_bmp_rgb_mae']=None
+if not args.pass_only:
+ op,np=bmp(old/pose),bmp(new/pose);report['sky_bmp_rgb_mae']=sum(abs(a-b) for x,y,_,_ in points for a,b in zip(op(x,y),np(x,y)))/(len(points)*3)
 args.output.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({'samples':len(points),'best':{k:v[0] for k,v in report['hypotheses'].items()},'sky_bmp_rgb_mae':report['sky_bmp_rgb_mae']}))

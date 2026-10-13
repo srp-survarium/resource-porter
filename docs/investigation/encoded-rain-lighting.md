@@ -782,3 +782,21 @@ three views have1–3 and cannot substantiate a broad sky claim. Reports
 `factory-cloud-live-rain-comparison.json` preserve those counts. The next
 candidate run should reuse these views and report its geometry regions too;
 no new original capture is required.
+
+The corrected `pipeline-factory-live-rain-clouds` run validates the GPU
+cloud pass. On the same1,542 lamp sky pixels, cloud-output HDR MAE falls
+.061651→.005928 (90.4%) and RMSE .073396→.008401. The pre-cloud target
+sky is identical between the two runs on that mask, isolating the coordinate
+change from underlying atmosphere. The guarded replay now selects the
+source-derived phase+.75/V1 for the actual corrected target (MAE .00430).
+The active pixel shader is the compiled coordinate candidate.
+
+The lamp's rich readback exceeded the initial30-second wrapper deadline,
+so its cloud buffers are complete but its final screenshot is absent.
+`--pass-only` audits those completed cloud buffers without pretending a
+final image exists. Four other final screenshots completed; upper sky
+MAE improves .08664→.03236 on53 samples, while the other three views
+have only1–3 sky samples. Final lamp validation awaits the separate recovery
+batch. Reports `factory-cloud-corrected-pass.json`,
+`factory-cloud-corrected-pass-comparison.json` and
+`factory-cloud-corrected-four-comparison.json` preserve this boundary.
