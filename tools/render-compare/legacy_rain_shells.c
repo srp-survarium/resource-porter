@@ -8,6 +8,8 @@ static ID3D11Texture2D *source_rain_pending_target;
 static unsigned source_rain_ready_frame,source_rain_applied_frame,source_rain_motion_frame;
 static int source_rain_applied;
 static unsigned source_rain_attempts,source_rain_rendered,source_rain_copied,source_rain_suppressed;
+static unsigned source_rain_rejected,source_rain_reject_mask,source_rain_last_reject;
+static int source_rain_rejected_globals_saved;
 static DWORD source_rain_status_tick;
 static float source_rain_gpu_eye[3],source_rain_gpu_view[12],source_rain_gpu_time;
 static void source_rain_status(int force,int director_enabled) {
@@ -19,7 +21,39 @@ static void source_rain_status(int force,int director_enabled) {
     FILE *file=fopen(path,"w"); if (!file) return;
     fprintf(file,"{\"live_requested\":true,\"present\":%u,\"director_enabled\":%s,\"particle_draw_attempts\":%u,\"rendered_frames\":%u,\"applied_frames\":%u,\"suppressed_native_draws\":%u,\"last_rendered_present\":%u,\"last_applied_present\":%u,\"gpu_camera_present\":%u,\"gpu_scene_time\":%.9g,\"gpu_eye\":[%.9g,%.9g,%.9g],\"gpu_view\":[",present_calls,director_enabled?"true":"false",source_rain_attempts,source_rain_rendered,source_rain_copied,source_rain_suppressed,source_rain_ready_frame,source_rain_applied_frame,source_rain_motion_frame,source_rain_gpu_time,source_rain_gpu_eye[0],source_rain_gpu_eye[1],source_rain_gpu_eye[2]);
     for (unsigned i=0;i<12;++i) fprintf(file,"%s%.9g",i?",":"",source_rain_gpu_view[i]);
-    fputs("]}\n",file); fclose(file);
+    fprintf(file,"],\"rejected_draws\":%u,\"last_rejection_reason\":%u}\n",source_rain_rejected,source_rain_last_reject); fclose(file);
+}
+// Startup/menu constants can be empty. Reject that draw without poisoning the
+// client-wide error latch; a requested capture still requires valid inputs.
+// Save each distinct reason once, plus the first available rejected GPU buffer.
+static void source_rain_reject(int take,int director,unsigned reason,const char *message,
+                               const float *globals,int row,int column,double value) {
+    ++source_rain_rejected; source_rain_last_reject=reason;
+    unsigned bit=1u<<reason;
+    if (!(source_rain_reject_mask&bit)) {
+        source_rain_reject_mask|=bit;
+        int first_globals=globals && !source_rain_rejected_globals_saved;
+        char base[MAX_PATH+64],path[MAX_PATH+80];
+        for (unsigned copy=0;copy<(first_globals?2u:1u);++copy) {
+            if (copy) snprintf(base,sizeof(base),"%s.source-rain-rejected",control);
+            else snprintf(base,sizeof(base),"%s.source-rain-rejected-%u",control,reason);
+            int saved=0;
+            if (globals) {
+                snprintf(path,sizeof(path),"%s-globals.bin",base);
+                saved=write_bytes(path,globals,104*sizeof(float));
+                if (copy && saved) source_rain_rejected_globals_saved=1;
+            }
+            snprintf(path,sizeof(path),"%s.json",base); FILE *file=fopen(path,"w");
+            if (file) {
+                fprintf(file,"{\"present\":%u,\"reason_id\":%u,\"reason\":\"%s\",\"rejected_draws\":%u,\"capture_armed\":%s,\"director_enabled\":%s,\"globals_written\":%s,\"row\":%d,\"column\":%d,\"check_value\":",present_calls,reason,message,source_rain_rejected,take?"true":"false",director?"true":"false",saved?"true":"false",row,column);
+                if (isfinite(value)) fprintf(file,"%.17g",value); else fputs("null",file);
+                if (reason==7) fprintf(file,",\"expected_dot\":%d,\"orthonormal_tolerance\":1e-5",row==column);
+                fputs("}\n",file); fclose(file);
+            }
+        }
+        source_rain_status(1,director);
+    }
+    if (take) error(message);
 }
 static void *source_rain_assets[5];
 static const unsigned source_rain_sizes[5]={1708,3620,2400,864,262144};
@@ -194,36 +228,39 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     }
     source_rain_applied=0;
     if (!source_full_diffuse_view() || !source_rain_position || source_rain_position_frame!=present_calls) {
-        if (take) error("source rain requires current complete lighting and position");
+        source_rain_reject(take,camera.enabled,1,"source rain requires current complete lighting and position",NULL,-1,-1,0);
         ID3D11PixelShader_Release(ps); return 0;
     }
     ID3D11GeometryShader *gs=NULL; ID3D11DeviceContext_GSGetShader(context,&gs,NULL,NULL);
-    if (gs) { ID3D11GeometryShader_Release(gs); ID3D11PixelShader_Release(ps); error("source rain requires no geometry shader"); return 0; }
+    if (gs) { ID3D11GeometryShader_Release(gs); ID3D11PixelShader_Release(ps); source_rain_reject(take,camera.enabled,2,"source rain requires no geometry shader",NULL,-1,-1,0); return 0; }
     ID3D11RenderTargetView *targets[8]={0}; ID3D11DepthStencilView *depth=NULL;
     ID3D11Buffer *vcb[2]={0},*pcb[2]={0}; ID3D11ShaderResourceView *views[5]={0};
     ID3D11DeviceContext_OMGetRenderTargets(context,8,targets,&depth);
     ID3D11DeviceContext_VSGetConstantBuffers(context,0,2,vcb); ID3D11DeviceContext_PSGetConstantBuffers(context,0,2,pcb);
     ID3D11DeviceContext_PSGetShaderResources(context,0,5,views);
     ID3D11Texture2D *native=NULL; ID3D11Resource *resource=NULL; float globals[104],shadow[16]; int ready=0;
-    if (!targets[0] || targets[1] || !depth || !views[1] || !source_rain_read_buffer(context,vcb[1],globals,sizeof(globals)) ||
-        !source_rain_read_buffer(context,pcb[0],shadow,sizeof(shadow))) { error("source rain native inputs absent"); goto release; }
-    for (unsigned i=1;i<8;++i) if (targets[i]) { error("source rain requires one color target"); goto release; }
-    for (unsigned i=0;i<104;++i) if (!isfinite(globals[i])) { error("source rain globals nonfinite"); goto release; }
-    for (unsigned i=0;i<16;++i) if (!isfinite(shadow[i])) { error("source rain shadow nonfinite"); goto release; }
+    int have_globals=source_rain_read_buffer(context,vcb[1],globals,sizeof(globals));
+    if (!targets[0] || targets[1] || !depth || !views[1] || !have_globals ||
+        !source_rain_read_buffer(context,pcb[0],shadow,sizeof(shadow))) {
+        source_rain_reject(take,camera.enabled,3,"source rain native inputs absent",have_globals?globals:NULL,-1,-1,0); goto release;
+    }
+    for (unsigned i=1;i<8;++i) if (targets[i]) { source_rain_reject(take,camera.enabled,4,"source rain requires one color target",globals,-1,-1,0); goto release; }
+    for (unsigned i=0;i<104;++i) if (!isfinite(globals[i])) { source_rain_reject(take,camera.enabled,5,"source rain globals nonfinite",globals,(int)i,-1,globals[i]); goto release; }
+    for (unsigned i=0;i<16;++i) if (!isfinite(shadow[i])) { source_rain_reject(take,camera.enabled,6,"source rain shadow nonfinite",globals,(int)i,-1,shadow[i]); goto release; }
     // Particle VS globals declare m_V2W but never upload it. Recover the
     // inverse from its actual orthonormal m_V instead of reading those zeros.
     float inverse[16]={0}; inverse[15]=1;
     for (unsigned r=0;r<3;++r) for (unsigned c=0;c<3;++c) {
         double dot=0;
         for (unsigned k=0;k<3;++k) dot+=globals[32+r*4+k]*globals[32+c*4+k];
-        if (fabs(dot-(r==c?1:0))>1e-5) { error("source rain view is not orthonormal"); goto release; }
+        if (fabs(dot-(r==c?1:0))>1e-5) { source_rain_reject(take,camera.enabled,7,"source rain view is not orthonormal",globals,(int)r,(int)c,dot); goto release; }
         inverse[r*4+c]=globals[32+c*4+r];
     }
     for (unsigned r=0;r<3;++r) {
         double translation=0;
         for (unsigned k=0;k<3;++k) translation-=inverse[r*4+k]*globals[35+k*4];
         inverse[r*4+3]=(float)translation;
-        if (fabsf(inverse[r*4+3]-globals[80+r])>.001f) { error("source rain inverse view differs from eye"); goto release; }
+        if (fabsf(inverse[r*4+3]-globals[80+r])>.001f) { source_rain_reject(take,camera.enabled,8,"source rain inverse view differs from eye",globals,(int)r,-1,inverse[r*4+3]-globals[80+r]); goto release; }
     }
     // Director poses are not the player's camera. Use only the globals actually
     // bound to this particle draw, including on non-capture/live gameplay frames.
@@ -237,7 +274,7 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     if (!take && !source_rain_live) goto release;
     ID3D11RenderTargetView_GetResource(targets[0],&resource);
     hr=ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&native); ID3D11Resource_Release(resource);
-    if (FAILED(hr) || !init_source_rain(context,native)) { error("cannot initialize source rain targets"); goto release; }
+    if (FAILED(hr) || !init_source_rain(context,native)) { source_rain_reject(take,camera.enabled,9,"cannot initialize source rain targets",globals,-1,-1,0); goto release; }
     D3D11_TEXTURE2D_DESC color_desc; ID3D11Texture2D_GetDesc(native,&color_desc);
     // Native particle shaders do not consume screen_res; the engine may leave
     // its reflected CB slot zero. The original PS needs actual pixel dimensions.
@@ -246,18 +283,18 @@ static int render_source_rain(ID3D11DeviceContext *context) {
     if (viewport_count!=1 || viewport.TopLeftX!=0 || viewport.TopLeftY!=0 ||
         viewport.Width!=color_desc.Width || viewport.Height!=color_desc.Height ||
         viewport.MinDepth!=0 || viewport.MaxDepth!=1 || !color_desc.Width || !color_desc.Height) {
-        error("source rain viewport mismatch"); goto release;
+        source_rain_reject(take,camera.enabled,10,"source rain viewport mismatch",globals,-1,-1,0); goto release;
     }
     D3D11_SHADER_RESOURCE_VIEW_DESC position_desc,shadow_desc;
     ID3D11ShaderResourceView_GetDesc(source_rain_position,&position_desc); ID3D11ShaderResourceView_GetDesc(views[1],&shadow_desc);
     if (position_desc.Format!=DXGI_FORMAT_R16_FLOAT || shadow_desc.Format!=DXGI_FORMAT_R16_UNORM ||
         position_desc.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D || shadow_desc.ViewDimension!=D3D11_SRV_DIMENSION_TEXTURE2D) {
-        error("source rain depth or shadow format changed"); goto release;
+        source_rain_reject(take,camera.enabled,11,"source rain depth or shadow format changed",globals,-1,-1,0); goto release;
     }
     if (!source_rain_view_matches(source_rain_position,color_desc.Width,color_desc.Height) ||
         !source_rain_view_matches(source_full_diffuse_view(),color_desc.Width,color_desc.Height) ||
         shadow_desc.Texture2D.MostDetailedMip!=0) {
-        error("source rain input dimensions or mip changed"); goto release;
+        source_rain_reject(take,camera.enabled,12,"source rain input dimensions or mip changed",globals,-1,-1,0); goto release;
     }
     float old_globals[76]={0},parameters[28]={0},world[5][12],radii[5];
     memcpy(old_globals,globals,176); memcpy(old_globals+44,inverse,48);
