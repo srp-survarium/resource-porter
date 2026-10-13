@@ -289,6 +289,11 @@ static void capture_post_draw(ID3D11DeviceContext *context) {
     unsigned probe_variant=0;
     unsigned material_variant=0;
     if (kind==21) {
+        /* Depth-only draws can share bytecode with an emissive permutation. */
+        ID3D11RenderTargetView *emissive_target=NULL;
+        ID3D11DeviceContext_OMGetRenderTargets(context,1,&emissive_target,NULL);
+        if (!emissive_target) { free(code); return; }
+        ID3D11RenderTargetView_Release(emissive_target);
         if (emissive_request_id!=camera.id) { emissive_request_id=camera.id; emissive_draw_count=0; }
         if (emissive_draw_count>=64) { free(code); return; }
         emissive_draw_variant=emissive_draw_count++;
