@@ -144,7 +144,13 @@ static void capture_local_diffuse(ID3D11DeviceContext *context,const Camera *cam
     begin_local_diffuse_frame(context);
     char base[MAX_PATH+48],path[MAX_PATH+80]; snprintf(base,sizeof(base),"%s.local-encoded",camera->output);
     snprintf(path,sizeof(path),"%s.json",base); FILE *file=fopen(path,"w");
-    if (file) { fprintf(file,"{\"present\":%u,\"replayed_draws\":%u,\"unhandled_draws\":%u,\"failed_draws\":%u,\"scope\":\"local-light-only; zero ambient\"}\n",present_calls,legacy_local_draws,legacy_local_unhandled,legacy_local_failures); fclose(file); }
+    if (file) {
+        fprintf(file,"{\"present\":%u,\"replayed_draws\":%u,\"unhandled_draws\":%u,\"failed_draws\":%u,\"ambient_enabled\":%s,\"ambient_valid\":%s,\"scope\":\"%s\"}\n",
+                present_calls,legacy_local_draws,legacy_local_unhandled,legacy_local_failures,
+                legacy_ambient_diffuse_enabled?"true":"false",source_ambient_valid()?"true":"false",
+                legacy_ambient_diffuse_enabled?"source ambient and local lights; no sun/scattering":"local-light-only; zero ambient");
+        fclose(file);
+    }
     if (legacy_local_diffuse_texture) {
         snprintf(path,sizeof(path),"%s.targets.json",base); file=fopen(path,"w");
         if (file) { fputs("[",file); dump_texture(legacy_local_diffuse_texture,base,file,"source_encoded_local_diffuse",0,NULL); fputs("]\n",file); fclose(file); }

@@ -239,3 +239,38 @@ Both auxiliary shaders pass FXC `/WX /O3 /T ps_4_0`. The 19-file checkpoint
 `reproduction/source-sun-aux-20261013` preserves their exact compiled outputs,
 source, compiler commands, exported constants, original source contracts and
 CPU audit results; its hashes verify. Target runtime validation remains open.
+## Opt-in ambient initialization and probe replay
+
+The next isolated module, `legacy_ambient_diffuse.c`, adds the prepared
+ambient producers to the same private target used by local lights. Enable it
+with `SRP_LEGACY_AMBIENT_DIFFUSE_DIR=ASSET_DIRECTORY` alongside the existing
+source local adapter, source probes/SSAO and `SRP_LEGACY_SSAO_EARLY_PROBES=1`.
+The directory contains the three compiled `legacy-*-ambient-aux.dxbc` files
+and the exported `source-skylight.bin`. Shader identities are pinned; constants
+must belong to the matching source weather.
+
+The first verified probe supplies current G-buffer/view bindings. Before its
+native draw, the helper copies the DSV. After that native draw it initializes
+the private target using source skylight, then replays the probe with source
+AO and alpha blend. Sky uses the source effect's explicit stencil rule:
+NOT_EQUAL reference 0, read mask 0xff, no stencil writes, depth disabled and
+RGB-only output. Each probe uses the untouched pre-native-draw private DSV,
+native geometry/depth/culling and the source SRC_ALPHA/INV_SRC_ALPHA blend.
+All changed PS, OM, sampler/resource, fullscreen VS/GS/IA/raster and constant
+bindings are restored. Native MRT probe/specular draws still run normally.
+
+The common buffer clears every Present, even when no probe or local light is
+observed. Missing initialization, stale AO, unsupported probe identities and
+probes after local-light accumulation make `source_ambient_valid()` false;
+they cannot silently reuse a previous frame. The helper does not bind its
+result to composition or rain. Runtime validation is still required.
+
+Rich captures save `.sky-encoded` immediately after source sky and before the
+first probe, paired with that frame's first `.probe-draw` inputs and
+`.ssao-live` AO. Its metadata records the native probe stencil state too.
+`.ambient-encoded` is sealed before the first local draw, with a composition
+fallback for a zero-local frame. `.local-encoded` then contains ambient plus
+local lights and explicitly reports whether ambient initialization was valid.
+Future source sun/scattering helpers must call `capture_ambient_diffuse()`
+before their first addition, including frames without local lights. This
+preserves a reviewable ambient-only boundary before the full accumulator.

@@ -14,6 +14,7 @@ static ID3D11Buffer *ssao_constants[2];
 static ID3D11RasterizerState *ssao_raster;
 static unsigned ssao_captured_id;
 static ID3D11Texture2D *ssao_ready_depth;
+static ID3D11VertexShader *legacy_ssao_fullscreen_shader(void) { return ssao_vs; }
 
 static void *ssao_file(const char *root,const char *name,size_t *size,int shader) {
     char path[MAX_PATH];
@@ -196,7 +197,7 @@ static void prepare_early_legacy_ssao(ID3D11DeviceContext *context) {
     unsigned marker=0; UINT size=sizeof(marker);
     HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&early_ssao_probe_guid,&size,&marker);
     ID3D11PixelShader_Release(shader);
-    if (FAILED(hr) || size!=sizeof(marker) || marker!=1) return;
+    if (FAILED(hr) || size!=sizeof(marker) || marker<1 || marker>2) return;
     ID3D11ShaderResourceView *view=NULL; ID3D11DeviceContext_PSGetShaderResources(context,2,1,&view);
     if (!view) { error("early SSAO probe depth missing"); return; }
     D3D11_SHADER_RESOURCE_VIEW_DESC desc; ID3D11ShaderResourceView_GetDesc(view,&desc);

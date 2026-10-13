@@ -19,6 +19,9 @@ static void *legacy_local_diffuse_code;
 static size_t legacy_local_diffuse_size;
 static void tag_source_local(ID3D11PixelShader *shader,const void *code,SIZE_T size);
 static void capture_local_diffuse(ID3D11DeviceContext *context,const Camera *camera);
+static int legacy_ambient_diffuse_enabled;
+static int source_ambient_valid(void);
+static void capture_ambient_diffuse(ID3D11DeviceContext *context);
 #include "local_light_capture.c"
 static int capture_rain_enabled;
 static unsigned rain_request_id, rain_draw_counts[3], rain_draw_variant;
@@ -220,8 +223,10 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         FILE *file=fopen(path,"w");
         if (file) { fprintf(file,"{\"legacy_lut_uses\":%u,\"legacy_fog_uses\":%u,\"legacy_sky_uses\":%u,\"legacy_cloud_uses\":%u,\"legacy_post_uses\":%u,\"legacy_probe_uses\":%u,\"legacy_composition_uses\":%u,\"legacy_ambient_decode_uses\":%u,\"hresult\":%ld}\n",legacy_lut_uses,legacy_fog_uses,legacy_sky_uses,legacy_cloud_uses,legacy_post_uses,legacy_probe_uses,legacy_composition_uses,legacy_ambient_decode_uses,hr); fclose(file); }
     }
-    if (legacy_ssao_early && (probe_replaced || probe_box_replaced) && SUCCEEDED(hr) && shader && *shader) {
-        unsigned marker=1; ID3D11PixelShader_SetPrivateData(*shader,&early_ssao_probe_guid,sizeof(marker),&marker);
+    if (legacy_ssao_early && (probe_replaced || probe_box_replaced ||
+        (legacy_ambient_diffuse_enabled && contains(code,size,"t_probe_cubemap_diffuse"))) && SUCCEEDED(hr) && shader && *shader) {
+        unsigned marker=probe_box_replaced?2:probe_replaced?1:3;
+        ID3D11PixelShader_SetPrivateData(*shader,&early_ssao_probe_guid,sizeof(marker),&marker);
     }
     if (SUCCEEDED(hr) && shader && *shader) tag_source_local(*shader,code,size);
     int local_index=local_light_index(code,size);
@@ -344,7 +349,10 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
         if (!capture_local_lights_enabled) { free(code); return; }
         kind=26;
     }
-    if (!reference_capture && kind==7) capture_local_diffuse(context,&camera);
+    if (!reference_capture && kind==7) {
+        capture_ambient_diffuse(context);
+        capture_local_diffuse(context,&camera);
+    }
     if (!reference_capture && kind==12 && draw_ids[kind]!=camera.id && !select_volume_capture(context,&camera)) { free(code); return; }
     unsigned probe_variant=0;
     unsigned material_variant=0;
@@ -743,6 +751,7 @@ static int skip_legacy_god_rays(ID3D11DeviceContext *context) {
         target->DestBlend==D3D11_BLEND_ONE && target->BlendOp==D3D11_BLEND_OP_ADD;
 }
 #include "legacy_local_diffuse.c"
+#include "legacy_ambient_diffuse.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
@@ -750,8 +759,11 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     LegacyExtraState state; bind_legacy_extra(context,&state);
     VolumeState volume; bind_volume(context,&volume);
     LocalDiffuseDraw local; prepare_local_diffuse(context,&local);
+    AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
+    if (local.ready) capture_ambient_diffuse(context);
     capture_post_draw(context,count,start,0,0); if (!skip_legacy_god_rays(context)) original_draw(context,count,start); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,0,0);
+    finish_ambient_diffuse(context,&ambient,count,start,0,0);
     capture_composition_outputs(context,count,start,0,0); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
@@ -761,8 +773,11 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     LegacyExtraState state; bind_legacy_extra(context,&state);
     VolumeState volume; bind_volume(context,&volume);
     LocalDiffuseDraw local; prepare_local_diffuse(context,&local);
+    AmbientDiffuseDraw ambient; prepare_ambient_diffuse(context,&ambient);
+    if (local.ready) capture_ambient_diffuse(context);
     capture_post_draw(context,count,start,base,1); if (!skip_legacy_god_rays(context)) original_draw_indexed(context,count,start,base); capture_post_output(context);
     finish_local_diffuse(context,&local,count,start,base,1);
+    finish_ambient_diffuse(context,&ambient,count,start,base,1);
     capture_composition_outputs(context,count,start,base,1); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static int replace_method(void *object,size_t offset,void *hook,void **original) {
@@ -881,6 +896,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         error("encoded probes require paired sphere, box and ambient decoder"); return 0;
     }
     if (!configure_legacy_ssao()) return 0;
+    if (!configure_ambient_diffuse()) return 0;
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
