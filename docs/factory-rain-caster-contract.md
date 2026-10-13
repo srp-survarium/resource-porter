@@ -257,3 +257,38 @@ hash collisions and full-table retention. All four opcode guards match the
 pinned client PE. The compiled bridges preserve registers, flags and floating
 point state and replay their displaced instructions. The observer builds with
 `-Wall -Wextra -Werror`; runtime depth validation is still pending.
+
+### Cache runtime result
+
+The five-view run on validation build `4fdb0c4` completed with all constructor
+and visibility guards active. Exact previous composition-diagnostic DLL bytes
+were restored after stopping the private client/server. Shadow matrices still
+match the original within 5.97e-8. All 1,194 logged rain candidates had observed
+constructor generations, and no cache overflow or shader-LOD-off frame occurred.
+
+| Pose | Selection + recomputed factor MAE | Selection + private cache MAE | Extra / missing caster texels with cache |
+| --- | --- | --- | --- |
+| Interior | .00019889 | .00007820 | 0 / 0 |
+| Yard north | .18047116 | .00001668 | 0 / 0 |
+| Yard south | .08978055 | .00394459 | 0 / 82 |
+| Upper | .23379353 | .00146591 | 0 / 33 |
+| Streetlamp | .00021410 | .00015986 | 0 / 0 |
+
+The recorded history explains the former large outdoor discrepancies:
+`terrain_p_09` keeps its interior factor .00207649 in both yard views, rejecting
+it despite the rain-time recomputation .0526701. At upper, `terrain_p_04` and
+`terrain_p_06` keep their yard factors .00302115 and .00264333 instead of
+recomputed .0135599 and .00629118. Their main-view updates and rain-selected
+LOD surfaces differ. All formerly extra caster texels disappear; overlap-only
+depth MAE is .00002212 north and .00000161 upper.
+
+This does not close exact caster parity. South still has 82 source-only texels
+and upper 33, and the original per-surface cache/visibility sequence was not
+captured. Each frame also counts unsupported/unknown pre-removal candidates
+(the aggregate reaches 6,378 by the last view); the current log does not split
+those rejections by reason. Native visible-list membership and source-material
+eligibility remain explicit comparison limits. The candidate stays opt-in;
+no ordinary recipe was changed.
+
+Capture directory: `.work/render-compare/026g/pipeline-factory-rain-selection-cache`.
+Reproduction evidence: `.work/chemical-plant-011a/comparison/checkpoint/factory-rain-cache`.
