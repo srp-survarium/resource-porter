@@ -1,0 +1,638 @@
+[
+  {
+    "name": "factory-interior",
+    "position": [
+      -35.8508682,
+      1.99373555,
+      -74.4459991
+    ],
+    "forward": [
+      0.896765232,
+      -0.00333326682,
+      -0.442493379
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Existing rain position retained for cross-weather comparison."
+  },
+  {
+    "name": "yard-north",
+    "position": [
+      48.593,
+      2.1,
+      16.238
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Existing rain position retained for cross-weather comparison."
+  },
+  {
+    "name": "yard-south",
+    "position": [
+      48.593,
+      2.1,
+      16.238
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Existing rain position retained for cross-weather comparison."
+  },
+  {
+    "name": "factory-upper",
+    "position": [
+      -7.76438,
+      15.5,
+      -31.85271
+    ],
+    "forward": [
+      0,
+      -0.12,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Existing rain position retained for cross-weather comparison."
+  },
+  {
+    "name": "spawn-32-north",
+    "position": [
+      -50.628,
+      2.493,
+      -105.438
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 32, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-32-south",
+    "position": [
+      -50.628,
+      2.493,
+      -105.438
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 32, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-34-north",
+    "position": [
+      -30.707,
+      2.155,
+      -70.676
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 34, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-34-south",
+    "position": [
+      -30.707,
+      2.155,
+      -70.676
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 34, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-10-north",
+    "position": [
+      77.857,
+      2.574,
+      9.413
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "holdout",
+    "rationale": "Authored spawn 10, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-10-south",
+    "position": [
+      77.857,
+      2.574,
+      9.413
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "holdout",
+    "rationale": "Authored spawn 10, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-30-north",
+    "position": [
+      -33.399,
+      2.513,
+      -106.277
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 30, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-30-south",
+    "position": [
+      -33.399,
+      2.513,
+      -106.277
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 30, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-11-north",
+    "position": [
+      61.196,
+      2.564,
+      5.013
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "holdout",
+    "rationale": "Authored spawn 11, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-11-south",
+    "position": [
+      61.196,
+      2.564,
+      5.013
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "holdout",
+    "rationale": "Authored spawn 11, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-06-north",
+    "position": [
+      65.523,
+      2.574,
+      20.86
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 6, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-06-south",
+    "position": [
+      65.523,
+      2.574,
+      20.86
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "fit",
+    "rationale": "Authored spawn 6, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-38-north",
+    "position": [
+      -43.965,
+      2.162,
+      -75.591
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "holdout",
+    "rationale": "Authored spawn 38, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "spawn-38-south",
+    "position": [
+      -43.965,
+      2.162,
+      -75.591
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "holdout",
+    "rationale": "Authored spawn 38, selected by farthest-point spacing before image inspection; opposite bearings sample orientation dependence."
+  },
+  {
+    "name": "hospital-east-path",
+    "position": [
+      -45,
+      7.279999999999999,
+      0
+    ],
+    "forward": [
+      -1,
+      0,
+      -0.2
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        5.63,
+        "level/03/terrain_p_03"
+      ]
+    ]
+  },
+  {
+    "name": "hospital-south-path",
+    "position": [
+      -45,
+      7.343999999999999,
+      -25
+    ],
+    "forward": [
+      -1,
+      0,
+      0.3
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        5.694,
+        "level/03/terrain_p_04"
+      ]
+    ]
+  },
+  {
+    "name": "officer-roof",
+    "position": [
+      -15,
+      12.061,
+      20
+    ],
+    "forward": [
+      0,
+      -0.2,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        10.411,
+        "level/03/officer_house"
+      ]
+    ]
+  },
+  {
+    "name": "officer-terrace",
+    "position": [
+      -10,
+      7.050000000000001,
+      15
+    ],
+    "forward": [
+      1,
+      0,
+      -0.3
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        5.4,
+        "level/03/terrain_p_02"
+      ]
+    ]
+  },
+  {
+    "name": "central-vehicle-route",
+    "position": [
+      20,
+      1.9609999999999999,
+      -15
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        0.311,
+        "level/03/terrain_p_08"
+      ],
+      [
+        0.406,
+        "level/03/terrain_p_08"
+      ]
+    ]
+  },
+  {
+    "name": "chemical-yard",
+    "position": [
+      30,
+      2.215,
+      -35
+    ],
+    "forward": [
+      1,
+      0,
+      0
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        0.565,
+        "level/03/terrain_p_08"
+      ]
+    ]
+  },
+  {
+    "name": "east-chemical-route",
+    "position": [
+      60,
+      2.5789999999999997,
+      -45
+    ],
+    "forward": [
+      -1,
+      0,
+      0
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        0.929,
+        "level/03/terrain_p_07"
+      ]
+    ]
+  },
+  {
+    "name": "south-east-rise",
+    "position": [
+      30,
+      8.224,
+      -65
+    ],
+    "forward": [
+      -1,
+      -0.15,
+      0
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        6.574,
+        "level/03/terrain_p_07"
+      ]
+    ]
+  },
+  {
+    "name": "garage-east-route",
+    "position": [
+      0,
+      2.122,
+      -75
+    ],
+    "forward": [
+      -1,
+      0,
+      0
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        0.472,
+        "level/03/terrain_p_06"
+      ]
+    ]
+  },
+  {
+    "name": "upper-central-courtyard",
+    "position": [
+      -20,
+      7.055,
+      -35
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        5.405,
+        "level/03/terrain_p_08"
+      ]
+    ]
+  },
+  {
+    "name": "west-terrace",
+    "position": [
+      -60,
+      7.180999999999999,
+      -40
+    ],
+    "forward": [
+      1,
+      -0.1,
+      0
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        5.531,
+        "level/03/terrain_p_04"
+      ]
+    ]
+  },
+  {
+    "name": "north-west-route",
+    "position": [
+      -60,
+      7.3260000000000005,
+      15
+    ],
+    "forward": [
+      1,
+      0,
+      0
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        5.676,
+        "level/03/terrain_p_03"
+      ]
+    ]
+  },
+  {
+    "name": "north-gate-route",
+    "position": [
+      15,
+      2.116,
+      40
+    ],
+    "forward": [
+      0,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        0.466,
+        "level/03/terrain_p_01"
+      ],
+      [
+        0.549,
+        "level/03/terrain_p_01"
+      ]
+    ]
+  },
+  {
+    "name": "north-east-route",
+    "position": [
+      65,
+      3.075,
+      40
+    ],
+    "forward": [
+      -1,
+      0,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 5000,
+    "split": "coverage-holdout",
+    "rationale": "Map-wide extension requested after initial capture; selected from authored level geometry before tuning.",
+    "ground_intersections": [
+      [
+        1.425,
+        "level/03/terrain_p_09"
+      ]
+    ]
+  }
+]
