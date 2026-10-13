@@ -106,7 +106,8 @@ contract failures are counted, not silently treated as supported.
 Rich composition captures save `.local-encoded.json` and the auxiliary buffer;
 metadata labels it **local-light-only, zero ambient**. The helper does not bind
 this buffer to composition or rain. Its C build passes warnings as errors and
-the shader passes FXC `/WX /O3 /T ps_4_0`; runtime replay remains unverified.
+the shader passes FXC `/WX /O3 /T ps_4_0`. The three-view runtime check below
+validates the local-only replay; the complete source accumulator remains open.
 
 Full ambient initialization remains open: the current source SSAO helper runs
 after probes, beside `copy_encoded_ambient`. Faithful source probe replay must
@@ -115,3 +116,38 @@ state for later replay. No aggregate inverse or post-blend AO shortcut is
 promoted as equivalent. All seven new original views confirm rain's t4,
 resolve's t3 and translucency-output rt0 are byte-identical, so the completed
 source accumulator can serve both consumers.
+
+
+## Local-only runtime validation
+
+`026g/pipeline-lamp-hangar-encoded-local` contains three completed matched
+captures using root commit `51ef0cf`. All 56 draws replayed into a full-size
+R10G10B10A2 target with zero unsupported draws or resource failures. Observer
+coverage is complete and its Present serial matches the helper in every view.
+Native draws and targets remain intact; the helper is not displayed.
+
+| View | Replayed draws | Native diffuse changed pixels | Helper nonzero pixels |
+| --- | ---: | ---: | ---: |
+| Streetlamp | 16 | 4,956 | 21,343 |
+| South hangar | 10 | 455 | 1,393 |
+| North hangar | 30 | 487 | 576 |
+
+Every native-changed pixel also has a nonzero helper contribution. A CPU replay
+of the source equations covers all 5,898 such pixels across four contributing
+draws. Maximum discrepancy is 0.585 of one 10-bit step, including source
+Fresnel, attenuation, sixteen shadow taps and output encoding. Rounding the
+comparison reference to D16 resource precision is essential: leaving it at
+CPU float precision produced false shadow-edge outliers up to 13.16 steps.
+
+This is equation evidence on native-changed pixels, not independent geometry
+or stencil validation. Extra helper pixels can include source shadow-filter
+and low-light encoding differences; they are outside that numeric claim.
+Source/native G-buffer differences and full source light accumulation remain
+open. Native and helper images are from the same captured frame; separate
+animated runs are not claimed byte-identical.
+
+`reproduction/lamp-hangar-encoded-local-20261013` preserves 26 hashed checkpoint
+files and a manifest of 4,868 capture files (4,693,926,506 bytes). It includes
+the exact loaded DLL, compiled shader and source, launch recipe, CPU replay,
+coverage and numeric results. Paths are relative to the main resource-porter
+`.work/render-compare` directory. The private client/server stopped cleanly.
