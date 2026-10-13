@@ -21,6 +21,7 @@ static CRITICAL_SECTION lock;
 static Camera requested, applied;
 static unsigned applied_id, captured_id, camera_calls, present_calls;
 static unsigned buffers_id;
+static unsigned capture_frame_id;
 static int buffers_enabled;
 static DWORD applied_at;
 static unsigned image_width, image_height;
@@ -191,6 +192,11 @@ static HRESULT STDMETHODCALLTYPE present(IDXGISwapChain *swapchain, UINT interva
     int take = 0;
     EnterCriticalSection(&lock);
     ++present_calls;
+    // Arm GPU readbacks at a frame boundary after settling. Otherwise a request
+    // can miss geometry draws yet capture lighting later in that same frame.
+    if (!(flags & DXGI_PRESENT_TEST) && buffers_enabled && applied.enabled &&
+        applied_id!=captured_id && GetTickCount()-applied_at>=applied.settle_ms)
+        capture_frame_id=applied_id;
     if (!(flags & DXGI_PRESENT_TEST) && applied.enabled && applied_id != captured_id &&
         (!buffers_enabled || buffers_id==applied_id) &&
         GetTickCount()-applied_at >= applied.settle_ms) { camera=applied; take=1; }

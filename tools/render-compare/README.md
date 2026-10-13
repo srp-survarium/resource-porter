@@ -257,3 +257,22 @@ incorrectly used power 6. The original `environment_probe_lighting.ps` and DXBC
 digest `d19929272cd49b9db3063352d97bed8c` confirm three squarings before the
 exponential and two afterward, giving power 8 and coefficient -8. Historical
 captures retain their original shaders; the correction is not retroactive.
+
+## Material and texture-view diagnostics
+
+`SRP_CAPTURE_MATERIALS=1` records the first draw of each distinct deferred-material
+pixel shader, up to 128 variants per pose: bytecode, constants, blend state and
+texture metadata. It does not enumerate every material instance or copy material
+textures. Resource metadata for lighting inputs includes the resource mip count,
+SRV format and visible mip range, so explicit shader LODs can be interpreted.
+
+Buffer capture is armed at Present after the settling interval. This prevents
+the interval expiring halfway through a frame and capturing lighting without
+its preceding geometry. The four `pipeline-resource-views` poses recorded
+26/18/22/29 material variants (interior/north/south/upper). Both probe shader
+variants, the ambient decoder and composition match the requested binaries;
+all four ambient buffer checks pass. Neither probe diffuse SRV hides a leading
+mip: both expose the complete 16x16, three-level cube, making LOD 1 an 8x8 mip.
+
+Visual parity still fails. These diagnostics establish intermediate behavior;
+they do not validate the combined old/new rendering pipeline.

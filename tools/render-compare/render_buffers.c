@@ -43,10 +43,16 @@ static void copy_encoded_ambient(unsigned char *targets) {
     ID3D11DeviceContext_Release(context); ID3D11Device_Release(device);
 }
 
-static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, const char *name, unsigned slot) {
+static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, const char *name, unsigned slot,const D3D11_SHADER_RESOURCE_VIEW_DESC *view) {
     D3D11_TEXTURE2D_DESC desc;
     ID3D11Texture2D_GetDesc(buffer,&desc);
-    fprintf(index,"{\"slot\":%u,\"name\":\"%s\",\"width\":%u,\"height\":%u,\"format\":%u,\"array_size\":%u",slot,name,desc.Width,desc.Height,desc.Format,desc.ArraySize);
+    fprintf(index,"{\"slot\":%u,\"name\":\"%s\",\"width\":%u,\"height\":%u,\"format\":%u,\"array_size\":%u,\"mip_levels\":%u",slot,name,desc.Width,desc.Height,desc.Format,desc.ArraySize,desc.MipLevels);
+    if (view) {
+        fprintf(index,",\"view_format\":%u,\"view_dimension\":%u",view->Format,view->ViewDimension);
+        if (view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURE2D || view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURE2DARRAY ||
+            view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBE || view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBEARRAY)
+            fprintf(index,",\"view_most_detailed_mip\":%u,\"view_mip_levels\":%u",view->Texture2D.MostDetailedMip,view->Texture2D.MipLevels);
+    }
     unsigned bytes;
     switch (desc.Format) {
         case DXGI_FORMAT_R32G32B32A32_FLOAT: bytes=16; break;
@@ -93,7 +99,7 @@ static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, 
 static void capture_stage_inputs(unsigned char *stage, unsigned *last_id, const char *suffix) {
     Camera camera;
     EnterCriticalSection(&lock);
-    int take=applied.enabled && applied.id!=*last_id && GetTickCount()-applied_at>=applied.settle_ms;
+    int take=applied.enabled && capture_frame_id==applied.id && applied.id!=*last_id && GetTickCount()-applied_at>=applied.settle_ms;
     if (last_id==&ambient_after_id && ambient_id!=applied.id) take=0;
     if (last_id==&buffers_id && ambient_after_id!=applied.id) take=0;
     camera=applied;
@@ -147,7 +153,7 @@ static void capture_stage_inputs(unsigned char *stage, unsigned *last_id, const 
         if (count++) fputs(",",file);
         if (*suffix && slot!=31 && slot!=32 && slot!=34) {
             fprintf(file,"{\"slot\":%u,\"name\":\"%s\",\"skipped\":\"stage selection\"}",slot,name);
-        } else dump_texture(texture,base,file,name,slot);
+        } else dump_texture(texture,base,file,name,slot,NULL);
     }
     fputs("]\n",file); fclose(file);
     EnterCriticalSection(&lock); *last_id=camera.id; LeaveCriticalSection(&lock);
