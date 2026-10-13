@@ -494,3 +494,11 @@ hashes, lengths, archive offsets and CRCs before applying a same-length experime
 Stop the client first. `reproduction/numeric-material-checkpoint` contains the
 replay script and baseline/fixed material bytes. Revert that plan before replaying
 an earlier checkpoint that predates material corrections.
+
+`compare_surface_albedo.py ORIGINAL CURRENT` compares decoded surface color,
+composition output and AO red-channel means in the fixed regions. Forest albedo
+means agree within .22% and AO means within .18%, while current pre-fog RGB is
+36–39% lower. These statistics localize the remaining deficit to the lighting
+calculation without identifying its precise producer. Original R10G10B10A2
+normal/light inputs were skipped by the capture format handler, so their raw
+data is unavailable in the saved reference; do not infer their contents.
