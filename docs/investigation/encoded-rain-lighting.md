@@ -826,3 +826,29 @@ sky masks have44/20 pixels; there is no current depth equivalence claim.
 The comparison tool automatically keeps such additional poses separate.
 `factory-cloud-corrected-comparison.json` and
 `factory-cloud-corrected-final-phase.json` contain the completed results.
+### Projection phase qualification
+
+`audit_projection_phase.py` reads the actual static-globals buffer binding
+from RDEF and reports `m_P[2]`/`m_P[6]` in pixel units. Original010 uses
+cb2 for this probe buffer; the native adapter retains it at cb1. Both
+alternate between approximately ±quarter-pixel offsets. A fixed director
+camera therefore does not guarantee matching G-buffer raster phase.
+
+In the final seven-view cloud assembly, the five rich comparisons match
+phase for interior, streetlamp and south, but upper/north differ by
+(+.50002,+.50002) pixels. Earlier full-diffuse composition captures differ
+for upper and south; the last-mip run matches south again. Keep this
+qualification with the earlier south/backwall material residuals: exact
+depth selection alone cannot distinguish every phase-shifted flat surface.
+Same-frame shader comparisons and the lamp sky improvement remain valid.
+The two screenshot-only hangars have no captured phase claim.
+
+Day's four rich final views match phase for interior/officer-terrace and
+differ for upper/north. Evening matches upper/north and differs for
+interior/officer-terrace. `projection-phases.json` retains all matrices and
+pairings; no image shift or fitted alignment was applied.
+
+The original-probe mip audit also accepts an explicit `--source-version
+011a` profile, pinned to its verified shader identity and eight-sample
+divisor. The default010 profile retains its nine divisor. The011 profile
+does not report the unverified010 specular equation as valid for011.

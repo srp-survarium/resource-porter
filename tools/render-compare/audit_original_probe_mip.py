@@ -14,6 +14,10 @@ CONE = ((.99725014,-.029667195,.06791174),(.948293,-.029853212,-.31598923),
         (.89564174,-.095602594,.43438),(.8242554,.55417657,.11615242),
         (.7863557,-.6177587,.004354838),(.7716971,.4068773,-.48880917),
         (.75259656,-.34534776,-.56065434),(.7230467,.28388765,.6297708))
+SOURCE_PROFILES = {
+    '010b': ('cc45055d632b75e94160d8a1595b5393', 9),
+    '011a': ('13b5a42ab97ed87dde91d5154291754a', 8),
+}
 
 
 class Cube:
@@ -80,9 +84,10 @@ class Cube:
         return [abs(v/out[3])**2.2 for v in out[:3]]
 
 
-def audit(path,cube,stride,probes):
+def audit(path,cube,stride,probes,source_version='010b'):
     digest,cb=constants(path)
-    if digest != 'cc45055d632b75e94160d8a1595b5393':
+    expected_digest, gather_divisor = SOURCE_PROFILES[source_version]
+    if digest != expected_digest:
         raise ValueError('unverified source probe variant')
     stem=str(path).removesuffix('.probe-draw.dxbc')
     def read(suffix): return Path(stem+suffix).read_bytes()
@@ -129,13 +134,15 @@ def audit(path,cube,stride,probes):
         samples=[[cube.sample(d,m) for d in directions] for m in (actual,actual-1)]
         if any(v is None for values in samples for v in values):excluded['cube_corners']+=1;continue
         for name,values in zip(groups,samples):
-            diffuse=[sum(v[c] for v in values)/9 for c in range(3)]
+            diffuse=[sum(v[c] for v in values)/gather_divisor for c in range(3)]
             encoded=[math.sqrt(saturate(min(v*ao[i*2]/255*2.5*cb['color_parameters'][0],10)*(1-fresnel*(1-gloss))*.125)) for v in diffuse]
             predicted=[v*attenuation+b*(1-attenuation) for v,b in zip(encoded,rgb(before,i))]
             errors=[abs(a-b) for a,b in zip(predicted,rgb(after,i))]
             s=groups[name];s['samples']+=1;s['sum_error']+=sum(errors)/3;s['maximum_error']=max(s['maximum_error'],max(errors));s['outside_one_step']+=max(errors)>1/1023+1e-6
         # Original source high-quality probe specular, prior to sun/local
         # additions. The sky does not initialize a specular term.
+        if source_version != '010b':
+            continue  # The 011 profile pins diffuse only; do not infer its BRDF.
         nv=dot;vh=sum(a*b for a,b in zip(view,halfway));nh=sum(a*b for a,b in zip(n,halfway))
         nl=saturate(sum(a*b for a,b in zip(n,light)))
         if abs(vh)<1e-12 or (nl>0 and abs(nv)<1e-12):
@@ -157,12 +164,14 @@ def audit(path,cube,stride,probes):
     for s in [*groups.values(),specular]:
         total=s.pop('sum_error')
         s['rgb_mae']=total/s['samples'] if s['samples'] else None
-    return {'pose':Path(stem).name,'uploaded_num_mips':uploaded,'requested_mip':requested,'effective_mip':actual,'excluded':excluded,'equations':groups,'source_specular':specular}
+    specular['equation_verified_for_version'] = source_version == '010b'
+    return {'pose':Path(stem).name,'source_version':source_version,'gather_divisor':gather_divisor,'uploaded_num_mips':uploaded,'requested_mip':requested,'effective_mip':actual,'excluded':excluded,'equations':groups,'source_specular':specular}
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('original',type=Path)
     p.add_argument('--project',type=Path,required=True);p.add_argument('--cube',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--stride',type=int,default=31)
+    p.add_argument('--source-version', choices=sorted(SOURCE_PROFILES), default='010b')
     a=p.parse_args()
     if a.stride<1:p.error('stride must be positive')
     cube=Cube(a.cube)
@@ -174,7 +183,7 @@ def main():
         elif isinstance(v,list):
             for child in v:yield from probes(child)
     authored=list(probes(json.loads(a.project.read_text())))
-    rows=[audit(path,cube,a.stride,authored) for path in sorted(a.original.glob('*.probe-draw.dxbc'))]
+    rows=[audit(path,cube,a.stride,authored,a.source_version) for path in sorted(a.original.glob('*.probe-draw.dxbc'))]
     if not rows:p.error('no original probe captures')
     report={'scope':'Original final ambient versus initial sky on geometry outside conservative bounds of every other authored probe. Excludes cube corners and unchanged pixels; ordinary edges map adjacent-face texels. First captured probe pass has no changed pixels. CPU filtering/raster precision remains approximate: outside-one-step counts must not be presented as an exact equation pass.', 'cube_sha256':hashlib.sha256(cube.raw).hexdigest(),'stride':a.stride,'views':rows}
     a.output.write_text(json.dumps(report,indent=2)+'\n');print(json.dumps({'report':str(a.output),'views':len(rows),'samples':sum(row['equations']['source_4x4']['samples'] for row in rows)}))
