@@ -1,0 +1,6 @@
+[
+  {"name":"factory-interior","position":[-35.8508682,1.99373555,-74.4459991],"forward":[0.896765232,-0.00333326682,-0.442493379],"fov":65,"settle_ms":5000},
+  {"name":"yard-north","position":[48.593,2.1,16.238],"forward":[0,0,1],"fov":65,"settle_ms":5000},
+  {"name":"yard-south","position":[48.593,2.1,16.238],"forward":[0,0,-1],"fov":65,"settle_ms":5000},
+  {"name":"factory-upper","position":[-7.76438,15.5,-31.85271],"forward":[0,-0.12,-1],"fov":65,"settle_ms":5000}
+]
