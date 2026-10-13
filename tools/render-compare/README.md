@@ -126,6 +126,7 @@ the corresponding compiled shader's Windows path:
 | `SRP_LEGACY_PROBE_DIFFUSE` | `legacy-probe-diffuse.dxbc` |
 | `SRP_LEGACY_PROBE_DIFFUSE_BOX` | `legacy-probe-diffuse-box.dxbc` |
 | `SRP_LEGACY_COMPOSITION` | `legacy-composition-control.dxbc` or `legacy-composition-encoded.dxbc` |
+| `SRP_LEGACY_AMBIENT_DECODE` | `legacy-ambient-decode.dxbc` (paired experiment below) |
 
 These change rendering only when explicitly enabled. Replacement requires the
 original shader's exact DXBC size and header digest. The hook records successful
@@ -218,3 +219,41 @@ The source basis is `sun.ps`, `resolve_lighting.ps` and `effect_sun.cpp` in the
 source blending between individual probes/local lights. The interior, north
 view and distant forest still differ substantially from the frozen reference.
 This is a controlled contract experiment, not complete renderer compatibility.
+
+## Encoded probe blending
+
+For the Factory rain experiment, enable all three together:
+
+| Variable | Shader |
+| --- | --- |
+| `SRP_LEGACY_PROBE_DIFFUSE` | `legacy-probe-encoded.dxbc` |
+| `SRP_LEGACY_PROBE_DIFFUSE_BOX` | `legacy-probe-encoded-box.dxbc` |
+| `SRP_LEGACY_AMBIENT_DECODE` | `legacy-ambient-decode.dxbc` |
+
+The hook rejects incomplete pairs by checking the probes' reflected
+`encoded_color_parameters` marker. Use the project with height ambient disabled;
+the decoder matches only the verified SSAO-only shader (660 bytes, digest
+`e852c81d2cf9c9554a6046c531390ec8`). Each probe writes `sqrt(saturate(diffuse/8))`
+before native alpha blending. At the SSAO stage, a GPU copy of the accumulator
+is bound at t2 and decoded to `8*E*E*AO` with blending disabled. The hook restores
+the original resource and blend state before later native linear-light passes.
+Specular remains native.
+
+`probe-initial` captures prove that the destination starts black in all four
+reference views. This experiment does not implement a nonzero legacy skylight
+underlay, the old SSAO algorithm or encoded addition of individual local lights.
+
+```sh
+python3 verify_ambient_decode.py CAPTURE_FOLDER
+```
+
+The verifier checks the initial buffer, exact GPU copy, overwrite blend state,
+decode equation to one stored-value step, finite outputs and unchanged specular.
+All four `pipeline-encoded-probes-sphere8` captures pass. The sun patch remains,
+but the interior, north wall and distant forest still fail visual parity.
+
+The final sphere falloff is `exp(-8*(d/(.95*r))^8)`. The earlier source adaptation
+incorrectly used power 6. The original `environment_probe_lighting.ps` and DXBC
+digest `d19929272cd49b9db3063352d97bed8c` confirm three squarings before the
+exponential and two afterward, giving power 8 and coefficient -8. Historical
+captures retain their original shaders; the correction is not retroactive.

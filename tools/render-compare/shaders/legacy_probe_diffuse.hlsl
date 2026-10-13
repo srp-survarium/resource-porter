@@ -1,5 +1,8 @@
 // Isolate source diffuse-cube sampling/decoding within the captured 0.26 ABI.
 // Native specular, material response and probe falloff are retained.
+#ifdef CONFIG_ENCODED_PROBE
+#define color_parameters encoded_color_parameters
+#endif
 cbuffer ProbeConstants : register(b0) {
     float3 s_eye_ray_corner : packoffset(c7);
 #ifdef CONFIG_PROBE_BOX
@@ -74,7 +77,11 @@ Result main(float4 pixel : SV_POSITION) {
 #ifdef CONFIG_SOURCE_FALLOFF
     // Undo the target's 2% outer-volume contraction to recover source radius.
     float source_radius=light_range/.98;
-    float attenuation=exp(-8*pow(length(probe_location-world_position)/(source_radius*.95),6));
+    float distance_ratio=length(probe_location-world_position)/(source_radius*.95);
+    float power=distance_ratio*distance_ratio;
+    power*=power;
+    power*=power;
+    float attenuation=exp(-8*power);
 #else
     float attenuation=1-smoothstep(inner_radius,light_range,length(probe_location-world_position));
 #endif
@@ -87,5 +94,8 @@ Result main(float4 pixel : SV_POSITION) {
     result.diffuse=float4(diffuse*(1-parameters.x),attenuation);
 #endif
     result.specular=float4(specular,attenuation);
+#ifdef CONFIG_ENCODED_PROBE
+    result.diffuse.rgb=sqrt(saturate(result.diffuse.rgb*.125));
+#endif
     return result;
 }

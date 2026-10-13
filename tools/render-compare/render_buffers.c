@@ -3,6 +3,9 @@ static unsigned ambient_id, ambient_after_id;
 static ID3D11ShaderResourceView *legacy_mie_view;
 static ID3D11Texture2D *legacy_mie_texture;
 static int legacy_fog_enabled;
+static int legacy_ambient_decode_enabled;
+static ID3D11ShaderResourceView *legacy_ambient_view;
+static ID3D11Texture2D *legacy_ambient_copy, *legacy_ambient_source;
 void *post_trampoline, *ambient_trampoline, *ambient_after_trampoline;
 
 static int readable(const void *pointer, size_t bytes) {
@@ -10,6 +13,34 @@ static int readable(const void *pointer, size_t bytes) {
     if (!pointer || !VirtualQuery(pointer,&info,sizeof(info)) || info.State!=MEM_COMMIT ||
         (info.Protect&(PAGE_NOACCESS|PAGE_GUARD))) return 0;
     return (uintptr_t)pointer+bytes <= (uintptr_t)info.BaseAddress+info.RegionSize;
+}
+
+static void copy_encoded_ambient(unsigned char *targets) {
+    if (!readable(targets,32*0xa0)) { error("ambient target array missing"); return; }
+    unsigned char *target=*(void **)(targets+31*0xa0+0x98);
+    if (!readable(target,0x10)) { error("ambient target missing"); return; }
+    ID3D11Texture2D *texture=*(void **)(target+0xc);
+    if (!texture) { error("ambient texture missing"); return; }
+    D3D11_TEXTURE2D_DESC desc; ID3D11Texture2D_GetDesc(texture,&desc);
+    if (desc.Format!=DXGI_FORMAT_R11G11B10_FLOAT || desc.SampleDesc.Count!=1 || desc.ArraySize!=1) {
+        error("ambient texture contract changed"); return;
+    }
+    ID3D11Device *device=NULL; ID3D11DeviceContext *context=NULL;
+    ID3D11Texture2D_GetDevice(texture,&device); ID3D11Device_GetImmediateContext(device,&context);
+    if (texture!=legacy_ambient_source) {
+        if (legacy_ambient_view) ID3D11ShaderResourceView_Release(legacy_ambient_view);
+        if (legacy_ambient_copy) ID3D11Texture2D_Release(legacy_ambient_copy);
+        legacy_ambient_view=NULL; legacy_ambient_copy=NULL; legacy_ambient_source=NULL;
+        desc.Usage=D3D11_USAGE_DEFAULT; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        desc.CPUAccessFlags=0; desc.MiscFlags=0; desc.MipLevels=1;
+        if (SUCCEEDED(ID3D11Device_CreateTexture2D(device,&desc,NULL,&legacy_ambient_copy)) &&
+            SUCCEEDED(ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)legacy_ambient_copy,NULL,&legacy_ambient_view)))
+            legacy_ambient_source=texture;
+        else error("cannot allocate encoded ambient copy");
+    }
+    if (legacy_ambient_view)
+        ID3D11DeviceContext_CopySubresourceRegion(context,(ID3D11Resource *)legacy_ambient_copy,0,0,0,0,(ID3D11Resource *)texture,0,NULL);
+    ID3D11DeviceContext_Release(context); ID3D11Device_Release(device);
 }
 
 static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, const char *name, unsigned slot) {
@@ -67,11 +98,12 @@ static void capture_stage_inputs(unsigned char *stage, unsigned *last_id, const 
     if (last_id==&buffers_id && ambient_after_id!=applied.id) take=0;
     camera=applied;
     LeaveCriticalSection(&lock);
-    if (!take && !legacy_fog_enabled) return;
+    if (!take && !legacy_fog_enabled && !legacy_ambient_decode_enabled) return;
     if (!readable(stage,8)) return;
     unsigned char *context=*(void **)(stage+4);
     if (!readable(context,0x11a0)) return;
     unsigned char *targets=*(void **)(context+0x119c);
+    if (legacy_ambient_decode_enabled && last_id==&ambient_id) copy_encoded_ambient(targets);
     if (legacy_fog_enabled && readable(targets,72*0xa0)) {
         unsigned char *target=*(void **)(targets+71*0xa0+0x98);
         if (readable(target,0x10)) {
