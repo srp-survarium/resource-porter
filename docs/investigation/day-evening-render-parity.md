@@ -201,8 +201,9 @@ and record that command, including for native recipes.
 With the rain client stopped, the unchanged connected day recipe completed all
 32 views. Evening then completed all 32 in the same private prefix. Each frozen
 batch contains 5,784 hashed files and 2,013 written buffers. The private client
-and server were stopped afterwards. The timing implicates concurrent runtime
-interaction in the earlier stalls, but does not prove its exact cause.
+and server were stopped afterwards. A later rain-only retry also stalled, so concurrency is not a complete
+explanation. Sequential execution produced these successful batches but is not
+a proven fix for the intermittent renderer/logic wait.
 
 Actual captured DXBC matches the saved weather recipe for seven shader families
 in every view: composition, post, fog, sky, present, ambient decode and probe.
