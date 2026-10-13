@@ -334,3 +334,58 @@ flag off. Native positive-z versus original flag-off occurs at 170 pixels:
 does not establish matching material/UV at moving foliage edges, so these
 exceptions remain unresolved. Native positive-z is a useful candidate gate,
 not a proof of source stencil coverage or a replacement for that audit.
+
+The completed `pipeline-factory-encoded-sun-v2` captures resolve the final
+native stencil contract: all five views contain only 0, 1, 2, 4 and 8. Upper
+contains respectively 15,133, 114,159, 230,209, 298,506 and 263,593 pixels.
+Native `stage_shadow_mask::execute` at VA 0x1a1910 constructs the reference
+array {1,2,4,8} at 0x1a1ada–0x1a1af6, writes each cascade's reference to
+backend+0x154 at 0x1a1cb7–0x1a1cc1 before its volume draw, and reuses it
+for the resolve at 0x1a1e4f–0x1a1e59. `effect_shadow_mask::compile` at
+0x1d1b00 uses full stencil masks, ALWAYS comparison and REPLACE on depth
+failure (0x1d1bb1–0x1d1bf2). The cascade pass has overwritten the earlier
+geometry/light-volume references. In particular, final bit 0x04 identifies
+a cascade, not the source translucent material class.
+
+## Sun/translucency auxiliary replay and source-stage comparison
+
+```sh
+python tools/render-compare/audit_translucency_auxiliary.py CAPTURE_DIRECTORY \
+  --original ORIGINAL_POSES --output translucency-auxiliary-audit.json
+```
+
+The script checks current-Present readiness, actual native DSV, source
+constants and input formats before replaying the material-gated source
+translucency equation. Native red shadow visibility is compared with the
+captured projected depth; the amount is reduced to the original five-bit
+gamma packing. RGB is encoded and added to the preceding 10-bit buffer.
+Changed and unchanged samples are both checked; a full-frame audit rejects
+alpha changes and writes outside nonzero stencil or positive parameters.z.
+
+All 354,465 stride-13 samples in the five completed v2 views match within
+one 10-bit step; maximum channel error is .000548161. Across 4,608,000
+pixels there are no gate or alpha violations. Changed pixel counts are
+17,976 interior, 465,529 upper, 134,153 streetlamp, 8,415 north and 151 south.
+The first attempt without the v2 suffix stopped during loading and is not
+valid evidence. This verifies arithmetic on native inputs under the stated
+diagnostic gate, not exact original material or raster coverage.
+
+Original `renderer.cpp:449–455` orders ambient, sun, local lights, then
+translucency. Consequently original `sun-before` is the ambient boundary,
+`translucency-before` includes ambient+sun+local, and composition input t3
+is the final accumulator. The last boundary is byte-identical to captured
+translucency output in all seven source views. The auxiliary currently adds
+locals before sun. Nonnegative encoded addition is commutative in exact
+arithmetic, but order-dependent finite precision and per-draw conversion
+remain a limit; an aggregate square-root approximation is not used here.
+
+With the fixed HUD/weapon exclusion and a stricter 3×3 exact-R16F-depth
+mask, final encoded RGB MAE is .004460 interior, .005958 upper, .001681
+streetlamp, .005501 north and .003981 south. Sample counts vary markedly:
+1,507, 1,496, 32,366, 32,896 and 27,205 respectively. The predefined forest
+region's exact-depth subset has close mean encoded RGB (source
+.19531/.19912/.19924, auxiliary .19731/.20038/.19866), but per-pixel MAE
+is still .02134. Matching quantized depth and means cannot establish
+matching foliage, normals, material values or shadow phase. The report
+retains all three stage boundaries, looser masks and regional errors so
+these remaining differences are not hidden by an overall mean.
