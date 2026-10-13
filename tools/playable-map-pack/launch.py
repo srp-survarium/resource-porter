@@ -102,9 +102,12 @@ def run(catalog, args):
     state_path = runtime/'state.json'
     state = {'package': str(PACKAGE), 'pid': os.getpid(), 'start_ticks': start_ticks(os.getpid()),
              'token': args.token, 'map': item['key'], 'map_id': item['map_id'], 'status': 'preparing',
-             'runtime': str(runtime), 'port': args.port, 'camera': 'actual character', 'ui': args.ui}
+             'runtime': str(runtime), 'port': args.port, 'camera': 'actual character', 'ui': args.ui,
+             'client_count': args.clients}
     atomic(state_path, state)
-    server = client = None
+    server = None
+    clients = []
+    prepared = []
     prefix = runtime/'wineprefix'
     wine = Path(catalog['wine'])
     env = {k:v for k,v in os.environ.items() if not k.startswith(('SRP_LEGACY_', 'SRP_CAPTURE_', 'SRP_DIAGNOSTIC_'))}
@@ -125,50 +128,59 @@ def run(catalog, args):
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     try:
-        if prefix.exists():
-            subprocess.run([str(wine.parent/'wineserver'), '-k'], env=env, timeout=20)
-            subprocess.run([str(wine.parent/'wineserver'), '-w'], env=env, check=True, timeout=20)
-        game = runtime/'client'
-        shutil.copytree(PACKAGE/'client', game, dirs_exist_ok=True)
-        binary = game/'binaries/x86'
-        shutil.copy2(PACKAGE/recipe['hook'], binary/'camera_hook.dll')
-        link = game/'resources.db'
-        if link.exists() or link.is_symlink():
-            if not link.is_symlink():
-                raise RuntimeError('runtime database is not the managed symlink')
-            link.unlink()
-        link.symlink_to(PACKAGE/item['database'])
-        if not (prefix/'system.reg').exists():
-            expected = read(PACKAGE/'manifest.json')['files']['wineprefix.tar.gz']['sha256']
-            if sha(PACKAGE/'wineprefix.tar.gz') != expected:
-                raise RuntimeError('Wine template checksum failed')
-            # The package-owned, hash-verified template intentionally contains
-            # Wine's c: relative link and z: absolute filesystem mapping.
-            with tarfile.open(PACKAGE/'wineprefix.tar.gz') as archive:
-                archive.extractall(runtime, filter='fully_trusted')
-        config = prefix/'drive_c/users/sheep/Documents/Survarium/user.cfg'
-        config.parent.mkdir(parents=True, exist_ok=True)
-        lines = [s for s in (PACKAGE/recipe['config']).read_text().splitlines() if s.split()[:1] != ['ui']]
-        config.write_text('\n'.join(lines)+f'\nui {args.ui}\n')
-        for control in runtime.glob('camera.txt*'):
-            if control.is_file():
-                control.unlink()
+        for index in range(args.clients):
+            slot = runtime if index == 0 else runtime/'peer2'
+            slot.mkdir(parents=True, exist_ok=True)
+            prefix = slot/'wineprefix'
+            env = dict(env, WINEPREFIX=str(prefix), SRP_CAPTURE_CONTROL=win(slot/'camera.txt'))
+            if prefix.exists():
+                subprocess.run([str(wine.parent/'wineserver'), '-k'], env=env, timeout=20)
+                subprocess.run([str(wine.parent/'wineserver'), '-w'], env=env, check=True, timeout=20)
+            game = slot/'client'
+            shutil.copytree(PACKAGE/'client', game, dirs_exist_ok=True)
+            binary = game/'binaries/x86'
+            shutil.copy2(PACKAGE/recipe['hook'], binary/'camera_hook.dll')
+            link = game/'resources.db'
+            if link.exists() or link.is_symlink():
+                if not link.is_symlink():
+                    raise RuntimeError('runtime database is not the managed symlink')
+                link.unlink()
+            link.symlink_to(PACKAGE/item['database'])
+            if not (prefix/'system.reg').exists():
+                expected = read(PACKAGE/'manifest.json')['files']['wineprefix.tar.gz']['sha256']
+                if sha(PACKAGE/'wineprefix.tar.gz') != expected:
+                    raise RuntimeError('Wine template checksum failed')
+                # The package-owned, hash-verified template intentionally contains
+                # Wine's c: relative link and z: absolute filesystem mapping.
+                with tarfile.open(PACKAGE/'wineprefix.tar.gz') as archive:
+                    archive.extractall(slot, filter='fully_trusted')
+            config = prefix/'drive_c/users/sheep/Documents/Survarium/user.cfg'
+            config.parent.mkdir(parents=True, exist_ok=True)
+            lines = [s for s in (PACKAGE/recipe['config']).read_text().splitlines() if s.split()[:1] != ['ui']]
+            config.write_text('\n'.join(lines)+f'\nui {args.ui}\n')
+            for control in slot.glob('camera.txt*'):
+                if control.is_file():
+                    control.unlink()
+            prepared.append((slot, binary, prefix, dict(env)))
         runtime_server = runtime/'match-server-026'
         shutil.copy2(PACKAGE/'server/match-server-026', runtime_server)
         runtime_server.chmod(0o755)
         with (runtime/'server.log').open('w') as log:
             server = subprocess.Popen([str(runtime_server), '--bind', f'127.0.0.1:{args.port}',
-                '--players', '1', '--start-players', '1', '--map', str(item['map_id']),
+                '--players', str(args.clients), '--start-players', str(args.clients), '--map', str(item['map_id']),
                 '--snapshots', '--checkpoints', '--recover', '--clock-sync'],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
-        with (runtime/'client.log').open('w') as log:
-            client = subprocess.Popen([str(wine), win(binary/'survarium-capture.exe'), '-localization=english',
-                '-splash_screen', f'-server=127.0.0.1:{args.port}', '-mt_allocator=768', '-hash_check_interval_in_ms=50'],
-                env=env, cwd=binary, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
-        state.update(status='running', server_pid=server.pid, client_pid=client.pid,
-                     prefix=str(prefix), database=item['database'], preset=item['preset'])
+        for index, (slot, binary, prefix, env) in enumerate(prepared, 1):
+            with (slot/'client.log').open('w') as log:
+                clients.append(subprocess.Popen([str(wine), win(binary/'survarium-capture.exe'), '-localization=english',
+                    '-splash_screen', f'-server=127.0.0.1:{args.port}', '-mt_allocator=768', '-hash_check_interval_in_ms=50'],
+                    env=env, cwd=binary, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT))
+        state.update(status='running', server_pid=server.pid, client_pid=clients[0].pid,
+                     prefix=str(prepared[0][2]), database=item['database'], preset=item['preset'],
+                     clients=[{'number': i+1, 'pid': child.pid, 'prefix': str(prepared[i][2]),
+                               'log': str(prepared[i][0]/'client.log')} for i, child in enumerate(clients)])
         atomic(state_path, state)
-        while server.poll() is None and client.poll() is None:
+        while server.poll() is None and any(child.poll() is None for child in clients):
             time.sleep(.5)
         if server.poll() is not None:
             state['error'] = 'match server exited; inspect server.log'
@@ -179,14 +191,14 @@ def run(catalog, args):
         raise
     finally:
         cleanup_errors = []
-        if client is not None:
+        for child, (_, _, _, client_env) in zip(clients, prepared):
             for operation in ('-k', '-w'):
                 try:
-                    subprocess.run([str(wine.parent/'wineserver'), operation], env=env, timeout=20)
+                    subprocess.run([str(wine.parent/'wineserver'), operation], env=client_env, timeout=20)
                 except (OSError, subprocess.TimeoutExpired) as error:
                     cleanup_errors.append(str(error))
             try:
-                client.wait(timeout=20)
+                child.wait(timeout=20)
             except subprocess.TimeoutExpired as error:
                 cleanup_errors.append(str(error))
         if server is not None and server.poll() is None:
@@ -210,6 +222,7 @@ def main():
     parser.add_argument('--runtime', type=Path, default=Path(catalog['default_runtime']))
     parser.add_argument('--port', type=int, default=catalog['default_port'])
     parser.add_argument('--ui', choices=['on', 'off'], default='on')
+    parser.add_argument('--clients', type=int, choices=[1, 2], default=1)
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--token', default='')
     args = parser.parse_args()
@@ -249,7 +262,7 @@ def main():
         item, _ = plan(catalog, args.map, runtime, args.port)
         if args.check:
             print(json.dumps({'map': item['key'], 'map_id': item['map_id'], 'runtime': str(runtime),
-                              'camera': 'actual character', 'ui': args.ui, 'database': item['database']}))
+                              'camera': 'actual character', 'ui': args.ui, 'clients': args.clients, 'database': item['database']}))
             return
         if state_path.exists() and live(read(state_path)):
             raise RuntimeError('a package client is already running; stop it before switching maps')
@@ -258,7 +271,7 @@ def main():
         supervisor_log = runtime.parent/(runtime.name+'-supervisor.log')
         with supervisor_log.open('w') as log:
             child = subprocess.Popen([sys.executable, str(PACKAGE/'launch.py'), '_run', args.map,
-                '--runtime', str(runtime), '--port', str(args.port), '--ui', args.ui, '--token', token],
+                '--runtime', str(runtime), '--port', str(args.port), '--ui', args.ui, '--clients', str(args.clients), '--token', token],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.monotonic()+10
         while time.monotonic()<deadline:

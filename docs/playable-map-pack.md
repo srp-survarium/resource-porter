@@ -19,7 +19,8 @@ manifests remain preserved, but this compact package uses the refined 0.10b
 Factory variants. The School base retains its pre-existing resource content.
 
 Run `./play-maps list`, `./play-maps start school-021-rain`, `./play-maps status`,
-or `./play-maps stop` in the package directory. `start KEY --check` validates a
+or `./play-maps stop` in the package directory. Add `--clients 2` to `start`
+for two isolated clients sharing the same match and database. `start KEY --check` validates a
 launch without opening the game. `./play-maps verify` checks stored file hashes.
 The launcher stops only its own supervisor, Wine prefix, and match server.
 Port 2260 and `.work/playable-map-pack-runtime` are its defaults. Wine and Python
