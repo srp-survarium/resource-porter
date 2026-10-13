@@ -292,3 +292,14 @@ no ordinary recipe was changed.
 
 Capture directory: `.work/render-compare/026g/pipeline-factory-rain-selection-cache`.
 Reproduction evidence: `.work/chemical-plant-011a/comparison/checkpoint/factory-rain-cache`.
+
+CPU replay of the remaining source-only pixels identifies eight of the 82
+south texels on original `flora/sosna_dead_02/sosna_low_3_sg` triangles. That
+logged parent is size-rejected using factor .00078315 last updated at bootstrap
+eye `[-36.7763, 1.9120, -74.1703]`, 925 cache frames earlier. The original
+capture's bootstrap/history differs and has no per-surface cache trace, so
+this is a concrete history-dependent candidate, not proof of a wrong formula.
+Searching all logged parents finds only one of the 33 upper texels on retained
+blocks/decal geometry. These replays consider all original LODs and both
+windings; they do not reproduce vertex wind or identify exact source draw
+ownership. The remaining pixels therefore do not justify changing occlusion.
