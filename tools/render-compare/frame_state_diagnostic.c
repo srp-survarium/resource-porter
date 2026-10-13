@@ -22,10 +22,14 @@ static void diagnostic_frame_state(void) {
     BOOL tail_ok=consumer_tail&&frame_read(consumer_tail+8,&tail_next,4);
     char path[MAX_PATH+32];snprintf(path,sizeof(path),"%s.frames.txt",control);
     FILE *f=fopen(path,"a");if(!f)return;
-    fprintf(f,"ms=%lu engine=%08lx facade=%08lx logic=%lu render=%08lx render_frame=%lu render_ok=%d channel_frame=%lu logic_enabled=%lu logic_ended=%lu editor_ended=%u is_editor=%u game_enabled=%u last_enabled=%u destruction=%lu producer_head=%08lx producer_next=%08lx producer_ok=%d consumer_tail=%08lx consumer_next=%08lx consumer_ok=%d deferred_count=%lu deferred_first=%08lx process_next=%u\n",
+    /* Native logic_tick 0x1a0d8 gates on engine+0x313; virtual activity
+       getter 0x14000 uses engine+0x311/0x312 (this is engine+8).
+       A false gate bypasses the activity check. These are read-only snapshots. */
+    fprintf(f,"ms=%lu engine=%08lx facade=%08lx logic=%lu render=%08lx render_frame=%lu render_ok=%d channel_frame=%lu logic_enabled=%lu logic_ended=%lu editor_ended=%u is_editor=%u game_enabled=%u last_enabled=%u application_active=%u application_activated=%u activity_gate=%u activity_allows_tick=%u destruction=%lu producer_head=%08lx producer_next=%08lx producer_ok=%d consumer_tail=%08lx consumer_next=%08lx consumer_ok=%d deferred_count=%lu deferred_first=%08lx process_next=%u\n",
       GetTickCount(),engine,world,frame_word(state,0x34),render,render_frame,render_ok,
       frame_word(facade,0xa8),frame_word(facade,0x170),frame_word(facade,0x174),facade[0x178],facade[0x179],
-      state[0x56],state[0x57],frame_word(state,0x40),producer_head,head_next,head_ok,consumer_tail,tail_next,tail_ok,
+      state[0x56],state[0x57],state[0x59],state[0x5a],state[0x5b],
+      !state[0x5b] || state[0x59] || state[0x5a],frame_word(state,0x40),producer_head,head_next,head_ok,consumer_tail,tail_next,tail_ok,
       frame_word(facade,0x90),frame_word(facade,0x98),facade[0xac]);
     fclose(f);
 }

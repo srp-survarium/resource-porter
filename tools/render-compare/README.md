@@ -644,3 +644,18 @@ changed camera metadata and reports both raw temporal RMS and RMS after removing
 each frame's regional mean. Specify near, distant and sky regions separately;
 region names do not infer depth. Rain, foliage and exposure can also contribute,
 so use matched fixed-camera sequences to validate a suspected noise correction.
+
+## Private background capture
+
+`SRP_CAPTURE_BACKGROUND_RENDER=1` opts the private0.26 observer into bypassing
+the verified inactive-window render gate. The default is off. It checks the
+image base, native gate/getter instructions, engine vtable and writable data
+page, then saves the original gate byte before clearing it. Activity flags and
+render settings remain native. This does not support0.21.
+
+Write `0` to `CONTROL.background-render` to restore the saved gate, or `1` to
+resume the opt-in override. The observer also restores on DLL detach. Its
+`CONTROL.background-render.json` records application/restoration and write
+count; frame-state diagnostics expose activity flags independently. Use this
+only in isolated capture clients; initial compiler validation is not runtime
+proof of recovery or permission to run uncoordinated concurrent clients.
