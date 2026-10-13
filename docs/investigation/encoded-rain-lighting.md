@@ -508,3 +508,45 @@ cube decoding, BRDF/mip selection and linear AO, and lacks that cubic
 suppression. The next justified lighting experiment is a separate source
 specular producer/accumulator; adding an empirical gain to full diffuse
 would conceal two distinct remaining contracts.
+
+## Correct original diffuse cube mip
+
+Before changing specular, the original probe upload exposed a separate,
+precise ambient discrepancy. Every frozen first probe uses shader
+`cc45055d632b75e94160d8a1595b5393`, uploads integer `num_mips=9`, and binds
+a 256px cube with seven stored mips ending at 4×4. The archived DXBC
+subtracts two from that integer and samples LOD 7, which clamps to stored
+LOD 6. Source sampler s6 is linear-clamp with minLOD 0 and maxLOD FLT_MAX.
+`environment_probe.cpp:45–60` derives the upload from authored resolution,
+including the absent 2×2 and 1×1 levels. All 36 authored Factory cubes
+confirm this: 35 are 128px/six stored mips, one is 256px/seven stored mips;
+each source diffuse request resolves to its 4×4 tail.
+
+The ported diffuse cube preserves the 16×16, 8×8 and 4×4 tail verbatim.
+The prior adapter sampled mip 1 (8×8); the correct source request for these
+assets is mip 2 (4×4). The earlier comment calling 8×8 the original sample
+was incorrect. `CONFIG_SOURCE_LAST_CUBE_MIP=1` enables this correction only
+when compiling an explicit diagnostic variant. Runtime opt-in is
+`SRP_DIAGNOSTIC_SOURCE_AMBIENT_LAST_MIP=1`, paired with the corresponding
+`SRP_LEGACY_AMBIENT_DIFFUSE_DIR`. It pins both new shader identities, checks
+every bound diffuse cube is BC3_UNORM 16×16 with exactly three mips and six
+faces, and records `diffuse_cube_mip` in ambient metadata. The displayed
+probe shader and previous checkpoints remain unchanged.
+
+Both sphere and box auxiliary variants compile with FXC `/WX /O3 /T ps_4_0`
+and the define above; C builds with warnings as errors. Assets and their
+source/hash manifest are isolated under `encoded-rain-lighting/mip-last`.
+The source skylight shader and constants are unchanged.
+
+`audit_original_probe_mip.py` compares the two mip hypotheses on frozen
+original data. The first captured probe before/output is unchanged in all
+seven views, so it supplies no arithmetic samples. Instead the audit uses
+final ambient versus initial sky only outside conservative bounds of every
+other authored probe. Three-face cube corners are excluded, and ordinary
+edges map neighboring-face texels. Across 23,591 samples from six views,
+4×4 has RGB MAE .00032–.00057 versus .00342–.00693 for 8×8. Some corrected
+errors exceed one 10-bit step (maximum .00305); filtering/raster precision
+is not fully reproduced. Yard south contributes zero samples after the
+coverage restriction. These limits are explicit: the exact mip contract
+comes from shader/upload/SRV/sampler/asset evidence, not a claimed perfect
+CPU replay or an image-based fit. Target runtime validation remains pending.

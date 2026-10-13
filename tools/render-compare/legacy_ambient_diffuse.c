@@ -11,7 +11,7 @@ static ID3D11RasterizerState *ambient_sky_raster;
 static unsigned ambient_frame,ambient_probe_draws,ambient_failures,ambient_sky_draws;
 static unsigned ambient_capture_id;
 static unsigned ambient_sky_capture_id;
-static int ambient_sealed;
+static int ambient_sealed,ambient_last_mip;
 typedef struct { LocalDiffuseDraw draw; unsigned kind; } AmbientDiffuseDraw;
 static int source_ambient_valid(void) {
     return legacy_ambient_diffuse_enabled && ambient_frame==present_calls && ambient_sky_draws==1 &&
@@ -57,6 +57,12 @@ static int configure_ambient_diffuse(void) {
         {0x34,0xdf,0x0e,0xd1,0x2c,0x58,0x80,0xe0,0x36,0x06,0x5e,0x14,0xe2,0xc3,0x8a,0x8e},
         {0x09,0xf0,0x60,0x97,0xa6,0x02,0xb4,0x49,0x2c,0x83,0x50,0x73,0x79,0x7a,0x15,0x45}
     };
+    static const unsigned char last_mip_digests[2][16]={
+        {0xf7,0xb4,0x40,0xcc,0x9e,0x44,0xe7,0xdc,0x10,0x26,0xc6,0x51,0x4f,0x2f,0x86,0xb7},
+        {0x80,0xed,0x6f,0x07,0x0d,0xd3,0x33,0x42,0xeb,0x46,0xcf,0x2c,0xb0,0xbb,0xb5,0x0c}
+    };
+    char flag[8];
+    ambient_last_mip=GetEnvironmentVariableA("SRP_DIAGNOSTIC_SOURCE_AMBIENT_LAST_MIP",flag,sizeof(flag))==1 && flag[0]=='1';
     for (unsigned i=0;i<3;++i) {
         if (snprintf(path,sizeof(path),"%s/%s",directory,names[i])>=(int)sizeof(path)) return 0;
         FILE *file=fopen(path,"rb"); if (!file) { error("source ambient shader missing"); return 0; }
@@ -65,7 +71,8 @@ static int configure_ambient_diffuse(void) {
         ambient_code[i]=malloc((size_t)size); ambient_code_size[i]=(size_t)size;
         ok=ambient_code[i] && fread(ambient_code[i],1,(size_t)size,file)==(size_t)size;
         fclose(file);
-        if (!ok || memcmp(ambient_code[i],"DXBC",4) || memcmp((char *)ambient_code[i]+4,digests[i],16) ||
+        const unsigned char *digest=ambient_last_mip && i<2?last_mip_digests[i]:digests[i];
+        if (!ok || memcmp(ambient_code[i],"DXBC",4) || memcmp((char *)ambient_code[i]+4,digest,16) ||
             *(uint32_t *)((char *)ambient_code[i]+24)!=(uint32_t)size) {
             error("source ambient shader identity mismatch"); return 0;
         }
@@ -154,6 +161,26 @@ static void prepare_ambient_diffuse(ID3D11DeviceContext *context,AmbientDiffuseD
     if (state->kind>2) {
         ++ambient_failures; error("unhandled source ambient probe identity"); release_local_draw(&state->draw); return;
     }
+    if (ambient_last_mip) {
+        ID3D11ShaderResourceView *view=NULL; ID3D11Resource *resource=NULL; ID3D11Texture2D *texture=NULL;
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv; D3D11_TEXTURE2D_DESC desc; int valid=0;
+        ID3D11DeviceContext_PSGetShaderResources(context,5,1,&view);
+        if (view) {
+            ID3D11ShaderResourceView_GetDesc(view,&srv);
+            ID3D11ShaderResourceView_GetResource(view,&resource);
+            if (SUCCEEDED(ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&texture))) {
+                ID3D11Texture2D_GetDesc(texture,&desc);
+                valid=srv.ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBE && srv.Format==DXGI_FORMAT_BC3_UNORM &&
+                    srv.TextureCube.MostDetailedMip==0 && srv.TextureCube.MipLevels==3 &&
+                    desc.Width==16 && desc.Height==16 && desc.ArraySize==6 && desc.MipLevels==3;
+                ID3D11Texture2D_Release(texture);
+            }
+            ID3D11Resource_Release(resource); ID3D11ShaderResourceView_Release(view);
+        }
+        if (!valid) {
+            ++ambient_failures; error("source last-mip diffuse cube contract changed"); release_local_draw(&state->draw); return;
+        }
+    }
     ID3D11DeviceContext_OMGetRenderTargets(context,8,state->draw.targets,&state->draw.depth);
     if (ambient_sealed || !legacy_ssao_ready || ssao_ready_present!=present_calls || !legacy_ssao_fullscreen_shader() ||
         !state->draw.targets[0] || !state->draw.depth || !prepare_local_targets(context,&state->draw) || !init_ambient_diffuse(context)) {
@@ -198,8 +225,8 @@ static void capture_ambient_diffuse(ID3D11DeviceContext *context) {
     char base[MAX_PATH+48],path[MAX_PATH+80]; snprintf(base,sizeof(base),"%s.ambient-encoded",camera.output);
     snprintf(path,sizeof(path),"%s.json",base); FILE *file=fopen(path,"w");
     if (file) {
-        fprintf(file,"{\"present\":%u,\"valid\":%s,\"sky_draws\":%u,\"probe_draws\":%u,\"failed_draws\":%u,\"ao_present\":%u,\"scope\":\"source sky and probes before local lights; native scene unchanged\",\"source_sky\":[",
-                present_calls,source_ambient_valid()?"true":"false",ambient_sky_draws,ambient_probe_draws,ambient_failures,ssao_ready_present);
+        fprintf(file,"{\"present\":%u,\"valid\":%s,\"sky_draws\":%u,\"probe_draws\":%u,\"failed_draws\":%u,\"ao_present\":%u,\"diffuse_cube_mip\":%u,\"scope\":\"source sky and probes before local lights; native scene unchanged\",\"source_sky\":[",
+                present_calls,source_ambient_valid()?"true":"false",ambient_sky_draws,ambient_probe_draws,ambient_failures,ssao_ready_present,ambient_last_mip?2:1);
         for (unsigned i=0;i<32;++i) fprintf(file,"%s%.9g",i?",":"",ambient_sky_parameters[i]);
         fputs("]}\n",file); fclose(file);
     }

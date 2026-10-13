@@ -50,7 +50,14 @@ float3 native_sample(float3 direction,float mip) {
     return value.rgb*value.rgb/(value.a*value.a)*.25;
 }
 float3 source_diffuse_sample(float3 direction) {
+#ifdef CONFIG_SOURCE_LAST_CUBE_MIP
+    // Captured 010b uploads the complete 1x1-chain count, but authored DDS
+    // cubes stop at 4x4. num_mips-2 therefore clamps to that last mip, which
+    // is mip 2 of the converted 16x16 diffuse tail.
+    float4 encoded=t_probe_cubemap_diffuse.SampleLevel(s_material1,direction,2);
+#else
     float4 encoded=t_probe_cubemap_diffuse.SampleLevel(s_material1,direction,1);
+#endif
     return pow(abs(encoded.rgb/encoded.a),2.2);
 }
 #ifdef CONFIG_SOURCE_QUALITY3
@@ -75,8 +82,9 @@ Result main(float4 pixel : SV_POSITION) {
 #ifdef CONFIG_SOURCE_AMBIENT_AO
     parameters.xy=floor(saturate(parameters.xy)*127)/127;
 #endif
-    // The converted diffuse cube begins at the old 16x16 mip; mip 1 is the
-    // original 8x8 mip. Retail quality 1 maps to shader quality 3, whose
+    // The converted diffuse cube begins at the old 16x16 mip. Mip 1 retains
+    // the prior 8x8 approximation; the opt-in source contract uses 4x4.
+    // Retail quality 1 maps to shader quality 3, whose
     // eight directional samples are deliberately divided by nine.
 #ifdef CONFIG_SOURCE_QUALITY3
     float3 diffuse=0;
