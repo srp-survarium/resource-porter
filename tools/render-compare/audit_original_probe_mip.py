@@ -98,9 +98,11 @@ def audit(path,cube,stride,probes):
     depth,normal,albedo,ao=[read(f'.probe-draw.rt{i:02d}.bin') for i in (0,1,2,4)]
     before,after=read('.probe-before.rt00.bin'),read('.sun-before.rt00.bin')
     if before != read('.skylight-output.rt00.bin'): raise ValueError('first-probe input is not initial sky')
+    before_spec,after_spec=read('.probe-before.rt01.bin'),read('.sun-before.rt01.bin')
     ray=cb['s_eye_ray_corner'];matrix=cb['m_V2W'];center=[cb['m_W'][i*4+3] for i in range(3)]
     groups={name:{'samples':0,'maximum_error':0.,'sum_error':0.,'outside_one_step':0} for name in ('source_4x4','incorrect_8x8')}
-    excluded={'unchanged':0,'cube_corners':0,'other_probe_bounds':0,'sky_depth':0}
+    specular={'samples':0,'maximum_error':0.,'sum_error':0.,'outside_one_step':0}
+    excluded={'unchanged':0,'cube_corners':0,'other_probe_bounds':0,'sky_depth':0,'specular_corners':0,'specular_singular':0}
     for i in range(0,1280*720,stride):
         if before[i*4:i*4+4]==after[i*4:i*4+4]:excluded['unchanged']+=1;continue
         x,y=i%1280,i//1280;z=struct.unpack_from('<e',depth,i*2)[0]
@@ -132,8 +134,30 @@ def audit(path,cube,stride,probes):
             predicted=[v*attenuation+b*(1-attenuation) for v,b in zip(encoded,rgb(before,i))]
             errors=[abs(a-b) for a,b in zip(predicted,rgb(after,i))]
             s=groups[name];s['samples']+=1;s['sum_error']+=sum(errors)/3;s['maximum_error']=max(s['maximum_error'],max(errors));s['outside_one_step']+=max(errors)>1/1023+1e-6
-    for s in groups.values():s['rgb_mae']=s.pop('sum_error')/s['samples'] if s['samples'] else None
-    return {'pose':Path(stem).name,'uploaded_num_mips':uploaded,'requested_mip':requested,'effective_mip':actual,'excluded':excluded,'equations':groups}
+        # Original source high-quality probe specular, prior to sun/local
+        # additions. The sky does not initialize a specular term.
+        nv=dot;vh=sum(a*b for a,b in zip(view,halfway));nh=sum(a*b for a,b in zip(n,halfway))
+        nl=saturate(sum(a*b for a,b in zip(n,light)))
+        if abs(vh)<1e-12 or (nl>0 and abs(nv)<1e-12):
+            excluded['specular_singular']+=1;continue
+        geometry=min(2*nh*nv/vh,2*nh*nl/vh,1)
+        roughness=(2/(255*(1-gloss)+2)-.00778)**.48
+        raw=(nl*fresnel)*geometry/(roughness*roughness*math.pi)/(4*max(vh,.00001)*abs(nl*nv)) if nl>0 else 0
+        factor=min(fresnel*saturate(raw),100)
+        if sum(a*b for a,b in zip(mirror,n))<0:factor=1
+        mip=(1-math.sqrt(2/(gloss+2)))*4*saturate(nv)**.2*8
+        lo,hi=cube.sample(mirror,int(mip)),cube.sample(mirror,int(mip+1))
+        if lo is None or hi is None:excluded['specular_corners']+=1;continue
+        scale=(1-gloss**3)*saturate(ao[i*2]/255*2.5)**5*cb['color_parameters'][1]
+        fraction=mip-math.floor(mip)
+        encoded=[math.sqrt(saturate(min(factor*(a*(1-fraction)+b*fraction)*scale,4)*.125)) for a,b in zip(lo,hi)]
+        predicted=[e*attenuation+b*(1-attenuation) for e,b in zip(encoded,rgb(before_spec,i))]
+        errors=[abs(a-b) for a,b in zip(predicted,rgb(after_spec,i))]
+        specular['samples']+=1;specular['sum_error']+=sum(errors)/3;specular['maximum_error']=max(specular['maximum_error'],max(errors));specular['outside_one_step']+=max(errors)>1/1023+1e-6
+    for s in [*groups.values(),specular]:
+        total=s.pop('sum_error')
+        s['rgb_mae']=total/s['samples'] if s['samples'] else None
+    return {'pose':Path(stem).name,'uploaded_num_mips':uploaded,'requested_mip':requested,'effective_mip':actual,'excluded':excluded,'equations':groups,'source_specular':specular}
 
 
 def main():

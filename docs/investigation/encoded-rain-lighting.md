@@ -606,3 +606,43 @@ only 28 such pixels and south zero, so that stronger subset cannot support
 an outdoor-wall claim. The report explicitly retains these counts and
 notes that identical G-buffer bytes do not establish identical AO or probe
 coverage. `mip-common-pixels.json` preserves the result.
+
+### Source ambient-specular preparation
+
+`legacy_probe_specular_aux.hlsl` and its box wrapper are isolated, unbound
+source010 high-quality specular producers using the verified native probe
+constant-buffer layout. Both compile with `/WX /O3 /T ps_4_0 /E main`.
+Sphere DXBC is 6,188 bytes, identity
+`28a92a5b1e1a392624b972fd0c4b3cce`; box is 6,160 bytes,
+`ca8b68c29830a8ba101a1f5534a387e9`. Build hashes and assembly are preserved
+in `encoded-rain-lighting/ambient-spec/build.json`.
+
+The shaders restore source gamma-2.2 cube decoding, seven-bit Fresnel and
+gloss, the high-quality BRDF and its mip selection, cubic gloss suppression,
+fifth-power saturated AO, cap of four and encoded output. They do not alter
+the existing diffuse shaders or displayed recipe. The source sky initializes
+no specular: its accumulator starts at zero before the probes blend.
+
+The source-only replay in `audit_original_probe_mip.py` now reports the
+specular branch separately. On the conservative global-probe-only subset,
+23,545 samples have RGB MAE .00021–.00027. Fourteen exceed one 10-bit step;
+the maximum .001237 is about 1.27 steps. This supports the source arithmetic
+but remains an approximate cube-filter replay, not a target runtime pass.
+
+Runtime integration must allocate its own encoded specular target and clear
+it every Present. It must replay using a second copy of the *pre-native*
+DSV: the existing diffuse replay can invert stencil, so replaying specular
+against its already modified snapshot changes coverage. Preserve native
+MRTs, shader, AO binding and blend state; seal and report the ambient result
+before local lights. An absent initialization or unsupported source feature
+must produce invalid metadata, never silently retain a prior frame.
+
+Six of the 36 authored Factory probes enable source clip-by-normal; none
+has source cube shadows. Their authored control/center must be mapped before
+claiming a complete ambient-specular accumulator. The draft does not yet
+implement those features or bind itself at runtime. Local and sun specular
+also need separate producers. Finally, source composition's packed five-bit
+material specular amount is not recoverable from native parameter z alone:
+opaque source materials retain a specular-intensity texture there while
+native z is zero. Producer validation and material-resolve parity therefore
+remain separate work.
