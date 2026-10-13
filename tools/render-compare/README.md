@@ -502,3 +502,28 @@ means agree within .22% and AO means within .18%, while current pre-fog RGB is
 calculation without identifying its precise producer. Original R10G10B10A2
 normal/light inputs were skipped by the capture format handler, so their raw
 data is unavailable in the saved reference; do not infer their contents.
+
+## Probe smoothness and foliage base-light experiment
+
+The source G-buffer stores `smoothness = 1 - roughness`; its probe shader calls
+that field `gloss`. The adapter now takes the corresponding complements when
+forming its halfway direction and diffuse Fresnel factor. This corrects an
+earlier mapping mistake, but does not reproduce source seven-bit quantization or
+prove that the material producers deliver equivalent roughness. The correction
+slightly darkens the sampled forest and therefore does not explain its deficit.
+
+`legacy-composition-translucency-base.dxbc` is a controlled partial experiment.
+It replaces the native base scattering term `light_color * translucency * .02`
+with original `translucency * .1`, verified against the archived `translucency.ps`.
+Directional terms and shadow attenuation remain native. The original and native
+shadow attenuation equations differ, so this is not a complete source-scattering
+implementation. This material contribution is not a global exposure adjustment.
+
+Set `SRP_LEGACY_COMPOSITION_REFERENCE` to the previous dry-response composition
+for same-frame comparisons. `audit_translucency_base.py CAPTURE --shader DXBC
+--comparison DXBC` validates identities, finite outputs and unchanged opaque
+pixels. All four `pipeline-translucency-base` views pass: zero opaque pixels
+change. Gamma and ambient checks pass too. Forest pre-fog RGB changes from
+[.01495,.01354,.01033] to [.02345,.02143,.01650], original [.02392,.02208,.01746].
+This local improvement does not prove whole-image or map-wide parity. Broader
+day/evening coverage and held-out views are being captured independently.

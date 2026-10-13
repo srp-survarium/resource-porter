@@ -115,18 +115,23 @@ Result main(float4 pixel : SV_POSITION) {
 #endif
     Result result;
 #ifdef CONFIG_SOURCE_FALLOFF
+    // The source G-buffer stores smoothness = 1 - material roughness. Its
+    // probe shader calls that stored value gloss, then derives diffuse_gloss
+    // as 1 - gloss. The target parameter is already material roughness.
+    float source_gloss=1-parameters.y;
+    float source_diffuse_gloss=parameters.y;
 #ifdef CONFIG_SOURCE_QUALITY3
     float3 half_direction=normalize(world_normal+reflection);
-    float3 direction=lerp(half_direction,reflection,pow(saturate(1-parameters.y),.8));
+    float3 direction=lerp(half_direction,reflection,pow(saturate(source_diffuse_gloss),.8));
     float3 mirror_direction=normalize(direction);
-    float3 light_direction=lerp(mirror_direction,normalize(world_normal+mirror_direction),parameters.y);
+    float3 light_direction=lerp(mirror_direction,normalize(world_normal+mirror_direction),source_gloss);
     float3 halfway_direction=normalize(light_direction+view_direction);
     float fresnel_dot=max(dot(view_direction,halfway_direction),0);
 #else
     float fresnel_dot=view_dot_normal;
 #endif
     float fresnel=parameters.x+(1-parameters.x)*pow(1-fresnel_dot,5);
-    result.diffuse=float4(min(diffuse,10)*(1-fresnel*(1-parameters.y)),attenuation);
+    result.diffuse=float4(min(diffuse,10)*(1-fresnel*source_diffuse_gloss),attenuation);
 #else
     result.diffuse=float4(diffuse*(1-parameters.x),attenuation);
 #endif

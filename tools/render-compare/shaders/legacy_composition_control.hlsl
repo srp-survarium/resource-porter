@@ -55,6 +55,11 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
     float3 scattering=0;
     if (parameters.z>.001) {
         scattering=light_color*(max(dot(normal,light_direction),0)*shadow.y*parameters.z+parameters.z*.02);
+#ifdef CONFIG_SOURCE_TRANSLUCENCY_BASE
+        // Isolate the material-only base term from original translucency.ps.
+        // Native backlight, shadow attenuation and view-dependent terms remain.
+        scattering+=parameters.z*.1-light_color*parameters.z*.02;
+#endif
         float world_y=normalize(mul((float3x3)m_V2W,normal)).y;
         scattering+=saturate(-world_y)*parameters.z*(-world_y*eye_direction.y);
     }
