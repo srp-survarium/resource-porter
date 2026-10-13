@@ -23,9 +23,15 @@ tools. Use local test servers and disposable executable copies.
    pose file. Each BMP has a JSON record of the requested and applied camera.
 
 The four supplied poses sample Factory's ground floor and upper area; their
-names are identifiers, not verified architectural labels. Frame capture retains
-the game's HUD and player model. Compare static scene regions away from those
-features; moving the view does not teleport the player. Match weather, texture,
+names are identifiers, not verified architectural labels. For new 0.26 captures,
+set `ui off` in that capture client's console or `Documents/Survarium/user.cfg`
+before launch. Reapply it before each launch if the game rewrites the config,
+and record `ui_command: "ui off"` in the capture's launch metadata. This native
+switch disables Flash overlays (HUD, minimap, crosshair and text); the weapon
+and player model remain scene geometry. Use `ui on` to restore the overlay.
+Keep existing reference captures; exclude their UI from image comparisons.
+Compare static scene regions away from player geometry; moving the view does
+not teleport the player. Match weather, texture,
 lighting, shading, shadow quality, and grading before attributing differences.
 Allow exposure and streamed resources to settle after each camera move.
 
@@ -527,3 +533,13 @@ change. Gamma and ambient checks pass too. Forest pre-fog RGB changes from
 [.01495,.01354,.01033] to [.02345,.02143,.01650], original [.02392,.02208,.01746].
 This local improvement does not prove whole-image or map-wide parity. Broader
 day/evening coverage and held-out views are being captured independently.
+
+## Native 0.26 UI suppression
+
+The pinned executable's `renderer::render_flash_ui` at VA `0x13ced0` checks
+byte `0xa71bc5` before submitting Flash movies. The `cc_bool` registration at
+`0x84edb0` binds that byte to command `ui` (name at `0x9eefdc`). `ui off` in
+the reserved client's user config was verified in four captures under
+`.work/render-compare/026g/pipeline-ui-hidden/`; no shader changes were needed.
+The earlier `pipeline-translucency-base` captures retain UI. The original
+reference client was not relaunched for this change.
