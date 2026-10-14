@@ -169,6 +169,7 @@ impl MaterialCatalog {
             &mut donor_texture_bindings,
         );
         neutralize_template_vertex_blending(&mut converted.root, &donor_config.root);
+        neutralize_template_water_foam(&mut converted.root, &donor_config.root);
         Ok(ConvertedMaterial {
             bytes: converted.to_bytes()?,
             template_path: template.path.clone(),
@@ -609,6 +610,34 @@ fn neutralize_template_vertex_blending(converted: &mut ConfigValue, donor: &Conf
     }
 }
 
+// Early simple water has no foam layer. Newer templates add one at full
+// intensity; retaining that default paints bright foam over the old puddles.
+fn neutralize_template_water_foam(converted: &mut ConfigValue, donor: &ConfigValue) {
+    fn water_effect(root: &ConfigValue) -> Option<&ConfigValue> {
+        root.named("material")
+            .and_then(|v| v.named("forward"))
+            .and_then(|v| v.named("effect"))
+    }
+    let Some(source) = water_effect(donor) else {
+        return;
+    };
+    let Some(target) = water_effect(converted) else {
+        return;
+    };
+    let is_water = |effect: &ConfigValue| matches!(effect.named("effect_id"), Some(ConfigValue::String(id)) if id == "forward_default_simpe_water");
+    if is_water(source) && is_water(target) && source.named("foam_intensity").is_none() {
+        if let Some(value) = converted
+            .named_mut("material")
+            .and_then(|v| v.named_mut("forward"))
+            .and_then(|v| v.named_mut("effect"))
+            .and_then(|v| v.named_mut("foam_intensity"))
+            .and_then(|v| v.named_mut("value"))
+        {
+            *value = ConfigValue::Integer(0);
+        }
+    }
+}
+
 fn is_texture_parameter(name: &str) -> bool {
     name.starts_with("texture_") || name.ends_with("_texture")
 }
@@ -648,6 +677,55 @@ mod tests {
         crate::NamedValue {
             name: name.into(),
             value,
+        }
+    }
+
+    #[test]
+    fn water_templates_do_not_add_foam_absent_from_the_source() {
+        let material = |effect: &str, foam: Option<f32>| {
+            let mut values = vec![named("effect_id", ConfigValue::String(effect.into()))];
+            if let Some(foam) = foam {
+                values.push(named(
+                    "foam_intensity",
+                    ConfigValue::Named(vec![named("value", ConfigValue::Float(foam))]),
+                ));
+            }
+            ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named(
+                    "forward",
+                    ConfigValue::Named(vec![named("effect", ConfigValue::Named(values))]),
+                )]),
+            )])
+        };
+        let water = "forward_default_simpe_water";
+        let mut converted = material(water, Some(1.0));
+        neutralize_template_water_foam(&mut converted, &material(water, None));
+        let mut expected = material(water, Some(1.0));
+        expected
+            .set_path(
+                "material.forward.effect.foam_intensity.value",
+                ConfigValue::Integer(0),
+            )
+            .unwrap();
+        assert_eq!(converted, expected);
+
+        // Authored foam, unrelated effects and older targets remain untouched.
+        for (target, donor) in [
+            (material(water, Some(0.3)), material(water, Some(0.3))),
+            (
+                material("forward_default", Some(1.0)),
+                material("forward_default", None),
+            ),
+            (
+                material(water, Some(1.0)),
+                material("forward_default", None),
+            ),
+            (material(water, None), material(water, None)),
+        ] {
+            let mut actual = target.clone();
+            neutralize_template_water_foam(&mut actual, &donor);
+            assert_eq!(actual, target);
         }
     }
 
