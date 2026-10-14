@@ -58,6 +58,15 @@ float4 main(float4 pixel : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET {
         float k=roughness*.5;
         geometry=min(geometry*(nv/(nv*(1-k)+k))*(nl/(nl*(1-k)+k)),1);
         sunlight=light_color*saturate((1-fl)*nl);
+#ifdef CONFIG_SOURCE_SUN_DIFFUSE_SENTINEL
+        // Original 010b sun.ps: F > .99 retains full Lambert diffuse. In
+        // particular authored F0=1 is a sentinel, not zero diffuse. Preserve
+        // every other native term while isolating that branch. Original F0
+        // is stored in seven bits and its Schlick angle is view/halfway.
+        float source_f0=floor(saturate(parameters.x)*127)/127;
+        float source_fresnel=source_f0+(1-source_f0)*pow(1-max(vh,0),5);
+        if (source_fresnel>.99) sunlight=light_color*nl;
+#endif
         sun_specular=light_color*shadow.x*(nl*geometry*fv*min(distribution,1000));
     }
     float3 scattering=0;

@@ -84,6 +84,22 @@ Do not promote the candidate as an exact visual match until settled-texture
 views separate this from the remaining diffuse-lighting difference. No
 global gain, roughness fitting or texture rewrite was used to hide it.
 
+A concrete remaining lighting mismatch explains why correct intensity masks
+can expose dark remains: their authored Fresnel is 1. Native day composition
+multiplies sun diffuse by `1-F`, producing zero. Original `sun.ps:251`
+instead uses `N.L * (F > 0.99 ? 1 : 1-F)`, retaining full diffuse at this
+sentinel. Its Fresnel uses the seven-bit material value and view/halfway
+angle. This is distinct from the source probe's roughness-dependent rule.
+The diffuse DDS files also match the original byte-for-byte, including
+sRGB options, ruling out an accidental albedo rewrite.
+
+`legacy_composition_sun_sentinel.hlsl` is an opt-in, uncompiled diagnostic
+sibling of the frozen day composition. Only the source sentinel branch is
+restored; other current sun, specular, ambient and encoded-addition terms
+remain unchanged. It has not been applied to the package. Broad trigger
+auditing must account for any other materials whose conversion lost a
+Fresnel map; target F0=1 alone does not prove authored F0=1.
+
 Reproduction inputs are `poses-factory-day-materials.json`, the preparation
 script, `patch_archive_entries.py`, and `audit_factory_day_material_images.py`.
 The latter checks matching camera requests and reports fixed material/control
