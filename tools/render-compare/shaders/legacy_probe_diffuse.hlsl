@@ -112,7 +112,43 @@ Result main(float4 pixel : SV_POSITION) {
     float3 view_direction=normalize(eye_position-world_position);
     float view_dot_normal=saturate(dot(world_normal,view_direction));
     float3 reflection=-reflect(view_direction,world_normal);
-#ifndef CONFIG_SOURCE_DIFFUSE_ONLY
+#if defined(CONFIG_SOURCE_PROBE_SPECULAR) && !defined(CONFIG_SOURCE_DIFFUSE_ONLY)
+    // Original 0.11e environment_probe_lighting.ps quality 3 (DXBC 9dd5d3bf,
+    // shared math with 010b cc45055d): seven-bit gloss/F0, gamma-2.2 cube
+    // decode, high-quality BRDF and mip choice, (1 - gloss^3) suppression,
+    // fifth-power AO and a cap of 4, written linearly to the native
+    // accumulator. The source's screen-space reflection occlusion is not
+    // reproduced (native static globals differ); it can only darken.
+    float2 source_parameters=floor(saturate(parameters.xy)*127)/127;
+    float gloss=source_parameters.y,roughness_blend=1-gloss;
+    float nv=dot(view_direction,world_normal);
+    float3 source_reflection=reflect(view_direction,world_normal);
+    float3 half_vector=normalize(world_normal-source_reflection);
+    float3 lobe=lerp(half_vector,-source_reflection,pow(roughness_blend,.8));
+    float3 mirror=normalize(lobe);
+    float3 light=lerp(mirror,normalize(world_normal+mirror),gloss);
+    float nl=saturate(dot(light,world_normal));
+    float3 halfway=normalize(light+view_direction);
+    float vh=dot(view_direction,halfway),nh=dot(world_normal,halfway);
+    float source_fresnel=source_parameters.x+(1-source_parameters.x)*pow(1-max(vh,0),5);
+    float geometry=min(min(2*nh*nv/vh,2*nh*nl/vh),1);
+    float alpha=pow(2/(255*roughness_blend+2)-.00778,.48);
+    float distribution=1/(alpha*alpha*3.14159265);
+    float lobe_specular=nl>0?(nl*source_fresnel)*geometry*distribution/(4*max(vh,.00001)*abs(nl*nv)):0;
+    float factor=min(source_fresnel*saturate(lobe_specular),100);
+    if (dot(lobe,world_normal)<0) factor=1;
+    float source_mip=(1-sqrt(2/(gloss+2)))*4*pow(saturate(nv),.2)*num_mips;
+    float4 upper=t_probe_cubemap.SampleLevel(s_base,lobe,trunc(source_mip+1));
+    float4 lower=t_probe_cubemap.SampleLevel(s_base,lobe,trunc(source_mip));
+    float3 specular=lerp(factor*pow(abs(lower.rgb/lower.a),2.2),factor*pow(abs(upper.rgb/upper.a),2.2),frac(source_mip));
+    specular=lerp(specular,0,gloss*gloss*gloss);
+#ifdef CONFIG_SOURCE_AMBIENT_AO
+    float source_ao=saturate(t_legacy_ssao.SampleLevel(s_linear,uv,0).x*2.5);
+#else
+    float source_ao=saturate(t_ssao_accumulator.SampleLevel(s_linear,uv,0).x);
+#endif
+    specular=min(specular*source_ao*source_ao*source_ao*source_ao*source_ao*color_parameters.y,4);
+#elif !defined(CONFIG_SOURCE_DIFFUSE_ONLY)
     float mip=(num_mips-1)*sqrt(view_dot_normal)*parameters.y;
     float2 brdf=t_probe_brdf.SampleLevel(s_material1,float2(view_dot_normal,parameters.y),0).xy;
     brdf*=brdf;
