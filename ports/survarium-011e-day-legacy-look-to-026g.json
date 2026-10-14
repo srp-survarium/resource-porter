@@ -123,6 +123,137 @@
     },
     "models/props/light/bonefire_01.model/settings": {
       "coll_foliageSG": "foliage_coniferous"
+    },
+    "models/level/04/moss.model/settings": {
+      "default": "grass"
+    },
+    "models/level/04/moss2.model/settings": {
+      "default": "grass"
+    },
+    "models/level/04/moss3.model/settings": {
+      "default": "grass"
+    },
+    "models/level/04/moss4.model/settings": {
+      "default": "grass"
+    }
+  },
+  "collision_primitive_overrides": {
+    "models/level/04/level_border.model/walker_collision": {
+      "donor_primitives_sha256": "5d580eb2f16ea472acdab772ca9a5e1fb8b913901f35a1d10f3ae5a1ef18aed5",
+      "reason": "0.11e north map-edge box (Z 131.88-135.40) blocked the passage X 43.4-48.1 6.3 m before the visible barbed-wire fence (fences_03, Z 138.14). It takes the 0.21d/0.26 placement in the fence line (Z 138.32-141.45); the two corner boxes are extended to that edge (east: 0.21d placement; west: 0.11e X extent kept). No other border box changes.",
+      "primitives": [
+        {
+          "index": 23,
+          "from": {
+            "position": [
+              22.565797805786133,
+              37.70851516723633,
+              133.6414794921875
+            ],
+            "rotation": [
+              1.5707963705062866,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              26.27474021911621,
+              1.7566604614257812,
+              37.615238189697266
+            ]
+          },
+          "to": {
+            "position": [
+              22.565797805786133,
+              37.70851516723633,
+              139.88571166992188
+            ],
+            "rotation": [
+              1.5707963705062866,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              26.274742126464844,
+              1.5669676065444946,
+              37.615238189697266
+            ]
+          }
+        },
+        {
+          "index": 24,
+          "from": {
+            "position": [
+              50.290443420410156,
+              44.32208251953125,
+              115.20536041259766
+            ],
+            "rotation": [
+              0.0,
+              -1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              19.80529022216797,
+              31.439979553222656,
+              1.7566547393798828
+            ]
+          },
+          "to": {
+            "position": [
+              50.290443420410156,
+              44.322086334228516,
+              118.25055694580078
+            ],
+            "rotation": [
+              0.0,
+              -1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              22.850488662719727,
+              31.439979553222656,
+              1.756655216217041
+            ]
+          }
+        },
+        {
+          "index": 22,
+          "from": {
+            "position": [
+              -2.056196451187134,
+              37.70851516723633,
+              126.70710754394531
+            ],
+            "rotation": [
+              0.0,
+              1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              9.414413452148438,
+              37.615238189697266,
+              1.7566553354263306
+            ]
+          },
+          "to": {
+            "position": [
+              -2.056196451187134,
+              37.70851516723633,
+              129.10694885253906
+            ],
+            "rotation": [
+              0.0,
+              1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              11.814249038696289,
+              37.615238189697266,
+              1.7566553354263306
+            ]
+          }
+        }
+      ]
     }
   }
 }
