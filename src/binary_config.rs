@@ -262,10 +262,11 @@ fn checked_slice(bytes: &[u8], offset: usize, size: usize) -> Result<&[u8]> {
 
 fn encode_root(root: &ConfigValue) -> Result<Vec<u8>> {
     let count = count_values(root);
-    if count > u16::MAX as usize {
-        bail!("binary config contains too many values: {count}");
-    }
-    let mut output = vec![0_u8; count * VALUE_SIZE];
+    // Counts are per table; the complete tree uses 64-bit byte offsets.
+    let size = count
+        .checked_mul(VALUE_SIZE)
+        .context("binary config size overflow")?;
+    let mut output = vec![0_u8; size];
     let mut names = HashMap::<String, (u64, u32)>::new();
     let mut queue = VecDeque::new();
     queue.push_back((root, 0_u64, 0_u32));
@@ -419,6 +420,23 @@ mod tests {
 
     #[test]
     fn semantic_roundtrip_preserves_all_types() {
+        let large = BinaryConfig {
+            root: ConfigValue::Indexed(vec![
+                ConfigValue::Indexed(vec![ConfigValue::Integer(7); 40_000]),
+                ConfigValue::Indexed(vec![ConfigValue::Integer(8); 40_000]),
+            ]),
+        };
+        assert_eq!(
+            BinaryConfig::parse(&large.to_bytes().unwrap()).unwrap(),
+            large
+        );
+        assert!(
+            BinaryConfig {
+                root: ConfigValue::Indexed(vec![ConfigValue::Integer(0); 65_536])
+            }
+            .to_bytes()
+            .is_err()
+        );
         let source = ConfigValue::Named(vec![
             NamedValue {
                 name: "boolean".into(),
