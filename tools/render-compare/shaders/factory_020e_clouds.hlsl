@@ -1,6 +1,11 @@
 // Original 020e unlit cloud PS equations (DXBC 98013dc55c5f), with 026's
-// texture slot and varying ABI. All weather values come from the authored
-// environment constants; the paired CPU adapter restores rotation convention.
+// texture slot and varying ABI. Native metadata leaves its unused fog row
+// unpopulated: prepare_cloud_shader.py derives those two values from the donor.
+// Color and fog color remain native-authored uniforms. The paired CPU adapter
+// restores rotation convention for both layers.
+#if !defined(SOURCE_CLOUD_FOG_POWER) || !defined(SOURCE_CLOUD_FOG_UP_LIMIT)
+#error Prepare the shader from its donor project before compiling.
+#endif
 cbuffer CloudConstants : register(b0)
 {
     float4 sky_clouds_parameters0;
@@ -25,8 +30,8 @@ float4 main(CloudInput input) : SV_TARGET
 {
     if (input.uv.y>=.5208333134651184)
         return float4(sky_clouds_parameters3.xyz,1);
-    float fade=min(pow(1-saturate((1-input.uv.y*2)/sky_clouds_parameters1.y),
-                       sky_clouds_parameters1.x),1);
+    float fade=min(pow(1-saturate((1-input.uv.y*2)/SOURCE_CLOUD_FOG_UP_LIMIT),
+                       SOURCE_CLOUD_FOG_POWER),1);
     float2 tc=float2(input.uv.x,input.uv.y*2);
     float4 sum=sky_clouds_texture.SampleLevel(s_linear,tc,2)
               +sky_clouds_texture.SampleLevel(s_linear,tc,1)
