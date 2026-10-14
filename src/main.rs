@@ -266,6 +266,8 @@ enum Command {
         #[arg(long)]
         donor_db: PathBuf,
         #[arg(long)]
+        server_donor_db: Option<PathBuf>,
+        #[arg(long)]
         target_db: PathBuf,
         #[arg(long)]
         output: PathBuf,
@@ -1116,11 +1118,16 @@ fn main() -> Result<()> {
         Command::BuildSurvarium021Maps {
             manifest,
             donor_db,
+            server_donor_db,
             target_db,
             output,
         } => {
             let record = vostok_resource_porter::survarium_026::build(
-                &manifest, &donor_db, &target_db, &output,
+                &manifest,
+                &donor_db,
+                &target_db,
+                &output,
+                server_donor_db.as_deref(),
             )?;
             println!(
                 "maps={} files={} materials={}",

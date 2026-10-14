@@ -44,8 +44,8 @@ fn transfer_probe(object: &mut ConfigValue, weather: &str, source: SourceBuild) 
                 .context("0.11e authored probe width")?,
         )?;
         ensure!(width.is_finite() && width > 0., "invalid 0.11e probe width");
-        // Preserve the explicit donor field for investigation. Its sphere
-        // upload differs from 0.26 and is not yet a verified runtime mapping.
+        // Source sphere PS applies .98 to radius; native CPU applies it before
+        // upload. Preserve explicit widths, including authored reversed falloff.
         return Ok(());
     }
     if object
@@ -79,13 +79,13 @@ fn color4(value: &ConfigValue) -> Result<ConfigValue> {
 pub(super) fn project(
     mut old: ConfigValue,
     donor: &mut ResourceDb,
+    server: ConfigValue,
     target: &ConfigValue,
     map: &Map,
     source: SourceBuild,
     notes: &mut Vec<String>,
 ) -> Result<ConfigValue> {
     let path = map.donor_project(source);
-    let server = cfg(donor, &path.replace("client_project", "server_project"))?;
     let objects = remove(&mut old, "objects").context("early scene has no objects")?;
     let objects = array(&objects)?;
     let target_objects = array(target.named("client_objects").context("target objects")?)?;
@@ -156,7 +156,7 @@ pub(super) fn project(
                     .unwrap_or(0.)
                     == 0.
             {
-                notes.push(format!("{path}: UNVERIFIED 0.11e sphere probe width preserved; native 0.26 radius contraction can invert the falloff interval"));
+                notes.push(format!("{path}: 0.11e explicit sphere width preserves source radial falloff; source shader and native CPU both apply .98 radius; native perturbation and other probe semantics remain distinct"));
             }
         }
         if kind == "vegetation" {
@@ -230,6 +230,33 @@ pub(super) fn project(
     old.set_path("server_objects", groups)?;
     old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
     Ok(old)
+}
+
+pub(super) fn validate_server_fallback(client: &ConfigValue, server: &ConfigValue) -> Result<()> {
+    let groups = server.named("objects").context("fallback server groups")?;
+    ensure!(
+        client.named("respawn_points") == groups.named("respawn_points")
+            && client.named("respawn_points").is_some(),
+        "fallback player spawns differ from primary client"
+    );
+    let objects = array(client.named("objects").context("primary client objects")?)?;
+    for (group, kind) in [
+        ("victory_items_containers", "victory_items_container"),
+        ("collision_geometry", "collision_geometry"),
+    ] {
+        let authored = ConfigValue::Indexed(
+            objects
+                .iter()
+                .filter(|o| string(o, "game_object_type") == Some(kind))
+                .cloned()
+                .collect(),
+        );
+        ensure!(
+            groups.named(group) == Some(&authored),
+            "fallback {group} differs from primary client"
+        );
+    }
+    Ok(())
 }
 
 /// Repair the duplicated team1 zone reference authored in the 0.11a
@@ -893,6 +920,40 @@ mod tests {
         );
         assert!(collector_visual(&collector("missing"), &zones, &visuals).is_err());
         assert!(collector_visual(&collector("east"), &zones, &visuals[..1]).is_err());
+        let respawns = ConfigValue::Indexed(vec![visual(12.)]);
+        let client = object(&[
+            ("respawn_points", respawns.clone()),
+            ("objects", ConfigValue::Indexed(zones.to_vec())),
+        ]);
+        let mut server = object(&[(
+            "objects",
+            object(&[
+                ("respawn_points", respawns),
+                ("collision_geometry", ConfigValue::Indexed(zones.to_vec())),
+                ("victory_items_containers", ConfigValue::Indexed(vec![])),
+            ]),
+        )]);
+        validate_server_fallback(&client, &server).unwrap();
+        server
+            .set_path(
+                "objects.respawn_points",
+                ConfigValue::Indexed(vec![visual(13.)]),
+            )
+            .unwrap();
+        assert!(validate_server_fallback(&client, &server).is_err());
+        server
+            .set_path(
+                "objects.respawn_points",
+                client.named("respawn_points").unwrap().clone(),
+            )
+            .unwrap();
+        server
+            .set_path(
+                "objects.collision_geometry",
+                ConfigValue::Indexed(vec![zone("west", -70.), zones[1].clone()]),
+            )
+            .unwrap();
+        assert!(validate_server_fallback(&client, &server).is_err());
     }
 
     #[test]

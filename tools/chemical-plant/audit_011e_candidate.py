@@ -19,7 +19,7 @@ def main():
     a = parser.parse_args()
     record = json.loads((a.bundle/'port-manifest.json').read_text())
     assert record['donor_build'] == '0.11e-884'
-    assert record['maps'] == [{'id': 194, 'level': 'level_04', 'weather': 'day'}]
+    assert {'id': 194, 'level': 'level_04', 'weather': 'day'} in record['maps']
     for item in record['files']:
         data = (a.bundle/'overlay'/item['path']).read_bytes()
         assert len(data) == item['size'], item['path']
@@ -63,7 +63,7 @@ def main():
         probes.append({'name': old['full_name'], 'geometry': old['geometry'], 'radius': old['radius'],
                        'width': old['probe_side_width'], 'source_texture': old['texture'],
                        'target_outer': outer, 'target_inner': inner,
-                       'falloff_mapping_verified': False,
+                       'radial_sphere_mapping_verified': sphere,
                        'inverted_native_sphere_interval': sphere and inner >= outer})
     collectors = []
     zones = {o['full_name']: o for o in source['objects'] if o.get('game_object_type') == 'collision_geometry'}
@@ -80,7 +80,7 @@ def main():
                'dependency_closure': 'builder succeeded with zero unresolved dependencies',
                'donor_shaders_imported': 0, 'runtime_verified': False,
                'critical_wall_primitives_unchanged': len(old_wall['primitives']),
-               'blockers': ['0.11e probe upload/attenuation mapping needs renderer comparison',
+               'blockers': ['full probe parity unverified beyond proven sphere radial falloff',
                             'legacy versus native cylinder dimensions differ; payload preservation does not prove collision parity'],
                'batteries': spawns, 'collectors': collectors, 'probes': probes, 'lpv_occluders': occluders,
                'compatibility_notes': record['compatibility_notes']}

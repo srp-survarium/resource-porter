@@ -9,6 +9,7 @@ import subprocess
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--porter', type=Path, required=True)
 parser.add_argument('--donor-db', type=Path, required=True)
+parser.add_argument('--server-donor-db', type=Path, help='Explicit pinned fallback for missing server projects')
 parser.add_argument('--target-db', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
 parser.add_argument('--manifest', type=Path,
@@ -27,8 +28,9 @@ output = args.output.resolve()
 bundle = output / 'bundle'
 def run(*arguments):
     subprocess.run([str(args.porter.resolve()), *map(str, arguments)], check=True)
+fallback = ['--server-donor-db', args.server_donor_db.resolve()] if args.server_donor_db else []
 run('build-survarium-maps-026', '--manifest', args.manifest.resolve(),
-    '--donor-db', args.donor_db.resolve(), '--target-db', args.target_db.resolve(), '--output', bundle)
+    '--donor-db', args.donor_db.resolve(), '--target-db', args.target_db.resolve(), '--output', bundle, *fallback)
 if args.bundle_only:
     print(f'Additive Chemical Plant candidate: {bundle}')
     raise SystemExit(0)

@@ -58,6 +58,8 @@ pub struct Manifest {
     pub source_build: SourceBuild,
     pub donor_sha256: String,
     pub target_sha256: String,
+    #[serde(default)]
+    pub server_project_fallback: Option<ServerProjectFallback>,
     pub maps: Vec<Map>,
     #[serde(default)]
     pub reference_replacements: BTreeMap<String, String>,
@@ -72,6 +74,15 @@ pub struct Manifest {
     /// Surfaces audited to use repeating UVs; integer island offsets preserve sampling.
     #[serde(default)]
     pub wrapped_uv_surfaces: BTreeSet<String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServerProjectFallback {
+    pub source_build: SourceBuild,
+    pub donor_sha256: String,
+    /// Only these missing server projects may be read, each pinned by payload hash.
+    pub projects: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -132,6 +143,7 @@ pub struct Record {
     pub donor_build: String,
     pub target_build: String,
     pub target_db_sha256: String,
+    pub server_project_fallback: Option<ServerProjectFallback>,
     pub maps: Vec<Map>,
     pub files: Vec<BuiltFile>,
     pub converted_materials: BTreeMap<String, String>,
@@ -1030,11 +1042,20 @@ pub fn build(
     donor_path: &Path,
     target_path: &Path,
     output: &Path,
+    server_donor_path: Option<&Path>,
 ) -> Result<Record> {
     let m: Manifest = serde_json::from_reader(fs::File::open(manifest_path)?)?;
     eprintln!("Checking donor and target fingerprints...");
     check_hash(donor_path, &m.donor_sha256)?;
     check_hash(target_path, &m.target_sha256)?;
+    let mut server_donor = match (&m.server_project_fallback, server_donor_path) {
+        (None, None) => None,
+        (Some(fallback), Some(path)) => {
+            check_hash(path, &fallback.donor_sha256)?;
+            Some(ResourceDb::open(path)?)
+        }
+        _ => bail!("server fallback manifest and --server-donor-db must be supplied together"),
+    };
     ensure!(!m.maps.is_empty(), "no maps requested");
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
@@ -1114,9 +1135,34 @@ pub fn build(
     for map in &m.maps {
         let raw = cfg(&mut donor, &map.donor_project(m.source_build))?;
         let raw = if m.source_build.early() {
+            let server_path = map
+                .donor_project(m.source_build)
+                .replace("client_project", "server_project");
+            let server = if donor.is_file(&server_path) {
+                cfg(&mut donor, &server_path)?
+            } else {
+                let fallback = m
+                    .server_project_fallback
+                    .as_ref()
+                    .context("missing source server project; no fallback declared")?;
+                let expected = fallback
+                    .projects
+                    .get(&server_path)
+                    .context("missing server project is not allowlisted")?;
+                let bytes = server_donor.as_mut().unwrap().read(&server_path)?;
+                ensure!(
+                    format!("{:x}", Sha256::digest(&bytes)) == *expected,
+                    "fallback server payload hash mismatch"
+                );
+                let server = BinaryConfig::parse(&bytes)?.root;
+                early::validate_server_fallback(&raw, &server)?;
+                compatibility_notes.push(format!("{server_path}: absent from {}; gameplay uses pinned {} server project {expected}; respawns, collectors and zones exactly match the primary client", m.source_build.label(), fallback.source_build.label()));
+                server
+            };
             early::project(
                 raw,
                 &mut donor,
+                server,
                 &target_projects[&map.target_project()],
                 map,
                 m.source_build,
@@ -1502,6 +1548,7 @@ pub fn build(
         donor_build: m.source_build.label().into(),
         target_build: "0.26g0-2777".into(),
         target_db_sha256: m.target_sha256,
+        server_project_fallback: m.server_project_fallback,
         maps: m.maps,
         files,
         converted_materials,

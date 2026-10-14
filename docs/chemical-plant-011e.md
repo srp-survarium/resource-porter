@@ -29,21 +29,23 @@ centre offset, as established in `investigation/day-map-objectives-20261014.md`.
 The source's two collectors already name different, correct west/east interaction
 zones. The source-specific 0.11a duplicate-zone repair is not run on 0.11e.
 
-## Probe mapping is not verified
+## Probe falloff
 
 All 16 probes explicitly store `probe_side_width`. Fifteen are boxes, with widths
 0.5–1.4 metres. The global sphere at `[41.456, 23.794, 25.365]` has radius
-340.901 and width 0.5. Its texture is
+340.901 and width 0.5, using texture
 `environment_probes/level_04/probe_586386534696113540`.
 
-The investigation candidate preserves these explicit donor fields and emits an
-`UNVERIFIED` compatibility note. This is not a validly established target mapping:
-the observed 0.26 upload uses `outer=.98*radius` and
-`inner=radius-width-.05`, which inverts the sphere's transition interval here.
-The older adapter's synthetic `1+.02*radius` width must not silently replace a
-newly explicit authored setting. Source 0.11e upload and shader evidence must
-settle the mapping before runtime promotion. Existing 0.10b/0.11a behavior is
-unchanged.
+Preserving the explicit sphere radius and width preserves its source radial
+falloff. The original shader applies `outer=.98*radius`; native 0.26 applies
+that contraction before upload. Both use `inner=radius-width-.05` and the same
+smoothstep polynomial. The reversed interval for the global sphere already
+exists in the donor; inflating the width would change authored behavior. All
+eight distinct original sphere shader permutations were checked. Native 0.26
+adds a small per-probe radius perturbation; this result does not establish full
+probe parity or identical probe selection. Evidence is in
+`investigation/chemical-011e-probe-falloff-20261014.md` (commit `2f9a2c3`).
+Existing 0.10b/0.11a behavior is unchanged.
 
 ## Collision provenance
 
@@ -62,7 +64,7 @@ does not prove collision parity; no blanket cylinder rewrite is included.
 
 `audit_011e_candidate.py` hashes every emitted file, checks the explicit source
 identity, verifies every authored battery position and its native body offset,
-checks distinct collector bindings, and records the probe interval issue. Supply
+checks distinct collector bindings, and records the authored probe intervals. Supply
 the original binary client/server configs and native battery options as inputs.
 The build refuses unresolved dependency closure and imports only map assets.
 The existing 21 map conversion and four material conversion tests pass; no test
@@ -92,6 +94,6 @@ binary config reserialization changes bytes, not the primitive values. Extract
 that donor's `exported_primitives` resource and pass it through
 `--source-wall-primitives` when reproducing the audit.
 
-The isolated artifacts are `/tmp/chemical-011e-candidate/bundle` and
-`/tmp/chemical-011e-candidate/cpu-audit.json`. No full database was built and the
-shared playable package was not modified.
+The initial Chemical-only bundle is superseded by the shared Factory/Chemical
+bundle in `/tmp/011e-day-candidate/bundle`; see `factory-chemical-011e-day.md`.
+No full database was built and the shared playable package was not modified.
