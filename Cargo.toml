@@ -25,6 +25,10 @@ path = "src/bin/vostok-sdk-backend.rs"
 name = "combine-playable-maps"
 path = "tools/playable-map-pack/combine.rs"
 
+[[bin]]
+name = "compose-day-map-bundles"
+path = "tools/playable-map-pack/compose_day_maps.rs"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }

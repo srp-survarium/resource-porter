@@ -1820,7 +1820,7 @@ mod tests {
                 .set_path("is_temporary", ConfigValue::Boolean(false))
                 .unwrap();
             let mut objects = ConfigValue::Indexed(vec![donor]);
-            adapt_objects(&mut objects, &[template]).unwrap();
+            adapt_objects(&mut objects, &[template], [0., 0.12, 0.]).unwrap();
             assert_eq!(objects, ConfigValue::Indexed(vec![expected]));
         }
         let light = named(vec![
@@ -1851,7 +1851,7 @@ mod tests {
                     .unwrap();
             }
             let mut objects = ConfigValue::Indexed(vec![donor]);
-            adapt_objects(&mut objects, &[template.clone()]).unwrap();
+            adapt_objects(&mut objects, &[template.clone()], [0., 0.12, 0.]).unwrap();
             let result = &array(&objects).unwrap()[0];
             assert_eq!(result.named("position"), light.named("position"));
             assert_eq!(

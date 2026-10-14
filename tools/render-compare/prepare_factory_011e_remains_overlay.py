@@ -37,6 +37,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     assert args.output.resolve() != args.overlay.resolve()
+    base_manifest = json.loads((args.overlay.parent/'port-manifest.json').read_text())
     report = {'state': 'prepared, not runtime validated or promoted',
               'namespace': 'ported/v011e', 'input_overlay': str(args.overlay), 'entries': [],
               'warning': 'Remains material diffuse-lighting parity is unresolved; alpha filtering differs slightly.'}
@@ -105,9 +106,11 @@ def main():
                 target.unlink()
             target.hardlink_to(source)
             files.append({'path': entry['resource'], 'source': '011e-source-contract-remains-candidate',
-                          'size': source.stat().st_size, 'sha256': entry['fixed_sha256']})
+                          'size': source.stat().st_size, 'sha256': entry['fixed_sha256'],
+                          'expected_sha256': entry['baseline_sha256']})
         (bundle/'port-manifest.json').write_text(json.dumps({
             'format_version': 1, 'asset_id': f'factory-011e-remains-{group}',
+            'target_db_sha256': base_manifest['target_db_sha256'],
             'files': files, 'candidate_manifest': '../manifest.json'}, indent=2)+'\n')
     print(json.dumps({'output': str(args.output), 'entries': len(report['entries'])}))
 
