@@ -137,3 +137,43 @@ preserved under `.work/factory-011e-materials-20261014/local-diffuse/`. Both
 clients/server stopped, and the package hook, composition and two materials
 were restored exactly. The independently accepted BC3 textures remain in
 the candidate package.
+
+### Matched original011e review and recommendation
+
+The single original011e reference batch now supplies both exact cameras,
+with UI hidden. `audit_remains_source_views.py` verifies position, direction
+and FOV against all three native arms, compares fixed surface patches, and
+preserves annotated source images. No exposure gain is fitted or applied.
+The small bone/cloth rectangles were selected on the source image; they are
+surface samples, not a renderer-derived material mask.
+
+| Surface/control luma ratio | Source011e | BC3 package | Material + sun + local |
+|---|---:|---:|---:|
+| Cellar ribs / floor | .458 | 1.439 | .636 |
+| Cellar skull / floor | 1.140 | 2.036 | 1.010 |
+| Outdoor cloth sleeve / ground | .658 | 1.409 | .652 |
+
+The packaged remains are disproportionately reflective relative to their
+surroundings. The combined source material and diffuse exceptions correct
+that imbalance; material repair alone makes the cellar bones nearly black.
+The full candidate retains dark but visible cellar bones consistent with
+the source's surface contrast. This supports the **combined** remains fix,
+not an isolated roughness/intensity-map change.
+
+A separate scene-wide lighting deficit remains. Unchanged cellar floor is
+.13284 source versus .03410 target; wall .11839 versus .00796. Outdoor ground
+is .33649 versus .09062, and barrel .78321 versus .23807. Bone adjustments
+cannot repair these controls. Source gamma, lighting and shadow settings
+match; post quality differs numerically between versions and is not assumed
+equivalent. The probe worker independently identified inherited010
+exponential falloff versus source011e cubic smoothstep, while root audits
+composition/post. These are concrete next producer/consumer checks, not a
+reason to brighten the remains or fit a global gain.
+
+Recommendation: retain/apply the two material repairs **together** with the
+sun and F0=1 local diffuse exceptions as the narrow Radar011e remains fix.
+Recheck the same two poses during the next source011e probe correction batch;
+no additional original capture is needed. Full rendering parity is not
+claimed. Exact source/current target images, surface report and input hashes
+are preserved in `local-diffuse/source011e/` within the checkpoint. The shared
+package remains restored; promotion is the release owner's action.
