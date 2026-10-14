@@ -1,0 +1,6 @@
+{"project": "projects/v011e_level_03/day_2/client_project",
+ "mode": "gameplay/game_modes/v011e_level_03_day_2.options",
+ "teams": {"0": {"position": [-44.24, 0.512, -71.592], "face": [-48.612, -73.253]},
+           "1": {"position": [49.236, 0.433, 17.96], "face": [49.747, 14.641]}},
+ "batteries": [{"source_index": 0, "position": [-45.454, 0.512, -72.054]},
+               {"source_index": 1, "position": [49.434, 0.433, 16.676]}]}

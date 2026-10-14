@@ -21,6 +21,7 @@ import subprocess
 import time
 
 WINE = '/nix/store/kd22mbkmwsnvfyn1w14r6xcwpw9fnwzv-wine-wow64-staging-11.8/bin/wine'
+GRIM = '/nix/store/rqcxjxlzkxlgkj34avkjbp7bp9ynxnjq-grim-1.5.0/bin/grim'
 PYTHON = '/nix/store/0if41r2dp11y0v833p5yrpgr8mdanqjk-python3-3.13.15-env/bin/python3'
 HERE = Path(__file__).resolve().parent
 
@@ -118,6 +119,35 @@ def yaw(forward):
     return math.atan2(forward[0], forward[2])
 
 
+def aim(runtime, slot, target, helper, cpr, record):
+    """Closed-loop yaw and pitch toward a world point using the live camera."""
+    cpr_y = cpr
+    for attempt in range(8):
+        status = request(runtime, slot, 0, runtime / 'aim.bmp')
+        p, f = status['position'], status['forward']
+        dx, dy, dz = (target[i] - p[i] for i in range(3))
+        want_yaw = math.atan2(dx, dz)
+        want_pitch = math.atan2(dy, math.hypot(dx, dz))
+        pitch = math.asin(max(-1, min(1, f[1])))
+        error = (want_yaw - yaw(f) + math.pi) % (2 * math.pi) - math.pi
+        error_pitch = want_pitch - pitch
+        if abs(error) < 0.04 and abs(error_pitch) < 0.04:
+            break
+        cx = max(-4000, min(4000, round(-error * cpr))) if abs(error) >= 0.04 else 0
+        cy = max(-4000, min(4000, round(-error_pitch * cpr_y))) if abs(error_pitch) >= 0.04 else 0
+        drive(runtime, slot, f'mouse {cx} {cy};wait 300', helper)
+        after = request(runtime, slot, 0, runtime / 'aim.bmp')['forward']
+        turned = (yaw(after) - yaw(f) + math.pi) % (2 * math.pi) - math.pi
+        lifted = math.asin(max(-1, min(1, after[1]))) - pitch
+        if cx and abs(turned) > 0.02:
+            cpr = max(50, min(20000, abs(cx / turned)))
+        if cy and abs(lifted) > 0.02:
+            cpr_y = max(50, min(20000, abs(cy / lifted)))
+        record({'command': 'aim-step', 'slot': slot, 'yaw_error': error, 'pitch_error': error_pitch,
+                'counts': [cx, cy], 'turned': turned, 'lifted': lifted, 'counts_per_radian': [cpr, cpr_y]})
+    return {'command': 'aim', 'slot': slot, 'target': target, 'status': status, 'counts_per_radian': [cpr, cpr_y]}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--runtime', type=Path, default=Path('/tmp/three-day-map-runtime'))
@@ -162,23 +192,54 @@ def main():
         record({'command': c, 'slot': slot, 'script': args[1], 'result': drive(runtime, slot, args[1], a.helper)})
     elif c == 'aim':
         slot, target = int(args[0]), list(map(float, args[1:4]))
-        cpr = a.counts_per_radian or 600.0
-        for attempt in range(6):
+        record(aim(runtime, slot, target, a.helper, a.counts_per_radian or 600.0, record))
+    elif c == 'approach':
+        # Walk toward a world XZ point until the camera is within STOP metres.
+        slot, target, stop = int(args[0]), list(map(float, args[1:4])), float(args[4])
+        for step in range(30):
             status = request(runtime, slot, 0, runtime / 'aim.bmp')
-            p, f = status['position'], status['forward']
-            want = math.atan2(target[0] - p[0], target[2] - p[2])
-            error = (want - yaw(f) + math.pi) % (2 * math.pi) - math.pi
-            if abs(error) < 0.06:
+            p = status['position']
+            distance = math.hypot(target[0] - p[0], target[2] - p[2])
+            record({'command': 'approach-step', 'slot': slot, 'position': p, 'distance': distance})
+            if distance <= stop:
                 break
-            counts = max(-4000, min(4000, round(-error * cpr)))
-            drive(runtime, slot, f'mouse {counts} 0;wait 300', a.helper)
-            after = request(runtime, slot, 0, runtime / 'aim.bmp')
-            turned = (yaw(after['forward']) - yaw(f) + math.pi) % (2 * math.pi) - math.pi
-            if abs(turned) > 0.02 and counts:
-                cpr = abs(counts / turned)
-            record({'command': 'aim-step', 'slot': slot, 'error': error, 'counts': counts,
-                    'turned': turned, 'counts_per_radian': cpr})
-        record({'command': c, 'slot': slot, 'target': target, 'status': status, 'counts_per_radian': cpr})
+            aim(runtime, slot, [target[0], p[1], target[2]], a.helper, a.counts_per_radian or 600.0, record)
+            hold = int(max(100, min(1500, (distance - stop) / 4.0 * 1000)))
+            drive(runtime, slot, f'key w {hold};wait 400', a.helper)
+        record({'command': c, 'slot': slot, 'target': target, 'final_distance': distance})
+    elif c == 'grab':
+        # Compositor screenshot of the owned window (actual HUD and view).
+        slot, name = int(args[0]), args[1]
+        window = focus(runtime, slot, a.helper)
+        time.sleep(0.5)
+        info = next(w for w in niri_windows() if w['id'] == window)
+        x, y = info['layout']['tile_pos_in_workspace_view']
+        w, h = info['layout']['window_size']
+        a.evidence.mkdir(parents=True, exist_ok=True)
+        output = a.evidence / f'{name}.png'
+        subprocess.run([GRIM, '-g', f'{int(x)},{int(y + h - 720)} {int(w)}x720', str(output)], check=True)
+        record({'command': c, 'slot': slot, 'name': name, 'file': str(output),
+                'status': request(runtime, slot, 0, runtime / 'aim.bmp')})
+    elif c == 'roster':
+        # Client N -> UDP port (owned prefix) -> server roster slot -> team (slot % 2).
+        import re
+        sockets = subprocess.check_output(['ss', '-uapn'], text=True)
+        admitted = dict(re.findall(r'Peer 127\.0\.0\.1:(\d+) admitted to roster slot (\d+)',
+                                   (runtime / 'server.log').read_text()))
+        result = {}
+        for slot in (1, 2):
+            prefix = str(slot_dir(runtime, slot) / 'wineprefix')
+            for port, pids in re.findall(r':(\d+)\s+\S+\s+users:\((.*)\)', sockets):
+                for pid in re.findall(r'pid=(\d+)', pids):
+                    try:
+                        env = Path(f'/proc/{pid}/environ').read_bytes().split(b'\0')
+                        exe = Path(f'/proc/{pid}/cmdline').read_bytes()
+                    except OSError:
+                        continue
+                    if f'WINEPREFIX={prefix}'.encode() in env and b'survarium' in exe and port in admitted:
+                        roster = int(admitted[port])
+                        result[slot] = {'udp_port': int(port), 'roster_slot': roster, 'team': roster % 2}
+        record({'command': c, 'clients': result})
     elif c == 'checkpoints':
         players, batteries = args[0], args[1]
         snapshots = a.evidence / 'checkpoints'
