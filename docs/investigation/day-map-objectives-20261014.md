@@ -59,3 +59,18 @@ missing/distant zones, guarded Chemical repair and idempotence. The full
 `survarium_026` unit-test group passes. Packed-project audit and binary-config
 round trip pass. Runtime battery positions and collecting/delivering for both
 teams remain to be checked.
+
+## Factory runtime checkpoint check
+
+The lamp worker's map180 run supplied three complete E2 checkpoints (50, 8,000,
+13,000ms). All ten initial battery positions exactly match source spawners
+19, 1, 2, 11, 7, 5, 15, 6, 18 and 9. At 13 seconds their serialized positions are
+within 0.25m of the authored origins. No inheritance of native 0.26 spawn locations
+or large displacement occurred in this run. The remaining 16 candidate positions
+and actual pickup/delivery accessibility remain untested. Exact coordinates and
+checkpoint hashes: `tools/day-map-objectives/factory-runtime-20261014.json`.
+
+The repair tool also has a focused fixture verifying that a zone-only change is
+written even when collector visuals are already correct, followed by a no-op
+check using the repaired project. Its change accounting must match the emitted
+project, including zone repairs and removed static visuals.

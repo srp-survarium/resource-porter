@@ -1,0 +1,308 @@
+{
+  "map_id": 180,
+  "players": 1,
+  "source_spawners": 26,
+  "checked_spawners": [
+    1,
+    2,
+    5,
+    6,
+    7,
+    9,
+    11,
+    15,
+    18,
+    19
+  ],
+  "checkpoints": [
+    {
+      "time_ms": 50,
+      "snapshot_sha256": "bdb9836c977c72535d8fef0369b963ccb8dc334de89da63ff02b6f2bd0954fd9",
+      "batteries": [
+        {
+          "position": [
+            -22.312,
+            7.512,
+            -26.054
+          ],
+          "nearest_source_spawner": 19,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            -26.245,
+            6.731,
+            -3.284
+          ],
+          "nearest_source_spawner": 1,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            52.38,
+            0.413,
+            -56.971
+          ],
+          "nearest_source_spawner": 2,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            -13.292,
+            6.741,
+            -6.625
+          ],
+          "nearest_source_spawner": 11,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            47.384,
+            1.313,
+            -52.79
+          ],
+          "nearest_source_spawner": 7,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            -18.836,
+            14.406,
+            -17.809
+          ],
+          "nearest_source_spawner": 5,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            -19.776,
+            5.956,
+            -29.446
+          ],
+          "nearest_source_spawner": 15,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            43.297,
+            -2.236,
+            -60.805
+          ],
+          "nearest_source_spawner": 6,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            25.315,
+            1.555,
+            -39.824
+          ],
+          "nearest_source_spawner": 18,
+          "distance_from_authored_origin": 0.0
+        },
+        {
+          "position": [
+            24.107,
+            1.437,
+            -42.912
+          ],
+          "nearest_source_spawner": 9,
+          "distance_from_authored_origin": 0.0
+        }
+      ]
+    },
+    {
+      "time_ms": 8000,
+      "snapshot_sha256": "a45d9bc97a37b2d3b02b2c9b509f80fa363218c4df523d81e1a519a05e01bedb",
+      "batteries": [
+        {
+          "position": [
+            -22.513292,
+            7.6028714,
+            -26.072817
+          ],
+          "nearest_source_spawner": 19,
+          "distance_from_authored_origin": 0.22165324290648125
+        },
+        {
+          "position": [
+            -26.349878,
+            6.8399873,
+            -3.348243
+          ],
+          "nearest_source_spawner": 1,
+          "distance_from_authored_origin": 0.1643313405723019
+        },
+        {
+          "position": [
+            52.36894,
+            0.50879174,
+            -56.96537
+          ],
+          "nearest_source_spawner": 2,
+          "distance_from_authored_origin": 0.096592328640672
+        },
+        {
+          "position": [
+            -13.292891,
+            6.8478017,
+            -6.626537
+          ],
+          "nearest_source_spawner": 11,
+          "distance_from_authored_origin": 0.10681647519409176
+        },
+        {
+          "position": [
+            47.376907,
+            1.4700295,
+            -52.87654
+          ],
+          "nearest_source_spawner": 7,
+          "distance_from_authored_origin": 0.17943730414618336
+        },
+        {
+          "position": [
+            -18.837439,
+            14.513739,
+            -17.807447
+          ],
+          "nearest_source_spawner": 5,
+          "distance_from_authored_origin": 0.10775980071900526
+        },
+        {
+          "position": [
+            -19.776,
+            6.0759997,
+            -29.446
+          ],
+          "nearest_source_spawner": 15,
+          "distance_from_authored_origin": 0.11999969999999927
+        },
+        {
+          "position": [
+            43.294056,
+            -2.1287277,
+            -60.810013
+          ],
+          "nearest_source_spawner": 6,
+          "distance_from_authored_origin": 0.10742971494093276
+        },
+        {
+          "position": [
+            25.334572,
+            1.5916346,
+            -39.82212
+          ],
+          "nearest_source_spawner": 18,
+          "distance_from_authored_origin": 0.041577536015978654
+        },
+        {
+          "position": [
+            23.925453,
+            1.6009278,
+            -42.89299
+          ],
+          "nearest_source_spawner": 9,
+          "distance_from_authored_origin": 0.24534265206408656
+        }
+      ]
+    },
+    {
+      "time_ms": 13000,
+      "snapshot_sha256": "59d9e5b93490cea1bee4a1c68a14c72a6dd925ceaa8695c04a0e93a228ae6e91",
+      "batteries": [
+        {
+          "position": [
+            -22.513292,
+            7.6028714,
+            -26.072817
+          ],
+          "nearest_source_spawner": 19,
+          "distance_from_authored_origin": 0.22165324290648125
+        },
+        {
+          "position": [
+            -26.349878,
+            6.8399873,
+            -3.348243
+          ],
+          "nearest_source_spawner": 1,
+          "distance_from_authored_origin": 0.1643313405723019
+        },
+        {
+          "position": [
+            52.36894,
+            0.50879174,
+            -56.96537
+          ],
+          "nearest_source_spawner": 2,
+          "distance_from_authored_origin": 0.096592328640672
+        },
+        {
+          "position": [
+            -13.292891,
+            6.8478017,
+            -6.626537
+          ],
+          "nearest_source_spawner": 11,
+          "distance_from_authored_origin": 0.10681647519409176
+        },
+        {
+          "position": [
+            47.376907,
+            1.4700295,
+            -52.87654
+          ],
+          "nearest_source_spawner": 7,
+          "distance_from_authored_origin": 0.17943730414618336
+        },
+        {
+          "position": [
+            -18.837439,
+            14.513739,
+            -17.807447
+          ],
+          "nearest_source_spawner": 5,
+          "distance_from_authored_origin": 0.10775980071900526
+        },
+        {
+          "position": [
+            -19.776,
+            6.0759997,
+            -29.446
+          ],
+          "nearest_source_spawner": 15,
+          "distance_from_authored_origin": 0.11999969999999927
+        },
+        {
+          "position": [
+            43.294056,
+            -2.1287277,
+            -60.810013
+          ],
+          "nearest_source_spawner": 6,
+          "distance_from_authored_origin": 0.10742971494093276
+        },
+        {
+          "position": [
+            25.334572,
+            1.5916346,
+            -39.82212
+          ],
+          "nearest_source_spawner": 18,
+          "distance_from_authored_origin": 0.041577536015978654
+        },
+        {
+          "position": [
+            23.925453,
+            1.6009278,
+            -42.89299
+          ],
+          "nearest_source_spawner": 9,
+          "distance_from_authored_origin": 0.24534265206408656
+        }
+      ]
+    }
+  ],
+  "limitation": "One native match seed; 16 other candidate spawns and collection accessibility not covered. Position decoded from serialized battery transform."
+}
