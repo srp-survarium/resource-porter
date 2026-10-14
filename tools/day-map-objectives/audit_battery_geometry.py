@@ -91,11 +91,15 @@ class Geometry:
         if any(close(b,p,4) for p in points):self.triangles.append({'vertices':vs,'bounds':b,'description':desc})
     def local(self,p,radius=4):return [t for t in self.triangles if close(t['bounds'],p,radius)]
     def cameras(self,center):
-        local=self.local(center);views=[]
+        # Walker proxies can deliberately enclose visible gaps under a wagon.
+        # Keep them in the physical audit, but not in visual-camera ray tests.
+        visual=lambda d:not(d['blocks_player_controller'] and not d['blocks_battery_physics'])
+        local=[t for t in self.local(center) if visual(t['description'])];views=[]
+        camera_boxes=[b for b in self.boxes if visual(b['description'])]
         ceiling=[center[0],center[1]+1.8,center[2]]
         under_cover=any(segment_triangle(center,ceiling,t['vertices']) is not None for t in local)
-        choices=([[(1.5,.4),(1.7,.65),(1.7,1.)],[(2.4,.65),(2.,.4),(3.,1.),(3.,1.6)]] if under_cover else
-                 [[(1.7,1.),(1.7,.65),(1.5,.4)],[(3.,1.6),(3.,1.),(2.4,.65),(2.,.4)]])
+        choices=([[(1.5,.4),(1.5,.2),(1.7,.65),(1.7,1.)],[(2.4,.65),(2.,.4),(1.8,.2),(3.,1.),(3.,1.6)]] if under_cover else
+                 [[(1.7,1.),(1.7,.65),(1.5,.4),(1.5,.2)],[(3.,1.6),(3.,1.),(2.4,.65),(2.,.4),(1.8,.2)]])
         for number,choices in enumerate(choices):
             candidates=[]
             for radius,height in choices:
@@ -106,9 +110,10 @@ class Geometry:
                 hits=[segment_triangle(eye,center,t['vertices']) for t in local]
                 if any(t is not None for t in hits):continue
                 # Reject an eye inside a collision box, even if its ray exits a hole.
-                if any(all(abs(dot(sub(eye,b['center']),axis))<h for axis,h in zip(b['basis'],b['half'])) for b in self.boxes):continue
+                if any(all(abs(dot(sub(eye,b['center']),axis))<h for axis,h in zip(b['basis'],b['half'])) for b in camera_boxes):continue
                 candidates.append({'view':number+1,'camera':eye,'target':center,'forward':unit(sub(center,eye)),
-                                   'fov_degrees':65,'azimuth_radians':angle,'collision_segment_clear':True})
+                                   'fov_degrees':65,'azimuth_radians':angle,'collision_segment_clear':True,
+                                   'camera_collision_policy':'controller-only invisible walker proxies excluded; physical audit retains them'})
               if candidates:break
             if candidates:views.append(candidates[0])
         return views

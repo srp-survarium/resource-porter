@@ -267,3 +267,10 @@ collide with the battery, although it can obstruct player access. Geometry rows
 now label this distinction instead of treating every mesh as a physics contact.
 Camera suggestions prefer crouched views when a vertical segment detects cover
 above the battery, which matters for the wagon's undercarriage.
+
+Visual camera rays now exclude controller-only walker proxies, including their
+camera-inside-box rejection. Those invisible volumes can enclose an intended
+visible wagon gap; they remain fully included in the physical footprint audit.
+Each suggested pose records that exclusion policy. Low views also try eye height
+body+0.2m. A direct fixture verifies two visual poses can be chosen while the same
+walker box still produces a physical overlap review flag. No batteries moved.
