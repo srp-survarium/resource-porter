@@ -44,8 +44,10 @@ same inverted falloff interval. This does not prove complete lighting parity.
 Radar 0.11e lacks a server project in the archive. The selected fallback is
 the pinned 0.11a Radar server project:
 its 43 client respawns, two collectors and 47 gameplay collision zones match
-0.11e exactly. Five targeted batteries passed native support and settling
-checks, including both barrel placements; the other 16 remain pending.
+0.11e exactly. All 21 battery candidates now pass native settling and support
+checks, including both barrel placements. The final 16 have no deep mesh
+intersections or contained centres; six focused views resolved three nearby
+curved-primitive ambiguities. Pickup interaction was not tested in this pass.
 Record the secondary donor explicitly; do not substitute modern 0.26
 battery positions.
 
@@ -124,7 +126,10 @@ grain and colored edge noise; they are not denoised references. All 29 target
 views are now captured as well. They confirm a broad shadow deficit on both
 maps, beyond the remains materials. Source probe falloff and post-processing
 both differ from the inherited presets; see [the post audit](radar-chemical-011e-post.md).
-Post-only, probe-only and combined native checks are the next gate.
+Post-only, probe-only and combined native checks are complete for three
+Chemical and seven Radar views. The source post correction improves all ten;
+the probe change alone does not resolve the missing light. Source skylight
+contribution and the final combination of verified fixes remain to be checked.
 
 Composition rejects duplicate map ownership (verified with the actual 0.11e
 bundle twice), changed native registrations, undeclared dictionary edits and

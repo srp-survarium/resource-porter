@@ -46,6 +46,35 @@ Chemical; otherwise it uses Radar. It retains the existing bloom/DOF inputs,
 grain texture, grading LUT and final output conversion. Thus it is a bounded
 post-tail correction, not proof that every source producer has been ported.
 
-Native post-only, probe-only and combined comparisons are pending. The source
-references stay frozen; no exposure multiplier is fitted to screenshots and
-the shared package remains unchanged during preparation.
+## Native comparison
+
+Both post variants compile with `/WX`. Three Chemical views and seven Radar
+views were captured in post-only, probe-only and combined arms. Source
+references stayed frozen. No exposure multiplier was fitted to screenshots;
+the shared package is unchanged. Post-only improves all ten views.
+
+| Sample | Baseline mean RGB error | Post-only | Probe-only | Combined |
+| --- | ---: | ---: | ---: | ---: |
+| Radar, seven views | .17477 | .09633 | .17417 | .09543 |
+| Chemical hall | .11327 | .06731 | .11627 | .07012 |
+| Chemical west interior | .11392 | .07435 | .11910 | .08090 |
+| Chemical yard | .13640 | .08850 | .15840 | .10590 |
+
+These display-RGB grid metrics include unsynchronized grain and vegetation.
+Exact actual camera position, direction, FOV and dimensions match; contact
+sheets were also visually checked. Chemical's rich hall captures confirm the
+actual post/probe shader bytes. Radar uses screenshot-only captures, pinned
+input hashes and successful shader-replacement receipts. All comparison
+clients and owned Wine processes exited before the next worker's handoff.
+
+Radar's probe arm also replaces the inherited 0.10b gather/mip assumptions;
+it is not an attenuation-only experiment. Neither map's probe-only result
+justifies promoting it independently. Post-only is the supported correction,
+but broad illumination remains deficient. The original 0.11e skylight shader
+is byte-identical to the known earlier shader, and the current preset omits
+its source height/cube/wrap contribution. That contract is the next check.
+
+Scripts, frozen inputs, captures, contact sheet, hashes and shutdown proof:
+`/tmp/radar-011e-lighting-review/`; isolated comparison package:
+`/tmp/radar-011e-lighting-candidate/`. The two compiled post shaders and build
+receipts are in the Chemical worker's `.work/reference-011e/post-tail/`.
