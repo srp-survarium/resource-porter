@@ -21,6 +21,19 @@ are not semantic object matching and do not establish which lighting fix moved.
 Decoded projects and raw binaries are saved under the battery gallery's
 `donor-011e-audit` directory. No 0.11e map has replaced the playable package yet.
 
-Next comparison should match scene objects by identity, inspect environment and
-light settings, and compare collision primitive definitions. Reuse existing
-rendering fixes only after checking their source contracts against this donor.
+`tools/chemical-plant/compare_donor_lighting.py` now matches lighting objects by
+unique `full_name` and extracts both referenced post-process materials. Run it
+with porter, old database, new database and output-directory arguments. The
+saved report is `donor-011e-audit/lighting/comparison.json` in the gallery.
+It identifies 28 changed or added lighting objects and 19 post-process changes:
+three added box probes, one added spotlight, weaker local lights, changed sun
+rotation, adjusted probe coverage/multipliers, tonemapping, atmospheric
+scattering, AO and the cloud texture. This is a broader visual revision than a
+single intensity adjustment. Literal sphere side-width copying is unsafe:
+0.26 contracts the outer radius, which can invert its falloff interval. Source
+upload semantics and runtime validation remain required.
+
+The collision comparison in `chemical-collision-successor-20261014.md` finds a
+specific authored wall split beside the reported blocked corridor. Nearby
+boiler primitives are unchanged. A general cylinder-dimension converter patch
+is therefore not supported by the current evidence.
