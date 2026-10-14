@@ -110,3 +110,27 @@ Before shipping, an owned private session must demonstrate:
 5. Any authored speed effect is observed or explicitly listed as unsupported.
 
 No game, GPU capture or shared release database was touched during this audit.
+
+## Offline result
+
+The first completed bundle contains 5,213 files (826 MiB), 287 converted
+materials and eighteen adapted source particle definitions. Comparing every
+anomaly/controller/container field after namespace normalization finds no
+changes in any of the forty-one objects or their twenty-seven sensor geometries.
+All scene links resolve. The focused
+`survarium_026` suite passes 22 tests, including one new regression test.
+
+Five stale model collision paths use the source model's surviving counterpart:
+the four `level/03/anomal_tree_0N_` models use `collision` instead of missing
+`walker_collision`, and `props/electric/soviet_comp_01` uses `walker_collision`
+instead of missing `collision`. These are the importer's existing explicit
+repairs and remain traversal risks until walked. They do not change anomaly
+sensor geometry or trigger links.
+
+A private test package can be prepared with
+`tools/factory-anomalies/prepare_package.py BASE_PACKAGE OUTPUT`, after packing
+its single `OUTPUT/resources.db`. It copies the working patched client, silent
+BugTrap and Wine template, uses map 196 and port 2264, enables packet logging,
+and leaves all legacy shader overrides disabled. It starts through its own
+`play-maps start factory-020e-day --clients 2 --ui on` command, only after the
+runtime/GPU lease is available. The current two-map release is never modified.

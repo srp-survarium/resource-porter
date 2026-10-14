@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Add retail 0.21d maps to 0.26g without replacing its maps or shaders.
+//! Add older retail maps to 0.26g without replacing its maps or shaders.
 use crate::manifest::BuiltFile;
 use crate::{BinaryConfig, ConfigValue, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
@@ -370,11 +370,11 @@ fn adapt_project(
     templates.extend_from_slice(all_templates);
     let donor_objects = donor
         .named_mut("client_objects")
-        .context("0.21 project lacks client_objects")?;
+        .context("source project lacks client_objects")?;
     adapt_objects(donor_objects, &templates, battery_offset)?;
     let ConfigValue::Named(groups) = donor
         .named_mut("server_objects")
-        .context("0.21 project lacks server_objects")?
+        .context("source project lacks server_objects")?
     else {
         bail!("invalid server_objects")
     };

@@ -53,9 +53,11 @@ def audit(path):
                           'zones': [zone_info(n) for n in dict.fromkeys(zones)],
                           'containers': [names.get(n, {'full_name': n}) for n in containers]})
     selected = [o for o in objects if o['game_object_type'] in KINDS]
+    sensor_names = {g['name'] for o in selected for g in o.get('collision_geometries', [])}
     return {'project': str(path), 'sha256': hashlib.sha256(data).hexdigest(),
             'counts': dict(Counter(o['game_object_type'] for o in selected)),
-            'link_errors': errors, 'anomalies': anomalies}
+            'link_errors': errors, 'anomalies': anomalies,
+            'sensor_geometry': {n: names[n] for n in sorted(sensor_names) if n in names}}
 
 
 def main():
@@ -77,8 +79,11 @@ def main():
                 return {k: normalize(v) for k, v in value.items() if k != 'is_temporary'}
             return value
         def relevant(project):
-            return {o['full_name']: normalize(o) for o in project['client_objects']
-                    if o['game_object_type'] in KINDS}
+            objects = project['client_objects']
+            sensors = {g['name'] for o in objects if o['game_object_type'] in KINDS
+                       for g in o.get('collision_geometries', [])}
+            return {o['full_name']: normalize(o) for o in objects
+                    if o['game_object_type'] in KINDS or o.get('full_name') in sensors}
         a, b = relevant(original), relevant(converted)
         changed = [name for name in sorted(a.keys() | b.keys()) if a.get(name) != b.get(name)]
         result['converted_comparison'] = {'objects': len(a), 'changed_objects': changed}
