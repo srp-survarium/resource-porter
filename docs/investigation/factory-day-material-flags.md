@@ -54,7 +54,8 @@ using the supported shader. The failed plan was reverted before handoff.
 `prepare_factory_day_material_flags.py` extracts only three small material
 entries, verifies the original switches and constant, and produces a
 fixed-size reversible plan: three switches and four range endpoints.
-It never writes the archive.
+It also verifies the exact shipped 4,120-byte native remains shader at
+both lighting-quality keys. It never writes the archive.
 Use `patch_archive_entries.py ARCHIVE PLAN inspect|apply|revert` while the
 owned client is stopped. The patcher checks material hashes, positions and
 stored CRCs before writes. Other namespaces and materials are untouched.

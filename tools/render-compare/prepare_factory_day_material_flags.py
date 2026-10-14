@@ -42,6 +42,21 @@ def boolean(data, path):
 
 def prepare(args):
     args.output.mkdir(parents=True, exist_ok=True)
+    shaders = []
+    for quality in (0, 3):
+        resource = ('shaders/sm_4_0/gbuffer_pass.ps/'
+                    f'_{quality}___1101_00101_00____1_____0__0_00000____00000____000__________0__')
+        output = args.output / f'native-remains-q{quality}.shader'
+        subprocess.run([str(args.porter), 'extract', '--db', str(args.archive), '--path', resource,
+                        '--output', str(output)], check=True, stdout=subprocess.DEVNULL)
+        data = output.read_bytes()
+        offset = data.index(b'DXBC')
+        size = struct.unpack_from('<I', data, offset + 24)[0]
+        code = data[offset:offset + size]
+        assert len(code) == size == 4120
+        assert code[4:20].hex() == 'e900e3e72a32c961f56a73ed8393a6c7'
+        shaders.append({'resource': resource, 'file': output.name,
+                        'sha256': hashlib.sha256(data).hexdigest(), 'dxbc': code[4:20].hex()})
     with args.archive.open('rb') as db:
         header = db.read(24)
         fat = db.read(struct.unpack_from('<I', header, 20)[0])
@@ -103,7 +118,7 @@ def prepare(args):
     report = {'scope': 'Factory 0.10b day only; three source feature switches and four range endpoints '
                        'set to the authored constant roughness in three materials. No texture, lighting '
                        'or other namespace changes. Stop client before apply/revert.',
-              'entries': entries}
+              'required_shaders': shaders, 'entries': entries}
     (args.output / 'patch.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps({'materials': len(entries), 'fields': sum(len(e['changes']) for e in entries),
                       'plan': str(args.output / 'patch.json')}))
