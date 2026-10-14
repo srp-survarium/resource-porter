@@ -1,5 +1,22 @@
 // Authored Factory post/sky settings; original post constants confirmed by capture.
+#if defined(LEGACY_SOURCE_011E_POST)
+// Shipped 0.11e level_03_day / level_04_day materials. The post shader
+// multiplies authored shoulder strength by .01 before its clamp/addback.
+#define LEGACY_FILMIC_ANGLE .3
+#define LEGACY_FILMIC_STRENGTH 6
+#define LEGACY_FILMIC_NUMERATOR 2
 #if defined(LEGACY_WEATHER_CHEMICAL_DAY)
+#define LEGACY_FILMIC_TOE .0004
+#define LEGACY_FILMIC_LINEAR 6.5
+#define LEGACY_FILMIC_DENOMINATOR .02
+#define LEGACY_DARK_DESATURATION 3.3
+#else
+#define LEGACY_FILMIC_TOE .0008
+#define LEGACY_FILMIC_LINEAR 6.3
+#define LEGACY_FILMIC_DENOMINATOR .04
+#define LEGACY_DARK_DESATURATION 3.5
+#endif
+#elif defined(LEGACY_WEATHER_CHEMICAL_DAY)
 #define LEGACY_CLOUD_U_OFFSET .25
 #define LEGACY_CLOUD_V_SCALE (1.0/.96)
 // v0.11a level_04_day.material, confirmed against shipped post shader source.
