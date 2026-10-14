@@ -417,9 +417,41 @@ clouds and zero-degree stratosphere; School's fixed quarter-turn is insufficient
 The default-off `SRP_LEGACY_020E_CLOUDS=1` candidate swaps these four guarded
 native calls, leaving authored angles, speeds and radii intact. Its paired
 `factory_020e_clouds.hlsl` restores the source1656-byte unlit PS equation with
-native texture t1 and unchanged b0 weather registers: three mip samples, authored
-color multiplier, latitude fog power/upper limit and fog color. It contains no
-Radar-specific color or angle constants. The hook compiles with
+native texture t1: three mip samples, authored color multiplier, latitude fog
+power/upper limit and fog color. A rich native stair capture exposed a necessary
+ABI adaptation before launch: native metadata marks b0 row1 unused, so the
+engine leaves stale matrix values there. `prepare_cloud_shader.py` generates the
+two missing fog values from the pinned donor project (2 and0.25 for Radar), with
+a source/template/prepared manifest. Color and fog color stay in populated
+native uniforms. Neither cloud angle nor brightness is tuned. The hook compiles with
 `-Wall -Wextra -Werror`; the capture harness requires both coordinate and shader
 override receipts. Native comparison is pending. This adapter does not change
 the separate atmosphere scattering shader or resolve the stair shadow difference.
+
+### Mie angular-falloff field migration
+
+Source020 loader0x20462d writes `mie_fog_falloff` to environment+0x158.
+The source atmosphere constant update0xecf68 reads that value, clamps it above
+the source epsilon and puts it in `atmosphere_parameters1.w`, the angular
+sun/fog-color exponent. Native026 uses the same component and meaning, but
+loader0x34ecd4 reads `mie_fog_sun_color_falloff` into environment+0x160 and
+update0x149f26 uses that field. Radar authors2 in the old key; the conversion
+inherited1 in the new key. The native stair capture confirms b1[16] is
+`(0,450,1.27,1)`, while its bias and color components retain the source meanings.
+
+The scoped020 converter now maps the old field before template fill and
+preserves an explicitly authored new field. Source absence uses its proven
+constructor default1:0x2032d8 loads float1 from0x87e998 into xmm0, unchanged
+through the0x203660 store to environment+0x158. The existing inheritance test
+covers authored2, absent/default1 and explicit-native3; all11 focused map tests
+pass without adding a test function. `prepare_sky_falloff_patch.py` prepares a
+separate guarded overlay above cloud-off, preserving numeric leaf types and
+checking the entire decoded project. Its only additional change is1→2 at
+byte655296. Candidate project SHA-256 is
+`fb0847829d2137d545eacceb5d88e01b16230b611e37532978ead10d1303a14a`.
+
+The exact source2696-byte atmosphere shader has matching input and texture
+bindings; used static constant offsets coincide through sun color at384. It
+does not use the shifted scene-time member. The corrected field is necessary
+before interpreting its native comparison. Both cloud-only and cloud-plus-sky
+arms remain candidates until matched captures validate them.

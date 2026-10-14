@@ -391,6 +391,32 @@ fn preserve_020_cloud_lighting(project: &mut ConfigValue) -> Result<usize> {
     Ok(changed)
 }
 
+fn preserve_020_mie_falloff(project: &mut ConfigValue) -> Result<usize> {
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("source project lacks client objects");
+    };
+    let mut changed = 0;
+    for object in objects {
+        if string(object, "game_object_type") != Some("environment") {
+            continue;
+        }
+        let properties = object
+            .named_mut("properties")
+            .context("environment lacks properties")?;
+        if properties.named("mie_fog_sun_color_falloff").is_none() {
+            // 020's angular sun/fog exponent was renamed in 026. Its source
+            // constructor defaults to 1; do not inherit another map's value.
+            let value = properties
+                .named("mie_fog_falloff")
+                .cloned()
+                .unwrap_or(ConfigValue::Float(1.0));
+            properties.set_path("mie_fog_sun_color_falloff", value)?;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
 fn adapt_project(
     mut donor: ConfigValue,
     target: &ConfigValue,
@@ -1297,6 +1323,11 @@ pub fn build(
                 "{}: restored source-default cloud lighting off in {count} environments with no authored switch",
                 map.donor_project(m.source_build)
             ));
+            let count = preserve_020_mie_falloff(&mut raw)?;
+            compatibility_notes.push(format!(
+                "{}: mapped source Mie angular falloff to its native field in {count} environments",
+                map.donor_project(m.source_build)
+            ));
         }
         let mut project = adapt_project(
             raw,
@@ -1822,6 +1853,39 @@ mod tests {
     }
     #[test]
     fn objects_do_not_inherit_another_maps_gameplay_or_light_transform() {
+        for (old, explicit, expected) in [
+            (Some(2.0), None, 2.0),
+            (None, None, 1.0),
+            (Some(2.0), Some(3.0), 3.0),
+        ] {
+            let mut properties = named(vec![]);
+            for (key, value) in [
+                ("mie_fog_falloff", old),
+                ("mie_fog_sun_color_falloff", explicit),
+            ] {
+                if let Some(value) = value {
+                    properties.set_path(key, ConfigValue::Float(value)).unwrap();
+                }
+            }
+            let mut project = named(vec![(
+                "client_objects",
+                ConfigValue::Indexed(vec![named(vec![
+                    ("game_object_type", ConfigValue::String("environment".into())),
+                    ("properties", properties),
+                ])]),
+            )]);
+            assert_eq!(
+                preserve_020_mie_falloff(&mut project).unwrap(),
+                usize::from(explicit.is_none())
+            );
+            let env = &array(project.named("client_objects").unwrap()).unwrap()[0];
+            assert_eq!(
+                env.named("properties")
+                    .unwrap()
+                    .named("mie_fog_sun_color_falloff"),
+                Some(&ConfigValue::Float(expected))
+            );
+        }
         for authored in [None, Some(false), Some(true)] {
             let mut properties = named(vec![]);
             if let Some(value) = authored {
