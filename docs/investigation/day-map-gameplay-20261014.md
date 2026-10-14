@@ -257,3 +257,54 @@ converter. For `--finish-*`/`--results` on these maps, add:
 
 The candidate's launcher does not use those options; its matches run past
 the 900 s limit, which was observed.
+
+## Live user reports on map 194 (2026-10-15, offline diagnosis)
+
+The user's session (lighting worker, port 2270) has no packet log, and its
+camera status is only published on request, so it was not touched. The
+reported spots were located from the user's screenshots and the data.
+
+### No footsteps on the moss mounds and the cyan blob
+
+Footsteps are the `collision_sound` of the (actor variant, surface
+material) pair in `game_materials/material.pairs`. Native 0.26 has `actor`,
+`actor_local`, `actor_sprint`, `actor_local_sprint` and the crouch variants.
+0.11e's pair table has only `actor` and `actor_local`. In native 0.26,
+`mud` (and both foliage classes) leave `actor_local_sprint` empty, so a local
+player sprinting on mud is silent. The four 0.11e moss models (6,725 m² of
+walkable mound; their `anomaly_liquid` render surfaces are the cyan blobs)
+have one collision surface, `default` → `mud`, unchanged from 0.11e.
+Native 0.26 re-authors the same models: the walkable mound is
+`grass`/`grass_walkable`, and `mud` is kept only for separate liquid surfaces.
+
+Fix: reviewed `game_material_overrides` bind moss…moss4 `default` → `grass`,
+which has every actor pair. The liquid shares the mound's single collision
+surface, so it also steps as grass; splitting it would need new collision
+geometry. `audit_footsteps.py` measures walkable area per material against
+the pair table. After the fix, 194 has no walkable surface without local or
+sprint steps. 195's remaining rows are tree canopies. 196's
+`terrain_all` `mud_walkable` is identical in the 0.20e donor and native 0.26.
+Materials with no actor pair at all (`metal_arm_gran_*`, `restrictor`,
+`wood_tree`, background `not assigned`) are native and shared by native maps.
+
+### Invisible wall before the barbed-wire fence (north map edge)
+
+`level_border.model/walker_collision` box 23 (Z 131.88–135.40, X −3.71…48.84)
+blocked the only ground-level passage on that edge (X 43.4–48.1, between
+`central_factory` and `admin_building`) 6.3 m before the visible
+`fences_03` barbed-wire fence (Z 138.14). It is authored that way in 0.11e;
+0.21d and 0.26 move it into the fence line (Z 138.32–141.45) and extend its
+two corner boxes. 0.21d also re-authors the edge geometry, so the whole
+border resource is not swapped. `collision_primitive_overrides` (hash-pinned
+payload, exact original transforms) re-places only box 23 (0.21d values),
+box 24 (0.21d values, east corner to Z 141.10) and box 22 (0.11e X extent
+kept, Z extended to 140.92, because 0.21d's thinner box would expose a 0.22 m
+strip of ground). The other 28 boxes are unchanged. Offline scan: before,
+blocked from Z ≈ 132; after, walkable to the fence line and blocked from
+Z 139 by fence + border. Both sides stay closed by building walls and there
+is no ground beyond Z 140. Elevated building tops stay bounded by the moved
+box. Test: `primitive_override_moves_only_audited_boxes`.
+
+Other 0.11e→0.21d border changes (east edge 0.3–1.5 m outward; a west box
+inside the team-0 base removed) are not adopted: the surrounding layout
+changed in 0.21d and no user report covers them.
