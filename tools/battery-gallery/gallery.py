@@ -18,7 +18,7 @@ def write(path, value):
 
 
 def poses(spawn):
-    center = list(spawn.get('runtime_position', spawn['position']))
+    center = list(spawn.get('runtime_position') or spawn.get('settled_position') or spawn['position'])
     center[1] += .12
     offsets = [(1.5*math.sin(i*math.pi/4), 1.0, 1.5*math.cos(i*math.pi/4)) for i in range(8)]
     offsets += [(0, .5, .65), (0, 3, 4)]
@@ -50,7 +50,13 @@ def index(output, manifest):
                 views.append(f'<a href="{key}/{name}.png" target="_blank"><img loading="lazy" src="{key}/{name}-thumb.webp" alt="{name}"><span>{name}</span></a>')
             position = ', '.join(f'{v:.3f}' for v in spawn['position'])
             label = html.escape(str(spawn.get('id', spawn['index'])))
-            cards.append(f'<details id="{item["key"]}-{spawn["index"]}" open><summary>Battery spawn {spawn["index"]:02} · {label} · ({position}) · {len(views)}/10 views</summary><div class="views">'+''.join(views)+'</div></details>')
+            runtime = spawn.get('runtime_position')
+            note = 'Runtime position awaits verification.'
+            if runtime:
+                actual = ', '.join(f'{v:.3f}' for v in runtime)
+                displacement = math.dist(spawn['position'], runtime)
+                note = f'Actual battery {spawn["active_runtime_battery_id"]}: ({actual}); settled {displacement:.3f} m from its authored origin.'
+            cards.append(f'<details id="{item["key"]}-{spawn["index"]}" open><summary>Battery spawn {spawn["index"]:02} · {label} · ({position}) · {len(views)}/10 views</summary><p>{note} <a href="{key}/spawn.json">Metadata</a></p><div class="views">'+''.join(views)+'</div></details>')
         sections.append(f'<section id="{item["key"]}"><h2>{html.escape(item["title"])}</h2>'+''.join(cards)+'</section>')
     nav = ' · '.join(f'<a href="#{item["key"]}">{html.escape(item["title"])}</a>' for item in manifest['maps'])
     document = '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Battery location gallery</title><style>
@@ -85,7 +91,7 @@ def main():
         item = next(m for m in manifest['maps'] if m['key'] == args.map)
         done = 0
         for spawn in item['spawns']:
-            if args.batch is not None and spawn.get('diagnostic_batch') != args.batch:
+            if args.batch is not None and spawn.get('diagnostic_batch', spawn.get('batch')) != args.batch:
                 continue
             directory = args.output/item['key']/f"battery-{spawn['index']:02}"
             directory.mkdir(parents=True, exist_ok=True)

@@ -119,8 +119,10 @@ def run(catalog, args):
     env.update(recipe['environment'])
     for key, relative in recipe['assets'].items():
         env[key] = win(PACKAGE/relative)
+    # The frozen hooks share this activation gate with legacy shader overrides.
+    # Raw readback still requires a mode-1 camera request; ordinary play and mode 2 do not dump buffers.
     env.update(SRP_CAPTURE_BUILD='026g', SRP_CAPTURE_CONTROL=win(runtime/'camera.txt'),
-               SRP_CAPTURE_BUFFERS='0', SRP_CAPTURE_MATERIALS='0', SRP_CAPTURE_FRAME_STATE='0')
+               SRP_CAPTURE_BUFFERS='1', SRP_CAPTURE_MATERIALS='0', SRP_CAPTURE_FRAME_STATE='0')
 
     def interrupted(_signum, _frame):
         raise KeyboardInterrupt
