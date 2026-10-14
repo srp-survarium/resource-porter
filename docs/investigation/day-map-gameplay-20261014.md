@@ -166,3 +166,94 @@ collector and east of the team-0 collector.
 - `decode_gameplay.rs`: per checkpoint, battery and container state, team
   points, pickup/put/solo-delivery events, deaths and respawn timers. It
   links the SRP `survarium` crate (srp-026g `0c551400`).
+
+## Converter review follow-up (branch `gameplay-fixes`)
+
+Each finding is checked against binaries, source and a rebuild of both
+bundles from this branch (`/tmp/day-map-gameplay-20261014/rebuild-gf-*`).
+
+### Cylinders (review #2): no general change; boiler successor kept
+
+- v0.10b source (`vostok/physics/sources/collision_shapes.cpp`):
+  `create_bt_primitive` builds `btCylinderShape(dim.x, dim.y, dim.z)`. The
+  0.11e PDB maps the same path to 0x724930 → 0x74BFD0 → `setSafeMargin`
+  (0x39490).
+- Bundled Bullet: `setSafeMargin(halfExtents)` uses 0.1 × the smallest axis,
+  so z = 0 gives margin 0. `CylinderLocalSupportY` (0.11e 0x3A240) reads only
+  halfExtents[0] (radius) and [1] (half-height). The narrowphase shape is
+  therefore a **solid** cylinder in 0.11e, as in 0.26's [x,y,x]. Only
+  `getAabb` (0x74C0A0) is flat along local Z. The review's "flat shape" is
+  incorrect.
+- Movement uses `convexSweepTest` (ghost 0x720F30 / world 0x6A9050). It runs
+  GJK only for objects whose AABB, expanded by the capsule AABB, the centre
+  path crosses. When a cylinder's local Z is vertical, 0.11e blocked across
+  ±capsule half-height (about the whole drum). When local Z is horizontal
+  (upright posts and tanks), 0.11e blocked only within a capsule radius of
+  its central plane and otherwise let the capsule enter and pushed it out.
+- `audit_cylinders.py`: 194 has 692 movement cylinders (451 horizontal-flat,
+  241 vertical-flat) and 195 has 269 (176/93), matching the review's counts.
+  **None** of the 627 horizontal-flat cylinders sticks out more than 0.3 m past
+  its model's bullet collision. 0.26's solid cylinders therefore stop players
+  at visible geometry. Emulating the 0.11e band would let players walk into
+  tanks and poles.
+- The boiler drums 11/12/14 are vertical-flat: 0.11e blocked them too. The
+  reported blocker is an authored defect that the developers re-authored
+  later, not a conversion difference. `collision_successors` stays. The only
+  other >0.3 m protrusion is one tyre-cover cylinder per map (vertical-flat,
+  so unchanged from 0.11e).
+
+### Respawn rules not in the source (review #9): fixed
+
+0x2F4400 constructs respawn points with protection 0 and ally/enemy check
+radius 0. 0x2F4580 overwrites them only when the key exists. `adapt_objects`
+no longer lets `fill_missing` add `invulnerability_time` or the check radii
+when the source lacks them. Authored values are kept, such as the converted
+early 2 s. Rebuild: 194/195 have 2 s and no radii; 196 has no protection
+(0.20e used the base `effect_zone`, which is preserved) and no radii. Test:
+`objects_do_not_inherit_another_maps_gameplay_or_light_transform` (extended).
+
+### 196 battery bodies (review #6): converter output, not only a patch
+
+0.20e spawners have no `spawned_item`, so `battery_body_transform` runs. The
+branch rebuild gives all 45 body origins at parent + rotate([0,0.12,0]),
+maximum error 1e-6. The earlier database patch matches converter output.
+
+### Physical materials (review #14)
+
+- Armour/resistance live only in the global `game_materials/game.materials`.
+  All native maps share it and the converter maps names and ids into it.
+  0.11e `resistance` (concrete 1, brick 0.5), 0.20e `armor` (concrete 0.8)
+  and 0.26 `armor` (0.23) belong to their builds' weapon balance. Restoring
+  donor values would need new per-donor material ids and `material.pairs`
+  rows, and would mix them with 0.26 penetration. Kept native and documented,
+  not changed.
+- Foliage: 0.11e `foliage` is id 24, which 0.20e/0.26 call
+  `foliage_coniferous`; they add `foliage_deciduous` for poplars, bushes and
+  anomaly-tree leaves. The two share ballistics (armour 0, width 0.1), so the
+  difference is hit sound and effect pairs. Early foliage now takes, in
+  order: a reviewed manifest binding (`game_material_overrides`, 22 models
+  in the 0.11e manifests), then the target's foliage class for the same
+  model surface, then coniferous with a recorded note. Rebuild: poplars and
+  bushes deciduous; pines (sosna) and spruces (elka) coniferous. Test:
+  `early_foliage_takes_reviewed_or_successor_class`.
+
+### Game mode and server fixtures (review #15)
+
+The 0.11e/0.20e donors have no game-mode configs (mode parameters were sent
+by the server in that era), so the native mode template is the only source
+and is kept. The server fixtures are in the srp repository, not the
+converter. For `--finish-*`/`--results` on these maps, add:
+
+```
+# 026g-mode-timers.tsv
+194	900	5	20	v011e_level_04_day_2.options	1a94d223d834a90b9c22932770b51bf10c92bdfb3293b060f7f9cc03f398ea64
+195	900	5	20	v011e_level_03_day_2.options	7bd6b653d0262a5a43d4d6a40d64ecab72caa65bcdf1da4deff56a8838286b16
+196	900	5	20	v020e_level_03_day_2.options	963fbf2cec5344073cc6c068b0bac0e1c8061b866f25f7b57f8ec6ec9c0a41f3
+# 026g-result-modes.tsv
+194	2	10	v011e_level_04_day_2.options	1a94d223d834a90b9c22932770b51bf10c92bdfb3293b060f7f9cc03f398ea64
+195	2	10	v011e_level_03_day_2.options	7bd6b653d0262a5a43d4d6a40d64ecab72caa65bcdf1da4deff56a8838286b16
+196	2	10	v020e_level_03_day_2.options	963fbf2cec5344073cc6c068b0bac0e1c8061b866f25f7b57f8ec6ec9c0a41f3
+```
+
+The candidate's launcher does not use those options; its matches run past
+the 900 s limit, which was observed.
