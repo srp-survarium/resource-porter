@@ -21,11 +21,11 @@ SOURCE_HASHES = {
 }
 
 
-def transcode(raw):
+def transcode(raw, expected_shape=(2048, 2048, 10, 1)):
     assert raw[:4] == b'DDS ' and raw[84:88] == b'DXT3'
     height, width = struct.unpack_from('<II', raw, 12)
     mips = struct.unpack_from('<I', raw, 28)[0]
-    assert (width, height, mips, raw[-1]) == (2048, 2048, 10, 1)
+    assert (width, height, mips, raw[-1]) == expected_shape
     # Source cutout alpha uses 0..7 and15 only. Six-step BC3 palettes also
     # supply exact0/255; fit nearby endpoints without changing color blocks.
     endpoints = [(a, b) for a in range(0, 120, 17) for b in range(a, 120, 17)]

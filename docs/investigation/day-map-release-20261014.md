@@ -94,7 +94,9 @@ SHA256 `241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
 All 13,797 composed resources were checked before packing and re-read with
 matching hashes afterwards. This proves resource assembly, not native gameplay
 or visual parity. The launcher resolves all three two-client plans; those
-checks do not launch games. Native ID195 lamp comparisons are the next check.
+checks do not launch games. ID195 subsequently loaded in both three-view lamp
+arms and both two-view remains arms. The workers verified shutdown and restored
+the candidate's hook, preset and temporary material changes after each experiment.
 
 The candidate includes only the independently verified BC3 remains repair;
 material/sun-sentinel experiments are excluded. The 0.20e converter now uses
@@ -128,3 +130,26 @@ The candidate keeps its own clients, runtime and port 2266. The old package is
 unchanged. Its 1.8 GiB intermediate packing database was deleted only after the
 candidate passed resource readback; source bundles and reproducible repair
 recipes remain available.
+
+## Follow-up texture and material audit
+
+The composed overlay contains 1,481 DDS resources. After the remains repair,
+only `textures/ported/v011e/door/door_metal.dds` is still BC2: 1024-square,
+nine mips, source SHA256
+`4009f1b744d8f7a693178950cf5698ab980db746b1307d6727bc292a7be682d6`.
+It is bound by Radar's antenna model through `tiled/door/door_metal.material`.
+That material disables alpha testing. The native BC2 streaming exclusion makes
+this another candidate for the same defect; its actual bound resolution has
+not yet been observed.
+
+`prepare_radar_door_bc3.py` prepares a guarded, unapplied replacement at
+`/tmp/radar-door-bc3-candidate`. It preserves every RGB block, all mip sizes and
+sRGB metadata; an independent Pillow decode confirmed exact RGB and identical
+quarter/half alpha classifications in all nine mips. The existing remains
+outputs remain byte-identical after parameterizing the transcoder's dimension
+guard. Do not claim native door validation from these CPU checks.
+
+Direct reads of the composed materials also confirm both bulb emission flags
+are true in the 0.11e lamp and foam intensity is zero in all three 0.11e water
+materials and the 0.20e water material. This checks that verified conversion
+fixes survived composition; new-donor runtime views still govern visual parity.
