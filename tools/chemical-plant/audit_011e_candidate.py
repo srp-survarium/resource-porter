@@ -41,6 +41,13 @@ def main():
         spawns.append({'index': i, 'point_id': old['point_id'], 'authored_position': old['position'],
                        'native_body_position': new['spawned_item']['position'], 'offset_error_m': error})
     source_probes = [o for o in source['objects'] if o.get('game_object_type') == 'environment_probe']
+    occluders = []
+    for old in source['objects']:
+        if old.get('game_object_type') != 'lpv_occluder':
+            continue
+        new = next(o for o in project['client_objects'] if o.get('full_name') == old['full_name'])
+        assert all(new[k] == old[k] for k in ('position', 'rotation', 'scale'))
+        occluders.append({k: new[k] for k in ('full_name', 'position', 'rotation', 'scale')})
     probes = []
     for old in source_probes:
         new = next(o for o in project['client_objects'] if o.get('full_name') == old['full_name'])
@@ -70,7 +77,7 @@ def main():
                'donor_shaders_imported': 0, 'runtime_verified': False,
                'blockers': ['0.11e probe upload/attenuation mapping needs renderer comparison',
                             'legacy versus native cylinder dimensions differ; payload preservation does not prove collision parity'],
-               'batteries': spawns, 'collectors': collectors, 'probes': probes,
+               'batteries': spawns, 'collectors': collectors, 'probes': probes, 'lpv_occluders': occluders,
                'compatibility_notes': record['compatibility_notes']}
     a.output.write_text(json.dumps(summary, indent=2)+'\n')
     print(json.dumps({k: v for k, v in summary.items() if k not in ('batteries', 'collectors', 'probes', 'compatibility_notes')}))

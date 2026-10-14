@@ -272,6 +272,18 @@ fn adapt_objects(
         let kind = string(object, "game_object_type")
             .context("object has no type")?
             .to_owned();
+        if kind == "lpv_occluder" {
+            // Native 2777 load (0x290f80) only calls load_transform (0x2a61f0).
+            // No retail map supplies a template; retain the complete donor box.
+            for field in ["position", "rotation", "scale"] {
+                ensure!(
+                    matches!(object.named(field), Some(ConfigValue::Float3(v)) if v.iter().all(|x| x.is_finite())),
+                    "invalid LPV occluder {field}"
+                );
+            }
+            object.set_path("is_temporary", ConfigValue::Boolean(false))?;
+            continue;
+        }
         let template = templates
             .iter()
             .find(|p| {
@@ -1577,6 +1589,23 @@ mod tests {
     }
     #[test]
     fn imported_project_retains_hud_key_without_losing_resource_namespace() {
+        let occluder = named(vec![
+            (
+                "game_object_type",
+                ConfigValue::String("lpv_occluder".into()),
+            ),
+            ("position", ConfigValue::Float3([88.238, 6.05, 118.91])),
+            ("rotation", ConfigValue::Float3([0.; 3])),
+            ("scale", ConfigValue::Float3([39.459, 11.679, 21.743])),
+        ]);
+        let mut objects = ConfigValue::Indexed(vec![occluder.clone()]);
+        adapt_objects(&mut objects, &[], [0., 0.12, 0.]).unwrap();
+        for field in ["position", "rotation", "scale"] {
+            assert_eq!(
+                array(&objects).unwrap()[0].named(field),
+                occluder.named(field)
+            );
+        }
         let collectors = (0..2)
             .map(|team| {
                 named(vec![

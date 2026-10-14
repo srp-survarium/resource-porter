@@ -68,3 +68,13 @@ The build refuses unresolved dependency closure and imports only map assets.
 The existing 21 map conversion and four material conversion tests pass; no test
 functions were added. Runtime load, appearance, and collision playthrough remain
 unverified for this separate candidate.
+
+The donor adds one LPV occluder at `[88.238, 6.05, 118.91]`, scaled
+`[39.459, 11.679, 21.743]`. No retail native map supplies an object template.
+Native executable SHA `ac33d9937015c2299bf62cc6b127cb308b48a3475b30fff2ddd65479ae3bf153`
+proves the transform-only contract: RTTI identifies vtable `0xa0ad0c`; its load
+method `0x290f80` calls `load_transform` at `0x2a61f0` and the completion callback.
+That helper reads exactly `scale`, `rotation`, and `position` from string addresses
+`0x9e2944`, `0x9e2938`, and `0x9e1c18`. The converter therefore preserves the donor
+occluder without borrowing an unrelated object template. Finite float3 fields
+are required; the existing project regression covers template-free retention.
