@@ -122,7 +122,12 @@ Result main(float4 pixel : SV_POSITION) {
 #endif
 #ifdef CONFIG_PROBE_BOX
     float3 probe_space=mul(world_to_outer_probe,float4(world_position,1)).xyz;
-#ifdef CONFIG_SOURCE_FALLOFF
+#if defined(CONFIG_SOURCE_011E_FALLOFF)
+    // 011e DXBC: cubic falloff in physical inner/outer side dimensions.
+    float3 fraction=saturate((abs(probe_space)*outer_cube_side_sizes-inner_cube_side_sizes)/(outer_cube_side_sizes-inner_cube_side_sizes));
+    float3 falloff=max(1-fraction*fraction*(3-2*fraction),0);
+    float attenuation=falloff.x*falloff.y*falloff.z;
+#elif defined(CONFIG_SOURCE_FALLOFF)
     float3 falloff=1-exp(-6*sqrt(saturate(1-abs(probe_space))));
     float attenuation=pow(falloff.x*falloff.y*falloff.z,2);
 #else
@@ -130,7 +135,12 @@ Result main(float4 pixel : SV_POSITION) {
     float attenuation=falloff.x*falloff.y*falloff.z;
 #endif
 #else
-#ifdef CONFIG_SOURCE_FALLOFF
+#if defined(CONFIG_SOURCE_011E_FALLOFF)
+    // Native light_range already includes the .98 contraction done by source PS.
+    // Preserve authored inverted intervals; sorting/clamping them changes source.
+    float fraction=saturate((length(probe_location-world_position)-inner_radius)/(light_range-inner_radius));
+    float attenuation=1-fraction*fraction*(3-2*fraction);
+#elif defined(CONFIG_SOURCE_FALLOFF)
     // Undo the target's 2% outer-volume contraction to recover source radius.
     float source_radius=light_range/.98;
     float distance_ratio=length(probe_location-world_position)/(source_radius*.95);

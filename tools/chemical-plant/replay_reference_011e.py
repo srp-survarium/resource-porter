@@ -17,8 +17,8 @@ for name in ['chemical','radar']:
 if not args.launch:
  print('Validated inputs; use --launch only after GPU handoff.');sys.exit(0)
 spec=importlib.util.spec_from_file_location('capture',Path(__file__).resolve().parents[1]/'render-compare/capture.py');capture=importlib.util.module_from_spec(spec);spec.loader.exec_module(capture)
-def run(*args):
- return subprocess.run([sys.executable,str(launcher),*args,'--runtime',str(runtime),'--port',str(args.port)],check=True,capture_output=True,text=True,timeout=60)
+def run(*command):
+ return subprocess.run([sys.executable,str(launcher),*command,'--runtime',str(runtime),'--port',str(args.port)],check=True,capture_output=True,text=True,timeout=60)
 for name in ['chemical','radar']:
  out=root/('target-'+name);out.mkdir(exist_ok=False)
  key=name+'-011e-day';preset=package/'presets'/key/'preset.json';db=package/'resources.db';before=db.stat();record={'preset':json.loads(preset.read_text()),'preset_sha256':hashlib.sha256(preset.read_bytes()).hexdigest(),'database':str(db),'database_size':before.st_size,'database_mtime_ns':before.st_mtime_ns}
