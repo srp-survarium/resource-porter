@@ -152,3 +152,21 @@ alone with a small upward initial clearance, retaining XZ and the map geometry,
 then checking settled visibility and pickup. Do not apply a global spawn lift or
 change the map's collision meshes based only on this case. Complete the ongoing
 original-coordinate gallery before testing changes.
+
+Factory gallery batch 1 exposed falls in candidates 12 and 15. At 5.3 seconds
+these had reached Y−99.8528 and Y−120.6251; at 10.3 seconds both were back near
+spawn. Candidate 14 instead stayed stable below its authored floor (Y10.2508
+versus Y10.656). A final position alone therefore hides both falling and resets.
+
+`validate_gallery_batch.py --record-unsettled` is an explicit gallery diagnostic
+mode. It still requires exact initial candidate matching, complete free-item
+records and two later checkpoints. It records motion per battery and maximum
+vertical fall across **all** checkpoints. If late motion exceeds 0.03m or any
+fall exceeds 3m, `runtime_position` and `settled_position` remain null, the camera
+falls back to the authored spawn, and `latest_runtime_position` retains the
+actual latest coordinates. `runtime_state`, `runtime_note` and the camera basis
+make the failure visible. The default mode rejects these failures without writing
+a manifest. The real batch-1 fixture rejected by default and recorded only 12/15
+as unsettled with the flag; the earlier stable fixture still passes and an
+incorrect batch still fails even with the flag. All four raw checkpoints and
+decoded records are retained. Stable coordinates never imply pickup accessibility.

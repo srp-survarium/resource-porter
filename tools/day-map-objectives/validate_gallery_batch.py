@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Validate native batteries against a diagnostic batch and update gallery poses.
 
-Requires initial exact positions and two stable later checkpoints. A failed
-validation writes nothing, so candidate points cannot masquerade as live items.
+Requires initial exact positions and two stable later checkpoints. The explicit
+gallery diagnostic mode can record failures, retaining authored camera positions.
 """
 import argparse
 import hashlib
@@ -23,6 +23,8 @@ ap.add_argument('--output', type=Path, required=True)
 ap.add_argument('--evidence-dir', type=Path, help='Defaults to OUTPUT parent/checkpoints/MAP/batch-NN')
 ap.add_argument('--settle-ms', type=int, default=5000)
 ap.add_argument('--stability-metres', type=float, default=.03)
+ap.add_argument('--record-unsettled', action='store_true',
+                help='Record motion/falls as failures and use authored camera positions; never relax initial matching')
 a = ap.parse_args()
 manifest = json.loads(a.manifest.read_text())
 item = next(m for m in manifest['maps'] if m['key'] == a.map)
@@ -39,6 +41,9 @@ for file in files:
     record['file'] = str(file.resolve())
     record['sha256'] = hashlib.sha256(file.read_bytes()).hexdigest()
     assert all(b['state'] == 'free' for b in record['batteries']), 'A gallery item is carried or stored'
+    assert sorted(b['id'] for b in record['batteries']) == list(range(len(spawns))), 'Missing or duplicated battery IDs'
+    assert all(math.isfinite(v) for b in record['batteries'] for v in b['position']), 'Non-finite battery position'
+    record['batteries'].sort(key=lambda b: b['id'])
     records.append(record)
 initial = records[0]
 matched = {}
@@ -54,18 +59,37 @@ assert len(late) >= 2, 'Need two later checkpoints to establish settled position
 previous, settled = late[-2:]
 assert settled['time_ms'] - previous['time_ms'] >= 1000, 'Checkpoints too close to establish stability'
 max_motion = max(math.dist(p['position'], q['position']) for p, q in zip(previous['batteries'], settled['batteries']))
-assert max_motion <= a.stability_metres, f'Batteries still moving: maximum change {max_motion:.3f}m'
+if not a.record_unsettled:
+    assert max_motion <= a.stability_metres, f'Batteries still moving: maximum change {max_motion:.3f}m'
 rows = []
 for spawn in spawns:
     battery_id = matched[spawn['index']]
     position = settled['batteries'][battery_id]['position']
     displacement = math.dist(spawn['position'], position)
-    spawn.update(active_runtime_battery_id=battery_id, runtime_position=position,
-                 settled_position=position, runtime_validated=True,
-                 runtime_initial_time_ms=initial['time_ms'], runtime_settled_time_ms=settled['time_ms'],
+    motion = math.dist(previous['batteries'][battery_id]['position'], position)
+    max_fall = max(0., max(spawn['position'][1] - r['batteries'][battery_id]['position'][1] for r in records))
+    stable = motion <= a.stability_metres and max_fall <= 3
+    if not a.record_unsettled:
+        assert stable, f"Candidate {spawn['index']} fell {max_fall:.3f}m during checkpoints"
+    reset = max_fall > 3 and spawn['position'][1] - position[1] < 3
+    note = ('Battery fell more than 3m and returned near spawn; likely reset. Camera uses authored spawn.' if reset else
+            'Battery fell more than 3m. Camera uses authored spawn.' if max_fall > 3 else
+            'Battery is still moving. Camera uses authored spawn.' if not stable else
+            'Battery is stable; visibility and pickup accessibility still require review.')
+    spawn.update(active_runtime_battery_id=battery_id, runtime_position=position if stable else None,
+                 settled_position=position if stable else None, latest_runtime_position=position,
+                 runtime_validated=stable, initial_position_validated=True,
+                 runtime_state='settled' if stable else 'falling_or_moving',
+                 runtime_note=note, camera_position_basis='settled battery' if stable else 'authored spawn (battery not settled)',
+                 max_fall_from_authored_metres=max_fall, late_motion_metres=motion,
+                 runtime_initial_time_ms=initial['time_ms'], runtime_settled_time_ms=settled['time_ms'] if stable else None,
+                 runtime_latest_time_ms=settled['time_ms'],
                  displacement_from_authored_metres=displacement)
     rows.append({'index': spawn['index'], 'battery_id': battery_id, 'authored_position': spawn['position'],
-                 'runtime_position': position, 'displacement_metres': displacement})
+                 'runtime_position': spawn['runtime_position'], 'latest_runtime_position': position,
+                 'runtime_state': spawn['runtime_state'], 'runtime_note': note,
+                 'max_fall_from_authored_metres': max_fall, 'late_motion_metres': motion,
+                 'displacement_metres': displacement})
 evidence = a.evidence_dir or a.output.parent / 'checkpoints' / a.map / f'batch-{a.batch:02d}'
 evidence.mkdir(parents=True, exist_ok=True)
 for record in records:
@@ -77,9 +101,12 @@ for record in records:
     record['file'] = str(destination.resolve())
 (evidence / 'decoded-checkpoints.json').write_text(json.dumps(records, indent=2)+'\n')
 report = {'map': a.map, 'batch': a.batch, 'battery_count': len(spawns), 'initial_time_ms': initial['time_ms'],
-          'settled_time_ms': settled['time_ms'], 'max_motion_between_late_checkpoints_metres': max_motion,
+          'settled_time_ms': settled['time_ms'] if all(s['runtime_validated'] for s in spawns) else None,
+          'latest_time_ms': settled['time_ms'], 'record_unsettled': a.record_unsettled,
+          'unsettled_candidates': [s['index'] for s in spawns if not s['runtime_validated']],
+          'max_motion_between_late_checkpoints_metres': max_motion,
           'initial_checkpoint': {'file': initial['file'], 'sha256': initial['sha256']},
-          'settled_checkpoint': {'file': settled['file'], 'sha256': settled['sha256']}, 'batteries': rows}
+          'latest_checkpoint': {'file': settled['file'], 'sha256': settled['sha256']}, 'batteries': rows}
 for batch in item.get('batches', []):
     if batch['index'] == a.batch:
         batch['runtime_validation'] = report
