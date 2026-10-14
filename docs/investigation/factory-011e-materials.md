@@ -73,3 +73,29 @@ day shader reproduced its exact frozen hash `5e59cd25…53d`. All four test
 clients were stopped. Only the two test DDSs, two remains materials,
 diagnostic hook and composition asset were restored to their exact prior
 state. Existing water, bulb, motor and Chemical battery fixes were untouched.
+
+### Local diffuse exception candidate (not promoted)
+
+The source 010b and 011e point/spot shaders use `F > .99 ? 1 : 1-F`
+for diffuse. Native 026 has separate Fresnel terms: `N.L` for diffuse,
+`V.H` for specular. Testing the former against .99 would not reproduce the
+source sentinel.
+
+`prepare_local_fresnel_one.py` therefore prepares only the exact `F0 == 1`
+subset: source Fresnel is identically 1 at every angle for the two authored
+remains materials. Twelve pinned native point/spot bytecodes receive two
+instructions and one temporary register. The first remembers whether the
+sampled material F0 equals 1; the second selects diffuse multiplier 1 at the
+existing `1-F` gate. Every original instruction, resource binding, input/output
+signature, shadow operation and specular computation is preserved. All F0<1
+pixels retain native behavior. This is intentionally not a complete old BRDF
+conversion, and cannot recover source material values lost during packing.
+
+The optional hook loads these exact generated identities from
+`SRP_LOCAL_FRESNEL_ONE_DIR`; default behavior is unchanged. It rejects a
+simultaneous private encoded local-light replay and writes bounded per-pose
+metadata for shader variants actually drawn. The generated manifest records
+original/replacement SHA256, insertion offsets and inverse structural checks.
+Candidate assets are currently under
+`/tmp/daylight-material-review/local-sentinel/candidate`. A separate two-pose
+Radar011e runtime A/B is pending; material and sun changes remain unpromoted.

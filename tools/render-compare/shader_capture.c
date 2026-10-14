@@ -17,6 +17,7 @@ static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,
 #include "volume_capture_filter.c"
 static void *legacy_local_diffuse_code;
 static size_t legacy_local_diffuse_size;
+#include "local_fresnel_one.c"
 static void tag_source_local(ID3D11PixelShader *shader,const void *code,SIZE_T size);
 static void capture_local_diffuse(ID3D11DeviceContext *context,const Camera *camera);
 static int legacy_ambient_diffuse_enabled;
@@ -174,7 +175,11 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (composition_replaced) { code=legacy_composition_code; size=legacy_composition_size; }
     if (ambient_decode_replaced) { code=legacy_ambient_decode_code; size=legacy_ambient_decode_size; }
     if (volume_replaced) { code=legacy_volume_code; size=legacy_volume_size; }
+    int local_f0_index=local_fresnel_one_index(code,size,0);
+    int local_f0_replaced=local_f0_index>=0 && local_fresnel_one_code[local_f0_index];
+    if (local_f0_replaced) { code=local_fresnel_one_code[local_f0_index]; size=local_fresnel_one_shaders[local_f0_index].fixed_size; }
     HRESULT hr=original_create_ps(device,code,size,linkage,shader);
+    if (local_f0_replaced) report_local_fresnel_creation(local_f0_index,hr,shader?*shader:NULL);
     if (volume_replaced) {
         if (FAILED(hr) || !shader || !*shader) error("original cone shader rejected");
         else {
@@ -821,6 +826,7 @@ static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *
 }
 #include "remains_texture_capture.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
+    observe_local_fresnel_one(context);
     capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
@@ -839,6 +845,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     capture_composition_outputs(context,count,start,0,0); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
+    observe_local_fresnel_one(context);
     capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,base,1);
@@ -987,6 +994,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     if (comparison_source_diffuse && (!comparison_composition_code || !sun_aux_enabled || !sun_aux_translucency)) {
         error("source diffuse comparison requires reference shader and sun/translucency auxiliary"); return 0;
     }
+    if (!configure_local_fresnel_one()) return 0;
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
