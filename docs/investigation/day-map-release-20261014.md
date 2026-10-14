@@ -67,13 +67,17 @@ textures bind only 64-square mips, while BC3 restores the authored 512-square
 skeleton and 2048-square cloth textures. Visual review confirms restored holes
 and detail. The BC3 correction can be promoted independently. Material-mask
 restoration plus the source sun diffuse exception improves outdoor remains,
-but still leaves cellar remains too dark: the source point/spot exception
-needs a separate correction before that combination is promoted. The newer motor material already preserves
+but still leaves cellar remains too dark. Matched 0.11e references now support
+the complete material/sun/local-exception combination: remains-to-floor
+contrast improves while unchanged floors and walls expose a separate broad
+lighting deficit. Validate the combination with the corrected scene lighting
+before final promotion. The newer motor material already preserves
 its source Fresnel switch, so the earlier motor patch must not be copied over.
 
 The earlier Factory bulb emission fix is independently verified and its
-converter repair is committed. Some shafts still need a source-opacity
-comparison; authored transforms match the old source. The newer Factory's
+converter repair is committed. Matched original 0.11e views support the
+source-opacity adapter for Radar's shafts, without relocating their geometry.
+The newer Factory's
 lamp/cone audit finds unchanged transforms, meshes and falloff textures; all
 30 cone shader variants preserve executable bytecode multiplicities. The newer
 donor changes Factory lighting and bulb tint, but contains no demonstrated
@@ -116,7 +120,11 @@ adapter, while retaining the unchanged-renderer 0.11e reference path. All 29
 original 0.11e views are captured (12 Chemical, 17 Radar); the current candidate
 is being captured at the same poses. These comparisons precede any promotion
 of experimental lighting settings. Original PNGs retain the donor's visible
-grain and colored edge noise; they are not denoised references.
+grain and colored edge noise; they are not denoised references. All 29 target
+views are now captured as well. They confirm a broad shadow deficit on both
+maps, beyond the remains materials. Source probe falloff and post-processing
+both differ from the inherited presets; see [the post audit](radar-chemical-011e-post.md).
+Post-only, probe-only and combined native checks are the next gate.
 
 Composition rejects duplicate map ownership (verified with the actual 0.11e
 bundle twice), changed native registrations, undeclared dictionary edits and
