@@ -34,5 +34,12 @@
     "models/level/04/moss3.model/render/anomaly_moss_base_sg/converted_model",
     "models/level/04/moss.model/render/anomaly_moss_lod_sg/converted_model",
     "models/level/04/moss.model/render/anomaly_moss_base_sg/converted_model"
-  ]
+  ],
+  "collision_successors": {
+    "models/props/machines/factory_boiler.model/walker_collision": {
+      "donor_primitives_sha256": "6511fb6f2ead95ee9d0ddd5c577904c932d73f680dbcbb60a606eb71325a4282",
+      "target_primitives_sha256": "129597701a6cbf82412d475d6add678de0fa8d5b60fde8be0f2e9b32f1f91ab3",
+      "reason": "0.11e walker drums 11/12/14 lie on their side (radius 1.7, half-length 1.65) around four vertical tanks; their square footprint extends up to 0.7 m past the visible tanks and blocked a player (map 194 user report 2026-10-14). 0.21d and native 0.26 re-author the same boiler with vertical tanks; bullet collision extents of both builds match within 0.1 m."
+    }
+  }
 }

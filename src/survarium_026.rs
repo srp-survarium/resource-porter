@@ -78,6 +78,19 @@ pub struct Manifest {
     /// Surfaces audited to use repeating UVs; integer island offsets preserve sampling.
     #[serde(default)]
     pub wrapped_uv_surfaces: BTreeSet<String>,
+    /// Donor collision directories replaced by the developers' re-authored
+    /// collision of the same model in the target build, pinned by both
+    /// primitive payload hashes. Used only for audited authored defects.
+    #[serde(default)]
+    pub collision_successors: BTreeMap<String, CollisionSuccessor>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CollisionSuccessor {
+    pub donor_primitives_sha256: String,
+    pub target_primitives_sha256: String,
+    pub reason: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -608,6 +621,66 @@ fn validate_gameplay(project: &ConfigValue) -> Result<()> {
         Ok(())
     }
     check(groups, &names)
+}
+
+/// Replace audited donor collision with the target build's re-authored
+/// collision of the same model. Both primitive payloads are hash-pinned, the
+/// donor directory must actually be imported, and every target file in the
+/// directory (including meshes the donor lacks) is relocated beside the
+/// donor model, so instance transforms and material bindings stay unchanged.
+fn emit_collision_successors(
+    successors: &BTreeMap<String, CollisionSuccessor>,
+    donor_files: &BTreeSet<String>,
+    donor: &mut ResourceDb,
+    target: &mut ResourceDb,
+    source: SourceBuild,
+    output: &Path,
+    files: &mut Vec<BuiltFile>,
+    repairs: &mut BTreeMap<String, String>,
+) -> Result<Vec<String>> {
+    let mut dirs = Vec::new();
+    for (dir, pin) in successors {
+        ensure!(
+            dir.starts_with("models/")
+                && (dir.ends_with(".model/collision") || dir.ends_with(".model/walker_collision")),
+            "collision successor must name a model collision directory: {dir}"
+        );
+        let primitives = format!("{dir}/exported_primitives");
+        ensure!(
+            donor_files.contains(&primitives),
+            "collision successor is not imported from the donor: {dir}"
+        );
+        let digest = |bytes: &[u8]| format!("{:x}", Sha256::digest(bytes));
+        ensure!(
+            digest(&donor.read(&primitives)?) == pin.donor_primitives_sha256,
+            "donor collision changed: {dir}"
+        );
+        ensure!(
+            digest(&target.read(&primitives)?) == pin.target_primitives_sha256,
+            "target successor collision changed: {dir}"
+        );
+        let prefix = format!("{dir}/");
+        let paths: Vec<String> = target
+            .paths_with_prefix(&prefix)
+            .filter(|p| target.is_file(p))
+            .map(str::to_owned)
+            .collect();
+        for path in paths {
+            let dest = relocate_path(&path, source);
+            ensure!(
+                !target.contains(&dest),
+                "would overwrite native resource {dest}"
+            );
+            let bytes = target.read(&path)?;
+            emit(output, &dest, &bytes, "0.26g-successor-collision", files)?;
+        }
+        repairs.insert(
+            dir.clone(),
+            format!("target-build successor collision: {}", pin.reason),
+        );
+        dirs.push(dir.clone());
+    }
+    Ok(dirs)
 }
 
 fn relocate_path(path: &str, source: SourceBuild) -> String {
@@ -1487,7 +1560,23 @@ pub fn build(
             "wrapped UV surface must name a selected early geometry resource: {path}"
         );
     }
+    let successor_dirs = emit_collision_successors(
+        &m.collision_successors,
+        &plan.donor_files,
+        &mut donor,
+        &mut target,
+        m.source_build,
+        output,
+        &mut files,
+        &mut collision_repairs,
+    )?;
     for path in &plan.donor_files {
+        if successor_dirs
+            .iter()
+            .any(|dir| path.starts_with(&format!("{dir}/")))
+        {
+            continue;
+        }
         let mut bytes = if let Some(b) = overrides.get(path) {
             b.clone()
         } else {
@@ -2004,6 +2093,80 @@ mod tests {
             Some(&ConfigValue::Boolean(false))
         );
         assert!(!adapt_particle(&mut node, &defaults).unwrap());
+    }
+
+    #[test]
+    fn collision_successor_replaces_only_a_pinned_imported_directory() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let pack = |name: &str, files: &[(&str, &[u8])]| {
+            let root = temp.path().join(name);
+            for (path, bytes) in files {
+                let file = root.join(path);
+                fs::create_dir_all(file.parent().unwrap()).unwrap();
+                fs::write(file, bytes).unwrap();
+            }
+            let db = temp.path().join(format!("{name}.db"));
+            resources_db::pack::assemble_to_file(
+                &resources_db::pack::build_src_tree(&root).unwrap(),
+                &db,
+            )
+            .unwrap();
+            ResourceDb::open(db).unwrap()
+        };
+        let dir = "models/boiler.model/walker_collision";
+        let primitives = format!("{dir}/exported_primitives");
+        let mut donor = pack("donor", &[(&primitives, b"lying drums")]);
+        let mut target = pack(
+            "target",
+            &[(&primitives, b"vertical tanks"), (&format!("{dir}/vertices"), b"mesh")],
+        );
+        let digest = |b: &[u8]| format!("{:x}", Sha256::digest(b));
+        let pin = |donor_hash: String| {
+            BTreeMap::from([(
+                dir.to_owned(),
+                CollisionSuccessor {
+                    donor_primitives_sha256: donor_hash,
+                    target_primitives_sha256: digest(b"vertical tanks"),
+                    reason: "test".into(),
+                },
+            )])
+        };
+        let imported = BTreeSet::from([primitives.clone()]);
+        let mut run = |successors: &BTreeMap<String, CollisionSuccessor>,
+                       imported: &BTreeSet<String>,
+                       out: &str| {
+            let output = temp.path().join(out);
+            let mut files = Vec::new();
+            let result = emit_collision_successors(
+                successors,
+                imported,
+                &mut donor,
+                &mut target,
+                SourceBuild::V011e,
+                &output,
+                &mut files,
+                &mut BTreeMap::new(),
+            );
+            (result, files, output)
+        };
+        let (dirs, files, output) = run(&pin(digest(b"lying drums")), &imported, "ok");
+        assert_eq!(dirs.unwrap(), vec![dir.to_owned()]);
+        let mut written: Vec<_> = files.iter().map(|f| f.path.clone()).collect();
+        written.sort();
+        assert_eq!(
+            written,
+            [
+                "models/ported/v011e/boiler.model/walker_collision/exported_primitives",
+                "models/ported/v011e/boiler.model/walker_collision/vertices"
+            ]
+        );
+        assert_eq!(
+            fs::read(output.join("overlay").join(&written[0])).unwrap(),
+            b"vertical tanks"
+        );
+        // A changed donor payload or a directory the map does not import is rejected.
+        assert!(run(&pin(digest(b"other")), &imported, "changed").0.is_err());
+        assert!(run(&pin(digest(b"lying drums")), &BTreeSet::new(), "unused").0.is_err());
     }
 
     #[test]
