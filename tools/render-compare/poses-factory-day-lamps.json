@@ -1,20 +1,53 @@
 [
   {
-    "name": "factory-hangar-lamp-north",
-    "position": [-43, 7.2, 0],
-    "forward": [-0.65, 0.125, 0.75],
+    "name": "factory-hangar-lamp-south",
+    "position": [
+      -43,
+      7.2,
+      -30
+    ],
+    "forward": [
+      -0.636,
+      0.125,
+      -0.761
+    ],
     "fov": 65,
     "settle_ms": 3000,
     "buffers": false,
-    "rationale": "Aim at original cone [-49.858,8.489,8.069]; representative hanging-lamp view, not an exact recovered user pose."
+    "rationale": "Exterior control aimed at original cone [-49.841,8.481,-38.16]; visible detached cone beside factory wall."
   },
   {
-    "name": "factory-hangar-lamp-south",
-    "position": [-43, 7.2, -30],
-    "forward": [-0.636, 0.125, -0.761],
+    "name": "factory-east-hangar-lamp",
+    "position": [
+      35,
+      3,
+      1
+    ],
+    "forward": [
+      -0.572,
+      0.292,
+      0.767
+    ],
     "fov": 65,
     "settle_ms": 3000,
     "buffers": false,
-    "rationale": "Aim at original cone [-49.841,8.481,-38.16]; opposite end of the factory hall."
+    "rationale": "East hangar cone [30.243,5.434,7.373], lower fixture control."
+  },
+  {
+    "name": "factory-west-interior-lamp",
+    "position": [
+      -5,
+      8,
+      -14
+    ],
+    "forward": [
+      -0.672,
+      0.192,
+      0.715
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Second interior cone [-11.703,9.918,-6.852], fixture control."
   }
 ]

@@ -50,19 +50,52 @@ retains attenuation scale 13 and transparency 1, as required by that adapter.
 The target cone shader does not use its attenuation constant; captured bytes
 at that unused constant are not evidence of an authored setting.
 
-## Pending controlled comparison
+## Launcher activation defect and verification
 
-Use three small screenshot batches with the same two hangar poses:
-packaged day DLL; current DLL without the cone override; current DLL with
-original cone shader and falloff assets. This separates any general newer-hook
-behavior from the cone change. Compare lamp/beam origin and shape against the
-existing original references where poses match. A new original capture is
-only useful if the reported lamps lack matching stored views.
+The package launcher set `SRP_CAPTURE_BUFFERS=0`. Despite that variable's
+name, `install_shader_capture` returns before loading **any** compatibility
+shader unless it is `1`. `install_post` has the same gate. The initial
+current-hook / source-volume comparison therefore did not execute either
+recipe; it produced no override report. Those images are excluded as a test
+of the cone adapter.
 
-The current isolated hook builds with `-Wall -Wextra -Werror`. No release
-preset or packed database has been modified, and no visual fix is claimed yet.
+A separate run changed only the launcher gate to `1`, preserving the frozen
+day DLL and preset. Three screenshot-only requests (mode 2) completed without
+any raw `.bin` capture. Reports prove successful replacements: LUT 1, fog 1,
+sky 1, cloud 4, post 3, probe 3, composition 1 and ambient decode 1; grain
+replacement count 4, all HRESULT 0. Shader activation restores the previously
+validated weather appearance. The root worker owns the permanent launcher fix.
+Actual character mode and screenshot mode 2 do not request buffer readback;
+rich mode 1 remains an explicit diagnostic action.
 
-The candidate package builder imports only the two cone assets into the day
-recipe and selects the newer frozen Factory hook. An isolated execution of
-that recipe loop confirms it does not import rain environment settings and
-does not alter the evening recipe. Runtime validation is still pending.
+Artifacts are in this worktree's `.work/day-lamps-20261014/active`, with the
+exact recipe, pre-test DLL, screenshot metadata and override reports. The
+adjacent manifest hashes the bounded investigation. The target wrapper
+restored package launcher, day preset and DLL after every run; it never
+changed the packed database.
+
+## Selective lamp check still pending
+
+Three useful views were retained in `poses-factory-day-lamps.json`:
+
+- East tank hangar: the native beam visibly begins above its fixture.
+- West office: the native beam begins below the fixture, a placement control.
+- South exterior: detached outdoor cone, a second setting and view angle.
+
+An initial interior pose was wall-occluded and discarded. The exact user
+screenshot camera has not been recovered. In the one new original-client
+session, all three retained poses were captured at 1280×720 and saved under
+`.work/render-compare/day-evening/010b/lamp-reference-20261014/matched`.
+The same live reference session supplied two requested material views; no
+additional original session was launched. A first incorrectly sized image
+is outside `matched` and excluded.
+
+Original references show subtler cones in both interior views, including the
+apparent placement control. This means visual acceptability in the native
+renderer is not proof of source fidelity. However, the globally enabled cone
+adapter has **not** yet been tested after correcting shader activation; the
+candidate must still preserve good controls before acceptance.
+
+The proposed day-only recipe change imports only the two cone assets and the
+newer compatible hook. Its isolated recipe-loop check excludes rain settings
+and leaves evening unchanged. It remains unapplied and is not a released fix.
