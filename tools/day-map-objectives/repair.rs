@@ -35,6 +35,29 @@ fn shape(v: &V) -> Result<V> {
 fn hash(b: &[u8]) -> String {
     format!("{:x}", Sha256::digest(b))
 }
+fn emit_project_change(
+    output: &Path,
+    path: &str,
+    before: &[u8],
+    project: &V,
+) -> Result<Option<Vec<u8>>> {
+    if BinaryConfig::parse(before)?.root == *project {
+        return Ok(None);
+    }
+    let bytes = BinaryConfig {
+        root: project.clone(),
+    }
+    .to_bytes()?;
+    ensure!(
+        BinaryConfig::parse(&bytes)?.root == *project,
+        "round-trip mismatch"
+    );
+    let file = output.join("overlay").join(path);
+    fs::create_dir_all(file.parent().unwrap())?;
+    fs::write(file, &bytes)?;
+    Ok(Some(bytes))
+}
+
 fn main() -> Result<()> {
     let args: Vec<_> = env::args().collect();
     ensure!(
@@ -150,22 +173,13 @@ fn main() -> Result<()> {
         visuals.retain(|v| !selected.contains(&shape(v).expect("visual shape")));
         project.set_path("render_visuals", V::Indexed(visuals))?;
         project.set_path("server_objects", groups)?;
-        let bytes = BinaryConfig {
-            root: project.clone(),
-        }
-        .to_bytes()?;
+        let removed_visuals = prior_count - array(field(&project, "render_visuals")?)?.len();
+        let emitted = emit_project_change(output, &path, &before, &project)?;
         ensure!(
-            BinaryConfig::parse(&bytes)?.root == project,
-            "round-trip mismatch"
+            emitted.is_some() == (zone_fixed || changed > 0 || removed_visuals > 0),
+            "project changes differ from the reported objective repairs"
         );
-        let project_changed =
-            changed > 0 || prior_count != array(field(&project, "render_visuals")?)?.len();
-        if project_changed {
-            let file = output.join("overlay").join(&path);
-            fs::create_dir_all(file.parent().unwrap())?;
-            fs::write(file, &bytes)?;
-        }
-        reports.push(serde_json::json!({"map":name,"source_db":source,"project":path,"authored_battery_spawns_verified":spawner_count,"collector_changes":changed,"collector_zone_repaired":zone_fixed,"removed_duplicate_static_visuals":prior_count-array(field(&project,"render_visuals")?)?.len(),"before_sha256":hash(&before),"after_sha256":if project_changed{hash(&bytes)}else{hash(&before)},"bindings":bindings}));
+        reports.push(serde_json::json!({"map":name,"source_db":source,"project":path,"authored_battery_spawns_verified":spawner_count,"collector_changes":changed,"collector_zone_repaired":zone_fixed,"removed_duplicate_static_visuals":removed_visuals,"before_sha256":hash(&before),"after_sha256":hash(emitted.as_deref().unwrap_or(&before)),"bindings":bindings}));
     }
     fs::create_dir_all(output)?;
     fs::write(
@@ -174,4 +188,63 @@ fn main() -> Result<()> {
     )?;
     println!("{}", serde_json::to_string_pretty(&reports)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn zone_only_change_is_written_and_a_repaired_project_is_not() {
+        let mut original = V::Named(vec![]);
+        original.set_path("collector", V::Named(vec![])).unwrap();
+        original
+            .set_path("collector.visual_geometry", V::Named(vec![]))
+            .unwrap();
+        original
+            .set_path(
+                "collector.visual_geometry.position",
+                V::Float3([102.664, 6.54, 79.938]),
+            )
+            .unwrap();
+        original
+            .set_path(
+                "collector.collision_zone",
+                V::String("logic/team1/victory_container_collision".into()),
+            )
+            .unwrap();
+        let before = BinaryConfig {
+            root: original.clone(),
+        }
+        .to_bytes()
+        .unwrap();
+        let original = BinaryConfig::parse(&before).unwrap().root;
+        let mut fixed = original.clone();
+        fixed
+            .set_path(
+                "collector.collision_zone",
+                V::String("logic/team2/victory_container_collision".into()),
+            )
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let path = "projects/chemical/client_project";
+        let bytes = emit_project_change(temp.path(), path, &before, &fixed)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            fs::read(temp.path().join("overlay").join(path)).unwrap(),
+            bytes
+        );
+        assert_eq!(BinaryConfig::parse(&bytes).unwrap().root, fixed);
+        assert_eq!(
+            field(field(&original, "collector").unwrap(), "visual_geometry").unwrap(),
+            field(field(&fixed, "collector").unwrap(), "visual_geometry").unwrap()
+        );
+        let repeated = tempfile::tempdir().unwrap();
+        assert!(
+            emit_project_change(repeated.path(), path, &bytes, &fixed)
+                .unwrap()
+                .is_none()
+        );
+        assert!(!repeated.path().join("overlay").exists());
+    }
 }
