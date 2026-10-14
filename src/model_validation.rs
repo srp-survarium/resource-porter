@@ -221,9 +221,15 @@ fn validate_paths(
     // Replacing stock materials can affect models outside the overlay. In that
     // case retain the conservative full model validation rather than exempting
     // their users as untouched native stock.
-    let replaces_material = overlay_files
+    let replaced_materials: BTreeSet<String> = overlay_files
         .keys()
-        .any(|path| path.starts_with("material_instances/") && base.is_file(path));
+        .filter(|path| path.starts_with("material_instances/") && base.is_file(path))
+        .filter_map(|path| {
+            path.strip_prefix("material_instances/")?
+                .strip_suffix(".material")
+                .map(str::to_owned)
+        })
+        .collect();
     let mut surfaces = BTreeMap::<String, BTreeSet<String>>::new();
     let mut material_vertex_color_gates = BTreeMap::<String, Option<bool>>::new();
     for path in paths {
@@ -239,11 +245,11 @@ fn validate_paths(
         // Validate each model changed by the overlay against the full effective
         // namespace; do not mistake archived donor defects for new output.
         if native
-            && !replaces_material
             && !overlay_files.is_empty()
             && !overlay_files
                 .keys()
                 .any(|path| path.starts_with(&format!("{model}/")))
+            && !uses_any_material(base, model, &replaced_materials)?
         {
             continue;
         }
@@ -306,6 +312,28 @@ fn validate_paths(
         models: validated_models,
         overlay_configs: 0,
     })
+}
+
+/// Whether an untouched model's effective settings bind a replaced material.
+/// Such users keep the conservative full validation; other native models'
+/// historical omissions are not attributed to a material-only overlay.
+fn uses_any_material(base: &mut ResourceDb, model: &str, materials: &BTreeSet<String>) -> Result<bool> {
+    if materials.is_empty() {
+        return Ok(false);
+    }
+    let settings_path = format!("{model}/settings");
+    if !base.is_file(&settings_path) {
+        return Ok(true);
+    }
+    let settings = BinaryConfig::parse(&base.read(&settings_path)?)
+        .with_context(|| format!("parsing model settings {settings_path}"))?;
+    let Some(ConfigValue::Named(entries)) = settings.root.named("material_settings") else {
+        return Ok(true);
+    };
+    Ok(entries.iter().any(|entry| {
+        matches!(entry.value.named("material_name"),
+            Some(ConfigValue::String(name)) if materials.contains(name))
+    }))
 }
 
 fn validate_surface_material_vertex_contracts(
