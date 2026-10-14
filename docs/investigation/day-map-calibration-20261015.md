@@ -234,3 +234,16 @@ off fails the safety check.
 
 All bug fixes apply to both looks. Preset variants are staged under
 `looks/` in the staged candidate.
+
+### Rebuild after the footstep/border merge
+
+After merging `e024b42` (moss footsteps, north-border boxes; 295 tests pass),
+the staged candidate was rebuilt the same way. `resources.db` is now
+`cc1a78d058fcbf754ad3bc3ddfe8c58a524e19f6b31c4a04c289cf15a9226050`. Against
+`ace67766`, 13,807 files are identical and 5 differ:
+`level/04/level_border.model/walker_collision/exported_primitives` and
+`moss{,2,3,4}.model/settings`. The path lists are equal and the 0.20e bundle
+is identical. The gameplay diagnostic plans were regenerated with
+`prepare_delivery_diagnostic.py` against this database under
+`/tmp/day-map-gameplay-20261014/diag-next/`, including the new
+`194-fence` spawn plan.
