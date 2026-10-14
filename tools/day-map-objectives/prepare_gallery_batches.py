@@ -55,7 +55,7 @@ args = parser.parse_args()
 assert not args.output.exists(), 'Choose a fresh plan directory'
 args.output.mkdir(parents=True)
 source = json.loads(args.source_manifest.read_text())
-gallery = {'schema_version': 1, 'screenshots_per_spawn': 10, 'maps': [], 'planned_screenshots': 590}
+gallery = {'schema_version': 1, 'screenshots_per_spawn': source.get('screenshots_per_spawn', 10), 'maps': [], 'planned_screenshots': 0}
 for map_info in source['maps']:
     archive = Path(map_info['packed_db'])
     with archive.open('rb') as db:
@@ -65,7 +65,7 @@ for map_info in source['maps']:
     project_path = map_info['packed_project']
     level = '03' if key.startswith('factory') else '04'
     ns = 'v010w' if key.startswith('factory') else 'v011a'
-    mode_path = f'gameplay/game_modes/{ns}_level_{level}_day_2.options'
+    mode_path = map_info.get('mode_resource', f'gameplay/game_modes/{ns}_level_{level}_day_2.options')
     resources = {}
     for kind, path in [('project', project_path), ('mode', mode_path)]:
         stat = command('stat', '--db', archive, '--path', path)
@@ -89,7 +89,7 @@ for map_info in source['maps']:
     mode = resources['mode']['data']
     count_leaf = leaf(mode, 'mode.parameters.victory_items_count')
     assert struct.unpack_from('<H', mode, count_leaf + 20)[0] == 1
-    map_gallery = {'key': key, 'title': 'Factory 0.10b day' if level == '03' else 'Chemical Plant 0.11a day',
+    map_gallery = {'key': key, 'title': map_info.get('title', 'Factory 0.10b day' if level == '03' else 'Chemical Plant 0.11a day'),
                    'map_id': map_info['map_id'], 'spawns': [], 'batches': []}
     for batch in map_info['diagnostic_batches']:
         selected = [s for s in map_info['candidates'] if s['diagnostic_batch'] == batch['batch']]
@@ -152,6 +152,7 @@ for map_info in source['maps']:
                                          'kind': 'candidate', 'active_runtime_battery_id': None, 'settled_position': None,
                                          'source_full_name': spawn['source_full_name']})
     gallery['maps'].append(map_gallery)
+gallery['planned_screenshots'] = gallery['screenshots_per_spawn'] * sum(len(m['spawns']) for m in gallery['maps'])
 args.gallery_manifest.write_text(json.dumps(gallery, indent=2)+'\n')
 print(json.dumps({'plans': sum(len(m['batches']) for m in gallery['maps']),
                   'spawns': sum(len(m['spawns']) for m in gallery['maps']), 'output': str(args.output),
