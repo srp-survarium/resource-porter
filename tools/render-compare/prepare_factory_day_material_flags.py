@@ -10,10 +10,8 @@ import subprocess
 
 
 CHANGES = {
-    'characters/human/remains/skeleton': {'use_troughness': (True, False),
-                                          'use_tspecular_intensity': (False, True)},
-    'characters/human/remains/rag': {'use_troughness': (True, False),
-                                     'use_tspecular_intensity': (False, True)},
+    'characters/human/remains/skeleton': {'use_tspecular_intensity': (False, True)},
+    'characters/human/remains/rag': {'use_tspecular_intensity': (False, True)},
     'tiled/metal/metal_radio': {'use_tfresnel': (False, True)},
 }
 
@@ -59,13 +57,35 @@ def prepare(args):
                             '--output', str(output)], check=True, stdout=subprocess.DEVNULL)
         original, raw = source.read_bytes(), baseline.read_bytes()
         fixed, changes = bytearray(raw), []
-        for name, (before, after) in switches.items():
-            path = f'material.g_stage.effect.{name}.value'
+        for switch, (before, after) in switches.items():
+            path = f'material.g_stage.effect.{switch}.value'
             offset, current = boolean(raw, path)
             _, authored = boolean(original, path)
             assert current == before and authored == after, (resource, path, current, authored)
             struct.pack_into('<Q', fixed, offset, int(authored))
             changes.append({'path': path, 'offset': offset, 'before': current, 'after': authored})
+        if name.startswith('characters/human/remains/'):
+            # The native alpha-test + intensity-mask + constant-roughness PS is
+            # absent. Its otherwise-identical textured-roughness PS is shipped.
+            # A zero-width authored range yields the same constant without
+            # adding a shader or altering the texture's channels/options.
+            path = 'material.g_stage.effect.use_troughness.value'
+            assert boolean(raw, path)[1] and not boolean(original, path)[1]
+            constant_path = 'material.g_stage.effect.constant_roughness.value'
+            constant_offset = leaf(original, constant_path)
+            assert struct.unpack_from('<H', original, constant_offset + 20)[0] == 2
+            constant = struct.unpack_from('<f', original, constant_offset)[0]
+            assert constant == .5
+            for field, expected in [('constant_roughness_min', .1), ('constant_roughness_max', .2)]:
+                path = f'material.g_stage.effect.{field}.value'
+                offset = leaf(raw, path)
+                assert struct.unpack_from('<H', raw, offset + 20)[0] == 2
+                current = struct.unpack_from('<f', raw, offset)[0]
+                assert abs(current - expected) < 1e-7
+                struct.pack_into('<f', fixed, offset, constant)
+                changes.append({'path': path, 'offset': offset, 'before': current, 'after': constant,
+                                'source_path': constant_path,
+                                'reason': 'zero-width range preserves authored constant with shipped shader'})
         fixed_path.write_bytes(fixed)
         stat = subprocess.check_output([str(args.porter), 'stat', '--db', str(args.archive),
                                         '--path', resource], text=True)
@@ -80,11 +100,12 @@ def prepare(args):
                         'fixed_sha256': hashlib.sha256(fixed).hexdigest(),
                         'source': source.name, 'source_sha256': hashlib.sha256(original).hexdigest(),
                         'changes': changes})
-    report = {'scope': 'Factory 0.10b day only; five authored feature switches in three materials. '
-                       'No texture, scalar, lighting or other namespace changes. Stop client before apply/revert.',
+    report = {'scope': 'Factory 0.10b day only; three source feature switches and four range endpoints '
+                       'set to the authored constant roughness in three materials. No texture, lighting '
+                       'or other namespace changes. Stop client before apply/revert.',
               'entries': entries}
     (args.output / 'patch.json').write_text(json.dumps(report, indent=2) + '\n')
-    print(json.dumps({'materials': len(entries), 'switches': sum(len(e['changes']) for e in entries),
+    print(json.dumps({'materials': len(entries), 'fields': sum(len(e['changes']) for e in entries),
                       'plan': str(args.output / 'patch.json')}))
 
 

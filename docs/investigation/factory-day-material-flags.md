@@ -35,15 +35,35 @@ their sRGB flag; metal textures retain linear sampling. Their means are
 approximately 0.0108/0.0080 after sRGB decoding for remains intensity, and
 0.0852 for the linear metal-radio map. No texture rewrite is proposed.
 
+Directly restoring all five booleans was rejected by the native shader
+archive during the controlled runtime test. The missing alpha-test,
+intensity-mask, constant-roughness permutation is:
+
+```
+_3___1101_00100_00____1_____0__0_00000____00000____000__________0__
+```
+
+Its otherwise-identical textured-roughness permutation is shipped:
+`_3___1101_00101_00____1_____0__0_00000____00000____000__________0__`,
+DXBC identity `e900e3e72a32c961f56a73ed8393a6c7`. It binds the base, normal,
+roughness and specular-intensity maps. The revised plan retains the native
+roughness switch and sets both range endpoints to the source constant 0.5.
+Thus `min + (max-min) * texture` is exactly the authored constant, while
+using the supported shader. The failed plan was reverted before handoff.
+
 `prepare_factory_day_material_flags.py` extracts only three small material
-entries, verifies all five authored booleans against the original database,
-and produces a fixed-size reversible plan. It never writes the archive.
+entries, verifies the original switches and constant, and produces a
+fixed-size reversible plan: three switches and four range endpoints.
+It never writes the archive.
 Use `patch_archive_entries.py ARCHIVE PLAN inspect|apply|revert` while the
 owned client is stopped. The patcher checks material hashes, positions and
 stored CRCs before writes. Other namespaces and materials are untouched.
 
-Runtime validation is pending. Three baseline views reproduce the pump,
-the outdoor remains and a second skeleton in a cellar. They were captured
-with the frozen packaged renderer and no material changes. A bounded
-same-camera comparison must also verify that the native material
-permutations load before this plan is included in a release.
+The revised plan's runtime validation is pending. Three corrected-activation
+baseline views reproduce the pump, outdoor remains and a second skeleton
+in a cellar. The original day client supplied matching pump/outdoor-remains
+references during the lights investigation. Earlier packaged captures had
+render overrides disabled; they are excluded from the new A/B. The new
+baseline uses `SRP_CAPTURE_BUFFERS=1` with screenshot-only control mode 2,
+UI off, the frozen day hook, and no raw dumps. A candidate must retain that
+recipe and verify material loading before release.
