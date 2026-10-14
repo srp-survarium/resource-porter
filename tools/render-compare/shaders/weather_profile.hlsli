@@ -67,3 +67,20 @@
 #ifndef LEGACY_FILMIC_ANGLE
 #define LEGACY_FILMIC_ANGLE .2
 #endif
+
+#if defined(LEGACY_SOURCE_011E_CLOUDS)
+// 0.11e level_03/level_04 day: authored cloud rotation 0, uploaded as
+// (cos, sin) by the source but (sin, cos) by 0.26, which is the quarter turn
+// verified on Chemical sky views; the same upload applies to Radar. Cloud
+// colour multiplier: Chemical 3, Radar 1 (post_process materials).
+#undef LEGACY_CLOUD_U_OFFSET
+#undef LEGACY_CLOUD_V_SCALE
+#undef LEGACY_CLOUD_TINT
+#define LEGACY_CLOUD_U_OFFSET .25
+#define LEGACY_CLOUD_V_SCALE (1.0/.96)
+#if defined(LEGACY_WEATHER_CHEMICAL_DAY)
+#define LEGACY_CLOUD_TINT 3
+#else
+#define LEGACY_CLOUD_TINT 1
+#endif
+#endif

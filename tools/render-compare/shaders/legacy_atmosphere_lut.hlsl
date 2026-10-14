@@ -1,5 +1,21 @@
 // Diagnostic port of the v0.10b scattering-table equations.
 // 0.26 uses the same 256x128 outputs and two-float4 constant-buffer layout.
+// LEGACY_SOURCE_011E selects the 0.11e make_mie_rayleigh_texture.ps
+// constants (identical instructions; only these literals differ): outer
+// radius^2, extinction, density scale heights and Rayleigh output scale.
+#if defined(LEGACY_SOURCE_011E)
+#define ATMOSPHERE_OUTER2 40659220.0f
+#define RAYLEIGH_EXTINCTION float3(-0.8586356f, -1.48806f, -3.0856414f)
+#define MIE_EXTINCTION 0.12566371f
+#define DENSITY_SCALE float2(-0.15130316f, -1.5130316f)
+#define RAYLEIGH_OUTPUT float3(0.8200186f, 1.4211347f, 2.946865f)
+#else
+#define ATMOSPHERE_OUTER2 41629640.0f
+#define RAYLEIGH_EXTINCTION float3(-0.17599343f, -0.297612f, -0.61712825f)
+#define MIE_EXTINCTION 0.012566371f
+#define DENSITY_SCALE float2(-0.050434384f, -0.15130316f)
+#define RAYLEIGH_OUTPUT float3(0.28013024f, 0.47371158f, 0.98228836f)
+#endif
 
 cbuffer LegacyAtmosphere : register(b0)
 {
@@ -31,14 +47,14 @@ void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O
 	float3	camera			= float3( 0.0f, 6356.7534f, 0.0f);
 
 	float	projection		= -6356.7534f*direction.y;
-	float	ray_length		= projection + sqrt( 41629640.0f - ( 40408312.0f - projection*projection));
+	float	ray_length		= projection + sqrt( ATMOSPHERE_OUTER2 - ( 40408312.0f - projection*projection));
 
 	float2	ray_step		= ray_length*float2( 0.05f, 0.0005243768f);
 
 	float3	position		= direction*ray_step.x*0.5f + camera;
 
-	float3	rayleigh_extinction	= atmosphere_rayleigh_mie_parameters.z*float3( -0.17599343f, -0.297612f, -0.61712825f);
-	float	mie_extinction		= atmosphere_rayleigh_mie_parameters.w*0.012566371f;
+	float3	rayleigh_extinction	= atmosphere_rayleigh_mie_parameters.z*RAYLEIGH_EXTINCTION;
+	float	mie_extinction		= atmosphere_rayleigh_mie_parameters.w*MIE_EXTINCTION;
 
 	float3	rayleigh_sum	= 0.0f;
 	float3	mie_sum			= 0.0f;
@@ -46,7 +62,7 @@ void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O
 	for (int i = 0; i < 20; i++)
 	{
 		float	altitude	= sqrt( dot( position, position)) - 6356.7524f;
-		float2	density		= exp2( altitude*float2( -0.050434384f, -0.15130316f));
+		float2	density		= exp2( altitude*DENSITY_SCALE);
 
 		density				= density*ray_step.y;
 
@@ -62,7 +78,7 @@ void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O
 		{
 			float	h		= sqrt( dot( view_sample, view_sample)) - 6356.7524f;
 
-			view_depth		+= exp2( h*float2( -0.050434384f, -0.15130316f));
+			view_depth		+= exp2( h*DENSITY_SCALE);
 			view_sample		= view_ray*view_step.x + view_sample;
 		}
 
@@ -70,7 +86,7 @@ void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O
 
 		float3	to_center	= -position;
 		float	sun_project	= dot( to_center, to_sun_direction_parameter.xyz);
-		float	sun_length	= sun_project + sqrt( 41629640.0f - ( dot( to_center, to_center) - sun_project*sun_project));
+		float	sun_length	= sun_project + sqrt( ATMOSPHERE_OUTER2 - ( dot( to_center, to_center) - sun_project*sun_project));
 		float3	sun_ray		= sun_length*to_sun_direction_parameter.xyz;
 		float	sun_travel	= sqrt( dot( sun_ray, sun_ray));
 
@@ -85,7 +101,7 @@ void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O
 		{
 			float	h		= sqrt( dot( sun_sample, sun_sample)) - 6356.7524f;
 
-			sun_depth		= sun_depth + exp2( h*float2( -0.050434384f, -0.15130316f));
+			sun_depth		= sun_depth + exp2( h*DENSITY_SCALE);
 			sun_sample		= sun_ray*sun_step.x + sun_sample;
 		}
 
@@ -103,5 +119,5 @@ void main( in v2p_make_mie_rayleigh_texture I, out p_make_mie_rayleigh_texture O
 	float3	mie			= atmosphere_rayleigh_mie_parameters.y*mie_sum;
 
 	O.mie		= float4( mie*float3( 0.02871989f, 0.032069717f, 0.037377253f), 1.0f);
-	O.rayleigh	= float4( rayleigh*float3( 0.28013024f, 0.47371158f, 0.98228836f), 1.0001f);
+	O.rayleigh	= float4( rayleigh*RAYLEIGH_OUTPUT, 1.0001f);
 }

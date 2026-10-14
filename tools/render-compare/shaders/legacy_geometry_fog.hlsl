@@ -23,6 +23,12 @@ float4 main(float4 position : SV_POSITION, float2 uv : TEXCOORD0) : SV_TARGET
     float3 rayleigh=t_rayleigh_scattering.SampleLevel(s_linear,float2(atan(min(distance,350)*.002),elevation),0).xyz;
     float3 mie=t_mie_scattering.SampleLevel(s_linear,float2(saturate(atan(distance*.00001)),elevation),0).xyz;
     float3 additive=.75*amount*rayleigh+saturate(saturate(min(depth,far_distance)/(far_distance*.5))*mie);
+#ifdef LEGACY_SOURCE_011E
+    // 0.11e atmospheric_scattering_on_geometry_add.ps adds a near fade of the
+    // additive scattering: saturate(d / (.25 * D)). Its multiply pass is
+    // byte-identical to 0.10b.
+    additive*=saturate(min(depth,far_distance)/(far_distance*.25));
+#endif
     float alpha=.1*amount;
     // SRC_ALPHA / INV_SRC_ALPHA reproduces old multiply then additive passes.
     return float4(additive/max(alpha,.000001),alpha);
