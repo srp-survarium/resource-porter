@@ -3,8 +3,10 @@ use std::{env, fs, path::Path};
 use vostok_resource_porter::ResourceDb;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a: Vec<_> = env::args().collect();
-    if a.len() != 5 {
-        return Err("usage: collision_evidence DB MODEL_PREFIX PROJECT OUTPUT".into());
+    if a.len() < 5 {
+        return Err(
+            "usage: collision_evidence DB MODEL_PREFIX PROJECT OUTPUT [EXTRA_PREFIX ...]".into(),
+        );
     }
     let root = Path::new(&a[4]);
     if root.exists() {
@@ -17,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|p| {
             db.is_file(p)
                 && (*p == &a[3]
+                    || a[5..].iter().any(|prefix| p.starts_with(prefix))
                     || (p.starts_with(&a[2])
                         && (p.contains("/collision/")
                             || p.contains("/walker_collision/")
