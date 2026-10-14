@@ -298,6 +298,7 @@ static void write_status(void) {
 #include "probe_sort.c"
 #include "factory_rain_shadow.c"
 #include "factory_020e_ambient.c"
+#include "factory_020e_clouds.c"
 #include "factory_rain_casters.c"
 #include "factory_rain_cache.c"
 #include "factory_rain_selection.c"
@@ -325,7 +326,7 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     if (!strcmp(build,"011e")) {
         ok=control[0] && install_camera() && install_present();
     } else {
-        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
+        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_factory_020e_clouds() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
     }
     write_status();
     if (!ok) ExitProcess(1);

@@ -402,3 +402,24 @@ SHA-256 `241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
 
 The historical `hangar-stairs` evidence ID is inside the antenna building.
 Keep that ID for reproducible comparisons; do not infer the model from its name.
+
+### Parameterized cloud-coordinate and fog candidate
+
+Source020 uses both stratosphere and generic cloud layers, with radii200000 and
+100000. PDB identifies sine at VA0x29d236 and cosine at0x672ed6. Source calls at
+0x11dfdb/0x11dff0 and0x11e204/0x11e219 store `(cos,sin,speed,radius)`. Native026
+calls at0x1a4d3e/0x1a4d4e and0x1a4feb/0x1a4ffb instead store
+`(sin,cos,speed,radius)`: its helper0x38ff0 contains `fsin`, helper0x39000 `fcos`.
+Both vertex shaders use the same rotation arithmetic and0.96 V scale. This is
+a general coordinate-convention difference, including Radar's316.74-degree
+clouds and zero-degree stratosphere; School's fixed quarter-turn is insufficient.
+
+The default-off `SRP_LEGACY_020E_CLOUDS=1` candidate swaps these four guarded
+native calls, leaving authored angles, speeds and radii intact. Its paired
+`factory_020e_clouds.hlsl` restores the source1656-byte unlit PS equation with
+native texture t1 and unchanged b0 weather registers: three mip samples, authored
+color multiplier, latitude fog power/upper limit and fog color. It contains no
+Radar-specific color or angle constants. The hook compiles with
+`-Wall -Wextra -Werror`; the capture harness requires both coordinate and shader
+override receipts. Native comparison is pending. This adapter does not change
+the separate atmosphere scattering shader or resolve the stair shadow difference.

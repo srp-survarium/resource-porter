@@ -88,7 +88,8 @@ def main(package, poses, output, arms, database_patch=None):
                     raise TimeoutError('native renderer did not initialize')
                 capture.capture(runtime/'camera.txt', views, destination, timeout=20)
                 for name in ('camera.txt.status.json', 'camera.txt.ambient-020e.json',
-                             'camera.txt.ambient-020e-apply.json', 'client.log', 'server.log'):
+                             'camera.txt.ambient-020e-apply.json', 'camera.txt.clouds-020e.json',
+                             'camera.txt.shader-overrides.json', 'client.log', 'server.log'):
                     p = runtime/name
                     if p.exists():
                         (destination/name).write_bytes(p.read_bytes())
@@ -99,6 +100,12 @@ def main(package, poses, output, arms, database_patch=None):
                     applied = json.loads((destination/'camera.txt.ambient-020e-apply.json').read_text())
                     if applied.get('hresult') != 0 or applied.get('shader_bytes') != 704:
                         raise RuntimeError('exact source ambient apply shader was not accepted')
+                    recipe = json.loads(body)
+                    if recipe.get('environment', {}).get('SRP_LEGACY_020E_CLOUDS') == '1':
+                        coordinates = json.loads((destination/'camera.txt.clouds-020e.json').read_text())
+                        shaders = json.loads((destination/'camera.txt.shader-overrides.json').read_text())
+                        if coordinates.get('rotation') != 'cos,sin' or shaders.get('hresult') != 0 or not shaders.get('legacy_cloud_uses'):
+                            raise RuntimeError('source cloud coordinates and pixel shader were not both applied')
             finally:
                 subprocess.run(launch+['stop'], check=True)
                 clients_stopped = True
