@@ -1,0 +1,259 @@
+{
+  "scope": "Five selected native positions only; remaining16 pending. Full geometry details retained externally.",
+  "spawns": [
+    {
+      "index": 3,
+      "body_center": [
+        37.667843,
+        1.4301986,
+        -68.026344
+      ],
+      "body_basis": [
+        [
+          0.99903595,
+          0.018927356,
+          -0.039609358
+        ],
+        [
+          -0.015153815,
+          0.9955049,
+          0.09348977
+        ],
+        [
+          0.041200824,
+          -0.09279942,
+          0.99483204
+        ]
+      ],
+      "model_origin": [
+        37.6696614578,
+        1.310738012,
+        -68.0375627724
+      ],
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [
+        {
+          "object": 520,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemikal_group_03.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 1,
+          "primitive_type": 2
+        },
+        {
+          "object": 520,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemikal_group_03.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 2,
+          "primitive_type": 2
+        }
+      ],
+      "visual_review": "Battery visible above supporting barrel"
+    },
+    {
+      "index": 19,
+      "body_center": [
+        49.3554,
+        1.4164759,
+        -55.193165
+      ],
+      "body_basis": [
+        [
+          0.99999774,
+          -0.00069934083,
+          -0.0020157152
+        ],
+        [
+          0.0007093587,
+          0.99998736,
+          0.00497346
+        ],
+        [
+          0.0020122116,
+          -0.0049748784,
+          0.9999856
+        ]
+      ],
+      "model_origin": [
+        49.355314876956,
+        1.2964774168,
+        -55.1937618152
+      ],
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [
+        {
+          "object": 1830,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemical_02.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 0,
+          "primitive_type": 2
+        },
+        {
+          "object": 1875,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemical_group_05.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 0,
+          "primitive_type": 2
+        },
+        {
+          "object": 1875,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemical_group_05.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 4,
+          "primitive_type": 2
+        },
+        {
+          "object": 1875,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemical_group_05.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 5,
+          "primitive_type": 2
+        },
+        {
+          "object": 1875,
+          "resource": "models/ported/v011e/props/barrel/barrel_chemical_group_05.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 6,
+          "primitive_type": 2
+        }
+      ],
+      "visual_review": "Battery visible above supporting barrel"
+    },
+    {
+      "index": 14,
+      "body_center": [
+        -16.083464,
+        6.8061223,
+        -27.932158
+      ],
+      "body_basis": [
+        [
+          0.99998397,
+          0.0016895395,
+          -0.005403949
+        ],
+        [
+          -0.001677358,
+          0.99999607,
+          0.002257935
+        ],
+        [
+          0.005407742,
+          -0.0022488346,
+          0.99998283
+        ]
+      ],
+      "model_origin": [
+        -16.08326271704,
+        6.6861227716,
+        -27.932428952200002
+      ],
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "visual_review": "Battery visible above supporting furniture; no burial detected"
+    },
+    {
+      "index": 17,
+      "body_center": [
+        -17.120527,
+        6.8248105,
+        -1.2674611
+      ],
+      "body_basis": [
+        [
+          0.9978723,
+          0.050887607,
+          0.04075959
+        ],
+        [
+          -0.060407005,
+          0.9568338,
+          0.28428873
+        ],
+        [
+          -0.02453338,
+          -0.28614601,
+          0.9578719
+        ]
+      ],
+      "model_origin": [
+        -17.1132781594,
+        6.709990444,
+        -1.3015757476
+      ],
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "visual_review": "Battery visible above supporting furniture; no burial detected"
+    },
+    {
+      "index": 18,
+      "body_center": [
+        -35.18761,
+        6.3708763,
+        -4.531762
+      ],
+      "body_basis": [
+        [
+          0.9978251,
+          0.06428621,
+          -0.014572853
+        ],
+        [
+          -0.06373011,
+          0.9973227,
+          0.035860606
+        ],
+        [
+          0.016839178,
+          -0.034853883,
+          0.99925053
+        ]
+      ],
+      "model_origin": [
+        -35.1799623868,
+        6.251197576,
+        -4.536065272719999
+      ],
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "visual_review": "Battery visible above supporting furniture; no burial detected"
+    }
+  ]
+}

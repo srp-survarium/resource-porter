@@ -1,0 +1,296 @@
+[
+  {
+    "time_ms": 5400,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 10400,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 15450,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 20450,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 25450,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 30450,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 35500,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 40500,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 45550,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 50550,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 55600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 60600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 65600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 70600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 75600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 80600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 85600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 90600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 95600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 100600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  {
+    "time_ms": 105650,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  }
+]

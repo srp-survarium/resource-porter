@@ -1,0 +1,65 @@
+{
+  "status": "native_player_state_corroborates_mode0_character_crossing",
+  "input": {
+    "key": "w",
+    "requested_duration_ms": 500,
+    "reported_elapsed_ms": 503,
+    "completed": true,
+    "exact_executable": "Z:\\tmp\\three-day-map-runtime\\client\\binaries\\x86\\survarium-capture.exe"
+  },
+  "camera_mode": 0,
+  "camera_control_request": "194001 0 0 0 0 1 0 0 65 1.7777778 0.05 500 0\nZ:\\tmp\\three-day-native-checks\\corridor-run\\unused.bmp\n",
+  "before_checkpoint": {
+    "time_ms": 70600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -63.5,
+          8.255478858947754,
+          -27.990699768066406
+        ]
+      }
+    ]
+  },
+  "after_checkpoint": {
+    "time_ms": 75600,
+    "player_state_length": 675,
+    "hits": [
+      {
+        "state_offset": 591,
+        "position": [
+          -61.57664489746094,
+          8.247220039367676,
+          -27.990703582763672
+        ]
+      }
+    ]
+  },
+  "native_player_position_delta": [
+    1.9233551025390625,
+    -0.008258819580078125,
+    -3.814697265625e-06
+  ],
+  "camera_position_delta": [
+    1.9233550999999949,
+    -0.00825882,
+    3.7999999982218924e-06
+  ],
+  "player_state_coordinate_interpretation": "Single plausible XYZ triple in the length-prefixed slot0 player state, consistent with Bullet Z sign and capsule-centre height. Field semantic inferred from authored spawn and matching camera delta; complete controller serializer ABI not independently decoded.",
+  "old_wall_x_bounds": [
+    -62.643,
+    -62.401
+  ],
+  "observer": {
+    "state": "stopped",
+    "version": 1,
+    "record_bytes": 1268,
+    "seen": 0,
+    "dropped": 0,
+    "written": 0,
+    "limit": 8192
+  },
+  "limitations": "One forward traversal through the old wall gap only; no proof of other collision areas or pickup accessibility. Observer records no contact candidates during this clear walk."
+}

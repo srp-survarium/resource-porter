@@ -1,0 +1,166 @@
+{
+  "map": "radar-011e-day",
+  "batch": 0,
+  "battery_count": 5,
+  "initial_time_ms": 50,
+  "settled_time_ms": 10450,
+  "latest_time_ms": 10450,
+  "record_unsettled": false,
+  "unsettled_candidates": [],
+  "max_motion_between_late_checkpoints_metres": 0.0,
+  "initial_checkpoint": {
+    "file": "/tmp/three-day-native-checks/checkpoints/radar-011e-day/batch-00/match026g_127.0.0.1-58476_50_battery.bin",
+    "sha256": "d2dfc9192323df1c89d89e963ce7a4b099c8ccd37591259297d9dbb9e4a0f75f"
+  },
+  "latest_checkpoint": {
+    "file": "/tmp/three-day-native-checks/checkpoints/radar-011e-day/batch-00/match026g_127.0.0.1-58476_10450_battery.bin",
+    "sha256": "1b01077ce615d1fdf24a04341cf7e34943634775182c56c3e8b1d4d1b0e358a2"
+  },
+  "batteries": [
+    {
+      "index": 3,
+      "battery_id": 0,
+      "authored_position": [
+        37.69,
+        1.286,
+        -68.103
+      ],
+      "initial_body_position": [
+        37.69,
+        1.406,
+        -68.103
+      ],
+      "runtime_position": [
+        37.667843,
+        1.4301986,
+        -68.026344
+      ],
+      "latest_runtime_position": [
+        37.667843,
+        1.4301986,
+        -68.026344
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.0,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.08338253550330535
+    },
+    {
+      "index": 19,
+      "battery_id": 1,
+      "authored_position": [
+        49.346,
+        1.314,
+        -55.161
+      ],
+      "initial_body_position": [
+        49.346,
+        1.434,
+        -55.161
+      ],
+      "runtime_position": [
+        49.3554,
+        1.4164759,
+        -55.193165
+      ],
+      "latest_runtime_position": [
+        49.3554,
+        1.4164759,
+        -55.193165
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.01752409999999993,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.037815886949932334
+    },
+    {
+      "index": 14,
+      "battery_id": 2,
+      "authored_position": [
+        -16.081,
+        6.644,
+        -27.925
+      ],
+      "initial_body_position": [
+        -16.081,
+        6.764,
+        -27.925
+      ],
+      "runtime_position": [
+        -16.083464,
+        6.8061223,
+        -27.932158
+      ],
+      "latest_runtime_position": [
+        -16.083464,
+        6.8061223,
+        -27.932158
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.0,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.04279715431299143
+    },
+    {
+      "index": 17,
+      "battery_id": 3,
+      "authored_position": [
+        -17.097,
+        6.723,
+        -1.296
+      ],
+      "initial_body_position": [
+        -17.097,
+        6.843,
+        -1.296
+      ],
+      "runtime_position": [
+        -17.120527,
+        6.8248105,
+        -1.2674611
+      ],
+      "latest_runtime_position": [
+        -17.120527,
+        6.8248105,
+        -1.2674611
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.018938999999999595,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.041217065063634796
+    },
+    {
+      "index": 18,
+      "battery_id": 4,
+      "authored_position": [
+        -35.161,
+        6.251,
+        -4.547
+      ],
+      "initial_body_position": [
+        -35.161,
+        6.371,
+        -4.547
+      ],
+      "runtime_position": [
+        -35.18761,
+        6.3708763,
+        -4.531762
+      ],
+      "latest_runtime_position": [
+        -35.18761,
+        6.3708763,
+        -4.531762
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.00012370000000050396,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.030664377471096613
+    }
+  ]
+}
