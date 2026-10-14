@@ -89,6 +89,26 @@ def main():
                                       'baseline_sha256': digest(baseline), 'fixed_sha256': digest(fixed),
                                       'source_sha256': digest(authored), 'mips': mips})
     (args.output/'manifest.json').write_text(json.dumps(report, indent=2)+'\n')
+    # Standard compose inputs; hard links avoid duplicating the DDS payloads.
+    # The porter's current compose implementation gives its FIRST bundle
+    # precedence, so these belong before the unmodified base bundle.
+    for group in ('material', 'texture'):
+        bundle = args.output/f'{group}-bundle'
+        files = []
+        for entry in report['entries']:
+            if entry['group'] != f'{group}-overlay':
+                continue
+            source = args.output/entry['group']/entry['resource']
+            target = bundle/'overlay'/entry['resource']
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                target.unlink()
+            target.hardlink_to(source)
+            files.append({'path': entry['resource'], 'source': '011e-source-contract-remains-candidate',
+                          'size': source.stat().st_size, 'sha256': entry['fixed_sha256']})
+        (bundle/'port-manifest.json').write_text(json.dumps({
+            'format_version': 1, 'asset_id': f'factory-011e-remains-{group}',
+            'files': files, 'candidate_manifest': '../manifest.json'}, indent=2)+'\n')
     print(json.dumps({'output': str(args.output), 'entries': len(report['entries'])}))
 
 

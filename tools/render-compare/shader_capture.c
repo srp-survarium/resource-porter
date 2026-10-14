@@ -819,7 +819,9 @@ static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *
         ID3D11PixelShader_Release(state->shader);
     }
 }
+#include "remains_texture_capture.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
+    capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
     TranslucencyState translucency; bind_translucency(context,&translucency);
@@ -837,6 +839,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     capture_composition_outputs(context,count,start,0,0); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
+    capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,base,1);
     TranslucencyState translucency; bind_translucency(context,&translucency);
