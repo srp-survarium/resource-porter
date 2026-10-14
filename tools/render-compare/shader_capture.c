@@ -177,25 +177,21 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (composition_replaced) { code=legacy_composition_code; size=legacy_composition_size; }
     if (ambient_decode_replaced) { code=legacy_ambient_decode_code; size=legacy_ambient_decode_size; }
     if (volume_replaced) { code=legacy_volume_code; size=legacy_volume_size; }
-<<<<<<< HEAD
     int local_f0_index=local_fresnel_one_index(code,size,0);
     int local_f0_replaced=local_f0_index>=0 && local_fresnel_one_code[local_f0_index];
     if (local_f0_replaced) { code=local_fresnel_one_code[local_f0_index]; size=local_fresnel_one_shaders[local_f0_index].fixed_size; }
-    HRESULT hr=original_create_ps(device,code,size,linkage,shader);
-    if (local_f0_replaced) report_local_fresnel_creation(local_f0_index,hr,shader?*shader:NULL);
-=======
     const unsigned char native_ambient_apply_digest[]={0xe4,0xf0,0xf3,0xc2,0xbb,0x70,0x68,0x86,0x88,0xc2,0xa1,0xcf,0xac,0x6c,0x1a,0xcb};
     int factory_apply_replaced=factory_020e_ambient_apply_code && size==956 &&
         !memcmp((const unsigned char *)code+4,native_ambient_apply_digest,16);
     if (factory_apply_replaced) { code=factory_020e_ambient_apply_code; size=factory_020e_ambient_apply_size; }
     HRESULT hr=original_create_ps(device,code,size,linkage,shader);
+    if (local_f0_replaced) report_local_fresnel_creation(local_f0_index,hr,shader?*shader:NULL);
     if (factory_apply_replaced) {
         char path[MAX_PATH+48]; snprintf(path,sizeof(path),"%s.ambient-020e-apply.json",control);
         FILE *receipt=fopen(path,"w");
         if (receipt) { fprintf(receipt,"{\"source\":\"020e\",\"shader_bytes\":%u,\"hresult\":%ld}\n",(unsigned)size,hr); fclose(receipt); }
     }
 
->>>>>>> e8c30dd (Preserve Factory020e gameplay proof and guarded lighting investigation)
     if (volume_replaced) {
         if (FAILED(hr) || !shader || !*shader) error("original cone shader rejected");
         else {

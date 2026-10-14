@@ -321,16 +321,12 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     GetEnvironmentVariableA("SRP_CAPTURE_BUILD",build,sizeof(build));
     GetEnvironmentVariableA("SRP_CAPTURE_CONTROL",control,sizeof(control));
     snprintf(status_path,sizeof(status_path),"%s.status.json",control);
-<<<<<<< HEAD
     int ok;
     if (!strcmp(build,"011e")) {
         ok=control[0] && install_camera() && install_present();
     } else {
-        ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
+        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
     }
-=======
-    int ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
->>>>>>> e8c30dd (Preserve Factory020e gameplay proof and guarded lighting investigation)
     write_status();
     if (!ok) ExitProcess(1);
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);
