@@ -56,5 +56,73 @@
       "target_primitives_sha256": "129597701a6cbf82412d475d6add678de0fa8d5b60fde8be0f2e9b32f1f91ab3",
       "reason": "0.11e walker drums 11/12/14 lie on their side (radius 1.7, half-length 1.65) around four vertical tanks; their square footprint extends up to 0.7 m past the visible tanks and blocked a player (map 194 user report 2026-10-14). 0.21d and native 0.26 re-author the same boiler with vertical tanks; bullet collision extents of both builds match within 0.1 m."
     }
+  },
+  "game_material_overrides": {
+    "models/flora/poplar_fug_01.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_03.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_04.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_06.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_07.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_01.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_02.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_03.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_06.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_07.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/level/03/anomaly_rust_tree_leaves.model/settings": {
+      "foliage_col_SG": "foliage_deciduous"
+    },
+    "models/level/03/officer_house_leaves.model/settings": {
+      "default": "foliage_deciduous"
+    },
+    "models/flora/sosna_dead_01.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_dead_02.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_02.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_03.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_04.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_05.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/elka_green_01.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/elka_green_04.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/elka_green_05.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/props/light/bonefire_01.model/settings": {
+      "coll_foliageSG": "foliage_coniferous"
+    }
   }
 }
