@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import struct
 
-from prepare_cloud_lighting_patch import prepare, config, RESOURCE
+from prepare_cloud_lighting_patch import prepare, config, RESOURCE, TARGET_SHA
 
 
 def entry_at(data, path):
@@ -34,8 +34,8 @@ def entry_at(data, path):
     return offset
 
 
-def sky_patch(source, database, porter, output):
-    prepare(source, database, porter, output)
+def sky_patch(source, database, porter, output, target_sha=TARGET_SHA):
+    prepare(source, database, porter, output, target_sha)
     path = output/'bundle/overlay'/RESOURCE
     cloud_only = path.read_bytes()
     data = bytearray(cloud_only)
@@ -88,5 +88,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('source', 'database', 'porter', 'output'):
         parser.add_argument(name, type=Path)
+    parser.add_argument('--target-sha', default=TARGET_SHA, help='reviewed current converted project hash')
     args = parser.parse_args()
-    sky_patch(args.source, args.database, args.porter, args.output)
+    sky_patch(args.source, args.database, args.porter, args.output, args.target_sha)

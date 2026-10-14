@@ -19,7 +19,7 @@ RESOURCE = 'projects/v020e_level_03/day_2/client_project'
 FIELD = 'use_sky_clouds_lighting'
 
 
-def prepare(source, database, porter, output):
+def prepare(source, database, porter, output, target_sha=TARGET_SHA):
     if hashlib.sha256(source.read_bytes()).hexdigest() != SOURCE_SHA:
         raise ValueError('not the pinned original020e Radar day project')
     output.mkdir(exist_ok=False)
@@ -28,7 +28,9 @@ def prepare(source, database, porter, output):
     subprocess.run(command+['extract', '--db', str(database), '--path', RESOURCE,
                             '--output', str(before)], check=True)
     original = before.read_bytes()
-    if hashlib.sha256(original).hexdigest() != TARGET_SHA:
+    # A reviewed later baseline (for example a gameplay-only project patch) may be
+    # named explicitly; every other decoded value is still checked below.
+    if hashlib.sha256(original).hexdigest() != target_sha:
         raise ValueError('converted project changed; audit before preparing a patch')
     donor = config(source.read_bytes())
     target = config(original)
@@ -72,10 +74,10 @@ def prepare(source, database, porter, output):
         raise ValueError('archive entry is not unique')
     entry = dict(resource=RESOURCE, position=position, crc_offset=at+40,
         baseline=before.name, fixed='bundle/overlay/'+RESOURCE,
-        baseline_sha256=TARGET_SHA, fixed_sha256=hashlib.sha256(after).hexdigest())
+        baseline_sha256=target_sha, fixed_sha256=hashlib.sha256(after).hexdigest())
     (output/'patch.json').write_text(json.dumps(dict(entries=[entry]), indent=2)+'\n')
     report = dict(resource=RESOURCE, source_sha256=SOURCE_SHA,
-        before_sha256=TARGET_SHA, after_sha256=hashlib.sha256(after).hexdigest(),
+        before_sha256=target_sha, after_sha256=hashlib.sha256(after).hexdigest(),
         before_size=len(original), after_size=len(after), switches=len(patches)//2,
         only_expected_values_changed=True, database_modified=False)
     (output/'guard.json').write_text(json.dumps(report, indent=2)+'\n')
@@ -86,5 +88,6 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     for name in ('source', 'database', 'porter', 'output'):
         p.add_argument(name, type=Path)
+    p.add_argument('--target-sha', default=TARGET_SHA, help='reviewed current converted project hash')
     a = p.parse_args()
-    prepare(a.source, a.database, a.porter, a.output)
+    prepare(a.source, a.database, a.porter, a.output, a.target_sha)
