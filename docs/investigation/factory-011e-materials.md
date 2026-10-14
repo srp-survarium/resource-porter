@@ -1,4 +1,7 @@
-# Factory 0.11e remains and motor audit
+# Radar 0.11e remains and motor audit
+
+The source level03 is Vostok Radar Station. Earlier investigation paths and
+script names called it Factory; those stable artifact paths are retained.
 
 The new release donor is 0.11e build 884. The candidate namespace is
 `ported/v011e`; the earlier `ported/v010w` package offsets must not be reused.
@@ -24,9 +27,10 @@ at quality 0/3. It keeps textured roughness enabled with min=max=0.5 rather
 than requesting the missing native constant-roughness permutation. Its
 manifest records each input/output hash and every mip's alpha error.
 It also emits standard `texture-bundle` and `material-bundle` inputs for
-`vostok-port compose`. Put approved repair bundles before the base: current
-composition gives the first bundle precedence. A two-file texture bundle
-was composed and its output hashes verified through the actual CLI.
+`vostok-port compose`. Its stock composer gives the first bundle precedence,
+and a two-file texture bundle was verified through that CLI. The release
+composer instead rejects conflicting files; use its explicit guarded `--patch`
+mechanism with expected original SHA256, never rely on bundle order there.
 
 Lighting was checked independently of the materials. All four 0.11e point
 and four spot accumulator bytecodes exactly match 0.10b. Two of eight sun
@@ -97,5 +101,39 @@ simultaneous private encoded local-light replay and writes bounded per-pose
 metadata for shader variants actually drawn. The generated manifest records
 original/replacement SHA256, insertion offsets and inverse structural checks.
 Candidate assets are currently under
-`/tmp/daylight-material-review/local-sentinel/candidate`. A separate two-pose
-Radar011e runtime A/B is pending; material and sun changes remain unpromoted.
+`/tmp/daylight-material-review/local-sentinel/candidate`. Material and sun
+changes remain unpromoted.
+
+
+### Radar011e native A/B: local exception
+
+The two screenshot-only arms used ID195 in the new three-map candidate,
+BC3 textures and the same supported materials/sun sentinel. The hook was
+rebuilt on release commit `f14c580` plus `eb660f7`, retaining the root sun,
+rain and composition paths. Only `SRP_LOCAL_FRESNEL_ONE_DIR` differed. Both
+settled poses actually bound the patched shadowed-spot identity `33204e90…`.
+All driver shader creations succeeded; offline generation also passed
+checksum, deterministic regeneration, inverse-instruction and tamper checks.
+
+| Fixed region | Pixels | Before mean luma | After mean luma |
+|---|---:|---:|---:|
+| Cellar remains | 67,850 | .034276 | .037377 |
+| Cellar floor control | 20,800 | .034157 | .034100 |
+| Outdoor remains | 69,105 | .108544 | .109259 |
+| Outdoor ground control | 21,000 | .090927 | .090618 |
+
+These are fixed screenshot rectangles, not exact material masks; they include
+background and phase/streaming variation. The cellar recovers some detail but
+remains dark. The outdoor source010 image has materially different foliage
+shadow coverage from011e, so cross-donor MAE is not a release criterion. The
+upcoming single original011e reference batch includes both exact poses; no
+brightness adjustment or whole-BRDF parity claim is justified meanwhile.
+
+The candidate is an exact subset of the source sentinel, not its full
+`F>.99` behavior at grazing angles when F0<1. The native lower-F0 BRDF and
+specular remain unchanged. The two-material plan, generated shaders, loaded
+hook, guarded combined recipe, screenshots and restoration report are
+preserved under `.work/factory-011e-materials-20261014/local-diffuse/`. Both
+clients/server stopped, and the package hook, composition and two materials
+were restored exactly. The independently accepted BC3 textures remain in
+the candidate package.
