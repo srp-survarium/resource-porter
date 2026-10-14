@@ -143,3 +143,94 @@ Nothing is promoted. A read-only hook in the original 0.20e session at
 
 All runs use one client at a time. They hold the shared candidate runtime
 lock and refuse to start beside another client.
+
+## Clean rebuild (2026-10-15, later)
+
+Candidate `/tmp/three-day-map-candidate-next` (shared package left untouched):
+`resources.db` SHA-256 `ace67766d05aa1403f35695567dc2de0ebd98c5f31545601d5fc7db311431fc9`.
+It was rebuilt from retail 0.26g with `build-survarium021-maps` for 0.11e and
+0.20e, then `compose-day-map-bundles` (13,812 resources verified), then
+`vostok-port apply`, then `vostok-port verify`. No post-build patches. All 294
+library tests pass, including the merged converter-review and gameplay-fixes
+branches.
+
+### File-level diff against the current package (`8e72816c…`)
+
+13,592 bundle files are byte-identical. 208 differ and 12 are new:
+
+| Files | Cause |
+| --- | --- |
+| 178 materials (119 v011e, 59 v020e) | Source switch/render-state/empty-slot restoration (`1607fa0`) |
+| 24 flora/tree model settings | Foliage game-material classification (gameplay, `1063a00`) |
+| v011e level_03 project | 16 `wire_set` objects restored (`3659fe0`); empty `antenna_tree` collision omitted (`2e1b6c0`); 5 ambient sounds now donor stems (`2722518`); environment gamma, fog start and renamed fields (`36b43cc`); respawn ally/enemy radii removed (gameplay) |
+| v011e level_04 project | Environment gamma, fog start and renamed fields (`36b43cc`); respawn radii removed; 1 ambient sound stem |
+| v020e level_03 project | 7 empty-folder collision instances omitted (`2e1b6c0`); cloud lighting off and Mie 2 (`9fb7b65`); respawn radii and inherited 6 s protection removed (gameplay) |
+| remains skeleton/rag DDS | Converter BC2→BC3 (`36aaf76`); RGB blocks identical to the earlier overlay |
+| `door_metal.dds` | DXT3→DXT5 by the converter; RGB blocks identical |
+| 12 new `sounds/…/v011e/scapes/*` | Donor stems with native-format options (`2722518`) |
+
+Battery positions on all three maps match the current package.
+
+## Material switches: shader-variant safety
+
+The first gloss-switch database crashed during a live Chemical load. The
+missing key was `gbuffer_pass.ps/_3___1101_01101_…002…`, a translucent
+wind-animated tree with a restored intensity mask on vertex input 1. The
+earlier check matched only material digits. The catalog now indexes shipped
+keys by projection, by the remaining material digits, and by geometry
+variant. Geometry positions 17/22/31/33/51 come from the `vertex_base.vs`
+mask. A switch is restored only if every variant the material can request
+still ships. Plain static materials need only vertex inputs 0/1; all others
+need every variant (regression test included).
+
+On the rebuilt bundles, all 178 changed materials pass an independent Python
+re-check. Against the donors, differing switches fall from 211 to 77 and
+template textures in empty source slots from 156 to 21. The 67
+`use_tiled_vertex_blended_mask` (vertex-blended materials) remain; turning it
+off fails the safety check.
+
+## User reports traced
+
+- **Sheet-metal wall** (23-38-54, 00-59-46): `ported/v011e/tiled/metal/metal_gray_vc`
+  on `level/04/loading_station_02` (ray cast from the reported camera). The
+  source has Fresnel and intensity masks, but no shipped variant can carry
+  them for this vertex-blended material, so they stay unresolved. Its sheen is
+  the native ambient specular.
+- **Walkway** (`central_shadow`): `metal_red`, `metal_column_03` and
+  `floor_plate_tile` have no gloss-switch difference.
+  - `floor_plate_tile` uses its diffuse texture as roughness. The native copy
+    of that trailing-space texture is effectively identical.
+  - Red versus green channel: 0.384 vs 0.363 mean, a negligible difference.
+  - The remaining shared cause is ambient probe specular. The 0.11e probe
+    shader (`9dd5d3bf`) suppresses it by `1 - gloss^3`, AO^5, a cap of 4 and
+    screen-space occlusion. The retained native producer has none of these;
+    the Factory buffer audit measured it about 400× above the source on
+    shadowed dielectrics. `CONFIG_SOURCE_PROBE_SPECULAR` (opt-in) is
+    the A/B candidate.
+- **Dark shadowed and indoor areas in play**: besides the height-ambient gamma
+  (`36b43cc`), the user ran at 2558×1440. The archived SSAO replay accepted
+  only 1280×720 depth. At any other size it never became ready, and the
+  paired ambient decode drew without its AO input. The hook status showed
+  "original SSAO requires single-sample 1280x720 R16F depth". Fixed in
+  `477a371`; all earlier captures were 1280×720 and could not show it.
+- **Cyan glossy pool next to the bones**: `ported/v011e/anomaly/anomaly_liquid`
+  on `level/04/moss`. It is an anomaly-liquid material, not water, and has no
+  switch difference from the source. The new `chem-bones` original view will
+  settle its colour.
+- **Cabinets**: `electrical_cabinet_01/02` and `mech_cabinet_02`. Their
+  roughness and specular switches are now restored where variants ship.
+
+## Looks
+
+`environment_look` (per map in the port manifest) and
+`build_day_presets.py` keep two looks:
+
+- **`source`** (staged default): 0.11e LUT, geometry-fog fade, clouds (quarter
+  turn, Chemical ×3), 0.11e post tail, god rays on, Rayleigh haze from the
+  camera.
+- **`legacy-010b-atmosphere`**: the snapshot's LUT, fog, clouds, tone curve
+  and Radar god rays off, plus the template fog start via
+  `ports/survarium-011e-day-legacy-look-to-026g.json`.
+
+All bug fixes apply to both looks. Preset variants are staged under
+`looks/` in the staged candidate.
