@@ -236,3 +236,27 @@ Initial validation compares against the latter; camera/runtime positions remain
 native body centres without a second offset. This corrects the earlier audit's
 inference: exact checkpoints at source coordinates proved matching numbers, not
 correct mesh placement under the native contract.
+
+## Settled Chemical footprint and camera checks
+
+The private checkpoint decoder can now retain each free battery's exact native
+body basis. It locates the already decoded gather payload uniquely and checks
+all extracted transform translations against the library's decoded positions.
+`validate_gallery_batch.py` retains `runtime_body_basis` in the gallery manifest.
+`audit_battery_geometry.py GEOMETRY_ROOT PROJECT MANIFEST --output REPORT` uses
+that basis for an oriented box/triangle separating-axis check. It also detects
+body centres inside authored box primitives and upward-facing mesh surfaces
+above the body. Contacts within2cm are reported but not treated as deep burial;
+non-box primitives remain explicit review items. This is resource-level geometry
+evidence, not a claim that every collision group blocks the battery physically.
+
+The tool's `Geometry.local`, `segment_triangle`, `Geometry.footprint` and
+`Geometry.cameras` share the parsed geometry. Camera selection tries16 azimuths,
+first at standing height and then lower crouched heights, choosing distinct close
+and context views with clear collision segments. Render-only occluders still
+require image review. The first corrected Chemical batch has10 stable batteries,
+zero missing collision resources, and two collision-clear suggestions for each.
+The conservative footprint flags candidate0's wagon walker-only geometry and a
+2.7cm terrain intersection at candidate4 for visual/contact review; the other8
+have no deep intersection. Do not call these flags proved placement failures or
+call the complete33 clear until all native checkpoint batches are checked.

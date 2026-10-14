@@ -5,7 +5,10 @@ use sha2::{Digest, Sha256};
 use std::{env, fs, path::Path};
 use vostok_resource_porter::{
     BinaryConfig, ConfigValue as V, ResourceDb,
-    survarium_026::{collector_visual, repair_chemical_collector_zone},
+    survarium_026::{
+        battery_body_transform, battery_collision_offset, collector_visual,
+        repair_chemical_collector_zone,
+    },
 };
 fn array(v: &V) -> Result<&[V]> {
     match v {
@@ -67,6 +70,10 @@ fn main() -> Result<()> {
     let output = Path::new(&args[4]);
     ensure!(!output.exists(), "output exists");
     let mut target = ResourceDb::open(&args[1])?;
+    let body_offset = battery_collision_offset(&config(
+        &mut target,
+        "gameplay/victory_items/default.options",
+    )?)?;
     let mut reports = vec![];
     for (name, source, level, namespace) in [
         ("factory", &args[2], "level_03", "v010w"),
@@ -93,12 +100,24 @@ fn main() -> Result<()> {
                     "{name} spawner {key} drift"
                 );
             }
-            for key in ["position", "rotation"] {
-                ensure!(
-                    field(old, key)? == field(field(new, "spawned_item")?, key)?,
-                    "{name} nested spawner {key} drift"
-                );
-            }
+            let nested = field(new, "spawned_item")?;
+            let body = battery_body_transform(old, body_offset)?;
+            ensure!(
+                field(old, "rotation")? == field(nested, "rotation")?,
+                "{name} nested rotation drift"
+            );
+            let expected = field(&body, "position")?;
+            let actual = field(nested, "position")?;
+            let corrected = match (expected, actual) {
+                (V::Float3(a), V::Float3(b)) => {
+                    a.iter().zip(b).all(|(a, b)| (a - b).abs() < 0.0001)
+                }
+                _ => false,
+            };
+            ensure!(
+                field(old, "position")? == actual || corrected,
+                "{name} nested body position drift"
+            );
         }
         let spawner_count = original_spawns.len();
         let zone_fixed = if name == "chemical" {

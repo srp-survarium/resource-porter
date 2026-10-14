@@ -209,7 +209,7 @@ fn fill_missing_empty_groups(value: &mut ConfigValue, template: &ConfigValue) {
     }
 }
 
-fn battery_collision_offset(options: &ConfigValue) -> Result<[f32; 3]> {
+pub fn battery_collision_offset(options: &ConfigValue) -> Result<[f32; 3]> {
     let collision = array(
         options
             .named("collision_geometries")
@@ -225,7 +225,7 @@ fn battery_collision_offset(options: &ConfigValue) -> Result<[f32; 3]> {
     }
 }
 
-fn battery_body_transform(object: &ConfigValue, offset: [f32; 3]) -> Result<ConfigValue> {
+pub fn battery_body_transform(object: &ConfigValue, offset: [f32; 3]) -> Result<ConfigValue> {
     let Some(ConfigValue::Float3(position)) = object.named("position") else {
         bail!("battery spawn has no position");
     };

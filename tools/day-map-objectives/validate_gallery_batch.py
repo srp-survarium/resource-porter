@@ -85,6 +85,7 @@ for spawn in spawns:
                  max_fall_from_authored_metres=max_fall, late_motion_metres=motion,
                  runtime_initial_time_ms=initial['time_ms'], runtime_settled_time_ms=settled['time_ms'] if stable else None,
                  runtime_latest_time_ms=settled['time_ms'],
+                 runtime_body_basis=settled['batteries'][battery_id].get('body_basis'),
                  displacement_from_authored_metres=displacement)
     rows.append({'index': spawn['index'], 'battery_id': battery_id, 'authored_position': spawn['position'],
                  'initial_body_position': initial_position,
