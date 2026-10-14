@@ -170,6 +170,13 @@ impl MaterialCatalog {
         );
         neutralize_template_vertex_blending(&mut converted.root, &donor_config.root);
         neutralize_template_water_foam(&mut converted.root, &donor_config.root);
+        restore_factory_lamp_emission(
+            path,
+            &template.path,
+            &donor_config.root,
+            &mut converted.root,
+            target,
+        )?;
         Ok(ConvertedMaterial {
             bytes: converted.to_bytes()?,
             template_path: template.path.clone(),
@@ -245,6 +252,50 @@ impl MaterialCatalog {
         });
         Ok(candidates)
     }
+}
+
+fn restore_factory_lamp_emission(
+    path: &str,
+    template: &str,
+    donor: &ConfigValue,
+    converted: &mut ConfigValue,
+    target: &ResourceDb,
+) -> Result<()> {
+    // This source bulb uses a non-emitting native template. The separate
+    // emission pass was verified in 0.26 with these two switches restored;
+    // copying arbitrary source features can request absent permutations.
+    if path != "material_instances/props/light/lamp_greenhouse_clone.material"
+        || template != "material_instances/props/light/lamp_greenhouse.material"
+    {
+        return Ok(());
+    }
+    let flags = ["use_emissive", "use_emissive_map"];
+    let source_effect = donor
+        .named("material")
+        .and_then(|v| v.named("g_stage"))
+        .and_then(|v| v.named("effect"));
+    if !flags.iter().all(|flag| {
+        source_effect
+            .and_then(|v| v.named(flag))
+            .and_then(|v| v.named("value"))
+            == Some(&ConfigValue::Boolean(true))
+    }) {
+        return Ok(());
+    }
+    // Both quality variants of the observed textured-emission shader must
+    // exist. Other target builds keep their existing template contract.
+    if !["0", "1"].iter().all(|quality| target.is_file(&format!(
+        "shaders/sm_4_0/gbuffer_emissive_pass.ps/________0______2_0____1________0_0__________0______0_{quality}_____________"
+    ))) {
+        return Ok(());
+    }
+    for flag in flags {
+        converted.set_path(
+            &format!("material.g_stage.effect.{flag}.value"),
+            ConfigValue::Boolean(true),
+        )?;
+    }
+    Ok(())
 }
 
 fn effect_ids(effects: &BTreeMap<String, String>) -> BTreeSet<String> {

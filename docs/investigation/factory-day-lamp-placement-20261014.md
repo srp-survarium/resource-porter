@@ -102,7 +102,7 @@ and leaves evening unchanged. It remains unapplied and is not a released fix.
 
 ## Day-only bulb emission omission
 
-The day lamp material still disables `use_emissive` and `use_emissive_map`.
+The frozen day lamp material disabled `use_emissive` and `use_emissive_map`.
 Both are true in the original material and in the already repaired rain
 namespace. The sampled `green_lamp_with_wire` model binds its `lamp_lights_s`
 surface to this material. This explains the dark bulb in day captures without
@@ -121,11 +121,60 @@ Four previously captured rain emission draws use the same 2,584-byte DXBC
 `a2e26698335ab986a7241bcc68291a10` and `[5,5,5,1]` emission color. The combined
 database contains that exact shader under two `gbuffer_emissive_pass.ps`
 permutations with textured emission selector 2. The preparation script rejects
-an archive lacking this observed shader. This supports permutation availability;
-a runtime day comparison is still required.
+an archive lacking this observed shader.
 
-The plan at `.work/day-lamps-20261014/emission-patch/patch.json` remains baseline
-by CRC inspection. Only bytes 10152 and 12456 change from 0 to 1. No map geometry,
-light positions, cone opacity, texture or scalar value changes. The material
-worker will combine the pending lamp and material screenshot checks after the
-battery gallery returns the runtime lease.
+The material worker successfully loaded and captured the joint six-pose candidate
+with shader activation enabled. Lamp images are in
+`/tmp/daylight-material-review/compatible-candidate`; east hangar and west office
+show restored white bulbs against the active baseline. Shaft appearance remains
+unchanged. Original crosshairs overlap part of the bulb, so no pixel error score
+is claimed. Root subsequently applied the two-switch repair to the release and
+saved its reversible plan under `validation/release-fixes-20261014`.
+
+The exact verified preparation is
+`.work/day-lamps-20261014/emission-verified-plan/patch.json`. Only offsets 10152
+and 12456 change from 0 to 1, giving material SHA-256
+`de2bfde51363bc79a2636d64bcc1f08d6655297e9a059afe9e3ee516c68a29fd`.
+No map geometry, cone opacity, texture or scalar value changes.
+
+### Rebuilding the bulb repair
+
+The saved heldout-materials rebuild maps source `lamp_greenhouse_clone` to native
+`lamp_greenhouse`, whose emission switches are false. `MaterialCatalog::convert`
+now restores the two true source switches only for that exact source/template
+pair and only when both observed 0.26 textured-emission shader keys exist.
+Unrelated shader features retain their template values. Thus both fresh map
+conversion and `build-material-patch` reproduce emission without a manual edit.
+
+Validation used the original source database and packed target templates to
+rebuild just this material and neighboring `lamp_lights`. Comparing identical
+converter revisions with/without the repair produced exactly the two expected
+byte changes; the neighboring material was byte-identical. Artifacts are
+`rebuild-base-head`, `rebuild-after`, and `rebuild-verification.json` in this
+investigation directory. All three existing material-conversion tests pass;
+no new test cases were added. The older installed release binary additionally
+predates numeric conversion fixes, so its `rebuild-before` output is excluded
+from this same-revision comparison.
+
+When composing **old frozen** weather bundles, conversion is bypassed. Run the
+verified emission preparation/apply step after composition, or rebuild the
+weather material with the current converter first. `build_local.py` only freezes
+an already verified database; it does not convert materials.
+
+### Why only some shafts reveal the mismatch
+
+The source author placed the same cone mesh at different heights relative to
+its nearest lamp fixture. For the three retained views, cone-origin minus
+fixture-origin Y is −0.114 m (east hangar), −0.443 m (west office), and −0.413 m
+(south exterior). These offsets are unchanged in the port. The actual
+`green_lamp_with_wire/lamp_lights_s` surface has 173 vertices, all with exactly
+matching source/target XYZ; local Y bounds are −0.64033 to 0.00955 m. Those bounds
+include housing and wire and are not an identified bulb center.
+
+`source-cone-fixture-origins.json` records all 12 source cones; nearest-fixture
+associations for distant cones are only proximity candidates. The three sampled
+associations are visible in the matched screenshots. `with-wire-geometry-check.json`
+records the surface comparison. Different authored apex offsets can explain why
+the native opacity equation exposes a gap at some lamps but not others; this is
+an inference, not a completed runtime fix. The activated cone-adapter A/B still
+needs the bad east hangar and good west/outdoor controls before deployment.
