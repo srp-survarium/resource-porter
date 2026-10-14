@@ -74,3 +74,44 @@ The repair tool also has a focused fixture verifying that a zone-only change is
 written even when collector visuals are already correct, followed by a no-op
 check using the repaired project. Its change accounting must match the emitted
 project, including zone repairs and removed static visuals.
+
+## Complete battery gallery diagnostics
+
+`export_gallery_spawns.py` writes `/tmp/battery-gallery-spawns.json`: every original
+candidate (26 Factory, 33 Chemical), with names, IDs and transforms checked against
+the current package. `prepare_gallery_batches.py SOURCE_JSON OUTPUT` produces
+seven reversible same-length project/mode plans and the compact gallery manifest.
+Factory batches contain 10/10/6 candidates; Chemical batches contain 10/10/10/3.
+No archive is changed by either tool. Plans must be regenerated after release
+project changes; each is based on the same untouched project and must be reverted
+before applying the next one.
+
+The native gather mask is u16, so activating all 26/33 candidates simultaneously
+would exceed its supported count. Each private batch narrows only the indexed
+spawner array, preserves authored transforms, renumbers its IDs to 0..N−1, and
+sets the mode's battery count to N. Dense IDs are mandatory: build2777's cook reads
+the array count at 0x2F294B, allocates that many pointers at 0x2F298A and writes
+`vector[point_id]` at 0x2F29A4..0x2F29CE. The selection routine at 0x315130 shuffles
+points and marks each selected point (+0x60), preventing reuse. The batch plans'
+configs have been independently decoded and checked; activation still requires
+native checkpoint validation before claiming coverage.
+
+After each batch starts, use the server's `--packet-log` output:
+
+```
+python tools/day-map-objectives/extract_snapshots.py PACKET_LOG SNAPSHOT_DIR
+python tools/day-map-objectives/validate_gallery_batch.py MANIFEST MAP BATCH SNAPSHOT_DIR \
+  --decoder /tmp/decode-battery-snapshot-json --players 1 --output UPDATED_MANIFEST
+```
+
+The decoder source is `decode_snapshot.rs`, linked against the existing SRP
+`survarium` crate (v026g match snapshot decoder); its CLI is
+`FILE TIME_MS PLAYERS BATTERIES`. The matcher requires every initial battery to
+match exactly one authored batch candidate and two later checkpoints at least a
+second apart, both after five seconds. Their maximum movement must be ≤0.03m.
+It records active battery IDs, actual `runtime_position`, displacement, original
+and settled times, then copies complete raw checkpoints and decoded JSON beneath
+`UPDATED_MANIFEST`'s parent `/checkpoints/MAP/batch-NN` (or `--evidence-dir`).
+Candidate metadata never becomes active-battery evidence without this validation.
+A wrong-batch fixture is rejected without writing a manifest; the ten-battery
+Factory native checkpoint fixture passes and preserves all complete snapshots.
