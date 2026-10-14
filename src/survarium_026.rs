@@ -320,6 +320,26 @@ fn adapt_objects(
                 battery_body_transform(object, battery_offset)?,
             )?;
         }
+        // A new local transform belongs to this light, never to a different
+        // lamp chosen as the native schema template.
+        if kind == "light" && object.named("offset").is_none() {
+            object.set_path(
+                "offset",
+                ConfigValue::Named(
+                    [
+                        ("position", [0.0; 3]),
+                        ("rotation", [0.0; 3]),
+                        ("scale", [1.0; 3]),
+                    ]
+                    .into_iter()
+                    .map(|(name, value)| NamedValue {
+                        name: name.into(),
+                        value: ConfigValue::Float3(value),
+                    })
+                    .collect(),
+                ),
+            )?;
+        }
         // Native anomaly loaders retain compatibility defaults for absent
         // fields. A different map's template supplies gameplay values and
         // object links, not schema: keep the donor object intact instead.
@@ -1772,7 +1792,7 @@ mod tests {
         );
     }
     #[test]
-    fn anomaly_objects_do_not_inherit_another_maps_gameplay() {
+    fn objects_do_not_inherit_another_maps_gameplay_or_light_transform() {
         for kind in ["generic_anomaly_core", "damage_zone", "artefact_container"] {
             let donor = named(vec![
                 ("game_object_type", ConfigValue::String(kind.into())),
@@ -1802,6 +1822,42 @@ mod tests {
             let mut objects = ConfigValue::Indexed(vec![donor]);
             adapt_objects(&mut objects, &[template]).unwrap();
             assert_eq!(objects, ConfigValue::Indexed(vec![expected]));
+        }
+        let light = named(vec![
+            ("game_object_type", ConfigValue::String("light".into())),
+            ("lib_name", ConfigValue::String("spot_light".into())),
+            ("position", ConfigValue::Float3([3., 4., 5.])),
+        ]);
+        let mut template = light.clone();
+        template.set_path("offset", named(vec![])).unwrap();
+        template
+            .set_path(
+                "offset.position",
+                ConfigValue::Float3([0.01, -0.265, 0.002]),
+            )
+            .unwrap();
+        template
+            .set_path("offset.rotation", ConfigValue::Float3([0.; 3]))
+            .unwrap();
+        template
+            .set_path("offset.scale", ConfigValue::Float3([1.; 3]))
+            .unwrap();
+        for authored_offset in [None, Some([0., 0.5, 0.])] {
+            let mut donor = light.clone();
+            if let Some(value) = authored_offset {
+                donor.set_path("offset", named(vec![])).unwrap();
+                donor
+                    .set_path("offset.position", ConfigValue::Float3(value))
+                    .unwrap();
+            }
+            let mut objects = ConfigValue::Indexed(vec![donor]);
+            adapt_objects(&mut objects, &[template.clone()]).unwrap();
+            let result = &array(&objects).unwrap()[0];
+            assert_eq!(result.named("position"), light.named("position"));
+            assert_eq!(
+                result.named("offset").unwrap().named("position"),
+                Some(&ConfigValue::Float3(authored_offset.unwrap_or([0.; 3])))
+            );
         }
     }
     #[test]
