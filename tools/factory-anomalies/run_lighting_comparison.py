@@ -22,7 +22,7 @@ def digest(path):
     return h.hexdigest()
 
 
-def main(package, poses, output, arms):
+def main(package, poses, output, arms, database_patch=None):
     report = json.loads((package/'comparison.json').read_text())
     preset = package/report['preset']
     source_preset = Path(report['source'])/report['preset']
@@ -42,7 +42,15 @@ def main(package, poses, output, arms):
     if any(p.get('buffers') is not False for p in views):
         raise ValueError('comparison permits screenshot-only poses')
     current_sha = report['baseline_sha256']
+    clients_stopped = True
+    patcher = None
+    if database_patch:
+        spec = importlib.util.spec_from_file_location('patcher', script.parent/'patch_archive_entries.py')
+        patcher = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(patcher)
     try:
+        if patcher:
+            patcher.patch(package/report['database'], database_patch, 'apply')
         for arm in arms:
             if digest(preset) != current_sha:
                 raise ValueError('private preset changed unexpectedly')
@@ -54,6 +62,7 @@ def main(package, poses, output, arms):
             destination = output/arm
             destination.mkdir()
             try:
+                clients_stopped = False
                 subprocess.run(launch+['start', 'radar-020e-day', '--ui', 'off'], check=True)
                 deadline = time.monotonic()+90
                 status_path = runtime/'camera.txt.status.json'
@@ -92,7 +101,12 @@ def main(package, poses, output, arms):
                         raise RuntimeError('exact source ambient apply shader was not accepted')
             finally:
                 subprocess.run(launch+['stop'], check=True)
+                clients_stopped = True
     finally:
+        if not clients_stopped:
+            raise RuntimeError('owned client stop failed; defer database/preset restoration until stopped')
+        if patcher:
+            patcher.patch(package/report['database'], database_patch, 'revert')
         if digest(preset) != current_sha:
             raise RuntimeError('private preset changed unexpectedly; refusing to overwrite it')
         preset.write_bytes(baseline)
@@ -109,5 +123,7 @@ if __name__ == '__main__':
     for name in ('package', 'poses', 'output'):
         p.add_argument(name, type=Path)
     p.add_argument('--arm', choices=('baseline', 'candidate'), action='append')
+    p.add_argument('--database-patch', type=Path,
+                   help='coordinated same-size experiment; reverted after owned clients stop')
     a = p.parse_args()
-    main(a.package.resolve(), a.poses, a.output, a.arm or ('baseline', 'candidate'))
+    main(a.package.resolve(), a.poses, a.output, a.arm or ('baseline', 'candidate'), a.database_patch)

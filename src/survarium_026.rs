@@ -369,6 +369,28 @@ fn adapt_objects(
     Ok(())
 }
 
+fn preserve_020_cloud_lighting(project: &mut ConfigValue) -> Result<usize> {
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("source project lacks client objects");
+    };
+    let mut changed = 0;
+    for object in objects {
+        if string(object, "game_object_type") != Some("environment") {
+            continue;
+        }
+        let properties = object
+            .named_mut("properties")
+            .context("environment lacks properties")?;
+        // 020's constructor defaults this absent switch to false. The native
+        // template enables its expanded cloud-lighting implementation.
+        if properties.named("use_sky_clouds_lighting").is_none() {
+            properties.set_path("use_sky_clouds_lighting", ConfigValue::Boolean(false))?;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
 fn adapt_project(
     mut donor: ConfigValue,
     target: &ConfigValue,
@@ -1232,7 +1254,7 @@ pub fn build(
     let mut compatibility_notes = Vec::new();
     for map in &m.maps {
         let raw = cfg(&mut donor, &map.donor_project(m.source_build))?;
-        let raw = if m.source_build.early() {
+        let mut raw = if m.source_build.early() {
             let server_path = map
                 .donor_project(m.source_build)
                 .replace("client_project", "server_project");
@@ -1269,6 +1291,13 @@ pub fn build(
         } else {
             raw
         };
+        if m.source_build == SourceBuild::V020e {
+            let count = preserve_020_cloud_lighting(&mut raw)?;
+            compatibility_notes.push(format!(
+                "{}: restored source-default cloud lighting off in {count} environments with no authored switch",
+                map.donor_project(m.source_build)
+            ));
+        }
         let mut project = adapt_project(
             raw,
             &target_projects[&map.target_project()],
@@ -1793,6 +1822,32 @@ mod tests {
     }
     #[test]
     fn objects_do_not_inherit_another_maps_gameplay_or_light_transform() {
+        for authored in [None, Some(false), Some(true)] {
+            let mut properties = named(vec![]);
+            if let Some(value) = authored {
+                properties
+                    .set_path("use_sky_clouds_lighting", ConfigValue::Boolean(value))
+                    .unwrap();
+            }
+            let mut project = named(vec![(
+                "client_objects",
+                ConfigValue::Indexed(vec![named(vec![
+                    ("game_object_type", ConfigValue::String("environment".into())),
+                    ("properties", properties),
+                ])]),
+            )]);
+            assert_eq!(
+                preserve_020_cloud_lighting(&mut project).unwrap(),
+                usize::from(authored.is_none())
+            );
+            let env = &array(project.named("client_objects").unwrap()).unwrap()[0];
+            assert_eq!(
+                env.named("properties")
+                    .unwrap()
+                    .named("use_sky_clouds_lighting"),
+                Some(&ConfigValue::Boolean(authored.unwrap_or(false)))
+            );
+        }
         for kind in ["generic_anomaly_core", "damage_zone", "artefact_container"] {
             let donor = named(vec![
                 ("game_object_type", ConfigValue::String(kind.into())),

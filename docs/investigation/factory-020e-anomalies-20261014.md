@@ -342,12 +342,13 @@ The School adapters themselves are not reusable wholesale: its sky shader is a
 constant `(3,3,3)` justified by saturated rain captures, and its cloud shader
 hardcodes that map's weather. Radar020e authors cloud blend mode1, rotation316.74,
 speed0.1, RGB1.372, multiplier1, fog power2 and upper limit0.25. School uses mode0.
-The source cloud family contains two distinct pixel shaders: mode0 is the
-1656-byte identity above; the other is2072 bytes, SHA-256
+The source cloud family contains two distinct pixel shaders: unlit is the
+1656-byte identity above; lit is2072 bytes, SHA-256
 `89c11b1a3c1f93cee86c92df59c92cc001b6ac4f9ff13eb0ae65855474d6c3cb`.
 `prepare_sky_audit.py` extracts all source/native sky/cloud variants and their
 reflection into a small offline audit, without launching a client or writing
-the database. Shader identity alone does not select the live permutation.
+the database. The shader permutation is selected by the separate lighting
+switch, not the blend-mode render state.
 
 The source020 constant-only `skylight.ps` is already byte-identical to native026
 (1056 bytes, SHA-256
@@ -357,3 +358,28 @@ not the early010 skylight contract; adding that early shader would be unjustifie
 Authored sun elevation26.07 and azimuth222.2 survive conversion, as do the nearby
 glass material's cast-shadow flags. The missing sunlit stair patch remains an
 open renderer/shadow difference, not a proven wrong sun angle.
+
+### Proven cloud-lighting default and guarded candidate
+
+The converted environment inherited `use_sky_clouds_lighting=true`, native
+normal texture `sky/sky2_nmap`, cloud skylight1.46 and sunlight0.94. The original
+project does not author those fields. Source absence alone was insufficient:
+the020 executable does support a simpler cloud-lighting switch. Its exact loader
+at VA0x20439a checks the key and writes environment offset0x118 at0x2043b8 only
+when present. Constructor0x2032aa zeros ECX and writes CL=0 to that offset at
+0x2035a3. The atmosphere stage reads the same field at0x11de15 (scene+0x230,
+environment base+0x118) when selecting the lit/unlit effect. Therefore this map
+uses the original unlit1656-byte shader, despite its alpha-blend mode1.
+
+The scoped020 converter repair applies the source default before template fill,
+preserving explicit authored true/false values. The existing object-inheritance
+regression covers all three cases; 11 focused tests pass without a test-count
+increase. `prepare_cloud_lighting_patch.py` prepares a pinned one-boolean overlay
+and verifies every other decoded value. Candidate:
+`/tmp/factory-020e-cloud-lighting-patch/bundle`. Original and patched project both
+have1128262 bytes; SHA-256 changes from
+`4d99a7c02e6846e82f483bed5470b655a15bf73fb1cbba570e9e665d1f77a765` to
+`fce5eff2c8c69a64b41c6db2fab3e85f1da68b350fba12097f693268a8e55112`.
+The shared database has not been edited. Compare this switch alone before
+introducing source sky/cloud equations; native unlit clouds still contain
+different fog equations, so the switch is not a claim of complete sky parity.
