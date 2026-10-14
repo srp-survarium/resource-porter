@@ -33,17 +33,20 @@ checkpoints are preserved. Authored parent positions were not moved.
 
 The 0.11e Chemical additive bundle passes resource closure and all 4,173 file
 hashes. It retains source collectors, battery origins and LPV geometry. The
-newer wall collision opens the reported corridor; character traversal still
-needs a native test. Binary/shader tracing supports preserving its authored
+newer wall collision opens the reported corridor. A native mode-0 character
+walk crossed the former wall by 1.923 m, with stable height and corroborating
+serialized player checkpoints. This verifies the reported passage, not every
+collision in the map; see [the native checks](three-day-native-checks-20261014.md).
+Binary/shader tracing supports preserving its authored
 sphere width: the original also contracts the outer radius and produces the
 same inverted falloff interval. This does not prove complete lighting parity.
 
-Factory 0.11e lacks a server project in the archive. The build worker is
-checking source scripts and earlier donor provenance before selecting any
-server data. The selected fallback is the pinned 0.11a Factory server project:
+Radar 0.11e lacks a server project in the archive. The selected fallback is
+the pinned 0.11a Radar server project:
 its 43 client respawns, two collectors and 47 gameplay collision zones match
-0.11e exactly. Its 21 battery candidates need a support check against the newer
-map. Record the secondary donor explicitly; do not substitute modern 0.26
+0.11e exactly. Five targeted batteries passed native support and settling
+checks, including both barrel placements; the other 16 remain pending.
+Record the secondary donor explicitly; do not substitute modern 0.26
 battery positions.
 
 The private Factory 0.20e test proves electrical damage and repeated verified
@@ -107,6 +110,13 @@ four material tests. The full existing porter library suite subsequently passed
 all 283 tests (zero failures or ignored tests). The merged capture hook,
 including the original 0.11e reference path and optional local diffuse adapter,
 compiles with `-Werror`.
+
+The combined hook also compiles after integrating the optional 0.20e ambient
+adapter, while retaining the unchanged-renderer 0.11e reference path. All 29
+original 0.11e views are captured (12 Chemical, 17 Radar); the current candidate
+is being captured at the same poses. These comparisons precede any promotion
+of experimental lighting settings. Original PNGs retain the donor's visible
+grain and colored edge noise; they are not denoised references.
 
 Composition rejects duplicate map ownership (verified with the actual 0.11e
 bundle twice), changed native registrations, undeclared dictionary edits and
