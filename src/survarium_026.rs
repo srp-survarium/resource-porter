@@ -1613,6 +1613,9 @@ pub fn build(
                 .convert(path, &bytes, explicit, &donor, &target)
                 .with_context(|| format!("converting {path}"))?;
             bytes = converted.bytes;
+            for note in &converted.switch_notes {
+                compatibility_notes.push(format!("{path}: {note}"));
+            }
             converted_materials.insert(path.clone(), converted.template_path);
         }
         if is_config_resource(path) {

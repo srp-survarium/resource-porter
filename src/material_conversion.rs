@@ -20,11 +20,42 @@ pub struct ConvertedMaterial {
     pub bytes: Vec<u8>,
     pub template_path: String,
     pub donor_texture_bindings: BTreeMap<String, String>,
+    /// Source texture-versus-constant switches restored, emulated or left
+    /// unresolved because no shipped native permutation supports them.
+    pub switch_notes: Vec<String>,
 }
 
 pub struct MaterialCatalog {
     materials: Vec<TargetMaterial>,
+    /// Shipped `gbuffer_pass.ps` material-switch projections, or `None` when
+    /// the archive does not follow the verified key layout.
+    gbuffer_projections: Option<BTreeSet<String>>,
 }
+
+/// Material switches that choose between a texture and an authored constant
+/// for gloss, Fresnel and specular amount. Native templates must not replace
+/// the donor's choice: a constant roughness turned into the template's
+/// textured range, or a lost intensity mask, makes old surfaces mirror-like.
+const GLOSS_SWITCHES: [&str; 3] = ["use_troughness", "use_tfresnel", "use_tspecular_intensity"];
+
+/// `gbuffer_pass.ps` permutation key digits for material switches. Derived
+/// from `shaders/masks` membership across all shipped shaders and checked on
+/// load: every catalog g-stage material must project onto a shipped key.
+const GBUFFER_KEY_SWITCHES: [(usize, &str); 10] = [
+    (5, "use_tdiffuse"),
+    (6, "use_nmap"),
+    (7, "use_detail_nmap"),
+    (8, "use_alpha_test"),
+    (10, "use_parallax"),
+    (11, "use_ttranslucency"),
+    (12, "use_tspecular_intensity"),
+    (13, "use_tfresnel"),
+    (14, "use_troughness"),
+    (16, "use_tditail_diffuse"),
+];
+/// Shading-quality digit; both shipped qualities must contain a permutation.
+const GBUFFER_KEY_QUALITY: usize = 1;
+const GBUFFER_PREFIX: &str = "shaders/sm_4_0/gbuffer_pass.ps/";
 
 #[derive(Clone, Debug, Serialize)]
 pub struct MaterialTemplateCandidate {
@@ -70,7 +101,11 @@ impl MaterialCatalog {
         if materials.is_empty() {
             bail!("target database contains no decodable material instances");
         }
-        Ok(Self { materials })
+        let gbuffer_projections = gbuffer_projections(target, &materials);
+        Ok(Self {
+            materials,
+            gbuffer_projections,
+        })
     }
 
     pub fn convert(
@@ -100,14 +135,17 @@ impl MaterialCatalog {
                     )
                 })?
         } else {
-            let exact = self
+            let conflicts =
+                |candidate: &TargetMaterial| gloss_conflicts(&donor_config.root, &candidate.config.root);
+            let compatible = |candidate: &&TargetMaterial| {
+                candidate.effects == donor_effects
+                    && candidate.stage_selectors == donor_stage_selectors
+            };
+            let closest = self
                 .materials
                 .iter()
-                .filter(|candidate| {
-                    candidate.effects == donor_effects
-                        && candidate.stage_selectors == donor_stage_selectors
-                        && semantic_domain_rank(path, &candidate.path).is_some()
-                })
+                .filter(compatible)
+                .filter(|candidate| semantic_domain_rank(path, &candidate.path).is_some())
                 .min_by_key(|candidate| {
                     let score = compatibility_score(
                         path,
@@ -122,6 +160,41 @@ impl MaterialCatalog {
                         score.2,
                     )
                 });
+            // A shipped native material with the donor's gloss switches proves
+            // their permutation exists. Use it only when it introduces no other
+            // feature difference (alpha test, normal maps, wind...) that the
+            // closest template did not already have.
+            let exact = closest.map(|closest| {
+                if conflicts(closest) == 0 {
+                    return closest;
+                }
+                let allowed = other_feature_mismatches(&donor_features, &closest.features);
+                self.materials
+                    .iter()
+                    .filter(compatible)
+                    .filter(|candidate| !candidate.path.starts_with("material_instances/test/"))
+                    .filter(|candidate| conflicts(candidate) < conflicts(closest))
+                    .filter(|candidate| {
+                        other_feature_mismatches(&donor_features, &candidate.features)
+                            .is_subset(&allowed)
+                    })
+                    .min_by_key(|candidate| {
+                        let score = compatibility_score(
+                            path,
+                            &donor_features,
+                            &candidate.path,
+                            &candidate.features,
+                        );
+                        (
+                            conflicts(candidate),
+                            semantic_domain_rank(path, &candidate.path).unwrap_or(usize::MAX),
+                            score.0,
+                            score.1,
+                            score.2,
+                        )
+                    })
+                    .unwrap_or(closest)
+            });
             let donor_family = compatible_effect_family(&donor_effects);
             exact
                 .or_else(|| {
@@ -170,6 +243,11 @@ impl MaterialCatalog {
         );
         neutralize_template_vertex_blending(&mut converted.root, &donor_config.root);
         neutralize_template_water_foam(&mut converted.root, &donor_config.root);
+        let switch_notes = restore_source_gloss_switches(
+            &mut converted.root,
+            &donor_config.root,
+            self.gbuffer_projections.as_ref(),
+        )?;
         restore_factory_lamp_emission(
             path,
             &template.path,
@@ -181,6 +259,7 @@ impl MaterialCatalog {
             bytes: converted.to_bytes()?,
             template_path: template.path.clone(),
             donor_texture_bindings,
+            switch_notes,
         })
     }
 
@@ -296,6 +375,201 @@ fn restore_factory_lamp_emission(
         )?;
     }
     Ok(())
+}
+
+/// Feature paths, other than the gloss switches, whose template value differs
+/// from the donor's (including template-only features).
+fn other_feature_mismatches(
+    donor: &BTreeMap<String, String>,
+    target: &BTreeMap<String, String>,
+) -> BTreeSet<String> {
+    let gloss = |path: &str| GLOSS_SWITCHES.iter().any(|name| path.ends_with(&format!(".{name}.value")) || path.ends_with(&format!(".{name}")));
+    donor
+        .iter()
+        .filter(|(path, value)| target.get(*path) != Some(*value))
+        .map(|(path, _)| path.clone())
+        .chain(target.keys().filter(|path| !donor.contains_key(*path)).cloned())
+        .filter(|path| !gloss(path))
+        .collect()
+}
+
+fn effect_switch(root: &ConfigValue, name: &str) -> Option<bool> {
+    match root
+        .named("material")?
+        .named("g_stage")?
+        .named("effect")?
+        .named(name)?
+        .named("value")?
+    {
+        ConfigValue::Boolean(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn effect_number(root: &ConfigValue, name: &str) -> Option<f32> {
+    match root
+        .named("material")?
+        .named("g_stage")?
+        .named("effect")?
+        .named(name)?
+        .named("value")?
+    {
+        ConfigValue::Float(value) => Some(*value),
+        ConfigValue::Integer(value) => Some(*value as f32),
+        _ => None,
+    }
+}
+
+/// A donor constant roughness can be kept by a textured-roughness template:
+/// native smoothness is `1 - (min + (max - min) * texture)`, so a zero-width
+/// range at the authored constant is exact (verified at runtime on Factory
+/// remains, factory-day-material-flags.md).
+fn zero_width_roughness_possible(donor: &ConfigValue, template: &ConfigValue) -> bool {
+    effect_number(donor, "constant_roughness").is_some()
+        && effect_number(template, "constant_roughness_min").is_some()
+        && effect_number(template, "constant_roughness_max").is_some()
+}
+
+fn gloss_conflicts(donor: &ConfigValue, template: &ConfigValue) -> usize {
+    GLOSS_SWITCHES
+        .iter()
+        .filter(|name| {
+            let (Some(source), Some(native)) = (effect_switch(donor, name), effect_switch(template, name))
+            else {
+                return false;
+            };
+            source != native
+                && !(**name == "use_troughness"
+                    && !source
+                    && zero_width_roughness_possible(donor, template))
+        })
+        .count()
+}
+
+fn gbuffer_projection(
+    root: &ConfigValue,
+    overrides: &BTreeMap<&str, bool>,
+    quality: char,
+) -> Option<String> {
+    effect_switch(root, "use_tdiffuse")?;
+    let mut key = String::new();
+    key.push(quality);
+    for (_, name) in GBUFFER_KEY_SWITCHES {
+        let value = overrides
+            .get(name)
+            .copied()
+            .or_else(|| effect_switch(root, name))
+            .unwrap_or(false);
+        key.push(if value { '1' } else { '0' });
+    }
+    Some(key)
+}
+
+fn gbuffer_projections(target: &ResourceDb, materials: &[TargetMaterial]) -> Option<BTreeSet<String>> {
+    let shipped: BTreeSet<String> = target
+        .paths_with_prefix(GBUFFER_PREFIX)
+        .filter_map(|path| {
+            let key = path.strip_prefix(GBUFFER_PREFIX)?.as_bytes();
+            if key.len() <= 16 {
+                return None;
+            }
+            let mut projection = String::new();
+            projection.push(key[GBUFFER_KEY_QUALITY] as char);
+            for (position, _) in GBUFFER_KEY_SWITCHES {
+                projection.push(key[position] as char);
+            }
+            projection.chars().all(|c| c.is_ascii_digit()).then_some(projection)
+        })
+        .collect();
+    if shipped.is_empty() {
+        return None;
+    }
+    // Refuse the layout unless every shipped native g-stage material agrees.
+    let consistent = materials.iter().all(|material| {
+        ['0', '3'].iter().all(|quality| {
+            gbuffer_projection(&material.config.root, &BTreeMap::new(), *quality)
+                .is_none_or(|key| shipped.contains(&key))
+        })
+    });
+    consistent.then_some(shipped)
+}
+
+/// Restore the donor's texture-versus-constant gloss switches where a shipped
+/// permutation exists, emulate a constant roughness with a zero-width range
+/// otherwise, and report anything left as the template's choice.
+fn restore_source_gloss_switches(
+    converted: &mut ConfigValue,
+    donor: &ConfigValue,
+    shipped: Option<&BTreeSet<String>>,
+) -> Result<Vec<String>> {
+    let mut wanted = BTreeMap::new();
+    for name in GLOSS_SWITCHES {
+        if let (Some(source), Some(native)) = (effect_switch(donor, name), effect_switch(converted, name)) {
+            if source != native {
+                wanted.insert(name, source);
+            }
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let supported = |overrides: &BTreeMap<&str, bool>| {
+        shipped.is_some_and(|shipped| {
+            ['0', '3'].iter().all(|quality| {
+                gbuffer_projection(converted, overrides, *quality)
+                    .is_some_and(|key| shipped.contains(&key))
+            })
+        })
+    };
+    // Restore the largest subset of donor switches with a shipped
+    // permutation. A constant roughness left textured is emulated below.
+    let names: Vec<&str> = wanted.keys().copied().collect();
+    let mut applied = BTreeMap::new();
+    for mask in (1..1usize << names.len()).rev() {
+        let subset: BTreeMap<&str, bool> = names
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| mask & (1 << index) != 0)
+            .map(|(_, name)| (*name, wanted[name]))
+            .collect();
+        if subset.len() > applied.len() && supported(&subset) {
+            applied = subset;
+        }
+    }
+    let mut notes = Vec::new();
+    for (name, value) in &applied {
+        converted.set_path(
+            &format!("material.g_stage.effect.{name}.value"),
+            ConfigValue::Boolean(*value),
+        )?;
+        notes.push(format!("{name}={value} restored from source (shipped permutation)"));
+    }
+    for (name, value) in &wanted {
+        if applied.contains_key(name) {
+            continue;
+        }
+        let emulated = *name == "use_troughness"
+            && !value
+            && effect_number(converted, "constant_roughness_min").is_some()
+            && effect_number(converted, "constant_roughness_max").is_some();
+        match effect_number(converted, "constant_roughness").filter(|_| emulated) {
+            Some(constant) => {
+                for field in ["constant_roughness_min", "constant_roughness_max"] {
+                    converted.set_path(
+                        &format!("material.g_stage.effect.{field}.value"),
+                        ConfigValue::Float(constant),
+                    )?;
+                }
+                notes.push(format!(
+                    "use_troughness=false emulated by zero-width textured range at constant {constant}"
+                ));
+            }
+            None => notes.push(format!(
+                "{name}={value} unresolved: no shipped gbuffer permutation; template value kept"
+            )),
+        }
+    }
+    Ok(notes)
 }
 
 fn effect_ids(effects: &BTreeMap<String, String>) -> BTreeSet<String> {
@@ -931,6 +1205,134 @@ mod tests {
             donor_textures,
             BTreeMap::from([("texture_diffuse".into(), "new".into())])
         );
+    }
+
+    fn gloss_material(troughness: bool, tspecular: bool, tfresnel: bool) -> Vec<u8> {
+        let parameter = |value| ConfigValue::Named(vec![named("value", value)]);
+        let switch = |name: &str, value| named(name, parameter(ConfigValue::Boolean(value)));
+        let number = |name: &str, value| named(name, parameter(ConfigValue::Float(value)));
+        let effect = ConfigValue::Named(vec![
+            named("effect_id", ConfigValue::String("default".into())),
+            switch("use_tdiffuse", true),
+            switch("use_nmap", true),
+            switch("use_alpha_test", false),
+            switch("use_troughness", troughness),
+            switch("use_tspecular_intensity", tspecular),
+            switch("use_tfresnel", tfresnel),
+            number("constant_roughness", 0.5),
+            number("constant_roughness_min", 0.1),
+            number("constant_roughness_max", 0.2),
+        ]);
+        BinaryConfig {
+            root: ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named(
+                    "g_stage",
+                    ConfigValue::Named(vec![named("effect", effect)]),
+                )]),
+            )]),
+        }
+        .to_bytes()
+        .unwrap()
+    }
+
+    fn gbuffer_key(quality: char, troughness: bool, tspecular: bool, tfresnel: bool) -> String {
+        let mut key: Vec<char> = "_0___0000_00000_00____0_____0__0_00000____00000____000__________0__"
+            .chars()
+            .collect();
+        key[GBUFFER_KEY_QUALITY] = quality;
+        let digit = |value: bool| if value { '1' } else { '0' };
+        key[5] = '1';
+        key[6] = '1';
+        key[12] = digit(tspecular);
+        key[13] = digit(tfresnel);
+        key[14] = digit(troughness);
+        key.into_iter().collect()
+    }
+
+    fn gloss_catalog(
+        templates: &[(&str, Vec<u8>)],
+        shipped: &[(bool, bool, bool)],
+    ) -> (tempfile::TempDir, ResourceDb) {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input");
+        for (path, bytes) in templates {
+            let file = input.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, bytes).unwrap();
+        }
+        let shaders = input.join(GBUFFER_PREFIX.trim_end_matches('/'));
+        std::fs::create_dir_all(&shaders).unwrap();
+        for (troughness, tspecular, tfresnel) in shipped {
+            for quality in ['0', '3'] {
+                std::fs::write(
+                    shaders.join(gbuffer_key(quality, *troughness, *tspecular, *tfresnel)),
+                    b"DXBC",
+                )
+                .unwrap();
+            }
+        }
+        let archive = temp.path().join("materials.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&input).unwrap(),
+            &archive,
+        )
+        .unwrap();
+        let db = ResourceDb::open(archive).unwrap();
+        (temp, db)
+    }
+
+    #[test]
+    fn restores_source_gloss_switches_from_shipped_permutations() {
+        let effect = |bytes: &[u8], name: &str| {
+            let root = BinaryConfig::parse(bytes).unwrap().root;
+            (effect_switch(&root, name), effect_number(&root, name))
+        };
+        // Remains-like donor: constant roughness .5 with an intensity mask.
+        let donor = gloss_material(false, true, false);
+        let template = "material_instances/characters/human/remains/rag.material";
+        let (_temp, mut db) = gloss_catalog(
+            &[(template, gloss_material(true, false, false))],
+            &[(true, false, false), (true, true, false)],
+        );
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
+        assert!(catalog.gbuffer_projections.is_some());
+        let path = "material_instances/characters/human/remains/skeleton.material";
+        let converted = catalog.convert(path, &donor, None, &db, &db).unwrap();
+        assert_eq!(converted.template_path, template);
+        // The mask permutation ships only with textured roughness, so the
+        // donor constant becomes an exact zero-width range.
+        assert_eq!(effect(&converted.bytes, "use_tspecular_intensity").0, Some(true));
+        assert_eq!(effect(&converted.bytes, "use_troughness").0, Some(true));
+        assert_eq!(effect(&converted.bytes, "constant_roughness_min").1, Some(0.5));
+        assert_eq!(effect(&converted.bytes, "constant_roughness_max").1, Some(0.5));
+        assert_eq!(converted.switch_notes.len(), 2, "{:?}", converted.switch_notes);
+
+        // Without any shipped mask permutation the template value stays and
+        // the loss is reported instead of requesting an absent shader.
+        let (_temp, mut db) = gloss_catalog(
+            &[(template, gloss_material(true, false, false))],
+            &[(true, false, false)],
+        );
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
+        let converted = catalog.convert(path, &donor, None, &db, &db).unwrap();
+        assert_eq!(effect(&converted.bytes, "use_tspecular_intensity").0, Some(false));
+        assert!(converted.switch_notes.iter().any(|note| note.contains("unresolved")));
+        assert_eq!(effect(&converted.bytes, "constant_roughness_max").1, Some(0.5));
+
+        // A same-domain template that already carries the donor's switches
+        // wins over a closer-named one that would overwrite them.
+        let metal = gloss_material(true, true, true);
+        let closer = "material_instances/tiled/metal/metal_column.material";
+        let matching = "material_instances/tiled/metal/metal_other.material";
+        let (_temp, mut db) = gloss_catalog(
+            &[(closer, gloss_material(true, false, true)), (matching, metal.clone())],
+            &[(true, false, true), (true, true, true)],
+        );
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
+        let converted = catalog.convert(closer, &metal, None, &db, &db).unwrap();
+        assert_eq!(converted.template_path, matching);
+        assert!(converted.switch_notes.is_empty());
     }
 
     #[test]

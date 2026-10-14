@@ -49,11 +49,15 @@ def foreign_clients(owned):
         if not proc.name.isdigit() or int(proc.name) in owned:
             continue
         try:
-            command = (proc/'cmdline').read_bytes().replace(b'\0', b' ')
+            argv = (proc/'cmdline').read_bytes().split(b'\0')
         except OSError:
             continue
-        if b'survarium' in command.lower() and b'.exe' in command.lower():
-            found.append((int(proc.name), command.decode(errors='replace')[:160]))
+        # Wine game processes run the Windows executable as argv[0]; shells
+        # and editors merely mentioning the name are not clients.
+        program = argv[0].lower()
+        if program.endswith(b'.exe') and (b'survarium' in program or
+                                          any(b'survarium' in a.lower() for a in argv[1:2])):
+            found.append((int(proc.name), b' '.join(argv).decode(errors='replace')[:160]))
     return found
 
 
