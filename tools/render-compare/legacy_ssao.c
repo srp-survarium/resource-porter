@@ -15,6 +15,7 @@ static ID3D11RasterizerState *ssao_raster;
 static unsigned ssao_captured_id;
 static float ssao_source_saturation=2.f,ssao_source_radius=1.5f;
 static ID3D11Texture2D *ssao_ready_depth;
+static UINT ssao_width,ssao_height;
 static ID3D11VertexShader *legacy_ssao_fullscreen_shader(void) { return ssao_vs; }
 
 static void *ssao_file(const char *root,const char *name,size_t *size,int shader) {
@@ -76,15 +77,6 @@ static int init_legacy_ssao(ID3D11Device *device,ID3D11DeviceContext *context) {
     D3D11_SUBRESOURCE_DATA initial={data,16,0};
     SSAO_TRY(ID3D11Device_CreateTexture2D(device,&texture,&initial,&ssao_noise)); free(data); data=NULL;
     SSAO_TRY(ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)ssao_noise,NULL,&ssao_noise_view));
-    texture.Width=640; texture.Height=360; texture.Format=DXGI_FORMAT_R16G16_FLOAT;
-    texture.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
-    SSAO_TRY(ID3D11Device_CreateTexture2D(device,&texture,NULL,&ssao_half));
-    SSAO_TRY(ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)ssao_half,NULL,&ssao_half_view));
-    SSAO_TRY(ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)ssao_half,NULL,&ssao_half_rt));
-    texture.Width=1280; texture.Height=720; texture.Format=DXGI_FORMAT_R8G8_UNORM;
-    SSAO_TRY(ID3D11Device_CreateTexture2D(device,&texture,NULL,&ssao_full));
-    SSAO_TRY(ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)ssao_full,NULL,&legacy_ssao_view));
-    SSAO_TRY(ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)ssao_full,NULL,&ssao_full_rt));
     D3D11_SAMPLER_DESC sampler={0}; sampler.Filter=D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_WRAP;
     sampler.MaxLOD=FLT_MAX; sampler.ComparisonFunc=D3D11_COMPARISON_NEVER; sampler.MaxAnisotropy=1;
@@ -93,12 +85,9 @@ static int init_legacy_ssao(ID3D11Device *device,ID3D11DeviceContext *context) {
     sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
     SSAO_TRY(ID3D11Device_CreateSamplerState(device,&sampler,&ssao_samplers[1]));
     float params[12]={0}; params[4]=ssao_source_saturation; params[5]=ssao_source_radius;
-    float globals[76]={0}; globals[72]=1280; globals[73]=720; globals[74]=1.f/1280; globals[75]=1.f/720;
     D3D11_BUFFER_DESC buffer={0}; buffer.ByteWidth=sizeof(params); buffer.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
     initial.pSysMem=params;
     SSAO_TRY(ID3D11Device_CreateBuffer(device,&buffer,&initial,&ssao_constants[0]));
-    buffer.ByteWidth=sizeof(globals); initial.pSysMem=globals;
-    SSAO_TRY(ID3D11Device_CreateBuffer(device,&buffer,&initial,&ssao_constants[1]));
     D3D11_RASTERIZER_DESC raster={0}; raster.FillMode=D3D11_FILL_SOLID; raster.CullMode=D3D11_CULL_NONE; raster.DepthClipEnable=TRUE;
     SSAO_TRY(ID3D11Device_CreateRasterizerState(device,&raster,&ssao_raster));
     ID3D11Device1_Release(device1);
@@ -129,6 +118,44 @@ static void capture_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camer
         }
     }
 }
+/* Size-dependent targets follow the scene depth: the source accumulates at
+ * half resolution and upsamples to the full frame. Captures used 1280x720,
+ * but play happens at any window size; a fixed size disabled the replay
+ * and left the paired ambient decode without its AO input. */
+static void ssao_release_sized(void) {
+    if (ssao_half_rt) { ID3D11RenderTargetView_Release(ssao_half_rt); ssao_half_rt=NULL; }
+    if (ssao_half_view) { ID3D11ShaderResourceView_Release(ssao_half_view); ssao_half_view=NULL; }
+    if (ssao_half) { ID3D11Texture2D_Release(ssao_half); ssao_half=NULL; }
+    if (ssao_full_rt) { ID3D11RenderTargetView_Release(ssao_full_rt); ssao_full_rt=NULL; }
+    if (legacy_ssao_view) { ID3D11ShaderResourceView_Release(legacy_ssao_view); legacy_ssao_view=NULL; }
+    if (ssao_full) { ID3D11Texture2D_Release(ssao_full); ssao_full=NULL; }
+    if (ssao_constants[1]) { ID3D11Buffer_Release(ssao_constants[1]); ssao_constants[1]=NULL; }
+    ssao_width=ssao_height=0;
+}
+static int ssao_resize(ID3D11Device *device,UINT width,UINT height) {
+    if (width==ssao_width && height==ssao_height && ssao_full) return 1;
+    ssao_release_sized();
+    HRESULT hr;
+    D3D11_TEXTURE2D_DESC texture={0};
+    texture.MipLevels=texture.ArraySize=texture.SampleDesc.Count=1;
+    texture.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
+    texture.Width=(width+1)/2; texture.Height=(height+1)/2; texture.Format=DXGI_FORMAT_R16G16_FLOAT;
+    if (FAILED(hr=ID3D11Device_CreateTexture2D(device,&texture,NULL,&ssao_half)) ||
+        FAILED(hr=ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)ssao_half,NULL,&ssao_half_view)) ||
+        FAILED(hr=ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)ssao_half,NULL,&ssao_half_rt))) goto fail;
+    texture.Width=width; texture.Height=height; texture.Format=DXGI_FORMAT_R8G8_UNORM;
+    if (FAILED(hr=ID3D11Device_CreateTexture2D(device,&texture,NULL,&ssao_full)) ||
+        FAILED(hr=ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)ssao_full,NULL,&legacy_ssao_view)) ||
+        FAILED(hr=ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)ssao_full,NULL,&ssao_full_rt))) goto fail;
+    float globals[76]={0};
+    globals[72]=(float)width; globals[73]=(float)height; globals[74]=1.f/width; globals[75]=1.f/height;
+    D3D11_BUFFER_DESC buffer={0}; buffer.ByteWidth=sizeof(globals); buffer.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_SUBRESOURCE_DATA initial={globals,0,0};
+    if (FAILED(hr=ID3D11Device_CreateBuffer(device,&buffer,&initial,&ssao_constants[1]))) goto fail;
+    ssao_width=width; ssao_height=height; return 1;
+fail:
+    ssao_release_sized(); error("cannot allocate original SSAO targets for the scene size"); return 0;
+}
 static void run_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camera,int take) {
     if (!legacy_ssao_enabled) return;
     if (legacy_ssao_ready && ssao_ready_present==present_calls && depth==ssao_ready_depth) {
@@ -137,13 +164,16 @@ static void run_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camera,in
     legacy_ssao_ready=0;
     if (!depth) { error("original SSAO depth texture null"); return; }
     D3D11_TEXTURE2D_DESC desc; ID3D11Texture2D_GetDesc(depth,&desc);
-    if (desc.Width!=1280 || desc.Height!=720 || desc.Format!=DXGI_FORMAT_R16_FLOAT || desc.ArraySize!=1 || desc.SampleDesc.Count!=1) {
-        error("original SSAO requires single-sample 1280x720 R16F depth"); return;
+    if (desc.Format!=DXGI_FORMAT_R16_FLOAT || desc.ArraySize!=1 || desc.SampleDesc.Count!=1 || !desc.Width || !desc.Height) {
+        error("original SSAO requires single-sample R16F depth"); return;
     }
     ID3D11Device *device=NULL; ID3D11DeviceContext *context=NULL; ID3D11ShaderResourceView *depth_view=NULL;
     ID3D11Texture2D_GetDevice(depth,&device); ID3D11Device_GetImmediateContext(device,&context);
     if ((!ssao_device && (ssao_init_failed || !init_legacy_ssao(device,context))) || (ssao_device && ssao_device!=device)) {
         error("original SSAO device initialization failed or scene device changed");
+        ID3D11DeviceContext_Release(context); ID3D11Device_Release(device); return;
+    }
+    if (!ssao_resize(device,desc.Width,desc.Height)) {
         ID3D11DeviceContext_Release(context); ID3D11Device_Release(device); return;
     }
     HRESULT hr=ID3D11Device_CreateShaderResourceView(device,(ID3D11Resource *)depth,NULL,&depth_view);
@@ -158,7 +188,7 @@ static void run_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camera,in
         ID3D11ShaderResourceView *inputs[2]={depth_view,ssao_noise_view};
         ID3D11DeviceContext_PSSetShaderResources(context,0,2,inputs);
         ID3D11DeviceContext_PSSetConstantBuffers(context,0,2,ssao_constants);
-        D3D11_VIEWPORT vp={0,0,640,360,0,1}; const float clear[4]={0};
+        D3D11_VIEWPORT vp={0,0,(float)((desc.Width+1)/2),(float)((desc.Height+1)/2),0,1}; const float clear[4]={0};
         ID3D11DeviceContext_RSSetViewports(context,1,&vp);
         ID3D11DeviceContext_OMSetRenderTargets(context,1,&ssao_half_rt,NULL);
         ID3D11DeviceContext_ClearRenderTargetView(context,ssao_half_rt,clear);
@@ -167,7 +197,7 @@ static void run_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camera,in
         ID3D11DeviceContext_OMSetRenderTargets(context,0,NULL,NULL);
         ID3D11DeviceContext_PSSetShaderResources(context,1,1,&ssao_half_view);
         ID3D11DeviceContext_PSSetConstantBuffers(context,0,1,&ssao_constants[1]);
-        vp.Width=1280; vp.Height=720;
+        vp.Width=(float)desc.Width; vp.Height=(float)desc.Height;
         ID3D11DeviceContext_RSSetViewports(context,1,&vp);
         ID3D11DeviceContext_OMSetRenderTargets(context,1,&ssao_full_rt,NULL);
         ID3D11DeviceContext_ClearRenderTargetView(context,ssao_full_rt,clear);
