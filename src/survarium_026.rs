@@ -1036,6 +1036,18 @@ fn adapt_collisions(
                 (a, format!("#{b}"))
             });
         let path = base.trim_start_matches("resources/");
+        if !available(path) && donor.contains(path) {
+            // An empty folder node is an authored "no shape": the source cook
+            // probes it by path and creates nothing (retail 0.26 ships the
+            // same empty walker nodes for these models). Substituting the
+            // other collision kind would add bullet geometry to the movement
+            // group, or walker geometry to the bullet group.
+            repairs.insert(
+                format!("{project_path} -> {reference}"),
+                "omitted: empty collision payload in donor; source creates no shape".into(),
+            );
+            continue;
+        }
         if !available(path) {
             let (model, kind) = path.rsplit_once('/').context("invalid collision path")?;
             let alternate = format!(
@@ -2220,6 +2232,58 @@ mod tests {
             Some("resources/models/one.model/collision#[2][2][2]")
         );
         assert_eq!(repairs.len(), 2);
+    }
+
+    #[test]
+    fn empty_collision_folder_is_omitted_not_replaced_by_the_other_kind() {
+        // Retail 0.20e/0.26 anomal_tree_0X_ and soviet_comp_01: one kind is an
+        // empty folder node, the other has a mesh. Each instance must keep
+        // exactly the source's shape set: nothing for the empty kind.
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("input");
+        for (model, full, empty) in [
+            ("tree", "collision", "walker_collision"),
+            ("comp", "walker_collision", "collision"),
+        ] {
+            let file = root.join(format!("models/{model}.model/{full}/vertices"));
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, b"geometry").unwrap();
+            fs::create_dir_all(root.join(format!("models/{model}.model/{empty}"))).unwrap();
+        }
+        let dbpath = temp.path().join("source.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &dbpath,
+        )
+        .unwrap();
+        let db = ResourceDb::open(dbpath).unwrap();
+        assert!(db.contains("models/tree.model/walker_collision"));
+        let make = |r: &str| named(vec![("lib_name", ConfigValue::String(r.into()))]);
+        let mut project = named(vec![(
+            "collision_objects",
+            ConfigValue::Indexed(vec![
+                make("resources/models/tree.model/collision"),
+                make("resources/models/tree.model/walker_collision#[1.67][1.67][1.67]"),
+                make("resources/models/comp.model/walker_collision"),
+                make("resources/models/comp.model/collision"),
+            ]),
+        )]);
+        let mut repairs = BTreeMap::new();
+        adapt_collisions(&mut project, &db, &BTreeSet::new(), "map", &mut repairs).unwrap();
+        let kept: Vec<_> = array(project.named("collision_objects").unwrap())
+            .unwrap()
+            .iter()
+            .map(|o| string(o, "lib_name").unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                "resources/models/tree.model/collision",
+                "resources/models/comp.model/walker_collision"
+            ]
+        );
+        assert_eq!(repairs.len(), 2);
+        assert!(repairs.values().all(|v| v.starts_with("omitted: empty")));
     }
 
     #[test]
