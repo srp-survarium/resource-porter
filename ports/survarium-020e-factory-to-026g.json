@@ -1,0 +1,28 @@
+{
+  "donor_sha256": "5f871046e3d24c8b42d538b864d34b34ab004e4bbd4c36e84b494bbfea258485",
+  "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "maps": [
+    {
+      "id": 196,
+      "level": "level_03",
+      "weather": "day"
+    }
+  ],
+  "material_templates": {
+    "material_instances/flora/bark_yabl_dark.material": "material_instances/flora/bark_yabl_dark_det_moss.material",
+    "material_instances/tiled/metal/metal_column_05.material": "material_instances/tiled/metal/metal_rust_07_breakmetall_vc.material"
+  },
+  "surface_renames": {
+    "models/level/04/level_border.model/settings": {
+      "anomaly_moss_base_sg": "donotwalkhere_sg"
+    }
+  },
+  "lod0_promotions": [
+    "models/vehicle/uaz_452_med.model/settings"
+  ],
+  "missing_collision_resources": [
+    "models/flora/poplar_04_sux.model/collision",
+    "models/flora/poplar_06_sux.model/collision"
+  ],
+  "source_build": "0.20e"
+}

@@ -24,6 +24,8 @@ pub enum SourceBuild {
     V011a,
     #[serde(rename = "0.11e")]
     V011e,
+    #[serde(rename = "0.20e")]
+    V020e,
     #[default]
     #[serde(rename = "0.21d")]
     V021d,
@@ -35,6 +37,7 @@ impl SourceBuild {
             Self::V010b => "v010b",
             Self::V011a => "v011a",
             Self::V011e => "v011e",
+            Self::V020e => "v020e",
             Self::V021d => "v021d",
         }
     }
@@ -43,11 +46,12 @@ impl SourceBuild {
             Self::V010b => "0.10b-802",
             Self::V011a => "0.11a-816",
             Self::V011e => "0.11e-884",
+            Self::V020e => "0.20e-1916",
             Self::V021d => "0.21d-2010",
         }
     }
     fn early(self) -> bool {
-        self != Self::V021d
+        matches!(self, Self::V010b | Self::V011a | Self::V011e)
     }
 }
 
@@ -316,7 +320,15 @@ fn adapt_objects(
                 battery_body_transform(object, battery_offset)?,
             )?;
         }
-        fill_missing(object, template);
+        // Native anomaly loaders retain compatibility defaults for absent
+        // fields. A different map's template supplies gameplay values and
+        // object links, not schema: keep the donor object intact instead.
+        if !matches!(
+            kind.as_str(),
+            "generic_anomaly_core" | "damage_zone" | "artefact_container"
+        ) {
+            fill_missing(object, template);
+        }
         object.set_path("is_temporary", ConfigValue::Boolean(false))?;
         if kind == "environment_probe" {
             if let Some(ConfigValue::Named(textures)) = object.named_mut("textures") {
@@ -399,8 +411,74 @@ fn adapt_project(
             }
         }
     }
+    validate_anomalies(&donor)?;
     validate_gameplay(&donor)?;
     Ok(donor)
+}
+
+/// Anomaly links are scene object names, not resource dependencies.
+fn validate_anomalies(project: &ConfigValue) -> Result<()> {
+    let objects = array(
+        project
+            .named("client_objects")
+            .context("missing client objects")?,
+    )?;
+    let by_name: BTreeMap<_, _> = objects
+        .iter()
+        .filter_map(|o| Some((string(o, "full_name")?, string(o, "game_object_type")?)))
+        .collect();
+    let require = |name: &str, kind: &str| -> Result<()> {
+        ensure!(
+            by_name.get(name) == Some(&kind),
+            "missing {kind} anomaly link {name}"
+        );
+        Ok(())
+    };
+    for object in objects {
+        let kind = string(object, "game_object_type");
+        if kind == Some("generic_anomaly_core") {
+            for state in array(object.named("states").context("anomaly has no states")?)? {
+                for group in array(
+                    state
+                        .named("groups")
+                        .context("anomaly state has no groups")?,
+                )? {
+                    for zone in array(group.named("zones").context("anomaly group has no zones")?)?
+                    {
+                        let ConfigValue::String(name) = zone else {
+                            bail!("invalid anomaly zone link")
+                        };
+                        require(name, "damage_zone")?;
+                    }
+                }
+            }
+            if object.named("artefacts_enabled") == Some(&ConfigValue::Boolean(true)) {
+                for container in array(
+                    object
+                        .named("artefact_containers")
+                        .context("enabled anomaly has no containers")?,
+                )? {
+                    let ConfigValue::String(name) = container else {
+                        bail!("invalid artefact container link")
+                    };
+                    require(name, "artefact_container")?;
+                }
+            }
+        }
+        if matches!(kind, Some("damage_zone" | "artefact_container")) {
+            for geometry in array(
+                object
+                    .named("collision_geometries")
+                    .context("anomaly object has no collision zones")?,
+            )? {
+                require(
+                    string(geometry, "name").context("unnamed anomaly collision zone")?,
+                    "collision_geometry",
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// All authored interaction-zone references must still resolve after upgrading.
@@ -1115,9 +1193,9 @@ pub fn build(
         }
         target_projects.insert(map.target_project(), project);
     }
-    if m.source_build.early() {
-        // Factory no longer authors a fog volume in 0.26. Use the native
-        // Rudnya schema only to supply fields absent from the old object.
+    if m.source_build.early() || m.source_build == SourceBuild::V020e {
+        // Factory no longer authors some old scene types (fog volumes and
+        // wire sets). Rudnya supplies schemas, never its placed objects.
         let fallback = cfg(&mut target, "projects/level_01/day_2/client_project")?;
         templates.extend(
             array(
@@ -1199,6 +1277,8 @@ pub fn build(
             donor.is_file(p)
                 && (p.starts_with("textures/")
                     || p.starts_with("material_instances/")
+                    || (m.source_build == SourceBuild::V020e
+                        && (p.starts_with("particles/") || p.starts_with("sounds/")))
                     || p.ends_with(".veg"))
         })
         .cloned()
@@ -1690,6 +1770,39 @@ mod tests {
             map.project_name(SourceBuild::V021d),
             "v021d_level_02/rain_2"
         );
+    }
+    #[test]
+    fn anomaly_objects_do_not_inherit_another_maps_gameplay() {
+        for kind in ["generic_anomaly_core", "damage_zone", "artefact_container"] {
+            let donor = named(vec![
+                ("game_object_type", ConfigValue::String(kind.into())),
+                ("lib_name", ConfigValue::String(kind.into())),
+                ("position", ConfigValue::Float3([1.0, 2.0, 3.0])),
+            ]);
+            let template = named(vec![
+                ("game_object_type", ConfigValue::String(kind.into())),
+                ("lib_name", ConfigValue::String(kind.into())),
+                ("position", ConfigValue::Float3([4.0, 5.0, 6.0])),
+                ("max_artefacts_count", ConfigValue::Integer(1)),
+                ("artefacts_first_spawn_time_sec", ConfigValue::Integer(60)),
+                ("artefacts_cooldown_time_sec", ConfigValue::Integer(30)),
+                (
+                    "artefact_containers",
+                    ConfigValue::Indexed(vec![ConfigValue::String("native/other-zone".into())]),
+                ),
+                (
+                    "idle_particle",
+                    ConfigValue::String("native/other-particle".into()),
+                ),
+            ]);
+            let mut expected = donor.clone();
+            expected
+                .set_path("is_temporary", ConfigValue::Boolean(false))
+                .unwrap();
+            let mut objects = ConfigValue::Indexed(vec![donor]);
+            adapt_objects(&mut objects, &[template]).unwrap();
+            assert_eq!(objects, ConfigValue::Indexed(vec![expected]));
+        }
     }
     #[test]
     fn new_particle_fields_do_not_replace_authored_properties() {

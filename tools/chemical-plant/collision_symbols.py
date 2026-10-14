@@ -7,7 +7,11 @@ from pathlib import Path
 import struct
 
 
-def public_symbols(path):
+def public_symbols(path, patterns=None):
+    if patterns is None:
+        patterns = ("create_bt_primitive", "create_compound_shape", "create_primitive_shape",
+                    "create_primitives_shape", "initialize@bt_character_controller",
+                    "create_game_objects@project_cooker_simple")
     with path.open('rb') as f:
         header = f.read(4096)
         if not header.startswith(b'Microsoft C/C++ MSF 7.00\r\n\x1aDS\0\0\0'):
@@ -38,9 +42,7 @@ def public_symbols(path):
             if kind == 0x110e:
                 _, address, segment = struct.unpack_from('<IIH', data, offset+4)
                 name = data[offset+14:offset+length+2].split(b'\0')[0].decode('utf8', 'replace')
-                if any(x in name for x in ('create_bt_primitive', 'create_compound_shape', 'create_primitive_shape',
-                                           'create_primitives_shape', 'initialize@bt_character_controller',
-                                           'create_game_objects@project_cooker_simple')):
+                if any(x in name for x in patterns):
                     yield dict(name=name, segment=segment, offset=address)
             offset += length+2
 
