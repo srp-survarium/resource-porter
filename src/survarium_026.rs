@@ -86,6 +86,34 @@ pub struct Manifest {
     /// Reviewed game-material bindings: model settings path -> surface -> material.
     #[serde(default)]
     pub game_material_overrides: BTreeMap<String, BTreeMap<String, String>>,
+    /// Audited replacements of individual collision primitives, keyed by the
+    /// donor collision directory and pinned by its primitive payload hash.
+    #[serde(default)]
+    pub collision_primitive_overrides: BTreeMap<String, PrimitiveOverrides>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrimitiveOverrides {
+    pub donor_primitives_sha256: String,
+    pub reason: String,
+    pub primitives: Vec<PrimitiveOverride>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PrimitiveOverride {
+    pub index: usize,
+    pub from: PrimitiveTransform,
+    pub to: PrimitiveTransform,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PrimitiveTransform {
+    pub position: [f32; 3],
+    pub rotation: [f32; 3],
+    pub scale: [f32; 3],
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -215,12 +243,15 @@ fn array(c: &ConfigValue) -> Result<&[ConfigValue]> {
 }
 
 /// Fill new fields, preserving the donor's authored values and array members.
-/// Early builds have a single `foliage` game material; 0.20e and 0.26 split
-/// it into deciduous/coniferous (penetration, sounds and hit effects differ).
-/// A reviewed manifest binding wins, then the target build's own binding of
-/// the same model surface when that is a foliage class. Anything else keeps
-/// the coniferous fallback and is recorded for review.
-fn classify_early_foliage(
+/// Reviewed manifest bindings (any surface) win. Early builds also have a
+/// single `foliage` game material; 0.20e and 0.26 split it into
+/// deciduous/coniferous with different hit pairs, so unreviewed foliage takes
+/// the target build's own class for the same model surface, else the
+/// coniferous fallback is recorded for review. Reviewed bindings also carry
+/// footstep fixes: 0.26 adds sprint/crouch actor pairs that early builds lack
+/// (0.11e pairs only `actor`/`actor_local`), and some native classes such as
+/// `mud` leave `actor_local_sprint` empty.
+fn classify_early_game_materials(
     path: &str,
     settings: &ConfigValue,
     target: &mut ResourceDb,
@@ -269,6 +300,53 @@ fn classify_early_foliage(
         }
     }
     Ok(bindings)
+}
+
+/// Replace audited primitives of one donor collision payload. The payload
+/// hash and every replaced primitive's exact type and transform are checked,
+/// so a changed donor stops the build instead of moving other geometry.
+fn apply_primitive_overrides(
+    root: &mut ConfigValue,
+    original: &[u8],
+    overrides: &PrimitiveOverrides,
+) -> Result<()> {
+    ensure!(
+        format!("{:x}", Sha256::digest(original)) == overrides.donor_primitives_sha256,
+        "donor collision primitives changed"
+    );
+    let Some(ConfigValue::Indexed(primitives)) = root.named_mut("primitives") else {
+        bail!("collision has no primitive array");
+    };
+    let mut seen = BTreeSet::new();
+    for o in &overrides.primitives {
+        ensure!(seen.insert(o.index), "primitive {} overridden twice", o.index);
+        let primitive = primitives
+            .get_mut(o.index)
+            .with_context(|| format!("no primitive {}", o.index))?;
+        let field = |p: &ConfigValue, name: &str| match p.named(name) {
+            Some(ConfigValue::Float3(v)) => Ok(*v),
+            _ => bail!("primitive {} lacks {name}", o.index),
+        };
+        let current = PrimitiveTransform {
+            position: field(primitive, "position")?,
+            rotation: field(primitive, "rotation")?,
+            scale: field(primitive, "scale")?,
+        };
+        ensure!(
+            current == o.from,
+            "primitive {} does not match its audited source",
+            o.index
+        );
+        for (name, value) in [
+            ("position", o.to.position),
+            ("rotation", o.to.rotation),
+            ("scale", o.to.scale),
+        ] {
+            ensure!(value.iter().all(|v| v.is_finite()), "non-finite override");
+            primitive.set_path(name, ConfigValue::Float3(value))?;
+        }
+    }
+    Ok(())
 }
 
 /// Respawn-point gameplay rules introduced after the early/0.20e builds.
@@ -1641,6 +1719,12 @@ pub fn build(
             "wrapped UV surface must name a selected early geometry resource: {path}"
         );
     }
+    for dir in m.collision_primitive_overrides.keys() {
+        ensure!(
+            plan.donor_files.contains(&format!("{dir}/exported_primitives")),
+            "primitive override names a collision the maps do not import: {dir}"
+        );
+    }
     let successor_dirs = emit_collision_successors(
         &m.collision_successors,
         &plan.donor_files,
@@ -1702,12 +1786,20 @@ pub fn build(
         if is_config_resource(path) {
             let mut c =
                 BinaryConfig::parse(&bytes).with_context(|| format!("decoding config {path}"))?;
+            if let Some(overrides) = path
+                .strip_suffix("/exported_primitives")
+                .and_then(|dir| m.collision_primitive_overrides.get(dir))
+            {
+                apply_primitive_overrides(&mut c.root, &bytes, overrides)
+                    .with_context(|| format!("overriding primitives of {path}"))?;
+                collision_repairs.insert(path.clone(), overrides.reason.clone());
+            }
             if path.ends_with(".particle") && adapt_particle(&mut c.root, &particle_defaults)? {
                 adapted_particles.insert(path.clone());
             }
             if let Some(model) = path.strip_suffix(".model/settings") {
                 if m.source_build.early() && c.root.named("game_material_settings").is_some() {
-                    let bindings = classify_early_foliage(
+                    let bindings = classify_early_game_materials(
                         path,
                         &c.root,
                         &mut target,
@@ -2269,7 +2361,7 @@ mod tests {
         let mut notes = Vec::new();
         // The target's own foliage class for the same model surface.
         let mut classify = |path: &str, reviewed: Option<&BTreeMap<String, String>>| {
-            classify_early_foliage(path, &early, &mut target, reviewed, &mut notes)
+            classify_early_game_materials(path, &early, &mut target, reviewed, &mut notes)
         };
         let bush = classify("models/bush.model/settings", None).unwrap();
         assert_eq!(
@@ -2284,9 +2376,70 @@ mod tests {
         assert_eq!(poplar, reviewed);
         let wrong = BTreeMap::from([("bark".into(), "foliage_deciduous".into())]);
         assert!(classify("models/poplar.model/settings", Some(&wrong)).is_err());
+        // Reviewed bindings apply to any surface (e.g. a footstep class).
+        let walkable = BTreeMap::from([("trunk".into(), "grass".into())]);
+        assert_eq!(
+            classify("models/bush.model/settings", Some(&walkable)).unwrap(),
+            BTreeMap::from([
+                ("leaves".into(), "foliage_deciduous".into()),
+                ("trunk".into(), "grass".into()),
+            ])
+        );
         drop(classify);
         // The fir fallback, then the unreviewed surface of the rejected call.
         assert_eq!(notes.len(), 2);
+    }
+
+    #[test]
+    fn primitive_override_moves_only_audited_boxes() {
+        let boxed = |z: f32| {
+            named(vec![
+                ("type", ConfigValue::Integer(1)),
+                ("position", ConfigValue::Float3([22.5, 37.7, z])),
+                ("rotation", ConfigValue::Float3([1.5707964, 0., 0.])),
+                ("scale", ConfigValue::Float3([26.3, 1.76, 37.6])),
+            ])
+        };
+        let root = named(vec![(
+            "primitives",
+            ConfigValue::Indexed(vec![boxed(10.), boxed(133.64)]),
+        )]);
+        let bytes = BinaryConfig { root: root.clone() }.to_bytes().unwrap();
+        let transform = |z: f32, thickness: f32| PrimitiveTransform {
+            position: [22.5, 37.7, z],
+            rotation: [1.5707964, 0., 0.],
+            scale: [26.3, thickness, 37.6],
+        };
+        let overrides = |hash: String, from_z: f32| PrimitiveOverrides {
+            donor_primitives_sha256: hash,
+            reason: "test".into(),
+            primitives: vec![PrimitiveOverride {
+                index: 1,
+                from: transform(from_z, 1.76),
+                to: transform(139.89, 1.57),
+            }],
+        };
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        let mut moved = root.clone();
+        apply_primitive_overrides(&mut moved, &bytes, &overrides(hash.clone(), 133.64))
+            .unwrap();
+        let primitives = array(moved.named("primitives").unwrap()).unwrap();
+        assert_eq!(primitives[0], boxed(10.));
+        assert_eq!(
+            primitives[1].named("position"),
+            Some(&ConfigValue::Float3([22.5, 37.7, 139.89]))
+        );
+        assert_eq!(
+            primitives[1].named("scale"),
+            Some(&ConfigValue::Float3([26.3, 1.57, 37.6]))
+        );
+        // A changed payload or a primitive that is not the audited one is rejected.
+        let other = format!("{:x}", Sha256::digest(b"other"));
+        let rejected = |o: PrimitiveOverrides| {
+            apply_primitive_overrides(&mut root.clone(), &bytes, &o).is_err()
+        };
+        assert!(rejected(overrides(other, 133.64)));
+        assert!(rejected(overrides(hash, 133.0)));
     }
 
     #[test]
