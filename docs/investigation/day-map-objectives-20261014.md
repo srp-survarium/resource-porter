@@ -115,3 +115,40 @@ and settled times, then copies complete raw checkpoints and decoded JSON beneath
 Candidate metadata never becomes active-battery evidence without this validation.
 A wrong-batch fixture is rejected without writing a manifest; the ten-battery
 Factory native checkpoint fixture passes and preserves all complete snapshots.
+
+## Factory candidate 00 sinks into the floor
+
+The first complete gallery batch exposed an actual placement failure. Candidate
+`victory_item_spawner(21)` starts at `[-19.012, 10.675, -12.495]` and settles at
+`[-18.930687, 10.257141, -12.588287]`; displacement is 0.436m. Gallery views 01
+and 03 show the intact floor with no visible battery. Stability of a checkpoint
+therefore does **not** establish visibility or pickup accessibility.
+
+A bounded offline audit found no conversion shift at this location. All eight
+nearby collision instances and their twelve payloads match the source (primitive
+configs compared semantically, triangle buffers byte-for-byte). At the settled
+XZ, `level/03/antenna/antenna_base.model/collision` triangle 3896 is the top surface
+at Y10.674022786; triangle 3906 is the slab underside at Y10.155880928. The top
+triangle normal points upward. The source and target visible
+`floor_linoleum_02_s_vc` triangle 1870 is Y10.674022812. Four intersecting visible
+surfaces retain identical vertex-position bytes and indices after conversion.
+Thus the battery settles inside the original half-metre floor slab, about 0.10m
+above its underside and 0.42m below its top. Exact geometry and resource hashes
+are in `tools/day-map-objectives/factory-spawn00-floor-20261014.json`.
+
+The old and native static electrobox mesh bounds are identical: local Y
+0.00118..0.23545. The old `victory_item_core::put` inserts its usable collision
+and sets the authored transform; it does not perform the new dynamic settling.
+The native options add a box of half extents [0.3, 0.12, 0.16] at local Y0.12.
+This options box is not yet proved to be the dynamic rigid body's actual shape.
+Native build2777 also has a separate body/model transform offset: the free-item
+getter at 0x300A20 subtracts the vector at +0x284 from its +0x204 transform. Do not
+assume a serialized body translation is exactly the static mesh's bottom pivot.
+
+Initial penetration on the slightly uneven floor and a change in dynamic-body
+collision filtering are still competing explanations; neither is proved by this
+geometry audit. The next useful isolated runtime experiment is this candidate
+alone with a small upward initial clearance, retaining XZ and the map geometry,
+then checking settled visibility and pickup. Do not apply a global spawn lift or
+change the map's collision meshes based only on this case. Complete the ongoing
+original-coordinate gallery before testing changes.

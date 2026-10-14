@@ -1,0 +1,481 @@
+{
+  "candidate": {
+    "index": 0,
+    "id": "factory-010-day-spawn-00",
+    "point_id": 0,
+    "name": "victory_item_spawner(21)",
+    "position": [
+      -19.012,
+      10.675,
+      -12.495
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "batch": 0,
+    "diagnostic_point_id": 0,
+    "kind": "candidate",
+    "active_runtime_battery_id": 0,
+    "settled_position": [
+      -18.930687,
+      10.257141,
+      -12.588287
+    ],
+    "diagnostic_batch": 0,
+    "runtime_position": [
+      -18.930687,
+      10.257141,
+      -12.588287
+    ],
+    "runtime_validated": true,
+    "runtime_initial_time_ms": 50,
+    "runtime_settled_time_ms": 10300,
+    "displacement_from_authored_metres": 0.4357985913458191
+  },
+  "vertical_ray_xz": [
+    -18.930687,
+    -12.588287
+  ],
+  "nearby_collision_instances_source_target_equal": true,
+  "geometry": [
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_base.model/collision/vertices",
+      "source_sha256": "8cc49f8fb7687dbe8ea9ad8a0e46cb031e50b442bf7df2f6172f76039403c0dc",
+      "target_sha256": "8cc49f8fb7687dbe8ea9ad8a0e46cb031e50b442bf7df2f6172f76039403c0dc",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_base.model/collision/indices",
+      "source_sha256": "20913f7188fa68bbbd043b6194e2fbd7c675e4a9c82baf05f24b424a3fb295c1",
+      "target_sha256": "20913f7188fa68bbbd043b6194e2fbd7c675e4a9c82baf05f24b424a3fb295c1",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_base.model/collision/exported_primitives",
+      "source_sha256": "1bd3066b9cc76d26960810f37f641578b1e0131f4df5d211d948a834cb34f8d3",
+      "target_sha256": "4e7234861474b9933c1d3de989a110dca02bf436e50622f1487b815bc4885315",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_base.model/walker_collision/exported_primitives",
+      "source_sha256": "8b65ce7af8fcf9509a7f90b5a7ac7a934eb328c18c10204e6a6d2addc57dd504",
+      "target_sha256": "3ce4372311059359571d7ad4e5eb7b6dd0435746ebdfa0fa53a44a8648b1e13f",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_stairs.model/collision/exported_primitives",
+      "source_sha256": "d18a15e507fe2c5236b6eb5de8d78f9551f92e108c7434a14adca0fc5c3d0b6d",
+      "target_sha256": "3d1487732c85934f2676e044e66e8e2cdcb49c76eb5955ee53f79f7fd9efb443",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_stairs.model/walker_collision/exported_primitives",
+      "source_sha256": "b7a7b0f7ecf182826360bb3e322e6ce04f53051b3883dfd57f528aa18c751307",
+      "target_sha256": "25138839fb1e453b19e79a782e76a68633ef73299d010f9466668e4c853d90a3",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_fuse_boxes.model/collision/exported_primitives",
+      "source_sha256": "c33f2d1e6de8b3238442bb1956d0f41acbe5ed7af3fed35b0c27ad91a596ca60",
+      "target_sha256": "8ebcfb20abd0600fa6481938faf076c0dc28e75fe84e9e4ff04729e4127ad409",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_fuse_boxes.model/walker_collision/exported_primitives",
+      "source_sha256": "32cde22f0b0b0b99db5525daf19a0ea3fc3f84618787ee3d0fc2b9afe87bd4e8",
+      "target_sha256": "17b4a695e5890b9a306f5ceda25ee4774d593e368fb8ae6b023d17313c6631b0",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_pilon.model/collision/vertices",
+      "source_sha256": "5a281bbbc37482783dccaf8fc5b88a6c5360cb13bb0f610f74ac5b3dd8816789",
+      "target_sha256": "5a281bbbc37482783dccaf8fc5b88a6c5360cb13bb0f610f74ac5b3dd8816789",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_pilon.model/collision/indices",
+      "source_sha256": "04d10904a68e2dfa081155d7063f63cbb5f474d4e7e7d839faa90ddf9b362c25",
+      "target_sha256": "04d10904a68e2dfa081155d7063f63cbb5f474d4e7e7d839faa90ddf9b362c25",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_pilon.model/collision/exported_primitives",
+      "source_sha256": "f4d551ec5d8374f00bc941fae6b94761e67666563ca64b6e4c69793ea8b4c330",
+      "target_sha256": "8e2e3b576e9e67a079642fdc042db9736ecf7686a990305238817c308cfffefa",
+      "geometry_equal": true
+    },
+    {
+      "target_resource": "models/ported/v010w/level/03/antenna/antenna_pilon.model/walker_collision/exported_primitives",
+      "source_sha256": "b80cb6194653f76dc36b0c3c36db7a62adf39885bf8b27108c3750413a6730b1",
+      "target_sha256": "1670f4be708559c1d6bcb579050e88be81b6769183e7f2e014252452f083f107",
+      "geometry_equal": true
+    }
+  ],
+  "render": [
+    {
+      "resource": "models/ported/v010w/level/03/antenna/antenna_base.model/render/floor_linoleum_02_s_vc/converted_model",
+      "position_bytes_equal": true,
+      "indices_equal": true,
+      "source_sha256": "63ae22b18fcff56aaaa20cbbc104b1f2894332db228b6e494198de9ce3fd1bd5",
+      "target_sha256": "5e34a5ce07a6294ef9f3861058d3755988125afe3a372c615650b6c9a6f2e759",
+      "vertical_ray_hits": [
+        {
+          "triangle": 1870,
+          "y": 10.674022811850438,
+          "vertices": [
+            [
+              -18.309959411621094,
+              10.65588092803955,
+              -13.010529518127441
+            ],
+            [
+              -19.125446319580078,
+              10.717013359069824,
+              -13.275496482849121
+            ],
+            [
+              -19.563392639160156,
+              10.65588092803955,
+              -11.352807998657227
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "models/ported/v010w/level/03/antenna/antenna_base.model/render/lod1_concrete_split_s/converted_model",
+      "position_bytes_equal": true,
+      "indices_equal": true,
+      "source_sha256": "45c4de1ca5c588092d2d136be21e2ec683229880885d029d05f057fd3e804085",
+      "target_sha256": "c1173e61c65a07f26aa510fbc1d7529af297805f0b9eba41f8f2d8a72aa991fa",
+      "vertical_ray_hits": [
+        {
+          "triangle": 467,
+          "y": 10.15588092803955,
+          "vertices": [
+            [
+              -17.412813186645508,
+              10.15588092803955,
+              -8.392788887023926
+            ],
+            [
+              -21.527311325073242,
+              10.15588092803955,
+              -14.05591106414795
+            ],
+            [
+              -14.869915008544922,
+              10.15588092803955,
+              -11.892792701721191
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "models/ported/v010w/level/03/antenna/antenna_base.model/render/lod1_floor_linoleum_02_s_vc/converted_model",
+      "position_bytes_equal": true,
+      "indices_equal": true,
+      "source_sha256": "75af9f72d9fa4d6c019a7c3bee7d08d14b61f9e854f1236a3da9f5f7e228a5e1",
+      "target_sha256": "be5c5b7af2f1635b6529581db7034d211b048877165ccb18cec72c177e4c665e",
+      "vertical_ray_hits": [
+        {
+          "triangle": 21,
+          "y": 10.65588092803955,
+          "vertices": [
+            [
+              -14.869915008544922,
+              10.65588092803955,
+              -11.892792701721191
+            ],
+            [
+              -21.527311325073242,
+              10.65588092803955,
+              -14.05591106414795
+            ],
+            [
+              -17.412813186645508,
+              10.65588092803955,
+              -8.392788887023926
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "resource": "models/ported/v010w/level/03/antenna/antenna_base.model/render/stucco_ceiling_s/converted_model",
+      "position_bytes_equal": true,
+      "indices_equal": true,
+      "source_sha256": "8f9c5cc079033de7b5d4d0250560ff248a8c69d3a369d4837aae1a43afcd890e",
+      "target_sha256": "6980d5aa3f052c71e752302cee4de043c3ee75c32b83c909c65e7f6c5e59abed",
+      "vertical_ray_hits": [
+        {
+          "triangle": 42,
+          "y": 10.155880928039553,
+          "vertices": [
+            [
+              -17.412813186645508,
+              10.15588092803955,
+              -8.392788887023926
+            ],
+            [
+              -21.527311325073242,
+              10.15588092803955,
+              -14.05591106414795
+            ],
+            [
+              -14.869913101196289,
+              10.15588092803955,
+              -11.892791748046875
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "top_bottom_collision_triangles": [
+    {
+      "kind": "triangle",
+      "index": 3896,
+      "bounds": [
+        [
+          -19.563392639160156,
+          10.65588092803955,
+          -13.275498390197754
+        ],
+        [
+          -18.309959411621094,
+          10.717013359069824,
+          -11.352807998657227
+        ]
+      ],
+      "vertices": [
+        [
+          -18.309959411621094,
+          10.65588092803955,
+          -13.010529518127441
+        ],
+        [
+          -19.125446319580078,
+          10.717013359069824,
+          -13.275498390197754
+        ],
+        [
+          -19.563392639160156,
+          10.65588092803955,
+          -11.352807998657227
+        ]
+      ]
+    },
+    {
+      "kind": "triangle",
+      "index": 3906,
+      "bounds": [
+        [
+          -21.527311325073242,
+          10.15588092803955,
+          -14.05591106414795
+        ],
+        [
+          -14.869913101196289,
+          10.15588092803955,
+          -8.392788887023926
+        ]
+      ],
+      "vertices": [
+        [
+          -17.412813186645508,
+          10.15588092803955,
+          -8.392788887023926
+        ],
+        [
+          -21.527311325073242,
+          10.15588092803955,
+          -14.05591106414795
+        ],
+        [
+          -14.869913101196289,
+          10.15588092803955,
+          -11.892791748046875
+        ]
+      ]
+    }
+  ],
+  "collision_objects": [
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 16,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_base.model/collision",
+      "cgroup": 8,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 4,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_base.model/walker_collision",
+      "cgroup": 2,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 16,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_stairs.model/collision",
+      "cgroup": 8,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 4,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_stairs.model/walker_collision",
+      "cgroup": 2,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 16,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_fuse_boxes.model/collision",
+      "cgroup": 8,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 4,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_fuse_boxes.model/walker_collision",
+      "cgroup": 2,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 16,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_pilon.model/collision",
+      "cgroup": 8,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    {
+      "rotation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cmask": 4,
+      "lib_name": "resources/models/ported/v010w/level/03/antenna/antenna_pilon.model/walker_collision",
+      "cgroup": 2,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "battery_static_mesh_bounds": [
+    [
+      -0.33085525035858154,
+      0.0011846446432173252,
+      -0.16993257403373718
+    ],
+    [
+      0.33085525035858154,
+      0.23545348644256592,
+      0.16124480962753296
+    ]
+  ],
+  "scope": "Resource geometry comparison and serialized runtime position, not a native contact trace; dynamic body pivot/filter still to be verified."
+}
