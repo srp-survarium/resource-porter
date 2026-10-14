@@ -1087,6 +1087,22 @@ fn adapt_collisions(
     Ok(())
 }
 
+/// Early sound files whose donor stem has a native-format `.raw_options`.
+/// The 0.11e loader reads only spl_preset/spl_value; 0.26 re-mixed many of the
+/// same-named sounds (different spl_value plus volume_k), so resolving the
+/// shared native options changes their level. Import the donor stem whole.
+/// Stems with only a legacy `.single_sound_options` (0.10b/0.11a) are left to
+/// the dependency scanner.
+fn early_sound_with_raw_options(donor: &ResourceDb, path: &str) -> bool {
+    let Some(tail) = path.strip_prefix("sounds/single/") else {
+        return false;
+    };
+    let stem = [".raw_options", ".high.ogg", ".high.rms"]
+        .iter()
+        .find_map(|ext| tail.strip_suffix(ext));
+    stem.is_some_and(|stem| donor.is_file(&format!("sounds/single/{stem}.raw_options")))
+}
+
 fn is_config_resource(path: &str) -> bool {
     matches!(
         path.rsplit('/').next().unwrap_or(path),
@@ -1444,6 +1460,7 @@ pub fn build(
                     || p.starts_with("material_instances/")
                     || (m.source_build == SourceBuild::V020e
                         && (p.starts_with("particles/") || p.starts_with("sounds/")))
+                    || (m.source_build.early() && early_sound_with_raw_options(&donor, p))
                     || p.ends_with(".veg"))
         })
         .cloned()
@@ -1724,7 +1741,14 @@ pub fn build(
             &format!("{}+0.26g-adapter", m.source_build.label()),
             &mut files,
         )?;
-        if m.source_build.early() && path.ends_with(".high.ogg") {
+        // A donor that ships its own RMS cache (0.11e) keeps it; only builds
+        // without one (0.10b/0.11a) get a cache generated from the audio.
+        if m.source_build.early()
+            && path.ends_with(".high.ogg")
+            && !plan
+                .donor_files
+                .contains(&(path.trim_end_matches(".ogg").to_owned() + ".rms"))
+        {
             let rms =
                 early::sound_rms(&bytes).with_context(|| format!("generating RMS for {path}"))?;
             emit(
@@ -2284,6 +2308,46 @@ mod tests {
         );
         assert_eq!(repairs.len(), 2);
         assert!(repairs.values().all(|v| v.starts_with("omitted: empty")));
+    }
+
+    #[test]
+    fn early_sound_stems_with_raw_options_come_from_the_donor() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("input");
+        for file in [
+            "sounds/single/scapes/industrial_space.raw_options",
+            "sounds/single/scapes/industrial_space.high.ogg",
+            "sounds/single/scapes/industrial_space.high.rms",
+            "sounds/single/weather/rain/rain.single_sound_options",
+            "sounds/single/weather/rain/rain.high.ogg",
+        ] {
+            let path = root.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"x").unwrap();
+        }
+        let dbpath = temp.path().join("donor.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &dbpath,
+        )
+        .unwrap();
+        let db = ResourceDb::open(dbpath).unwrap();
+        for ext in ["raw_options", "high.ogg", "high.rms"] {
+            assert!(early_sound_with_raw_options(
+                &db,
+                &format!("sounds/single/scapes/industrial_space.{ext}")
+            ));
+        }
+        // Legacy options keep the scanner's native-companion policy.
+        assert!(!early_sound_with_raw_options(
+            &db,
+            "sounds/single/weather/rain/rain.high.ogg"
+        ));
+        assert!(!early_sound_with_raw_options(
+            &db,
+            "sounds/single/weather/rain/rain.single_sound_options"
+        ));
+        assert!(!early_sound_with_raw_options(&db, "particles/x.particle"));
     }
 
     #[test]
