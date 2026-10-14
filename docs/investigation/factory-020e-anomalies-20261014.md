@@ -284,5 +284,56 @@ is hard-linked, never edited; binaries/presets are private copies. The harness a
 checks the restored combined DB hash, replays the frozen screenshot-only poses
 on baseline and ambient candidate, requires successful stage/apply receipts,
 and restores the native preset byte-for-byte in `finally`. It also guards the
-shared preset and verifies the database again afterward. No target run has
-occurred yet; wait for the coordinated GPU lease.
+shared preset and verifies the database again afterward.
+
+## Ambient comparison and remaining differences
+
+Both 12-view target arms completed. The candidate receipts verify the guarded
+stage changes and successful creation of the exact 704-byte source apply shader.
+The candidate removes excess illumination from the control-room ceiling and
+the interior yard wall. The matched control-room full-frame sRGB MAE changed
+from 0.180703 to 0.0265482, and the interior yard view from 0.151773 to 0.0292041.
+These are static image comparisons, subject to the source quality caveat above.
+They do not establish full renderer parity. The sky remains visibly different;
+the source has a sunlit patch on the stairs absent in both target arms. Active
+electrical glow and foliage phase also differ from the disconnected source.
+
+The first baseline image had a stale viewpoint despite matching hook receipts;
+the second was also conservatively rejected pending inspection. A bounded
+two-view retry fixed the first and confirmed the second's framing. The final
+12-view mean sRGB MAE is 0.067820125 native versus 0.040391825 with source ambient;
+median is 0.04290785 versus 0.02807465. Eight views improve; four worsen slightly,
+including views with electrical glow or foliage-phase differences. The initial
+aggregate containing the stale image must not be used.
+`compare_lighting_images.py --exclude-view NAME` retains the
+raw per-view numbers but omits rejected views from aggregates. Always inspect
+the framing before interpreting the metric.
+
+The initial candidate launch stalled because the observer retained the menu
+director. The harness now waits for the server's initial world snapshot and
+advancing Presents, then the first capture request reselects the active director.
+It supports `--arm candidate` so a failed arm does not repeat a completed one.
+The private package also includes the exact Wine-prefix manifest required by
+the managed launcher. The final candidate run stopped cleanly, waited its isolated
+Wine server, restored the baseline preset and verified the combined database
+SHA-256 `241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
+Shared preset bytes did not change.
+
+Compact PNGs, camera receipts, logs, restoration proof and three comparison
+sheets are preserved under the private package's
+`evidence/ambient-comparison-20261014`. Sheet columns are original020e, native026,
+source-ambient candidate. No raw GPU buffers or duplicate database were stored.
+
+## Shader identities across 020e and 021d
+
+`audit_shader_parity.py` compares DXBC containers after stripping the archive
+metadata prefix. The saved audit covers 81 original020e permutations and 29
+previously observed021d shaders. Twelve are byte-identical: all eight aberration
+permutations, atmosphere, atmosphere clouds, complex-post-process blend and
+SSAO temporal upsample. Atmosphere SHA-256 is
+`6bf4683c2863d224d4fa236b6559aeb1500baff357c12a8cc47f7e962628d633`;
+clouds is `98013dc55c5fa0f8cecfd14274df1f91957085cb6de4954ad3fc3a8d31002554`.
+Composition, probes and ambient apply do not match. This supports investigating
+the existing School sky/cloud adapters, but does not prove constant-buffer
+bindings or visual parity. The old010 duplicate-grain fix must not be assumed
+applicable to020e.

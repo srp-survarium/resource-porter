@@ -59,6 +59,11 @@ def prepare(source, output, hook, apply, expected_db_sha):
                   scope='Private recipe copies; database hard-linked read-only by convention. '
                         'Wait for parent restoration and GPU lease, then verify DB hash before launch.')
     (output/'comparison.json').write_text(json.dumps(report, indent=2)+'\n')
+    # Launcher verifies the Wine template before extracting a fresh prefix.
+    (output/'manifest.json').write_text(json.dumps({'files': {
+        'wineprefix.tar.gz': {'size': (output/'wineprefix.tar.gz').stat().st_size,
+                              'sha256': sha(output/'wineprefix.tar.gz')}
+    }}, indent=2)+'\n')
     return report
 
 

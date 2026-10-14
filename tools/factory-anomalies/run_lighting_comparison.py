@@ -22,7 +22,7 @@ def digest(path):
     return h.hexdigest()
 
 
-def main(package, poses, output):
+def main(package, poses, output, arms):
     report = json.loads((package/'comparison.json').read_text())
     preset = package/report['preset']
     source_preset = Path(report['source'])/report['preset']
@@ -43,7 +43,7 @@ def main(package, poses, output):
         raise ValueError('comparison permits screenshot-only poses')
     current_sha = report['baseline_sha256']
     try:
-        for arm in ('baseline', 'candidate'):
+        for arm in arms:
             if digest(preset) != current_sha:
                 raise ValueError('private preset changed unexpectedly')
             body = (package/(arm+'-preset.json')).read_bytes()
@@ -58,11 +58,21 @@ def main(package, poses, output):
                 deadline = time.monotonic()+90
                 status_path = runtime/'camera.txt.status.json'
                 while time.monotonic() < deadline:
+                    state_path = runtime/'state.json'
+                    if state_path.exists():
+                        state = json.loads(state_path.read_text())
+                        if state.get('status') == 'stopped' and state.get('error'):
+                            raise RuntimeError(state['error'])
                     if status_path.exists():
                         status = json.loads(status_path.read_text())
                         if status.get('error'):
                             raise RuntimeError(status['error'])
-                        if status.get('camera_calls', 0)>20 and status.get('present_calls', 0)>20:
+                        # The first director may belong to the menu. A capture
+                        # request selects the current director again; waiting
+                        # for that old director to advance can deadlock here.
+                        server_log = runtime/'server.log'
+                        loaded = server_log.exists() and 'initial snapshot' in server_log.read_text()
+                        if loaded and status.get('present_calls', 0)>20:
                             break
                     time.sleep(.25)
                 else:
@@ -98,5 +108,6 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     for name in ('package', 'poses', 'output'):
         p.add_argument(name, type=Path)
+    p.add_argument('--arm', choices=('baseline', 'candidate'), action='append')
     a = p.parse_args()
-    main(a.package.resolve(), a.poses, a.output)
+    main(a.package.resolve(), a.poses, a.output, a.arm or ('baseline', 'candidate'))
