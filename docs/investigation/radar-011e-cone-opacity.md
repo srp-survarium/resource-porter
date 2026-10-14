@@ -3,9 +3,9 @@
 The existing source-opacity adapter improves the sampled Radar lamp shafts
 without moving any geometry. It removes the broad native triangular halo in
 the east hangar, keeps the office beam below its bulb, and reduces the outdoor
-beam's opacity. The original 0.10b crops support this narrower profile; actual
-0.11e reference captures are queued with the donor-reference worker. Do not
-claim completed 0.11e lighting parity from this experiment.
+beam's opacity. Matched original 0.11e captures now support this narrower profile at all three
+views. Enable the source-opacity adapter for ID195, without relocating beams.
+This does not establish complete 0.11e lighting parity.
 
 Two target runs loaded map 195 from `/tmp/three-day-map-candidate/resources.db`
 (SHA-256 `241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`).
@@ -21,15 +21,17 @@ Evidence is in
 
 - `baseline/` and `source/`: six BMPs, PNGs, camera metadata, effective presets,
   original preset/hook copies, and override reports.
-- `comparison/`: three source/native/replacement crop strips, unscaled PNG
-  differences, and `metrics.json` with exact sample rectangles.
+- `comparison-011e/`: authoritative same-donor source/native/replacement crop
+  strips, PNG differences, metrics and exact camera/input-hash verification.
+- `comparison/`: retained earlier 0.10b reference crops and the same target
+  differential metrics; superseded for donor-specific visual review.
 - `poses.json`, `run_ab.py`, `compare_captures.py`: bounded experiment replay.
 - `activation/`: prepared preset overlay, baseline preset and guarded plan.
 
-Threeway PNG columns are original 0.10b, native 0.26, and 0.26 with source cone
-opacity. Original crosshairs remain visible. They constrain beam shape, not
-0.11e scene brightness: 0.11e revises probes and post-processing, while the
-diagnostic target recipe still inherits older weather constants.
+The authoritative `comparison-011e` PNG columns are original 0.11e, native
+0.26, and 0.26 with source cone opacity. All three have UI disabled. Beam
+shape is the acceptance target; the diagnostic target recipe still inherits
+older weather constants and renders the surrounding interiors much darker.
 
 | Same-recipe target region | Native mean luma | Source-opacity mean luma |
 |---|---:|---:|
@@ -67,3 +69,26 @@ Chemical Plant and Radar 0.20e presets are outside this activation scope.
 The obsolete unvalidated 0.10b `build_local.py` cone proposal was removed from
 the worktree and retained as `obsolete-010b-recipe-candidate.patch` in the
 experiment directory. It was never a released fix.
+
+## Original 0.11e confirmation
+
+The donor-reference worker captured the same three poses in the unmodified
+0.11e renderer. Inputs are under
+`/tmp/resource-porter-chemical-011/.work/reference-011e/capture-radar/poses`.
+All nine source/native/replacement metadata records agree exactly on camera
+position, forward vector, FOV and 1280×720 dimensions, with no capture errors.
+`comparison-011e/matched-inputs.json` records each original path and BMP hash;
+`compare_captures_011e.py` reproduces the crop strips using existing frames only.
+
+The source east-hangar shaft has a narrow vertical profile below the fixture;
+the native target spreads a conspicuous triangular halo sideways. Restoring
+the source equation removes that halo while retaining a below-bulb shaft. The
+source west-office control also has a narrow, subdued below-bulb shaft; the
+replacement preserves its placement and is closer in profile. The partially
+occluded outdoor control retains its authored location and becomes less opaque.
+
+These same-donor views confirm the recommendation for the existing ID195-only
+activation plan. No geometry correction or additional intensity adjustment is
+supported. The target beam remains warmer and the scene much darker than the
+source; shader/probe/post-processing calibration must resolve those differences.
+No GPU session, package write or activation occurred during this final review.
