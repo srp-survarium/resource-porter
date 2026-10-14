@@ -103,7 +103,10 @@ material/sun-sentinel experiments are excluded. The 0.20e converter now uses
 an identity local light offset when the donor has none, avoiding an unrelated
 template lamp's `[0.01, -0.265, 0.002]` displacement. Its ambient-light shader
 experiment remains disabled. The integrated converter passes 22 map tests and
-four material tests. The merged capture hook compiles with `-Werror`.
+four material tests. The full existing porter library suite subsequently passed
+all 283 tests (zero failures or ignored tests). The merged capture hook,
+including the original 0.11e reference path and optional local diffuse adapter,
+compiles with `-Werror`.
 
 Composition rejects duplicate map ownership (verified with the actual 0.11e
 bundle twice), changed native registrations, undeclared dictionary edits and
