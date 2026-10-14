@@ -19,6 +19,8 @@ static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,
 #include "volume_capture_filter.c"
 static void *legacy_local_diffuse_code;
 static size_t legacy_local_diffuse_size;
+static void *legacy_point_diffuse_code;
+static size_t legacy_point_diffuse_size;
 #include "local_fresnel_one.c"
 static void tag_source_local(ID3D11PixelShader *shader,const void *code,SIZE_T size);
 static void capture_local_diffuse(ID3D11DeviceContext *context,const Camera *camera);
@@ -948,6 +950,12 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     }
     if (!load_shader_override("SRP_LEGACY_LOCAL_DIFFUSE",&legacy_local_diffuse_code,&legacy_local_diffuse_size)) return 0;
     if (legacy_local_diffuse_code && (strcmp(build,"026g") || !contains(legacy_local_diffuse_code,legacy_local_diffuse_size,"SourceSpotConstants"))) { error("source local diffuse requires 026g and the source spot adapter"); return 0; }
+    if (!load_shader_override("SRP_LEGACY_POINT_DIFFUSE",&legacy_point_diffuse_code,&legacy_point_diffuse_size)) return 0;
+    static const unsigned char point_digest[]={0x3e,0x3f,0xf4,0x81,0x4e,0xe1,0x5a,0x6c,0x57,0x74,0x04,0x30,0xa4,0x35,0xac,0xd9};
+    if (legacy_point_diffuse_code && (!legacy_local_diffuse_code || strcmp(build,"026g") ||
+        legacy_point_diffuse_size!=3328 || memcmp((char *)legacy_point_diffuse_code+4,point_digest,16))) {
+        error("source point diffuse requires paired source local replay on 026g"); return 0;
+    }
     disable_legacy_god_rays=GetEnvironmentVariableA("SRP_LEGACY_DISABLE_GOD_RAYS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     if (!configure_volume_filter() || (volume_filter_enabled && !replace_method(device,offsetof(ID3D11DeviceVtbl,CreateVertexShader),volume_filter_create_vs,(void **)&volume_filter_original_create_vs))) return 0;
     capture_emissives_enabled=GetEnvironmentVariableA("SRP_CAPTURE_EMISSIVES",enabled,sizeof(enabled)) && !strcmp(enabled,"1");

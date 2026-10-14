@@ -2,6 +2,7 @@
 // Replay uses a pre-draw depth/stencil copy: native light passes invert stencil.
 static const GUID local_diffuse_guid={0x3d2a487b,0xf672,0x40f8,{0x8d,0xf2,0x18,0x6b,0xb6,0x5e,0x28,0x3a}};
 static ID3D11PixelShader *legacy_local_diffuse_shader;
+static ID3D11PixelShader *legacy_point_diffuse_shader;
 static ID3D11SamplerState *legacy_local_shadow_sampler;
 static ID3D11Texture2D *legacy_local_diffuse_texture,*legacy_local_depth_texture;
 static ID3D11RenderTargetView *legacy_local_diffuse_target;
@@ -11,6 +12,7 @@ static unsigned legacy_scene_depth_frame;
 static D3D11_TEXTURE2D_DESC legacy_local_depth_desc;
 static D3D11_DEPTH_STENCIL_VIEW_DESC legacy_local_depth_view_desc;
 static unsigned legacy_local_frame,legacy_local_draws,legacy_local_unhandled,legacy_local_failures;
+static unsigned legacy_local_point_draws;
 static unsigned legacy_local_capture_id;
 static void tag_source_local(ID3D11PixelShader *shader,const void *code,SIZE_T size) {
     int index=local_light_index(code,size);
@@ -19,7 +21,7 @@ static void tag_source_local(ID3D11PixelShader *shader,const void *code,SIZE_T s
     ID3D11PixelShader_SetPrivateData(shader,&local_diffuse_guid,sizeof(marker),&marker);
 }
 typedef struct {
-    int ready;
+    int ready,point;
     ID3D11PixelShader *shader;
     ID3D11RenderTargetView *targets[8];
     ID3D11DepthStencilView *depth;
@@ -33,6 +35,7 @@ static void release_local_draw(LocalDiffuseDraw *state) {
 static void begin_local_diffuse_frame(ID3D11DeviceContext *context) {
     if (legacy_local_frame==present_calls) return;
     legacy_local_frame=present_calls; legacy_local_draws=legacy_local_unhandled=legacy_local_failures=0;
+    legacy_local_point_draws=0;
     if (legacy_local_diffuse_target) {
         const float zero[4]={0}; ID3D11DeviceContext_ClearRenderTargetView(context,legacy_local_diffuse_target,zero);
     }
@@ -91,6 +94,8 @@ static int prepare_local_targets(ID3D11DeviceContext *context,LocalDiffuseDraw *
     ID3D11Texture2D_Release(texture);
     if (!legacy_local_diffuse_shader)
         hr=original_create_ps(device,legacy_local_diffuse_code,legacy_local_diffuse_size,NULL,&legacy_local_diffuse_shader);
+    if (SUCCEEDED(hr) && legacy_point_diffuse_code && !legacy_point_diffuse_shader)
+        hr=original_create_ps(device,legacy_point_diffuse_code,legacy_point_diffuse_size,NULL,&legacy_point_diffuse_shader);
     if (SUCCEEDED(hr) && !legacy_local_shadow_sampler) {
         D3D11_SAMPLER_DESC sampler={0}; sampler.Filter=D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
         sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -118,7 +123,11 @@ static void prepare_local_diffuse(ID3D11DeviceContext *context,LocalDiffuseDraw 
     HRESULT hr=ID3D11PixelShader_GetPrivateData(state->shader,&local_diffuse_guid,&size,&marker);
     if (FAILED(hr) || !marker) { release_local_draw(state); return; }
     static const unsigned char spot[]={0x33,0x20,0x4e,0x90,0x75,0x19,0xb2,0xad,0x0a,0xfa,0x79,0x8e,0x61,0x54,0xae,0xbc};
-    if (marker>sizeof(local_light_shaders)/sizeof(local_light_shaders[0]) || memcmp(local_light_shaders[marker-1].digest,spot,16)) {
+    static const unsigned char point[]={0x64,0xf2,0xa6,0x3c,0x07,0x97,0xcd,0x22,0x2f,0x2f,0xf2,0xc5,0x2b,0x5a,0x52,0xda};
+    if (marker<=sizeof(local_light_shaders)/sizeof(local_light_shaders[0]))
+        state->point=legacy_point_diffuse_code && !memcmp(local_light_shaders[marker-1].digest,point,16);
+    if (marker>sizeof(local_light_shaders)/sizeof(local_light_shaders[0]) ||
+        (!state->point && memcmp(local_light_shaders[marker-1].digest,spot,16))) {
         ++legacy_local_unhandled; release_local_draw(state); return;
     }
     ID3D11DeviceContext_OMGetRenderTargets(context,8,state->targets,&state->depth);
@@ -136,7 +145,7 @@ static void finish_local_diffuse(ID3D11DeviceContext *context,LocalDiffuseDraw *
         // Native depth/stencil state, VS, constants, SRVs, samplers, viewport and
         // scissor remain bound. Only PS and OM targets change for the replay.
         ID3D11DeviceContext_OMSetRenderTargets(context,1,&legacy_local_diffuse_target,legacy_local_depth_view);
-        ID3D11DeviceContext_PSSetShader(context,legacy_local_diffuse_shader,NULL,0);
+        ID3D11DeviceContext_PSSetShader(context,state->point?legacy_point_diffuse_shader:legacy_local_diffuse_shader,NULL,0);
         ID3D11SamplerState *sampler=NULL; ID3D11DeviceContext_PSGetSamplers(context,3,1,&sampler);
         ID3D11DeviceContext_PSSetSamplers(context,3,1,&legacy_local_shadow_sampler);
         if (indexed) original_draw_indexed(context,count,start,base_vertex); else original_draw(context,count,start);
@@ -145,6 +154,7 @@ static void finish_local_diffuse(ID3D11DeviceContext *context,LocalDiffuseDraw *
         ID3D11DeviceContext_PSSetShader(context,state->shader,NULL,0);
         ID3D11DeviceContext_OMSetRenderTargets(context,8,state->targets,state->depth);
         ++legacy_local_draws;
+        legacy_local_point_draws+=(unsigned)state->point;
     }
     release_local_draw(state);
 }
@@ -154,8 +164,8 @@ static void capture_local_diffuse(ID3D11DeviceContext *context,const Camera *cam
     char base[MAX_PATH+48],path[MAX_PATH+80]; snprintf(base,sizeof(base),"%s.local-encoded",camera->output);
     snprintf(path,sizeof(path),"%s.json",base); FILE *file=fopen(path,"w");
     if (file) {
-        fprintf(file,"{\"present\":%u,\"replayed_draws\":%u,\"unhandled_draws\":%u,\"failed_draws\":%u,\"ambient_enabled\":%s,\"ambient_valid\":%s,\"scope\":\"%s\"}\n",
-                present_calls,legacy_local_draws,legacy_local_unhandled,legacy_local_failures,
+        fprintf(file,"{\"present\":%u,\"replayed_draws\":%u,\"point_draws\":%u,\"unhandled_draws\":%u,\"failed_draws\":%u,\"ambient_enabled\":%s,\"ambient_valid\":%s,\"scope\":\"%s\"}\n",
+                present_calls,legacy_local_draws,legacy_local_point_draws,legacy_local_unhandled,legacy_local_failures,
                 legacy_ambient_diffuse_enabled?"true":"false",source_ambient_valid()?"true":"false",
                 legacy_ambient_diffuse_enabled?"source ambient and local lights; no sun/scattering":"local-light-only; zero ambient");
         fclose(file);

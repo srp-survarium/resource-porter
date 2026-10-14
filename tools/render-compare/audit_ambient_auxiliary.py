@@ -8,7 +8,7 @@ import struct
 from audit_original_skylight import evaluate_skylight
 
 
-def audit(base, stride):
+def audit(base, stride, allow_incomplete_locals=False):
     def read(suffix):
         return Path(str(base)+suffix).read_bytes()
     def metadata(suffix):
@@ -20,7 +20,7 @@ def audit(base, stride):
     serials=[sky['present'],sky['ao_present'],ambient['present'],ambient['ao_present'],local['present'],ao_state['rendered_present'],ao_state['capture_present']]
     if len(set(serials))!=1 or not ambient['valid'] or not local['ambient_valid'] or not local['ambient_enabled']:
         raise ValueError(f'{base}: missing or stale ambient initialization')
-    if local['unhandled_draws'] or local['failed_draws'] or ambient['failed_draws']:
+    if (local['unhandled_draws'] and not allow_incomplete_locals) or local['failed_draws'] or ambient['failed_draws']:
         raise ValueError(f'{base}: unsupported or failed auxiliary draws')
     if ambient['sky_draws']!=1 or ambient['probe_draws']<1:
         raise ValueError(f'{base}: invalid sky/probe counts')
@@ -67,6 +67,7 @@ def audit(base, stride):
         maximum_increment=max(maximum_increment,max(delta))
         for c in range(3): totals[c]+=delta[c]
     return {'pose':str(base),'present':serials[0],'probe_draws':ambient['probe_draws'],'local_draws':local['replayed_draws'],
+            'unhandled_local_draws':local['unhandled_draws'],'local_coverage_complete':not local['unhandled_draws'],
             'sky_nonzero_samples':nonzero,'sky_zero_samples_excluded':zero,'sky_outside_one_10bit_step':failures,
             'sky_maximum_channel_error':maximum,'sky_mean_absolute_rgb_error':total/(3*nonzero) if nonzero else None,
             'sky_examples':examples,'local_addition':{'decreased_pixels':decreased,'increased_pixels':increased,
@@ -80,11 +81,13 @@ def main():
     parser.add_argument('directory',type=Path)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--stride',type=int,default=8)
+    parser.add_argument('--allow-incomplete-locals',action='store_true',
+                        help='Audit private sky/probe math while reporting unsupported local draws; does not certify full lighting')
     args=parser.parse_args()
     if args.stride<1: parser.error('stride must be positive')
     files=sorted(args.directory.glob('*.bmp.sky-encoded.json'))
     if not files: parser.error('no auxiliary skylight captures found')
-    rows=[audit(Path(str(path).removesuffix('.sky-encoded.json')),args.stride) for path in files]
+    rows=[audit(Path(str(path).removesuffix('.sky-encoded.json')),args.stride,args.allow_incomplete_locals) for path in files]
     args.output.write_text(json.dumps(rows,indent=2)+'\n')
     print(json.dumps(rows,indent=2))
     if any(row['sky_outside_one_10bit_step'] or row['local_addition']['decreased_pixels'] for row in rows):

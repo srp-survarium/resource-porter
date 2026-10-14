@@ -13,6 +13,7 @@ static ID3D11SamplerState *ssao_samplers[2];
 static ID3D11Buffer *ssao_constants[2];
 static ID3D11RasterizerState *ssao_raster;
 static unsigned ssao_captured_id;
+static float ssao_source_saturation=2.f,ssao_source_radius=1.5f;
 static ID3D11Texture2D *ssao_ready_depth;
 static ID3D11VertexShader *legacy_ssao_fullscreen_shader(void) { return ssao_vs; }
 
@@ -35,6 +36,14 @@ static int configure_legacy_ssao(void) {
     int decoder=legacy_ambient_decode_code && contains(legacy_ambient_decode_code,legacy_ambient_decode_size,"t_legacy_ssao");
     if (!!length!=decoder || length>=sizeof(ssao_asset_root)) { error("original SSAO requires its paired ambient decoder and asset directory"); return 0; }
     legacy_ssao_enabled=length!=0;
+    char parameters[96],extra;
+    DWORD parameter_length=GetEnvironmentVariableA("SRP_LEGACY_SSAO_PARAMETERS",parameters,sizeof(parameters));
+    if (parameter_length && (!legacy_ssao_enabled || parameter_length>=sizeof(parameters) ||
+        sscanf(parameters,"%f,%f%c",&ssao_source_saturation,&ssao_source_radius,&extra)!=2 ||
+        !isfinite(ssao_source_saturation) || !isfinite(ssao_source_radius) ||
+        ssao_source_saturation<=0 || ssao_source_radius<=0)) {
+        error("source SSAO parameters require positive finite saturation,radius and paired assets"); return 0;
+    }
     char early[8];
     DWORD early_length=GetEnvironmentVariableA("SRP_LEGACY_SSAO_EARLY_PROBES",early,sizeof(early));
     legacy_ssao_early=early_length==1 && early[0]=='1';
@@ -83,7 +92,7 @@ static int init_legacy_ssao(ID3D11Device *device,ID3D11DeviceContext *context) {
     sampler.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT;
     sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
     SSAO_TRY(ID3D11Device_CreateSamplerState(device,&sampler,&ssao_samplers[1]));
-    float params[12]={0}; params[4]=2; params[5]=1.5f;
+    float params[12]={0}; params[4]=ssao_source_saturation; params[5]=ssao_source_radius;
     float globals[76]={0}; globals[72]=1280; globals[73]=720; globals[74]=1.f/1280; globals[75]=1.f/720;
     D3D11_BUFFER_DESC buffer={0}; buffer.ByteWidth=sizeof(params); buffer.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
     initial.pSysMem=params;
@@ -113,8 +122,9 @@ static void capture_legacy_ssao_depth(ID3D11Texture2D *depth,const Camera *camer
         snprintf(path,sizeof(path),"%s.state.json",base);
         file=fopen(path,"w");
         if (file) {
-            fprintf(file,"{\"capture_id\":%u,\"rendered_present\":%u,\"capture_present\":%u,\"early_probes\":%s}\n",
-                    camera->id,ssao_ready_present,present_calls,legacy_ssao_early?"true":"false");
+            fprintf(file,"{\"capture_id\":%u,\"rendered_present\":%u,\"capture_present\":%u,\"early_probes\":%s,\"source_saturation\":%.9g,\"source_radius\":%.9g}\n",
+                    camera->id,ssao_ready_present,present_calls,legacy_ssao_early?"true":"false",
+                    ssao_source_saturation,ssao_source_radius);
             fclose(file);
         }
     }

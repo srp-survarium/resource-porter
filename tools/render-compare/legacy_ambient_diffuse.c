@@ -11,7 +11,7 @@ static ID3D11RasterizerState *ambient_sky_raster;
 static unsigned ambient_frame,ambient_probe_draws,ambient_failures,ambient_sky_draws;
 static unsigned ambient_capture_id;
 static unsigned ambient_sky_capture_id;
-static int ambient_sealed,ambient_last_mip;
+static int ambient_sealed,ambient_last_mip,ambient_source_011e;
 typedef struct { LocalDiffuseDraw draw; unsigned kind; } AmbientDiffuseDraw;
 static int source_ambient_valid(void) {
     return legacy_ambient_diffuse_enabled && ambient_frame==present_calls && ambient_sky_draws==1 &&
@@ -61,8 +61,14 @@ static int configure_ambient_diffuse(void) {
         {0xf7,0xb4,0x40,0xcc,0x9e,0x44,0xe7,0xdc,0x10,0x26,0xc6,0x51,0x4f,0x2f,0x86,0xb7},
         {0x80,0xed,0x6f,0x07,0x0d,0xd3,0x33,0x42,0xeb,0x46,0xcf,0x2c,0xb0,0xbb,0xb5,0x0c}
     };
+    static const unsigned char source_011e_digests[2][16]={
+        {0x87,0xc3,0x86,0x74,0xb2,0x93,0x2c,0x1d,0xbb,0xa3,0xf0,0x73,0x42,0x42,0x10,0xe8},
+        {0x76,0xec,0xb0,0xa8,0x34,0x73,0xf4,0xc8,0x14,0x45,0x45,0x0c,0xb1,0xe5,0x59,0x93}
+    };
     char flag[8];
     ambient_last_mip=GetEnvironmentVariableA("SRP_DIAGNOSTIC_SOURCE_AMBIENT_LAST_MIP",flag,sizeof(flag))==1 && flag[0]=='1';
+    ambient_source_011e=GetEnvironmentVariableA("SRP_DIAGNOSTIC_SOURCE_AMBIENT_011E",flag,sizeof(flag))==1 && flag[0]=='1';
+    if (ambient_source_011e) ambient_last_mip=1;
     for (unsigned i=0;i<3;++i) {
         if (snprintf(path,sizeof(path),"%s/%s",directory,names[i])>=(int)sizeof(path)) return 0;
         FILE *file=fopen(path,"rb"); if (!file) { error("source ambient shader missing"); return 0; }
@@ -71,7 +77,8 @@ static int configure_ambient_diffuse(void) {
         ambient_code[i]=malloc((size_t)size); ambient_code_size[i]=(size_t)size;
         ok=ambient_code[i] && fread(ambient_code[i],1,(size_t)size,file)==(size_t)size;
         fclose(file);
-        const unsigned char *digest=ambient_last_mip && i<2?last_mip_digests[i]:digests[i];
+        const unsigned char *digest=ambient_source_011e && i<2?source_011e_digests[i]:
+            ambient_last_mip && i<2?last_mip_digests[i]:digests[i];
         if (!ok || memcmp(ambient_code[i],"DXBC",4) || memcmp((char *)ambient_code[i]+4,digest,16) ||
             *(uint32_t *)((char *)ambient_code[i]+24)!=(uint32_t)size) {
             error("source ambient shader identity mismatch"); return 0;
@@ -225,8 +232,8 @@ static void capture_ambient_diffuse(ID3D11DeviceContext *context) {
     char base[MAX_PATH+48],path[MAX_PATH+80]; snprintf(base,sizeof(base),"%s.ambient-encoded",camera.output);
     snprintf(path,sizeof(path),"%s.json",base); FILE *file=fopen(path,"w");
     if (file) {
-        fprintf(file,"{\"present\":%u,\"valid\":%s,\"sky_draws\":%u,\"probe_draws\":%u,\"failed_draws\":%u,\"ao_present\":%u,\"diffuse_cube_mip\":%u,\"scope\":\"source sky and probes before local lights; native scene unchanged\",\"source_sky\":[",
-                present_calls,source_ambient_valid()?"true":"false",ambient_sky_draws,ambient_probe_draws,ambient_failures,ssao_ready_present,ambient_last_mip?2:1);
+        fprintf(file,"{\"present\":%u,\"valid\":%s,\"sky_draws\":%u,\"probe_draws\":%u,\"failed_draws\":%u,\"ao_present\":%u,\"diffuse_cube_mip\":%u,\"source_profile\":\"%s\",\"scope\":\"source sky and probes before local lights; native scene unchanged\",\"source_sky\":[",
+                present_calls,source_ambient_valid()?"true":"false",ambient_sky_draws,ambient_probe_draws,ambient_failures,ssao_ready_present,ambient_last_mip?2:1,ambient_source_011e?"011e":"010b");
         for (unsigned i=0;i<32;++i) fprintf(file,"%s%.9g",i?",":"",ambient_sky_parameters[i]);
         fputs("]}\n",file); fclose(file);
     }
