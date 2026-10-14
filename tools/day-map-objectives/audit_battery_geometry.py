@@ -100,21 +100,23 @@ class Geometry:
         under_cover=any(segment_triangle(center,ceiling,t['vertices']) is not None for t in local)
         choices=([[(1.5,.4),(1.5,.2),(1.7,.65),(1.7,1.)],[(2.4,.65),(2.,.4),(1.8,.2),(3.,1.),(3.,1.6)]] if under_cover else
                  [[(1.7,1.),(1.7,.65),(1.5,.4),(1.5,.2)],[(3.,1.6),(3.,1.),(2.4,.65),(2.,.4),(1.8,.2)]])
-        for number,choices in enumerate(choices):
+        choices[1].extend([(1.2,.85),(1.2,.7)])
+        for number,options in enumerate(choices):
             candidates=[]
-            for radius,height in choices:
-              for i in range(16):
-                angle=i*math.tau/16
-                if views and abs((angle-views[0]['azimuth_radians']+math.pi)%math.tau-math.pi)<math.pi/3:continue
-                eye=[center[0]+math.sin(angle)*radius,center[1]+height,center[2]+math.cos(angle)*radius]
-                hits=[segment_triangle(eye,center,t['vertices']) for t in local]
-                if any(t is not None for t in hits):continue
-                # Reject an eye inside a collision box, even if its ray exits a hole.
-                if any(all(abs(dot(sub(eye,b['center']),axis))<h for axis,h in zip(b['basis'],b['half'])) for b in camera_boxes):continue
-                candidates.append({'view':number+1,'camera':eye,'target':center,'forward':unit(sub(center,eye)),
-                                   'fov_degrees':65,'azimuth_radians':angle,'collision_segment_clear':True,
-                                   'camera_collision_policy':'controller-only invisible walker proxies excluded; physical audit retains them'})
-              if candidates:break
+            for separation in ([math.pi/3, math.pi/8, 0] if views else [0]):
+                for radius,height in options:
+                    for i in range(16):
+                        angle=i*math.tau/16
+                        if views and abs((angle-views[0]['azimuth_radians']+math.pi)%math.tau-math.pi)<separation:continue
+                        eye=[center[0]+math.sin(angle)*radius,center[1]+height,center[2]+math.cos(angle)*radius]
+                        if views and math.dist(eye,views[0]['camera'])<.2:continue
+                        if any(segment_triangle(eye,center,t['vertices']) is not None for t in local):continue
+                        if any(all(abs(dot(sub(eye,b['center']),axis))<h for axis,h in zip(b['basis'],b['half'])) for b in camera_boxes):continue
+                        candidates.append({'view':number+1,'camera':eye,'target':center,'forward':unit(sub(center,eye)),
+                                           'fov_degrees':65,'azimuth_radians':angle,'collision_segment_clear':True,
+                                           'camera_collision_policy':'controller-only invisible walker proxies excluded; physical audit retains them'})
+                    if candidates:break
+                if candidates:break
             if candidates:views.append(candidates[0])
         return views
     def footprint(self,center,basis):
