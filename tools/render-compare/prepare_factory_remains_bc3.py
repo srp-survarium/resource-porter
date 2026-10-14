@@ -33,6 +33,11 @@ def transcode(raw):
                          for a, b in endpoints], dtype=np.float64)
     values = np.arange(16)*17
     errors = (values[None, :, None]-palettes[:, None, :])**2
+    # Both source and native materials use alpha_ref=.25. Preserve its
+    # texel classification too; filtering across edges remains approximate.
+    for threshold in (63.75, 127.5):
+        crosses = (values[None, :, None] >= threshold) != (palettes[:, None, :] >= threshold)
+        errors[crosses] = 1e12
     indices = errors.argmin(axis=2).astype(np.uint64)
     costs = errors.min(axis=2)
     fixed = bytearray(raw)
@@ -44,7 +49,7 @@ def transcode(raw):
         alpha = np.stack((blocks[:, :8] & 15, blocks[:, :8] >> 4), axis=-1).reshape(-1, 16)
         assert np.all((alpha <= 7) | (alpha == 15))
         output = blocks.copy()
-        absolute_sum, squared_sum, maximum, changed, crossings = 0., 0., 0., 0, 0
+        absolute_sum, squared_sum, maximum, changed, crossings, authored_crossings = 0., 0., 0., 0, 0, 0
         for begin in range(0, count, 4096):
             part = alpha[begin:begin+4096]
             histogram = np.stack([(part == value).sum(axis=1) for value in range(16)], axis=1)
@@ -60,10 +65,12 @@ def transcode(raw):
             maximum = max(maximum, float(np.abs(difference).max()))
             changed += int((np.abs(difference) > 1e-9).sum())
             crossings += int(((decoded >= 127.5) != (part >= 8)).sum())
-        assert np.array_equal(output[:, 8:], blocks[:, 8:]) and crossings == 0
+            authored_crossings += int(((decoded >= 63.75) != (part >= 4)).sum())
+        assert np.array_equal(output[:, 8:], blocks[:, 8:]) and crossings == authored_crossings == 0
         fixed[offset:offset+count*16] = output.tobytes()
         report.append({'mip': mip, 'width': width, 'height': height,
                        'rgb_blocks_identical': True, 'alpha_half_threshold_crossings': crossings,
+                       'alpha_authored_quarter_threshold_crossings': authored_crossings,
                        'alpha_changed_texels': changed, 'alpha_mae_255': absolute_sum/(count*16),
                        'alpha_rms_255': (squared_sum/(count*16))**.5, 'alpha_max_error_255': maximum})
         offset += count*16

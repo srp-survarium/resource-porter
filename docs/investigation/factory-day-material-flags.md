@@ -99,9 +99,10 @@ higher mips through this path with the pool enabled.
 candidate. It guards the exact original DDS hashes, preserves every RGB
 compression block, dimensions, mip count and sRGB byte, and fits only BC2
 alpha into BC3 palettes. The payload length is unchanged. Independent Pillow
-decoding confirms identical full-resolution RGB and zero texel crossings
-at alpha 0.5. Alpha MAE is 0.000118/0.014932 on a 0–255 scale for skeleton/rag;
-maximum errors are 11/17. Bilinear alpha-edge coverage can still differ.
+decoding confirms identical RGB and zero texel crossings at the authored
+alpha reference 0.25 (and 0.5) across all ten mips. Full-resolution alpha
+MAE is 0.000117/0.014664 on a 0–255 scale for skeleton/rag; maximum errors
+are 10/17. Bilinear alpha-edge coverage can still differ.
 This is a format compatibility experiment, not lossless alpha conversion.
 Runtime validation must confirm actual bound SRV dimensions and settled
 appearance before promotion. Material and lighting candidates stay separate.
