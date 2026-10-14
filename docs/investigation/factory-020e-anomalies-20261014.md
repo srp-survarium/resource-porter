@@ -246,3 +246,43 @@ and the GPU handed to the lamp worker before further offline preparation.
 Keep the ambient candidate disabled until original/converted views prove it.
 The source has a red-channel ambient apply contract; borrowing the 0.21 colored
 apply shader would be incorrect even though the stage partition issue matches.
+
+
+## Frozen original renderer reference
+
+The final guarded spectator retry rendered successfully. One original session
+produced 12 fixed-camera, UI-off 1280×720 PNGs; four provisional views were
+refined in that same session to remove foreground intersections. The frozen
+set is `/tmp/factory-020e-reference-ready/frozen-reference`, mirrored in the
+private package under `evidence/original-reference-20261014`. `poses.json`,
+per-frame hook status, full game/server logs and SHA-256 manifest accompany it.
+Present and camera counters continued advancing, with no error overlay.
+The reference clock handshake disconnected after loading: these are static
+visual references, not timing evidence for anomalies, wind or multiplayer.
+The source renderer and source assets were unchanged.
+
+Quality qualification: source 0.20 accepts texture quality 0–2 and defaults to2;
+its console rejected the attempted3. A read-only external probe was denied by
+the OS, and the client did not persist settings on graceful exit. Therefore the
+live value and effective mip offset are unconfirmed. Both verified VRAM fallback
+constants were raised from256 to1024MiB to avoid the known Wine fallback issue.
+Future preparation requests2 explicitly. No target blur compensates this caveat.
+
+The first successful source frame proves the three guarded spectator UI callback
+bypasses work. Static map setup differs from021 as documented above. All owned
+clients and servers stopped; the isolated wineserver was waited before handoff.
+Lighting comparison and candidate validation remain outstanding.
+
+
+## Prepared target comparison
+
+`prepare_lighting_comparison.py` makes a private harness from the combined
+candidate's map196 recipe, retaining the exact native preset. The shared database
+is hard-linked, never edited; binaries/presets are private copies. The harness at
+`/tmp/factory-020e-lighting-candidate` uses runtime
+`/tmp/factory-020e-lighting-runtime`, port2264. `run_lighting_comparison.py`
+checks the restored combined DB hash, replays the frozen screenshot-only poses
+on baseline and ambient candidate, requires successful stage/apply receipts,
+and restores the native preset byte-for-byte in `finally`. It also guards the
+shared preset and verifies the database again afterward. No target run has
+occurred yet; wait for the coordinated GPU lease.

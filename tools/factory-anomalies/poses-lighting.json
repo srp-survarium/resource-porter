@@ -1,0 +1,206 @@
+[
+  {
+    "name": "antenna-control-east",
+    "position": [
+      -55,
+      7.9,
+      -7
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Refined within one original session after provisional view intersected or faced nearby geometry"
+  },
+  {
+    "name": "antenna-control-south",
+    "position": [
+      -53,
+      7.9,
+      -3
+    ],
+    "forward": [
+      0,
+      -0.04,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Reverse control-room exposure and ceiling"
+  },
+  {
+    "name": "hangar-west-upper",
+    "position": [
+      -5,
+      8,
+      -14
+    ],
+    "forward": [
+      -0.672,
+      0.192,
+      0.715
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Established source-map lamp camera, user hangar illumination"
+  },
+  {
+    "name": "hangar-east-lower",
+    "position": [
+      35,
+      3,
+      1
+    ],
+    "forward": [
+      -0.572,
+      0.292,
+      0.767
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Established hangar camera, local beam and shadow contrast"
+  },
+  {
+    "name": "hangar-stairs",
+    "position": [
+      -8,
+      7.6,
+      -13
+    ],
+    "forward": [
+      0,
+      0.12,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Refined within one original session after provisional view intersected or faced nearby geometry"
+  },
+  {
+    "name": "skeleton-upper-room",
+    "position": [
+      -11,
+      7.6,
+      -18
+    ],
+    "forward": [
+      0,
+      -0.08,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Source skeleton positions around x=-11 y=5.9 z=-21, matching user room"
+  },
+  {
+    "name": "skeleton-upper-reverse",
+    "position": [
+      -11,
+      7.6,
+      -25
+    ],
+    "forward": [
+      0,
+      -0.08,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Opposite source room light direction"
+  },
+  {
+    "name": "anomaly-tree",
+    "position": [
+      -47,
+      7,
+      18
+    ],
+    "forward": [
+      -0.65,
+      -0.03,
+      0.76
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Source electrical tree courtyard; user outdoor atmosphere"
+  },
+  {
+    "name": "anomaly-tree-reverse",
+    "position": [
+      9.292,
+      2.586,
+      -52.674
+    ],
+    "forward": [
+      0.995586,
+      0.07,
+      0.067039
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Refined within one original session after provisional view intersected or faced nearby geometry"
+  },
+  {
+    "name": "yard-north",
+    "position": [
+      48.593,
+      2.1,
+      16.238
+    ],
+    "forward": [
+      0,
+      0,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Established broad yard coverage away from selected interiors"
+  },
+  {
+    "name": "factory-interior",
+    "position": [
+      -35.8508682,
+      1.99373555,
+      -74.4459991
+    ],
+    "forward": [
+      0.896765232,
+      -0.00333326682,
+      -0.442493379
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Established southern interior, held-out lighting region"
+  },
+  {
+    "name": "sky-yard",
+    "position": [
+      0,
+      20,
+      0
+    ],
+    "forward": [
+      0,
+      0.7,
+      1
+    ],
+    "fov": 65,
+    "settle_ms": 3000,
+    "buffers": false,
+    "rationale": "Refined within one original session after provisional view intersected or faced nearby geometry"
+  }
+]

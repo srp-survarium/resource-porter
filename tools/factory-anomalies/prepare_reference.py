@@ -27,8 +27,8 @@ def prepare(donor, package, output, server_source, hook):
     subprocess.run(['tar', '-xf', str(package/'wineprefix.tar.gz'), '-C', str(output)], check=True)
     profile = prefix/'drive_c/users/sheep/Documents/Survarium/user.cfg'
     lines = profile.read_text().splitlines()
-    lines = [line for line in lines if not line.startswith(('ui ', 'account_name ', 'account_digest '))]
-    profile.write_text('\n'.join(lines+['ui on'])+'\n')
+    lines = [line for line in lines if not line.startswith(('ui ', 'account_name ', 'account_digest ', 'r_texture_quality '))]
+    profile.write_text('\n'.join(lines+['ui on', 'r_texture_quality 2'])+'\n')
     server = output/'server-source'
     shutil.copytree(server_source, server, ignore=shutil.ignore_patterns('target', '.git'))
     # PDB-backed 020e layout differs from021:21*u16 score weights, no

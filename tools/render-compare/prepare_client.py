@@ -40,6 +40,13 @@ def prepare(source, output, build):
     if build == '020e':
         # PDB get_local_video_memory_size: Wine can report below the minimum.
         # Only its verified failure branch returns the already-computed floor.
+        # Avoid reference-only mip degradation when Wine reports no local VRAM.
+        # Both source fallback constants use EDI; 1 GiB keeps full-quality mips.
+        for rva in (0xb9172, 0xb9190):
+            at = offset(rva)
+            if data[at:at+5] != bytes.fromhex('bf00000010'):
+                raise ValueError('020e video-memory minimum changed')
+            data[at:at+5] = bytes.fromhex('bf00000040')
         at = offset(0xb91d3)
         expected = bytes.fromhex('680001000068106a8000e87a900000')
         if data[at:at+15] != expected:
