@@ -121,14 +121,10 @@ pub(super) fn project(
             ));
             continue;
         }
-        if kind == "wire_set" {
-            // Kept for static wire emission after dependency discovery.
-            notes.push(format!(
-                "{path}: wire requires static reconstruction: {}",
-                string(object, "full_name").unwrap_or("wire")
-            ));
-            continue;
-        }
+        // wire_set needs no reconstruction: 0.10b object_wire::load and 0.26
+        // object_wire::load (0x293e90) read the same fields (points,
+        // points_count, wire_width, ...); adapt_objects adds layer and
+        // is_temporary, exactly as for the 0.20e wires that already ship.
         let mut object = object.clone();
         if kind == "environment" {
             let post = string(&object, "post_effect").context("early post effect")?;
@@ -1023,6 +1019,71 @@ mod tests {
             )
             .unwrap();
         assert!(validate_server_fallback(&client, &server).is_err());
+    }
+
+    #[test]
+    fn early_wire_sets_are_kept_with_their_authored_points() {
+        fn object(fields: &[(&str, ConfigValue)]) -> ConfigValue {
+            ConfigValue::Named(
+                fields
+                    .iter()
+                    .map(|(name, value)| NamedValue {
+                        name: (*name).into(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            )
+        }
+        let text = |s: &str| ConfigValue::String(s.into());
+        let wire = object(&[
+            ("game_object_type", text("wire_set")),
+            ("lib_name", text("wire_set")),
+            ("full_name", text("objects/wire/wire_set(9)")),
+            ("position", ConfigValue::Float3([-2.006, 8.775, -49.581])),
+            ("points_count", ConfigValue::Integer(2)),
+            (
+                "points",
+                ConfigValue::Indexed(vec![
+                    ConfigValue::Float3([0., 0., 0.]),
+                    ConfigValue::Float3([-18.874, 0.037, 0.071]),
+                ]),
+            ),
+            ("wire_width", ConfigValue::Float(0.03)),
+        ]);
+        let old = object(&[
+            ("objects", ConfigValue::Indexed(vec![wire.clone()])),
+            ("render_visuals", ConfigValue::Indexed(vec![])),
+        ]);
+        let server = object(&[("objects", object(&[]))]);
+        let target = object(&[("client_objects", ConfigValue::Indexed(vec![]))]);
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("input");
+        fs::create_dir_all(root.join("unused")).unwrap();
+        fs::write(root.join("unused/file"), b"x").unwrap();
+        let db_path = temp.path().join("donor.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &db_path,
+        )
+        .unwrap();
+        let mut donor = ResourceDb::open(db_path).unwrap();
+        let map = Map {
+            id: 195,
+            level: "level_03".into(),
+            weather: "day".into(),
+        };
+        let project = project(
+            old,
+            &mut donor,
+            server,
+            &target,
+            &map,
+            SourceBuild::V011e,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        let client = array(project.named("client_objects").unwrap()).unwrap();
+        assert_eq!(client, &[wire]);
     }
 
     #[test]
