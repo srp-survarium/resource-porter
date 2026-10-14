@@ -1,0 +1,39 @@
+{
+  "source_build": "0.11e",
+  "donor_sha256": "694e1772a0595b6686cc9810afa438ed25b21360c591c0e26aa8e35dc03a4955",
+  "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "maps": [
+    {
+      "id": 194,
+      "level": "level_04",
+      "weather": "day"
+    }
+  ],
+  "missing_collision_resources": [
+    "models/props/electric/soviet_comp_01.model/collision",
+    "models/test_object/primitives/cube.model/collision"
+  ],
+  "material_templates": {
+    "material_instances/tiled/floor/pol.material": "material_instances/tiled/floor/floortrash02_pol_vc.material",
+    "material_instances/decals/decals_fire_bullet_damage.material": "material_instances/decals/decals_fire_bullet_damage.material",
+    "material_instances/decals/decals_leaking_01.material": "material_instances/decals/decals_leaking_01.material",
+    "material_instances/decals/decals_multiply_01.material": "material_instances/decals/decals_multiply_01.material",
+    "material_instances/decals/decals_multiply_02.material": "material_instances/decals/decals_multiply_02.material",
+    "material_instances/decals/decals_multiply_03.material": "material_instances/decals/decals_multiply_03.material",
+    "material_instances/decals/decals_multiply_04.material": "material_instances/decals/decals_multiply_04.material",
+    "material_instances/decals/decals_spot.material": "material_instances/decals/decals_spot.material",
+    "material_instances/fx/cone_volume_material.material": "material_instances/fx/cone_volume_material.material",
+    "material_instances/fx/pfx/ak47_front.material": "material_instances/fx/pfx/ak47_front.material",
+    "material_instances/water/water.material": "material_instances/water/water.material",
+    "material_instances/water/water_green.material": "material_instances/water/water_green.material",
+    "material_instances/water/water_green_shit.material": "material_instances/water/water_green_shit.material"
+  },
+  "wrapped_uv_surfaces": [
+    "models/level/04/moss2.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss2.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_base_sg/converted_model"
+  ]
+}

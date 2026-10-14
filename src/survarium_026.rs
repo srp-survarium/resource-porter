@@ -22,6 +22,8 @@ pub enum SourceBuild {
     V010b,
     #[serde(rename = "0.11a")]
     V011a,
+    #[serde(rename = "0.11e")]
+    V011e,
     #[default]
     #[serde(rename = "0.21d")]
     V021d,
@@ -32,6 +34,7 @@ impl SourceBuild {
         match self {
             Self::V010b => "v010b",
             Self::V011a => "v011a",
+            Self::V011e => "v011e",
             Self::V021d => "v021d",
         }
     }
@@ -39,6 +42,7 @@ impl SourceBuild {
         match self {
             Self::V010b => "0.10b-802",
             Self::V011a => "0.11a-816",
+            Self::V011e => "0.11e-884",
             Self::V021d => "0.21d-2010",
         }
     }

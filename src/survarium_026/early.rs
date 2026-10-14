@@ -20,7 +20,7 @@ fn number(value: &ConfigValue) -> Result<f32> {
     }
 }
 
-fn transfer_probe(object: &mut ConfigValue, weather: &str) -> Result<()> {
+fn transfer_probe(object: &mut ConfigValue, weather: &str, source: SourceBuild) -> Result<()> {
     let texture = string(object, "texture")
         .context("early probe texture")?
         .to_owned();
@@ -37,6 +37,17 @@ fn transfer_probe(object: &mut ConfigValue, weather: &str) -> Result<()> {
             },
         ]),
     )?;
+    if source == SourceBuild::V011e {
+        let width = number(
+            object
+                .named("probe_side_width")
+                .context("0.11e authored probe width")?,
+        )?;
+        ensure!(width.is_finite() && width > 0., "invalid 0.11e probe width");
+        // Preserve the explicit donor field for investigation. Its sphere
+        // upload differs from 0.26 and is not yet a verified runtime mapping.
+        return Ok(());
+    }
     if object
         .named("geometry")
         .map(number)
@@ -136,7 +147,17 @@ pub(super) fn project(
             continue;
         }
         if kind == "environment_probe" {
-            transfer_probe(&mut object, &map.weather)?;
+            transfer_probe(&mut object, &map.weather, source)?;
+            if source == SourceBuild::V011e
+                && object
+                    .named("geometry")
+                    .map(number)
+                    .transpose()?
+                    .unwrap_or(0.)
+                    == 0.
+            {
+                notes.push(format!("{path}: UNVERIFIED 0.11e sphere probe width preserved; native 0.26 radius contraction can invert the falloff interval"));
+            }
         }
         if kind == "vegetation" {
             if let Some(ConfigValue::Indexed(layers)) = object.named_mut("layers") {
@@ -963,7 +984,7 @@ mod tests {
                 value: ConfigValue::Integer(0),
             },
         ]);
-        transfer_probe(&mut probe, "rain").unwrap();
+        transfer_probe(&mut probe, "rain", SourceBuild::V010b).unwrap();
         let width = number(probe.named("probe_side_width").unwrap()).unwrap();
         // Observed 0.26 upload: outer = 0.98*radius, inner = radius-width-0.05.
         let outer = 294.;
@@ -976,6 +997,14 @@ mod tests {
         assert_eq!(
             textures.named("default"),
             Some(&ConfigValue::String("rain/probe".into()))
+        );
+        probe
+            .set_path("probe_side_width", ConfigValue::Float(0.5))
+            .unwrap();
+        transfer_probe(&mut probe, "day", SourceBuild::V011e).unwrap();
+        assert_eq!(
+            probe.named("probe_side_width"),
+            Some(&ConfigValue::Float(0.5))
         );
     }
 
@@ -1111,6 +1140,20 @@ mod tests {
 
     #[test]
     fn weather_projects_keep_separate_original_grass_directories() {
+        let chemical = Map {
+            id: 194,
+            level: "level_04".into(),
+            weather: "day".into(),
+        };
+        assert_eq!(
+            chemical.output_project(SourceBuild::V011e),
+            "projects/v011e_level_04/day_2/client_project"
+        );
+        assert_eq!(SourceBuild::V011e.label(), "0.11e-884");
+        assert_eq!(
+            serde_json::from_str::<SourceBuild>("\"0.11e\"").unwrap(),
+            SourceBuild::V011e
+        );
         let map = Map {
             id: 181,
             level: "level_03".into(),
