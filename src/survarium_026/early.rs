@@ -98,6 +98,12 @@ pub(super) fn project(
     remove(&mut groups, "collision_objects");
     remove(&mut groups, "collision_geometry");
     remove(&mut old, "respawn_points");
+    let converted = convert_respawn_invulnerability(&mut groups)?;
+    if converted > 0 {
+        notes.push(format!(
+            "{path}: converted {converted} authored respawn invulnerability times from milliseconds to native seconds"
+        ));
+    }
     let mut client = Vec::new();
     let sun = objects
         .iter()
@@ -257,6 +263,34 @@ pub(super) fn validate_server_fallback(client: &ConfigValue, server: &ConfigValu
         );
     }
     Ok(())
+}
+
+/// Early respawn protection is authored in milliseconds: the 0.11e loader
+/// stores `invulnerability_time` unchanged at respawn point +0x20
+/// (0x6F7CD1..0x6F7CE9). Native 0.26g multiplies the same field by 1000
+/// before storing that slot (0x2F460F..0x2F4630) and its own maps author 6.
+/// Copying 2000 therefore grants 2000 seconds of protection after every spawn.
+fn convert_respawn_invulnerability(groups: &mut ConfigValue) -> Result<usize> {
+    let Some(ConfigValue::Indexed(points)) = groups.named_mut("respawn_points") else {
+        return Ok(0);
+    };
+    let mut converted = 0;
+    for point in points {
+        let Some(value) = point.named("invulnerability_time") else {
+            continue;
+        };
+        let ConfigValue::Integer(milliseconds) = value else {
+            bail!("respawn invulnerability time is not an integer");
+        };
+        ensure!(
+            *milliseconds >= 0 && milliseconds % 1000 == 0,
+            "respawn invulnerability {milliseconds} ms has no exact native whole-second value"
+        );
+        let seconds = milliseconds / 1000;
+        point.set_path("invulnerability_time", ConfigValue::Integer(seconds))?;
+        converted += 1;
+    }
+    Ok(converted)
 }
 
 /// Repair the duplicated team1 zone reference authored in the 0.11a
@@ -870,6 +904,41 @@ mod tests {
         zone.set_path("position", ConfigValue::Float3([0.; 3]))
             .unwrap();
         assert!(repair_chemical_collector_zone(&mut before.clone(), &[zone]).is_err());
+    }
+
+    #[test]
+    fn early_respawn_protection_uses_native_seconds() {
+        let point = |value: Option<i32>| {
+            let mut point = ConfigValue::Named(vec![]);
+            point.set_path("team", ConfigValue::Integer(1)).unwrap();
+            if let Some(value) = value {
+                point
+                    .set_path("invulnerability_time", ConfigValue::Integer(value))
+                    .unwrap();
+            }
+            point
+        };
+        let groups = |values: &[Option<i32>]| {
+            let mut groups = ConfigValue::Named(vec![]);
+            groups
+                .set_path(
+                    "respawn_points",
+                    ConfigValue::Indexed(values.iter().map(|v| point(*v)).collect()),
+                )
+                .unwrap();
+            groups
+        };
+        // 0.11a/0.11e author 2000 ms; 0.10b omits the field (native default).
+        let mut early = groups(&[Some(2000), None, Some(0)]);
+        assert_eq!(convert_respawn_invulnerability(&mut early).unwrap(), 2);
+        assert_eq!(early, groups(&[Some(2), None, Some(0)]));
+        // Inexact or already-native values must not be silently reinterpreted.
+        assert!(convert_respawn_invulnerability(&mut groups(&[Some(2500)])).is_err());
+        assert!(convert_respawn_invulnerability(&mut early.clone()).is_err());
+        assert_eq!(
+            convert_respawn_invulnerability(&mut ConfigValue::Named(vec![])).unwrap(),
+            0
+        );
     }
 
     #[test]
