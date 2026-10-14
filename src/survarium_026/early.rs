@@ -68,6 +68,21 @@ fn transfer_probe(object: &mut ConfigValue, weather: &str, source: SourceBuild) 
     Ok(())
 }
 
+/// Factor that becomes `multiplier` after 0.26 raises a colour to 2.2.
+fn linear_factor(multiplier: f32) -> f32 {
+    multiplier.max(0.).powf(1. / 2.2)
+}
+
+/// A source linear colour expressed for a 0.26 key that applies pow 2.2.
+fn display_color(value: [f32; 4]) -> [f32; 4] {
+    [
+        value[0].max(0.).powf(1. / 2.2),
+        value[1].max(0.).powf(1. / 2.2),
+        value[2].max(0.).powf(1. / 2.2),
+        value[3],
+    ]
+}
+
 fn color4(value: &ConfigValue) -> Result<ConfigValue> {
     match value {
         ConfigValue::Float3(v) => Ok(ConfigValue::Float4([v[0], v[1], v[2], 1.])),
@@ -455,6 +470,24 @@ fn transfer_environment(
         ("environment_use_rain", "use_rain"),
         ("god_rays_color_0", "god_rays_color_1"),
         ("god_rays_color_1", "god_rays_color_2"),
+        // Renamed in 0.26 (environment loader 0x34e1e0..0x34f72e).
+        (
+            "environment_probes_specular_instensity_multiplier",
+            "environment_probes_specular_intensity_multiplier",
+        ),
+        ("use_bokeh_dof", "use_bokeh_dof"),
+        ("bokeh_dof_radius", "bokeh_radius"),
+        ("bokeh_dof_density", "bokeh_density"),
+        ("use_bokeh_image", "use_bokeh_template_image"),
+        ("dof_focus_distance", "dof_focus_distance"),
+        ("dof_focus_region", "dof_focus_region"),
+        ("dof_near_blurriness_far", "dof_far_blurness_amount"),
+        ("enable_ssao", "use_ambient_occlusion"),
+        (
+            "use_sun_moon_atmosphere_illumination",
+            "atmosphere_use_sun_illumination",
+        ),
+        ("sun_moon_color_multiplier", "sun_moon_billboard_color_intensity"),
     ]);
     let ConfigValue::Named(fields) = old else {
         bail!("invalid early post process")
@@ -496,7 +529,6 @@ fn transfer_environment(
             .and_then(|v| v.named("value"))
             .with_context(|| format!("missing early environment {name}"))
     };
-    // Restore the pre-brightening mapping pending a renderer-compatible fix.
     dst.set_path("use_height_based_ambient", ConfigValue::Boolean(true))?;
     dst.set_path("height_based_ambient_power", get("skylight_power")?.clone())?;
     dst.set_path(
@@ -514,14 +546,50 @@ fn transfer_environment(
     let ConfigValue::Float4(mut color) = color4(get("skylight_color")?)? else {
         unreachable!()
     };
+    // The source uploads pow(skylight_color, 2.2) * skylight_multiplier
+    // (0.11e stage_ambient_lighting::execute 0x625d53..0x625d85; 0.10b
+    // stage_ambient_lighting.cpp:156). 0.26 raises this colour to 2.2 at
+    // load (0x34e32d -> helper 0x1bfcb0) and has no separate multiplier, so
+    // the multiplier must enter before that power as m^(1/2.2).
     let multiplier = number(get("skylight_multiplier")?)?;
     for c in &mut color[..3] {
-        *c *= multiplier;
+        *c *= linear_factor(multiplier);
     }
     dst.set_path(
         "height_based_ambient_high_color",
         ConfigValue::Float4(color),
     )?;
+    // Source haze grows from the camera (min(d, D)/D); 0.26 delays it by
+    // this distance, which the native template sets to 35-40 m.
+    dst.set_path("rayleigh_fog_near_distance", ConfigValue::Float(0.))?;
+    // Colours the source uploads without gamma, while 0.26 applies 2.2 at
+    // load through the same helper (god rays 0x607454..0x6074d5 in 0.11e;
+    // 0.10b god_rays.ps:74 and gather_bloom.ps:78 use them raw).
+    for key in ["god_rays_color_1", "god_rays_color_2"] {
+        if let Some(ConfigValue::Float4(value)) = dst.named(key).cloned() {
+            dst.set_path(key, ConfigValue::Float4(display_color(value)))?;
+        }
+    }
+    if let Some(halo) = old.named("bloom_halo_color").and_then(|v| v.named("value")) {
+        let ConfigValue::Float4(halo) = color4(halo)? else {
+            unreachable!()
+        };
+        dst.set_path("bloom_color", ConfigValue::Float4(display_color(halo)))?;
+    }
+    // 0.10b material_manager.cpp:416-417 uploads pow(color, 2.2) times the
+    // cloud multiplier; 0.26 has no multiplier key.
+    if let Some(cloud_multiplier) = old
+        .named("sky_clouds_color_multiplier")
+        .and_then(|v| v.named("value"))
+    {
+        let factor = linear_factor(number(cloud_multiplier)?);
+        if let Some(ConfigValue::Float4(mut clouds)) = dst.named("sky_clouds_color").cloned() {
+            for c in &mut clouds[..3] {
+                *c *= factor;
+            }
+            dst.set_path("sky_clouds_color", ConfigValue::Float4(clouds))?;
+        }
+    }
     dst.set_path(
         "mie_fog_near_distance",
         get("environment_near_fog_distance")?.clone(),
@@ -574,7 +642,7 @@ fn transfer_environment(
             ),
         )?;
     }
-    notes.push(format!("{path}: original sky texture, post-process values and sun translated; pre-brightening HBA mapping restored; this is not equivalent to early skylight; unmapped controls require visual comparison: {}",omitted.join(", ")));
+    notes.push(format!("{path}: original sky texture, post-process values and sun translated; height ambient uses source pow(colour, 2.2) * multiplier; source six-face sky and AO factor have no 0.26 counterpart; unmapped controls require visual comparison: {}",omitted.join(", ")));
     Ok(())
 }
 
@@ -1105,6 +1173,17 @@ mod tests {
             ),
             ("environment_fog_alpha", ConfigValue::Float(0.)),
             ("atmosphere_inscatter_distance", ConfigValue::Integer(200)),
+            (
+                "god_rays_color_0",
+                ConfigValue::Float4([1., 0.2068795, 0.1102941, 1.]),
+            ),
+            ("bloom_halo_color", ConfigValue::Float3([0.7, 0.5, 1.])),
+            (
+                "sky_clouds_color",
+                ConfigValue::Float4([0.9860015, 0.9614621, 0.8960299, 1.]),
+            ),
+            ("sky_clouds_color_multiplier", ConfigValue::Integer(3)),
+            ("dof_near_blurriness_far", ConfigValue::Float(0.8)),
         ] {
             old.set_path(
                 name,
@@ -1117,6 +1196,10 @@ mod tests {
         }
         let mut dst = ConfigValue::Named(Vec::new());
         dst.set_path("use_height_based_ambient", ConfigValue::Boolean(false))
+            .unwrap();
+        dst.set_path("sky_clouds_color", ConfigValue::Float4([1.; 4]))
+            .unwrap();
+        dst.set_path("rayleigh_fog_near_distance", ConfigValue::Float(35.))
             .unwrap();
         let mut sun = ConfigValue::Named(Vec::new());
         for (name, value) in [
@@ -1153,9 +1236,37 @@ mod tests {
             dst.named("height_based_ambient_power"),
             Some(&ConfigValue::Float(0.1))
         );
+        // 0.26 raises each colour to 2.2 at load; the result must equal the
+        // source upload pow(colour, 2.2) * multiplier (and raw god rays/bloom).
+        let loaded = |key: &str| {
+            let Some(ConfigValue::Float4(value)) = dst.named(key) else {
+                panic!("{key} missing")
+            };
+            [value[0].powf(2.2), value[1].powf(2.2), value[2].powf(2.2)]
+        };
+        let close = |actual: [f32; 3], expected: [f32; 3]| {
+            for (a, e) in actual.into_iter().zip(expected) {
+                assert!((a - e).abs() < 1e-5, "{actual:?} != {expected:?}");
+            }
+        };
+        let source = |c: [f32; 3], m: f32| c.map(|v| v.powf(2.2) * m);
+        close(
+            loaded("height_based_ambient_high_color"),
+            source([0.816, 0.897, 1.], 0.5),
+        );
+        close(
+            loaded("sky_clouds_color"),
+            source([0.9860015, 0.9614621, 0.8960299], 3.),
+        );
+        close(loaded("god_rays_color_1"), [1., 0.2068795, 0.1102941]);
+        close(loaded("bloom_color"), [0.7, 0.5, 1.]);
         assert_eq!(
-            dst.named("height_based_ambient_high_color"),
-            Some(&ConfigValue::Float4([0.408, 0.4485, 0.5, 1.]))
+            dst.named("rayleigh_fog_near_distance"),
+            Some(&ConfigValue::Float(0.))
+        );
+        assert_eq!(
+            dst.named("dof_far_blurness_amount"),
+            Some(&ConfigValue::Float(0.8))
         );
     }
 
