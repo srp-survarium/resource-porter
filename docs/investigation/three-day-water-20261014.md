@@ -24,9 +24,30 @@ Both Radar versions retain the previously sampled water surface bounds
 `[10.74,0.427,-53.05]..[40.6,0.496,-25]`, with identity placement. The confirmed
 normal and oblique camera poses therefore remain applicable. Chemical Plant
 uses `water` on three terrain surfaces and `water_green_shit` on two scaled
-cube instances. It needs one visible sample of each active material; the
-script prepares downward views above terrain2 and the higher cube.
+cube instances. Native review selected terrain7 triangle 25, where water is
+0.114 m above the ground, and the raised green pool's western interior.
 
-CPU evidence and proposed poses: `/tmp/three-day-map-water-review/`.
-Native verification is pending the shared GPU lease. No original client was
-relaunched and no candidate resource or preset was modified by this audit.
+## Native verification
+
+Six final screenshot-only views passed with UI hidden and the existing candidate
+presets: normal and oblique views for each Radar version, plus normal views of
+both active Chemical water materials. All normal views are within 0.6 degrees
+of perpendicular. None shows the old dense white foam pattern. Radar 0.11e's
+water is dark and muddy; 0.20e's is orange/brown with visible ripple/reflection
+detail. Chemical's shallow puddle is brown and its raised pool is green. These
+checks establish the reported artifact's absence, not exact source lighting or
+water-color parity. No original client was relaunched.
+
+Initial Chemical samples were obstructed by vegetation and structures; they
+are retained under `chemical-011e-day-obscured*` and excluded from final coverage.
+The final poses in the audit script avoid those obstructions. The helper
+`find_exposed_water.py` in the evidence folder records terrain water depth and
+explains the replacement location.
+
+Evidence and capture commands are in `/tmp/three-day-map-water-review/`, including
+PNGs, per-pose camera status, runtime tokens, preset/hook hashes, source shader
+contracts, and `shutdown.json`. No resources or presets were modified. After
+stopping and waiting for the owned Wine prefix, actual game/server/supervisor
+processes were absent. The full database SHA256 remained
+`241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
+The GPU was handed to the Chemical lighting worker.

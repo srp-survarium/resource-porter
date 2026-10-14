@@ -102,18 +102,27 @@ def main():
                    for i in surface['instances'])
         (args.output/(key+'-poses.json')).write_text(json.dumps(radar, indent=2)+'\n')
     chemical = maps['chemical-011e-day']['surfaces']
-    terrain = next(s for s in chemical if s['model'].endswith('/terrain2'))
-    center = terrain['bounds']['bounding_sphere.center']
+    terrain = next(s for s in chemical if s['model'].endswith('/terrain7'))
     cube = next(s for s in chemical if s['model'].endswith('/mattest_cube01'))
     raised = max(cube['instances'], key=lambda i: i['position'][1])
     assert raised['rotation'] == [0, 0, 0]
     top = (raised['position'][1] + raised['scale'][1] *
            cube['bounds']['bounding_box.max'][1])
+    # Native-reviewed samples: terrain7 triangle 25 is exposed above ground;
+    # the raised pool's western interior avoids the pipes across its centre.
+    puddle = [72.6458155, 6.5, 53.7171796]
+    pool = [-88, 7.6, 67]
+    for axis in (0, 2):
+        assert terrain['bounds']['bounding_box.min'][axis] < puddle[axis] < terrain['bounds']['bounding_box.max'][axis]
+        low = raised['position'][axis] + raised['scale'][axis] * cube['bounds']['bounding_box.min'][axis]
+        high = raised['position'][axis] + raised['scale'][axis] * cube['bounds']['bounding_box.max'][axis]
+        assert low < pool[axis] < high
+    assert pool[1] > top
     chemical_poses = [
-        dict(name='chemical-water-normal', position=[center[0], center[1]+3, center[2]],
+        dict(name='chemical-water-normal', position=puddle,
              forward=[0,-0.99995,-0.01], buffers=False, settle_ms=3000),
         dict(name='chemical-green-water-normal',
-             position=[raised['position'][0], top+3, raised['position'][2]],
+             position=pool,
              forward=[0,-0.99995,-0.01], buffers=False, settle_ms=3000),
     ]
     (args.output/'chemical-011e-day-poses.json').write_text(
