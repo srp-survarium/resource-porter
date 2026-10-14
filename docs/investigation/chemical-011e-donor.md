@@ -29,9 +29,12 @@ It identifies 28 changed or added lighting objects and 19 post-process changes:
 three added box probes, one added spotlight, weaker local lights, changed sun
 rotation, adjusted probe coverage/multipliers, tonemapping, atmospheric
 scattering, AO and the cloud texture. This is a broader visual revision than a
-single intensity adjustment. Literal sphere side-width copying is unsafe:
-0.26 contracts the outer radius, which can invert its falloff interval. Source
-upload semantics and runtime validation remain required.
+single intensity adjustment. The sphere falloff initially looked incompatible,
+but binary tracing found the same outer-radius contraction in all eight source
+sphere shader variants. Source 0.11e itself has an inverted interval for this
+authored sphere. Preserve the donor width rather than silently correcting its
+appearance; native perturbations and the full lighting pipeline still require
+runtime comparison.
 
 The collision comparison in `chemical-collision-successor-20261014.md` finds a
 specific authored wall split beside the reported blocked corridor. Nearby

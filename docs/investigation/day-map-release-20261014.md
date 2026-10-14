@@ -28,11 +28,17 @@ checkpoints are preserved. Authored parent positions were not moved.
 The 0.11e Chemical additive bundle passes resource closure and all 4,173 file
 hashes. It retains source collectors, battery origins and LPV geometry. The
 newer wall collision opens the reported corridor; character traversal still
-needs a native test. Its source probe falloff is under binary/shader review.
+needs a native test. Binary/shader tracing supports preserving its authored
+sphere width: the original also contracts the outer radius and produces the
+same inverted falloff interval. This does not prove complete lighting parity.
 
 Factory 0.11e lacks a server project in the archive. The build worker is
 checking source scripts and earlier donor provenance before selecting any
-server data. Do not substitute modern 0.26 battery positions.
+server data. The selected fallback is the pinned 0.11a Factory server project:
+its 43 client respawns, two collectors and 47 gameplay collision zones match
+0.11e exactly. Its 21 battery candidates need a support check against the newer
+map. Record the secondary donor explicitly; do not substitute modern 0.26
+battery positions.
 
 The private Factory 0.20e test proves electrical damage and repeated verified
 two-client checkpoints. The user reports that the anomaly works. The user is
@@ -54,7 +60,11 @@ its source Fresnel switch, so the earlier motor patch must not be copied over.
 The earlier Factory bulb emission fix is independently verified and its
 converter repair is committed. Some shafts still need a source-opacity
 comparison; authored transforms match the old source. The newer Factory's
-lamp/cone assets are being compared before transferring that repair.
+lamp/cone audit finds unchanged transforms, meshes and falloff textures; all
+30 cone shader variants preserve executable bytecode multiplicities. The newer
+donor changes Factory lighting and bulb tint, but contains no demonstrated
+beam-placement or cone-shader fix. Four existing material conversion tests pass
+after combining the water and bulb repairs in the root worktree.
 
 The current package has the individually verified old-Factory water foam,
 motor Fresnel and bulb emission patches applied. Reversible plans and refreshed
