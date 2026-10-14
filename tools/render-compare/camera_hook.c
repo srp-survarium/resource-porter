@@ -28,6 +28,7 @@ static DWORD applied_at;
 static unsigned image_width, image_height;
 static char control[MAX_PATH], status_path[MAX_PATH+16], build[16], error_text[160];
 static void *selected_director;
+static unsigned char *reference_ui_enabled;
 void *camera_trampoline;
 static HRESULT (STDMETHODCALLTYPE *original_present)(IDXGISwapChain *, UINT, UINT);
 static int install_shader_capture(ID3D11Device *device, ID3D11DeviceContext *context);
@@ -63,7 +64,7 @@ static void matrices(const Camera *c, float *view, float *projection) {
 // The verified retail implementations receive camera_director in EDX.
 // Override before base_game_scene copies the matrices and queues rendering.
 void __cdecl override_camera(uint32_t *saved) {
-    void *director = (void *)(uintptr_t)saved[5];
+    void *director = (void *)(uintptr_t)saved[!strcmp(build,"020e") ? 7 : 5];
     EnterCriticalSection(&lock);
     if (!selected_director) selected_director = director;
     if (director == selected_director) {
@@ -107,27 +108,41 @@ static int install_camera(void) {
     else if (!strcmp(build, "011a")) rva = 0x5c6050;
     else if (!strcmp(build, "011e")) rva = 0x5c42c0;
     else if (!strcmp(build, "026g")) rva = 0x22ddd0;
+    else if (!strcmp(build, "020e")) {
+        rva = 0x16312c;
+        unsigned char *base = (unsigned char *)GetModuleHandleW(NULL);
+        unsigned char expected[] = {0x80,0x3d,0,0,0,0,0};
+        uint32_t address = (uint32_t)(uintptr_t)(base+0x86fc06);
+        memcpy(expected+2,&address,4);
+        if (memcmp(base+0xda105,expected,sizeof(expected))) {
+            error("0.20e UI flag instruction does not match pinned executable"); return 0;
+        }
+        reference_ui_enabled = base+0x86fc06;
+    }
     else { error("unknown build"); return 0; }
     unsigned char *entry = (unsigned char *)GetModuleHandleW(NULL) + rva;
-    const unsigned char expected[8] = {0x83,0xec,0x40,0x53,0x8b,0x5c,0x24,0x48};
-    if (memcmp(entry, expected, sizeof(expected))) {
+    const unsigned char standard[8] = {0x83,0xec,0x40,0x53,0x8b,0x5c,0x24,0x48};
+    const unsigned char v020e[6] = {0x55,0x8b,0xec,0x83,0xec,0x48};
+    const unsigned char *expected = !strcmp(build,"020e") ? v020e : standard;
+    size_t length = !strcmp(build,"020e") ? sizeof(v020e) : sizeof(standard);
+    if (memcmp(entry, expected, length)) {
         error("camera hook bytes do not match the pinned executable"); return 0;
     }
     unsigned char *trampoline = VirtualAlloc(NULL, 32, MEM_COMMIT|MEM_RESERVE, PAGE_EXECUTE_READWRITE);
     if (!trampoline) { error("cannot allocate camera trampoline"); return 0; }
-    memcpy(trampoline, expected, 8);
-    trampoline[8] = 0xe9;
-    *(int32_t *)(trampoline+9) = (int32_t)(entry+8-(trampoline+13));
+    memcpy(trampoline, expected, length);
+    trampoline[length] = 0xe9;
+    *(int32_t *)(trampoline+length+1) = (int32_t)(entry+length-(trampoline+length+5));
     camera_trampoline = trampoline;
     DWORD protection;
-    if (!VirtualProtect(entry, 8, PAGE_EXECUTE_READWRITE, &protection)) {
+    if (!VirtualProtect(entry, length, PAGE_EXECUTE_READWRITE, &protection)) {
         error("cannot write camera hook"); return 0;
     }
     entry[0] = 0xe9;
     *(int32_t *)(entry+1) = (int32_t)((unsigned char *)camera_entry-(entry+5));
-    memset(entry+5, 0x90, 3);
-    FlushInstructionCache(GetCurrentProcess(), entry, 8);
-    VirtualProtect(entry, 8, protection, &protection);
+    memset(entry+5, 0x90, length-5);
+    FlushInstructionCache(GetCurrentProcess(), entry, length);
+    VirtualProtect(entry, length, protection, &protection);
     return 1;
 }
 
@@ -260,6 +275,7 @@ static void read_request(void) {
     EnterCriticalSection(&lock);
     if (requested.id != camera.id) selected_director=NULL;
     requested=camera;
+    if (reference_ui_enabled && camera.enabled) *reference_ui_enabled=0;
     LeaveCriticalSection(&lock);
 }
 
@@ -281,6 +297,7 @@ static void write_status(void) {
 #include "background_render.c"
 #include "probe_sort.c"
 #include "factory_rain_shadow.c"
+#include "factory_020e_ambient.c"
 #include "factory_rain_casters.c"
 #include "factory_rain_cache.c"
 #include "factory_rain_selection.c"
@@ -304,12 +321,16 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     GetEnvironmentVariableA("SRP_CAPTURE_BUILD",build,sizeof(build));
     GetEnvironmentVariableA("SRP_CAPTURE_CONTROL",control,sizeof(control));
     snprintf(status_path,sizeof(status_path),"%s.status.json",control);
+<<<<<<< HEAD
     int ok;
     if (!strcmp(build,"011e")) {
         ok=control[0] && install_camera() && install_present();
     } else {
         ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
     }
+=======
+    int ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
+>>>>>>> e8c30dd (Preserve Factory020e gameplay proof and guarded lighting investigation)
     write_status();
     if (!ok) ExitProcess(1);
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);

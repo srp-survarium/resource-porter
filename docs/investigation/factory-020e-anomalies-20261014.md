@@ -1,7 +1,7 @@
 # Factory 0.20e anomalies in 0.26
 
-Status: conversion and offline audit in progress; native gameplay is not yet
-verified. The user's acceptance condition is functioning anomalies, including
+Status: converted and running in native 0.26; electrical anomaly damage is
+verified and the user accepted anomaly gameplay. Lighting calibration is in progress. The user's acceptance condition is functioning anomalies, including
 hazards and artefacts. An attractive map or visible particles alone do not meet it.
 
 The initial request named 0.20d. No exact build was found in the local builds or
@@ -29,8 +29,9 @@ python3 tools/factory-anomalies/audit.py /tmp/factory-020e.project \
   --output /tmp/factory-020e-anomalies.json
 ```
 
-Only an additive bundle is needed for offline investigation. Do not overwrite
-the two-map release or duplicate a complete database before runtime testing.
+Use an additive bundle for composition; keep experimental runtime databases isolated.
+The release labels this location Radar Station. Historical Factory paths and
+map ID 196 stay stable.
 
 ## Complete authored anomaly inventory
 
@@ -109,7 +110,7 @@ Before shipping, an owned private session must demonstrate:
    its expected item; pickup, removal and respawn agree on both clients.
 5. Any authored speed effect is observed or explicitly listed as unsupported.
 
-No game, GPU capture or shared release database was touched during this audit.
+The initial inventory was CPU-only. Subsequent private runtime evidence is recorded below; the shared release database remains untouched.
 
 ## Offline result
 
@@ -141,3 +142,107 @@ Packed private database: 7,129,128,555 bytes, SHA-256
 package and evidence are at
 `/mnt/hdd/Projects/survarium-factory-020e-anomalies-20261014`.
 The launcher map listing passes; no client has been started yet.
+
+## Native gameplay run and user acceptance
+
+On 2026-10-14, the private map196 session at port2264 loaded two real clients.
+A reversible diagnostic changed only the22 player spawn positions to
+[-55.767,5.6,24.819], inside the source electrical hit sensor. Anomaly objects,
+geometry, timing, damage and artefact definitions were unchanged. Native
+checkpoint statistics show both players dying once at23.8s, twice at43.9s,
+three times at63.9s and four times at84s, matching the authored21-second
+cycle. Blue electrical effects were visible. No attack input caused these deaths.
+
+The final packet audit pairs nine same-wire-tick reports received within one
+second across the two clients; all nine world CRCs match, through411.9s of
+packet-log time. Unpaired reports are not proof of agreement. The server
+verified checkpoints throughout the session and reported no mismatch. See
+`tools/factory-anomalies/compare_hashes.py` and `decode_checkpoint.rs`.
+
+The user independently played the map and stated "anomaly works". Further
+retesting of that accepted behavior is unnecessary. Artefact pickup/respawn,
+other hazard families and speed effects have not been independently measured.
+A bounded E-key search returned no artefact award in the observed checkpoint;
+this is inconclusive because the authored container may be empty and precise
+look targeting was not established. Do not claim those separate observations.
+
+Both clients closed. The diagnostic spawn patch was reverted and readback
+verified; baseline and patch bytes remain in the private package's
+`evidence/diagnostic-spawn`. Small screenshots, packet logs,91 checkpoints,
+event summaries and CRC comparison are in `evidence/runtime-20261014`.
+The user-operated window was left untouched once their activity was identified.
+
+## Lighting calibration, not electrical effect calibration
+
+Seven user screenshots at04:40:06,04:40:14,04:41:27,04:41:33,04:41:42,
+04:41:57 and04:42:26 show the control room, stairs, main hangar, upper skeleton
+room and outdoor anomaly tree. They document ordinary illumination and sharp
+contrast; they are not screenshots of an electrical strike. The initial private
+package deliberately used native026 shading with no old-renderer preset.
+
+An offline source/converted-project audit found15 source spotlights inherited
+an unrelated native lamp's local offset[.01,-.265,.002]. Source light placement
+has no such offset. Conversion now supplies identity when that local transform
+is absent while preserving an authored offset. The existing compatibility
+regression was extended; all22 focused importer tests pass, with no increase
+in test count. This repair is not yet applied to the private database.
+
+The source has79 ambient lights;30 have intensity>1, ranging3.2–13.3. PDB and
+original020e disassembly locate `render_ambient_lights` at0x10bdb0. It traverses
+the complete visible list and multiplies color by full intensity at
+0x10bf67–0x10bf97. `create_targets` allocates its target0x1f asRGBA8_UNORM
+(format28) at0xfad6e–0xfad7b. Native026 instead partitions intensity>1 into
+additive diffuse with intensity−1, the same stage mismatch proven by School.
+
+However,020e is not identical to021: its exact704-byte
+`apply_ambient_lights.ps` (SHA256
+94b548fecc000ea0b7cbf04eeeb1678afbefcfe5dce699fa51b6cbbd4942f07e)
+samples t0 and broadcasts red to both output targets. Original021/native026
+use colored diffuse and a separate specular mask. The020e/native input and
+output signatures match. An opt-in candidate pairs the guarded stage correction
+(`SRP_LEGACY_020E_AMBIENT=1`) with this exact source shader
+(`SRP_LEGACY_020E_AMBIENT_APPLY`); it is compile-checked but still needs matched
+original/converted captures. No general brightness multiplier was added.
+
+Source probes gained `affect_diffuse=true` and the environment gained native
+diffuse multiplier1; these are suspects requiring source-contract validation,
+not yet proven defects. Do not disable them merely because the fields are new.
+
+For bounded original references, the020e PDB identifies `apply_camera` at
+VA0x17312c/RVA0x16312c. Unlike010/026, its director arrives inEAX; the six-byte
+prologue and matrix offsets are checked. `prepare_client.py --build020e` pins
+the original executable SHA256 and patches the verified too-small-video-memory branch at RVA 0xb91d3 in
+the disposable copy. It also suppresses three UI-only spectator callbacks that
+dereference the absent lobby/chat movie: chat mode, loading-page selection and
+loading-progress display. Their complete prologues and calling conventions are
+checked. These diagnostics do not modify source assets or rendering code.
+The latter two bypasses remain untested at this checkpoint.
+
+
+## Release handoff and reference checkpoint
+
+The corrected additive bundle is `/tmp/factory-020e-final-bundle`: 5,213 files,
+287 materials, original anomaly/spawn data, identity missing light offsets.
+Commit `33119b2` contains the converter repair. No candidate shader or ambient
+stage change is baked into this bundle. All 22 focused converter tests passed;
+the existing regression was extended without increasing test count.
+
+Original reference attempts remain inconclusive: no usable frame was captured.
+The private spectator connected and received its static map setup after adapting
+its observed session-zero / `ffffffff` admission. Saved custom dumps identified
+missing Flash UI at `chat_handler::set_local_player_name`, `set_mode`, then
+`lobby_menu::switch_to_level_loading`. The guarded reference helper suppresses
+only the encompassing chat-mode and two loading-UI callbacks. Start with UI on;
+the observer disables the verified UI flag at the first capture request.
+
+The source serializer differs from 0.21: 21 u16 score weights, no match-level
+field, no protection field, no item modification bytes and no final local-slot
+byte. Its single empty-equipment profile is for renderer references only.
+The server is a private loopback adapter, not a port of 0.20 gameplay networking.
+`prepare_reference.py` and `run_reference.py` preserve this experiment. Runtime
+state lives under `/tmp/factory-020e-reference-ready`; clients/server were stopped
+and the GPU handed to the lamp worker before further offline preparation.
+
+Keep the ambient candidate disabled until original/converted views prove it.
+The source has a red-channel ambient apply contract; borrowing the 0.21 colored
+apply shader would be incorrect even though the stage partition issue matches.

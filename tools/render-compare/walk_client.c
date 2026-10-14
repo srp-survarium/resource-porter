@@ -32,17 +32,20 @@ static BOOL CALLBACK find_client(HWND window, LPARAM unused) {
 }
 
 int main(int argc, char **argv) {
-    if (argc!=4 || strlen(argv[2])!=1 || !strchr("wasd",argv[2][0]) ||
+    if (argc!=4 || (strcmp(argv[2],"mouse-y") && (strlen(argv[2])!=1 || !strchr("wasde",argv[2][0]))) ||
         strlen(argv[1])<4 || argv[1][1]!=':' || argv[1][2]!='\\') {
-        fprintf(stderr,"usage: walk_client.exe ABSOLUTE_WINDOWS_EXE_PATH w|a|s|d MILLISECONDS\n");
+        fprintf(stderr,"usage: walk_client.exe ABSOLUTE_WINDOWS_EXE_PATH w|a|s|d|e MILLISECONDS or mouse-y PIXELS\n");
         return 2;
     }
-    char *end; unsigned long duration=strtoul(argv[3],&end,10);
-    if (*end || duration<100 || duration>5000) return 2;
+    BOOL mouse=strcmp(argv[2],"mouse-y")==0;
+    char *end; long value=strtol(argv[3],&end,10);
+    if (*end || (mouse && (value < -600 || value > 600))) return 2;
+    unsigned long duration=(unsigned long)value;
+    if (!mouse && (duration<100 || duration>(argv[2][0]=='e' ? 10000ul : 5000ul))) return 2;
     executable=argv[1]; EnumWindows(find_client,0);
     if (matches!=1) { fprintf(stderr,"expected one owned client, found %u\n",matches); return 1; }
     unsigned vk=(unsigned)(argv[2][0]-'a'+'A');
-    if (GetAsyncKeyState(vk)&0x8000) { fprintf(stderr,"key already held\n"); return 1; }
+    if (!mouse && (GetAsyncKeyState(vk)&0x8000)) { fprintf(stderr,"key already held\n"); return 1; }
     HWND previous=GetForegroundWindow();
     BOOL activated=SetForegroundWindow(target);
     for (unsigned i=0;i<40 && GetForegroundWindow()!=target;++i) { pump_messages(); Sleep(25); }
@@ -56,7 +59,13 @@ int main(int argc, char **argv) {
             (unsigned long)GetCurrentProcessId(),title);
         return 1;
     }
-    INPUT input={0}; input.type=INPUT_KEYBOARD;
+    INPUT input={0};
+    if (mouse) {
+        input.type=INPUT_MOUSE; input.mi.dy=(LONG)value; input.mi.dwFlags=MOUSEEVENTF_MOVE;
+        if (SendInput(1,&input,sizeof(input))!=1) return 1;
+        printf("{\"mouse_y\":%ld}\n",value); return 0;
+    }
+    input.type=INPUT_KEYBOARD;
     input.ki.wScan=(WORD)MapVirtualKeyA(vk,MAPVK_VK_TO_VSC);
     input.ki.dwFlags=KEYEVENTF_SCANCODE;
     if (SendInput(1,&input,sizeof(input))!=1) { fprintf(stderr,"key down failed\n"); return 1; }

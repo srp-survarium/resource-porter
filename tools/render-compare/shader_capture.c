@@ -1,3 +1,5 @@
+static void *factory_020e_ambient_apply_code;
+static size_t factory_020e_ambient_apply_size;
 // Capture the actual post-process draw, including its shader and bound inputs.
 static const GUID post_code_guid={0x9205d461,0x758c,0x44fe,{0xad,0x61,0xa1,0x13,0x71,0x31,0x22,0xc3}};
 static HRESULT (STDMETHODCALLTYPE *original_create_ps)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11PixelShader **);
@@ -175,11 +177,25 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (composition_replaced) { code=legacy_composition_code; size=legacy_composition_size; }
     if (ambient_decode_replaced) { code=legacy_ambient_decode_code; size=legacy_ambient_decode_size; }
     if (volume_replaced) { code=legacy_volume_code; size=legacy_volume_size; }
+<<<<<<< HEAD
     int local_f0_index=local_fresnel_one_index(code,size,0);
     int local_f0_replaced=local_f0_index>=0 && local_fresnel_one_code[local_f0_index];
     if (local_f0_replaced) { code=local_fresnel_one_code[local_f0_index]; size=local_fresnel_one_shaders[local_f0_index].fixed_size; }
     HRESULT hr=original_create_ps(device,code,size,linkage,shader);
     if (local_f0_replaced) report_local_fresnel_creation(local_f0_index,hr,shader?*shader:NULL);
+=======
+    const unsigned char native_ambient_apply_digest[]={0xe4,0xf0,0xf3,0xc2,0xbb,0x70,0x68,0x86,0x88,0xc2,0xa1,0xcf,0xac,0x6c,0x1a,0xcb};
+    int factory_apply_replaced=factory_020e_ambient_apply_code && size==956 &&
+        !memcmp((const unsigned char *)code+4,native_ambient_apply_digest,16);
+    if (factory_apply_replaced) { code=factory_020e_ambient_apply_code; size=factory_020e_ambient_apply_size; }
+    HRESULT hr=original_create_ps(device,code,size,linkage,shader);
+    if (factory_apply_replaced) {
+        char path[MAX_PATH+48]; snprintf(path,sizeof(path),"%s.ambient-020e-apply.json",control);
+        FILE *receipt=fopen(path,"w");
+        if (receipt) { fprintf(receipt,"{\"source\":\"020e\",\"shader_bytes\":%u,\"hresult\":%ld}\n",(unsigned)size,hr); fclose(receipt); }
+    }
+
+>>>>>>> e8c30dd (Preserve Factory020e gameplay proof and guarded lighting investigation)
     if (volume_replaced) {
         if (FAILED(hr) || !shader || !*shader) error("original cone shader rejected");
         else {
@@ -926,6 +942,13 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,DrawIndexed),draw_indexed,(void **)&original_draw_indexed);
+    }
+    if (!load_shader_override("SRP_LEGACY_020E_AMBIENT_APPLY",&factory_020e_ambient_apply_code,&factory_020e_ambient_apply_size)) return 0;
+    const unsigned char source_ambient_apply_digest[]={0x4d,0xae,0x6e,0x51,0x66,0x11,0xce,0x1c,0x47,0xc3,0xd7,0x59,0xb1,0x66,0xb8,0x8d};
+    if (factory_020e_ambient_enabled != (factory_020e_ambient_apply_code!=NULL) ||
+        (factory_020e_ambient_apply_code && (factory_020e_ambient_apply_size!=704 ||
+            memcmp((unsigned char *)factory_020e_ambient_apply_code+4,source_ambient_apply_digest,16)))) {
+        error("020e ambient requires paired stage and exact source apply shader"); return 0;
     }
     if (!load_shader_override("SRP_LEGACY_LOCAL_DIFFUSE",&legacy_local_diffuse_code,&legacy_local_diffuse_size)) return 0;
     if (legacy_local_diffuse_code && (strcmp(build,"026g") || !contains(legacy_local_diffuse_code,legacy_local_diffuse_size,"SourceSpotConstants"))) { error("source local diffuse requires 026g and the source spot adapter"); return 0; }
