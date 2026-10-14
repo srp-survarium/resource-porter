@@ -134,3 +134,10 @@ BugTrap and Wine template, uses map 196 and port 2264, enables packet logging,
 and leaves all legacy shader overrides disabled. It starts through its own
 `play-maps start factory-020e-day --clients 2 --ui on` command, only after the
 runtime/GPU lease is available. The current two-map release is never modified.
+
+Packed private database: 7,129,128,555 bytes, SHA-256
+`4ba71bb9b8a1d93df954f601d4a1f4fdbfab92cf873ad5fe23cba8ada75ec13b`.
+`apply` reopened and verified all 5,213 emitted resources. The runnable private
+package and evidence are at
+`/mnt/hdd/Projects/survarium-factory-020e-anomalies-20261014`.
+The launcher map listing passes; no client has been started yet.
