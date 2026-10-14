@@ -7,8 +7,10 @@ use vostok_resource_porter::ResourceDb;
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut db = ResourceDb::open(&args[0])?;
-    let manifest: serde_json::Value =
-        serde_json::from_reader(std::fs::File::open(format!("{}/port-manifest.json", args[1]))?)?;
+    let manifest: serde_json::Value = serde_json::from_reader(std::fs::File::open(format!(
+        "{}/port-manifest.json",
+        args[1]
+    ))?)?;
     let (mut same, mut differ, mut missing) = (0, 0, 0);
     for file in manifest["files"].as_array().unwrap() {
         let path = file["path"].as_str().unwrap();

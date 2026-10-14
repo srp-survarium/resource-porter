@@ -4,6 +4,7 @@ pub mod armor;
 pub mod binary_config;
 pub mod collision_check;
 pub mod config_patch;
+pub mod dds_bc3;
 pub mod dependency;
 pub mod lilith;
 pub mod manifest;

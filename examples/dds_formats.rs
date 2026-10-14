@@ -15,7 +15,10 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
         let bytes = db.read(&path)?;
-        let fourcc = bytes.get(84..88).map(String::from_utf8_lossy).unwrap_or_default();
+        let fourcc = bytes
+            .get(84..88)
+            .map(String::from_utf8_lossy)
+            .unwrap_or_default();
         println!("{fourcc}\t{path}");
     }
     Ok(())

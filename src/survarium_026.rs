@@ -1619,6 +1619,17 @@ pub fn build(
             }
             converted_geometry.insert(path.clone());
         }
+        if path.starts_with("textures/") && path.ends_with(".dds") {
+            if let Some((bc3, report)) = crate::dds_bc3::bc2_to_bc3(&bytes)
+                .with_context(|| format!("re-encoding BC2 texture {path}"))?
+            {
+                bytes = bc3;
+                compatibility_notes.push(format!(
+                    "{path}: BC2 re-encoded as BC3 for the 0.26 texture streamer (colour blocks, mips and sRGB byte kept; {} blocks, max alpha error {:.1}/255, {} alpha-test threshold crossings)",
+                    report.blocks, report.max_alpha_error, report.threshold_crossings
+                ));
+            }
+        }
         if path.ends_with(".veg") {
             vegetation_instances.insert(
                 path.clone(),
