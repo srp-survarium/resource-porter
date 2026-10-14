@@ -217,3 +217,22 @@ Its pickup bytes at 0x2D84C9, 0x2D8545, 0x2D861C and 0x2D85BE match original2777
 the other session's experimental downward-pickup recovery patch is absent and
 cannot explain the falling/reset evidence. Factory work is paused at the user's
 request while the Chemical Plant gallery proceeds.
+
+The converter now reads the target battery's collision offset from
+`gameplay/victory_items/default.options` and rotates it into world space when
+creating a missing `spawned_item`. Existing nested transforms are preserved, so
+0.21/native inputs do not receive an offset twice. The existing battery test
+now checks all50 native authored examples and conversion idempotence; all21
+survarium_026 tests pass without increasing the test count.
+
+`prepare_body_origin_patch.py BASELINE_PLAN NATIVE_OPTIONS OUTPUT` prepares a
+same-length project-only plan from a saved gallery baseline. It verifies source
+hashes, rejects aliasing between parent and body position storage, and uses the
+independent Rust config decoder to prove that only nested position leaves change.
+The unapplied Chemical plan `/tmp/chemical-battery-body-origin-fix/plan.json`
+corrects33 body origins. Gallery batch manifests now retain both `position`
+(authored mesh origin) and `initial_body_position` (native checkpoint origin).
+Initial validation compares against the latter; camera/runtime positions remain
+native body centres without a second offset. This corrects the earlier audit's
+inference: exact checkpoints at source coordinates proved matching numbers, not
+correct mesh placement under the native contract.

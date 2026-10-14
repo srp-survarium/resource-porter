@@ -146,6 +146,8 @@ for map_info in source['maps']:
             map_gallery['spawns'].append({'index': spawn['source_array_index'], 'id': spawn['candidate_id'],
                                          'point_id': spawn['source_point_id'], 'name': spawn['source_name'],
                                          'position': spawn['authored_position'], 'rotation': spawn['authored_rotation'],
+                                         'initial_body_position': original_leaves[f"server_objects.victory_item_spawners[{spawn['source_array_index']}].spawned_item.position"],
+                                         'runtime_coordinate_basis': 'native rigid-body centre; authored position is mesh origin',
                                          'batch': batch['batch'], 'diagnostic_batch': batch['batch'], 'diagnostic_point_id': spawn['diagnostic_point_id'],
                                          'kind': 'candidate', 'active_runtime_battery_id': None, 'settled_position': None,
                                          'source_full_name': spawn['source_full_name']})

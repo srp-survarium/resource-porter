@@ -48,7 +48,7 @@ for file in files:
 initial = records[0]
 matched = {}
 for battery in initial['batteries']:
-    candidates = [s for s in spawns if math.dist(s['position'], battery['position']) < .0001]
+    candidates = [s for s in spawns if math.dist(s.get('initial_body_position', s['position']), battery['position']) < .0001]
     assert len(candidates) == 1, f"Battery {battery['id']} did not start at one authored batch candidate"
     spawn = candidates[0]
     assert spawn['index'] not in matched, 'Two batteries mapped to one candidate'
@@ -65,9 +65,10 @@ rows = []
 for spawn in spawns:
     battery_id = matched[spawn['index']]
     position = settled['batteries'][battery_id]['position']
-    displacement = math.dist(spawn['position'], position)
+    initial_position = spawn.get('initial_body_position', spawn['position'])
+    displacement = math.dist(initial_position, position)
     motion = math.dist(previous['batteries'][battery_id]['position'], position)
-    max_fall = max(0., max(spawn['position'][1] - r['batteries'][battery_id]['position'][1] for r in records))
+    max_fall = max(0., max(initial_position[1] - r['batteries'][battery_id]['position'][1] for r in records))
     stable = motion <= a.stability_metres and max_fall <= 3
     if not a.record_unsettled:
         assert stable, f"Candidate {spawn['index']} fell {max_fall:.3f}m during checkpoints"
@@ -86,6 +87,7 @@ for spawn in spawns:
                  runtime_latest_time_ms=settled['time_ms'],
                  displacement_from_authored_metres=displacement)
     rows.append({'index': spawn['index'], 'battery_id': battery_id, 'authored_position': spawn['position'],
+                 'initial_body_position': initial_position,
                  'runtime_position': spawn['runtime_position'], 'latest_runtime_position': position,
                  'runtime_state': spawn['runtime_state'], 'runtime_note': note,
                  'max_fall_from_authored_metres': max_fall, 'late_motion_metres': motion,

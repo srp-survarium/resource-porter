@@ -209,7 +209,58 @@ fn fill_missing_empty_groups(value: &mut ConfigValue, template: &ConfigValue) {
     }
 }
 
-fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result<()> {
+fn battery_collision_offset(options: &ConfigValue) -> Result<[f32; 3]> {
+    let collision = array(
+        options
+            .named("collision_geometries")
+            .context("battery collisions")?,
+    )?
+    .first()
+    .context("battery collision missing")?;
+    match collision.named("position") {
+        Some(ConfigValue::Float3(position)) if position.iter().all(|v| v.is_finite()) => {
+            Ok(*position)
+        }
+        _ => bail!("invalid battery collision offset"),
+    }
+}
+
+fn battery_body_transform(object: &ConfigValue, offset: [f32; 3]) -> Result<ConfigValue> {
+    let Some(ConfigValue::Float3(position)) = object.named("position") else {
+        bail!("battery spawn has no position");
+    };
+    let Some(ConfigValue::Float3(rotation)) = object.named("rotation") else {
+        bail!("battery spawn has no rotation");
+    };
+    ensure!(
+        position
+            .iter()
+            .chain(rotation)
+            .chain(&offset)
+            .all(|v| v.is_finite()),
+        "invalid battery spawn transform"
+    );
+    let basis = crate::skeleton_animation::euler_to_basis(*rotation);
+    let body_position = std::array::from_fn(|axis| {
+        position[axis] + (0..3).map(|i| offset[i] * basis[i][axis]).sum::<f32>()
+    });
+    Ok(ConfigValue::Named(vec![
+        NamedValue {
+            name: "position".into(),
+            value: ConfigValue::Float3(body_position),
+        },
+        NamedValue {
+            name: "rotation".into(),
+            value: ConfigValue::Float3(*rotation),
+        },
+    ]))
+}
+
+fn adapt_objects(
+    objects: &mut ConfigValue,
+    templates: &[ConfigValue],
+    battery_offset: [f32; 3],
+) -> Result<()> {
     let ConfigValue::Indexed(objects) = objects else {
         return Ok(());
     };
@@ -229,22 +280,13 @@ fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result
                     .find(|p| string(p, "game_object_type") == Some(&kind))
             })
             .with_context(|| format!("no 0.26 object template for {kind}"))?;
-        // A new nested world-space transform must come from this spawn, never
-        // from an unrelated point in the template map.
+        // Native spawned_item is a body-centre transform; the authored parent
+        // is the mesh origin. Existing native transforms are already converted.
         if kind == "victory_item_spawner" && object.named("spawned_item").is_none() {
-            let fields = ["position", "rotation"]
-                .into_iter()
-                .map(|name| {
-                    Ok(NamedValue {
-                        name: name.into(),
-                        value: object
-                            .named(name)
-                            .with_context(|| format!("spawn has no {name}"))?
-                            .clone(),
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?;
-            object.set_path("spawned_item", ConfigValue::Named(fields))?;
+            object.set_path(
+                "spawned_item",
+                battery_body_transform(object, battery_offset)?,
+            )?;
         }
         fill_missing(object, template);
         object.set_path("is_temporary", ConfigValue::Boolean(false))?;
@@ -272,6 +314,7 @@ fn adapt_project(
     target: &ConfigValue,
     map: &Map,
     all_templates: &[ConfigValue],
+    battery_offset: [f32; 3],
 ) -> Result<ConfigValue> {
     let mut templates = array(
         target
@@ -288,7 +331,7 @@ fn adapt_project(
     let donor_objects = donor
         .named_mut("client_objects")
         .context("0.21 project lacks client_objects")?;
-    adapt_objects(donor_objects, &templates)?;
+    adapt_objects(donor_objects, &templates, battery_offset)?;
     let ConfigValue::Named(groups) = donor
         .named_mut("server_objects")
         .context("0.21 project lacks server_objects")?
@@ -296,7 +339,7 @@ fn adapt_project(
         bail!("invalid server_objects")
     };
     for group in groups {
-        adapt_objects(&mut group.value, &templates)?;
+        adapt_objects(&mut group.value, &templates, battery_offset)?;
     }
     // Add root-level fields only. Recursing across heterogeneous object arrays
     // would incorrectly copy another map's objects and transforms.
@@ -998,6 +1041,8 @@ pub fn build(
     }
     let mut donor = ResourceDb::open(donor_path)?;
     let mut target = ResourceDb::open(target_path)?;
+    let battery_offset =
+        battery_collision_offset(&cfg(&mut target, "gameplay/victory_items/default.options")?)?;
     let mut dictionary = cfg(&mut target, DICTIONARY)?;
     let ConfigValue::Indexed(registered) = dictionary
         .named("maps_dict")
@@ -1069,6 +1114,7 @@ pub fn build(
             &target_projects[&map.target_project()],
             map,
             &templates,
+            battery_offset,
         )
         .with_context(|| format!("adapting {}", map.donor_project(m.source_build)))?;
         adapt_collisions(
@@ -1554,7 +1600,7 @@ mod tests {
             level: "level_02".into(),
             weather: "rain".into(),
         };
-        let output = adapt_project(donor.clone(), &donor, &map, &[]).unwrap();
+        let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
         assert_eq!(
             map.output_project(SourceBuild::V021d),
@@ -1679,7 +1725,7 @@ mod tests {
             level: "level_03".into(),
             weather: "day".into(),
         };
-        let converted = adapt_project(donor.clone(), &donor, &map, &[]).unwrap();
+        let converted = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         let visual = &array(converted.named("render_visuals").unwrap()).unwrap()[0];
         assert_eq!(string(visual, "visual_name"), Some("level/03/ground"));
     }
@@ -1782,12 +1828,54 @@ mod tests {
             )
             .unwrap();
         let mut objects = ConfigValue::Indexed(vec![donor]);
-        adapt_objects(&mut objects, &[template]).unwrap();
+        adapt_objects(&mut objects, &[template.clone()], [0., 0.12, 0.]).unwrap();
         let o = &array(&objects).unwrap()[0];
         assert_eq!(
             o.named("spawned_item").unwrap().named("position"),
-            o.named("position")
+            Some(&ConfigValue::Float3([10., 2.12, 3.]))
         );
+        assert_eq!(
+            o.named("position"),
+            Some(&ConfigValue::Float3([10., 2., 3.]))
+        );
+        let once = objects.clone();
+        adapt_objects(&mut objects, &[template], [0., 0.12, 0.]).unwrap();
+        assert_eq!(
+            objects, once,
+            "existing body origins must not receive a second offset"
+        );
+        // Native authored examples cover tilted and nearly inverted Euler bases.
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../tools/day-map-objectives/native-battery-origin-contract-20261014.json"
+        ))
+        .unwrap();
+        let options = named(vec![(
+            "collision_geometries",
+            ConfigValue::Indexed(vec![named(vec![(
+                "position",
+                ConfigValue::Float3([0., 0.12, 0.]),
+            )])]),
+        )]);
+        let offset = battery_collision_offset(&options).unwrap();
+        for row in fixture["native_spawners"].as_array().unwrap() {
+            let xyz =
+                |v: &serde_json::Value| std::array::from_fn(|i| v[i].as_f64().unwrap() as f32);
+            let object = named(vec![
+                ("position", ConfigValue::Float3(xyz(&row["position"]))),
+                ("rotation", ConfigValue::Float3(xyz(&row["rotation"]))),
+            ]);
+            let result = battery_body_transform(&object, offset).unwrap();
+            let ConfigValue::Float3(actual) = result.named("position").unwrap() else {
+                panic!()
+            };
+            let expected: [f32; 3] = xyz(&row["spawned_item"]["position"]);
+            assert!(
+                actual
+                    .iter()
+                    .zip(expected)
+                    .all(|(a, b)| (a - b).abs() < 0.001)
+            );
+        }
     }
     #[test]
     fn relocation_covers_render_collision_material_and_texture_references() {
