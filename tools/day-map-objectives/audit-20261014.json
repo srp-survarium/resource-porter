@@ -1,0 +1,52 @@
+[
+  {
+    "after_sha256": "3cef25f4a64620dcc5afeb9d9812b353f99e9d7985606b0d4a305f883bbaaa44",
+    "authored_battery_spawns_verified": 26,
+    "before_sha256": "3cef25f4a64620dcc5afeb9d9812b353f99e9d7985606b0d4a305f883bbaaa44",
+    "bindings": [
+      {
+        "after_position": "Float3([49.747, 0.488, 14.641])",
+        "before_position": "Float3([49.747, 0.488, 14.641])",
+        "name": "logic/team2/team_2_victory_items_container",
+        "team": "Integer(1)"
+      },
+      {
+        "after_position": "Float3([-48.612, 0.512, -73.253])",
+        "before_position": "Float3([-48.612, 0.512, -73.253])",
+        "name": "logic/team1/team_1_victory_items_container",
+        "team": "Integer(0)"
+      }
+    ],
+    "collector_changes": 0,
+    "collector_zone_repaired": false,
+    "map": "factory",
+    "project": "projects/v010w_level_03/day_2/client_project",
+    "removed_duplicate_static_visuals": 0,
+    "source_db": "/nix/store/5yk74ndm49i0vrrrmdrypzwrh8qkflxm-survarium-resources/resources.db"
+  },
+  {
+    "after_sha256": "17825334700d7da66842e23283d0d2f480f9363484dce12b5fdbdbfa961a0b32",
+    "authored_battery_spawns_verified": 33,
+    "before_sha256": "35bd6d3a2a0a6a6999a5e6017ecbdb73e108d9972913316b150cd95157f71667",
+    "bindings": [
+      {
+        "after_position": "Float3([102.664, 6.54, 79.938])",
+        "before_position": "Float3([-73.942, 5.611, 44.038])",
+        "name": "logic/team2/victory_items_container",
+        "team": "Integer(1)"
+      },
+      {
+        "after_position": "Float3([-73.942, 5.611, 44.038])",
+        "before_position": "Float3([-73.942, 5.611, 44.038])",
+        "name": "logic/team1/victory_items_container",
+        "team": "Integer(0)"
+      }
+    ],
+    "collector_changes": 1,
+    "collector_zone_repaired": true,
+    "map": "chemical",
+    "project": "projects/v011a_level_04/day_2/client_project",
+    "removed_duplicate_static_visuals": 1,
+    "source_db": "/mnt/hdd/Projects/Survarium Builds/pdb-structure-inputs/011a/app/resources.db"
+  }
+]

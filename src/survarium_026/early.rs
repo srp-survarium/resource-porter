@@ -170,36 +170,24 @@ pub(super) fn project(
         }
         client.push(object);
     }
+    if source == SourceBuild::V011a && map.level == "level_04" {
+        if repair_chemical_collector_zone(&mut groups, objects)? {
+            notes.push(format!(
+                "{path}: repaired duplicated original team2 collector zone"
+            ));
+        }
+    }
     // Old collectors are already rendered as placed static models. Bind that
     // original mesh and transform instead of inheriting a modern collector.
     let mut collector_visuals = Vec::new();
     if let Some(ConfigValue::Indexed(collectors)) = groups.named_mut("victory_items_containers") {
         let visuals = array(old.named("render_visuals").context("old visuals")?)?;
         for collector in collectors {
-            let ConfigValue::Float3(pos) =
-                collector.named("position").context("collector position")?
-            else {
-                bail!("collector position type")
-            };
-            let visual = visuals
-                .iter()
-                .filter(|v| {
-                    string(v, "lib_name")
-                        .is_some_and(|s| s.contains("container") || s.contains("atlant"))
-                })
-                .filter_map(|v| match v.named("position") {
-                    Some(ConfigValue::Float3(p)) => Some((
-                        v,
-                        p.iter()
-                            .zip(pos)
-                            .map(|(a, b)| (a - b) * (a - b))
-                            .sum::<f32>(),
-                    )),
-                    _ => None,
-                })
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-                .context("no old collector mesh")?
-                .0;
+            let visual = collector_visual(collector, objects, visuals)?;
+            ensure!(
+                !collector_visuals.contains(visual),
+                "collectors must not share an authored visual"
+            );
             let mut geometry = visual.clone();
             geometry.set_path("model_name", visual.named("lib_name").unwrap().clone())?;
             geometry.set_path(
@@ -221,6 +209,131 @@ pub(super) fn project(
     old.set_path("server_objects", groups)?;
     old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
     Ok(old)
+}
+
+/// Repair the duplicated team1 zone reference authored in the 0.11a
+/// Chemical Plant project. The corresponding team2 zone and mesh already exist.
+pub fn repair_chemical_collector_zone(
+    groups: &mut ConfigValue,
+    objects: &[ConfigValue],
+) -> Result<bool> {
+    const WEST: &str = "logic/team1/victory_container_collision";
+    const EAST: &str = "logic/team2/victory_container_collision";
+    let ConfigValue::Indexed(collectors) = groups
+        .named_mut("victory_items_containers")
+        .context("collectors")?
+    else {
+        bail!("collector array");
+    };
+    ensure!(
+        collectors.len() == 2,
+        "Chemical Plant requires two collectors"
+    );
+    let west = collectors
+        .iter()
+        .find(|o| string(o, "full_name") == Some("logic/team1/victory_items_container"))
+        .context("Chemical west collector")?;
+    ensure!(
+        west.named("team") == Some(&ConfigValue::Integer(0)),
+        "Chemical west team"
+    );
+    let west_refs = array(
+        west.named("collision_geometries")
+            .context("west references")?,
+    )?;
+    ensure!(
+        west_refs.len() == 1 && string(&west_refs[0], "name") == Some(WEST),
+        "Chemical west zone"
+    );
+    let east = collectors
+        .iter_mut()
+        .find(|o| string(o, "full_name") == Some("logic/team2/victory_items_container"))
+        .context("Chemical east collector")?;
+    ensure!(
+        east.named("team") == Some(&ConfigValue::Integer(1)),
+        "Chemical east team"
+    );
+    let ConfigValue::Indexed(refs) = east
+        .named_mut("collision_geometries")
+        .context("east references")?
+    else {
+        bail!("east reference array")
+    };
+    ensure!(refs.len() == 1, "Chemical east zone count");
+    let old = string(&refs[0], "name").context("east zone name")?;
+    ensure!(old == WEST || old == EAST, "unexpected Chemical east zone");
+    if old == EAST {
+        return Ok(false);
+    }
+    let zone = objects
+        .iter()
+        .find(|o| {
+            string(o, "full_name") == Some(EAST)
+                && string(o, "game_object_type") == Some("collision_geometry")
+        })
+        .context("authored Chemical east zone")?;
+    ensure!(
+        zone.named("position") == Some(&ConfigValue::Float3([102.606, 6.87, 79.873])),
+        "Chemical east zone moved"
+    );
+    refs[0].set_path("name", ConfigValue::String(EAST.into()))?;
+    Ok(true)
+}
+
+/// The editor marker may be far from the usable object. Its named collision
+/// zone, not that marker, identifies the authored collector model.
+pub fn collector_visual<'a>(
+    collector: &ConfigValue,
+    objects: &[ConfigValue],
+    visuals: &'a [ConfigValue],
+) -> Result<&'a ConfigValue> {
+    let mut centers = Vec::new();
+    for reference in array(
+        collector
+            .named("collision_geometries")
+            .context("collector zones")?,
+    )? {
+        let name = string(reference, "name").context("collector zone name")?;
+        let zone = objects
+            .iter()
+            .find(|o| {
+                string(o, "game_object_type") == Some("collision_geometry")
+                    && string(o, "full_name") == Some(name)
+            })
+            .with_context(|| format!("missing collector zone {name}"))?;
+        let Some(ConfigValue::Float3(position)) = zone.named("position") else {
+            bail!("collector zone position type");
+        };
+        centers.push(position);
+    }
+    let (visual, distance) = visuals
+        .iter()
+        .filter(|v| {
+            string(v, "lib_name").is_some_and(|s| {
+                s.ends_with("item/quest/container") || s.ends_with("item/quest/atlant")
+            })
+        })
+        .filter_map(|v| match v.named("position") {
+            Some(ConfigValue::Float3(position)) => centers
+                .iter()
+                .map(|center| {
+                    position
+                        .iter()
+                        .zip(center.iter())
+                        .map(|(a, b)| (a - b) * (a - b))
+                        .sum::<f32>()
+                })
+                .min_by(f32::total_cmp)
+                .map(|distance| (v, distance)),
+            _ => None,
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .context("no authored collector mesh near its interaction zone")?;
+    ensure!(
+        distance <= 25.,
+        "collector mesh is more than five metres from its interaction zone"
+    );
+    Ok(visual)
 }
 
 fn transfer_environment(
@@ -654,6 +767,112 @@ fn rms_from_pcm(pcm: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chemical_duplicate_zone_is_repaired_once_and_guarded() {
+        let mut collectors = Vec::new();
+        for team in 0..2 {
+            let mut collector = ConfigValue::Named(vec![]);
+            collector
+                .set_path("team", ConfigValue::Integer(team))
+                .unwrap();
+            collector
+                .set_path(
+                    "full_name",
+                    ConfigValue::String(format!("logic/team{}/victory_items_container", team + 1)),
+                )
+                .unwrap();
+            let reference = ConfigValue::Named(vec![NamedValue {
+                name: "name".into(),
+                value: ConfigValue::String("logic/team1/victory_container_collision".into()),
+            }]);
+            collector
+                .set_path(
+                    "collision_geometries",
+                    ConfigValue::Indexed(vec![reference]),
+                )
+                .unwrap();
+            collectors.push(collector);
+        }
+        let mut groups = ConfigValue::Named(vec![]);
+        groups
+            .set_path("victory_items_containers", ConfigValue::Indexed(collectors))
+            .unwrap();
+        let mut zone = ConfigValue::Named(vec![]);
+        zone.set_path(
+            "game_object_type",
+            ConfigValue::String("collision_geometry".into()),
+        )
+        .unwrap();
+        zone.set_path(
+            "full_name",
+            ConfigValue::String("logic/team2/victory_container_collision".into()),
+        )
+        .unwrap();
+        zone.set_path("position", ConfigValue::Float3([102.606, 6.87, 79.873]))
+            .unwrap();
+        assert!(repair_chemical_collector_zone(&mut groups.clone(), &[]).is_err());
+        let before = groups.clone();
+        assert!(repair_chemical_collector_zone(&mut groups, &[zone.clone()]).unwrap());
+        assert!(!repair_chemical_collector_zone(&mut groups, &[zone.clone()]).unwrap());
+        let old = array(before.named("victory_items_containers").unwrap()).unwrap();
+        let new = array(groups.named("victory_items_containers").unwrap()).unwrap();
+        assert_eq!(new[0], old[0]);
+        assert_eq!(new[1].named("team"), old[1].named("team"));
+        zone.set_path("position", ConfigValue::Float3([0.; 3]))
+            .unwrap();
+        assert!(repair_chemical_collector_zone(&mut before.clone(), &[zone]).is_err());
+    }
+
+    #[test]
+    fn collectors_follow_named_zones_when_editor_markers_overlap() {
+        fn object(fields: &[(&str, ConfigValue)]) -> ConfigValue {
+            ConfigValue::Named(
+                fields
+                    .iter()
+                    .map(|(name, value)| NamedValue {
+                        name: (*name).into(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            )
+        }
+        let text = |s: &str| ConfigValue::String(s.into());
+        let zone = |name: &str, x| {
+            object(&[
+                ("game_object_type", text("collision_geometry")),
+                ("full_name", text(name)),
+                ("position", ConfigValue::Float3([x, 6., 40.])),
+            ])
+        };
+        let visual = |x| {
+            object(&[
+                ("lib_name", text("item/quest/container")),
+                ("position", ConfigValue::Float3([x, 5.6, 40.])),
+            ])
+        };
+        let collector = |name: &str| {
+            object(&[
+                ("position", ConfigValue::Float3([-73., 5.6, 40.])),
+                (
+                    "collision_geometries",
+                    ConfigValue::Indexed(vec![object(&[("name", text(name))])]),
+                ),
+            ])
+        };
+        let zones = [zone("west", -74.), zone("east", 103.)];
+        let visuals = [visual(-74.), visual(103.)];
+        assert_eq!(
+            collector_visual(&collector("west"), &zones, &visuals).unwrap(),
+            &visuals[0]
+        );
+        assert_eq!(
+            collector_visual(&collector("east"), &zones, &visuals).unwrap(),
+            &visuals[1]
+        );
+        assert!(collector_visual(&collector("missing"), &zones, &visuals).is_err());
+        assert!(collector_visual(&collector("east"), &zones, &visuals[..1]).is_err());
+    }
 
     #[test]
     fn early_environment_preserves_height_wind_and_sun() {

@@ -42,3 +42,7 @@ tempfile = "3.20"
 lto = "thin"
 opt-level = 3
 strip = true
+
+[[bin]]
+name = "repair-day-map-objectives"
+path = "tools/day-map-objectives/repair.rs"

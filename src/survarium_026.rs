@@ -13,6 +13,7 @@ use std::{
 };
 
 mod early;
+pub use early::{collector_visual, repair_chemical_collector_zone};
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
