@@ -10,8 +10,7 @@
     }
   ],
   "missing_collision_resources": [
-    "models/props/electric/soviet_comp_01.model/collision",
-    "models/test_object/primitives/cube.model/collision"
+    "models/props/electric/soviet_comp_02.model/collision"
   ],
   "material_templates": {
     "material_instances/tiled/floor/pol.material": "material_instances/tiled/floor/floortrash02_pol_vc.material",

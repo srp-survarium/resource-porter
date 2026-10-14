@@ -78,3 +78,20 @@ That helper reads exactly `scale`, `rotation`, and `position` from string addres
 `0x9e2944`, `0x9e2938`, and `0x9e1c18`. The converter therefore preserves the donor
 occluder without borrowing an unrelated object template. Finite float3 fields
 are required; the existing project regression covers template-free retention.
+
+The October 14 CPU build completed with **4,173 files / 714,989,669 bytes**, 173
+converted materials and 76 native dependencies, with no unresolved dependency
+references. All emitted hashes passed the independent audit. The manifest lists
+only one absent donor collider: `soviet_comp_02.model/collision`, at
+`[-9.28, 6.7, 8.769]`; no source collision or walker payload exists for it.
+Its omission is recorded, without borrowing modern geometry.
+
+The audit also compares all **173** decoded primitives in the newer
+`old_factory_base.model/walker_collision` against the donor. All fields match;
+binary config reserialization changes bytes, not the primitive values. Extract
+that donor's `exported_primitives` resource and pass it through
+`--source-wall-primitives` when reproducing the audit.
+
+The isolated artifacts are `/tmp/chemical-011e-candidate/bundle` and
+`/tmp/chemical-011e-candidate/cpu-audit.json`. No full database was built and the
+shared playable package was not modified.

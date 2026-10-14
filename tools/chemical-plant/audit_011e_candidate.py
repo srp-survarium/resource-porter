@@ -14,6 +14,7 @@ def main():
     parser.add_argument('--source-client', required=True, type=Path)
     parser.add_argument('--source-server', required=True, type=Path)
     parser.add_argument('--native-battery-options', required=True, type=Path)
+    parser.add_argument('--source-wall-primitives', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     a = parser.parse_args()
     record = json.loads((a.bundle/'port-manifest.json').read_text())
@@ -29,6 +30,9 @@ def main():
     project = config((a.bundle/'overlay/projects/v011e_level_04/day_2/client_project').read_bytes())
     new_groups = project['server_objects']
     offset = config(a.native_battery_options.read_bytes())['collision_geometries'][0]['position']
+    wall_path = 'models/ported/v011e/level/04/old_factory_base.model/walker_collision/exported_primitives'
+    old_wall = config(a.source_wall_primitives.read_bytes())
+    assert old_wall == config((a.bundle/'overlay'/wall_path).read_bytes())
     spawns = []
     assert len(old_groups['victory_item_spawners']) == len(new_groups['victory_item_spawners'])
     for i, (old, new) in enumerate(zip(old_groups['victory_item_spawners'], new_groups['victory_item_spawners'])):
@@ -75,6 +79,7 @@ def main():
                'native_material_templates': len(record['converted_materials']),
                'dependency_closure': 'builder succeeded with zero unresolved dependencies',
                'donor_shaders_imported': 0, 'runtime_verified': False,
+               'critical_wall_primitives_unchanged': len(old_wall['primitives']),
                'blockers': ['0.11e probe upload/attenuation mapping needs renderer comparison',
                             'legacy versus native cylinder dimensions differ; payload preservation does not prove collision parity'],
                'batteries': spawns, 'collectors': collectors, 'probes': probes, 'lpv_occluders': occluders,
