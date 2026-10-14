@@ -337,3 +337,23 @@ Composition, probes and ambient apply do not match. This supports investigating
 the existing School sky/cloud adapters, but does not prove constant-buffer
 bindings or visual parity. The old010 duplicate-grain fix must not be assumed
 applicable to020e.
+
+The School adapters themselves are not reusable wholesale: its sky shader is a
+constant `(3,3,3)` justified by saturated rain captures, and its cloud shader
+hardcodes that map's weather. Radar020e authors cloud blend mode1, rotation316.74,
+speed0.1, RGB1.372, multiplier1, fog power2 and upper limit0.25. School uses mode0.
+The source cloud family contains two distinct pixel shaders: mode0 is the
+1656-byte identity above; the other is2072 bytes, SHA-256
+`89c11b1a3c1f93cee86c92df59c92cc001b6ac4f9ff13eb0ae65855474d6c3cb`.
+`prepare_sky_audit.py` extracts all source/native sky/cloud variants and their
+reflection into a small offline audit, without launching a client or writing
+the database. Shader identity alone does not select the live permutation.
+
+The source020 constant-only `skylight.ps` is already byte-identical to native026
+(1056 bytes, SHA-256
+`7ef4a1f49ee98f70dd76ecb8681da70c933bae5334060cfe2623b736cc423971`).
+PDB `render_skylight` at VA0x10c42f fills its target with a stage scalar. This is
+not the early010 skylight contract; adding that early shader would be unjustified.
+Authored sun elevation26.07 and azimuth222.2 survive conversion, as do the nearby
+glass material's cast-shadow flags. The missing sunlit stair patch remains an
+open renderer/shadow difference, not a proven wrong sun angle.
