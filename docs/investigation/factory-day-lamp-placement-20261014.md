@@ -99,3 +99,33 @@ candidate must still preserve good controls before acceptance.
 The proposed day-only recipe change imports only the two cone assets and the
 newer compatible hook. Its isolated recipe-loop check excludes rain settings
 and leaves evening unchanged. It remains unapplied and is not a released fix.
+
+## Day-only bulb emission omission
+
+The day lamp material still disables `use_emissive` and `use_emissive_map`.
+Both are true in the original material and in the already repaired rain
+namespace. The sampled `green_lamp_with_wire` model binds its `lamp_lights_s`
+surface to this material. This explains the dark bulb in day captures without
+requiring any transform change.
+
+`prepare_factory_day_emission.py` prepares a reversible, unapplied two-byte
+patch for `material_instances/ported/v010w/props/light/lamp_greenhouse_clone.material`.
+It verifies the two source flags, compares all day/rain fields, and checks the
+packed native shader archive. Once emission flags agree, remaining differences
+are only the namespace and three runtime scalar values (Fresnel minimum/value
+and roughness minimum); all selectors agree with the working rain material.
+The source's `effect_gstage_default_materials.cpp:382–407` puts those scalars
+in a constant buffer; lines 493–498 select the separate emission pass.
+
+Four previously captured rain emission draws use the same 2,584-byte DXBC
+`a2e26698335ab986a7241bcc68291a10` and `[5,5,5,1]` emission color. The combined
+database contains that exact shader under two `gbuffer_emissive_pass.ps`
+permutations with textured emission selector 2. The preparation script rejects
+an archive lacking this observed shader. This supports permutation availability;
+a runtime day comparison is still required.
+
+The plan at `.work/day-lamps-20261014/emission-patch/patch.json` remains baseline
+by CRC inspection. Only bytes 10152 and 12456 change from 0 to 1. No map geometry,
+light positions, cone opacity, texture or scalar value changes. The material
+worker will combine the pending lamp and material screenshot checks after the
+battery gallery returns the runtime lease.
