@@ -21,8 +21,9 @@ The exposure, shoulder and desaturation operations also occur in all other
 eight post variants. The vignette is quality-dependent; the adapter retains
 the existing target vignette enable switch. Original grain and grading use
 the existing adapter's 2.2 conversions. Original `present.ps` is a passthrough
-sample; its render-target/sRGB conversion has not been captured, so this work
-does not change the target's paired final gamma shader.
+sample, but the preceding copy/sharpen pass explicitly applies final gamma
+before it. Pinned shader and executable evidence confirms a plain UNORM
+backbuffer: [retain one final gamma conversion](radar-011e-final-gamma.md).
 
 The post constant upload order in reconstructed `stage_postprocess.cpp`
 agrees with reflection: shoulder/linear/angle/toe strength at c17,
@@ -78,3 +79,9 @@ Scripts, frozen inputs, captures, contact sheet, hashes and shutdown proof:
 `/tmp/radar-011e-lighting-review/`; isolated comparison package:
 `/tmp/radar-011e-lighting-candidate/`. The two compiled post shaders and build
 receipts are in the Chemical worker's `.work/reference-011e/post-tail/`.
+The durable checkpoint is
+`resource-porter/.work/radar-011e-post-20261014/` (109 hash-verified files,
+93 MB), including the exact candidate shader builds. All 29 original and
+29 baseline frames are separately frozen at
+`.work/render-compare/reproduction/reference-011e-20261014/` (222 verified
+files). Neither checkpoint includes a duplicate resource database.
