@@ -1,8 +1,9 @@
 # Original 0.11e reference preparation
 
-Prepared, not yet runtime validated. No game or Wine process was started during
-this work. The first coordinated session will capture Chemical Plant and Radar
-from the original build 884 database, then reuse those frozen images.
+Validated in one coordinated original session: twelve Chemical Plant and seventeen
+Radar views, followed by the same twenty-nine cameras on the unchanged 0.26
+candidate. Both sessions stopped cleanly. Original references are frozen; no
+additional original launch is needed for these poses.
 
 ## Guarded camera and bootstrap
 
@@ -52,14 +53,16 @@ copied. Auxiliary resources contain only the existing SSL files and splash image
   stripped and `r_debug_clip_texture_quality off`. Texture quality remains 2.
   This disables the early renderer's VRAM-dependent texture downgrade without
   changing detected VRAM. It is not the later 020/021 pool-offset workaround.
-  Actual saved profile is preserved after each map; source render defaults and
-  accepted quality commands still need checking on the first run.
+  Actual saved profile is preserved after each map and confirms quality 2 and
+  debug clipping disabled. Both builds use gamma 1, lighting/shadow/shading 1;
+  source post quality 3 versus target 2 and texture 2 versus target 1 remain
+  explicit differences. Numeric quality enums are not assumed equivalent.
 
 The runner refuses an active dedicated prefix or occupied port 2254. It waits for
 `join_match` and `sync_response`, then sustained camera/Present advancement.
-A separate five-second warmup image precedes final views. Contact-sheet review
-must still reject incomplete geometry, incorrect UI, wrong resolution or startup
-frames: counter advancement alone cannot prove that every texture has settled.
+A separate five-second warmup image precedes final views. All final images were reviewed on contact sheets: geometry is present, UI absent,
+and resolution 1280×720. Separate warmup frames remain outside the final set.
+Counter advancement alone is not a texture-streaming guarantee.
 
 Run the non-launching validation first:
 
@@ -71,5 +74,44 @@ After an explicit coordinated GPU handoff, the same command with `--launch`
 runs Chemical then Radar sequentially. `--maps chemical` permits the first
 bounded compatibility check. Initialization has a 180-second deadline and each
 pose has a 30-second deadline; failures preserve logs and stop owned processes.
-The original 011e spectator protocol/UI bootstrap remains unproven. No speculative
-memory-floor, menu no-op, or nearby-version protocol patch is included.
+The original 011e spectator protocol/UI bootstrap worked without memory-floor,
+menu no-op, or nearby-version protocol patches.
+
+
+## Matched candidate replay and frozen outputs
+
+Artifact root: `/tmp/resource-porter-chemical-011/.work/reference-011e`.
+`capture-{chemical,radar}/poses` holds originals and `target-{chemical,radar}/poses`
+holds current candidate images, each with requested and actual camera metadata.
+`comparison/capture-sha256.json` hashes the captured inputs; `metrics.json` lists
+per-view metrics. Contact sheets are `comparison/{chemical,radar}-{capture,target}-contact.png`.
+Five full-resolution paired lamp/remains PNGs put original on the left.
+Each map/engine also has a `panoramas` directory, with individual frames retained.
+Panorama stations include nearby walls; the four separate distant poses provide
+broader coverage. Assembly does not adjust exposure or blend seams.
+
+`replay_reference_011e.py` uses the managed candidate launcher, verifies database
+size/mtime and preset SHA256 remain unchanged, and stops its owned runtime in
+`finally`. After map startup acknowledgments it writes one **disabled** camera
+request to clear the observer's stale lobby-director selection. This does not
+move the character. Sustained camera/Present advancement and a five-second warmup
+then precede final capture. The initial run performed this reset manually; the
+reusable runner now includes it. It does not run without `--launch`.
+
+```sh
+python3 tools/chemical-plant/replay_reference_011e.py .work/reference-011e \
+  --package /tmp/three-day-map-candidate --runtime /tmp/three-day-map-runtime \
+  --port 2266 --launch
+python3 tools/chemical-plant/compare_reference_011e.py .work/reference-011e
+```
+
+Both commands refuse existing output directories. Preserve existing references
+and use a fresh artifact directory for any later target variant.
+
+The unchanged candidate is substantially darker: Chemical mean RGB MAE 0.1260
+across twelve views; Radar 0.1578 across seventeen. Chemical east-hall source
+mean luminance is 0.177–0.209 versus target 0.054–0.096. This includes walls,
+floors and metal, so it is not solely a pipe-specular problem. Original distant
+vegetation already shows strong grain/colored edge noise. Single-frame errors
+also include unsynchronized grain, wind and simulation; they are not temporal
+shimmer measurements. No brightness correction was applied during this audit.
