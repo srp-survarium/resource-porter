@@ -92,10 +92,33 @@ def main():
             old.unlink()
         subprocess.run([sys.executable, str(root/'day-map-objectives/extract_snapshots.py'),
                         str(evidence/'server-packets.log'), str(snapshots)], check=True)
-        subprocess.run([sys.executable, str(root/'day-map-objectives/validate_gallery_batch.py'),
+        validation = subprocess.check_output([sys.executable, str(root/'day-map-objectives/validate_gallery_batch.py'),
                         str(manifest), a.map, str(a.batch), str(snapshots),
                         '--decoder', str(a.gallery/'reproduce/decode-battery-snapshot-json'),
-                        '--output', str(manifest)], check=True)
+                        '--record-unsettled', '--output', str(manifest)], text=True)
+        (evidence/'validation.json').write_text(validation)
+        report = json.loads(validation)
+        print(json.dumps({'validated_batteries': report['battery_count'],
+                          'maximum_settling_distance': max(b['displacement_metres'] for b in report['batteries'])}), flush=True)
+        current = read(manifest)
+        current_map = next(m for m in current['maps'] if m['key'] == a.map)
+        if a.map == 'chemical-011-day':
+            subset = {'maps': [dict(current_map, spawns=[s for s in current_map['spawns']
+                                                       if s['diagnostic_batch'] == a.batch])]}
+            subset_path = evidence/'geometry-input.json'
+            subset_path.write_text(json.dumps(subset, indent=2)+'\n')
+            geometry_report = evidence/'geometry.json'
+            subprocess.run([sys.executable, str(root/'day-map-objectives/audit_battery_geometry.py'),
+                            '/tmp/collision-audit-target',
+                            '/tmp/collision-audit-target/projects/v011a_level_04/day_2/client_project',
+                            str(subset_path), '--output', str(geometry_report)], check=True)
+            for row in read(geometry_report)['spawns']:
+                spawn = next(s for s in current_map['spawns'] if s['index'] == row['index'])
+                spawn['collision_check'] = row['collision_check']
+                if len(row['capture_poses']) == 2:
+                    spawn['capture_poses'] = [dict(position=p['camera'], forward=p['forward'],
+                                                    fov=p['fov_degrees']) for p in row['capture_poses']]
+            manifest.write_text(json.dumps(current, indent=2)+'\n')
         capture = [sys.executable, str(root/'battery-gallery/gallery.py'), str(manifest), str(a.gallery),
                    '--map', a.map, '--batch', str(a.batch), '--control', str(a.runtime/'camera.txt')]
         if a.limit:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture ten views per authored battery spawn and build an offline gallery."""
+"""Capture configured views per authored battery spawn and build an offline gallery."""
 import argparse
 import html
 import importlib.util
@@ -17,11 +17,16 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + '\n')
 
 
-def poses(spawn):
-    center = list(spawn.get('runtime_position') or spawn.get('settled_position') or spawn['position'])
+def poses(spawn, count=2):
+    if spawn.get('capture_poses'):
+        return [dict(p, name=f'view-{i:02}', buffers=False, settle_ms=4000)
+                for i, p in enumerate(spawn['capture_poses'][:count], 1)]
+    center = list(spawn.get('capture_position') or spawn.get('settled_position') or spawn.get('runtime_position') or spawn['position'])
     center[1] += .12
-    offsets = [(1.5*math.sin(i*math.pi/4), 1.0, 1.5*math.cos(i*math.pi/4)) for i in range(8)]
-    offsets += [(0, .5, .65), (0, 3, 4)]
+    offsets = [(0, 1.0, 1.5), (0, 1.6, 3)]
+    if count > 2:
+        offsets = [(1.5*math.sin(i*math.pi/4), 1.0, 1.5*math.cos(i*math.pi/4)) for i in range(8)]
+        offsets += [(0, .5, .65), (0, 3, 4)]
     result = []
     for i, offset in enumerate(offsets, 1):
         position = [a+b for a, b in zip(center, offset)]
@@ -29,7 +34,7 @@ def poses(spawn):
         length = math.sqrt(sum(v*v for v in direction))
         result.append(dict(name=f'view-{i:02}', position=position,
                            forward=[v/length for v in direction], buffers=False,
-                           fov=65, settle_ms=900))
+                           fov=65, settle_ms=4000))
     return result
 
 
@@ -37,12 +42,13 @@ def index(output, manifest):
     sections = []
     count = 0
     for item in manifest['maps']:
+        expected = item.get('views_per_spawn', manifest.get('screenshots_per_spawn', 2))
         cards = []
         for spawn in item['spawns']:
             key = f"{item['key']}/battery-{spawn['index']:02}"
             directory = output/key
             views = []
-            for i in range(1, 11):
+            for i in range(1, expected+1):
                 name = f'view-{i:02}'
                 if not (directory/(name+'.png')).exists():
                     continue
@@ -56,13 +62,20 @@ def index(output, manifest):
                 actual = ', '.join(f'{v:.3f}' for v in runtime)
                 displacement = math.dist(spawn['position'], runtime)
                 note = f'Actual battery {spawn["active_runtime_battery_id"]}: ({actual}); settled {displacement:.3f} m from its authored origin.'
-            cards.append(f'<details id="{item["key"]}-{spawn["index"]}" open><summary>Battery spawn {spawn["index"]:02} · {label} · ({position}) · {len(views)}/10 views</summary><p>{note} <a href="{key}/spawn.json">Metadata</a></p><div class="views">'+''.join(views)+'</div></details>')
+            state = spawn.get('runtime_status', spawn.get('runtime_state'))
+            if state:
+                note += ' Status: ' + html.escape(str(state)) + '.'
+            if spawn.get('runtime_note'):
+                note += ' ' + html.escape(spawn['runtime_note'])
+            if spawn.get('review_note'):
+                note += ' ' + html.escape(spawn['review_note'])
+            cards.append(f'<details id="{item["key"]}-{spawn["index"]}" open><summary>Battery spawn {spawn["index"]:02} · {label} · ({position}) · {len(views)}/{expected} views</summary><p>{note} <a href="{key}/spawn.json">Metadata</a></p><div class="views">'+''.join(views)+'</div></details>')
         sections.append(f'<section id="{item["key"]}"><h2>{html.escape(item["title"])}</h2>'+''.join(cards)+'</section>')
     nav = ' · '.join(f'<a href="#{item["key"]}">{html.escape(item["title"])}</a>' for item in manifest['maps'])
     document = '''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Battery location gallery</title><style>
 body{font:16px system-ui;background:#15181d;color:#eee;margin:24px}a{color:#9cceff}nav{position:sticky;top:0;background:#15181d;padding:12px 0;z-index:1}details{margin:18px 0;border:1px solid #495361;border-radius:6px;padding:12px}summary{cursor:pointer;font-weight:600}.views{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:12px}.views img{width:100%;display:block}.views a{text-decoration:none}.views span{display:block;padding:4px}section{scroll-margin-top:55px}</style>
 <h1>Battery locations — Factory and Chemical Plant</h1>'''
-    document += f'<p>{count} screenshots saved. Ten viewpoints per authored spawn. Click a thumbnail for its full 1280 × 720 PNG. Coordinates and camera metadata are preserved alongside each image.</p>'
+    document += f'<p>{count} screenshots saved. Chemical Plant: two views per battery; earlier Factory captures retained. Click a thumbnail for its full 1280 × 720 PNG. Coordinates and camera metadata are preserved alongside each image.</p>'
     document += '<p>These are diagnostic camera views. A normal match activates only a subset of candidate spawns; the manifest records the capture setup. Some views may be obstructed by nearby geometry. This gallery does not certify player access or pickup.</p>'
     document += '<nav>'+nav+'</nav>'+''.join(sections)+'</html>'
     (output/'index.html').write_text(document)
@@ -96,7 +109,7 @@ def main():
             directory = args.output/item['key']/f"battery-{spawn['index']:02}"
             directory.mkdir(parents=True, exist_ok=True)
             write(directory/'spawn.json', spawn)
-            for pose in poses(spawn):
+            for pose in poses(spawn, item.get('views_per_spawn', manifest.get('screenshots_per_spawn', 2))):
                 base = directory/pose['name']
                 png = base.with_suffix('.png')
                 bmp = base.with_suffix('.bmp')
@@ -107,12 +120,12 @@ def main():
                         bmp.unlink()
                     if not bmp.exists():
                         module.capture(args.control, [pose], directory, timeout=35)
-                    subprocess.run(['magick', str(bmp), str(png)], check=True)
+                    subprocess.run(['magick', str(bmp.resolve()), str(png.resolve())], cwd=directory, check=True)
                     if not png.is_file() or png.stat().st_size < 100:
                         raise RuntimeError('PNG conversion failed')
                     bmp.unlink()
                 if not thumb.exists():
-                    subprocess.run(['magick', str(png), '-resize', '320x180', '-quality', '78', str(thumb)], check=True)
+                    subprocess.run(['magick', str(png.resolve()), '-resize', '320x180', '-quality', '78', str(thumb.resolve())], cwd=directory, check=True)
                 done += 1
                 if args.limit and done >= args.limit:
                     print(json.dumps({'screenshots': index(args.output, manifest)}), flush=True)

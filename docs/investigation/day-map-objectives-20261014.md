@@ -274,3 +274,13 @@ visible wagon gap; they remain fully included in the physical footprint audit.
 Each suggested pose records that exclusion policy. Low views also try eye height
 body+0.2m. A direct fixture verifies two visual poses can be chosen while the same
 walker box still produces a physical overlap review flag. No batteries moved.
+
+Chemical Plant placement review closed after user acceptance of all locations.
+All 33 corrected native body origins matched their diagnostic checkpoints and
+settled stably; no falling or fully buried battery was observed. Authored parent
+positions remain unchanged. Remaining geometry flags are shallow ground contact
+or player-only walker volumes; every pickup route has not been tested. The
+finished gallery has two PNGs per Chemical candidate (66), with native
+checkpoints, collision reports and reproduction tools at
+`/mnt/hdd/Projects/survarium-battery-gallery-20261014/index.html`. Earlier Factory
+captures remain. Diagnostic batches were reverted to the corrected baseline.
