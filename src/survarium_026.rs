@@ -83,6 +83,9 @@ pub struct Manifest {
     /// primitive payload hashes. Used only for audited authored defects.
     #[serde(default)]
     pub collision_successors: BTreeMap<String, CollisionSuccessor>,
+    /// Reviewed game-material bindings: model settings path -> surface -> material.
+    #[serde(default)]
+    pub game_material_overrides: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -212,6 +215,69 @@ fn array(c: &ConfigValue) -> Result<&[ConfigValue]> {
 }
 
 /// Fill new fields, preserving the donor's authored values and array members.
+/// Early builds have a single `foliage` game material; 0.20e and 0.26 split
+/// it into deciduous/coniferous (penetration, sounds and hit effects differ).
+/// A reviewed manifest binding wins, then the target build's own binding of
+/// the same model surface when that is a foliage class. Anything else keeps
+/// the coniferous fallback and is recorded for review.
+fn classify_early_foliage(
+    path: &str,
+    settings: &ConfigValue,
+    target: &mut ResourceDb,
+    reviewed: Option<&BTreeMap<String, String>>,
+    notes: &mut Vec<String>,
+) -> Result<BTreeMap<String, String>> {
+    let Some(ConfigValue::Named(entries)) = settings.named("game_material_settings") else {
+        return Ok(BTreeMap::new());
+    };
+    let native = if target.is_file(path) {
+        Some(cfg(target, path)?)
+    } else {
+        None
+    };
+    let mut bindings = BTreeMap::new();
+    for entry in entries {
+        if let Some(name) = reviewed.and_then(|r| r.get(&entry.name)) {
+            bindings.insert(entry.name.clone(), name.clone());
+            continue;
+        }
+        if string(&entry.value, "game_material_name") != Some("foliage") {
+            continue;
+        }
+        let successor = native
+            .as_ref()
+            .and_then(|n| n.named("game_material_settings"))
+            .and_then(|g| g.named(&entry.name))
+            .and_then(|e| string(e, "game_material_name"))
+            .filter(|name| name.starts_with("foliage_"));
+        match successor {
+            Some(name) => {
+                bindings.insert(entry.name.clone(), name.to_owned());
+            }
+            None => notes.push(format!(
+                "{path}: {} foliage has no reviewed or target class; coniferous fallback",
+                entry.name
+            )),
+        }
+    }
+    if let Some(reviewed) = reviewed {
+        for surface in reviewed.keys() {
+            ensure!(
+                bindings.contains_key(surface),
+                "{path}: reviewed game material for missing surface {surface}"
+            );
+        }
+    }
+    Ok(bindings)
+}
+
+/// Respawn-point gameplay rules introduced after the early/0.20e builds.
+const RESPAWN_RULES: [&str; 3] = [
+    "invulnerability_time",
+    "ally_check_radius",
+    "enemy_check_radius",
+];
+
 fn fill_missing(value: &mut ConfigValue, template: &ConfigValue) {
     if let (ConfigValue::Named(dst), ConfigValue::Named(src)) = (value, template) {
         for field in src {
@@ -360,7 +426,22 @@ fn adapt_objects(
             kind.as_str(),
             "generic_anomaly_core" | "damage_zone" | "artefact_container"
         ) {
+            // Respawn rules the source never had stay at the native loader's
+            // absent-key defaults (0x2F4400: protection 0, ally/enemy check
+            // radius 0 = no check) instead of another map's 6 s / 0.8 / 1.2.
+            let absent: Vec<&str> = if kind == "respawn_point" {
+                RESPAWN_RULES
+                    .iter()
+                    .copied()
+                    .filter(|field| object.named(field).is_none())
+                    .collect()
+            } else {
+                Vec::new()
+            };
             fill_missing(object, template);
+            if let ConfigValue::Named(fields) = object {
+                fields.retain(|f| !absent.contains(&f.name.as_str()));
+            }
         }
         object.set_path("is_temporary", ConfigValue::Boolean(false))?;
         if kind == "environment_probe" {
@@ -1626,12 +1707,19 @@ pub fn build(
             }
             if let Some(model) = path.strip_suffix(".model/settings") {
                 if m.source_build.early() && c.root.named("game_material_settings").is_some() {
+                    let bindings = classify_early_foliage(
+                        path,
+                        &c.root,
+                        &mut target,
+                        m.game_material_overrides.get(path),
+                        &mut compatibility_notes,
+                    )?;
                     crate::target_native_map::remap_game_material_settings(
                         &mut c.root,
                         path,
                         &game_materials,
                         &material_names,
-                        None,
+                        Some(&bindings),
                     )?;
                 }
                 let prefix = format!("{model}.model/render/");
@@ -2034,6 +2122,42 @@ mod tests {
             adapt_objects(&mut objects, &[template], [0., 0.12, 0.]).unwrap();
             assert_eq!(objects, ConfigValue::Indexed(vec![expected]));
         }
+        // Respawn rules absent from the source keep the loader defaults; an
+        // authored (already converted) protection time is retained.
+        let spawn_template = named(vec![
+            ("game_object_type", ConfigValue::String("respawn_point".into())),
+            ("lib_name", ConfigValue::String("respawn_point".into())),
+            ("invulnerability_time", ConfigValue::Integer(6)),
+            ("ally_check_radius", ConfigValue::Float(0.8)),
+            ("enemy_check_radius", ConfigValue::Float(1.2)),
+            ("layer", ConfigValue::String("default".into())),
+        ]);
+        for authored in [None, Some(2)] {
+            let mut donor = named(vec![
+                ("game_object_type", ConfigValue::String("respawn_point".into())),
+                ("lib_name", ConfigValue::String("respawn_point".into())),
+                ("team", ConfigValue::Integer(1)),
+            ]);
+            if let Some(seconds) = authored {
+                donor
+                    .set_path("invulnerability_time", ConfigValue::Integer(seconds))
+                    .unwrap();
+            }
+            let mut objects = ConfigValue::Indexed(vec![donor]);
+            adapt_objects(&mut objects, &[spawn_template.clone()], [0., 0.12, 0.])
+                .unwrap();
+            let spawn = &array(&objects).unwrap()[0];
+            assert_eq!(spawn.named("ally_check_radius"), None);
+            assert_eq!(spawn.named("enemy_check_radius"), None);
+            assert_eq!(
+                spawn.named("invulnerability_time"),
+                authored.map(ConfigValue::Integer).as_ref()
+            );
+            assert_eq!(
+                spawn.named("layer"),
+                Some(&ConfigValue::String("default".into()))
+            );
+        }
         let light = named(vec![
             ("game_object_type", ConfigValue::String("light".into())),
             ("lib_name", ConfigValue::String("spot_light".into())),
@@ -2096,6 +2220,73 @@ mod tests {
             Some(&ConfigValue::Boolean(false))
         );
         assert!(!adapt_particle(&mut node, &defaults).unwrap());
+    }
+
+    #[test]
+    fn early_foliage_takes_reviewed_or_successor_class() {
+        let settings = |surfaces: &[(&str, &str)]| {
+            named(vec![(
+                "game_material_settings",
+                ConfigValue::Named(
+                    surfaces
+                        .iter()
+                        .map(|(surface, material)| NamedValue {
+                            name: (*surface).into(),
+                            value: named(vec![
+                                (
+                                    "game_material_name",
+                                    ConfigValue::String((*material).into()),
+                                ),
+                                ("game_material_id", ConfigValue::Integer(1)),
+                            ]),
+                        })
+                        .collect(),
+                ),
+            )])
+        };
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("target");
+        let native = |path: &str, surfaces: &[(&str, &str)]| {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            let bytes = BinaryConfig {
+                root: settings(surfaces),
+            }
+            .to_bytes()
+            .unwrap();
+            fs::write(file, bytes).unwrap();
+        };
+        native("models/bush.model/settings", &[("leaves", "foliage_deciduous")]);
+        native("models/fir.model/settings", &[("leaves", "wood_tree")]);
+        let db = temp.path().join("target.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &db,
+        )
+        .unwrap();
+        let mut target = ResourceDb::open(db).unwrap();
+        let early = settings(&[("leaves", "foliage"), ("trunk", "wood_tree")]);
+        let mut notes = Vec::new();
+        // The target's own foliage class for the same model surface.
+        let mut classify = |path: &str, reviewed: Option<&BTreeMap<String, String>>| {
+            classify_early_foliage(path, &early, &mut target, reviewed, &mut notes)
+        };
+        let bush = classify("models/bush.model/settings", None).unwrap();
+        assert_eq!(
+            bush,
+            BTreeMap::from([("leaves".into(), "foliage_deciduous".into())])
+        );
+        // A non-foliage successor binding is not a class: fallback, recorded.
+        assert!(classify("models/fir.model/settings", None).unwrap().is_empty());
+        // A reviewed binding wins; one for an absent surface is rejected.
+        let reviewed = BTreeMap::from([("leaves".into(), "foliage_coniferous".into())]);
+        let poplar = classify("models/poplar.model/settings", Some(&reviewed)).unwrap();
+        assert_eq!(poplar, reviewed);
+        let wrong = BTreeMap::from([("bark".into(), "foliage_deciduous".into())]);
+        assert!(classify("models/poplar.model/settings", Some(&wrong)).is_err());
+        drop(classify);
+        // The fir fallback, then the unreviewed surface of the rejected call.
+        assert_eq!(notes.len(), 2);
     }
 
     #[test]
