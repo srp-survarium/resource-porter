@@ -170,3 +170,50 @@ a manifest. The real batch-1 fixture rejected by default and recorded only 12/15
 as unsettled with the flag; the earlier stable fixture still passes and an
 incorrect batch still fails even with the flag. All four raw checkpoints and
 decoded records are retained. Stable coordinates never imply pickup accessibility.
+
+## Native battery origin contract identified
+
+The previous uncertainty is now resolved at the resource/ABI boundary. All 50
+unmodified native Factory spawners have
+`spawned_item.position = position + rotate(rotation, [0, 0.12, 0])`, within the
+resource's millimetre rounding (maximum measured error 0.000579m). For example,
+parent `[-11.18, 6.741, -9.071]` has nested `[-11.18, 6.861, -9.071]`. The parent
+remains the mesh's floor origin; the nested position is the physical body's
+centre. Exact original records and recomputed results are stored in
+`tools/day-map-objectives/native-battery-origin-contract-20261014.json`.
+
+Native build2777 proves why:
+
+- 0x30029C..0x3002DA reads `collision_geometries[0].position` into battery +0x284.
+  The default options supply [0, 0.12, 0].
+- 0x3002E0..0x30037C reads `meshes[0].scale`, multiplies by 0.9, and creates type1
+  box geometry through 0x7A390: half extents [0.27, 0.108, 0.144]. The dynamic body
+  constructed at 0x300463 is stored at +0x2A8.
+- `put` at 0x300900 calls `set_transform` at 0x3009B0. The latter copies the input
+  into +0x204/+0x244 and forwards it to the body unchanged.
+- The free-item transform getter at 0x300A20 subtracts rotated +0x284 to obtain
+  the mesh origin. The spawn rule at 0x315480..0x31549D passes the selected
+  spawn's stored transform (+0x18) directly to virtual `put` (+0x9C).
+
+The early converter currently copies the parent position directly into
+`spawned_item.position`. Its preservation of the original parent coordinates is
+correct, but its generated nested body coordinates miss this rotated 0.12m
+translation. On a flat surface the resulting rigid box initially penetrates
+roughly 0.108m. This explains why many batteries are pushed up while others sink
+or fall. A correction must preserve the authored mesh origin and generate the
+native body origin, rather than apply an arbitrary map-wide clearance. The same
+conversion is used for Chemical Plant. Runtime confirmation of a corrected batch
+and pickup is still required; no release changes were made in this investigation.
+Gallery initial matching must also distinguish original mesh coordinates from
+converted body coordinates when that correction is tested.
+
+Factory candidates12 and15 lie essentially on their original support geometry:
+terrain_p_03 triangle1155 is Y5.4869144 under candidate12 (origin5.487);
+antenna_base triangle4573 is Y5.9585224 under candidate15 (origin5.956).
+These heights further support the missing centre offset, not relocated spawns.
+The frozen gallery/package EXE hash is
+`5eb0fc97b983ecc5d98282444076c7dc8180798429c58c4ac35849cb110c993a`.
+Its pickup bytes at 0x2D84C9, 0x2D8545, 0x2D861C and 0x2D85BE match original2777;
+the other session's experimental downward-pickup recovery patch is absent and
+cannot explain the falling/reset evidence. Factory work is paused at the user's
+request while the Chemical Plant gallery proceeds.
