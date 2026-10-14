@@ -105,6 +105,7 @@ static int install_camera(void) {
     uintptr_t rva;
     if (!strcmp(build, "010b")) rva = 0x5c72b0;
     else if (!strcmp(build, "011a")) rva = 0x5c6050;
+    else if (!strcmp(build, "011e")) rva = 0x5c42c0;
     else if (!strcmp(build, "026g")) rva = 0x22ddd0;
     else { error("unknown build"); return 0; }
     unsigned char *entry = (unsigned char *)GetModuleHandleW(NULL) + rva;
@@ -229,7 +230,8 @@ static int install_present(void) {
     DWORD protection;
     int ok=VirtualProtect(&vtable[8],sizeof(void *),PAGE_READWRITE,&protection);
     if (ok) { vtable[8]=(void *)present; VirtualProtect(&vtable[8],sizeof(void *),protection,&protection); }
-    if (ok) ok=install_shader_capture(device,context);
+    // Original 0.11e references are screenshot-only: no shader observers or replacements.
+    if (ok && strcmp(build,"011e")) ok=install_shader_capture(device,context);
     ID3D11DeviceContext_Release(context);
     ID3D11Device_Release(device);
     IDXGISwapChain_Release(swapchain);
@@ -302,7 +304,12 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     GetEnvironmentVariableA("SRP_CAPTURE_BUILD",build,sizeof(build));
     GetEnvironmentVariableA("SRP_CAPTURE_CONTROL",control,sizeof(control));
     snprintf(status_path,sizeof(status_path),"%s.status.json",control);
-    int ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
+    int ok;
+    if (!strcmp(build,"011e")) {
+        ok=control[0] && install_camera() && install_present();
+    } else {
+        ok=control[0] && configure_capture_background() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
+    }
     write_status();
     if (!ok) ExitProcess(1);
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);
