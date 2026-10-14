@@ -380,6 +380,25 @@ and verifies every other decoded value. Candidate:
 have1128262 bytes; SHA-256 changes from
 `4d99a7c02e6846e82f483bed5470b655a15bf73fb1cbba570e9e665d1f77a765` to
 `fce5eff2c8c69a64b41c6db2fab3e85f1da68b350fba12097f693268a8e55112`.
-The shared database has not been edited. Compare this switch alone before
-introducing source sky/cloud equations; native unlit clouds still contain
-different fog equations, so the switch is not a claim of complete sky parity.
+The guarded four-view comparison applied this single byte above the accepted
+source ambient behavior, then restored the full database and both preset guards.
+The final patch, including archive CRC guards, is
+`/tmp/factory-020e-cloud-lighting-patch-v2`. The sky-view error against the frozen
+original fell from0.065204 to0.0525691 (19.4%); the other three changed by less
+than0.0009. Electrical and foliage phases are not synchronized. Mean error for
+these four views fell from0.062558 to0.059860. This is a useful source-default
+repair, not complete sky parity: native unlit clouds still use different fog
+equations, and the stair direct-light deficit remains.
+
+Evidence is frozen under the private package's
+`evidence/cloud-default-comparison-20261014`: four PNGs with exact camera
+receipts, source/baseline/candidate sheet, metrics, logs, patch guards and full
+database restoration proof. The tested recipe is staged at
+`/tmp/factory-020e-accepted-recipe`, with relative preset asset paths, source
+ambient bytecode, tested hook, native configuration and the one-resource
+cloud-default overlay. Its manifest pins every file. All clients and the
+isolated Wine server stopped before restoration; the shared database retained
+SHA-256 `241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
+
+The historical `hangar-stairs` evidence ID is inside the antenna building.
+Keep that ID for reproducible comparisons; do not infer the model from its name.
