@@ -1,0 +1,33 @@
+{
+  "database_sha256_before": "241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d",
+  "database_sha256_after": "241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d",
+  "baseline_restored_exactly": true,
+  "state": {
+    "package": "/tmp/three-day-map-candidate",
+    "pid": 2546782,
+    "start_ticks": "15718430",
+    "token": "de9b1245750d4e9fb65e64ad89cb82f4",
+    "map": "radar-011e-day",
+    "map_id": 195,
+    "status": "stopped",
+    "runtime": "/tmp/three-day-map-runtime",
+    "port": 2266,
+    "camera": "actual character",
+    "ui": "off",
+    "client_count": 1,
+    "server_pid": 2546786,
+    "client_pid": 2546787,
+    "prefix": "/tmp/three-day-map-runtime/wineprefix",
+    "database": "resources.db",
+    "preset": "presets/radar-011e-day/preset.json",
+    "clients": [
+      {
+        "number": 1,
+        "pid": 2546787,
+        "prefix": "/tmp/three-day-map-runtime/wineprefix",
+        "log": "/tmp/three-day-map-runtime/client.log"
+      }
+    ]
+  },
+  "live_owned_pids": []
+}

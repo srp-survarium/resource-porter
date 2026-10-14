@@ -1,0 +1,288 @@
+{
+  "map_id": 195,
+  "newly_checked_count": 16,
+  "total_checked_count": 21,
+  "record_unsettled": false,
+  "largest_new_settling_distance": 0.09100946646415382,
+  "new_screenshots": 6,
+  "missing_collision_resources": 0,
+  "scope": "Native stability and burial/support audit only; pickup interactions not tested. Original21 locations unchanged.",
+  "spawns": [
+    {
+      "index": 0,
+      "batch": 1,
+      "position": [
+        -59.215256,
+        7.3521605,
+        -31.503792
+      ],
+      "settling_distance": 0.015247641137239927,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [
+        {
+          "object": 856,
+          "resource": "models/ported/v011e/props/furniture/table_teacher_01.model/collision",
+          "cgroup": 10,
+          "cmask": 20,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": true,
+          "kind": "conservative_primitive_box",
+          "index": 20,
+          "primitive_type": 2
+        }
+      ],
+      "review": "Stable native support, no burial detected; two close views show battery above furniture."
+    },
+    {
+      "index": 1,
+      "batch": 1,
+      "position": [
+        -59.15584,
+        7.321207,
+        0.11408439
+      ],
+      "settling_distance": 0.023676736909298318,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 2,
+      "batch": 1,
+      "position": [
+        -28.248234,
+        6.0044003,
+        -0.5098588
+      ],
+      "settling_distance": 0.04065093324636002,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [
+        {
+          "object": 1011,
+          "resource": "models/ported/v011e/props/electric/oscilograf_01.model/collision",
+          "cgroup": 8,
+          "cmask": 16,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": false,
+          "kind": "conservative_primitive_box",
+          "index": 1,
+          "primitive_type": 2
+        }
+      ],
+      "review": "Stable native support, no burial detected; two close views show battery above furniture."
+    },
+    {
+      "index": 4,
+      "batch": 1,
+      "position": [
+        -33.442757,
+        7.545753,
+        -21.360954
+      ],
+      "settling_distance": 0.004754558432704658,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 5,
+      "batch": 1,
+      "position": [
+        -3.2331812,
+        10.184834,
+        19.682758
+      ],
+      "settling_distance": 0.030623594717797544,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 6,
+      "batch": 1,
+      "position": [
+        -26.28832,
+        6.840297,
+        -3.3222902
+      ],
+      "settling_distance": 0.02046674436836463,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 7,
+      "batch": 1,
+      "position": [
+        -16.413324,
+        6.0140414,
+        -16.294405
+      ],
+      "settling_distance": 0.02071980549836409,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 8,
+      "batch": 1,
+      "position": [
+        -26.135042,
+        6.8309193,
+        -26.827372
+      ],
+      "settling_distance": 0.022999270868659834,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [
+        {
+          "object": 475,
+          "resource": "models/ported/v011e/props/furniture/table_teacher_01.model/collision",
+          "cgroup": 10,
+          "cmask": 20,
+          "blocks_battery_physics": true,
+          "blocks_player_controller": true,
+          "kind": "conservative_primitive_box",
+          "index": 20,
+          "primitive_type": 2
+        }
+      ],
+      "review": "Stable native support, no burial detected; two close views show battery above furniture."
+    },
+    {
+      "index": 9,
+      "batch": 1,
+      "position": [
+        -32.85927,
+        6.016282,
+        -6.9102297
+      ],
+      "settling_distance": 0.09100946646415382,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 10,
+      "batch": 1,
+      "position": [
+        43.435665,
+        -2.1284828,
+        -60.892582
+      ],
+      "settling_distance": 0.019589100153911854,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 11,
+      "batch": 2,
+      "position": [
+        -30.320078,
+        6.0158796,
+        -4.326366
+      ],
+      "settling_distance": 0.01537833749174417,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 12,
+      "batch": 2,
+      "position": [
+        -17.781322,
+        26.582087,
+        -14.442306
+      ],
+      "settling_distance": 0.013977656777869944,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 13,
+      "batch": 2,
+      "position": [
+        -35.689747,
+        6.016164,
+        -13.438984
+      ],
+      "settling_distance": 0.014215936813661973,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 15,
+      "batch": 2,
+      "position": [
+        -13.16225,
+        6.0155096,
+        -9.673297
+      ],
+      "settling_distance": 0.024236330312364003,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 16,
+      "batch": 2,
+      "position": [
+        -14.242486,
+        6.015167,
+        -7.782586
+      ],
+      "settling_distance": 0.024814765388574904,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    },
+    {
+      "index": 20,
+      "batch": 2,
+      "position": [
+        -24.344763,
+        6.015247,
+        -16.510374
+      ],
+      "settling_distance": 0.018534136135521854,
+      "deep_intersections": [],
+      "body_center_inside_boxes": [],
+      "upward_mesh_surfaces_above_body": [],
+      "nearby_unverified_primitives": [],
+      "review": "Stable native support; no burial detected by exact triangle/box audit."
+    }
+  ]
+}

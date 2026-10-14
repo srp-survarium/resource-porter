@@ -1,0 +1,195 @@
+{
+  "map": "radar-011e-day",
+  "batch": 2,
+  "battery_count": 6,
+  "initial_time_ms": 50,
+  "settled_time_ms": 10450,
+  "latest_time_ms": 10450,
+  "record_unsettled": false,
+  "unsettled_candidates": [],
+  "max_motion_between_late_checkpoints_metres": 0.0,
+  "initial_checkpoint": {
+    "file": "/tmp/three-day-native-checks/remaining-run/checkpoints/radar-011e-day/batch-02/match026g_127.0.0.1-52974_50_battery.bin",
+    "sha256": "024dace2f0b26c34143e54ecec119182e674e71df577dab3dd51d469db8014d1"
+  },
+  "latest_checkpoint": {
+    "file": "/tmp/three-day-native-checks/remaining-run/checkpoints/radar-011e-day/batch-02/match026g_127.0.0.1-52974_10450_battery.bin",
+    "sha256": "54196f172febbe38a4f7e1b51739b4c13da5f33d5074c786b2f738eca56366af"
+  },
+  "batteries": [
+    {
+      "index": 11,
+      "battery_id": 0,
+      "authored_position": [
+        -30.315,
+        5.91,
+        -4.323
+      ],
+      "initial_body_position": [
+        -30.315,
+        6.0299997,
+        -4.323
+      ],
+      "runtime_position": [
+        -30.320078,
+        6.0158796,
+        -4.326366
+      ],
+      "latest_runtime_position": [
+        -30.320078,
+        6.0158796,
+        -4.326366
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.014120100000000413,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.01537833749174417
+    },
+    {
+      "index": 12,
+      "battery_id": 1,
+      "authored_position": [
+        -17.774,
+        26.469,
+        -14.452
+      ],
+      "initial_body_position": [
+        -17.774,
+        26.589,
+        -14.452
+      ],
+      "runtime_position": [
+        -17.781322,
+        26.582087,
+        -14.442306
+      ],
+      "latest_runtime_position": [
+        -17.781322,
+        26.582087,
+        -14.442306
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.007059999999999178,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.013977656777869944
+    },
+    {
+      "index": 13,
+      "battery_id": 2,
+      "authored_position": [
+        -35.691,
+        5.91,
+        -13.442
+      ],
+      "initial_body_position": [
+        -35.691,
+        6.0299997,
+        -13.442
+      ],
+      "runtime_position": [
+        -35.689747,
+        6.016164,
+        -13.438984
+      ],
+      "latest_runtime_position": [
+        -35.689747,
+        6.016164,
+        -13.438984
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.01383570000000045,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.014215936813661973
+    },
+    {
+      "index": 15,
+      "battery_id": 3,
+      "authored_position": [
+        -13.16,
+        5.91,
+        -9.654
+      ],
+      "initial_body_position": [
+        -13.16,
+        6.0299997,
+        -9.654
+      ],
+      "runtime_position": [
+        -13.16225,
+        6.0155096,
+        -9.673297
+      ],
+      "latest_runtime_position": [
+        -13.16225,
+        6.0155096,
+        -9.673297
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.014490100000000616,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.024236330312364003
+    },
+    {
+      "index": 16,
+      "battery_id": 4,
+      "authored_position": [
+        -14.239,
+        5.91,
+        -7.763
+      ],
+      "initial_body_position": [
+        -14.239,
+        6.0299997,
+        -7.763
+      ],
+      "runtime_position": [
+        -14.242486,
+        6.015167,
+        -7.782586
+      ],
+      "latest_runtime_position": [
+        -14.242486,
+        6.015167,
+        -7.782586
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.014832700000000365,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.024814765388574904
+    },
+    {
+      "index": 20,
+      "battery_id": 5,
+      "authored_position": [
+        -24.339,
+        5.91,
+        -16.52
+      ],
+      "initial_body_position": [
+        -24.339,
+        6.0299997,
+        -16.52
+      ],
+      "runtime_position": [
+        -24.344763,
+        6.015247,
+        -16.510374
+      ],
+      "latest_runtime_position": [
+        -24.344763,
+        6.015247,
+        -16.510374
+      ],
+      "runtime_state": "settled",
+      "runtime_note": "Battery is stable; visibility and pickup accessibility still require review.",
+      "max_fall_from_authored_metres": 0.014752700000000729,
+      "late_motion_metres": 0.0,
+      "displacement_metres": 0.018534136135521854
+    }
+  ]
+}

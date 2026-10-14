@@ -3,7 +3,11 @@
   "chemical-corridor-75600.bin": "bcc142cbd4007fcc3fc34cebd71bd7d9648fbd312d9a3a7ba1a26ea0f94cc556",
   "chemical-corridor.json": "c09f4d0cf13203e1a2f34175e065b7ffa58c82ec41b1f041a1659cddd49b550f",
   "chemical-player-position-scan.json": "25822c9daac7843f8010b6788e035ad2170a647b636da974d98c15c6e024b036",
+  "radar-batch-01-validation.json": "9098054ea58d7097bdff85c4ec112e0b963306f97399305402254f6a16c0aa41",
+  "radar-batch-02-validation.json": "0c3bae34d6484667facead53d5d7d40f131ace622066e3dfe253e3864fe928d7",
   "radar-five-geometry.json": "d83dc15e4c6c6649f544f1684912af56f2400a59bf6cf48db69e760b6e0a2dee",
   "radar-five-validation.json": "81c0dfb5c7ebaf4a7c08d3693170f9833da2e7e460e220b1d5288b5907439b2b",
+  "radar-remaining-sixteen.json": "168b76f9587c9237b89023e07487cf564066dd4407835d8f4991f18451eda230",
+  "radar-restoration.json": "3e50b55dd8fbe3e700cb1b3a1844ec91653bb69ff2c9ee82cff40f7ff95a2781",
   "replay.py": "15211b69ad192abdd1149ebacf4a7c0603ac6cb92e96efca776a9fe14de46d1c"
 }

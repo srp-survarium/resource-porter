@@ -1,11 +1,11 @@
 # Focused native checks for the combined day candidate
 
-The combined candidate's Radar 0.11e map195 passed five targeted battery
-support checks. Chemical Plant 0.11e map194 allowed an actual character to
+The combined candidate's Radar 0.11e map195 passed native settling and support
+checks for all 21 battery candidates. Chemical Plant 0.11e map194 allowed an actual character to
 cross the formerly blocked wall opening. These are bounded checks, not a
 whole-map collision or pickup certification.
 
-## Radar: five of 21 candidates checked
+## Radar: all 21 candidates checked
 
 The reversible diagnostic selected original indices3,19,14,17,18, preserved
 their transforms, assigned dense IDs0–4, and set the mode count to5.
@@ -20,10 +20,22 @@ positions and screenshots resolve their support concern without pretending
 those conservative boxes are an exact cylinder test. No pickup interaction
 was attempted. Authored positions remain unchanged.
 
-The other16 candidates are **pending native validation**. Two guarded plans
-are prepared under `/tmp/three-day-native-checks/remaining-battery-plans`:
-batch01 selects0,1,2,4,5,6,7,8,9,10; batch02 selects11,12,13,15,16,20.
-Their independent decoded-leaf guards pass. They have not been applied.
+The remaining 16 candidates subsequently passed two strict native batches:
+0,1,2,4,5,6,7,8,9,10, then 11,12,13,15,16,20. Both batches had zero late
+motion. Their largest settling distances were 0.09101m and 0.024815m.
+Every settled centre was outside exact boxes, with no deep intersection or
+upward mesh surface above it. No collision resources were missing.
+Only 0,2,8 had nearby curved primitives that the helper does not test exactly;
+two close views of each show batteries above their supporting furniture.
+All 21 authored locations remain unchanged. This checks support and burial;
+walking to every battery and pickup interactions were not tested.
+
+The two plans and full evidence are under
+`/tmp/three-day-native-checks/remaining-run` and `remaining-battery-plans`.
+The entire combined database was hashed before and after both batches:
+`241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
+The exact match verifies complete restoration, including entry CRCs. The final
+supervisor, client and server PIDs were absent before the water-worker handoff.
 
 ## Chemical: actual-character wall-gap replay
 
