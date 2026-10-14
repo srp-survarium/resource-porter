@@ -1,0 +1,60 @@
+{
+  "source_build": "0.11e",
+  "donor_sha256": "694e1772a0595b6686cc9810afa438ed25b21360c591c0e26aa8e35dc03a4955",
+  "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "maps": [
+    {
+      "id": 194,
+      "level": "level_04",
+      "weather": "day",
+      "environment_look": "legacy-010b-atmosphere"
+    },
+    {
+      "id": 195,
+      "level": "level_03",
+      "weather": "day",
+      "environment_look": "legacy-010b-atmosphere"
+    }
+  ],
+  "missing_collision_resources": [
+    "models/level/03/antenna_tree.model/walker_collision",
+    "models/props/electric/soviet_comp_02.model/collision"
+  ],
+  "material_templates": {
+    "material_instances/tiled/floor/pol.material": "material_instances/tiled/floor/floortrash02_pol_vc.material",
+    "material_instances/decals/decals_fire_bullet_damage.material": "material_instances/decals/decals_fire_bullet_damage.material",
+    "material_instances/decals/decals_leaking_01.material": "material_instances/decals/decals_leaking_01.material",
+    "material_instances/decals/decals_multiply_01.material": "material_instances/decals/decals_multiply_01.material",
+    "material_instances/decals/decals_multiply_02.material": "material_instances/decals/decals_multiply_02.material",
+    "material_instances/decals/decals_multiply_03.material": "material_instances/decals/decals_multiply_03.material",
+    "material_instances/decals/decals_multiply_04.material": "material_instances/decals/decals_multiply_04.material",
+    "material_instances/decals/decals_spot.material": "material_instances/decals/decals_spot.material",
+    "material_instances/fx/cone_volume_material.material": "material_instances/fx/cone_volume_material.material",
+    "material_instances/fx/pfx/ak47_front.material": "material_instances/fx/pfx/ak47_front.material",
+    "material_instances/water/water.material": "material_instances/water/water.material",
+    "material_instances/water/water_green.material": "material_instances/water/water_green.material",
+    "material_instances/water/water_green_shit.material": "material_instances/water/water_green_shit.material"
+  },
+  "wrapped_uv_surfaces": [
+    "models/level/04/moss2.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss2.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_base_sg/converted_model"
+  ],
+  "server_project_fallback": {
+    "source_build": "0.11a",
+    "donor_sha256": "f59650ee69e834f7757461c54affd93b6fbb767ab841d70468e85019b059c4f6",
+    "projects": {
+      "projects/level_03/server_project": "a8c6ca4f156b11dad06697d52d6768d0f4351a60545abf9db16dfa0ed98f7d11"
+    }
+  },
+  "collision_successors": {
+    "models/props/machines/factory_boiler.model/walker_collision": {
+      "donor_primitives_sha256": "6511fb6f2ead95ee9d0ddd5c577904c932d73f680dbcbb60a606eb71325a4282",
+      "target_primitives_sha256": "129597701a6cbf82412d475d6add678de0fa8d5b60fde8be0f2e9b32f1f91ab3",
+      "reason": "0.11e walker drums 11/12/14 lie on their side (radius 1.7, half-length 1.65) around four vertical tanks; their square footprint extends up to 0.7 m past the visible tanks and blocked a player (map 194 user report 2026-10-14). 0.21d and native 0.26 re-author the same boiler with vertical tanks; bullet collision extents of both builds match within 0.1 m."
+    }
+  }
+}

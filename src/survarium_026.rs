@@ -108,6 +108,28 @@ pub struct Map {
     pub id: u8,
     pub level: String,
     pub weather: String,
+    /// Look-defining environment choices for early donors. Bug fixes apply
+    /// to every look; only the choices listed on `EnvironmentLook` differ.
+    #[serde(default, skip_serializing_if = "EnvironmentLook::is_source")]
+    pub environment_look: EnvironmentLook,
+}
+
+/// Named environment looks. `source` follows the donor; the legacy look
+/// reproduces the earlier 0.10b-atmosphere candidate (snapshot
+/// survarium-look-variants/2026-10-15-legacy-010b-atmosphere): Rayleigh haze
+/// starts at the native template's near distance. Its LUT, geometry fog,
+/// tone curve and god-ray choices live in the matching preset variant.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EnvironmentLook {
+    #[default]
+    Source,
+    Legacy010bAtmosphere,
+}
+impl EnvironmentLook {
+    fn is_source(&self) -> bool {
+        *self == Self::Source
+    }
 }
 impl Map {
     fn donor_project(&self, source: SourceBuild) -> String {
@@ -2002,6 +2024,7 @@ mod tests {
             id: 165,
             level: "level_02".into(),
             weather: "rain".into(),
+            environment_look: Default::default(),
         };
         let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
@@ -2421,6 +2444,7 @@ mod tests {
             id: 166,
             level: "level_03".into(),
             weather: "day".into(),
+            environment_look: Default::default(),
         };
         let converted = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         let visual = &array(converted.named("render_visuals").unwrap()).unwrap()[0];

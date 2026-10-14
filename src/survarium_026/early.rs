@@ -156,7 +156,7 @@ pub(super) fn project(
                 .named("properties")
                 .context("environment properties")?
                 .clone();
-            transfer_environment(&mut properties, post, sun, notes, &path)?;
+            transfer_environment(&mut properties, post, sun, notes, &path, map.environment_look)?;
             object.set_path("properties", properties)?;
             remove(&mut object, "post_effect");
         }
@@ -435,6 +435,7 @@ fn transfer_environment(
     sun: Option<&ConfigValue>,
     notes: &mut Vec<String>,
     path: &str,
+    look: super::EnvironmentLook,
 ) -> Result<()> {
     let aliases = BTreeMap::from([
         // Optional native fields absent from the chosen template.
@@ -560,8 +561,11 @@ fn transfer_environment(
         ConfigValue::Float4(color),
     )?;
     // Source haze grows from the camera (min(d, D)/D); 0.26 delays it by
-    // this distance, which the native template sets to 35-40 m.
-    dst.set_path("rayleigh_fog_near_distance", ConfigValue::Float(0.))?;
+    // this distance, which the native template sets to 35-40 m. The legacy
+    // look keeps that template distance.
+    if look == super::EnvironmentLook::Source {
+        dst.set_path("rayleigh_fog_near_distance", ConfigValue::Float(0.))?;
+    }
     // Colours the source uploads without gamma, while 0.26 applies 2.2 at
     // load through the same helper (god rays 0x607454..0x6074d5 in 0.11e;
     // 0.10b god_rays.ps:74 and gather_bloom.ps:78 use them raw).
@@ -1139,6 +1143,7 @@ mod tests {
             id: 195,
             level: "level_03".into(),
             weather: "day".into(),
+            environment_look: Default::default(),
         };
         let project = project(
             old,
@@ -1210,7 +1215,14 @@ mod tests {
         ] {
             sun.set_path(name, value).unwrap();
         }
-        transfer_environment(&mut dst, &old, Some(&sun), &mut Vec::new(), "test").unwrap();
+        transfer_environment(&mut dst, &old, Some(&sun), &mut Vec::new(), "test", super::EnvironmentLook::Source).unwrap();
+        let mut legacy = ConfigValue::Named(Vec::new());
+        legacy.set_path("rayleigh_fog_near_distance", ConfigValue::Float(35.)).unwrap();
+        legacy.set_path("sky_clouds_color", ConfigValue::Float4([1.; 4])).unwrap();
+        transfer_environment(&mut legacy, &old, Some(&sun), &mut Vec::new(), "test", super::EnvironmentLook::Legacy010bAtmosphere).unwrap();
+        assert_eq!(legacy.named("rayleigh_fog_near_distance"), Some(&ConfigValue::Float(35.)));
+        // Bug fixes are not part of the look.
+        assert_eq!(legacy.named("height_based_ambient_high_color"), dst.named("height_based_ambient_high_color"));
         let az = number(dst.named("sun_position_azimut").unwrap())
             .unwrap()
             .to_radians();
@@ -1446,6 +1458,7 @@ mod tests {
             id: 194,
             level: "level_04".into(),
             weather: "day".into(),
+            environment_look: Default::default(),
         };
         assert_eq!(
             chemical.output_project(SourceBuild::V011e),
@@ -1460,6 +1473,7 @@ mod tests {
             id: 181,
             level: "level_03".into(),
             weather: "evening".into(),
+            environment_look: Default::default(),
         };
         assert_eq!(
             map.output_project(SourceBuild::V010b),
