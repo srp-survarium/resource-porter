@@ -42,7 +42,9 @@ float4 main(float4 position : SV_POSITION,float2 uv : TEXCOORD0) : SV_TARGET
     color=(x*(LEGACY_FILMIC_LINEAR*x+LEGACY_FILMIC_ANGLE))/(x*(LEGACY_FILMIC_STRENGTH*x+LEGACY_FILMIC_NUMERATOR)+LEGACY_FILMIC_DENOMINATOR);
     float level=dot(float3(.3,.7,.2),color);
     float3 dark_tint=level*float3(.8,.8,1.4);
-    color=pow(lerp(dark_tint,color,saturate(level*LEGACY_DARK_DESATURATION+.21)),2.2);
+    // Positive authored coefficients and x>=toe make both lerp endpoints
+    // positive. abs exposes that invariant to FXC without changing values.
+    color=pow(abs(lerp(dark_tint,color,saturate(level*LEGACY_DARK_DESATURATION+.21))),2.2);
 #else
     float3 x=max(color*pow(.25/average,.2)-LEGACY_FILMIC_TOE,0);
     color=pow((x*(LEGACY_FILMIC_LINEAR*x+LEGACY_FILMIC_ANGLE))/(x*(LEGACY_FILMIC_STRENGTH*x+LEGACY_FILMIC_NUMERATOR)+LEGACY_FILMIC_DENOMINATOR),2.2);
