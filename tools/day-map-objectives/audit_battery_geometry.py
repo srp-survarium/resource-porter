@@ -58,7 +58,9 @@ class Geometry:
             scale=[float(x) for x in re.findall(r'\[([^]]+)\]',suffix[0])] if suffix else [1,1,1]
             rotation=helper.rotation(obj['rotation']);world=lambda p:helper.transform(p,rotation,obj['position'],scale)
             directory=root/path;vp=directory/'vertices';ip=directory/'indices';pp=directory/'exported_primitives'
-            desc={'object':oi,'resource':path,'cgroup':obj['cgroup'],'cmask':obj['cmask']}
+            desc={'object':oi,'resource':path,'cgroup':obj['cgroup'],'cmask':obj['cmask'],
+                  'blocks_battery_physics':bool(obj['cgroup'] & 0x418 and obj['cmask'] & 0xA18),
+                  'blocks_player_controller':bool(obj['cgroup'] & 2 and obj['cmask'] & 4)}
             if not vp.exists() and not pp.exists():self.missing.append(path)
             if vp.exists() and ip.exists():
                 vs=[world(p) for p in struct.iter_unpack('<3f',helper.chunks(vp.read_bytes())[25])]
@@ -90,7 +92,11 @@ class Geometry:
     def local(self,p,radius=4):return [t for t in self.triangles if close(t['bounds'],p,radius)]
     def cameras(self,center):
         local=self.local(center);views=[]
-        for number,choices in enumerate([[(1.7,1.),(1.7,.65),(1.5,.4)],[(3.,1.6),(3.,1.),(2.4,.65),(2.,.4)]]):
+        ceiling=[center[0],center[1]+1.8,center[2]]
+        under_cover=any(segment_triangle(center,ceiling,t['vertices']) is not None for t in local)
+        choices=([[(1.5,.4),(1.7,.65),(1.7,1.)],[(2.4,.65),(2.,.4),(3.,1.),(3.,1.6)]] if under_cover else
+                 [[(1.7,1.),(1.7,.65),(1.5,.4)],[(3.,1.6),(3.,1.),(2.4,.65),(2.,.4)]])
+        for number,choices in enumerate(choices):
             candidates=[]
             for radius,height in choices:
               for i in range(16):

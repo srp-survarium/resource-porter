@@ -260,3 +260,10 @@ The conservative footprint flags candidate0's wagon walker-only geometry and a
 2.7cm terrain intersection at candidate4 for visual/contact review; the other8
 have no deep intersection. Do not call these flags proved placement failures or
 call the complete33 clear until all native checkpoint batches are checked.
+
+Native battery insertion at0x301CB0 passes filter group0xA18 and mask0x418 to
+`world::add` at0x301CF5..0x301D00. Walker-only cgroup2/cmask4 therefore does not
+collide with the battery, although it can obstruct player access. Geometry rows
+now label this distinction instead of treating every mesh as a physics contact.
+Camera suggestions prefer crouched views when a vertical segment detects cover
+above the battery, which matters for the wagon's undercarriage.
