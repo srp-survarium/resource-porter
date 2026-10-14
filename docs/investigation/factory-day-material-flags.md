@@ -60,11 +60,31 @@ Use `patch_archive_entries.py ARCHIVE PLAN inspect|apply|revert` while the
 owned client is stopped. The patcher checks material hashes, positions and
 stored CRCs before writes. Other namespaces and materials are untouched.
 
-The revised plan's runtime validation is pending. Three corrected-activation
-baseline views reproduce the pump, outdoor remains and a second skeleton
-in a cellar. The original day client supplied matching pump/outdoor-remains
-references during the lights investigation. Earlier packaged captures had
-render overrides disabled; they are excluded from the new A/B. The new
-baseline uses `SRP_CAPTURE_BUFFERS=1` with screenshot-only control mode 2,
-UI off, the frozen day hook, and no raw dumps. A candidate must retain that
-recipe and verify material loading before release.
+The revised plan loaded and captured all three material views successfully;
+three independent lamp-emission views shared the same run. There were no
+missing shader or patched-material errors. Both plans were reverted and the
+owned client stopped afterward. The package is not left patched.
+
+Both material arms use `SRP_CAPTURE_BUFFERS=1`, screenshot-only control mode
+2, UI off, the same frozen day hook/preset, and no raw dumps. Recorded
+override counters are positive. Earlier activation-off packaged captures
+are excluded. The original day client supplied matching pump/outdoor-remains
+references during the lights investigation.
+
+The mirror-like remains highlights disappear, but the remains become much
+darker than the source image. In fixed rectangles selected before the
+candidate, pump/source RGB MAE improves 0.0731→0.0569; outdoor remains MAE
+worsens 0.0689→0.0717. Cellar remains mean luma changes 0.0512→0.0377,
+while its floor control changes 0.0369→0.0361. This establishes a working
+material contract correction, not complete appearance parity.
+
+The one-second material poses also captured incomplete texture streaming:
+control foliage, trunks and crate textures show different mip detail.
+Do not promote the candidate as an exact visual match until settled-texture
+views separate this from the remaining diffuse-lighting difference. No
+global gain, roughness fitting or texture rewrite was used to hide it.
+
+Reproduction inputs are `poses-factory-day-materials.json`, the preparation
+script, `patch_archive_entries.py`, and `audit_factory_day_material_images.py`.
+The latter checks matching camera requests and reports fixed material/control
+rectangles; it does not claim identical source jitter or animated shadows.

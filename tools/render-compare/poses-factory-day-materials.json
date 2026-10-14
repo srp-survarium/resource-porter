@@ -1,0 +1,50 @@
+[
+  {
+    "name": "pump-east",
+    "position": [
+      73.3,
+      3.0,
+      -16.5
+    ],
+    "forward": [
+      0,
+      -0.18,
+      -1
+    ],
+    "fov": 65,
+    "settle_ms": 1000,
+    "buffers": false
+  },
+  {
+    "name": "skeleton-lower-path",
+    "position": [
+      41.875,
+      -0.5,
+      -60.4
+    ],
+    "forward": [
+      0,
+      -0.8,
+      -0.6
+    ],
+    "fov": 65,
+    "settle_ms": 1000,
+    "buffers": false
+  },
+  {
+    "name": "skeleton-central-path",
+    "position": [
+      16.1,
+      2.8,
+      -47.7
+    ],
+    "forward": [
+      0,
+      -0.8,
+      -0.6
+    ],
+    "fov": 65,
+    "settle_ms": 1000,
+    "buffers": false
+  }
+]
