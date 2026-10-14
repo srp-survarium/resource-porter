@@ -84,6 +84,28 @@ Do not promote the candidate as an exact visual match until settled-texture
 views separate this from the remaining diffuse-lighting difference. No
 global gain, roughness fitting or texture rewrite was used to hide it.
 
+The remains have a specific streaming compatibility problem in the pinned
+0.26g executable (`ac33d993…153`), beyond a short warmup. Both source DDSs
+are 2048² BC2/DXT3 with ten mips and sRGB option 1. Native logs allocate
+64² versions outside the texture pool. That warning alone is harmless:
+`0x3bd53c` creates a standalone texture and `0x3bd706` uploads its mips.
+However, pool initialization at `0x11b090` creates only BC1_TYPELESS (70)
+and BC3_TYPELESS (76) entries. `scene::gather_streamable_textures` calls
+`texture_storage::supported` at `0x1550b3` and skips streaming registration
+when that format/dimension key is absent. BC2 therefore cannot request
+higher mips through this path with the pool enabled.
+
+`prepare_factory_remains_bc3.py` prepares a separate, unapplied two-texture
+candidate. It guards the exact original DDS hashes, preserves every RGB
+compression block, dimensions, mip count and sRGB byte, and fits only BC2
+alpha into BC3 palettes. The payload length is unchanged. Independent Pillow
+decoding confirms identical full-resolution RGB and zero texel crossings
+at alpha 0.5. Alpha MAE is 0.000118/0.014932 on a 0–255 scale for skeleton/rag;
+maximum errors are 11/17. Bilinear alpha-edge coverage can still differ.
+This is a format compatibility experiment, not lossless alpha conversion.
+Runtime validation must confirm actual bound SRV dimensions and settled
+appearance before promotion. Material and lighting candidates stay separate.
+
 A concrete remaining lighting mismatch explains why correct intensity masks
 can expose dark remains: their authored Fresnel is 1. Native day composition
 multiplies sun diffuse by `1-F`, producing zero. Original `sun.ps:251`
