@@ -85,3 +85,11 @@ The durable checkpoint is
 29 baseline frames are separately frozen at
 `.work/render-compare/reproduction/reference-011e-20261014/` (222 verified
 files). Neither checkpoint includes a duplicate resource database.
+
+Independent review checked the source instruction ranges, both coefficient sets
+and upload order without finding a shader mismatch. All eight existing
+0.10b/0.11a profile/tail combinations preprocess byte-identically to the parent
+of the correction. The review corrected the audit listing command to
+`resources-db list SOURCE_DB`; the paths-only porter listing is insufficient.
+Seven compact review files are preserved under the durable checkpoint
+`independent-review/`, with verified hashes.

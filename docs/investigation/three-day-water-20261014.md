@@ -51,3 +51,9 @@ stopping and waiting for the owned Wine prefix, actual game/server/supervisor
 processes were absent. The full database SHA256 remained
 `241a6c1c8777458d0e23c2478af90292e2169a3c85e4bdea12e25d0e351cc08d`.
 The GPU was handed to the Chemical lighting worker.
+
+The compact evidence is also preserved at
+`resource-porter/.work/three-day-water-20261014/`: 47 hash-verified files,
+11.9 MB, with `checkpoint-hashes.json`. Root review of the final perpendicular
+views agrees that the former dense foam pattern is absent; remaining darkness
+must be revisited with the final lighting combination.

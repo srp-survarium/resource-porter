@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract the original 011e post contracts without launching the game.
 
-The index is `vostok-port list --db SOURCE_DB` output. Program hashes and
+The index is `resources-db list SOURCE_DB` output. Program hashes and
 authored parameters support manual equation review, not native visual parity.
 """
 import argparse

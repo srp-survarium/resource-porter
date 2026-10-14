@@ -179,3 +179,16 @@ Direct reads of the composed materials also confirm both bulb emission flags
 are true in the 0.11e lamp and foam intensity is zero in all three 0.11e water
 materials and the 0.20e water material. This checks that verified conversion
 fixes survived composition; new-donor runtime views still govern visual parity.
+
+## Current integration checks
+
+The six new-donor water views cover all four active materials, including
+near-perpendicular angles: the old dense foam artifact is absent. Lighting and
+water color remain separate; see [water verification](three-day-water-20261014.md).
+The merged source-default cloud-lighting repair passes all 11 converter tests,
+with no increase to the 283-test library count. The merged capture hook also
+passes the strict C build with the opt-in 0.11e sky/AO/point replay. Its private
+sky buffer agrees with source equations within one 10-bit step, but full scene
+composition remains disabled while local and translucency coverage is completed.
+See [the ambient investigation](011e-ambient-lighting-20261014.md). These changes
+are integrated into the worktree, not yet into the final playable package.
