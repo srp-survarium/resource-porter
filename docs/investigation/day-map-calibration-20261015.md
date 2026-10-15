@@ -1022,3 +1022,33 @@ Pixels that get sun only in the port fall into two groups.
 2. **door-close-px is not a lighting issue.** The original and the port
    share the recorded camera, but the animated door sits in a different
    position in the port, so its shadow lands elsewhere.
+
+**Promotion (skylight and 0.11e falloff).** With coordinator approval,
+-next keeps db `2c286a7d`. It now carries the built presets for all three
+looks:
+- source: `presets/`;
+- `looks/legacy-010b-atmosphere`;
+- `looks/source-probe-specular`, built with `--probe-specular`.
+
+Checks:
+- The previous presets, looks and manifest are backed up with `SHA256SUMS`
+  in `/tmp/three-day-map-candidate-next-backup-2c28-presets`.
+- `play-maps verify` passes (108 files: +2 underlay files per 0.11e map).
+- Texture verifier: 620 materials, 0 missing.
+- Shader verifier: 0 missing (2 runtime-proven, 14 stage-switch evidence,
+  0 new shadow casters).
+
+The legacy-010b-atmosphere preset against the previous one:
+- Unchanged on both 0.11e maps: environment, `user.cfg` and these assets:
+  - atmosphere LUT, geometry fog, rain tone curve, clouds, sky;
+  - composition, ambient decode, present gamma, post grain, grainless
+    aberration;
+  - SSAO, F0=1 local diffuse, encoded lights;
+  - on Radar also the cone volume.
+- Radar keeps `SRP_LEGACY_DISABLE_GOD_RAYS=1`. Fog near distance (35/40) is
+  a db property; the db is unchanged.
+- Changed: `SRP_LEGACY_PROBE_DIFFUSE` (`c07da5b4` → `f4b25b31`),
+  `SRP_LEGACY_PROBE_DIFFUSE_BOX` (`01bf69a9` → `16dfa535`), the added
+  `SRP_LEGACY_SKYLIGHT_UNDERLAY`, and `camera_hook.dll` (`47fc2b0d` →
+  `dd26a157`).
+- Map 196: only `camera_hook.dll`. The new feature is inactive there.
