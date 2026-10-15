@@ -1,0 +1,22 @@
+{
+  "name": "chemical-011e toxic-moss anomaly",
+  "map_id": 194,
+  "template_project": "projects/level_04/day_2/client_project",
+  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "groups": [
+    {
+      "name": "native 0.26 Chemical toxic-moss anomaly (2 controllers, 27 artefact containers, damage/idle zones, spores/smoke/bugs fog); native coordinates land on the same 0.11e moss field",
+      "client_object_prefixes": [
+        "logic/anomaly/",
+        "fx/spori",
+        "fx/radial_smoke",
+        "fx/bugs"
+      ],
+      "anchor": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
