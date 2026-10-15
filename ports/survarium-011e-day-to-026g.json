@@ -126,7 +126,7 @@
       "default": "grass"
     },
     "models/test/mattest_cube01.model/settings": {
-      "default": "water"
+      "default": "default"
     },
     "models/level/04/moss2.model/settings": {
       "default": "grass"
