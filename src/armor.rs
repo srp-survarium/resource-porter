@@ -789,7 +789,15 @@ fn convert_skinned_model(
     } else {
         let source_bind_pose = model.read("render/bind_pose")?;
         let source_bones = parse_bind_pose(&source_bind_pose, "donor bind pose")?;
-        let bone_remap = make_bone_remap(&source_bones, &target_bones, &spec.bone_map)?;
+        let mut bone_remap = make_bone_remap(&source_bones, &target_bones, &spec.bone_map)?;
+        if spec.retarget_hand_landmarks {
+            fit_hand_landmarks(
+                &source_bones,
+                &target_bones,
+                &spec.bone_map,
+                &mut bone_remap,
+            )?;
+        }
         let source = GeometrySource::Skinned {
             source_bones: &source_bones,
             bone_remap: &bone_remap,
@@ -1165,6 +1173,17 @@ fn requires_maya_pose_retarget(name: &str) -> bool {
         || suffix.starts_with("pinky_")
 }
 
+/// Model-space origin of each bind-pose bone, by name.
+pub(crate) fn bind_pose_origins(bytes: &[u8], label: &str) -> Result<Vec<(String, [f32; 3])>> {
+    Ok(parse_bind_pose(bytes, label)?
+        .into_iter()
+        .map(|bone| {
+            let t = bone.frame.0[3];
+            (bone.name, [t[0], t[1], t[2]])
+        })
+        .collect())
+}
+
 fn parse_bind_pose(bytes: &[u8], label: &str) -> Result<Vec<BindBone>> {
     let count = usize::from(read_u16(bytes, 0)?);
     let mut offset = 2_usize;
@@ -1300,6 +1319,113 @@ fn requires_pose_retarget(name: &str) -> bool {
             .is_some_and(|suffix| suffix.starts_with("Hand"))
     };
     arm_bone("Left") || arm_bone("Right")
+}
+
+/// The STK2 palm frame misses the native knuckles by ~37 mm. Matching Euler
+/// angles bends the knuckles back into the palm during weapon animations.
+/// Build frames from actual joint positions and retain the original weights.
+fn fit_hand_landmarks(
+    source: &[BindBone],
+    target: &[BindBone],
+    map: &BTreeMap<String, String>,
+    remap: &mut [BoneRetarget],
+) -> Result<()> {
+    let src: BTreeMap<&str, usize> = source
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.name.as_str(), i))
+        .collect();
+    let dst: BTreeMap<&str, usize> = target
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.name.as_str(), i))
+        .collect();
+    let pos = |bones: &[BindBone], i: usize| {
+        [
+            bones[i].frame.0[3][0],
+            bones[i].frame.0[3][1],
+            bones[i].frame.0[3][2],
+        ]
+    };
+    for side in ["Left", "Right"] {
+        let point = |suffix: &str| -> Result<([f32; 3], [f32; 3])> {
+            let name = format!("{side}{suffix}");
+            let si = *src
+                .get(name.as_str())
+                .with_context(|| format!("missing hand landmark {name}"))?;
+            let ti = *dst
+                .get(map.get(&name).context("unmapped hand landmark")?.as_str())
+                .context("missing target hand landmark")?;
+            Ok((pos(source, si), pos(target, ti)))
+        };
+        let (sw, tw) = point("Hand")?;
+        let (sm, tm) = point("HandMiddle_1")?;
+        let (sp, tp) = point("HandIndex_1")?;
+        let palm_source = landmark_frame(sw, sm, sp)?;
+        let palm_target = landmark_frame(tw, tm, tp)?;
+        remap[src[format!("{side}Hand").as_str()]].source_to_target =
+            palm_source.inverse_affine()?.multiply(palm_target);
+        for finger in ["Thumb", "Index", "Middle", "Ring", "Pink"] {
+            for joint in 1..=3 {
+                let name = format!("Hand{finger}_{joint}");
+                let (s, t) = point(&name)?;
+                let (se, te) = if joint < 3 {
+                    point(&format!("Hand{finger}_{}", joint + 1))?
+                } else {
+                    let (prev_s, prev_t) = point(&format!("Hand{finger}_2"))?;
+                    (
+                        std::array::from_fn(|k| 2.0 * s[k] - prev_s[k]),
+                        std::array::from_fn(|k| 2.0 * t[k] - prev_t[k]),
+                    )
+                };
+                // Preserve the palm normal as a stable second axis; using a
+                // nearly collinear neighbouring finger would be singular.
+                let sn = std::array::from_fn(|k| s[k] + palm_source.0[2][k]);
+                let tn = std::array::from_fn(|k| t[k] + palm_target.0[2][k]);
+                let a = landmark_frame(s, se, sn)?;
+                let b = landmark_frame(t, te, tn)?;
+                remap[src[format!("{side}{name}").as_str()]].source_to_target =
+                    a.inverse_affine()?.multiply(b);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn landmark_frame(origin: [f32; 3], end: [f32; 3], side: [f32; 3]) -> Result<Matrix4> {
+    let x: [f32; 3] = std::array::from_fn(|k| end[k] - origin[k]);
+    let mut y: [f32; 3] = std::array::from_fn(|k| side[k] - origin[k]);
+    let xx = x.iter().map(|v| v * v).sum::<f32>();
+    ensure_landmark_length(xx)?;
+    let projection = (0..3).map(|k| y[k] * x[k]).sum::<f32>() / xx;
+    for k in 0..3 {
+        y[k] -= projection * x[k];
+    }
+    let yy = y.iter().map(|v| v * v).sum::<f32>();
+    ensure_landmark_length(yy)?;
+    let mut z = [
+        x[1] * y[2] - x[2] * y[1],
+        x[2] * y[0] - x[0] * y[2],
+        x[0] * y[1] - x[1] * y[0],
+    ];
+    // Width and thickness stay in physical units; only the longitudinal axis
+    // scales with bone length. This avoids inflating small finger segments.
+    for k in 0..3 {
+        y[k] /= yy.sqrt();
+        z[k] /= (xx * yy).sqrt();
+    }
+    Ok(Matrix4([
+        [x[0], x[1], x[2], 0.],
+        [y[0], y[1], y[2], 0.],
+        [z[0], z[1], z[2], 0.],
+        [origin[0], origin[1], origin[2], 1.],
+    ]))
+}
+fn ensure_landmark_length(squared: f32) -> Result<()> {
+    if !squared.is_finite() || squared < 1.0e-10 {
+        bail!("degenerate hand landmark frame")
+    }
+    Ok(())
 }
 
 fn make_settings(surfaces: &BTreeMap<String, String>) -> BinaryConfig {
@@ -2279,6 +2405,28 @@ mod tests {
         assert!((result[0] - 3.0).abs() < 1.0e-5);
         assert!(result[1].abs() < 1.0e-5);
         assert!(result[2].abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn hand_landmarks_match_joint_endpoints_without_inflating_thickness() {
+        let donor = landmark_frame([1., 2., 3.], [1., 2.1, 3.], [2., 2., 3.]).unwrap();
+        let native = landmark_frame([4., 5., 6.], [4.2, 5., 6.], [4., 6., 6.]).unwrap();
+        let transform = donor.inverse_affine().unwrap().multiply(native);
+        for (source, expected) in [
+            ([1., 2., 3.], [4., 5., 6.]),
+            ([1., 2.1, 3.], [4.2, 5., 6.]),
+            ([1., 2., 3.01], [4., 5., 5.99]),
+        ] {
+            let actual = transform.transform_position(source);
+            for k in 0..3 {
+                assert!(
+                    (actual[k] - expected[k]).abs() < 1e-5,
+                    "{actual:?} != {expected:?}"
+                );
+            }
+        }
+        assert!(landmark_frame([0.; 3], [0.; 3], [1., 0., 0.]).is_err());
+        assert!(landmark_frame([0.; 3], [1., 0., 0.], [2., 0., 0.]).is_err());
     }
 
     #[test]
