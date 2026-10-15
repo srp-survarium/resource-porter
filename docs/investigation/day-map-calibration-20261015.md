@@ -1095,7 +1095,7 @@ code change. Evidence so far:
   are extracted under `lighting-build-20261015/foliage/gb26/`. A green-sign
   or back-face difference would explain the upward bias.
 
-## Moss flicker on Chemical walls (user test in progress, no content change)
+## Moss flicker on Chemical walls (LOD1 lift adopted, candidate pending)
 
 The user reports that moss on Chemical walls flickers at a distance, but only
 while moving (the screenshot at 14:35:13, "see those stripes", was taken in
@@ -1118,10 +1118,19 @@ Ruled out or equal to 0.11e:
   N·((1.5−|N·L|)·6+2)·max(0.02·depth, .25), scaled by cb1[24].w·16.
 - **TAA resolve:** it is the same in both versions, a blend weight of
   0.5·(1−min(100|Δuv|,1)) with no neighbourhood clamp.
-- **Not settled, the jitter:** 0.26 `r_antialiasing_method 2` is "2xTAA",
-  which jitters the projection. 0.11e has FXAA/SRAA methods plus a separate
-  `r_use_temporal_antialiasing`, and no 0.11e shader uses
+- **Jitter, not reachable from the camera hook:** 0.26
+  `r_antialiasing_method 2` is "2xTAA". 0.11e has FXAA/SRAA methods plus a
+  separate `r_use_temporal_antialiasing`, and no 0.11e shader uses
   `t_jitter_lookup`, so 0.11e jitter is unverified.
+  - In 0.21d the jitter is applied by
+    `temporal_projection_matrix_modifier::push_jittering` (0.21d VA
+    `0x13275F`, called from the renderer frame at `0xEABD1` right after
+    `set_static_frame_parameters`). It returns a jittered copy of the
+    projection for that frame; the camera director's projection is never
+    jittered. The 0.26g label map has no match for it (`026g/unmatched.json`).
+  - The hook's receipts agree: in gameplay (director `7bff02b8`, thousands of
+    calls) the director projection offsets `[2][0]`, `[2][1]` stay exactly 0.
+    `SRP_DEJITTER=1` therefore writes 0 over 0 and changes nothing.
 
 Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
 (runtime `/tmp/moss-test-runtime`, port 2284). The plans are kept in
@@ -1133,10 +1142,10 @@ Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
 | B | TAA off | looked fixed, but still flickers at a very far distance |
 | C, L, P | no moss shadow (`plan-noshadow`); LOD0 kept to 199 m (`plan-fixC`); parallax off (`plan-parallax`) | prepared, no verdict |
 | "J" | meant to remove jitter, but the hook latched the loading-screen camera, so it was really N | "still a very good fix" (= N) |
-| N | plain -next (db `2c286a7d`), TAA 2 | testing |
-| J2 | TAA 2, jitter zeroed on every camera (`SRP_DEJITTER=1`) | testing |
-| LOD1 | LOD1 surfaces +10 cm (`plan-lod1`, 4 surfaces) | testing |
-| J2LOD1 | both | testing |
+| N | plain -next (db `2c286a7d`), TAA 2 | "looks fine, though still a bit of flicker at a big distance" |
+| J2 | TAA 2, `SRP_DEJITTER=1` | no-op (see the jitter item above) |
+| LOD1 | LOD1 surfaces +10 cm (`plan-lod1`, 4 surfaces) | "flickers a tiny bit", only at a distance: **adopted** |
+| J2LOD1 | both | "was flickering more" than LOD1; the hook changed no bytes, so this is run-to-run variation (position, time, TAA history), not dejitter |
 
 - Switch with `moss-test.sh <variant>`. It stops only the test runtime,
   applies one plan at a time, sets TAA 2, puts the variant in the window
@@ -1146,4 +1155,76 @@ Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
   check. The receipt reports `projection_offset` with min/max, `dejitter`,
   `keep_jitter` and `director_calls`.
 - `SRP_CAPTURE_KEEP_JITTER=1` keeps the native offsets in capture overrides.
-- All of these are off by default.
+- `SRP_REPORT_POSITION=1` writes the busiest recent director's native camera
+  (position, forward, fov) to `camera.txt.player.json` about once a second.
+- All of these are off by default; `SRP_DEJITTER` stays off everywhere.
+- The test package and its runtime were removed after the verdicts.
+
+### Converter rule (`0c1b31d`)
+
+- Early geometry conversion lifts every LOD1+ surface whose material is the
+  wall-overlay moss (`anomaly/anomaly_moss`, also when already relocated) by
+  10 cm along its packed normals. LOD0 is unchanged. Non-`LOD<n>` levels
+  (for example `unassigned`) are ignored.
+- The 10 cm is the measured LOD1 penetration (−8.2 cm at the 5th percentile)
+  rounded up, the amount the user tested.
+- On 194/195/196 it hits exactly the four Chemical surfaces
+  `moss{,2,3,4}.model/render/anomaly_moss_lod_sg` (1068 + 463 + 343 + 400
+  vertices). Radar 0.11e and 0.20e have none; 0.20e geometry does not go
+  through this path.
+- Test: `wall_overlay_lods_are_lifted_along_normals_and_nothing_else`.
+
+### Candidate `72866195` (not promoted)
+
+- Rebuilt from the -next converter (no `src/` change since `4586030`) plus
+  `0c1b31d`: db `7286619505e64b20758e637d2d5c791facb662607e4f5941b7fd55387ca72eec`,
+  package `/mnt/hdd/Projects/lighting-build-20261015/cand-moss-pkg`.
+- Against -next (`2c286a7d`) exactly the four `anomaly_moss_lod_sg`
+  `converted_model` entries differ. Their positions match the in-game LOD1
+  variant within 7.6 µm (float rounding); every other byte is identical.
+- Texture verifier: 620 materials, 0 sampled or inert missing. Shader
+  verifier: 0 missing, 0 new shadow casters, 0 unprovable materials. Both
+  reports equal the -next ones apart from the db path. `play-maps verify`:
+  108 files, 3 maps.
+- One static capture pair (-next against the candidate, 7 moss poses × 3
+  frames) ran before the user asked to skip captures. Its FLIP of .024–.032,
+  with 31–44% of pixels changed in every view (LOD0 range included), is
+  run-to-run noise (grain, clouds, wind); there is no noise-floor pair, so it
+  says nothing about the moss. The user tests in game instead.
+
+### Residual far shimmer: offline look (no change made)
+
+- **Textures:** `anomaly_moss`, `_nmap`, `_spec` and `_bump` are
+  byte-identical to 0.11e: 1024², 9 mips (down to 4×4), DXT1 (diffuse, spec,
+  bump) and DXT5 (normal map).
+  - Diffuse, spec and normal mips match a box downsample of the level above
+    within 2–8/255, so they are filtered (generated) mips. They keep contrast:
+    diffuse std 37.5 → 22.0 at 32 px.
+  - The normal map keeps its variance almost entirely (RGB std 67.6 at
+    1024 px, 58.5 at 4×4): the mips are renormalised, not flattened. Distant
+    moss therefore keeps full-strength normal variation under sub-pixel
+    sampling. This is the classic source of specular and rim (fuzziness)
+    sparkle at a distance; the material has `use_fuzziness`, `use_tfresnel`
+    and `use_troughness` on.
+  - The parallax height (`_bump`) mips depart most from a box filter (10–17/255
+    at 128–16 px) and keep contrast (std 64 at 64 px).
+- **No texture LOD bias:** the material has no bias parameter and `user.cfg`
+  sets none; `r_max_anisotropic 4`. `r_use_shader_lods on` lets the engine
+  swap to cheaper shader LODs by screen size (`r_shader_lod_1/2_max_screen_factor`),
+  so parallax and other features may switch off with distance.
+- **No alpha test:** `use_alpha_test` and `use_vertex_alpha_test` are off;
+  the surface is opaque.
+- **Past 200/240 m:** 0.26g `static_render_model_instance::select_lod`
+  (VA `0x16EEC0`) measures from the camera to the instance's bounding-box
+  centre. With type 0 and own parameters (p0, p1, p2) it returns LOD0 below
+  p0, LOD1 below p1, LOD2 below p2 and 3 (not drawn) beyond. Its caller
+  falls back from an empty LOD2 to LOD1.
+  - Moss (p0 100 or 70, p1 200, p2 240) therefore draws LOD1 from p0 to
+    240 m and then **pops out** at 240 m. There is no LOD2 and no fade.
+  - The distance is to the whole model's centre. `moss.model` spans
+    57 × 104 m, so near parts of it can already be LOD1 or culled.
+  - When a global byte (`0x1F1D9A4`, not identified; possibly
+    `r_shadow_last_lod`) is set and the pass passes flag bit 2, the index is
+    bumped one level coarser. If that is the shadow pass, moss shadows come
+    from LOD1 even close up, and the lift moves them too.
+
