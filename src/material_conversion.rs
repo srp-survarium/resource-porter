@@ -36,6 +36,9 @@ pub struct MaterialCatalog {
     shader_catalog_sha256: String,
     /// Switch restorations proven by runtime loads: material -> switch -> level.
     runtime_proven: BTreeMap<String, BTreeMap<String, i64>>,
+    /// Texture name bound where a material names a texture that exists in
+    /// neither archive (see `bind_missing_textures`); `None` keeps them.
+    null_texture: Option<String>,
 }
 
 
@@ -117,7 +120,14 @@ impl MaterialCatalog {
             gbuffer_projections,
             shader_catalog_sha256,
             runtime_proven: BTreeMap::new(),
+            null_texture: None,
         })
+    }
+
+    /// Bind `name` (a texture the caller emits: all channels zero) wherever
+    /// a converted material names a texture that exists in neither archive.
+    pub fn set_null_texture(&mut self, name: Option<String>) {
+        self.null_texture = name;
     }
 
     /// Hash of the shipped shader catalogue that runtime evidence must match.
@@ -261,6 +271,14 @@ impl MaterialCatalog {
             &mut converted.root,
             target,
         )?;
+        let mut switch_notes = switch_notes;
+        if let Some(null) = &self.null_texture {
+            switch_notes.extend(bind_missing_textures(
+                &mut converted.root,
+                &|texture| texture_exists(texture, donor, target),
+                null,
+            ));
+        }
         Ok(ConvertedMaterial {
             bytes: converted.to_bytes()?,
             template_path: template.path.clone(),
@@ -1130,6 +1148,48 @@ fn neutralize_template_water_foam(converted: &mut ConfigValue, donor: &ConfigVal
     }
 }
 
+/// The original renderer leaves a texture that fails to load without a
+/// resource (0.10b `resource_manager::on_texture_loaded` logs "Texture %s was
+/// not found!" and returns), so its shaders sample a null view: zero in every
+/// channel. 0.26 binds a "missing texture" lettering placeholder instead,
+/// which as a normal map draws text and grazing-angle moire rings on floors
+/// (retail and source `tiled/floor/asphalt` name a nonexistent
+/// `asphalt_nmap` with `use_nmap` on). Such references are rebound to an
+/// all-zero texture, reproducing what the original shaders read.
+fn bind_missing_textures(converted: &mut ConfigValue, exists: &dyn Fn(&str) -> bool, null: &str) -> Vec<String> {
+    let mut notes = Vec::new();
+    let Some(ConfigValue::Named(stages)) = converted.named_mut("material") else {
+        return notes;
+    };
+    for stage in stages {
+        let Some(ConfigValue::Named(entries)) = stage.value.named_mut("effect") else {
+            continue;
+        };
+        for entry in entries {
+            if !is_texture_parameter(&entry.name) {
+                continue;
+            }
+            let value = match &mut entry.value {
+                ConfigValue::String(value) => Some(value),
+                other => match other.named_mut("value") {
+                    Some(ConfigValue::String(value)) => Some(value),
+                    _ => None,
+                },
+            };
+            if let Some(value) = value {
+                if !value.is_empty() && !exists(value) {
+                    notes.push(format!(
+                        "{}.{}: missing texture {value:?} bound to the all-zero texture (original null view)",
+                        stage.name, entry.name
+                    ));
+                    *value = null.to_owned();
+                }
+            }
+        }
+    }
+    notes
+}
+
 fn is_texture_parameter(name: &str) -> bool {
     name.starts_with("texture_") || name.ends_with("_texture")
 }
@@ -1684,6 +1744,33 @@ mod tests {
         assert_eq!(effect_switch(&root, "use_troughness"), Some(true));
         assert_eq!(effect_number(&root, "constant_roughness_min"), Some(0.5));
         assert_eq!(effect_number(&root, "constant_roughness_max"), Some(0.5));
+    }
+
+    #[test]
+    fn missing_textures_are_bound_to_the_null_texture() {
+        // Retail and source asphalt name a nonexistent asphalt_nmap with
+        // use_nmap on; 0.26 would draw its lettered placeholder.
+        let value = |text: &str| ConfigValue::Named(vec![named("value", ConfigValue::String(text.into()))]);
+        let mut root = ConfigValue::Named(vec![named(
+            "material",
+            ConfigValue::Named(vec![named(
+                "g_stage",
+                ConfigValue::Named(vec![named(
+                    "effect",
+                    ConfigValue::Named(vec![
+                        named("texture_normal", value("tiled/floor/asphalt_nmap")),
+                        named("texture_diffuse", value("tiled/floor/asphalt")),
+                        named("texture_bump", value("")),
+                        named("effect_id", ConfigValue::String("gbuffer_pass".into())),
+                    ]),
+                )]),
+            )]),
+        )]);
+        let notes = bind_missing_textures(&mut root, &|t| t == "tiled/floor/asphalt", "ported/v011e/srp/null");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert_eq!(effect_value(&root, "g_stage", "texture_normal"), Some(&ConfigValue::String("ported/v011e/srp/null".into())));
+        assert_eq!(effect_value(&root, "g_stage", "texture_diffuse"), Some(&ConfigValue::String("tiled/floor/asphalt".into())));
+        assert_eq!(effect_value(&root, "g_stage", "texture_bump"), Some(&ConfigValue::String(String::new())));
     }
 
     #[test]

@@ -1320,6 +1320,30 @@ fn is_config_resource(path: &str) -> bool {
     .any(|ext| path.ends_with(ext))
 }
 
+/// A 4x4 single-mip DXT5 texture that is zero in every channel, followed by
+/// the archive's trailing sRGB byte (0: linear).
+fn null_texture_dds() -> Vec<u8> {
+    let mut dds = Vec::with_capacity(128 + 16 + 1);
+    dds.extend_from_slice(b"DDS ");
+    let mut header = [0u32; 31];
+    header[0] = 124; // dwSize
+    header[1] = 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000; // CAPS|HEIGHT|WIDTH|PIXELFORMAT|LINEARSIZE
+    header[2] = 4; // height
+    header[3] = 4; // width
+    header[4] = 16; // linear size
+    header[6] = 1; // mip count
+    header[18] = 32; // pixel format size
+    header[19] = 0x4; // DDPF_FOURCC
+    header[20] = u32::from_le_bytes(*b"DXT5");
+    header[26] = 0x1000; // DDSCAPS_TEXTURE
+    for word in header {
+        dds.extend_from_slice(&word.to_le_bytes());
+    }
+    dds.extend_from_slice(&[0u8; 16]);
+    dds.push(0);
+    dds
+}
+
 fn emit(
     output: &Path,
     path: &str,
@@ -1767,6 +1791,9 @@ pub fn build(
     catalog.set_runtime_proven_switches(m.runtime_proven_switches.iter().map(|(material, entry)| {
         (material.as_str(), entry.shader_catalog_sha256.as_str(), &entry.switches)
     }))?;
+    let null_texture = format!("ported/{}/srp/null", m.source_build.prefix());
+    catalog.set_null_texture(Some(null_texture.clone()));
+    let mut null_texture_used = false;
     let game_materials = crate::target_native_map::load_game_materials(&mut target)?;
     let material_names = BTreeMap::from([
         ("foliage".into(), "foliage_coniferous".into()),
@@ -1859,6 +1886,7 @@ pub fn build(
                 .with_context(|| format!("converting {path}"))?;
             bytes = converted.bytes;
             for note in &converted.switch_notes {
+                null_texture_used |= note.contains("bound to the all-zero texture");
                 compatibility_notes.push(format!("{path}: {note}"));
             }
             converted_materials.insert(path.clone(), converted.template_path);
@@ -2061,6 +2089,18 @@ pub fn build(
         "0.26g+additive-map-registration",
         &mut files,
     )?;
+    if null_texture_used {
+        let dds = format!("textures/{null_texture}.dds");
+        ensure!(!target.contains(&dds), "null texture overwrites native resource {dds}");
+        emit(output, &dds, &null_texture_dds(), "srp-null-texture", &mut files)?;
+        emit(
+            output,
+            &format!("textures/{null_texture}.options"),
+            &target.read("textures/editor/default_nmap.options")?,
+            "srp-null-texture (linear options of textures/editor/default_nmap)",
+            &mut files,
+        )?;
+    }
     let record = Record {
         format_version: 1,
         asset_id: format!("retail-{}-maps-to-026g", m.source_build.prefix()),
