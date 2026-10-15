@@ -68,6 +68,44 @@ fn transfer_probe(object: &mut ConfigValue, weather: &str, source: SourceBuild) 
     Ok(())
 }
 
+fn probe_sphere(object: &ConfigValue) -> Option<([f32; 3], f32)> {
+    let geometry = object.named("geometry").map(number).transpose().ok()?.unwrap_or(0.);
+    let Some(ConfigValue::Float3(position)) = object.named("position") else {
+        return None;
+    };
+    let radius = object.named("radius").map(number).transpose().ok()??;
+    (geometry == 0.).then_some((*position, radius))
+}
+
+/// Sphere probes of a 0.11e scene that enclose every other probe: the map's
+/// global probe. 0.11e never applies it. Its probe stage skips any pixel whose
+/// probe index differs while inside the inner radius (probe.ps:
+/// `index != probe_index && 1.05*d < inner_radius` writes alpha 0). Pixels
+/// outside the box probes keep index 0. There the skylight stage alone lights
+/// them, as diffuse with no reflection. In the original stage buffers, the
+/// composition specular on those pixels is 0 (-0.0001..0.0003) at all 11
+/// Chemical/Radar views measured.
+fn global_probes(objects: &[ConfigValue]) -> Vec<usize> {
+    let probes: Vec<(usize, &ConfigValue)> = objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| string(o, "game_object_type") == Some("environment_probe"))
+        .collect();
+    probes
+        .iter()
+        .filter_map(|(i, o)| {
+            let (centre, radius) = probe_sphere(o)?;
+            let encloses = probes.len() > 1
+                && probes.iter().all(|(j, other)| {
+                    j == i
+                        || matches!(other.named("position"), Some(ConfigValue::Float3(p))
+                            if ((p[0]-centre[0]).powi(2)+(p[1]-centre[1]).powi(2)+(p[2]-centre[2]).powi(2)).sqrt() < radius)
+                });
+            encloses.then_some(*i)
+        })
+        .collect()
+}
+
 /// Factor that becomes `multiplier` after 0.26 raises a colour to 2.2.
 fn linear_factor(multiplier: f32) -> f32 {
     multiplier.max(0.).powf(1. / 2.2)
@@ -123,7 +161,8 @@ pub(super) fn project(
     let sun = objects
         .iter()
         .find(|o| string(o, "lib_name") == Some("sun"));
-    for object in objects {
+    let global = if source == SourceBuild::V011e { global_probes(objects) } else { Vec::new() };
+    for (index, object) in objects.iter().enumerate() {
         let kind = string(object, "game_object_type").context("early object type")?;
         if kind == "victory_items_container" {
             continue;
@@ -165,6 +204,16 @@ pub(super) fn project(
         }
         if kind == "environment_probe" {
             transfer_probe(&mut object, &map.weather, source)?;
+            if global.contains(&index) {
+                // 0.26 has no skylight underlay (height ambient stays off), so
+                // this probe's diffuse stands in for the source skylight. Its
+                // reflection has no source counterpart: at Chemical chem-wall it
+                // was 40% of shaded composition (metal 10x the original).
+                object.set_path("specular_multiplier", ConfigValue::Float(0.))?;
+                notes.push(format!(
+                    "{path}: global sphere probe keeps diffuse as the source skylight stand-in; specular 0 (0.11e never applies it outside its own index)"
+                ));
+            }
             if source == SourceBuild::V011e
                 && object
                     .named("geometry")
@@ -1358,6 +1407,29 @@ mod tests {
             dst.named("dof_far_blurness_amount"),
             Some(&ConfigValue::Float(0.8))
         );
+    }
+
+    #[test]
+    fn only_the_enclosing_sphere_probe_is_global() {
+        let probe = |name: &str, geometry: i32, position: [f32; 3], radius: f32| {
+            ConfigValue::Named(vec![
+                NamedValue { name: "name".into(), value: ConfigValue::String(name.into()) },
+                NamedValue { name: "game_object_type".into(), value: ConfigValue::String("environment_probe".into()) },
+                NamedValue { name: "geometry".into(), value: ConfigValue::Integer(geometry) },
+                NamedValue { name: "position".into(), value: ConfigValue::Float3(position) },
+                NamedValue { name: "radius".into(), value: ConfigValue::Float(radius) },
+            ])
+        };
+        // Radar 0.11e: a 300 m sphere around the map, small local spheres and boxes.
+        let objects = vec![
+            probe("environment_probe(15)", 0, [-52.1, 11.9, 19.0], 16.7),
+            probe("environment_probe", 0, [18.4, 13.2, 4.7], 300.),
+            probe("environment_probe(3)", 1, [61.1, 15.7, 83.3], 42.3),
+            ConfigValue::Named(vec![NamedValue { name: "game_object_type".into(), value: ConfigValue::String("light".into()) }]),
+        ];
+        assert_eq!(global_probes(&objects), vec![1]);
+        // A lone probe is not treated as global.
+        assert!(global_probes(&objects[1..2]).is_empty());
     }
 
     #[test]

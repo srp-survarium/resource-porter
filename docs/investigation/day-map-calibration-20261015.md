@@ -802,3 +802,125 @@ does not bias the ratio, give port/original
    while the original also encodes specular; this is the likely cause.
 
 Radar 0.20e is unaffected: 0.20e motion blur divides by its tap count.
+
+## Shine and bright shade on the 0.11e maps: stage-buffer diagnosis
+
+Static stage captures at 11 views, port `4f2f` (`runs/shade`) against the
+original 0.11e stage hook (`ref011e-stages/out-shade`). Stage buffers are
+taken before motion blur.
+- Chemical: south_yard_000, chem-wall, chem-bones, chemical-spawn07,
+  boiler-hall, upper-sit2, chemical-spawn00, east_hall_315.
+- Radar 0.11e: skeleton-central-path, hospital-east-path, door-close-px.
+
+Tools: `tools/render-compare/fidelity/audit_shade_stages.py` and
+`audit_shine.py`, with decoders in `fidelity/buffers.py`. The original
+composition is reconstructed exactly: albedo^2.2·(D + (1−|D|)·lpv) plus a
+specular part; median error < .0001.
+
+### Shine (fixed in the converter, pending promotion)
+
+The port added probe specular in shade where the original adds none.
+
+Mean specular part of shaded composition:
+
+| View | Region | Original | Port `4f2f` |
+| --- | --- | ---: | ---: |
+| chem-wall | all shade | .0013 | .0115 (35% of composition) |
+| chem-wall | sky-only pixels | .0003 | .0150 |
+| south_yard_000 | all shade | .0000 | .0048 |
+| south_yard_000 | metal | .0002 | .0178 |
+| boiler-hall | metal | .0004 | .0110 |
+
+On Radar it is smaller (≤ .0026, door-close-px).
+
+Cause: the global sphere probe.
+- Chemical `environment_probe` (r 340.9) and Radar `environment_probe`
+  (r 300) enclose the map.
+- 0.11e never applies such a probe. Its probe shader writes alpha 0 where
+  `index != probe_index && 1.05·d < inner_radius`.
+- Outside the box probes the per-pixel probe index is 0: 73% of shade at
+  south_yard and 72% at chem-wall. There the skylight stage alone lights the
+  pixel, with diffuse and no reflection. The original's specular part on
+  those pixels is −.0001…+.0003 at every view.
+- 0.26 draws the global probe everywhere: diffuse ×1.3, specular ×1
+  (`color_parameters`). There is no skylight underlay, since height ambient
+  stays off.
+
+Fix (all looks): the converter sets `specular_multiplier = 0` on a 0.11e
+sphere probe that encloses every other probe of its scene. It changes
+exactly Chemical object 93 and Radar object 18 (2 bytes per project). The
+probe's diffuse stays as the skylight stand-in.
+
+Static A/B (in-place patch on the harness; FLIP against the motion-blur-off
+references):
+
+| Map | Arm | FLIP | Views better / worse | Shadow luma | Sunlit luma |
+| --- | --- | ---: | --- | ---: | ---: |
+| Chemical | `4f2f` | .1437 | — | 1.162 | .914 |
+| Chemical | B1: global-probe specular 0 | .1389 | 23 / 2 | 1.123 | .906 |
+| Chemical | B2: B1 + source probe specular | .1379 | 23 / 4 | 1.133 | .912 |
+| Radar 0.11e | `4f2f` | .1425 | — | 1.133 | .944 |
+| Radar 0.11e | B1 | .1421 | 9 / 7 | 1.118 | .941 |
+| Radar 0.11e | B2 | .1415 | 15 / 8 | 1.109 | .941 |
+
+B1 shaded specular falls to the original's level:
+- south_yard: .0001 (original .0000); metal .0002 (original .0002).
+- chem-wall: .0031 (original .0013); its composition goes from 1.43× to
+  1.06×.
+- skeleton-central-path: −.0001 (original .0000).
+
+B2 is B1 plus the existing `CONFIG_SOURCE_PROBE_SPECULAR` shaders (the
+`source-probe-specular` look). They reproduce 0.11e probe specular: 7-bit
+gloss, (1−gloss³) suppression, AO⁵, cap 4.
+- It also improves box-probe specular (chem-wall box .0047 vs original
+  .0040; port native .0013).
+- It is too high on boiler-hall metal (.0045 vs .0004).
+
+Worst B1 view: central_shadow-down60, FLIP +.055. The original's shaded
+tread plate is lit by the skylight's up-facing ambient (1.0 × colour, sides
+.51). The probe stand-in is darker there (sun regions .82×). The removed
+reflection had hidden this.
+
+### Small highlights (item 3: specular encoding)
+
+Encoding the local-light specular would change nothing, because the port
+adds no local-light specular: `accum_specular` is identical before and after
+the local lights. The original's interior highlights are probe reflections.
+
+| View | Highlight specular share, original | Port | Original probe specular | Port probe specular | Composition port/original |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| chemical-spawn00 | 81% | 11% | .081 | .0026 | .22 |
+| east_hall_315 | 53% | 8% | .026 | .0011 | .53 |
+
+At chemical-spawn00, local-light specular adds .0002 on top. Substituting
+the original specular part gives 1.01–1.02. B2 raises spawn00 to 29% (.27).
+The rest is the 0.26 mip and BRDF choice for rough (gloss .3) surfaces.
+
+### Other shade findings (not changed)
+
+- **Sun on back faces and foliage:** 23% of valid pixels at south_yard,
+  12% at chem-wall and 51% at door-close-px. The port lights them with sun;
+  the original lights them only through its translucency stage (+.16–.23).
+  Composition there is 1.4–6.5×.
+- **Albedo decode:** the 0.26 composition decodes the stored albedo with
+  sRGB, the original with ^2.2. This makes dark albedo +14% at .2 and +59%
+  at .1. In the shade budget it is small (counterfactual changes ≤ .04).
+- **Fog:** the port's fog adds about 2× the original in shade at
+  south_yard (.0061 vs .0033). The absolute amount is small.
+- **Interior ambient diffuse:** 1.27–2.05× (spawn07, boiler-hall,
+  upper-sit2, door-close-px), and up to 4.6× on index-0 pixels, where the
+  original's skylight is occluded and the port's global probe is not.
+- **Exposure:** matches (×1.612 on both sides at 8 of 9 views).
+
+### Decisions re-checked against the motion-blur-off references
+
+- **`1e3864f` (height ambient off) holds.** The original 0.11e skylight
+  already contains its own height ramp (sat((y−0)/5)^0.1, 1 above 5 m) and
+  the skylight colour (.32, .393, .5). The native 0.26 height-ambient
+  multiply would scale the encoded probe light again. In shade, port
+  ambient after decode is .97–1.04 of the original's sky + probes outdoors
+  (south_yard, chem-wall, skeleton-central-path).
+- **`36b43cc` (ambient colour gamma) is inert for lighting on these maps.**
+  With height ambient off, the converted skylight colour reaches no
+  lighting shader; it is found in none of the port's constant buffers. Its
+  cloud, god-ray and bloom conversions are unaffected by this question.
