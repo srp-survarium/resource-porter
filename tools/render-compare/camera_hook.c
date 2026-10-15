@@ -302,6 +302,7 @@ static void write_status(void) {
 #include "factory_rain_casters.c"
 #include "factory_rain_cache.c"
 #include "factory_rain_selection.c"
+#include "step_diagnostic.c"
 
 static DWORD WINAPI worker(void *unused) {
     (void)unused;
@@ -330,6 +331,7 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     }
     write_status();
     if (!ok) ExitProcess(1);
+    install_step_diagnostic(); // opt-in; never stops the game
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);
     if (!thread) ExitProcess(1);
     CloseHandle(thread);
