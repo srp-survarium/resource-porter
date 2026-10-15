@@ -379,6 +379,7 @@ static void write_player_position(void) {
 #include "factory_rain_casters.c"
 #include "factory_rain_cache.c"
 #include "factory_rain_selection.c"
+#include "step_diagnostic.c"
 
 // Opt-in SRP_WINDOW_NOTE: append a short note (e.g. the active test variant)
 // to this process's top-level window titles.
@@ -421,7 +422,7 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     if (!strcmp(build,"011e")) {
         ok=control[0] && install_camera() && install_present();
     } else {
-        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_factory_020e_clouds() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
+        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_factory_020e_clouds() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post() && install_step_diagnostic();
     }
     write_status();
     if (!ok) ExitProcess(1);
