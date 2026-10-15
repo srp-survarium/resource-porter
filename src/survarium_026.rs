@@ -1333,6 +1333,26 @@ fn native_mix_for_shared_sample(
     Ok(Some(target.read(path)?))
 }
 
+/// The options of a texture whose donor payload is BC2. The converter
+/// re-encodes BC2 as BC3, so the declared format must say DXT5 (0.11e's own
+/// remains textures declare DXT1a over DXT3 data). Returns the rewritten
+/// options, or None when the format already matches or the texture is not BC2.
+fn options_for_reencoded_bc2(options: &[u8], donor_dds: &[u8]) -> Result<Option<Vec<u8>>> {
+    if donor_dds.get(84..88) != Some(b"DXT3".as_slice()) {
+        return Ok(None);
+    }
+    let mut config = BinaryConfig::parse(options).context("decoding texture options")?;
+    if config.root.named("options").and_then(|o| o.named("format"))
+        == Some(&ConfigValue::String("DXT5".into()))
+    {
+        return Ok(None);
+    }
+    config
+        .root
+        .set_path("options.format", ConfigValue::String("DXT5".into()))?;
+    Ok(Some(config.to_bytes()?))
+}
+
 fn is_config_resource(path: &str) -> bool {
     matches!(
         path.rsplit('/').next().unwrap_or(path),
@@ -1904,6 +1924,22 @@ pub fn build(
                         early::lift_along_normals(&mut bytes, early::WALL_OVERLAY_LOD_LIFT)
                             .with_context(|| format!("lifting wall overlay LOD {path}"))?;
                     compatibility_notes.push(format!("{path}: wall-overlay LOD surface lifted {} m along its normals ({vertices} vertices; the authored mesh sits up to 8.2 cm inside the wall and flickers in 0.26)", early::WALL_OVERLAY_LOD_LIFT));
+                }
+            }
+        }
+        if let Some(stem) = path
+            .strip_prefix("textures/")
+            .and_then(|p| p.strip_suffix(".options"))
+        {
+            let dds = format!("textures/{stem}.dds");
+            if donor.is_file(&dds) {
+                if let Some(options) = options_for_reencoded_bc2(&bytes, &donor.read(&dds)?)
+                    .with_context(|| format!("rewriting texture options {path}"))?
+                {
+                    compatibility_notes.push(format!(
+                        "{path}: declared format set to DXT5 to match the BC2 payload re-encoded as BC3"
+                    ));
+                    bytes = options;
                 }
             }
         }
@@ -2906,6 +2942,34 @@ mod tests {
         assert_eq!(mix(&mut donor, &mut target, &format!("{crickets}.raw_options")), None);
         assert_eq!(mix(&mut donor, &mut target, &format!("{wind}.raw_options")), None);
         assert_eq!(mix(&mut donor, &mut target, &format!("{hum}.high.ogg")), None);
+    }
+
+    #[test]
+    fn options_of_a_reencoded_bc2_texture_declare_dxt5() {
+        let named = |name: &str, value| NamedValue { name: name.into(), value };
+        let options = |format: &str| {
+            BinaryConfig {
+                root: ConfigValue::Named(vec![named(
+                    "options",
+                    ConfigValue::Named(vec![
+                        named("srgb", ConfigValue::Integer(1)),
+                        named("format", ConfigValue::String(format.into())),
+                    ]),
+                )]),
+            }
+            .to_bytes()
+            .unwrap()
+        };
+        let mut dds = vec![0u8; 128];
+        dds[84..88].copy_from_slice(b"DXT3");
+        let fixed = options_for_reencoded_bc2(&options("DXT1a"), &dds).unwrap().unwrap();
+        let root = BinaryConfig::parse(&fixed).unwrap().root;
+        let options_node = root.named("options").unwrap();
+        assert_eq!(options_node.named("format"), Some(&ConfigValue::String("DXT5".into())));
+        assert_eq!(options_node.named("srgb"), Some(&ConfigValue::Integer(1)));
+        assert!(options_for_reencoded_bc2(&options("DXT5"), &dds).unwrap().is_none());
+        dds[84..88].copy_from_slice(b"DXT1");
+        assert!(options_for_reencoded_bc2(&options("DXT1a"), &dds).unwrap().is_none());
     }
 
     #[test]
