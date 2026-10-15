@@ -247,3 +247,38 @@ is identical. The gameplay diagnostic plans were regenerated with
 `prepare_delivery_diagnostic.py` against this database under
 `/tmp/day-map-gameplay-20261014/diag-next/`, including the new
 `194-fence` spawn plan.
+
+### Second load crash and the complete variant check
+
+`cc1a78d0` crashed on the Chemical load: `gbuffer_pass.ps/_3___1101_01000_00____11_…`.
+The material is `flora/grass_l04`, drawn by vegetation instances (vertex
+input 11, a 68-character key). Its constant roughness had been restored by
+flipping `use_troughness`, and the check had assumed that `.model` users need
+only the static mesh inputs 0/1. `bg_trees`/`sosna_bark_lod` had also become
+shadow casters, which means new shadow-pass requests.
+
+The check (`material_conversion.rs::variants_ship`) no longer models how a
+material is drawn. The unconverted material is known to load, so every key
+it requests ships. Every shipped key, of any of the 286 shader families,
+that agrees with the material on all decoded switch digits the family uses
+could be such a request. The same key with the changed digits must also
+ship. Geometry, LOD, instancing, vertex-input and undecoded material digits
+carry over unchanged. Shadow casting is only ever removed, never enabled.
+Regression test: `keeps_vegetation_vertex_input_variants_when_restoring_a_switch`.
+
+`tools/render-compare/verify_shader_variants.py BASELINE CANDIDATE` applies
+the same proof to every changed material of a built database against a
+database known to load:
+
+| Candidate (baseline `8e72816c`, played) | Changed materials | Materials with missing shaders | Missing names | New shadow casters |
+| --- | ---: | ---: | ---: | ---: |
+| `cc1a78d0` (crashed) | 178 | 95 (crash key listed for `grass_l04`) | 13,235 | 2 |
+| `8e72816c` itself | 0 | 0 | 0 | 0 |
+| `816cadcd` (rebuild) | 135 | 0 | 0 | 0 |
+
+The proof is conservative: of the gloss switches only 18 are now restored.
+Constant roughness is still emulated exactly on 54 materials; 41 lost Fresnel
+maps and 29 lost intensity masks remain the template's choice. Template
+textures in slots left empty by the source are cleared on 106 materials. The
+rebuilt candidate `816cadcd…` differs from `cc1a78d0` only in 97 material
+files.

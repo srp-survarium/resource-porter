@@ -31,8 +31,6 @@ pub struct MaterialCatalog {
     /// then by the remaining material digits, holding each geometry variant;
     /// `None` when the archive does not follow the verified key layout.
     gbuffer_projections: Option<ShippedVariants>,
-    /// Materials known to be drawn only by static `.model` surfaces.
-    static_only: BTreeSet<String>,
 }
 
 
@@ -111,14 +109,7 @@ impl MaterialCatalog {
         Ok(Self {
             materials,
             gbuffer_projections,
-            static_only: BTreeSet::new(),
         })
-    }
-
-    /// Declare materials whose every user is a static `.model` surface. Their
-    /// switch restoration only needs the static vertex-format variants.
-    pub fn set_static_only_materials(&mut self, materials: BTreeSet<String>) {
-        self.static_only = materials;
     }
 
     pub fn convert(
@@ -224,7 +215,6 @@ impl MaterialCatalog {
             &mut converted.root,
             &donor_config.root,
             self.gbuffer_projections.as_ref(),
-            self.static_only.contains(path),
         )?;
         restore_factory_lamp_emission(
             path,
@@ -413,119 +403,87 @@ fn gbuffer_projection(
     Some(key)
 }
 
-/// Shipped keys: projection -> remaining material digits -> geometry variants.
-type ShippedVariants = BTreeMap<String, BTreeMap<String, BTreeSet<String>>>;
-
-/// Remaining `gbuffer_pass` digits that belong to the material (vertex blend
-/// technique, normal waves, OLTA, masked colour...) but are not decoded here.
-const GBUFFER_OTHER_MATERIAL_DIGITS: [usize; 8] = [34, 36, 37, 42, 43, 45, 52, 64];
-/// Geometry digits shared with `vertex_base.vs` (its mask lists only these
-/// six configurations: sub-UV, LOD index, displacement, instancing, vertex
-/// input type and wind). Position 22 is the vertex input type and takes two
-/// characters in 68-character keys; 53 (wind) is a material switch above.
-const GBUFFER_GEOMETRY_DIGITS: [usize; 4] = [17, 31, 33, 51];
-/// Vertex input types of static, optionally vertex-coloured, `.model`
-/// surfaces (the shipped crash key for a static tree used type 1).
-const STATIC_VERTEX_INPUTS: [&str; 2] = ["0", "1"];
-
-fn key_parts(key: &[u8]) -> Option<(String, String, String, String)> {
-    if !matches!(key.len(), 67 | 68) {
-        return None;
-    }
-    let digit = |position: usize| key[key_position(key.len(), position)] as char;
-    let mut projection = String::from(key[GBUFFER_KEY_QUALITY] as char);
-    projection.extend(GBUFFER_KEY_SWITCHES.iter().map(|(position, _)| digit(*position)));
-    let other: String = GBUFFER_OTHER_MATERIAL_DIGITS.iter().map(|p| digit(*p)).collect();
-    let input = String::from_utf8(key[22..if key.len() == 68 { 24 } else { 23 }].to_vec()).ok()?;
-    let geometry: String = GBUFFER_GEOMETRY_DIGITS.iter().map(|p| digit(*p)).collect();
-    (projection.chars().chain(other.chars()).chain(input.chars()).chain(geometry.chars())
-        .all(|c| c.is_ascii_digit()))
-    .then_some((projection, other, input, geometry))
+/// Every shipped shader key of every family (`shaders/sm_4_0/<family>/<key>`).
+/// Key characters are positions in one global configuration order shared
+/// by all families (checked by the catalog consistency test); `_` marks a
+/// configuration the family does not use.
+#[derive(Default)]
+struct ShippedVariants {
+    keys: BTreeMap<String, BTreeSet<Vec<u8>>>,
 }
 
+const SHADER_PREFIX: &str = "shaders/sm_4_0/";
+
 fn gbuffer_projections(target: &ResourceDb, materials: &[TargetMaterial]) -> Option<ShippedVariants> {
-    let mut shipped = ShippedVariants::new();
-    for path in target.paths_with_prefix(GBUFFER_PREFIX) {
-        let Some((projection, other, input, geometry)) =
-            path.strip_prefix(GBUFFER_PREFIX).and_then(|key| key_parts(key.as_bytes()))
-        else {
+    let mut shipped = ShippedVariants::default();
+    for path in target.paths_with_prefix(SHADER_PREFIX) {
+        let Some((family, key)) = path.strip_prefix(SHADER_PREFIX).and_then(|rest| rest.split_once('/')) else {
             continue;
         };
-        shipped
-            .entry(projection)
-            .or_default()
-            .entry(other)
-            .or_default()
-            .insert(format!("{input}/{geometry}"));
+        if matches!(key.len(), 67 | 68) {
+            shipped.keys.entry(family.to_owned()).or_default().insert(key.as_bytes().to_vec());
+        }
     }
-    if shipped.is_empty() {
-        return None;
-    }
-    // Refuse the layout unless every shipped native g-stage material agrees.
-    let consistent = materials.iter().all(|material| {
-        ['0', '3'].iter().all(|quality| {
-            gbuffer_projection(&material.config.root, &BTreeMap::new(), *quality)
-                .is_none_or(|key| shipped.contains_key(&key))
+    let gbuffer: BTreeSet<String> = shipped
+        .keys
+        .get(GBUFFER_PREFIX.trim_start_matches(SHADER_PREFIX).trim_end_matches('/'))?
+        .iter()
+        .filter_map(|key| {
+            let mut projection = String::from(key[GBUFFER_KEY_QUALITY] as char);
+            projection.extend(GBUFFER_KEY_SWITCHES.iter().map(|(p, _)| key[key_position(key.len(), *p)] as char));
+            projection.chars().all(|c| c.is_ascii_digit()).then_some(projection)
         })
-    });
+        .collect();
+    // Refuse the layout unless every shipped native g-stage material agrees.
+    let consistent = !gbuffer.is_empty()
+        && materials.iter().all(|material| {
+            ['0', '3'].iter().all(|quality| {
+                gbuffer_projection(&material.config.root, &BTreeMap::new(), *quality)
+                    .is_none_or(|key| gbuffer.contains(&key))
+            })
+        });
     consistent.then_some(shipped)
 }
 
-/// Features whose shader digits are not decoded; a material using any of
-/// them is checked against every shipped variant of its old projection.
-const UNDECODED_FEATURES: [&str; 9] = [
-    "use_vertex_blended_normal",
-    "use_vertex_blended_diffuse",
-    "use_vertex_blended_textures",
-    "use_vertex_blended_specular",
-    "use_olta",
-    "use_normal_waves",
-    "use_masked_diffuse_color",
-    "use_sequence",
-    "use_alphablended_diffuse",
-];
-
-/// Whether every shader variant the material can request today still ships
-/// after `overrides`. Plain static materials (no undecoded feature, no wind,
-/// drawn only by static `.model` surfaces) use the all-zero remaining digits
-/// and the static vertex inputs; anything else must keep every variant that
-/// ships for its current projection.
-fn variants_ship(
-    shipped: &ShippedVariants,
-    converted: &ConfigValue,
-    overrides: &BTreeMap<&str, i64>,
-    static_only: bool,
-) -> bool {
-    let plain = static_only
-        && UNDECODED_FEATURES
-            .iter()
-            .all(|name| switch_level(converted, "g_stage", name).unwrap_or(0) == 0)
-        && switch_level(converted, "g_stage", "wind_motion").unwrap_or(0) == 0
-        && overrides.get("wind_motion").copied().unwrap_or(0) == 0;
-    ['0', '3'].iter().all(|quality| {
-        let (Some(before), Some(after)) = (
-            gbuffer_projection(converted, &BTreeMap::new(), *quality),
-            gbuffer_projection(converted, overrides, *quality),
-        ) else {
-            return false;
-        };
-        let (Some(before), Some(after)) = (shipped.get(&before), shipped.get(&after)) else {
-            return false;
-        };
-        let zero = "0".repeat(GBUFFER_OTHER_MATERIAL_DIGITS.len());
-        let others: Vec<&String> = if plain && before.contains_key(&zero) {
-            vec![before.keys().find(|key| **key == zero).unwrap()]
-        } else {
-            before.keys().collect()
-        };
-        others.into_iter().all(|other| {
-            let available = after.get(other);
-            before[other]
-                .iter()
-                .filter(|variant| {
-                    !plain || STATIC_VERTEX_INPUTS.contains(&variant.split('/').next().unwrap_or(""))
-                })
-                .all(|variant| available.is_some_and(|set| set.contains(variant)))
+/// Whether changing material switches can request an unshipped shader.
+///
+/// The unconverted material is known to load: every key it requests ships.
+/// Any shipped key, of any family, that agrees with the material on every
+/// decoded switch digit the family uses could be one of those requests.
+/// For each such key the same key with the changed digits must also ship.
+/// Geometry, LOD, instancing, vertex-input and undecoded material digits are
+/// carried over unchanged, so no assumption about how the material is drawn
+/// (static mesh, vegetation instance, skinned, decal...) is needed. This is
+/// conservative: a switch is refused if any compatible variant lacks it.
+fn variants_ship(shipped: &ShippedVariants, converted: &ConfigValue, overrides: &BTreeMap<&str, i64>) -> bool {
+    let current: Vec<(usize, u8, Option<u8>)> = GBUFFER_KEY_SWITCHES
+        .iter()
+        .map(|(position, name)| {
+            let digit = |value: i64| u8::try_from(value).ok().filter(|v| *v <= 9).map(|v| b'0' + v);
+            let before = digit(switch_level(converted, "g_stage", name).unwrap_or(0));
+            let after = overrides.get(name).copied().and_then(digit);
+            (*position, before.unwrap_or(b'?'), after)
+        })
+        .collect();
+    if current.iter().any(|(_, before, after)| *before == b'?' || matches!(after, Some(b'?'))) {
+        return false;
+    }
+    shipped.keys.values().all(|keys| {
+        keys.iter().all(|key| {
+            let mut changed = key.clone();
+            for (position, before, after) in &current {
+                let at = key_position(key.len(), *position);
+                match key[at] {
+                    b'_' => {}
+                    digit if digit != *before => return true, // another material's variant
+                    _ => {
+                        if let Some(after) = after {
+                            changed[at] = *after;
+                        }
+                    }
+                }
+            }
+            changed == *key || keys.contains(&changed)
         })
     })
 }
@@ -574,7 +532,6 @@ fn restore_source_switches(
     converted: &mut ConfigValue,
     donor: &ConfigValue,
     shipped: Option<&ShippedVariants>,
-    static_only: bool,
 ) -> Result<Vec<String>> {
     let mut notes = Vec::new();
     let mut wanted = BTreeMap::new();
@@ -588,7 +545,7 @@ fn restore_source_switches(
         }
     }
     let supported = |overrides: &BTreeMap<&str, i64>| {
-        shipped.is_some_and(|shipped| variants_ship(shipped, converted, overrides, static_only))
+        shipped.is_some_and(|shipped| variants_ship(shipped, converted, overrides))
     };
     // Restore the largest subset of donor switches with a shipped
     // permutation (subsets are bounded: at most a few switches differ).
@@ -708,12 +665,16 @@ fn restore_source_switches(
             .and_then(|s| s.named("is_cast_shadow"))
             .and_then(|v| v.named("value")),
     ) {
-        if native != *source {
+        // Enabling shadows would request shadow-pass shaders this material
+        // never loaded; only removing a template-added caster is provably safe.
+        if native && !*source {
             converted.set_path(
                 "material.g_stage.is_cast_shadow.value",
-                ConfigValue::Boolean(*source),
+                ConfigValue::Boolean(false),
             )?;
-            notes.push(format!("g_stage.is_cast_shadow={source} taken from source"));
+            notes.push("g_stage.is_cast_shadow=false taken from source".to_owned());
+        } else if !native && *source {
+            notes.push("g_stage.is_cast_shadow=true unresolved: enabling shadows needs unproven shadow-pass shaders".to_owned());
         }
     }
     Ok(notes)
@@ -1541,8 +1502,7 @@ mod tests {
         )
         .unwrap();
         let mut db = ResourceDb::open(archive).unwrap();
-        let mut catalog = MaterialCatalog::load(&mut db).unwrap();
-        catalog.set_static_only_materials(BTreeSet::from([template.to_owned()]));
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
         let converted = catalog
             .convert(template, &leaves(true), Some(template), &db, &db)
             .unwrap();
@@ -1618,11 +1578,53 @@ mod tests {
             effect_value(&root, "g_stage", "texture_roughness"),
             Some(&ConfigValue::String(String::new()))
         );
+        // Enabling a shadow caster would request unproven shadow-pass shaders.
         assert_eq!(
             path_value(&root, "material.g_stage.is_cast_shadow.value"),
-            Some(&ConfigValue::Boolean(true))
+            Some(&ConfigValue::Boolean(false))
         );
+        assert!(converted.switch_notes.iter().any(|note| note.contains("is_cast_shadow=true unresolved")));
         assert_eq!(converted.switch_notes.len(), 4, "{:?}", converted.switch_notes);
+    }
+
+    #[test]
+    fn keeps_vegetation_vertex_input_variants_when_restoring_a_switch() {
+        // Regression for the second 2026-10-15 crash: grass_l04 is drawn by
+        // vegetation instances (vertex input 11, a 68-character key). Its
+        // constant roughness had been restored by flipping use_troughness,
+        // whose variant ships only for mesh inputs 0/1. The zero-width range
+        // must be used instead.
+        let donor = gloss_material(false, false, false);
+        let template = "material_instances/flora/grass_l04.material";
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input");
+        let file = input.join(template);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, gloss_material(true, false, false)).unwrap();
+        let shaders = input.join(GBUFFER_PREFIX.trim_end_matches('/'));
+        std::fs::create_dir_all(&shaders).unwrap();
+        for quality in ['0', '3'] {
+            for troughness in [false, true] {
+                std::fs::write(shaders.join(gbuffer_key(quality, troughness, false, false)), b"DXBC").unwrap();
+            }
+            // Vegetation instance variant: two-digit vertex input at 22..24.
+            let mut key: Vec<char> = gbuffer_key(quality, true, false, false).chars().collect();
+            key.splice(22..23, ['1', '1']);
+            std::fs::write(shaders.join(key.into_iter().collect::<String>()), b"DXBC").unwrap();
+        }
+        let archive = temp.path().join("materials.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&input).unwrap(),
+            &archive,
+        )
+        .unwrap();
+        let mut db = ResourceDb::open(archive).unwrap();
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
+        let converted = catalog.convert(template, &donor, Some(template), &db, &db).unwrap();
+        let root = BinaryConfig::parse(&converted.bytes).unwrap().root;
+        assert_eq!(effect_switch(&root, "use_troughness"), Some(true));
+        assert_eq!(effect_number(&root, "constant_roughness_min"), Some(0.5));
+        assert_eq!(effect_number(&root, "constant_roughness_max"), Some(0.5));
     }
 
     #[test]

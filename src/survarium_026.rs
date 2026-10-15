@@ -1748,31 +1748,7 @@ pub fn build(
             }
         }
     }
-    let mut catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
-    // Materials drawn only by static `.model` surfaces need only the static
-    // vertex-input shader variants when a source switch is restored.
-    {
-        let mut static_users = BTreeSet::new();
-        let mut other_users = BTreeSet::new();
-        for path in plan.donor_files.iter().filter(|p| p.starts_with("models/") && p.ends_with("/settings")) {
-            let bytes = match overrides.get(path) {
-                Some(bytes) => bytes.clone(),
-                None => donor.read(path)?,
-            };
-            let Ok(settings) = BinaryConfig::parse(&bytes) else { continue };
-            let Some(ConfigValue::Named(entries)) = settings.root.named("material_settings") else {
-                continue;
-            };
-            let is_static = path.contains(".model/") && !path.contains(".skinned_model/");
-            for entry in entries {
-                if let Some(ConfigValue::String(name)) = entry.value.named("material_name") {
-                    let material = format!("material_instances/{name}.material");
-                    if is_static { static_users.insert(material); } else { other_users.insert(material); }
-                }
-            }
-        }
-        catalog.set_static_only_materials(static_users.difference(&other_users).cloned().collect());
-    }
+    let catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
     let game_materials = crate::target_native_map::load_game_materials(&mut target)?;
     let material_names = BTreeMap::from([
         ("foliage".into(), "foliage_coniferous".into()),
