@@ -8,8 +8,9 @@ Looks (see docs/investigation/day-map-calibration-20261015.md):
                           curve and god-ray choice.
 Bug fixes are applied to every look: hook with resolution-independent SSAO,
 donor 0.11e SSAO shader/noise/authored parameters, 0.11e probe gather and
-sort, remains sun sentinel plus F0=1 local diffuse, Radar cone opacity and
-the 0.20e ambient adapter. `--probe-specular` adds the opt-in source 0.11e
+sort, 0.11e cubic probe falloff over the source skylight, remains sun
+sentinel plus F0=1 local diffuse, encoded local lights, Radar cone opacity
+and the 0.20e ambient adapter. `--probe-specular` adds the opt-in source 0.11e
 probe specular producer (an A/B candidate, not part of either look).
 
 Every input is pinned by SHA-256; shaders are compiled from committed
@@ -24,6 +25,11 @@ import subprocess
 
 SHADERS = Path(__file__).resolve().parents[1]/'render-compare/shaders'
 SNAPSHOT_SUMS = 'SHA256SUMS'
+SKYLIGHT = Path(__file__).resolve().parent/'source-skylight'
+SKYLIGHT_SHA256 = {  # skylight_parameters0..7 captured from the original 0.11e skylight draw (day weather)
+    'chemical-011e-day': '5bdf6987edd1465d0dccb3eddf194a271541fd84d3822502f34231b284759b5d',
+    'radar-011e-day': 'c440f33e565ef28dc19d3aae3f52b10eb5b93fbf6f5461ec7c976da6fd126bcf',
+}
 SSAO_011E = {  # donor 0.11e archive entries (quality 3 accumulation, upsample, rotation)
     'old-ssao-3.dxbc': ('shaders/sm_4_0/ssao_accumulation.ps/_3__________________________________________________________________', '0420583bf092cbf6d2cda26fa446e58be777980f32c5bc7af40649317a562f85'),
     'old-ssao-upsample.dxbc': ('shaders/sm_4_0/ssao_filter_upsample.ps/____________________________________________________________________', 'd52c8337fe60dbbd1894fd2166a1281e8bd77af5b053cb5dd23e5694ca608e4e'),
@@ -148,11 +154,24 @@ def main():
                 for name in old['assets']:
                     put(name, args.snapshot/old['assets'][name])
                 weather = WEATHER[key]
-                defines011a = ['LEGACY_SOURCE_011A=1', 'CONFIG_SOURCE_LAST_CUBE_MIP=1']
-                if args.probe_specular:
-                    defines011a.append('CONFIG_SOURCE_PROBE_SPECULAR=1')
-                put('SRP_LEGACY_PROBE_DIFFUSE', builder.fxc('legacy_probe_quality3.hlsl', defines011a))
-                put('SRP_LEGACY_PROBE_DIFFUSE_BOX', builder.fxc('legacy_probe_quality3_box.hlsl', defines011a))
+                # Renderer contract, all looks: 0.11e probes use cubic falloff
+                # (011e DXBC) and lerp over the source skylight, which the hook
+                # writes encoded before the first probe. The inherited 011a
+                # exponential falloff let the global sphere and box probes cover
+                # pixels the original leaves to the skylight.
+                probe_defines = ['CONFIG_SOURCE_PROBE_SPECULAR=1'] if args.probe_specular else []
+                put('SRP_LEGACY_PROBE_DIFFUSE', builder.fxc('legacy_probe_011e_falloff.hlsl', probe_defines))
+                put('SRP_LEGACY_PROBE_DIFFUSE_BOX', builder.fxc('legacy_probe_011e_falloff_box.hlsl', probe_defines))
+                underlay = args.output/'.shaders'/f'skylight-underlay-{key}'
+                underlay.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(builder.fxc('legacy_skylight_underlay.hlsl', []), underlay/'skylight-underlay.dxbc')
+                # The 32 floats 0.11e uploads as skylight_parameters0..7 for this
+                # map's day weather, captured from the original skylight draw.
+                constants = SKYLIGHT/f'{key}.bin'
+                if sha(constants) != SKYLIGHT_SHA256[key]:
+                    raise SystemExit(f'{constants}: pinned skylight constants changed')
+                shutil.copyfile(constants, underlay/'source-skylight.bin')
+                put('SRP_LEGACY_SKYLIGHT_UNDERLAY', underlay)
                 put('SRP_LEGACY_COMPOSITION', builder.fxc('legacy_composition_sun_sentinel.hlsl', []))
                 put('SRP_LOCAL_FRESNEL_ONE_DIR', common/'local-fresnel-one')
                 # Renderer contract, all looks: local lights add in sqrt-encoded space.

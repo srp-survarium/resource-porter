@@ -33,6 +33,8 @@ static size_t legacy_encoded_lights_size;
 static int native_local_light_identity(const void *code,SIZE_T size);
 static void tag_encoded_light(ID3D11PixelShader *shader,int identity);
 static int encoded_light_draw(ID3D11DeviceContext *context,UINT count,UINT start,INT base,int indexed);
+static void skylight_underlay(ID3D11DeviceContext *context);
+static void tag_skylight_probe(ID3D11PixelShader *shader,unsigned marker);
 static int capture_rain_enabled;
 static void tag_source_rain(ID3D11PixelShader *shader,const void *code,SIZE_T size);
 static unsigned rain_request_id, rain_draw_counts[3], rain_draw_variant;
@@ -258,6 +260,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
         unsigned marker=probe_box_replaced?2:probe_replaced?1:3;
         ID3D11PixelShader_SetPrivateData(*shader,&early_ssao_probe_guid,sizeof(marker),&marker);
     }
+    if ((probe_replaced || probe_box_replaced) && SUCCEEDED(hr) && shader && *shader) tag_skylight_probe(*shader,probe_box_replaced?2:1);
     if (SUCCEEDED(hr) && shader && *shader) tag_source_local(*shader,code,size);
     if (SUCCEEDED(hr) && shader && *shader) tag_source_rain(*shader,code,size);
     int local_index=local_light_index(code,size);
@@ -851,6 +854,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     if (encoded_light_draw(context,count,start,0,0)) return;
     capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
+    skylight_underlay(context);
     render_sun_projection(context,count,start,0,0);
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
@@ -871,6 +875,7 @@ static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT cou
     if (encoded_light_draw(context,count,start,base,1)) return;
     capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
+    skylight_underlay(context);
     render_sun_projection(context,count,start,base,1);
     TranslucencyState translucency; bind_translucency(context,&translucency);
     LegacyExtraState state; bind_legacy_extra(context,&state);
@@ -936,6 +941,7 @@ static int configure_grainless_aberration(int original_tail) {
 }
 #include "legacy_ssao.c"
 #include "legacy_encoded_lights.c"
+#include "legacy_skylight_underlay.c"
 
 static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *context) {
     char enabled[8];
@@ -1023,6 +1029,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     }
     if (!configure_legacy_ssao()) return 0;
     if (!configure_ambient_diffuse()) return 0;
+    if (!configure_skylight_underlay()) return 0;
     if (!configure_sun_aux()) return 0;
     if (live_source_diffuse && (!sun_aux_enabled || !sun_aux_translucency)) {
         error("live source diffuse requires complete ambient/local/sun/translucency auxiliary"); return 0;

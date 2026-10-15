@@ -12,7 +12,9 @@ cbuffer SourceSkylight : register(b3) {
 };
 Texture2D t_normal : register(t0);
 Texture2D t_position : register(t2);
+#ifndef CONFIG_SKYLIGHT_NO_AO
 Texture2D t_legacy_ssao : register(t14);
+#endif
 SamplerState s_linear : register(s0);
 SamplerState s_position : register(s2);
 SamplerState s_normal : register(s3);
@@ -36,6 +38,12 @@ float4 main(float4 pixel : SV_POSITION) : SV_TARGET {
     float3 position=float3((1-2*uv)*eye_ray_corner.xy/eye_ray_corner.z,1)*t_position.SampleLevel(s_position,uv,0).x;
     float height=mul(m_V2W,float4(position,1)).y;
     float ramp=pow(saturate((height-source_sky1.x)/source_sky1.y),source_sky1.z);
+#ifdef CONFIG_SKYLIGHT_NO_AO
+    // The 0.11e SSAO-stage decode applies 8*E*E*AO*2.5 to the whole
+    // accumulator; AO factors out of the encoded probe lerp exactly.
+    color*=ramp*source_sky0.xyz;
+#else
     color*=ramp*(t_legacy_ssao.SampleLevel(s_linear,uv,0).x*2.5)*source_sky0.xyz;
+#endif
     return sqrt(saturate(float4(color,1)*.125));
 }

@@ -938,3 +938,87 @@ The rest is the 0.26 mip and BRDF choice for rough (gloss .3) surfaces.
 - The in-place patch applied to the 4f2f harness db gives the same sha as
   the full build.
 - B2 (source probe specular) stays a non-default look candidate.
+
+## Source skylight and 0.11e probe falloff (candidate, presets only)
+
+**Diagnosis.** A diagnostic build of the original-reference hook captured
+the diffuse accumulator after every probe draw (`SRP_CAPTURE_EACH_PROBE`, in
+the diagnostic hook only). It ran at Chemical south_yard_000,
+chemical-spawn07 and upper-sit2, and at Radar skeleton-central-path and
+hospital-east-path.
+- 0.11e first overwrites the encoded target with its skylight stage. This is
+  `skylight.vs/.ps`: six per-axis colours in a sun-wrapped basis, a sun
+  term, the height ramp and the skylight colour, with AO×2.5. All of it was
+  checked instruction by instruction against the 0.11e DXBC.
+- Probes then lerp over it with the 0.11e cubic falloff.
+- Chemical's enclosing sphere (inner 340.35 > outer 334.08) is an inverted
+  interval: its two draws change no pixel. Radar's sphere (inner 282 <
+  outer 294) changes 96–99.7% of the index-0 pixels (+.18 at
+  skeleton-central-path).
+- Box probes light index-0 pixels as well. One box changes 100% of
+  chemical-spawn07 and upper-sit2 (−.17 and −.25).
+- The port had no skylight underlay and used the inherited 0.11a
+  exponential falloff. The global sphere therefore lit every pixel, and box
+  coverage differed.
+
+**Fix (all 0.11e looks).**
+- The hook (`legacy_skylight_underlay.c`, `SRP_LEGACY_SKYLIGHT_UNDERLAY`)
+  draws `legacy_skylight_underlay.hlsl` into the diffuse accumulator before
+  the first encoded probe of each frame. It writes E = √(sky/8) without AO,
+  because the existing decode applies 8·E²·AO·2.5 and AO factors out of the
+  encoded lerp exactly.
+- The constants are the 32 floats 0.11e uploads for each map's day weather,
+  captured from the original skylight draw and pinned in
+  `tools/playable-map-pack/source-skylight/`. They are identical between the
+  maps except the sun direction.
+- The probes use the existing `legacy_probe_011e_falloff{,_box}.hlsl`,
+  which reproduces the 0.11e DXBC.
+- `build_day_presets.py` applies this to every look; `--probe-specular`
+  stays available. The db is unchanged (`2c286a7d`).
+- An earlier falloff-only experiment worsened views because it had no
+  skylight underlay.
+- A first attempt skipped the enclosing sphere by radius. It made Radar
+  worse (FLIP .142 → .161), because Radar's sphere is applied; it was
+  dropped.
+
+**Validation.** Static run on the builder's exact presets against the
+motion-blur-off references (`fidelity-cand` under
+`/mnt/hdd/Projects/lighting-build-20261015`):
+
+| Map | `2c286a7d` (-next) | Candidate | Views better / worse | Shadow luma | Sunlit luma |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Chemical | .1389 | .1151 | 30 / 5 (arm C) | 1.123 → .976 | .906 → .895 |
+| Radar 0.11e | .1421 | .1261 | 28 / 4 (arm C) | 1.118 → 1.053 | .941 → .936 |
+| Radar 0.20e | .1902 | .1890 | noise (hook only) | .874 → .878 | .913 → .920 |
+
+Ambient against the original's sky + probes at the stage views is
+.97–1.03 everywhere.
+- Before, interiors were 1.2–4.4× too bright: chemical-spawn07 4.44 → .97,
+  boiler-hall 1.72 → .97, east_hall_315 1.47 → .98.
+- The central_shadow tread-plate shortfall is gone (FLIP −.125).
+
+Biggest gains:
+- Chemical: central_shadow-down60 −.125, chemical-spawn07 −.124,
+  boiler-hall −.073.
+- Radar: door-close-px −.103, door-close-pz −.074.
+
+The worst regression is +.02 (east_hall_045).
+
+### Back faces and foliage (diagnosis only)
+
+Pixels that get sun only in the port fall into two groups.
+
+1. **Foliage.** The port writes different normals for foliage than the
+   original:
+   - Normals agree to within cos > .9 for only 22–34% of these pixels, and
+     only 2–7% are simply flipped.
+   - The original's foliage normals point further up in view space
+     (median y +.33 vs +.01).
+   - In the original 78–97% of these pixels face away from the sun, and its
+     translucency stage lights them (+.16–.23). The port lights them with
+     Lambert sun plus its own scattering term.
+   - Next step: trace the 0.11e vegetation/grass normal (vertex shader and
+     material) against the converted 0.26 material.
+2. **door-close-px is not a lighting issue.** The original and the port
+   share the recorded camera, but the animated door sits in a different
+   position in the port, so its shadow lands elsewhere.
