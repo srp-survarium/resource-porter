@@ -924,3 +924,17 @@ The rest is the 0.26 mip and BRDF choice for rough (gloss .3) surfaces.
   With height ambient off, the converted skylight colour reaches no
   lighting shader; it is found in none of the port's constant buffers. Its
   cloud, god-ray and bloom conversions are unaffected by this question.
+
+**Promotion (B1).** With coordinator approval, -next now carries db
+`2c286a7d4b89f27d9011c325f0aa61ac5ab273c312648c06fb7ba03a108ef478`. It is
+4f2f plus the two global-probe entries; presets and looks are unchanged.
+- The 4f2f db, presets, looks and manifest are backed up with `SHA256SUMS`
+  in `/tmp/three-day-map-candidate-next-backup-4f2f`.
+- `play-maps verify` passes (104 files).
+- Texture verifier: 620 materials, 0 missing.
+- Shader verifier: 0 missing (2 runtime-proven, 14 stage-switch evidence,
+  0 new shadow casters).
+- The 5 diag plans are regenerated and `CAND_SHA` is updated.
+- The in-place patch applied to the 4f2f harness db gives the same sha as
+  the full build.
+- B2 (source probe specular) stays a non-default look candidate.
