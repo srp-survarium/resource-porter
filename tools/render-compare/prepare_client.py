@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Add the capture DLL import to a disposable copy of a pinned x86 client."""
+"""Add the capture DLL import to a disposable copy of a pinned x86 client.
+
+With --no-hook, write only the verified per-build compatibility patches (no
+extra section or import), for a playable copy of an original client."""
 import argparse
 import hashlib
 from pathlib import Path
@@ -13,7 +16,7 @@ PINNED = {
     '011e': '83d6cd0728e3ab71acfa8507b9458c23373ac25ebace9ca4bf1539e53f9f2396',
 }
 
-def prepare(source, output, build):
+def prepare(source, output, build, hook=True):
     data = bytearray(source.read_bytes())
     if hashlib.sha256(data).hexdigest() != PINNED[build]:
         raise ValueError('client checksum does not match the verified build')
@@ -68,6 +71,9 @@ def prepare(source, output, build):
             if data[at:at+len(expected)] != expected:
                 raise ValueError(f'020e reference UI callback changed: {rva:x}')
             data[at:at+3] = b'\xc2' + struct.pack('<H', popped)
+    if not hook:
+        with output.open('xb') as stream: stream.write(data)
+        return hashlib.sha256(data).hexdigest()
     imports = bytearray()
     at = offset(u32(optional + 104))
     while any(data[at:at+20]):
@@ -113,5 +119,6 @@ if __name__ == '__main__':
     parser.add_argument('--build', choices=PINNED, required=True)
     parser.add_argument('source', type=Path)
     parser.add_argument('output', type=Path)
+    parser.add_argument('--no-hook', action='store_true', help='compatibility patches only; no capture DLL import')
     args = parser.parse_args()
-    print(prepare(args.source, args.output, args.build))
+    print(prepare(args.source, args.output, args.build, hook=not args.no_hook))
