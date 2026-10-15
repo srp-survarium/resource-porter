@@ -707,3 +707,98 @@ lighting difference. Scaling the references by 8/9 would move that
 display ratio from .822 to about .92. Whether the port
 reproduces the lift is a per-look decision for the two 0.11e looks, not a
 bug fix. The 0.20e look must not get it.
+
+## Fidelity against motion-blur-off 0.11e references (`4f2f9fa5`, -next)
+
+**References.** All 0.11e poses were captured again, 5 frames each, with
+the original's motion blur off. The old set is kept beside the new one.
+`manifest.json` pins both sets: recipe, settings, the profiles written back
+by each launch, and the sha256 of every image.
+- Old set: `motion-blur-on`, in `ref-merged`.
+- New set: `motion-blur-off`, in `ref-merged-mboff`, from recipe
+  `ref011e-mboff`.
+
+Gallery: `/mnt/hdd/Projects/survarium-fidelity-20261015-mboff/index.html`.
+The port side is the staged `4f2f` harness run. It matches -next in
+database, preset environment, assets and hooks; only the fidelity-aligned
+`user.cfg` differs.
+
+Capture notes:
+- With `r_use_motion_blur off` alone, 0.11e hangs before its first frame
+  (twice). The new set therefore also has `r_use_motion_vectors_in_taa off`.
+- Control at two poses: the new frames are 0.890 × the motion-blur-on
+  frames on 16×16 block averages (prediction 8/9 = 0.889). So turning off
+  the TAA motion vectors has no measurable effect on still views.
+- The hook stops acknowledging after about 155 frames, so each map ran in
+  two launches of at most 19 poses. 0 views were skipped or rejected.
+
+| Map | Port | FLIP full | Shadow luma ratio | Sunlit luma ratio |
+| --- | --- | ---: | ---: | ---: |
+| Chemical | `4f2f` vs old refs | .169 | 1.046 | .822 |
+| Chemical | `25ab` vs new refs | .187 | 1.112 | .744 |
+| Chemical | `4f2f` vs new refs | .144 | 1.162 | .914 |
+| Radar 0.11e | `4f2f` vs old refs | .190 | 1.017 | .838 |
+| Radar 0.11e | `25ab` vs new refs | .146 | 1.134 | .935 |
+| Radar 0.11e | `4f2f` vs new refs | .143 | 1.133 | .944 |
+
+The encoded local lights still win clearly against the new references.
+
+**Chemical sunlit .914 is mostly noise in small regions.** "Sunlit" means
+original luma ≥ .35. Its per-view median is dominated by interior views
+whose bright region is a lamp or glint of 2–2,300 pixels:
+
+| View | Sunlit ratio | Bright pixels |
+| --- | ---: | ---: |
+| chemical-spawn00 | .38 | 2,299 |
+| chemical-spawn04 | .53 | 2 |
+| east_hall_315 | .64 | 79 |
+| spawn01 and spawn02 (and their floor views) | .72–.80 | 121–285 |
+| east_hall_000 and east_hall_225 | .76 | 491–662 |
+
+Pixel-weighted, the sunlit ratio is .940. Over the 13 views with more than
+50k bright pixels the median is .961. The same holds by brightness: pooled
+16×16 blocks, binned on the geometric mean of both sides so the binning
+does not bias the ratio, give port/original
+- 0.97–1.00 above luma .25;
+- 1.05 at .18–.25;
+- 1.10 at .10–.18;
+- 1.17 at .05–.10;
+- 1.37 at .02–.05.
+
+**What is left (not fixed).**
+
+1. **Shade is too bright** by 10–17% in display values (about 25–40% in
+   linear light) on both 0.11e maps. The lift is already there in `25ab`
+   (1.11 / 1.13). The encoded local lights add about 5% on Chemical. The
+   earlier "covered shade matches" result (1.00) came from the lifted
+   references.
+   - Worst shade views (ratio and shadow pixels):
+
+     | View | Shade ratio | Shadow pixels |
+     | --- | ---: | ---: |
+     | chem-bones | 1.55 | 168k |
+     | south_yard_000 | 1.54 | 255k |
+     | chemical-spawn07 | 1.46 | 779k |
+     | chem-wall | 1.39 | 188k |
+     | boiler-hall | 1.38 | 720k |
+     | upper-sit2 | 1.37 | 395k |
+
+   - Suspects: the strength of the ambient (probe) term, the
+     SSAO/occlusion strength, and the sqrt-domain light add lifting dim
+     pixels.
+2. **Sun-facing outdoor surfaces are 10–19% dark** at the same views:
+
+   | View | Sunlit ratio |
+   | --- | ---: |
+   | south_yard_000 | .81 |
+   | chem-wall | .83 |
+   | chem-bones | .84 |
+   | chem-cabinets | .90 |
+
+   Darker sun and brighter shade in one view looks like a sun/ambient
+   balance difference outdoors, not a global tone change: brights above
+   .25 match on average.
+3. **Small interior highlights are dark.** Port specular is still linear,
+   while the original also encodes specular; this is the likely cause.
+
+Radar 0.20e is unaffected: 0.20e motion blur divides by its tap count.
