@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Rebuild the 194 fill test package layouts A and B (fill packs + footstep bindings) on -next 2c286a7d.
+# Rebuild the 194 fill test package layouts A and B (fill packs + the earlier footstep bindings; the
+# walkway walker bindings were ruled out in game and reverted) on -next 2c286a7d.
 set -euo pipefail
 S=/tmp/claude-1000/-home-sheep-Projects-survarium-skhid-srp/0ff5db32-1871-4bc9-852d-20403b00e4ae/scratchpad
 P=/nix/store/0if41r2dp11y0v833p5yrpgr8mdanqjk-python3-3.13.15-env/bin/python3
@@ -8,7 +9,7 @@ W=/mnt/hdd/Projects/day-map-gameplay-20261015; G=$W/porter-fill/ports/gameplay-f
 B="/mnt/hdd/Projects/Survarium Builds/pdb-structure-inputs"; NX=/tmp/three-day-map-candidate-next/resources.db
 H=2c286a7d4b89f27d9011c325f0aa61ac5ab273c312648c06fb7ba03a108ef478; F=$W/pkg-fill-test; V=/tmp/resource-porter-render-compare/tools/render-compare
 PX=(--prefix projects/v011e_level_04/day_2)
-for m in test/mattest_cube01 props/machines/turbine level/04/moss_alfa flora/bush_s_006 level/04/loading_station_01 level/04/loading_station_02 level/04/loading_station_balkony level/04/perehod level/04/perehod_01 level/04/perehod_02; do PX+=(--prefix models/ported/v011e/$m.model); done
+for m in test/mattest_cube01 props/machines/turbine level/04/moss_alfa flora/bush_s_006; do PX+=(--prefix models/ported/v011e/$m.model); done
 grep -q '"status": "\(preparing\|running\)"' /tmp/day-map-fill-runtime/state.json 2>/dev/null && { echo "fill session running"; exit 1; }
 cur=$(cat $F/LAYOUT.txt); [ "$cur" = A ] || $F/fill-layout.sh A
 rm -f $F/resources.db $F/layouts/*.db $F/layouts/*.sha256
