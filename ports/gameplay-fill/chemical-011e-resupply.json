@@ -1,0 +1,66 @@
+{
+  "name": "chemical-011e ammo resupply",
+  "map_id": 194,
+  "template_project": "projects/level_04/day_2/client_project",
+  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "groups": [
+    {
+      "name": "team 0 ammo crate (native team1 resupply: zone, collision, ammo decal, container_closed crate)",
+      "client_objects": [
+        "logic/vip/team1/resupply/resupply_zone",
+        "logic/vip/team1/resupply/resupply_collision",
+        "logic/vip/team1/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        -38.216,
+        1.937,
+        28.819
+      ],
+      "radius": 1.5,
+      "to": {
+        "position": [
+          -73.94,
+          5.611,
+          40.04
+        ],
+        "yaw": -1.542
+      },
+      "team": 0,
+      "rename": {
+        "logic/vip/team1/": "logic/fill/team1/"
+      }
+    },
+    {
+      "name": "team 1 ammo crate (native team2 resupply)",
+      "client_objects": [
+        "logic/vip/team2/resupply/resupply_zone",
+        "logic/vip/team2/resupply/resupply_collision",
+        "logic/vip/team2/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        64.691,
+        3.601,
+        46.992
+      ],
+      "radius": 1.5,
+      "to": {
+        "position": [
+          98.66,
+          6.59,
+          79.44
+        ],
+        "yaw": 0.614
+      },
+      "team": 1,
+      "rename": {
+        "logic/vip/team2/": "logic/fill/team2/"
+      }
+    }
+  ]
+}

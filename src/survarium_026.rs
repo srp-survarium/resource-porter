@@ -13,6 +13,7 @@ use std::{
 };
 
 mod early;
+pub mod fill;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
@@ -1544,7 +1545,33 @@ pub fn build(
     output: &Path,
     server_donor_path: Option<&Path>,
 ) -> Result<Record> {
+    build_with_fill(manifest_path, donor_path, target_path, output, server_donor_path, &[])
+}
+
+/// The faithful port plus optional, explicitly named 0.26 gameplay-fill packs.
+pub fn build_with_fill(
+    manifest_path: &Path,
+    donor_path: &Path,
+    target_path: &Path,
+    output: &Path,
+    server_donor_path: Option<&Path>,
+    fill_paths: &[std::path::PathBuf],
+) -> Result<Record> {
     let m: Manifest = serde_json::from_reader(fs::File::open(manifest_path)?)?;
+    let fills: Vec<fill::FillPack> = fill_paths
+        .iter()
+        .map(|p| -> Result<_> {
+            serde_json::from_reader(fs::File::open(p)?).with_context(|| format!("reading {}", p.display()))
+        })
+        .collect::<Result<_>>()?;
+    for pack in &fills {
+        ensure!(
+            m.maps.iter().any(|map| map.id == pack.map_id),
+            "gameplay fill {} names map {} which this manifest does not build",
+            pack.name,
+            pack.map_id
+        );
+    }
     eprintln!("Checking donor and target fingerprints...");
     check_hash(donor_path, &m.donor_sha256)?;
     check_hash(target_path, &m.target_sha256)?;
@@ -1630,6 +1657,8 @@ pub fn build(
         );
     }
     let mut overrides = BTreeMap::new();
+    // Native model references added by gameplay-fill packs (never by the port).
+    let mut fill_models = BTreeSet::new();
     let mut collision_repairs = BTreeMap::new();
     let mut compatibility_notes = Vec::new();
     for map in &m.maps {
@@ -1698,6 +1727,19 @@ pub fn build(
             &map.donor_project(m.source_build),
             &mut collision_repairs,
         )?;
+        for pack in fills.iter().filter(|p| p.map_id == map.id) {
+            let bytes = target.read(&pack.template_project)?;
+            ensure!(
+                format!("{:x}", Sha256::digest(&bytes)) == pack.template_sha256,
+                "gameplay fill {}: native template project changed",
+                pack.name
+            );
+            let native = BinaryConfig::parse(&bytes)?.root;
+            let applied = fill::apply(&mut project, &native, pack)
+                .with_context(|| format!("applying gameplay fill {}", pack.name))?;
+            compatibility_notes.extend(applied.notes);
+            fill_models.extend(applied.native_models);
+        }
         rewrite(&mut project, &m.reference_replacements);
         overrides.insert(
             map.donor_project(m.source_build),
@@ -1816,7 +1858,11 @@ pub fn build(
                         .next()
                         .is_some_and(|p| p.starts_with(&format!("{model}/")))
                 };
-                ensure!(imported, "source model not imported: {reference}");
+                // Gameplay-fill instances use native models shared from the target.
+                let native_fill = fill_models.contains(reference)
+                    && !donor.contains(&model)
+                    && target.paths_with_prefix(&format!("{model}/")).next().is_some();
+                ensure!(imported || native_fill, "source model not imported: {reference}");
             }
         }
     }

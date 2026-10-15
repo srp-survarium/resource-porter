@@ -1,0 +1,44 @@
+{
+  "name": "chemical-011e native chargers at the central train (contested)",
+  "map_id": 194,
+  "template_project": "projects/level_04/day_2/client_project",
+  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "collectors": [
+    {
+      "team": 0,
+      "template_container": "logic/vip/team2/victory_items_container",
+      "anchor": [
+        71.334,
+        3.817,
+        54.393
+      ],
+      "to": {
+        "position": [
+          15.2,
+          2.022,
+          66.5
+        ],
+        "yaw": 0.144
+      },
+      "replaced_model": "item/quest/container"
+    },
+    {
+      "team": 1,
+      "template_container": "logic/vip/team2/victory_items_container",
+      "anchor": [
+        71.334,
+        3.817,
+        54.393
+      ],
+      "to": {
+        "position": [
+          15.7,
+          2.1,
+          70.0
+        ],
+        "yaw": 0.144
+      },
+      "replaced_model": "item/quest/container"
+    }
+  ]
+}

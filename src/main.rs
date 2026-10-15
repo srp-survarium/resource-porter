@@ -271,6 +271,9 @@ enum Command {
         target_db: PathBuf,
         #[arg(long)]
         output: PathBuf,
+        /// Optional 0.26 gameplay-fill pack (repeatable); omit for the faithful port.
+        #[arg(long = "gameplay-fill")]
+        gameplay_fill: Vec<PathBuf>,
     },
     /// Give native 0.26g School an overcast environment and map-wide volume fog.
     BuildSurvarium026Fog {
@@ -1121,13 +1124,15 @@ fn main() -> Result<()> {
             server_donor_db,
             target_db,
             output,
+            gameplay_fill,
         } => {
-            let record = vostok_resource_porter::survarium_026::build(
+            let record = vostok_resource_porter::survarium_026::build_with_fill(
                 &manifest,
                 &donor_db,
                 &target_db,
                 &output,
                 server_donor_db.as_deref(),
+                &gameplay_fill,
             )?;
             println!(
                 "maps={} files={} materials={}",
