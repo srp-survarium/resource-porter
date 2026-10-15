@@ -1,0 +1,138 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "bandit-stk2-to-026g",
+    "donor_build": "stalker2-2011",
+    "target_build": "0.26g"
+  },
+  "armors": [],
+  "model": {
+    "retarget_hand_landmarks": true,
+    "animation_skeleton": "resources/animations/skeletons/scavengers_01",
+    "bind_pose_template": "models/character/human/base/base_character_boot.skinned_model/render/bind_pose",
+    "settings_template": "models/character/human/base/base_character_boot.skinned_model/settings",
+    "skeleton_template": "models/character/human/base/base_character_boot.skinned_model/skeleton",
+    "render_properties_template": "models/character/human/base/base_character_boot.skinned_model/render/export_properties",
+    "surface_properties_template": "models/character/human/base/base_character_boot.skinned_model/render/base_character_boot_s/export_properties",
+    "bone_map": {
+      "Root": "Root",
+      "item": "Item",
+      "Weapon": "Weapon",
+      "Pistol": "Pistol",
+      "Hips": "Hip",
+      "LeftUpLeg": "LeftUpLeg",
+      "Spine": "Spin",
+      "RightUpLeg": "RightUpLeg",
+      "LeftLeg": "LeftLeg",
+      "LeftUpLegRoll": "LeftUpLeg_Roll",
+      "LeftFoot": "LeftFoot",
+      "LeftToe": "LeftToe",
+      "Spine1": "Spin_1",
+      "Spine_2": "Chest",
+      "LeftCollar": "LeftClavicle",
+      "RightCollar": "RightClavicle",
+      "Neck": "Neck",
+      "LeftArm": "LeftArm",
+      "LeftForeArm": "LeftForeArm",
+      "LeftSholderRoll": "LeftArm_Roll",
+      "LeftHandRoll": "LeftForeArm_Roll",
+      "LeftHand": "LeftHand",
+      "LeftHandPink_1": "LeftPinky1",
+      "LeftHandRing_1": "LeftRing1",
+      "LeftHandMiddle_1": "LeftMiddle1",
+      "LeftHandThumb_1": "LeftThumb1",
+      "LeftHandIndex_1": "LeftIndex1",
+      "LeftHandPink_2": "LeftPinky2",
+      "LeftHandPink_3": "LeftPinky3",
+      "LeftHandRing_2": "LeftRing2",
+      "LeftHandRing_3": "LeftRing3",
+      "LeftHandMiddle_2": "LeftMiddle2",
+      "LeftHandMiddle_3": "LeftMiddle3",
+      "LeftHandThumb_2": "LeftThumb2",
+      "LeftHandThumb_3": "LeftThumb3",
+      "LeftHandIndex_2": "LeftIndex2",
+      "LeftHandIndex_3": "LeftIndex3",
+      "RightArm": "RightArm",
+      "RightSholderRoll": "RightArm_Roll",
+      "RightForeArm": "RightForeArm",
+      "RightHand": "RightHand",
+      "RightHandRoll": "RightForeArm_Roll",
+      "RightHandIndex_1": "RightIndex1",
+      "RightHandThumb_1": "RightThumb1",
+      "RightHandRing_1": "RightRing1",
+      "RightHandMiddle_1": "RightMiddle1",
+      "RightHandPink_1": "RightPinky1",
+      "RightHandIndex_2": "RightIndex2",
+      "RightHandIndex_3": "RightIndex3",
+      "RightHandThumb_2": "RightThumb2",
+      "RightHandThumb_3": "RightThumb3",
+      "RightHandRing_2": "RightRing2",
+      "RightHandRing_3": "RightRing3",
+      "RightHandMiddle_2": "RightMiddle2",
+      "RightHandMiddle_3": "RightMiddle3",
+      "RightHandPink_2": "RightPinky2",
+      "RightHandPink_3": "RightPinky3",
+      "Head": "Head",
+      "RightUpLegRoll": "RightUpLeg_Roll",
+      "RightLeg": "RightLeg",
+      "RightFoot": "RightFoot",
+      "RightToe": "RightToe"
+    },
+    "surfaces": {
+      "bandit_01_head": "ported/bandit_026/head",
+      "bandit_01_torso": "ported/bandit_026/torso",
+      "bandit_01_legs": "ported/bandit_026/legs",
+      "banndit_01_atach": "ported/bandit_026/attach"
+    },
+    "target_models": {
+      "models/ported/bandit_026/mask.skinned_model": {
+        "surfaces": {
+          "mask": {
+            "source": "banndit_01_atach"
+          }
+        }
+      },
+      "models/ported/bandit_026/torso.skinned_model": {
+        "surfaces": {
+          "torso": {
+            "source": "bandit_01_torso",
+            "selection": "exclude_hands"
+          }
+        }
+      },
+      "models/ported/bandit_026/legs.skinned_model": {
+        "surfaces": {
+          "legs": {
+            "source": "bandit_01_legs",
+            "selection": "exclude_feet"
+          }
+        }
+      },
+      "models/ported/bandit_026/gloves.skinned_model": {
+        "surfaces": {
+          "gloves": {
+            "source": "bandit_01_torso",
+            "selection": "hands"
+          }
+        }
+      },
+      "models/ported/bandit_026/boots.skinned_model": {
+        "surfaces": {
+          "boots": {
+            "source": "bandit_01_legs",
+            "selection": "feet"
+          }
+        }
+      }
+    }
+  },
+  "materials": [],
+  "textures": [],
+  "dictionary": {
+    "path": "gameplay/db_static_dictionaries"
+  },
+  "localization": {
+    "path": "localization/russian/localization",
+    "strings": {}
+  }
+}

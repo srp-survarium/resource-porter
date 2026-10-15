@@ -580,6 +580,10 @@ pub struct SkinnedModelSpec {
     /// replacing the rendered surface/material lists.
     #[serde(default)]
     pub preserve_settings_template: bool,
+    /// Fit wrist/palm/finger bind frames from joint landmarks rather than
+    /// incompatible donor Euler frames. Opt in per reviewed human donor.
+    #[serde(default)]
+    pub retarget_hand_landmarks: bool,
     /// Rotate donor geometry and tangent bases by 180 degrees around Y.
     #[serde(default)]
     pub rotate_y_180: bool,
