@@ -566,3 +566,49 @@ Findings:
 - At `sit-east-000` the original's `puddle_rust_01` shows a bright orange rust
   area and no stripes. The port's is dull and striped, so the 0.26 decal
   blend differs from the source for this decal.
+
+## Bright-surface deficit on Chemical: cause (no change made)
+
+Diagnostic hook build (not shipped). It adds the 0.11e stage shaders (38
+identities) to the reference index and enables reference stage capture for
+build `011e` behind `SRP_CAPTURE_011E_STAGES=1`. The pinned 0.11e reference
+hook is unchanged.
+`run_reference_011e.py --stages` captured original per-stage buffers at six
+Chemical views (scratch `ref011e-stages/`). The port was captured at the same
+cameras (`runs/bright`).
+
+On the bright surfaces of the interior views, compared with the original:
+
+| | Original 0.11e | Port |
+| --- | --- | --- |
+| Albedo | — | equal within 1% |
+| Ambient (probes + sky before local lights) | .131, .129, .034, .068 | .136, .148, .051, .073 |
+| Exposure | max (average luma at the clamp) | max (1.61 in both) |
+| Tone curve | — | reproduces the port's display |
+| Light after local lights | .575 / .548 / .349 / .310 | .296 / .297 / .192 / .154 |
+
+The port's local-light contribution alone is close to what the original's
+total implies for a linear light .16 / .15 / .14 / .08.
+
+Cause: the original accumulates each light in the sqrt-encoded 10-bit target
+(E = √(L/8)) with additive blending and decodes 8·E² at composition. Light
+therefore sums as 8·(√(a/8)+√(l/8))², while the port adds linear light. With
+the port's own ambient and local-light values this predicts .591 / .594 /
+.362 / .308, against the original's .575 / .548 / .349 / .310. Composition
+HDR follows: original/port 1.87, 1.84, 1.67, 1.91.
+
+Sun-shadow and caster hypotheses were tested and rejected:
+- Materials with vertex colour that do not cast: no change in an in-place A/B.
+- Back-face culling: every occluder faces the sun.
+- Interior "extra" light is not from the sun pass: the original's sun stage
+  adds nothing indoors.
+
+This is a renderer-contract difference, so it applies to all looks. The
+existing optional encoded local-light adapter (`legacy_local_diffuse.c`;
+Factory work) reproduces this per light but does not cover every light
+identity.
+
+`puddle_rust_01` at `sit-east-000`: the original and port albedo are the same
+orange puddle. The dull look in play is the same local-light deficit; the
+puddle lies in a lamp's cone. The port alone has the thin albedo stripes,
+from the native 0.26 decal pass; that cause is still open.

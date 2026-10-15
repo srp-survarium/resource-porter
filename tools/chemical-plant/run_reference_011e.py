@@ -33,6 +33,8 @@ def main():
     p.add_argument('--poses-dir', type=Path, help='use DIR/<map>.json instead of the recipe poses')
     p.add_argument('--output', type=Path, help='write DIR/capture-<map> instead of next to the recipe')
     p.add_argument('--frames', type=int, default=1, help='frames per pose (later frames reuse the settled camera)')
+    p.add_argument('--stages', action='store_true',
+                   help='diagnostic hook only: capture per-stage buffers (SRP_CAPTURE_011E_STAGES=1) for poses that ask')
     a = p.parse_args()
     recipe = json.loads(a.recipe.read_text())
     root = a.recipe.resolve().parent
@@ -47,7 +49,7 @@ def main():
     assert (prefix/'system.reg').is_file()
     def load_poses(name):
         poses = json.loads(((a.poses_dir/(name+'.json')) if a.poses_dir else (root/(name+'-poses.json'))).read_text())
-        assert 1 <= len(poses) <= (60 if a.poses_dir else 18) and all(p['buffers'] is False for p in poses)
+        assert 1 <= len(poses) <= (60 if a.poses_dir else 18) and (a.stages or all(p['buffers'] is False for p in poses))
         assert len({p['name'] for p in poses}) == len(poses)
         frames = []
         for pose in poses:
@@ -83,6 +85,9 @@ def main():
                DXVK_FRAME_RATE='60', PULSE_LATENCY_MSEC='60', SRP_CAPTURE_BUILD='011e',
                LANG='ru_RU.UTF-8', LC_ALL='ru_RU.UTF-8',
                LOCALE_ARCHIVE_2_27=recipe['locale_archive'])
+    if a.stages:
+        env['SRP_CAPTURE_011E_STAGES'] = '1'
+        env['SRP_CAPTURE_BUFFERS'] = '1'
     env.pop('VK_DRIVER_FILES', None)
     try:
         cfg.write_bytes((root/'reference-user.cfg').read_bytes())
