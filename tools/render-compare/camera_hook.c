@@ -422,10 +422,11 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     if (!strcmp(build,"011e")) {
         ok=control[0] && install_camera() && install_present();
     } else {
-        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_factory_020e_clouds() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post() && install_step_diagnostic();
+        ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_factory_020e_clouds() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
     }
     write_status();
     if (!ok) ExitProcess(1);
+    install_step_diagnostic(); // opt-in; never stops the game
     HANDLE thread=CreateThread(NULL,0,worker,NULL,0,NULL);
     if (!thread) ExitProcess(1);
     CloseHandle(thread);

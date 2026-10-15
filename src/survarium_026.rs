@@ -363,83 +363,6 @@ fn classify_early_game_materials(
     Ok(bindings)
 }
 
-/// Surface names a model's collision and walker collision use: primitive
-/// `mtl_list` entries and the face_data material dictionary (chunk 0x1b).
-fn collision_surface_names(donor: &mut ResourceDb, model: &str) -> Result<BTreeSet<String>> {
-    let mut names = BTreeSet::new();
-    for family in ["collision", "walker_collision"] {
-        let base = format!("{model}.model/{family}");
-        let primitives = format!("{base}/exported_primitives");
-        if donor.is_file(&primitives) {
-            let c = BinaryConfig::parse(&donor.read(&primitives)?)
-                .with_context(|| format!("decoding {primitives}"))?;
-            if let Some(ConfigValue::Indexed(list)) = c.root.named("mtl_list") {
-                names.extend(list.iter().filter_map(|v| match v {
-                    ConfigValue::String(s) => Some(s.clone()),
-                    _ => None,
-                }));
-            }
-        }
-        let face_data = format!("{base}/face_data");
-        if donor.is_file(&face_data) {
-            let bytes = donor.read(&face_data)?;
-            ensure!(
-                bytes.len() >= 10 && u32::from_le_bytes(bytes[0..4].try_into()?) == 0x1b,
-                "{face_data} has no material dictionary"
-            );
-            let size = usize::try_from(u32::from_le_bytes(bytes[4..8].try_into()?))?;
-            let dictionary = bytes.get(8..8 + size).context("truncated material dictionary")?;
-            for name in dictionary.get(2..).unwrap_or(&[]).split(|b| *b == 0) {
-                if !name.is_empty() {
-                    names.insert(String::from_utf8_lossy(name).into_owned());
-                }
-            }
-        }
-    }
-    Ok(names)
-}
-
-/// A reviewed binding may name a surface the donor's collision uses but its
-/// settings never list (an unmapped surface): add it as unassigned so the
-/// reviewed binding then applies like any other.
-fn add_reviewed_collision_surfaces(
-    settings: &mut ConfigValue,
-    path: &str,
-    reviewed: &BTreeMap<String, String>,
-    used: &BTreeSet<String>,
-) -> Result<Vec<String>> {
-    let Some(ConfigValue::Named(entries)) = settings.named_mut("game_material_settings") else {
-        return Ok(Vec::new());
-    };
-    let mut notes = Vec::new();
-    for surface in reviewed.keys() {
-        if entries.iter().any(|e| &e.name == surface) {
-            continue;
-        }
-        ensure!(
-            used.contains(surface),
-            "{path}: reviewed game material for {surface}, which no collision of the model uses"
-        );
-        entries.push(NamedValue {
-            name: surface.clone(),
-            value: ConfigValue::Named(vec![
-                NamedValue {
-                    name: "game_material_id".into(),
-                    value: ConfigValue::Integer(65535),
-                },
-                NamedValue {
-                    name: "game_material_name".into(),
-                    value: ConfigValue::String("not assigned or deleted".into()),
-                },
-            ]),
-        });
-        notes.push(format!(
-            "{path}: collision surface {surface} absent from the settings, added for its reviewed binding"
-        ));
-    }
-    Ok(notes)
-}
-
 /// An early settings entry with no game material (id 65535, "not assigned or
 /// deleted" or an empty name).
 fn unassigned_game_material(entry: &ConfigValue) -> bool {
@@ -2085,12 +2008,6 @@ pub fn build_with_fill(
             }
             if let Some(model) = path.strip_suffix(".model/settings") {
                 if m.source_build.early() && c.root.named("game_material_settings").is_some() {
-                    if let Some(reviewed) = m.game_material_overrides.get(path) {
-                        let used = collision_surface_names(&mut donor, model)?;
-                        for note in add_reviewed_collision_surfaces(&mut c.root, path, reviewed, &used)? {
-                            compatibility_notes.push(note);
-                        }
-                    }
                     let bindings = classify_early_game_materials(
                         path,
                         &c.root,
@@ -2700,33 +2617,6 @@ mod tests {
         drop(classify);
         // The fir fallback, then the unreviewed surface of the rejected call.
         assert_eq!(notes.len(), 2);
-    }
-
-    #[test]
-    fn reviewed_binding_adds_only_surfaces_the_collision_uses() {
-        let mut settings = named(vec![(
-            "game_material_settings",
-            ConfigValue::Named(vec![NamedValue {
-                name: "lambert2SG".into(),
-                value: named(vec![
-                    ("game_material_id", ConfigValue::Integer(18)),
-                    ("game_material_name", ConfigValue::String("metall_thick".into())),
-                ]),
-            }]),
-        )]);
-        let used = BTreeSet::from(["lambert2SG".to_owned(), "coll_restrictSG".to_owned()]);
-        let reviewed = BTreeMap::from([("coll_restrictSG".into(), "metall_thick_walkable".into())]);
-        let notes = add_reviewed_collision_surfaces(&mut settings, "s", &reviewed, &used).unwrap();
-        assert_eq!(notes.len(), 1);
-        let entry = settings
-            .named("game_material_settings")
-            .and_then(|g| g.named("coll_restrictSG"))
-            .unwrap();
-        assert_eq!(entry.named("game_material_id"), Some(&ConfigValue::Integer(65535)));
-        // Already listed: untouched; not used by any collision: rejected.
-        assert!(add_reviewed_collision_surfaces(&mut settings, "s", &reviewed, &used).unwrap().is_empty());
-        let stray = BTreeMap::from([("ghostSG".into(), "metall_thick".into())]);
-        assert!(add_reviewed_collision_surfaces(&mut settings, "s", &stray, &used).is_err());
     }
 
     #[test]

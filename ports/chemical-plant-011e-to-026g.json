@@ -115,24 +115,6 @@
     "models/test/mattest_cube01.model/settings": {
       "default": "default"
     },
-    "models/level/04/loading_station_01.model/settings": {
-      "coll_restrictSG": "metall_thick_walkable"
-    },
-    "models/level/04/loading_station_02.model/settings": {
-      "coll_restrictSG": "metall_thick_walkable"
-    },
-    "models/level/04/loading_station_balkony.model/settings": {
-      "coll_restrictSG": "metall_thick_walkable"
-    },
-    "models/level/04/perehod.model/settings": {
-      "walker_col_s": "metall_thick_walkable"
-    },
-    "models/level/04/perehod_01.model/settings": {
-      "walker_col_s": "metall_thick_walkable"
-    },
-    "models/level/04/perehod_02.model/settings": {
-      "walker_col_s": "metall_thick_walkable"
-    },
     "models/level/04/moss2.model/settings": {
       "default": "grass"
     },

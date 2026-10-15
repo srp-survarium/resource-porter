@@ -372,31 +372,20 @@ in game; nothing was changed.
 
 The report means the tread-plate walkways above the train (`loading_station_01/02`,
 `loading_station_balkony`) and the passages (`perehod*`), not the tracks.
-Offline result (`stepray`-style simulation of the step query: from 1 m above
-the movement floor, 2 m down, cgroup & 8): on the inner walkways the ray hits
-the cg-8 floor box `lambert2SG` -> `metall_thick` 4.8 mm above the walker
-floor; the native 0.26 models have the same layout (walker `coll_restrictSG`
-at Y 10.174, visible `coll_metal_thik` -> `metall_thick` at 10.1788). The
-"misses" on the outer strips are the tops of railing walker boxes (Y 11.21 /
-11.31), not floor. So the cg-8 binding cannot explain silence.
+Offline simulation of the step query (from 1 m above the movement floor,
+2 m down, cgroup & 8): on the inner walkways the ray hits the cg-8 floor box
+`lambert2SG` -> `metall_thick` 4.8 mm above the walker floor, and the native
+0.26 models have the same layout (walker `coll_restrictSG` at Y 10.174,
+visible `coll_metal_thik` -> `metall_thick` at 10.1788).
 
-The one binding the walkways lack is the walker collision's own: its surface
-(`coll_restrictSG`, `walker_col_s`) is absent from our settings (0.11e never
-listed it) and native 0.26 lists it as 65535. 0.26's collision builder packs
-each primitive/face as `walker_behaviour << 14 | id` and stores 0xffff for an
-unlisted or 65535 surface (0x82b75..0x82cb3); `get_pair` then indexes its
-128-slot material table with it. Native walker meshes elsewhere carry
-`*_walkable` materials (ground_walkable 18,069 m² on level_04). If the step
-or the walker contact resolves through the walker surface, these walkways
-look up 0xffff. Reviewed bindings (a reviewed binding may now add a surface
-the donor collision uses but its settings omit; test
-`reviewed_binding_adds_only_surfaces_the_collision_uses`):
+Tried and ruled out: binding the walkways' walker surfaces (`coll_restrictSG`,
+`walker_col_s`, unlisted in 0.11e, 65535 in native 0.26) to
+`metall_thick_walkable`. The user found the walkways still silent with it,
+so it was reverted; the walker surfaces stay unlisted, as in native 0.26.
 
-| Model | Walker surface | 0.11e | Native 0.26 | Before | After |
-|---|---|---|---|---|---|
-| level/04/loading_station_01, _02, loading_station_balkony | coll_restrictSG | not listed | 65535 | not listed (0xffff) | metall_thick_walkable |
-| level/04/perehod, perehod_01, perehod_02 | walker_col_s | not listed | 65535 | not listed (0xffff) | metall_thick_walkable |
-
-This is a hypothesis fix: the visible (cg 8) bindings already equal native
-0.26. If the walkways stay silent, the cause is on the runtime side and the
-opt-in step log (`SRP_STEP_LOG=1`, `step_diagnostic.c`) is the next step.
+Next: the step log. The 0.26 step handler (VA 0x248ad0) casts the ray and
+calls `get_pair` (VA 0x306d50) with the hit surface's 16-bit material value.
+`get_pair` indexes its 128-slot material table with all 16 bits (no
+`& 0x3fff`), so a surface that keeps walker-behaviour bits reads outside
+the table. The log records the raw value, the table entries, the pair and
+its sound per step (`SRP_STEP_LOG=1`, `tools/render-compare/step_diagnostic.c`).
