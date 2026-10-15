@@ -612,3 +612,44 @@ identity.
 orange puddle. The dull look in play is the same local-light deficit; the
 puddle lies in a lamp's cone. The port alone has the thin albedo stripes,
 from the native 0.26 decal pass; that cause is still open.
+
+## Encoded local lights and floor decals (staged `4f2f9fa5`, not promoted)
+
+**Light identities.** The 0.11e presets' F0=1 local-light overrides were
+created for eight native identities on both 0.11e maps:
+- points `64f2a63c`, `9b44f408`, `db297352`, `e3270049`;
+- spots `648947ae`, `7bc3bed3`, `33204e90`, `ca3ae943`.
+
+Radar 0.20e draws `64f2a63c` and `33204e90` natively.
+
+**Fix (`48e7104`).** Each local-light draw, whichever identity it is, renders
+its diffuse into a cleared private target. The accumulator then becomes
+8·min(√sat(A/8)+√sat(L/8),1)². This uses the native light math, so every
+identity is covered and fallback (b) is not needed. It is enabled only by
+`SRP_LEGACY_ENCODED_LIGHTS`, which only the 0.11e presets carry, in every
+look. Without that variable the hook does nothing and writes no receipt.
+Specular stays native.
+
+**Floor decals (`2b02fb8`).** Early-map decals that project straight down
+are raised 2 cm, and their projection depth is extended by the same amount
+(106 decals). The puddle stripes came from half-precision decal depth
+reconstruction, with the decal 7 mm above the floor.
+
+**Results.** Static captures on the staged harness, 5-frame medians, FLIP
+against fresh originals. Gallery:
+`/mnt/hdd/Projects/survarium-fidelity-20261015-staged/index.html`.
+
+| Map | FLIP `25ab` → staged | Shadow luma ratio | Sunlit luma ratio |
+| --- | --- | --- | --- |
+| Chemical | .222 → .169 (25 views better, 0 worse) | 1.003 → 1.046 | .675 → .822 |
+| Radar 0.11e | .192 → .190 (6 better, 5 worse ≤.011, outdoor noise) | 1.017 | .838 |
+| Radar 0.20e (feature off) | .191 → .190 | unchanged | unchanged |
+
+At the lamp-lit stage views the diffuse accumulator and the post input HDR
+match the original stage buffers within 0–9%. No blowout was seen.
+
+**Remaining.** In the original, the captured `$user$present` image is darker
+than the final frame. Some pass after `copy_image` brightens display values
+(10→18, 30→41, 100→116, 180→198 in 8-bit). The port does not reproduce it,
+so its bright surfaces sit about 0.82 of the original. That pass is not yet
+identified.
