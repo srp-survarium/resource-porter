@@ -758,6 +758,64 @@ enum Command {
         #[arg(long)]
         overlay: PathBuf,
     },
+    /// Content packs: check, compose, verify and convert legacy bundles.
+    Pack {
+        #[command(subcommand)]
+        command: PackCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum PackCommand {
+    /// Validate pack manifests, files and cross-pack conflicts; with
+    /// --base-db also every base precondition (drift, ids, cells).
+    Check {
+        #[arg(long = "pack", required = true)]
+        packs: Vec<PathBuf>,
+        #[arg(long)]
+        base_db: Option<PathBuf>,
+    },
+    /// Resolve packs (in the given order) into one overlay and apply it once.
+    Compose {
+        #[arg(long)]
+        base_db: PathBuf,
+        #[arg(long = "pack", required = true)]
+        packs: Vec<PathBuf>,
+        #[arg(long)]
+        work_dir: PathBuf,
+        #[arg(long)]
+        output_db: PathBuf,
+        /// Write the effective server-relevant resources and content.json here.
+        #[arg(long)]
+        server_export: Option<PathBuf>,
+        #[arg(long)]
+        force: bool,
+    },
+    /// Confirm a database carries every operation of the given packs.
+    Verify {
+        #[arg(long)]
+        db: PathBuf,
+        #[arg(long = "pack", required = true)]
+        packs: Vec<PathBuf>,
+    },
+    /// Convert a legacy whole-file bundle into a pack against --base-db.
+    FromBundle {
+        /// The base the pack will be composed onto.
+        #[arg(long)]
+        base_db: PathBuf,
+        /// The database the bundle was built on; drops inherited entries
+        /// and carries reused files the base lacks.
+        #[arg(long)]
+        build_base_db: Option<PathBuf>,
+        #[arg(long)]
+        bundle: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        version: String,
+    },
 }
 
 fn print_config(root: &ConfigValue, leaves: bool) -> Result<()> {
@@ -2287,6 +2345,100 @@ fn main() -> Result<()> {
             )?;
             println!("validated_models={}", report.models);
             println!("validated_overlay_configs={}", report.overlay_configs);
+        }
+        Command::Pack { command } => run_pack_command(command)?,
+    }
+    Ok(())
+}
+
+fn run_pack_command(command: PackCommand) -> Result<()> {
+    use vostok_resource_porter::content_pack;
+    match command {
+        PackCommand::Check { packs, base_db } => {
+            let report = content_pack::check(&packs, base_db.as_deref())?;
+            for note in &report.notes {
+                println!("note: {note}");
+            }
+            println!("packs={}", report.packs);
+            println!("operations={}", report.operations);
+            if base_db.is_some() {
+                println!("effective_files={}", report.effective_files);
+            }
+            println!("ok");
+        }
+        PackCommand::Compose {
+            base_db,
+            packs,
+            work_dir,
+            output_db,
+            server_export,
+            force,
+        } => {
+            let record = content_pack::compose(&content_pack::ComposeOptions {
+                base_db: &base_db,
+                packs: &packs,
+                work_dir: &work_dir,
+                output_db: &output_db,
+                server_export: server_export.as_deref(),
+                force,
+            })?;
+            for note in &record.notes {
+                println!("note: {note}");
+            }
+            for pack in &record.packs {
+                println!("pack={} version={}", pack.id, pack.version);
+            }
+            println!("added_files={}", record.added_files.len());
+            println!("replaced_files={}", record.replaced_files.len());
+            println!("edited_files={}", record.edited_files.len());
+            println!(
+                "install_record={}",
+                content_pack::install_record_path(&output_db).display()
+            );
+            if let Some(export) = &server_export {
+                println!("server_export={}", export.display());
+            }
+            println!("output={}", output_db.display());
+            println!("sha256={}", record.output_db.sha256);
+        }
+        PackCommand::Verify { db, packs } => {
+            let operations = content_pack::verify(&db, &packs)?;
+            println!("verified_operations={operations}");
+            println!("verified={}", db.display());
+        }
+        PackCommand::FromBundle {
+            base_db,
+            build_base_db,
+            bundle,
+            output,
+            id,
+            version,
+        } => {
+            let manifest = content_pack::from_bundle::from_bundle(
+                &content_pack::from_bundle::FromBundleOptions {
+                    base_db: &base_db,
+                    build_base_db: build_base_db.as_deref(),
+                    bundle: &bundle,
+                    output: &output,
+                    id: &id,
+                    version: &version,
+                },
+            )?;
+            for note in &manifest.notes {
+                println!("note: {note}");
+            }
+            let mut counts = std::collections::BTreeMap::<String, usize>::new();
+            for operation in &manifest.operations {
+                let kind = serde_json::to_value(operation)?["op"]
+                    .as_str()
+                    .unwrap_or("?")
+                    .to_owned();
+                *counts.entry(kind).or_default() += 1;
+            }
+            for (kind, count) in counts {
+                println!("{kind}={count}");
+            }
+            println!("pack={}", output.display());
         }
     }
     Ok(())
