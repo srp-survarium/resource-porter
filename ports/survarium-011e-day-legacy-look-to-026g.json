@@ -255,5 +255,27 @@
         }
       ]
     }
+  },
+  "runtime_proven_switches": {
+    "material_instances/characters/human/remains/skeleton.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "use_tspecular_intensity": 1
+      },
+      "evidence": [
+        "2026-10-14 user session on database 2b35a2ed (Chemical 0.11e): the skeleton/rag repair (bc6a9977/5908c03a, use_tspecular_intensity=1, zero-width roughness 0.5) loaded and played without a missing-shader error",
+        "Runtime-validated remains repair (docs/investigation/day-map-calibration-20261015.md, 'Material switches'); the static rule refuses it only because unrelated vertex-input variants lack the switch"
+      ]
+    },
+    "material_instances/characters/human/remains/rag.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "use_tspecular_intensity": 1
+      },
+      "evidence": [
+        "2026-10-14 user session on database 2b35a2ed (Chemical 0.11e): the skeleton/rag repair (bc6a9977/5908c03a, use_tspecular_intensity=1, zero-width roughness 0.5) loaded and played without a missing-shader error",
+        "Runtime-validated remains repair (docs/investigation/day-map-calibration-20261015.md, 'Material switches'); the static rule refuses it only because unrelated vertex-input variants lack the switch"
+      ]
+    }
   }
 }

@@ -13,11 +13,19 @@ input and undecoded material digits are carried over unchanged, so no
 assumption about how the material is drawn is needed. Also reported:
 materials whose shadow casting is newly enabled (new shadow-pass requests)
 and materials present only in the candidate (not provable this way).
+--evidence PORT_MANIFEST accepts that manifest's runtime_proven_switches
+(changes within the observed switches, same shader catalogue); they are
+listed as runtime_proven instead of missing.
 Exit status is 1 when anything is missing or unprovable.
 """
+import hashlib
 import argparse
 import json
 from pathlib import Path
+NAME = {name: position for position, name in [(5, 'use_tdiffuse'), (6, 'use_nmap'), (7, 'use_detail_nmap'),
+        (8, 'use_alpha_test'), (10, 'use_parallax'), (11, 'use_ttranslucency'), (12, 'use_tspecular_intensity'),
+        (13, 'use_tfresnel'), (14, 'use_troughness'), (16, 'use_tditail_diffuse'), (28, 'use_alphablended_normal'),
+        (35, 'use_tiled_vertex_blended_mask'), (44, 'use_uv_scrolling'), (46, 'use_fuzziness'), (53, 'wind_motion')]}
 import subprocess
 import sys
 import tempfile
@@ -58,18 +66,30 @@ def main():
     parser.add_argument('baseline', type=Path)
     parser.add_argument('candidate', type=Path)
     parser.add_argument('--output', type=Path)
+    parser.add_argument('--evidence', type=Path, action='append', default=[])
     args = parser.parse_args()
     listing = lambda db: subprocess.check_output([str(args.porter), 'list', '--db', str(db)], text=True,
                                                   stderr=subprocess.DEVNULL).split()
     candidate_paths = listing(args.candidate)
     baseline_paths = set(listing(args.baseline))
+    catalog = hashlib.sha256(''.join(p+'\n' for p in sorted(x for x in candidate_paths if x.startswith('shaders/sm_4_0/'))).encode()).hexdigest()
+    proven = {}
+    for manifest in args.evidence:
+        m = json.loads(manifest.read_text())
+        build = 'v'+m['source_build'].replace('.', '')
+        for material, entry in m.get('runtime_proven_switches', {}).items():
+            if entry['shader_catalog_sha256'] != catalog:
+                raise SystemExit(f'{manifest}: evidence for {material} names another shader catalogue')
+            path = material.replace('material_instances/', f'material_instances/ported/{build}/', 1)
+            proven[path] = {NAME[k]: str(v) for k, v in entry['switches'].items()}
     families = {}
     for path in candidate_paths:
         parts = path.split('/')
         if len(parts) == 4 and parts[0] == 'shaders' and len(parts[3]) in (67, 68):
             families.setdefault(parts[2], set()).add(parts[3])
     report = {'baseline': str(args.baseline), 'candidate': str(args.candidate),
-              'checked_materials': 0, 'missing': {}, 'new_shadow_casters': [], 'unprovable_new_materials': []}
+              'checked_materials': 0, 'missing': {}, 'new_shadow_casters': [], 'unprovable_new_materials': [],
+              'runtime_proven': {}, 'shader_catalog_sha256': catalog}
     with tempfile.TemporaryDirectory() as scratch:
         def read(db, path):
             out = Path(scratch)/'resource'
@@ -107,7 +127,9 @@ def main():
                     target = ''.join(target)
                     if target != key and target not in keys:
                         missing.append(f'shaders/sm_4_0/{family}/{target}')
-            if missing:
+            if missing and path in proven and all(proven[path].get(p) == v for p, v in changed.items()):
+                report['runtime_proven'][path] = {'switches': changed, 'statically_unproven_names': len(set(missing))}
+            elif missing:
                 report['missing'][path] = sorted(set(missing))
     report['missing_shader_count'] = sum(len(v) for v in report['missing'].values())
     text = json.dumps(report, indent=2)+'\n'

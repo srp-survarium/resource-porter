@@ -90,6 +90,21 @@ pub struct Manifest {
     /// donor collision directory and pinned by its primitive payload hash.
     #[serde(default)]
     pub collision_primitive_overrides: BTreeMap<String, PrimitiveOverrides>,
+    /// Donor material switch restorations observed loading at runtime, for
+    /// cases where the static variant proof is too conservative. Each entry
+    /// is pinned to the shipped shader catalogue the loads were observed with.
+    #[serde(default)]
+    pub runtime_proven_switches: BTreeMap<String, RuntimeProvenSwitches>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeProvenSwitches {
+    pub shader_catalog_sha256: String,
+    pub switches: BTreeMap<String, i64>,
+    /// Sessions or captures that loaded the restored material without a
+    /// missing-shader error.
+    pub evidence: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1748,7 +1763,10 @@ pub fn build(
             }
         }
     }
-    let catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
+    let mut catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
+    catalog.set_runtime_proven_switches(m.runtime_proven_switches.iter().map(|(material, entry)| {
+        (material.as_str(), entry.shader_catalog_sha256.as_str(), &entry.switches)
+    }))?;
     let game_materials = crate::target_native_map::load_game_materials(&mut target)?;
     let material_names = BTreeMap::from([
         ("foliage".into(), "foliage_coniferous".into()),

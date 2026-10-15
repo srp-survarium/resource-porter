@@ -31,6 +31,11 @@ pub struct MaterialCatalog {
     /// then by the remaining material digits, holding each geometry variant;
     /// `None` when the archive does not follow the verified key layout.
     gbuffer_projections: Option<ShippedVariants>,
+    /// SHA-256 of the sorted shipped shader key paths (`shaders/sm_4_0/...`),
+    /// to which runtime evidence is pinned.
+    shader_catalog_sha256: String,
+    /// Switch restorations proven by runtime loads: material -> switch -> level.
+    runtime_proven: BTreeMap<String, BTreeMap<String, i64>>,
 }
 
 
@@ -106,10 +111,42 @@ impl MaterialCatalog {
             bail!("target database contains no decodable material instances");
         }
         let gbuffer_projections = gbuffer_projections(target, &materials);
+        let shader_catalog_sha256 = shader_catalog_sha256(target);
         Ok(Self {
             materials,
             gbuffer_projections,
+            shader_catalog_sha256,
+            runtime_proven: BTreeMap::new(),
         })
+    }
+
+    /// Hash of the shipped shader catalogue that runtime evidence must match.
+    pub fn shader_catalog_sha256(&self) -> &str {
+        &self.shader_catalog_sha256
+    }
+
+    /// Accept switch restorations proven by runtime loads where the static
+    /// variant proof is too conservative. Each entry must name the shader
+    /// catalogue it was observed with; evidence for another catalogue is an
+    /// error, since the observed loads would no longer prove anything.
+    pub fn set_runtime_proven_switches<'a>(
+        &mut self,
+        entries: impl IntoIterator<Item = (&'a str, &'a str, &'a BTreeMap<String, i64>)>,
+    ) -> Result<()> {
+        self.runtime_proven.clear();
+        for (material, catalog, switches) in entries {
+            if catalog != self.shader_catalog_sha256 {
+                bail!(
+                    "{material}: runtime switch evidence was observed with shader catalogue {catalog}, not {}",
+                    self.shader_catalog_sha256
+                );
+            }
+            if switches.is_empty() || switches.keys().any(|name| !GBUFFER_KEY_SWITCHES.iter().any(|(_, n)| n == name)) {
+                bail!("{material}: runtime evidence must name decoded permutation switches");
+            }
+            self.runtime_proven.insert(material.to_owned(), switches.clone());
+        }
+        Ok(())
     }
 
     pub fn convert(
@@ -215,6 +252,7 @@ impl MaterialCatalog {
             &mut converted.root,
             &donor_config.root,
             self.gbuffer_projections.as_ref(),
+            self.runtime_proven.get(path),
         )?;
         restore_factory_lamp_emission(
             path,
@@ -445,6 +483,16 @@ fn gbuffer_projections(target: &ResourceDb, materials: &[TargetMaterial]) -> Opt
     consistent.then_some(shipped)
 }
 
+fn shader_catalog_sha256(target: &ResourceDb) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    for path in target.paths_with_prefix(SHADER_PREFIX) {
+        hash.update(path.as_bytes());
+        hash.update(b"\n");
+    }
+    format!("{:x}", hash.finalize())
+}
+
 /// Whether changing material switches can request an unshipped shader.
 ///
 /// The unconverted material is known to load: every key it requests ships.
@@ -532,6 +580,7 @@ fn restore_source_switches(
     converted: &mut ConfigValue,
     donor: &ConfigValue,
     shipped: Option<&ShippedVariants>,
+    proven: Option<&BTreeMap<String, i64>>,
 ) -> Result<Vec<String>> {
     let mut notes = Vec::new();
     let mut wanted = BTreeMap::new();
@@ -544,8 +593,13 @@ fn restore_source_switches(
             wanted.insert(name, source);
         }
     }
+    // A subset of switches observed loading at runtime (same material, same
+    // shader catalogue) is accepted where the static proof is conservative.
+    let observed = |overrides: &BTreeMap<&str, i64>| {
+        proven.is_some_and(|proven| overrides.iter().all(|(name, level)| proven.get(*name) == Some(level)))
+    };
     let supported = |overrides: &BTreeMap<&str, i64>| {
-        shipped.is_some_and(|shipped| variants_ship(shipped, converted, overrides))
+        shipped.is_some_and(|shipped| variants_ship(shipped, converted, overrides)) || observed(overrides)
     };
     // Restore the largest subset of donor switches with a shipped
     // permutation (subsets are bounded: at most a few switches differ).
@@ -564,6 +618,11 @@ fn restore_source_switches(
             }
         }
     }
+    let proof = if applied.is_empty() || shipped.is_some_and(|shipped| variants_ship(shipped, converted, &applied)) {
+        "shipped permutation"
+    } else {
+        "runtime-proven load"
+    };
     for (name, value) in &applied {
         let current = effect_value(converted, "g_stage", name).cloned();
         let replacement = match current {
@@ -571,7 +630,7 @@ fn restore_source_switches(
             _ => ConfigValue::Boolean(*value != 0),
         };
         converted.set_path(&format!("material.g_stage.effect.{name}.value"), replacement)?;
-        notes.push(format!("{name}={value} restored from source (shipped permutation)"));
+        notes.push(format!("{name}={value} restored from source ({proof})"));
     }
     for (name, value) in &wanted {
         if applied.contains_key(name) {
@@ -1625,6 +1684,51 @@ mod tests {
         assert_eq!(effect_switch(&root, "use_troughness"), Some(true));
         assert_eq!(effect_number(&root, "constant_roughness_min"), Some(0.5));
         assert_eq!(effect_number(&root, "constant_roughness_max"), Some(0.5));
+    }
+
+    #[test]
+    fn runtime_evidence_restores_a_switch_the_static_proof_refuses() {
+        // The skeleton/rag remains repair (use_tspecular_intensity) loaded
+        // in user sessions, but some shipped variant of another vertex input
+        // lacks the switch, so the static proof refuses it. Evidence pinned
+        // to the shader catalogue restores exactly the observed switches;
+        // evidence for another catalogue is rejected.
+        let donor = gloss_material(false, false, false);
+        let template = "material_instances/flora/grass_l04.material";
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input");
+        let file = input.join(template);
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, gloss_material(true, false, false)).unwrap();
+        let shaders = input.join(GBUFFER_PREFIX.trim_end_matches('/'));
+        std::fs::create_dir_all(&shaders).unwrap();
+        for quality in ['0', '3'] {
+            for troughness in [false, true] {
+                std::fs::write(shaders.join(gbuffer_key(quality, troughness, false, false)), b"DXBC").unwrap();
+            }
+            let mut key: Vec<char> = gbuffer_key(quality, true, false, false).chars().collect();
+            key.splice(22..23, ['1', '1']);
+            std::fs::write(shaders.join(key.into_iter().collect::<String>()), b"DXBC").unwrap();
+        }
+        let archive = temp.path().join("materials.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&input).unwrap(),
+            &archive,
+        )
+        .unwrap();
+        let mut db = ResourceDb::open(archive).unwrap();
+        let mut catalog = MaterialCatalog::load(&mut db).unwrap();
+        let proven = BTreeMap::from([("use_troughness".to_owned(), 0)]);
+        assert!(catalog.set_runtime_proven_switches([(template, "stale", &proven)]).is_err());
+        let hash = catalog.shader_catalog_sha256().to_owned();
+        catalog.set_runtime_proven_switches([(template, hash.as_str(), &proven)]).unwrap();
+        let converted = catalog.convert(template, &donor, Some(template), &db, &db).unwrap();
+        let root = BinaryConfig::parse(&converted.bytes).unwrap().root;
+        assert_eq!(effect_switch(&root, "use_troughness"), Some(false));
+        assert!(converted.switch_notes.iter().any(|note| note.contains("use_troughness=0 restored from source (runtime-proven load)")));
+        // Other materials keep the static proof.
+        let other = "material_instances/flora/grass_l05.material";
+        assert!(catalog.runtime_proven.get(other).is_none());
     }
 
     #[test]

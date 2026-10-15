@@ -380,3 +380,101 @@ Shadow and sunlit ratios are within ±.05 per view. No regression.
   (`analyze_buffers.py` in the scratchpad is ready) compares stage by stage:
   AO, probe encoding and alpha, diffuse before and after HBA, composition
   HDR, post input, exposure average and display.
+
+## Covered-shade root cause: height ambient bypassed the probe decode
+
+The buffer capture at `central_shadow` and `chem-cabinets` on `816cadcd`
+located the loss in the ambient (HBA) stage. The table compares the
+2026-10-13 configuration, which matched the original 0.11a, with
+`816cadcd`.
+
+| Left wall | 10-13 | `816cadcd` | Original 0.11a |
+| --- | ---: | ---: | ---: |
+| Accumulated diffuse before the stage | .149 | .134 | – |
+| Accumulated diffuse after the stage | .215 | .048 | .205 (sky + probes) |
+| AO×2.5 | 1.21 | 1.36 | 1.24 |
+
+The stage's shader differs between the two runs:
+
+- **2026-10-13:** the hook's decode override (`b2750fd5`, 920 bytes) runs as
+  an overwrite. Its output, 8·E²·AO·2.5 = 8·.149²·1.21 = .215, matches the
+  table.
+- **`816cadcd`:** the native height-ambient multiply shader (`fff29cc6`,
+  2388 bytes, blend ZERO / SRC_COLOR) runs instead. It multiplies the
+  still-encoded probe light E (≈ √(L/8)) by the height colour
+  (.32, .393, .5)·AO.
+
+The cause is the converter. It set `use_height_based_ambient=true` for every
+early map (`transfer_environment`). The hook can replace only 0.26's
+SSAO-only multiply shader (660 bytes, `e852c81d`), so the decode never ran.
+SSAO, probes, composition and post (H1a–d) were not at fault. The blue cast
+and the "cold sheen" in covered shade follow from this darkness (see the
+groundwork section above).
+
+**Fix:** `1e3864f` keeps height ambient off for early maps. The rebuilt
+projects are byte-identical to the in-place patch that was runtime-tested.
+
+## Remains repair: runtime-proven switches
+
+`7cb2f14`'s strict rule refused the skeleton/rag
+`use_tspecular_intensity=1` restore. 104 shipped `gbuffer_pass` keys with
+the remains' switch digits lack it. They differ in vertex input (all types
+up to 14) and in undecoded material digits (34–37, 52), so they belong to
+vertex-blended and other materials. Restricting to static vertex inputs
+still leaves 24 such keys.
+
+The repair loaded in the 2b35a2ed user session. Port manifests now carry
+`runtime_proven_switches`:
+
+- Each entry names the donor material, the switches and the evidence.
+- Each entry is pinned to the SHA-256 of the sorted shipped shader key paths
+  (`f84f6a63…`). Evidence for another catalogue is a build error.
+- A restore is accepted when its switches are a subset of the proven ones.
+  Notes say `restored from source (runtime-proven load)`.
+- Everything else keeps the strict proof, so the flora crash case stays
+  refused (test `runtime_evidence_restores_a_switch_the_static_proof_refuses`;
+  297 tests pass).
+- `verify_shader_variants.py --evidence MANIFEST` lists such materials under
+  `runtime_proven` instead of `missing`.
+
+## Rebuild `eeaa13ed`
+
+Rebuilt from retail 0.26g (`c74078be`), with 13,812 resources verified. It
+differs from `816cadcd` in exactly four files: the two 0.11e projects
+(height ambient off) and the v011e skeleton/rag materials. Verifier against
+`8e72816c` with evidence: 135 materials checked, 0 missing, 0 new casters,
+2 runtime-proven.
+
+Static arms on the harness, scored against the originals:
+
+| Map | `816cadcd` mean MAE | `eeaa13ed` mean MAE | Views better | Shadow luma ratio | Sunlit luma ratio |
+| --- | ---: | ---: | ---: | --- | --- |
+| Chemical 0.11e (16) | .0802 | .0497 | 16/16 | .735 → 1.025 | .621 → .693 |
+| Radar 0.11e (20) | .0761 | .0368 | 20/20 | .736 → 1.063 | .695 → .868 |
+| Radar 0.20e (12) | .0518 | .0515 | – | unchanged (project untouched) | |
+
+Display luma per region, `816cadcd` → `eeaa13ed`, with the 0.11e original in
+the last column:
+
+| Region | `816cadcd` | `eeaa13ed` | 0.11e original |
+| --- | ---: | ---: | ---: |
+| `central_shadow` left wall | .159 | .256 | .320 |
+| `central_shadow` red door | .108 | .190 | .202 |
+| `central_shadow` shaded floor | .213 | .299 | .337 |
+| `central_shadow` sunlit floor | .497 | .576 | .586 |
+| `chem-cabinets` cabinets | .139 | .250 | .284 |
+| `chem-cabinets` brick | .108 | .226 | .240 |
+
+Remains, original → `816cadcd` → height-ambient fix alone → `eeaa13ed`:
+
+- **`chem-bones` bone pixels:** p99 luma .937 → .910 → .925 → .809. The
+  specular streaks on ribs and skull are gone and the bones read matte as in
+  the original. Mean luma is .620 → .454 → .527 → .479, still darker than
+  the original.
+- **Radar skeleton views:** MAE .050 → .029 (`skeleton-lower-path`) and
+  .134 → .067 (`skeleton-central-path`).
+
+The first Radar run after copying the new database rendered only the sky:
+203 presents over the whole run, against about 4,450 normally. This is
+consistent with a cold cache after the 6 GB copy. A rerun was normal and is
+the one scored.
