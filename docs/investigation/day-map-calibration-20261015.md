@@ -282,3 +282,65 @@ maps and 29 lost intensity masks remain the template's choice. Template
 textures in slots left empty by the source are cleared on 106 materials. The
 rebuilt candidate `816cadcd…` differs from `cc1a78d0` only in 97 material
 files.
+
+## Runtime batch 2 on `816cadcd` (2026-10-15 03:01–03:09)
+
+The batch captured the original 0.11e at seven new views: Chemical
+`boiler-hall`, `chem-bones`, `chem-wall`, `chem-cabinets`, and Radar
+`door-close-pz`/`px`, `door-far`. It then ran five harness arms: Chemical and
+Radar 0.11e with the `source` look and with `source-probe-specular`, and
+Radar 0.20e `source`. All frames are 1280×720 with matched cameras, and both
+steps returned rc=0.
+
+Scripts and outputs:
+- Scoring: `measure_shadow_specular.py` (shadow and sunlit masks taken from
+  the original frame) and `compare_release_arms.py`.
+- Repro: `analyze_batch2.sh` in the lighting scratchpad.
+- Outputs in the scratchpad: `analysis-batch2/{mae,sheen}-{chemical,radar,r20}`.
+
+| Map (views) | `source` mean MAE | `source-probe-specular` mean MAE | Views where specular is better |
+| --- | ---: | ---: | ---: |
+| Chemical 0.11e (16) | .0802 | .0831 | 6 |
+| Radar 0.11e (20) | .0761 | .0783 | 0 |
+
+The source probe specular does not remove the reported sheen.
+
+- **Shadowed pixels get darker.** Median luma ratio to the original falls
+  from .735 to .719 on Chemical and from .736 to .721 on Radar.
+- **Specular is not the main divergence.** On the reported surfaces it
+  changes little. Region means are linear-light ratios to the original
+  (R, G, B):
+
+  | View, surface | `source` | `source-probe-specular` |
+  | --- | --- | --- |
+  | `chem-wall`, panels in open shade | .95 .98 1.08 | .71 .76 .89, and mottled (p95−median luma .184 vs .057 in the original) |
+  | `central_shadow`, left wall | .24 .23 .28 | .13 .13 .20 |
+  | `central_shadow`, red door | .22 .24 .36 | .21 .23 .35 |
+  | `central_shadow`, shaded floor | .37 .35 .42 | .30 .31 .41 |
+  | `chem-cabinets`, cabinets | .17 .18 .33 | .15 .16 .31 |
+  | `chem-cabinets`, brick | .14 .16 .35 | .13 .14 .32 |
+  | `central_shadow`, sunlit floor | .82 .66 .64 | unchanged |
+
+- **What the "cool sheen" is.** Covered shade (under roofs and in passages)
+  receives 3–7× less light than in the original, and the light is
+  blue-shifted. Display B/R is 1.45 on the cabinets, door and brick, against
+  0.96–1.15 in the original. The warm albedo (rust, red paint, brick)
+  disappears and surfaces read as cold metal. Open-sky shade (`chem-wall`)
+  already matches the original.
+- **Next target.** The ambient diffuse term in occluded areas: the local or
+  box probe diffuse, the skylight term, and the AO factor. The original
+  Chemical `central_shadow` per-draw buffers (probe, skylight, SSAO) exist
+  under `resource-porter/.work/chemical-plant-011a/comparison/011a/poses/`.
+  A candidate buffer capture at the same view is needed to localise the
+  factor.
+
+`source` stays the default look. `source-probe-specular` stays selectable
+under `looks/`.
+
+Doors: `textures/ported/v011e/door/door_metal.dds` is 1024×1024 with 9 mips,
+the same as the 0.11e source. Its DXT5 colour blocks are bit-identical to
+the source DXT3; only the alpha encoding differs.
+
+Radar 0.20e (12 frozen views): `816cadcd` scores mean MAE .0518 and median
+.0365. The promoted arm scored .0510 and .0363; 6 of 12 views are better.
+Shadow and sunlit ratios are within ±.05 per view. No regression.
