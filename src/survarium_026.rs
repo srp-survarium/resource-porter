@@ -1883,6 +1883,7 @@ pub fn build_with_fill(
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
     let mut converted_geometry = BTreeSet::new();
+    let mut overlay_lods: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     let mut vegetation_instances = BTreeMap::new();
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -1929,6 +1930,27 @@ pub fn build_with_fill(
                 compatibility_notes.push(format!("{path}: integer UV island offsets removed before half packing; repeating material sampling preserved"));
             }
             converted_geometry.insert(path.clone());
+            if let Some((model, surface)) = path
+                .strip_suffix("/converted_model")
+                .and_then(|p| p.split_once(".model/render/"))
+            {
+                if !overlay_lods.contains_key(model) {
+                    let settings = format!("{model}.model/settings");
+                    let surfaces = if donor.is_file(&settings) {
+                        early::wall_overlay_lod_surfaces(&cfg(&mut donor, &settings)?)
+                            .with_context(|| format!("reading LOD surfaces of {settings}"))?
+                    } else {
+                        BTreeSet::new()
+                    };
+                    overlay_lods.insert(model.to_owned(), surfaces);
+                }
+                if overlay_lods[model].contains(surface) {
+                    let vertices =
+                        early::lift_along_normals(&mut bytes, early::WALL_OVERLAY_LOD_LIFT)
+                            .with_context(|| format!("lifting wall overlay LOD {path}"))?;
+                    compatibility_notes.push(format!("{path}: wall-overlay LOD surface lifted {} m along its normals ({vertices} vertices; the authored mesh sits up to 8.2 cm inside the wall and flickers in 0.26)", early::WALL_OVERLAY_LOD_LIFT));
+                }
+            }
         }
         if path.starts_with("textures/") && path.ends_with(".dds") {
             if let Some((bc3, report)) = crate::dds_bc3::bc2_to_bc3(&bytes)
