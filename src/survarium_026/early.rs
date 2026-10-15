@@ -530,7 +530,17 @@ fn transfer_environment(
             .and_then(|v| v.named("value"))
             .with_context(|| format!("missing early environment {name}"))
     };
-    dst.set_path("use_height_based_ambient", ConfigValue::Boolean(true))?;
+    // Height ambient stays off. The early maps' ambient is the source
+    // encoded-probe contract: probes write sqrt(L/8) and the SSAO-stage
+    // decode restores 8*E*E*AO*2.5 (legacy_ambient_decode_ssao.hlsl). The
+    // hook can only swap that decode for 0.26's SSAO-only multiply shader
+    // (660 bytes, DXBC e852c81d...). With height ambient on, 0.26 binds its
+    // height-ambient multiply shader instead (2388 bytes, fff29cc6...). The
+    // decode then never runs, and the still-encoded probe light is scaled by
+    // the height colour. Captured at Chemical central_shadow, covered-shade
+    // diffuse falls from 0.215 to 0.048 (original 0.11a: 0.205). The source
+    // skylight colours are still converted below for reference.
+    dst.set_path("use_height_based_ambient", ConfigValue::Boolean(false))?;
     dst.set_path("height_based_ambient_power", get("skylight_power")?.clone())?;
     dst.set_path(
         "height_based_ambient_low_limit",
@@ -1200,7 +1210,7 @@ mod tests {
             .unwrap();
         }
         let mut dst = ConfigValue::Named(Vec::new());
-        dst.set_path("use_height_based_ambient", ConfigValue::Boolean(false))
+        dst.set_path("use_height_based_ambient", ConfigValue::Boolean(true))
             .unwrap();
         dst.set_path("sky_clouds_color", ConfigValue::Float4([1.; 4]))
             .unwrap();
@@ -1240,9 +1250,15 @@ mod tests {
             dst.named("wind_direction"),
             Some(&ConfigValue::Float3([1., 0., 1.]))
         );
+        // The encoded-probe decode replaces only the SSAO-only multiply
+        // shader; height ambient would bypass it (see transfer_environment).
         assert_eq!(
             dst.named("use_height_based_ambient"),
-            Some(&ConfigValue::Boolean(true))
+            Some(&ConfigValue::Boolean(false))
+        );
+        assert_eq!(
+            legacy.named("use_height_based_ambient"),
+            Some(&ConfigValue::Boolean(false))
         );
         assert_eq!(
             dst.named("height_based_ambient_power"),
