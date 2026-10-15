@@ -8,7 +8,7 @@
 //! `archive_platform_pc` uses `platform_pointer_64bit` in `saving_db.cpp`):
 //!
 //! ```text
-//! [ fat_header (24 bytes) ][ FAT node buffer (buffer_size bytes) ][ data blob ]
+//! [ fat_header (24 bytes) ][ FAT node buffer (buffer_size bytes) ][ signature (256) ][ data blob ]
 //! ```
 //!
 //! The FAT node buffer is a packed tree of variable-length nodes. Node
@@ -21,6 +21,7 @@
 //! rather than here.
 
 pub mod fat;
+pub mod headroom;
 pub mod overlay;
 pub mod pack;
 

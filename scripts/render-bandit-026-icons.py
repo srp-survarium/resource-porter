@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Render converted Bandit geometry and add icons to unused native atlas cells."""
+"""Render the converted Bandit balaclava and add its icon to an unused atlas cell.
+
+Only the balaclava ships; it takes cell [2, 6] of the added sixth column.
+"""
 import argparse
 import hashlib
 import importlib.util
@@ -33,24 +36,21 @@ def main():
         tex = np.asarray(Image.open(a.textures/f'bandit_01_{texture}.tga').convert('RGB'),dtype=float)/255
         return pos, floats[:,10:12].astype(float), raw[:,28:31][:,::-1].astype(float)/127.5-1, faces, tex, np.unique(faces)
     head = [mesh('mask','mask','attach')]
-    torso = [mesh('torso','torso','torso')]; legs = [mesh('legs','legs','legs')]
-    gloves = [mesh('gloves','gloves','torso')]; boots = [mesh('boots','boots','legs')]
-    full = renderer.render(head+torso+legs+gloves+boots,15,0,(700,1000))
-    full.save(a.output/'bandit-converted.png')
     prefix,tags = renderer.swf_tags(a.lobby_swf)
     tag_index,char_id,argb = renderer.atlas_tag(tags)
     h,w = argb.shape[:2]
     assert w in (855,1026) and h == 2048
     atlas = np.zeros((h,1026,4),np.uint8);atlas[:,:w] = argb
-    specs = [('balaclava',head,15,0,0),('jacket',torso,15,0,0),('jeans',legs,15,0,0),('hands',[mesh('gloves','gloves','torso',True)],-40,10,45),('shoes',boots,15,10,0)]
-    comparison=Image.new('RGB',(684,166*5),(30,33,36))
+    # Row i + 1 of the sixth column: the balaclava is [2, 6].
+    specs = [('balaclava',head,15,0,0)]
+    comparison=Image.new('RGB',(684,166*len(specs)),(30,33,36))
     for i,(name,meshes,yaw,pitch,roll) in enumerate(specs,1):
         assert not atlas[i*91:i*91+83,855:].any(), 'target icon cell occupied'
         render=renderer.render(meshes,yaw,pitch,roll=roll)
         render.save(a.output/f'{name}-render.png')
         shown=render.resize((342,166));comparison.paste(shown,(342,(i-1)*166),shown)
         # Matching native template thumbnails; names/positions retain their category.
-        native=[(19,5),(22,1),(1,2),(3,2),(4,2)][i-1]
+        native=[(19,5)][i-1]
         row,col=native
         og=Image.fromarray(argb[:,:,[1,2,3,0]]).crop(((col-1)*171,(row-1)*91,col*171,(row-1)*91+83)).resize((342,166))
         comparison.paste(og,(0,(i-1)*166),og)

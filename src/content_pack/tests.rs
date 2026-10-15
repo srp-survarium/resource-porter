@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value as Json, json};
@@ -625,4 +626,274 @@ fn from_bundle_keeps_only_owned_shared_changes() {
     ));
     assert!(composed.contains("material_instances/ported/new/body.material"));
     assert!(!composed.contains("gameplay/items/earlier.options"));
+}
+
+fn release_pack(fixture: &Fixture) -> PathBuf {
+    let scratch = fixture.temp.path().join("release-icons");
+    let (_, red) = icon_png(&scratch, "red.png", 200);
+    fixture.pack(
+        "release",
+        json!([
+            {"op": "add_file", "path": "gameplay/items/armour/torso/new.options"},
+            {"op": "add_file", "path": "misc/new/payload.bin"},
+            {"op": "dictionary_add", "table": "items_dict",
+             "entries": [{"cfg_name": "gameplay/items/armour/torso/new.options",
+                          "dict_id": 1805, "is_stack": false, "base_cost": 7}]},
+            {"op": "localization_add", "strings": {"st_new": "New"}},
+            {"op": "atlas_icons_add", "icons": [{"row": 2, "col": 3, "source": "icons/i.png", "premultiplied": true}]},
+        ]),
+        &[
+            (
+                "files/gameplay/items/armour/torso/new.options",
+                &config(json!({"table": {
+                    "parameters": {"table": {"armor": 0.9, "weight": 35.0}},
+                    "data": {"table": {"additional_model_slots": ["helmet", "mask"]}},
+                }})),
+            ),
+            ("files/misc/new/payload.bin", &b"payload ".repeat(5000)),
+            ("icons/i.png", &red),
+        ],
+    )
+}
+
+fn release_options<'a>(
+    fixture: &'a Fixture,
+    packs: &'a [PathBuf],
+    exclude: &'a [String],
+    sign_command: Option<&'a str>,
+    name: &str,
+) -> release::ReleaseOptions<'a> {
+    let work: &'a Path = Box::leak(
+        fixture
+            .temp
+            .path()
+            .join(format!("rwork-{name}"))
+            .into_boxed_path(),
+    );
+    let out: &'a Path = Box::leak(
+        fixture
+            .temp
+            .path()
+            .join(format!("rout-{name}"))
+            .into_boxed_path(),
+    );
+    let export: &'a Path = Box::leak(
+        fixture
+            .temp
+            .path()
+            .join(format!("rexport-{name}"))
+            .into_boxed_path(),
+    );
+    release::ReleaseOptions {
+        base_db: &fixture.base,
+        packs,
+        work_dir: work,
+        output_dir: out,
+        exclude,
+        server_export: Some(export),
+        sign_command,
+        deep_verify: true,
+        force: false,
+    }
+}
+
+#[test]
+fn release_reads_like_the_composed_database() {
+    let fixture = Fixture::new();
+    let packs = [release_pack(&fixture)];
+    fixture.compose("full", &packs).unwrap();
+    let exclude = [atlas::DEFAULT_SWF.to_owned()];
+    let options = release_options(&fixture, &packs, &exclude, None, "plain");
+    let manifest = release::release(&options).unwrap();
+    assert_eq!(manifest.signature.status, "unsigned");
+    assert_eq!(manifest.excluded.len(), 1);
+    let out = options.output_dir;
+    let base_len = fs::metadata(&fixture.base).unwrap().len();
+    assert_eq!(manifest.tail.offset, base_len);
+    assert_eq!(manifest.output.size, base_len + manifest.tail.size);
+    assert!(manifest.plan_lines[0].starts_with(&format!(
+        "region game/resources.db {base_len} 0 {} ",
+        manifest.head.blob.size
+    )));
+
+    let overlaid = resources_db::headroom::OverlaidFile::open(
+        &fixture.base,
+        &out.join(release::HEAD),
+        &out.join(release::TAIL),
+    )
+    .unwrap();
+    let mut released = ResourceDb::from_reader(Box::new(overlaid)).unwrap();
+    let mut composed = fixture.output("full");
+    let mut base = ResourceDb::open(&fixture.base).unwrap();
+    let paths: Vec<String> = composed
+        .entries()
+        .keys()
+        .filter(|p| composed.is_file(p))
+        .cloned()
+        .collect();
+    for path in &paths {
+        let expected = if path == atlas::DEFAULT_SWF {
+            base.read(path).unwrap()
+        } else {
+            composed.read(path).unwrap()
+        };
+        assert_eq!(released.read(path).unwrap(), expected, "{path}");
+    }
+    // Base bytes past the head are untouched.
+    let base_bytes = fs::read(&fixture.base).unwrap();
+    let mut whole = Vec::new();
+    resources_db::headroom::OverlaidFile::open(
+        &fixture.base,
+        &out.join(release::HEAD),
+        &out.join(release::TAIL),
+    )
+    .unwrap()
+    .read_to_end(&mut whole)
+    .unwrap();
+    let head = manifest.head.blob.size as usize;
+    assert_eq!(&whole[head..base_bytes.len()], &base_bytes[head..]);
+
+    let content: Json = serde_json::from_slice(
+        &fs::read(options.server_export.unwrap().join("content.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        content["items"],
+        json!([{"config": "gameplay/items/armour/torso/new.options",
+                "additional_model_slots": ["helmet", "mask"]}])
+    );
+
+    // Deterministic, and refuses to overwrite without --force.
+    assert!(release::release(&options).is_err());
+    let again = release::release(&release::ReleaseOptions {
+        force: true,
+        ..release_options(&fixture, &packs, &exclude, None, "plain")
+    })
+    .unwrap();
+    assert_eq!(again.head.blob.sha256, manifest.head.blob.sha256);
+    assert_eq!(again.tail.sha256, manifest.tail.sha256);
+}
+
+#[cfg(unix)]
+fn signer(fixture: &Fixture, name: &str, body: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let path = fixture.temp.path().join(name);
+    fs::write(&path, format!("#!/bin/sh\nset -e\n{body}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn release_signs_only_the_signature_slot() {
+    let fixture = Fixture::new();
+    let packs = [release_pack(&fixture)];
+    let exclude = [atlas::DEFAULT_SWF.to_owned()];
+    let good = signer(
+        &fixture,
+        "good.sh",
+        "printf 'S%.0s' $(seq 256) | dd of=\"$1\" bs=1 seek=\"$2\" conv=notrunc status=none",
+    );
+    let manifest = release::release(&release_options(
+        &fixture,
+        &packs,
+        &exclude,
+        Some(&good),
+        "good",
+    ))
+    .unwrap();
+    assert_eq!(manifest.signature.status, "signed");
+    let head = fs::read(fixture.temp.path().join("rout-good").join(release::HEAD)).unwrap();
+    let slot = manifest.signature.offset as usize;
+    assert!(head[slot..slot + 256].iter().all(|b| *b == b'S'));
+    let table = u32::from_le_bytes(head[20..24].try_into().unwrap()) as usize;
+    assert_eq!(slot, 24 + table, "the slot follows the file table");
+
+    let stray = signer(
+        &fixture,
+        "stray.sh",
+        "printf 'X' | dd of=\"$1\" bs=1 seek=0 conv=notrunc status=none",
+    );
+    assert!(
+        error_text(release::release(&release_options(
+            &fixture,
+            &packs,
+            &exclude,
+            Some(&stray),
+            "stray"
+        )))
+        .contains("outside the signature slot")
+    );
+    let lazy = signer(&fixture, "lazy.sh", "true");
+    assert!(
+        error_text(release::release(&release_options(
+            &fixture,
+            &packs,
+            &exclude,
+            Some(&lazy),
+            "lazy"
+        )))
+        .contains("left the signature slot empty")
+    );
+}
+
+#[test]
+fn lobby_region_keeps_size_crc_and_other_tags() {
+    let fixture = Fixture::new();
+    let packs = [release_pack(&fixture)];
+    let mut base = ResourceDb::open(&fixture.base).unwrap();
+    let movie = base.read(atlas::DEFAULT_SWF).unwrap();
+    // The retail entry: the movie padded with room for new icons.
+    let mut original = movie.clone();
+    original.resize(movie.len() + 4096, 0x5A);
+    let dir = fixture.temp.path();
+    fs::write(dir.join("original.swf"), &original).unwrap();
+    // What players have now: the same movie, differently padded.
+    let mut current = movie.clone();
+    current.resize(original.len(), 0);
+    fs::write(dir.join("current.swf"), &current).unwrap();
+    let options = release::LobbyRegionOptions {
+        swf: &dir.join("current.swf"),
+        original: &dir.join("original.swf"),
+        packs: &packs,
+        output: &dir.join("region.bin"),
+        expect_width: Some(2 * atlas::CELL_WIDTH),
+        base_db: None,
+    };
+    let region = release::lobby_region(&options).unwrap();
+    let bytes = fs::read(dir.join("region.bin")).unwrap();
+    assert_eq!(bytes.len(), original.len());
+    assert_eq!(
+        resources_db::pack::crc32(&bytes),
+        resources_db::pack::crc32(&original)
+    );
+    assert_eq!(crc32fast::hash(&bytes), crc32fast::hash(&original));
+    assert_eq!(region.cells, vec![(2, 3)]);
+    assert_eq!(
+        region.atlas_width,
+        (2 * atlas::CELL_WIDTH, 3 * atlas::CELL_WIDTH)
+    );
+    let swf = atlas::Swf::parse(&bytes).unwrap();
+    assert!(
+        swf.same_except_bitmap(&atlas::Swf::parse(&movie).unwrap(), atlas::DEFAULT_SYMBOL)
+            .unwrap()
+    );
+    let bitmap = swf.bitmap(atlas::DEFAULT_SYMBOL).unwrap();
+    assert_eq!(bitmap.cell(2, 3).unwrap(), icon(200));
+    assert_eq!(bitmap.cell(1, 1).unwrap(), icon(1));
+
+    // Drawing again onto the result collides with the cell it drew.
+    let again = release::LobbyRegionOptions {
+        swf: &dir.join("region.bin"),
+        expect_width: None,
+        output: &dir.join("region2.bin"),
+        ..options
+    };
+    assert!(error_text(release::lobby_region(&again)).contains("already occupied"));
+    let narrow = release::LobbyRegionOptions {
+        expect_width: Some(855),
+        output: &dir.join("region3.bin"),
+        ..options
+    };
+    assert!(error_text(release::lobby_region(&narrow)).contains("expected 855"));
 }

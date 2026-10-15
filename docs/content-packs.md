@@ -149,6 +149,48 @@ Removals cannot be expressed: a deleted dictionary row, a removed config key
 or a cleared atlas cell is noted but not carried over. A structural config
 change falls back to `replace_file`.
 
+## Releases to installed clients
+
+`compose` writes a whole new database, and a growing file table shifts every
+payload, so the result differs from retail across the whole 6.3 GB file.
+`pack release` instead produces what an installed client needs on top of
+retail:
+
+```
+vostok-port pack release --base-db RETAIL --pack A --pack B … --work-dir W \
+    --output-dir OUT [--exclude flash_movies/lobby_menu.swf] \
+    [--server-export DIR] [--sign-command "CMD …"] [--deep-verify] [--force]
+vostok-port pack lobby-region --swf CURRENT_LOBBY --original RETAIL_LOBBY \
+    --pack A --pack B … --output OUT/lobby_menu-region.bin [--base-db RETAIL]
+```
+
+* `resources-head.bin` replaces the same-size range `[0, H)`: the header,
+  the larger file table, the 256-byte signature slot right after the table
+  (`[24 + table_size, +256)`) and zeros. Every retail payload keeps its
+  offset, except the few that started inside the space the table now needs:
+  they move to the tail. `H` is the end of the last moved payload.
+* `resources-tail.bin` is appended at the retail end: new and changed
+  payloads in overlay order, then the moved payloads.
+* `release.json` records sizes and SHA-256s of base, head (and the base's
+  bytes it replaces), tail and the resulting archive, the moved payloads,
+  the signature slot and the updater plan lines (`region … resources_head`,
+  `tail … resources_tail`).
+* Nothing writes a whole archive: verification reads retail + head + tail as
+  one virtual file (`resources_db::headroom::OverlaidFile`). It checks every
+  composed resource, every pack operation (`verify`), and that every other
+  retail entry keeps its offset and bytes (`--deep-verify` compares the bytes
+  of all of them).
+* `--exclude` keeps a composed path out of the archive. The lobby movie ships
+  as its own updater region instead: `pack lobby-region` draws the packs'
+  atlas icons into the movie players have now, checks that nothing but the
+  atlas changed, and pads it to the retail entry's size with four trailing
+  bytes that keep its CRC, so the file table entry stays the retail one.
+* `--sign-command` runs last as `<command words…> <head> <slot offset>` and
+  may write only the slot. `scripts/sign-release-head.py --signer
+  <skhid-srp>/srp-026g/client-patches/sign_resources_026g.py` signs with the
+  Skhid key (read from its default location, never copied). Without a signer
+  the release is recorded as `unsigned`.
+
 ## Runtime requirement
 
 A client whose `resources.db` differs from retail needs the resource

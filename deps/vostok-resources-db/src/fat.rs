@@ -263,8 +263,13 @@ pub struct FileEntry {
     pub inline_buffer_offset: Option<u64>,
 }
 
+/// Anything an archive can be read from: a file, or a virtual composition of
+/// a base file and patch blobs ([`crate::headroom::OverlaidFile`]).
+pub trait ReadSeek: Read + Seek + Send {}
+impl<T: Read + Seek + Send> ReadSeek for T {}
+
 pub struct Archive {
-    file: File,
+    file: Box<dyn ReadSeek>,
     /// The FAT node buffer (buffer_size bytes), loaded fully into memory.
     buf: Vec<u8>,
     pub num_nodes: u32,
@@ -274,7 +279,11 @@ pub struct Archive {
 /// Public API.
 impl Archive {
     pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Archive> {
-        let mut file = File::open(path)?;
+        Self::from_reader(Box::new(File::open(path)?))
+    }
+
+    pub fn from_reader(mut file: Box<dyn ReadSeek>) -> io::Result<Archive> {
+        file.seek(SeekFrom::Start(0))?;
         let mut header_bytes = [0u8; std::mem::size_of::<FatHeader>()];
         file.read_exact(&mut header_bytes)?;
         let header: FatHeader = bytemuck::pod_read_unaligned(&header_bytes);

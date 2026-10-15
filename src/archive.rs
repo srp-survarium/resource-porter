@@ -16,6 +16,16 @@ impl ResourceDb {
         let path = path.as_ref();
         let archive = Archive::open(path)
             .with_context(|| format!("opening resource database {}", path.display()))?;
+        Self::from_archive(archive)
+    }
+
+    /// A database read from any seekable source, e.g. a base file with
+    /// headroom-overlay blobs ([`resources_db::headroom::OverlaidFile`]).
+    pub fn from_reader(reader: Box<dyn resources_db::fat::ReadSeek>) -> Result<Self> {
+        Self::from_archive(Archive::from_reader(reader).context("opening resource database")?)
+    }
+
+    fn from_archive(archive: Archive) -> Result<Self> {
         let mut entries = BTreeMap::new();
         for entry in archive.list() {
             let key = String::from_utf8(entry.path.clone())

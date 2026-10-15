@@ -593,59 +593,6 @@ pub fn build(
             config(&overlay, &material_path, material.root, &mut files)?;
         }
     }
-    // Native energy-cost variants skip -5%; add a default-only variant.
-    let modification_path = "gameplay/items/modifications/modifications.options";
-    let mut modification_config = parse_config(&mut target, modification_path, "native modifiers")?;
-    let V::Indexed(mods) = modification_config
-        .root
-        .named_mut("modifications")
-        .context("modifications missing")?
-    else {
-        bail!("expected indexed modifications")
-    };
-    let mut energy = mods
-        .iter()
-        .find(|m| m.named("id") == Some(&V::Integer(1162)))
-        .context("energy modifier template missing")?
-        .clone();
-    energy.set_path("id", V::Integer(1165))?;
-    energy.set_path("drop_weight", V::Integer(0))?;
-    energy.set_path(
-        "lobby_info.stamina_spending_speed_modifier",
-        V::Float(-0.05),
-    )?;
-    if let Some(V::Indexed(values)) = energy.named_mut("modifiers") {
-        ensure!(values.len() == 1, "unexpected energy modifier shape");
-        values[0].set_path("value", V::Float(-0.05))?;
-    } else {
-        bail!("energy modifier values missing")
-    }
-    if let Some(V::Indexed(props)) = energy
-        .named_mut("ui_desc")
-        .and_then(|v| v.named_mut("props_list"))
-    {
-        ensure!(props.len() == 1, "unexpected energy tooltip shape");
-        props[0].set_path("prop_value", string("-0.05"))?;
-    } else {
-        bail!("energy tooltip missing")
-    }
-    if let Some(existing) = mods
-        .iter()
-        .find(|m| m.named("id") == Some(&V::Integer(1165)))
-    {
-        ensure!(
-            existing == &energy,
-            "modifier 1165 is occupied by another definition"
-        );
-    } else {
-        mods.push(energy);
-    }
-    config(
-        &overlay,
-        modification_path,
-        modification_config.root,
-        &mut files,
-    )?;
     let oxygen_template = parse_config(
         &mut target,
         "gameplay/items/armour/back/scavenger_oxygen_1.options",
@@ -693,33 +640,26 @@ pub fn build(
     item.set_path("dict_id", V::Integer(id))?;
     item.set_path("cfg_name", string(path))?;
     item.set_path("name", string("duty_exo_back"))?;
-    // Keep the aggregate purchase cost of the six original pieces.
-    let mut cost = 0;
-    for category in ["helmet", "torso", "legs", "gloves", "boots", "back"] {
-        let cfg_path = if category == "back" {
-            template.to_owned()
-        } else {
-            format!("gameplay/items/armour/{category}/renesanse_{category}_6.options")
-        };
-        let native = items
-            .iter()
-            .find(|v| v.named("cfg_name") == Some(&string(&cfg_path)))
-            .context("native armor item missing")?;
-        let Some(V::Integer(value)) = native.named("base_cost") else {
-            bail!("native cost missing");
-        };
-        cost += value * 5 / 4;
-    }
+    // Owner's balance (2026-10-15): between the two level 15 sets, "Zubr UM-4"
+    // (287 500 for five pieces) and "Pilgrim" (310 000 for six).
+    let cost = 300_000;
     item.set_path("base_cost", V::Integer(cost))?;
     items.push(item.clone());
     let mut cfg = parse_config(&mut target, template, "native back config")?;
-    let modifications = [1031, 1050, 1170, 1040, 1114, 1165];
-    for (key, value) in [("weight", 27.0), ("armor", 0.8), ("ano_armor", 0.7)] {
+    // Between the Zubr UM-4 and Pilgrim sets: Zubr's ammo bag and pocket,
+    // Pilgrim's artefact slot, and no speed, stamina or carry bonus, which no
+    // level 15 equipment has.
+    let modifications = [1030, 1050, 1170, 1040];
+    for (key, value) in [("weight", 35.0), ("armor", 0.87), ("ano_armor", 0.7)] {
         cfg.root
             .set_path(&format!("parameters.{key}"), V::Float(value))?;
     }
+    for key in ["item_level", "match_making_level"] {
+        cfg.root
+            .set_path(&format!("parameters.{key}"), V::Integer(15))?;
+    }
     cfg.root
-        .set_path("parameters.max_carried_weight_modifier", V::Integer(35))?;
+        .set_path("parameters.max_carried_weight_modifier", V::Integer(0))?;
     cfg.root
         .set_path("parameters.oxygen_amount", V::Integer(30))?;
     cfg.root
@@ -749,12 +689,14 @@ pub fn build(
             };
             for hit in types {
                 let protection = if matches!(hit.name.as_str(), "slash" | "explosive" | "ranged") {
+                    // Zubr 0.75/0.90 and Pilgrim 0.70/0.85 (head/body).
                     if matches!(part.name.as_str(), "brain" | "face") {
-                        0.65
+                        0.72
                     } else {
-                        0.80
+                        0.87
                     }
                 } else {
+                    // Zubr 0.5, Pilgrim 0.9.
                     0.70
                 };
                 hit.value.set_path("armor", V::Float(protection))?;
@@ -815,7 +757,7 @@ pub fn build(
                 .collect(),
         ),
     )?;
-    let props = [(6, "80"), (8, "70"), (15, "27.0"), (106, "35"), (11, "30")]
+    let props = [(6, "87"), (8, "70"), (15, "35.0"), (11, "30")]
         .into_iter()
         .map(|(id, value)| {
             table(vec![
@@ -841,11 +783,11 @@ pub fn build(
     }
     let strings: BTreeMap<String, String> = BTreeMap::from([
         ("st_duty_026_suit_name".into(), "Duty exoskeleton".into()),
-        ("st_duty_026_suit_desc".into(), "An experimental sample of a military exoskeleton. Was never mass-produced due to extraordinary cost and some design flaws. Despite this, it is in demand due to its ability to take on the weight of all carried equipment, and therefore small batches are made in underground facilities outside Ukraine. Comes with a built-in artifact container.".into()),
+        ("st_duty_026_suit_desc".into(), "An experimental sample of a military exoskeleton. Was never mass-produced due to extraordinary cost and some design flaws. Small batches are still made in underground facilities outside Ukraine. Comes with a built-in artifact container.".into()),
     ]);
     config(&overlay, path, cfg.root, &mut files)?;
     let registration = vec![
-        json!({"dict_id":id,"slot":3,"additional_slots":[0,1,2,4,5,6],"name":"Duty exoskeleton","template":template,"weight":27.0,"default_modifications":modifications,"dictionary_entry":format!("{item:?}"),"config":path}),
+        json!({"dict_id":id,"slot":3,"additional_slots":[0,1,2,4,5,6],"name":"Duty exoskeleton","template":template,"weight":35.0,"item_level":15,"match_making_level":15,"default_modifications":modifications,"dictionary_entry":format!("{item:?}"),"config":path}),
     ];
     if let Some(path) = icons_swf {
         let bytes = fs::read(path)?;
