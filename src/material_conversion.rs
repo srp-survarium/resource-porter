@@ -665,20 +665,32 @@ fn restore_source_switches(
         if applied.contains_key(name) {
             continue;
         }
-        let emulated = *name == "use_troughness"
-            && *value == 0
-            && effect_number(converted, "constant_roughness_min").is_some()
-            && effect_number(converted, "constant_roughness_max").is_some();
-        match effect_number(converted, "constant_roughness").filter(|_| emulated) {
-            Some(constant) => {
-                for field in ["constant_roughness_min", "constant_roughness_max"] {
+        // A constant left textured is emulated by a zero-width range: the
+        // g-buffer writes min + (max - min) * texel. 0.11e moss and rusted
+        // metal use a constant fresnel of 0.04; 0.26 would otherwise read
+        // 0.04..1 from their specular texture (moss: mean 0.12, p95 0.37).
+        let constant_field = match *name {
+            "use_troughness" => Some("roughness"),
+            "use_tfresnel" => Some("fresnel"),
+            _ => None,
+        };
+        let emulated = constant_field.filter(|field| {
+            *value == 0
+                && effect_number(converted, &format!("constant_{field}_min")).is_some()
+                && effect_number(converted, &format!("constant_{field}_max")).is_some()
+        });
+        match emulated.and_then(|field| {
+            effect_number(converted, &format!("constant_{field}")).map(|constant| (field, constant))
+        }) {
+            Some((field, constant)) => {
+                for bound in ["min", "max"] {
                     converted.set_path(
-                        &format!("material.g_stage.effect.{field}.value"),
+                        &format!("material.g_stage.effect.constant_{field}_{bound}.value"),
                         ConfigValue::Float(constant),
                     )?;
                 }
                 notes.push(format!(
-                    "use_troughness=false emulated by zero-width textured range at constant {constant}"
+                    "{name}=false emulated by zero-width textured range at constant {constant}"
                 ));
             }
             None => notes.push(format!(
@@ -1556,6 +1568,9 @@ mod tests {
             number("constant_roughness", 0.5),
             number("constant_roughness_min", 0.1),
             number("constant_roughness_max", 0.2),
+            number("constant_fresnel", 0.04),
+            number("constant_fresnel_min", 0.3),
+            number("constant_fresnel_max", 1.0),
         ]);
         BinaryConfig {
             root: ConfigValue::Named(vec![named(
@@ -1666,6 +1681,35 @@ mod tests {
         let converted = catalog.convert(closer, &metal, None, &db, &db).unwrap();
         assert_eq!(converted.template_path, closer);
         assert_eq!(effect(&converted.bytes, "use_tspecular_intensity").0, Some(true));
+    }
+
+    #[test]
+    fn constant_fresnel_left_textured_becomes_a_zero_width_range() {
+        let effect = |bytes: &[u8], name: &str| {
+            let root = BinaryConfig::parse(bytes).unwrap().root;
+            (effect_switch(&root, name), effect_number(&root, name))
+        };
+        // 0.11e anomaly_moss: textured roughness, constant fresnel .04. Only
+        // the textured-fresnel permutation ships for its other switches.
+        let donor = gloss_material(true, false, false);
+        let template = "material_instances/anomaly/anomaly_moss.material";
+        let (_temp, mut db) = gloss_catalog(
+            &[(template, gloss_material(true, false, true))],
+            &[(true, false, true)],
+        );
+        let catalog = MaterialCatalog::load(&mut db).unwrap();
+        let converted = catalog.convert(template, &donor, None, &db, &db).unwrap();
+        assert_eq!(effect(&converted.bytes, "use_tfresnel").0, Some(true));
+        assert_eq!(effect(&converted.bytes, "constant_fresnel_min").1, Some(0.04));
+        assert_eq!(effect(&converted.bytes, "constant_fresnel_max").1, Some(0.04));
+        // Roughness is untouched: it is textured in the source too.
+        assert_eq!(effect(&converted.bytes, "constant_roughness_min").1, Some(0.1));
+        assert_eq!(effect(&converted.bytes, "constant_roughness_max").1, Some(0.2));
+        assert!(converted
+            .switch_notes
+            .iter()
+            .any(|note| note.contains("use_tfresnel=false emulated by zero-width")));
+        assert!(!converted.switch_notes.iter().any(|note| note.contains("unresolved")));
     }
 
     #[test]
