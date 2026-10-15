@@ -206,6 +206,11 @@ pub(super) fn project(
                 ]),
             )?;
         }
+        if kind == "decal" && lift_floor_decal(&mut object)? {
+            notes.push(format!(
+                "{path}: floor decal raised {FLOOR_DECAL_LIFT} m along its projection (0.26 decal depth reconstruction)"
+            ));
+        }
         client.push(object);
     }
     if source == SourceBuild::V011a && map.level == "level_04" {
@@ -274,6 +279,43 @@ pub(super) fn validate_server_fallback(client: &ConfigValue, server: &ConfigValu
         );
     }
     Ok(())
+}
+
+/// Height added to a downward-projecting decal, with the same length added to
+/// its projection depth so the covered volume only grows.
+const FLOOR_DECAL_LIFT: f32 = 0.02;
+
+/// 0.26 rejects decal pixels whose reconstructed position falls just outside
+/// the projection box: its view depth is half precision. A source decal whose
+/// origin sits a few millimetres above the floor then draws only in thin
+/// screen rows ("stripes"). Example: 0.11e Chemical puddle_rust_01, 7 mm
+/// above the floor; raising it 2 cm restored the whole orange puddle, as in
+/// the original. Decals projecting straight down are recognised by their
+/// authored rotation: x = -pi/2 with z = 0, or x = +pi/2 with z = +-pi.
+fn lift_floor_decal(object: &mut ConfigValue) -> Result<bool> {
+    let (Some(ConfigValue::Float3(rotation)), Some(ConfigValue::Float3(position))) =
+        (object.named("rotation").cloned(), object.named("position").cloned())
+    else {
+        return Ok(false);
+    };
+    let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+    let pi = std::f32::consts::PI;
+    let down = (near(rotation[0], -pi / 2.) && near(rotation[2], 0.))
+        || (near(rotation[0], pi / 2.) && near(rotation[2].abs(), pi));
+    let far = match object.named("decal_far_distance") {
+        Some(ConfigValue::Float(value)) => *value,
+        Some(ConfigValue::Integer(value)) => *value as f32,
+        _ => return Ok(false),
+    };
+    if !down {
+        return Ok(false);
+    }
+    object.set_path(
+        "position",
+        ConfigValue::Float3([position[0], position[1] + FLOOR_DECAL_LIFT, position[2]]),
+    )?;
+    object.set_path("decal_far_distance", ConfigValue::Float(far + FLOOR_DECAL_LIFT))?;
+    Ok(true)
 }
 
 /// Early respawn protection is authored in milliseconds: the 0.11e loader
@@ -1167,6 +1209,26 @@ mod tests {
         .unwrap();
         let client = array(project.named("client_objects").unwrap()).unwrap();
         assert_eq!(client, &[wire]);
+    }
+
+    #[test]
+    fn floor_decals_are_raised_along_their_projection() {
+        let decal = |rotation: [f32; 3]| {
+            let mut o = ConfigValue::Named(Vec::new());
+            o.set_path("rotation", ConfigValue::Float3(rotation)).unwrap();
+            o.set_path("position", ConfigValue::Float3([-69.675, 12.177, 55.821])).unwrap();
+            o.set_path("decal_far_distance", ConfigValue::Float(0.3)).unwrap();
+            o
+        };
+        let mut floor = decal([-1.571, -1.33, 0.]);
+        assert!(lift_floor_decal(&mut floor).unwrap());
+        assert_eq!(floor.named("position"), Some(&ConfigValue::Float3([-69.675, 12.177 + FLOOR_DECAL_LIFT, 55.821])));
+        assert_eq!(floor.named("decal_far_distance"), Some(&ConfigValue::Float(0.3 + FLOOR_DECAL_LIFT)));
+        let mut flipped = decal([1.571, 0.327, -3.141]);
+        assert!(lift_floor_decal(&mut flipped).unwrap());
+        let mut wall = decal([0., 1.2, 0.]);
+        assert!(!lift_floor_decal(&mut wall).unwrap());
+        assert_eq!(wall.named("decal_far_distance"), Some(&ConfigValue::Float(0.3)));
     }
 
     #[test]
