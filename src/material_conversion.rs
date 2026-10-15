@@ -151,8 +151,13 @@ impl MaterialCatalog {
                     self.shader_catalog_sha256
                 );
             }
-            if switches.is_empty() || switches.keys().any(|name| !GBUFFER_KEY_SWITCHES.iter().any(|(_, n)| n == name)) {
-                bail!("{material}: runtime evidence must name decoded permutation switches");
+            // g-stage switches by name; other stages as "stage.use_...".
+            let valid = |name: &str| match name.split_once('.') {
+                Some((stage, switch)) => stage != "g_stage" && switch.starts_with("use_"),
+                None => GBUFFER_KEY_SWITCHES.iter().any(|(_, n)| *n == name),
+            };
+            if switches.is_empty() || switches.keys().any(|name| !valid(name)) {
+                bail!("{material}: runtime evidence must name decoded g-stage switches or stage.use_ switches");
             }
             self.runtime_proven.insert(material.to_owned(), switches.clone());
         }
@@ -272,6 +277,12 @@ impl MaterialCatalog {
             target,
         )?;
         let mut switch_notes = switch_notes;
+        switch_notes.extend(restore_peer_stage_switches(
+            &mut converted.root,
+            &donor_config.root,
+            &self.materials,
+            self.runtime_proven.get(path),
+        )?);
         if let Some(null) = &self.null_texture {
             switch_notes.extend(bind_missing_textures(
                 &mut converted.root,
@@ -615,7 +626,7 @@ fn restore_source_switches(
     // shader catalogue) is accepted where the static proof is conservative.
     let observed = |overrides: &BTreeMap<&str, i64>| {
         proven.is_some_and(|proven| overrides.iter().all(|(name, level)| proven.get(*name) == Some(level)))
-    };
+    };  // stage-qualified entries ("decals.use_nmap") never match g-stage names
     let supported = |overrides: &BTreeMap<&str, i64>| {
         shipped.is_some_and(|shipped| variants_ship(shipped, converted, overrides)) || observed(overrides)
     };
@@ -1146,6 +1157,102 @@ fn neutralize_template_water_foam(converted: &mut ConfigValue, donor: &ConfigVal
             *value = ConfigValue::Integer(0);
         }
     }
+}
+
+/// Switches of stages other than the g-stage (decals...), keyed by name.
+fn stage_switches(root: &ConfigValue, stage: &str) -> BTreeMap<String, i64> {
+    let mut out = BTreeMap::new();
+    let Some(ConfigValue::Named(entries)) = root.named("material").and_then(|m| m.named(stage)).and_then(|s| s.named("effect")) else {
+        return out;
+    };
+    for entry in entries {
+        if entry.name.starts_with("use_") {
+            if let Some(level) = switch_level(root, stage, &entry.name) {
+                out.insert(entry.name.clone(), level);
+            }
+        }
+    }
+    out
+}
+
+/// Restore the donor's switches on stages other than the g-stage, whose
+/// shader keys are not decoded here. A change is accepted only when a native
+/// material uses the same effect with exactly the resulting switch set on
+/// that stage, so every shader variant it requests already loads in retail.
+/// Example: 0.11e `editor_decals_moss` turns `use_nmap` off; the template
+/// leaves it on and samples the source's `editor/editor_dummy_nmap`, a normal
+/// map lettered "missing texture" that the original never drew.
+fn restore_peer_stage_switches(
+    converted: &mut ConfigValue,
+    donor: &ConfigValue,
+    natives: &[TargetMaterial],
+    proven: Option<&BTreeMap<String, i64>>,
+) -> Result<Vec<String>> {
+    let mut notes = Vec::new();
+    let stages: Vec<String> = stage_names(converted).into_iter().filter(|s| s != "g_stage").collect();
+    for stage in stages {
+        let current = stage_switches(converted, &stage);
+        let source = stage_switches(donor, &stage);
+        let wanted: Vec<(&String, i64)> = current
+            .iter()
+            .filter_map(|(name, level)| source.get(name).filter(|s| *s != level).map(|s| (name, *s)))
+            .collect();
+        if wanted.is_empty() || wanted.len() > 10 {
+            continue;
+        }
+        let effect = effect_signature(converted).get(&stage).cloned();
+        let peers: Vec<(&str, BTreeMap<String, i64>)> = natives
+            .iter()
+            .filter(|n| effect.is_some() && n.effects.get(&stage) == effect.as_ref())
+            .map(|n| (n.path.as_str(), stage_switches(&n.config.root, &stage)))
+            .collect();
+        let mut best: Option<(usize, BTreeMap<String, i64>, &str)> = None;
+        for mask in (1..1usize << wanted.len()).rev() {
+            let mut proposal = current.clone();
+            let mut count = 0;
+            for (index, (name, level)) in wanted.iter().enumerate() {
+                if mask & (1 << index) != 0 {
+                    proposal.insert((*name).clone(), *level);
+                    count += 1;
+                }
+            }
+            if best.as_ref().is_some_and(|(n, _, _)| *n >= count) {
+                continue;
+            }
+            if let Some((peer, _)) = peers.iter().find(|(_, switches)| *switches == proposal) {
+                best = Some((count, proposal, peer));
+            } else if proven.is_some_and(|proven| {
+                proposal
+                    .iter()
+                    .filter(|(name, level)| current.get(*name) != Some(*level))
+                    .all(|(name, level)| proven.get(&format!("{stage}.{name}")) == Some(level))
+            }) {
+                best = Some((count, proposal, "runtime-proven load"));
+            }
+        }
+        if let Some((_, proposal, peer)) = &best {
+            for (name, level) in proposal {
+                if current.get(name) != Some(level) {
+                    let replacement = match effect_value(converted, &stage, name) {
+                        Some(ConfigValue::Integer(_)) => ConfigValue::Integer(*level as i32),
+                        _ => ConfigValue::Boolean(*level != 0),
+                    };
+                    converted.set_path(&format!("material.{stage}.effect.{name}.value"), replacement)?;
+                    notes.push(if *peer == "runtime-proven load" {
+                        format!("{stage}.{name}={level} restored from source (runtime-proven load)")
+                    } else {
+                        format!("{stage}.{name}={level} restored from source (native peer {peer})")
+                    });
+                }
+            }
+        }
+        for (name, level) in &wanted {
+            if !best.as_ref().is_some_and(|(_, p, _)| p.get(*name) == Some(level)) {
+                notes.push(format!("{stage}.{name}={level} unresolved: no native material uses that {stage} switch set"));
+            }
+        }
+    }
+    Ok(notes)
 }
 
 /// The original renderer leaves a texture that fails to load without a
@@ -1744,6 +1851,52 @@ mod tests {
         assert_eq!(effect_switch(&root, "use_troughness"), Some(true));
         assert_eq!(effect_number(&root, "constant_roughness_min"), Some(0.5));
         assert_eq!(effect_number(&root, "constant_roughness_max"), Some(0.5));
+    }
+
+    #[test]
+    fn decal_switches_follow_the_source_when_a_native_peer_uses_them() {
+        // 0.11e editor_decals_moss has use_nmap off; the template leaves it
+        // on and would draw the source's lettered editor_dummy_nmap.
+        let decal = |nmap: bool, smooth: bool| {
+            let flag = |v: bool| ConfigValue::Named(vec![named("value", ConfigValue::Boolean(v))]);
+            ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named(
+                    "decals",
+                    ConfigValue::Named(vec![named(
+                        "effect",
+                        ConfigValue::Named(vec![
+                            named("effect_id", ConfigValue::String("decals_default".into())),
+                            named("use_nmap", flag(nmap)),
+                            named("use_tdiffuse", flag(true)),
+                            named("use_tsmoothness", flag(smooth)),
+                        ]),
+                    )]),
+                )]),
+            )])
+        };
+        let native = |path: &str, root: ConfigValue| TargetMaterial {
+            path: path.into(),
+            effects: effect_signature(&root),
+            stage_selectors: BTreeMap::new(),
+            features: BTreeMap::new(),
+            config: BinaryConfig { root },
+        };
+        let natives = vec![native("material_instances/decals/peer.material", decal(false, true))];
+        let mut converted = decal(true, true);
+        let notes = restore_peer_stage_switches(&mut converted, &decal(false, false), &natives, None).unwrap();
+        assert_eq!(switch_level(&converted, "decals", "use_nmap"), Some(0));
+        // No native decal turns both off, so smoothness keeps the template value.
+        assert_eq!(switch_level(&converted, "decals", "use_tsmoothness"), Some(1));
+        assert!(notes.iter().any(|n| n.contains("use_nmap=0 restored from source (native peer material_instances/decals/peer.material)")), "{notes:?}");
+        assert!(notes.iter().any(|n| n.contains("use_tsmoothness=0 unresolved")), "{notes:?}");
+        // Runtime evidence for the stage-qualified switch restores both.
+        let proven = BTreeMap::from([("decals.use_nmap".to_owned(), 0), ("decals.use_tsmoothness".to_owned(), 0)]);
+        let mut converted = decal(true, true);
+        let notes = restore_peer_stage_switches(&mut converted, &decal(false, false), &natives, Some(&proven)).unwrap();
+        assert_eq!(switch_level(&converted, "decals", "use_nmap"), Some(0));
+        assert_eq!(switch_level(&converted, "decals", "use_tsmoothness"), Some(0));
+        assert!(notes.iter().all(|n| n.contains("runtime-proven load")), "{notes:?}");
     }
 
     #[test]
