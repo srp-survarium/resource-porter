@@ -20,13 +20,13 @@ for L in A B; do
     --donor-db "$B/011e/app/resources.db" --server-donor-db "$B/011a/app/resources.db" --target-db $(cat $S/RETAIL_DB) \
     --output $W/build-fill-$L --gameplay-fill $G/chemical-011e-anomaly.json --gameplay-fill $G/chemical-011e-resupply.json \
     --gameplay-fill $G/chemical-011e-$C.json) | tail -1
-  $P $T/prepare_overlay_patch.py --porter $S/target/release/vostok-port $W/build-fill-$L $W/fill-overlay-$L $NX --archive-sha256 $H "${PX[@]}" \
+  $P $T/prepare_overlay_patch.py --porter $W/target/release/vostok-port $W/build-fill-$L $W/fill-overlay-$L $NX --archive-sha256 $H "${PX[@]}" \
     --reason "194 gameplay fill layout $L + footstep bindings" > /dev/null
-  $P $T/prepare_overlay_patch.py --porter $S/target/release/vostok-port --check $W/fill-overlay-$L $NX
+  $P $T/prepare_overlay_patch.py --porter $W/target/release/vostok-port --check $W/fill-overlay-$L $NX
   $W/target/release/vostok-port apply --base-db $NX --bundle $W/fill-overlay-$L --work-dir $W/apply-work-$L --output-db $F/layouts/$L.db | tail -1
   sha256sum $F/layouts/$L.db > $F/layouts/$L.sha256
-  $P $V/verify_material_textures.py --porter $S/target/release/vostok-port $F/layouts/$L.db --output $W/verify-fill/textures-$L.json > /dev/null
-  $P $V/verify_shader_variants.py --porter $S/target/release/vostok-port $NX $F/layouts/$L.db --output $W/verify-fill/shaders-$L.json > /dev/null
+  $P $V/verify_material_textures.py --porter $W/target/release/vostok-port $F/layouts/$L.db --output $W/verify-fill/textures-$L.json > /dev/null
+  $P $V/verify_shader_variants.py --porter $W/target/release/vostok-port $NX $F/layouts/$L.db --output $W/verify-fill/shaders-$L.json > /dev/null
 done
 mv $F/layouts/A.db $F/resources.db; echo A > $F/LAYOUT.txt
 $P - "$F" <<'PY'
