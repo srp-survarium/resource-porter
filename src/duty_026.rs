@@ -660,6 +660,8 @@ pub fn build(
     }
     cfg.root
         .set_path("parameters.max_carried_weight_modifier", V::Integer(0))?;
+    // Owner's decision (2026-10-15): sold only, never dropped from a match.
+    cfg.root.set_path("parameters.drop_weight", V::Integer(0))?;
     cfg.root
         .set_path("parameters.oxygen_amount", V::Integer(30))?;
     cfg.root
