@@ -28,6 +28,18 @@ static DWORD applied_at;
 static unsigned image_width, image_height;
 static char control[MAX_PATH], status_path[MAX_PATH+16], build[16], error_text[160];
 static void *selected_director;
+// Native projection offsets ([2][0],[2][1]: TAA jitter if any), and an opt-in
+// SRP_DEJITTER=1 that zeroes them while the game owns the camera.
+static float projection_offset[2], projection_offset_min[2]={1e9f,1e9f}, projection_offset_max[2]={-1e9f,-1e9f};
+static int dejitter=-1;
+static unsigned director_calls;
+static int keep_jitter=-1;
+static float native_offset[2];
+// Opt-in SRP_REPORT_POSITION=1: the native camera of each director (before any
+// override), so the busiest recent one (the gameplay camera) can be read live.
+typedef struct { void *director; unsigned calls; DWORD last; float position[3], forward[3], fov; } DirectorSeen;
+static DirectorSeen directors_seen[8];
+static int report_position=-1;
 static unsigned char *reference_ui_enabled;
 void *camera_trampoline;
 static HRESULT (STDMETHODCALLTYPE *original_present)(IDXGISwapChain *, UINT, UINT);
@@ -66,12 +78,44 @@ static void matrices(const Camera *c, float *view, float *projection) {
 void __cdecl override_camera(uint32_t *saved) {
     void *director = (void *)(uintptr_t)saved[!strcmp(build,"020e") ? 7 : 5];
     EnterCriticalSection(&lock);
+    {   // Every director, before the latched-director check: native projection offsets and opt-in dejitter.
+        float *native_projection=(float *)((char *)director+0x44);
+        if (dejitter<0) { char f[4]; dejitter=GetEnvironmentVariableA("SRP_DEJITTER",f,sizeof(f))==1 && f[0]=='1'; }
+        if (keep_jitter<0) { char f[4]; keep_jitter=GetEnvironmentVariableA("SRP_CAPTURE_KEEP_JITTER",f,sizeof(f))==1 && f[0]=='1'; }
+        for (int i=0;i<2;++i) {
+            native_offset[i]=dejitter?0:native_projection[8+i];
+            projection_offset[i]=native_projection[8+i];
+            if (native_projection[8+i]<projection_offset_min[i]) projection_offset_min[i]=native_projection[8+i];
+            if (native_projection[8+i]>projection_offset_max[i]) projection_offset_max[i]=native_projection[8+i];
+            if (dejitter) native_projection[8+i]=0;
+        }
+        ++director_calls;
+        if (report_position<0) { char f[4]; report_position=GetEnvironmentVariableA("SRP_REPORT_POSITION",f,sizeof(f))==1 && f[0]=='1'; }
+        if (report_position) {
+            DirectorSeen *seen=NULL;
+            for (int i=0;i<8 && !seen;++i) if (directors_seen[i].director==director) seen=&directors_seen[i];
+            for (int i=0;i<8 && !seen;++i) if (!directors_seen[i].director) { seen=&directors_seen[i]; seen->director=director; }
+            if (!seen) {   // table full: reuse the least recently seen slot
+                seen=&directors_seen[0];
+                for (int i=1;i<8;++i) if (directors_seen[i].last<seen->last) seen=&directors_seen[i];
+                memset(seen,0,sizeof(*seen)); seen->director=director;
+            }
+            const float *native_view=(const float *)((char *)director+4);
+            ++seen->calls; seen->last=GetTickCount();
+            memcpy(seen->position,native_view+12,sizeof(seen->position));
+            memcpy(seen->forward,native_view+8,sizeof(seen->forward));
+            seen->fov=2.0f*atanf(1.0f/native_projection[5])*57.295779513f;
+        }
+    }
     if (!selected_director) selected_director = director;
     if (director == selected_director) {
         ++camera_calls;
         if (requested.enabled==1 || requested.enabled==2) {
             float view[16], projection[16];
             matrices(&requested, view, projection);
+            // Static captures normally replace the whole projection (no TAA jitter).
+            // SRP_CAPTURE_KEEP_JITTER=1 keeps the game's own offset terms.
+            if (keep_jitter) { projection[8]=native_offset[0]; projection[9]=native_offset[1]; }
             memcpy((char *)director + 4, view, sizeof(view));
             memcpy((char *)director + 0x44, projection, sizeof(projection));
             if (applied_id != requested.id) {
@@ -285,12 +329,45 @@ static void write_status(void) {
     FILE *file=fopen(temporary,"w");
     if (!file) return;
     EnterCriticalSection(&lock);
-    fprintf(file,"{\"build\":\"%s\",\"applied_id\":%u,\"captured_id\":%u,\"camera_calls\":%u,\"present_calls\":%u,\"width\":%u,\"height\":%u,\"position\":[%.9g,%.9g,%.9g],\"forward\":[%.9g,%.9g,%.9g],\"fov\":%.9g,\"error\":\"%s\"}\n",
+    fprintf(file,"{\"projection_offset\":[%.9g,%.9g],\"projection_offset_min\":[%.9g,%.9g],\"projection_offset_max\":[%.9g,%.9g],\"dejitter\":%d,\"keep_jitter\":%d,\"director_calls\":%u,",
+        projection_offset[0],projection_offset[1],projection_offset_min[0],projection_offset_min[1],projection_offset_max[0],projection_offset_max[1],dejitter,keep_jitter,director_calls);
+    fprintf(file,"\"build\":\"%s\",\"applied_id\":%u,\"captured_id\":%u,\"camera_calls\":%u,\"present_calls\":%u,\"width\":%u,\"height\":%u,\"position\":[%.9g,%.9g,%.9g],\"forward\":[%.9g,%.9g,%.9g],\"fov\":%.9g,\"error\":\"%s\"}\n",
         build,applied_id,captured_id,camera_calls,present_calls,image_width,image_height,
         applied.position[0],applied.position[1],applied.position[2],applied.forward[0],applied.forward[1],applied.forward[2],applied.fov,error_text);
     LeaveCriticalSection(&lock);
     fclose(file);
     MoveFileExA(temporary,status_path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
+}
+
+// camera.txt.player.json: the director with the most calls among those seen in
+// the last two seconds, plus every director seen, for SRP_REPORT_POSITION=1.
+static void write_player_position(void) {
+    char path[MAX_PATH+24], temporary[MAX_PATH+32];
+    snprintf(path,sizeof(path),"%s.player.json",control);
+    snprintf(temporary,sizeof(temporary),"%s.tmp",path);
+    FILE *file=fopen(temporary,"w");
+    if (!file) return;
+    EnterCriticalSection(&lock);
+    DWORD now=GetTickCount(); const DirectorSeen *best=NULL;
+    for (int i=0;i<8;++i) {
+        const DirectorSeen *d=&directors_seen[i];
+        if (d->director && now-d->last<2000 && (!best || d->calls>best->calls)) best=d;
+    }
+    if (best) fprintf(file,"{\"position\":[%.6f,%.6f,%.6f],\"forward\":[%.6f,%.6f,%.6f],\"fov\":%.4f,\"director\":\"%p\",\"calls\":%u,",
+        best->position[0],best->position[1],best->position[2],best->forward[0],best->forward[1],best->forward[2],best->fov,best->director,best->calls);
+    else fprintf(file,"{\"position\":null,");
+    fprintf(file,"\"tick_ms\":%lu,\"directors\":[",(unsigned long)now);
+    for (int i=0,first=1;i<8;++i) {
+        const DirectorSeen *d=&directors_seen[i];
+        if (!d->director) continue;
+        fprintf(file,"%s{\"director\":\"%p\",\"calls\":%u,\"age_ms\":%lu,\"position\":[%.3f,%.3f,%.3f]}",first?"":",",
+            d->director,d->calls,(unsigned long)(now-d->last),d->position[0],d->position[1],d->position[2]);
+        first=0;
+    }
+    fprintf(file,"]}\n");
+    LeaveCriticalSection(&lock);
+    fclose(file);
+    MoveFileExA(temporary,path,MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH);
 }
 
 #include "frame_state_diagnostic.c"
@@ -303,12 +380,30 @@ static void write_status(void) {
 #include "factory_rain_cache.c"
 #include "factory_rain_selection.c"
 
+// Opt-in SRP_WINDOW_NOTE: append a short note (e.g. the active test variant)
+// to this process's top-level window titles.
+static char window_note[96]; static int window_note_state=-1;
+static BOOL CALLBACK note_window(HWND window, LPARAM unused) {
+    (void)unused; DWORD pid=0; GetWindowThreadProcessId(window,&pid);
+    if (pid!=GetCurrentProcessId() || !IsWindowVisible(window)) return TRUE;
+    char title[256]; int n=GetWindowTextA(window,title,sizeof(title)-sizeof(window_note)-4);
+    if (n<=0 || strstr(title,window_note)) return TRUE;
+    char updated[384]; snprintf(updated,sizeof(updated),"%s  [%s]",title,window_note);
+    SetWindowTextA(window,updated); return TRUE;
+}
+static void update_window_note(void) {
+    if (window_note_state<0) window_note_state=GetEnvironmentVariableA("SRP_WINDOW_NOTE",window_note,sizeof(window_note))>0 && strlen(window_note)<sizeof(window_note)-1;
+    if (window_note_state) EnumWindows(note_window,0);
+}
+
 static DWORD WINAPI worker(void *unused) {
     (void)unused;
     unsigned tick=0;
     int frames=GetEnvironmentVariableA("SRP_CAPTURE_FRAME_STATE",NULL,0)!=0;
     for (;;) {
         read_request(); capture_background_step(); write_status();
+        { static unsigned note_tick; if (!(note_tick++%20)) update_window_note(); }
+        { static unsigned position_tick; if (report_position==1 && !(position_tick++%10)) write_player_position(); }
         if (frames && !(tick++%10)) { diagnostic_frame_state(); probe_sort_status(); }
         Sleep(100);
     }
