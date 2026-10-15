@@ -155,6 +155,8 @@ def main():
                 put('SRP_LEGACY_PROBE_DIFFUSE_BOX', builder.fxc('legacy_probe_quality3_box.hlsl', defines011a))
                 put('SRP_LEGACY_COMPOSITION', builder.fxc('legacy_composition_sun_sentinel.hlsl', []))
                 put('SRP_LOCAL_FRESNEL_ONE_DIR', common/'local-fresnel-one')
+                # Renderer contract, all looks: local lights add in sqrt-encoded space.
+                put('SRP_LEGACY_ENCODED_LIGHTS', builder.fxc('legacy_encoded_lights.hlsl', []))
                 shutil.rmtree(assets/'SRP_LEGACY_SSAO_DIR')
                 put('SRP_LEGACY_SSAO_DIR', common/'ssao-011e')
                 preset['environment']['SRP_LEGACY_SSAO_PARAMETERS'] = SSAO_PARAMETERS[key]

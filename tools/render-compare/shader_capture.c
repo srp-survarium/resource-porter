@@ -28,6 +28,11 @@ static int legacy_ambient_diffuse_enabled;
 static int source_ambient_valid(void);
 static void capture_ambient_diffuse(ID3D11DeviceContext *context);
 #include "local_light_capture.c"
+static void *legacy_encoded_lights_code;
+static size_t legacy_encoded_lights_size;
+static int native_local_light_identity(const void *code,SIZE_T size);
+static void tag_encoded_light(ID3D11PixelShader *shader,int identity);
+static int encoded_light_draw(ID3D11DeviceContext *context,UINT count,UINT start,INT base,int indexed);
 static int capture_rain_enabled;
 static void tag_source_rain(ID3D11PixelShader *shader,const void *code,SIZE_T size);
 static unsigned rain_request_id, rain_draw_counts[3], rain_draw_variant;
@@ -179,6 +184,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (composition_replaced) { code=legacy_composition_code; size=legacy_composition_size; }
     if (ambient_decode_replaced) { code=legacy_ambient_decode_code; size=legacy_ambient_decode_size; }
     if (volume_replaced) { code=legacy_volume_code; size=legacy_volume_size; }
+    int encoded_identity=native_local_light_identity(code,size);
     int local_f0_index=local_fresnel_one_index(code,size,0);
     int local_f0_replaced=local_f0_index>=0 && local_fresnel_one_code[local_f0_index];
     if (local_f0_replaced) { code=local_fresnel_one_code[local_f0_index]; size=local_fresnel_one_shaders[local_f0_index].fixed_size; }
@@ -188,6 +194,7 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
     if (factory_apply_replaced) { code=factory_020e_ambient_apply_code; size=factory_020e_ambient_apply_size; }
     HRESULT hr=original_create_ps(device,code,size,linkage,shader);
     if (local_f0_replaced) report_local_fresnel_creation(local_f0_index,hr,shader?*shader:NULL);
+    if (SUCCEEDED(hr) && shader && *shader) tag_encoded_light(*shader,encoded_identity);
     if (factory_apply_replaced) {
         char path[MAX_PATH+48]; snprintf(path,sizeof(path),"%s.ambient-020e-apply.json",control);
         FILE *receipt=fopen(path,"w");
@@ -841,6 +848,7 @@ static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *
 #include "remains_texture_capture.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     observe_local_fresnel_one(context);
+    if (encoded_light_draw(context,count,start,0,0)) return;
     capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,0,0);
@@ -860,6 +868,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
     observe_local_fresnel_one(context);
+    if (encoded_light_draw(context,count,start,base,1)) return;
     capture_remains_texture(context);
     prepare_early_legacy_ssao(context);
     render_sun_projection(context,count,start,base,1);
@@ -926,6 +935,7 @@ static int configure_grainless_aberration(int original_tail) {
     return 1;
 }
 #include "legacy_ssao.c"
+#include "legacy_encoded_lights.c"
 
 static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *context) {
     char enabled[8];
@@ -975,7 +985,8 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         !load_shader_override("SRP_LEGACY_SUN_PROJECTION",&legacy_sun_projection_code,&legacy_sun_projection_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION",&legacy_composition_code,&legacy_composition_size) ||
         !load_shader_override("SRP_LEGACY_COMPOSITION_REFERENCE",&comparison_composition_code,&comparison_composition_size) ||
-        !load_shader_override("SRP_LEGACY_AMBIENT_DECODE",&legacy_ambient_decode_code,&legacy_ambient_decode_size)) return 0;
+        !load_shader_override("SRP_LEGACY_AMBIENT_DECODE",&legacy_ambient_decode_code,&legacy_ambient_decode_size) ||
+        !load_shader_override("SRP_LEGACY_ENCODED_LIGHTS",&legacy_encoded_lights_code,&legacy_encoded_lights_size)) return 0;
     DWORD grain_path_length=GetEnvironmentVariableA("SRP_LEGACY_POST_GRAIN",legacy_post_grain_path,sizeof(legacy_post_grain_path));
     int original_tail=legacy_post_code && contains(legacy_post_code,legacy_post_size,"t_legacy_grain");
     if (original_tail!=!!legacy_present_code || original_tail!=!!grain_path_length || grain_path_length>=sizeof(legacy_post_grain_path)) {
