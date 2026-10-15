@@ -6,7 +6,7 @@
 use crate::outfit_026::{Piece, Writer, add_piece, set_card_prop};
 use crate::weapon::parse_config;
 use crate::{ArmorPortManifest, ConfigValue as V, ResourceDb};
-use anyhow::{Result, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
 use std::{collections::BTreeMap, fs, path::Path};
 
@@ -99,23 +99,26 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
             &mut strings,
         )?;
         if category == "mask" {
-            // Owner's spec (2026-10-15): a tier 3 Black Market mask sold from
-            // rank 2 (Fighter), 0.5 kg, armour 10, isolation 5.
+            // Owner's spec (2026-10-16): a tier 8 Black Market mask, sold at
+            // the faction's last rank by the server's rule (rank = item level,
+            // at most the top rank), 1.0 kg, armour 30, isolation 15: between
+            // the Smaragd gas mask (edge_resp_3: level 8, 20/65, 1.0 kg) and
+            // the Assault mask (renesanse_mask_2: level 9, 40/5, 1.5 kg).
             for key in ["item_level", "match_making_level"] {
                 c.root
-                    .set_path(&format!("parameters.{key}"), V::Integer(3))?;
+                    .set_path(&format!("parameters.{key}"), V::Integer(8))?;
             }
-            c.root.set_path("parameters.weight", V::Float(0.5))?;
-            c.root.set_path("parameters.armor", V::Float(0.1))?;
-            c.root.set_path("parameters.ano_armor", V::Float(0.05))?;
+            c.root.set_path("parameters.weight", V::Float(1.0))?;
+            c.root.set_path("parameters.armor", V::Float(0.3))?;
+            c.root.set_path("parameters.ano_armor", V::Float(0.15))?;
             for (hit, value) in [
-                ("ranged", 0.1),
-                ("slash", 0.1),
-                ("explosive", 0.1),
-                ("radiation", 0.05),
-                ("shock", 0.05),
-                ("fire", 0.05),
-                ("toxic", 0.05),
+                ("ranged", 0.3),
+                ("slash", 0.3),
+                ("explosive", 0.3),
+                ("radiation", 0.15),
+                ("shock", 0.15),
+                ("fire", 0.15),
+                ("toxic", 0.15),
             ] {
                 c.root.set_path(
                     &format!("hit_params.face.hit_types.{hit}.armor"),
@@ -123,14 +126,20 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
                 )?;
             }
             // Armour, isolation and weight as the item card shows them.
-            for (prop, value) in [(6, "10"), (8, "5"), (15, "0.5")] {
+            for (prop, value) in [(6, "30"), (8, "15"), (15, "1.0")] {
                 set_card_prop(&mut c, prop, value)?;
             }
             let extra =
-                json!({"weight":0.5,"item_level":3,"match_making_level":3,"sellers":[[2,2]]});
+                json!({"weight":1.0,"item_level":8,"match_making_level":8,"sellers":[[2,5]]});
             for (k, v) in extra.as_object().unwrap() {
                 registration_entry[k] = v.clone();
             }
+            // Its own price: the template's (bm_mask_1) is 4460.
+            items
+                .iter_mut()
+                .find(|v| v.named("dict_id") == Some(&V::Integer(id)))
+                .context("the balaclava's dictionary entry")?
+                .set_path("base_cost", V::Integer(10_000))?;
         }
         out.config(&path, &c, files)?;
         registration.push(registration_entry);
