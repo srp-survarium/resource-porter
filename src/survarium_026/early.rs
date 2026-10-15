@@ -262,6 +262,12 @@ pub(super) fn project(
         }
         client.push(object);
     }
+    if map.native_ambient_fill {
+        let added = native_ambient_fill(&mut client, target_objects);
+        notes.push(format!(
+            "{path}: optional native ambience: added {added} native object_sound emitters the original scene lacks"
+        ));
+    }
     if source == SourceBuild::V011a && map.level == "level_04" {
         if repair_chemical_collector_zone(&mut groups, objects)? {
             notes.push(format!(
@@ -301,6 +307,45 @@ pub(super) fn project(
     old.set_path("server_objects", groups)?;
     old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
     Ok(old)
+}
+
+/// Append the native project's ambient emitters whose sound the early scene
+/// does not already play. They reference shared native sounds. Returns the
+/// number added.
+pub(super) fn native_ambient_fill(client: &mut Vec<ConfigValue>, native: &[ConfigValue]) -> usize {
+    let is_sound = |o: &ConfigValue| string(o, "game_object_type") == Some("object_sound");
+    let stem = |o: &ConfigValue| {
+        string(o, "sound_name").map(|name| {
+            let name = name.replace('\\', "/");
+            match name
+                .strip_prefix("ported/")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, tail)) => tail.to_owned(),
+                None => name,
+            }
+        })
+    };
+    let present: BTreeSet<String> = client
+        .iter()
+        .filter(|o| is_sound(o))
+        .filter_map(stem)
+        .collect();
+    let names: BTreeSet<String> = client
+        .iter()
+        .filter_map(|o| string(o, "full_name").map(str::to_owned))
+        .collect();
+    let mut added = 0;
+    for object in native.iter().filter(|o| is_sound(o)) {
+        let Some(sound) = stem(object) else { continue };
+        let name = string(object, "full_name").unwrap_or("").to_owned();
+        if present.contains(&sound) || names.contains(&name) {
+            continue;
+        }
+        client.push(object.clone());
+        added += 1;
+    }
+    added
 }
 
 pub(super) fn validate_server_fallback(client: &ConfigValue, server: &ConfigValue) -> Result<()> {
@@ -1337,6 +1382,7 @@ mod tests {
             level: "level_03".into(),
             weather: "day".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
         };
         let project = project(
             old,
@@ -1593,6 +1639,51 @@ mod tests {
     }
 
     #[test]
+    fn native_ambient_fill_adds_only_missing_emitters() {
+        let sound = |full: &str, name: &str| {
+            ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("object_sound".into()),
+                },
+                NamedValue {
+                    name: "full_name".into(),
+                    value: ConfigValue::String(full.into()),
+                },
+                NamedValue {
+                    name: "sound_name".into(),
+                    value: ConfigValue::String(name.into()),
+                },
+            ])
+        };
+        let light = ConfigValue::Named(vec![NamedValue {
+            name: "game_object_type".into(),
+            value: ConfigValue::String("light".into()),
+        }]);
+        let mut client = vec![sound(
+            "sounds/scapes/industrial_scape",
+            "ported/v011e/scapes/industrial_space",
+        )];
+        let native = [
+            sound("sounds/scapes/industrial_scape", "scapes/industrial_space"),
+            sound("sounds/scapes/crowns", "scapes/creatures/crowns_linear_01"),
+            sound(
+                "sounds/day/cicadas_01",
+                "scapes/creatures/map_02_school_cicadas_all",
+            ),
+            light,
+        ];
+        assert_eq!(native_ambient_fill(&mut client, &native), 2);
+        assert_eq!(client.len(), 3);
+        assert_eq!(
+            string(&client[1], "sound_name"),
+            Some("scapes/creatures/crowns_linear_01")
+        );
+        // Idempotent: nothing left to add.
+        assert_eq!(native_ambient_fill(&mut client, &native), 0);
+    }
+
+    #[test]
     fn wall_overlay_lods_are_lifted_along_normals_and_nothing_else() {
         let named = |name: &str, value| NamedValue {
             name: name.into(),
@@ -1789,6 +1880,7 @@ mod tests {
             level: "level_04".into(),
             weather: "day".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
         };
         assert_eq!(
             chemical.output_project(SourceBuild::V011e),
@@ -1804,6 +1896,7 @@ mod tests {
             level: "level_03".into(),
             weather: "evening".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
         };
         assert_eq!(
             map.output_project(SourceBuild::V010b),

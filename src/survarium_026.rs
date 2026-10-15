@@ -158,6 +158,10 @@ pub struct Map {
     /// to every look; only the choices listed on `EnvironmentLook` differ.
     #[serde(default, skip_serializing_if = "EnvironmentLook::is_source")]
     pub environment_look: EnvironmentLook,
+    /// Optional, not source-faithful: add the native map's ambient emitters
+    /// (object_sound) that the early scene lacks. 0.11e Chemical has one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub native_ambient_fill: bool,
 }
 
 /// Named environment looks. `source` follows the donor; the legacy look
@@ -1299,6 +1303,36 @@ fn early_sound_with_raw_options(donor: &ResourceDb, path: &str) -> bool {
     stem.is_some_and(|stem| donor.is_file(&format!("sounds/single/{stem}.raw_options")))
 }
 
+/// The 0.26 calibration of an early sound sample that 0.26 ships unchanged.
+/// 0.11e options carry only spl_preset/spl_value, measured on 0.11e's own
+/// `default.spl` (a dB curve: 60 dB at 1 m, 20.8 dB at 91 m). The shared 0.26
+/// `default.spl` is a linear gain ramp to 0 at 80 m under an HDR mixer, and
+/// 0.26 re-mixed these very samples for it (industrial_space 50 -> 60 dB x1.8,
+/// creatures_line 35 -> 60 x1.2, not displaceable). The donor's spl_value
+/// under 0.26's curve plays 10-25 dB below that mix, which reads as silence
+/// next to native sounds. Returns the target's options when the target ships
+/// the same stem with a byte-identical `.high.ogg`.
+fn native_mix_for_shared_sample(
+    donor: &mut ResourceDb,
+    target: &mut ResourceDb,
+    path: &str,
+) -> Result<Option<Vec<u8>>> {
+    let Some(stem) = path
+        .strip_prefix("sounds/single/")
+        .and_then(|tail| tail.strip_suffix(".raw_options"))
+    else {
+        return Ok(None);
+    };
+    let ogg = format!("sounds/single/{stem}.high.ogg");
+    if !(target.is_file(path) && donor.is_file(&ogg) && target.is_file(&ogg)) {
+        return Ok(None);
+    }
+    if donor.read(&ogg)? != target.read(&ogg)? {
+        return Ok(None);
+    }
+    Ok(Some(target.read(path)?))
+}
+
 fn is_config_resource(path: &str) -> bool {
     matches!(
         path.rsplit('/').next().unwrap_or(path),
@@ -1891,6 +1925,14 @@ pub fn build(
                     .with_context(|| format!("checking original vegetation {path}"))?,
             );
         }
+        if m.source_build.early() {
+            if let Some(native) = native_mix_for_shared_sample(&mut donor, &mut target, path)? {
+                if native != bytes {
+                    compatibility_notes.push(format!("{path}: 0.26 mix of the byte-identical shared sample (the 0.11e spl_value assumes 0.11e's dB distance curve; under 0.26's default.spl it plays 10-25 dB below 0.26's own mix)"));
+                    bytes = native;
+                }
+            }
+        }
         if m.source_build.early() && path.ends_with(".single_sound_options") {
             bytes = target.read("sounds/single/weather/wind/wind_day.raw_options")?;
             compatibility_notes.push(format!("{path}: original audio retained with native wind ambience attenuation; legacy SPL curve not reproduced"));
@@ -2261,6 +2303,7 @@ mod tests {
             level: "level_02".into(),
             weather: "rain".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
         };
         let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
@@ -2812,6 +2855,60 @@ mod tests {
     }
 
     #[test]
+    fn early_options_of_a_shared_sample_take_the_native_mix() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let pack = |name: &str, files: &[(&str, &[u8])]| {
+            let root = temp.path().join(name);
+            for (file, bytes) in files {
+                let path = root.join(file);
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, bytes).unwrap();
+            }
+            let db = temp.path().join(format!("{name}.db"));
+            resources_db::pack::assemble_to_file(
+                &resources_db::pack::build_src_tree(&root).unwrap(),
+                &db,
+            )
+            .unwrap();
+            ResourceDb::open(db).unwrap()
+        };
+        let hum = "sounds/single/scapes/industrial_space";
+        let crickets = "sounds/single/scapes/creatures/crickets_01";
+        let wind = "sounds/single/weather/wind/wind_whistle";
+        let mut donor = pack(
+            "donor",
+            &[
+                (&format!("{hum}.raw_options"), b"donor"),
+                (&format!("{hum}.high.ogg"), b"same"),
+                (&format!("{crickets}.raw_options"), b"donor"),
+                (&format!("{crickets}.high.ogg"), b"old take"),
+                (&format!("{wind}.raw_options"), b"donor"),
+                (&format!("{wind}.high.ogg"), b"only donor"),
+            ],
+        );
+        let mut target = pack(
+            "target",
+            &[
+                (&format!("{hum}.raw_options"), b"native mix"),
+                (&format!("{hum}.high.ogg"), b"same"),
+                (&format!("{crickets}.raw_options"), b"native mix"),
+                (&format!("{crickets}.high.ogg"), b"new take"),
+            ],
+        );
+        let mix = |donor: &mut ResourceDb, target: &mut ResourceDb, path: &str| {
+            native_mix_for_shared_sample(donor, target, path).unwrap()
+        };
+        assert_eq!(
+            mix(&mut donor, &mut target, &format!("{hum}.raw_options")),
+            Some(b"native mix".to_vec())
+        );
+        // A re-recorded sample or a donor-only stem keeps the donor options.
+        assert_eq!(mix(&mut donor, &mut target, &format!("{crickets}.raw_options")), None);
+        assert_eq!(mix(&mut donor, &mut target, &format!("{wind}.raw_options")), None);
+        assert_eq!(mix(&mut donor, &mut target, &format!("{hum}.high.ogg")), None);
+    }
+
+    #[test]
     fn visual_name_is_the_model_resource_not_an_instance_label() {
         let collector = |team| {
             named(vec![
@@ -2845,6 +2942,7 @@ mod tests {
             level: "level_03".into(),
             weather: "day".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
         };
         let converted = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         let visual = &array(converted.named("render_visuals").unwrap()).unwrap()[0];
