@@ -1052,3 +1052,45 @@ The legacy-010b-atmosphere preset against the previous one:
   `SRP_LEGACY_SKYLIGHT_UNDERLAY`, and `camera_hook.dll` (`47fc2b0d` →
   `dd26a157`).
 - Map 196: only `camera_hook.dll`. The new feature is inactive there.
+
+### Open item (parked by the user): foliage sun and normals
+
+The user is happy with the current render. This item is parked with no
+code change. Evidence so far:
+
+- After the skylight and falloff change, pixels the port lights with sun
+  but the original does not are 2–23% of a view. Composition there is
+  1.4–4.2× the original.
+  - Chemical: south_yard 23%, chem-wall 12%.
+  - Radar: hospital-east-path 5%, skeleton-central-path 3%.
+- A source-translucency composition was tried: original 5-bit packing,
+  signed back-light, forward scatter, and sun colour³ × intensity
+  (Chemical 1.51/.796/.463, Radar .997/.485/.183).
+  - It was active (97–99% of translucent pixels changed) but did not help:
+    FLIP ±.003.
+  - Translucent composition moved away from the original: south_yard
+    .0507 → .0598 (original .0449), chem-wall .0427 → .0376 (.0414),
+    hospital .1189 → .1031 (.1154).
+  - Not adopted. The shader and constants are kept outside the repo in
+    `/mnt/hdd/Projects/lighting-build-20261015/transl/`.
+- Foliage normals differ in distribution: world-space y median +.33 / +.13
+  in the original against +.01 / +.06 in the port (south_yard /
+  chem-wall).
+  - Per-pixel comparison is confounded by wind: grass cards move between
+    the captures. Static foliage at hospital-east-path agrees (median
+    cos 1.00).
+  - Layer settings (`use_face_normal`, wind and so on), the grass
+    material, its normal map (`grass_l04alt_nmap`, byte-identical and
+    DXT5nm in both) and the card's vertex basis are the same in the
+    source and the port. The card normals are horizontal (−z, +x).
+  - The 0.11e grass vertex shader (`vertex_base.vs` grass-mesh variant,
+    `grassmesh_vertex_input.h`) passes the tangent frame through unchanged.
+  - The 0.11e foliage G-buffer shader (`gbuffer_pass.ps`, for example
+    `____110101100__00_0__1_____0000__0_000______00000____00__________0__`)
+    decodes the normal map as (A, G)·2−1, z = √(1−x²−y²), and uses
+    tangent-space (x, **−y**, z). On back faces it flips only the normal
+    column.
+- Next step if resumed: compare the 0.26 G-buffer decode for the same
+  material. 212 candidate 0.26 variants with `t_normal` + `t_translucency`
+  are extracted under `lighting-build-20261015/foliage/gb26/`. A green-sign
+  or back-face difference would explain the upward bias.
