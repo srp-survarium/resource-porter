@@ -344,3 +344,39 @@ the source DXT3; only the alpha encoding differs.
 Radar 0.20e (12 frozen views): `816cadcd` scores mean MAE .0518 and median
 .0365. The promoted arm scored .0510 and .0363; 6 of 12 views are better.
 Shadow and sunlit ratios are within ±.05 per view. No regression.
+
+### Covered-shade deficit: offline groundwork (no launch)
+
+- **The blue shift is a consequence of the darkness.** At equal display luma,
+  the original and the candidate have the same blue/red ratio on both maps
+  (Chemical: 1.86/1.88 at luma .06–.08, 1.47/1.52 at .10–.14, 1.05/1.10 at
+  .20–.28). This is the authored 0.11e dark tint, `lerp(luma×(.8,.8,1.4),
+  colour, saturate(luma×3.3+.21))`, acting on values that are too dark. The
+  candidate simply has 3× more pixels at luma .10–.14.
+- **Display transfer.** Over all 36 matched 0.11e views, candidate display
+  code c maps to original ≈ 255·(c/255)^0.73 (10→24, 30→55, 100→130,
+  200→222). Under the 0.11e Chemical tone curve this means about 3× too
+  little HDR in dark tones and about 1.6× in bright ones.
+- **The 2026-10-13 candidate matched 0.11a HDR in shade.** Config
+  `.work/chemical-plant-011a/comparison/026g/source-lighting`: at
+  `central_shadow`, ambient after HBA, composition HDR, post input and AO all
+  match the original 0.11a per-draw buffers within about 10%. Left wall:
+  composition .0305 vs .0328, AO×2.5 1.21 vs 1.24. Since then, the
+  probe-diffuse, SSAO (0.11e shader, noise and parameters 1.3/1.3),
+  composition, LUT, fog and post-tail assets have all changed.
+- **0.11e is brighter in shade than 0.11a.** An offline model of the 0.11e
+  post (exposure key, toe/shoulder, rational curve, dark tint), applied to the
+  0.11a post input at `central_shadow`, predicts display luma .234/.190/.229
+  (left wall / red door / shaded floor). The 0.11e original shows
+  .320/.202/.337. The same model reproduces 0.11a's own display
+  (.218/.211 vs .210/.206). 816cadcd shows .159/.108/.213, below even 0.11a
+  lighting viewed through the 0.11e post.
+- **Two factors follow.**
+  - F1: the candidate's shade HDR fell since the matched 10-13
+    configuration.
+  - F2: 0.11e shade HDR exceeds 0.11a by about 1.5× on the wall and floor.
+    The door is unchanged.
+- **Next.** A candidate buffer capture at `central_shadow` and `chem-cabinets`
+  (`analyze_buffers.py` in the scratchpad is ready) compares stage by stage:
+  AO, probe encoding and alpha, diffuse before and after HBA, composition
+  HDR, post input, exposure average and display.
