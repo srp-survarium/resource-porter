@@ -308,3 +308,62 @@ box. Test: `primitive_override_moves_only_audited_boxes`.
 Other 0.11e→0.21d border changes (east edge 0.3–1.5 m outward; a west box
 inside the team-0 base removed) are not adopted: the surrounding layout
 changed in 0.21d and no user report covers them.
+
+### No footsteps "running on the rails" (second report)
+
+How 0.26 picks a step sound (reverse-engineered, matches 0.11e's PDB-named
+`survarium::step_manager::on_step` at 0x6fac40 instruction for instruction):
+the 0.26 handler at 0x248ad0 casts 2 m down from 1 m above the feet against
+the non-walker collision (cgroup & 8; `walker_collision` is never queried),
+reads the hit surface's game material and plays `collision_sound` (pair
++0x20) of `get_pair(actor variant, material)` at 0x306d50. `get_pair`
+substitutes `physic.base_material` (so `metall_thick_walkable` steps as
+`metall_thick`) and falls back to the default material when no pair exists.
+A pair that exists with an empty sound is silent (mud/foliage local sprint,
+`metal_arm_gran_*`, `restrictor`; identical in 0.11e's pair table). The
+material table has 128 slots, so 0.26 indexes it out of range for 65535;
+0.11e's `get_pair` replaced an unknown material by its default material.
+`physic.walker_behaviour` is not involved (absent means 0, like ground).
+
+The 194 rails are not mis-mapped: `railroad_01` rail tops are
+`coll_metal_thick_mSG` → `metall_thick` and the sleepers `lambert2SG` →
+`concrete`, exactly as in 0.11e; both have every walk/sprint pair, and the
+sound files exist. Native 0.26 re-lays the tracks (different extent) with
+`metall_thick_walkable` (same pairs through its base material) plus a
+separate smooth walker mesh. The catwalks above the track
+(`loading_station_01/02`) have the same layout and bindings as native 0.26:
+walker-only `coll_restrictSG` (unassigned, not queried) over a cg-8 box
+bound to `metall_thick`; their `metal_arm_gran_*` boxes are the railings.
+So no data difference explains silence on the rails or the catwalk; the
+spot needs a runtime check (below).
+
+`audit_step_surfaces.py` grids every top surface the step query can hit
+(0.5 m cells, ground and elevated layers) and classifies its step. Real
+differences from the target's conventions on walkable areas, now fixed:
+
+| Map | Model / surface | Source (0.11e) | Before | After | Area (top) |
+|---|---|---|---|---|---|
+| 194 | `test/mattest_cube01` `default` (render: `water/water_green_shit`; two slabs, one at Y 5.6 in the old factory) | 65535 (0.11e runtime: default steps) | 65535 (out-of-range lookup) | `water` (reviewed binding) | 519 m² |
+| 194 | `props/machines/turbine` `default` | 65535 | 65535 | `metall_thick` (native 0.26 binding of the same surface) | 5 m² |
+| 194 | `flora/bush_s_006` `default`, `level/04/moss_alfa` `default` | 65535 | 65535 | `foliage_deciduous`, `ground` (native bindings; no walkable top) | 0 |
+
+Rule (converter, early donors): a surface the donor leaves unassigned takes
+the target's own binding of the same model surface when the developers
+assigned one; otherwise it stays unassigned (test
+`unassigned_early_surface_takes_assigned_target_binding_only`). Left as is,
+because native 0.26 or 0.11e behave the same: background `bg_*`/
+`buildings_bkg_*`/`lep_bkg` (65535 natively too, out of bounds), railing and
+fence `metal_arm_gran_*` tops, tree canopies (foliage local sprint empty,
+native), 196 `terrain_all` `mud_walkable` (native) and `restrictor` boxes.
+Rebuilt 194/195 differ from the `-next` candidate only in these four model
+settings (and the 2-map static dictionary, not used).
+
+### Battery spawn "where I stand" (crashed hopper, 2026-10-15 13:42)
+
+The screenshot is inside the crashed hopper of `level/04/wagons_crash` at
+about (24.5, 3.4, 6.3), placed from the minimap (the six spherical tanks
+are 13.3 m apart). 0.11e, 0.11a, 0.20e and our port all have
+`victory_item_spawner(19)` at (21.38, 2.72, 4.61), about 1 m outside that
+wagon's wall and 3.6 m from the spot; native 0.26 keeps the same spawner
+0.6 m further out (20.95, 2.81, 4.14). The user confirmed the spawn works
+in game; nothing was changed.

@@ -309,6 +309,29 @@ fn classify_early_game_materials(
             bindings.insert(entry.name.clone(), name.clone());
             continue;
         }
+        let successor_of = |surface: &str| {
+            native
+                .as_ref()
+                .and_then(|n| n.named("game_material_settings"))
+                .and_then(|g| g.named(surface))
+                .filter(|e| !unassigned_game_material(e))
+                .and_then(|e| string(e, "game_material_name"))
+                .map(str::to_owned)
+        };
+        if unassigned_game_material(&entry.value) {
+            // 0.11e's get_pair substituted its default material for an
+            // unassigned surface; 0.26 indexes its 128-entry material table
+            // with 65535 instead. Take the target's own binding of the same
+            // model surface when the developers assigned one.
+            if let Some(name) = successor_of(&entry.name) {
+                notes.push(format!(
+                    "{path}: unassigned {} takes the target binding {name}",
+                    entry.name
+                ));
+                bindings.insert(entry.name.clone(), name);
+            }
+            continue;
+        }
         if string(&entry.value, "game_material_name") != Some("foliage") {
             continue;
         }
@@ -337,6 +360,16 @@ fn classify_early_game_materials(
         }
     }
     Ok(bindings)
+}
+
+/// An early settings entry with no game material (id 65535, "not assigned or
+/// deleted" or an empty name).
+fn unassigned_game_material(entry: &ConfigValue) -> bool {
+    matches!(entry.named("game_material_id"), Some(ConfigValue::Integer(65535)))
+        || matches!(
+            string(entry, "game_material_name"),
+            Some("" | "not assigned or deleted")
+        )
 }
 
 /// Replace audited primitives of one donor collision payload. The payload
@@ -2516,6 +2549,65 @@ mod tests {
         drop(classify);
         // The fir fallback, then the unreviewed surface of the rejected call.
         assert_eq!(notes.len(), 2);
+    }
+
+    #[test]
+    fn unassigned_early_surface_takes_assigned_target_binding_only() {
+        let settings = |surfaces: &[(&str, &str, i32)]| {
+            named(vec![(
+                "game_material_settings",
+                ConfigValue::Named(
+                    surfaces
+                        .iter()
+                        .map(|(surface, material, id)| NamedValue {
+                            name: (*surface).into(),
+                            value: named(vec![
+                                (
+                                    "game_material_name",
+                                    ConfigValue::String((*material).into()),
+                                ),
+                                ("game_material_id", ConfigValue::Integer(*id)),
+                            ]),
+                        })
+                        .collect(),
+                ),
+            )])
+        };
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("target");
+        for (path, surfaces) in [
+            ("models/turbine.model/settings", vec![("default", "metall_thick", 18)]),
+            ("models/bg.model/settings", vec![("default", "not assigned or deleted", 65535)]),
+        ] {
+            let file = root.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, BinaryConfig { root: settings(&surfaces) }.to_bytes().unwrap()).unwrap();
+        }
+        let db = temp.path().join("target.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &db,
+        )
+        .unwrap();
+        let mut target = ResourceDb::open(db).unwrap();
+        let early = settings(&[
+            ("default", "not assigned or deleted", 65535),
+            ("coll_concrete", "concrete", 19),
+        ]);
+        let mut notes = Vec::new();
+        let mut classify = |path: &str| {
+            classify_early_game_materials(path, &early, &mut target, None, &mut notes).unwrap()
+        };
+        // The developers' own binding of the same surface replaces 65535.
+        assert_eq!(
+            classify("models/turbine.model/settings"),
+            BTreeMap::from([("default".into(), "metall_thick".into())])
+        );
+        // A target that is itself unassigned, or no target model: unchanged.
+        assert!(classify("models/bg.model/settings").is_empty());
+        assert!(classify("models/test_cube.model/settings").is_empty());
+        drop(classify);
+        assert_eq!(notes.len(), 1);
     }
 
     #[test]

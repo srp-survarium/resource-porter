@@ -112,6 +112,9 @@
     "models/level/04/moss.model/settings": {
       "default": "grass"
     },
+    "models/test/mattest_cube01.model/settings": {
+      "default": "water"
+    },
     "models/level/04/moss2.model/settings": {
       "default": "grass"
     },
