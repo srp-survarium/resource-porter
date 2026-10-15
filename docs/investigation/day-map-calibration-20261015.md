@@ -478,3 +478,51 @@ The first Radar run after copying the new database rendered only the sky:
 203 presents over the whole run, against about 4,450 normally. This is
 consistent with a cold cache after the 6 GB copy. A rerun was normal and is
 the one scored.
+
+## Floor lettering and stripes (user reports 04:29–04:39)
+
+The "missing texture" lettering on the control-room moss is in the G-buffer
+normal. A world position reconstructed from the captured depth lands on the
+decal `editor_decals_moss` at (-83.0, 12.19, 35.6). In the 0.11e source that
+decal has `use_nmap=false`, but the template kept it on. With the switch on,
+the decal samples the source's own `textures/editor/editor_dummy_nmap`, which
+is itself a normal map lettered "missing texture". The original never drew
+it. Only g-stage switches were being restored.
+
+Fix (`885cf02`):
+- Switches on other stages are restored from the source when a native
+  material uses the same effect with exactly the resulting switch set
+  (2 v020e moss decals, `use_tsmoothness`).
+- Otherwise they are restored when runtime evidence lists them as
+  `stage.use_...` (14 v011e decals, `decals.use_nmap=0`). The evidence is a
+  static Chemical and Radar load of the patched database plus the A/B at the
+  moss.
+- An audit of every ported material against its source found no other
+  non-g-stage switch divergence.
+
+Separately (`adbb9d7`), references to textures that exist in neither archive
+are bound to an all-zero texture. This is what the original's failed load
+leaves its shaders reading (0.10b `resource_manager::on_texture_loaded`). It
+covers 101 sampled and 118 inert dangling references, the same set in
+`8e72816c` and `eeaa13ed`; the retail and source `asphalt` normal is one of
+them. `verify_material_textures.py` reports 0.
+
+Floor stripes at the user's spot near the east sitting skeleton:
+- They are thin horizontal lines in the G-buffer albedo inside the
+  `puddle_rust_01` decal at (-69.7, 55.8).
+- Hiding that decal removes them. Hiding the overlapping `puddle_rust`,
+  raising draw priority, or multiplying `decal_far_distance` by 4 does not.
+- The decal's texture and parameters match the source byte for byte.
+- The stripes appear identically with no shader overrides at all (pure
+  native renderer), and the SSAO replay writes only its own targets.
+- So this is the 0.26 decal pass on this source decal. It is not fixed. The
+  fidelity run compares the original at this pose.
+
+Rebuild `25ab9683` differs from `bf7d304b` in 16 decal materials.
+- Verifiers: 0 missing textures; 0 missing shaders (2 g-stage runtime-proven,
+  14 stage-switch evidence entries).
+- Static arms, mean MAE: Chemical .0497, Radar 0.11e .0367, Radar 0.20e
+  .0511. These equal `eeaa13ed` within noise.
+- The moss normal buffer is clean.
+- Harness fix `4f286c8`: readiness ignored stale status and logs, which had
+  produced two sky-only captures.

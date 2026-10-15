@@ -73,7 +73,7 @@ def main():
     candidate_paths = listing(args.candidate)
     baseline_paths = set(listing(args.baseline))
     catalog = hashlib.sha256(''.join(p+'\n' for p in sorted(x for x in candidate_paths if x.startswith('shaders/sm_4_0/'))).encode()).hexdigest()
-    proven = {}
+    proven, report_stage_evidence = {}, []
     for manifest in args.evidence:
         m = json.loads(manifest.read_text())
         build = 'v'+m['source_build'].replace('.', '')
@@ -81,7 +81,9 @@ def main():
             if entry['shader_catalog_sha256'] != catalog:
                 raise SystemExit(f'{manifest}: evidence for {material} names another shader catalogue')
             path = material.replace('material_instances/', f'material_instances/ported/{build}/', 1)
-            proven[path] = {NAME[k]: str(v) for k, v in entry['switches'].items()}
+            proven[path] = {NAME[k]: str(v) for k, v in entry['switches'].items() if k in NAME}
+            if any('.' in k for k in entry['switches']):
+                report_stage_evidence.append(path)
     families = {}
     for path in candidate_paths:
         parts = path.split('/')
@@ -89,7 +91,8 @@ def main():
             families.setdefault(parts[2], set()).add(parts[3])
     report = {'baseline': str(args.baseline), 'candidate': str(args.candidate),
               'checked_materials': 0, 'missing': {}, 'new_shadow_casters': [], 'unprovable_new_materials': [],
-              'runtime_proven': {}, 'shader_catalog_sha256': catalog}
+              'runtime_proven': {}, 'shader_catalog_sha256': catalog,
+              'stage_switch_evidence': report_stage_evidence}
     with tempfile.TemporaryDirectory() as scratch:
         def read(db, path):
             out = Path(scratch)/'resource'

@@ -274,6 +274,146 @@
         "2026-10-14 user session on database 2b35a2ed (Chemical 0.11e): the skeleton/rag repair (bc6a9977/5908c03a, use_tspecular_intensity=1, zero-width roughness 0.5) loaded and played without a missing-shader error",
         "Runtime-validated remains repair (docs/investigation/day-map-calibration-20261015.md, 'Material switches'); the static rule refuses it only because unrelated vertex-input variants lack the switch"
       ]
+    },
+    "material_instances/decals/dirt_wall.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_bullets.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss_01.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss_02.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_zavod_02.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_zavod_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_01.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_long.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_long_01.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_long_02.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/parasite_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
     }
   }
 }
