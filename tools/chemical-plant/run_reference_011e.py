@@ -30,6 +30,9 @@ def main():
     p.add_argument('recipe', type=Path)
     p.add_argument('--maps', nargs='+', choices=['chemical', 'radar'], default=['chemical', 'radar'])
     p.add_argument('--launch', action='store_true')
+    p.add_argument('--poses-dir', type=Path, help='use DIR/<map>.json instead of the recipe poses')
+    p.add_argument('--output', type=Path, help='write DIR/capture-<map> instead of next to the recipe')
+    p.add_argument('--frames', type=int, default=1, help='frames per pose (later frames reuse the settled camera)')
     a = p.parse_args()
     recipe = json.loads(a.recipe.read_text())
     root = a.recipe.resolve().parent
@@ -42,10 +45,17 @@ def main():
         assert sha(Path(file)) == digest, f'input changed: {file}'
     assert (root/'client/resources.db').resolve() == Path(recipe['database']).resolve()
     assert (prefix/'system.reg').is_file()
-    for name in a.maps:
-        poses = json.loads((root/(name+'-poses.json')).read_text())
-        assert 1 <= len(poses) <= 18 and all(p['buffers'] is False for p in poses)
+    def load_poses(name):
+        poses = json.loads(((a.poses_dir/(name+'.json')) if a.poses_dir else (root/(name+'-poses.json'))).read_text())
+        assert 1 <= len(poses) <= (60 if a.poses_dir else 18) and all(p['buffers'] is False for p in poses)
         assert len({p['name'] for p in poses}) == len(poses)
+        frames = []
+        for pose in poses:
+            frames.append(dict(pose, name=pose['name']+('~f0' if a.frames > 1 else '')))
+            frames += [dict(pose, name=f"{pose['name']}~f{i}", settle_ms=400) for i in range(1, a.frames)]
+        return frames
+    for name in a.maps:
+        load_poses(name)
     print('Verified bounded original011e recipe; screenshot-only views.', flush=True)
     if not a.launch:
         return
@@ -77,7 +87,7 @@ def main():
     try:
         cfg.write_bytes((root/'reference-user.cfg').read_bytes())
         for name in a.maps:
-            out = root/('capture-'+name)
+            out = (a.output or root)/('capture-'+name)
             out.mkdir(exist_ok=False)
             (out/'target/debug').mkdir(parents=True)
             control = out/'camera.txt'
@@ -121,10 +131,22 @@ def main():
                     raise TimeoutError('scene readiness not established')
                 # The helper runs in the same isolated prefix; it cannot resize other prefixes.
                 subprocess.run([str(wine), win(root/'viewport.exe')], env=env, check=True, timeout=15)
-                poses = json.loads((root/(name+'-poses.json')).read_text())
+                poses = load_poses(name)
                 warmup = dict(poses[0], name='readiness-warmup', settle_ms=5000)
                 capture.capture(control, [warmup], out/'warmup', timeout=30)
-                capture.capture(control, poses, out/'poses', timeout=30)
+                if a.poses_dir:
+                    # One stuck view must not lose the rest: skip it and record why.
+                    skipped, groups = {}, {}
+                    for pose in poses:
+                        groups.setdefault(pose['name'].split('~')[0], []).append(pose)
+                    for base, group in groups.items():
+                        try:
+                            capture.capture(control, group, out/'poses', timeout=30)
+                        except (TimeoutError, RuntimeError) as error:
+                            skipped[base] = str(error)
+                    (out/'skipped.json').write_text(json.dumps(skipped, indent=2)+'\n')
+                else:
+                    capture.capture(control, poses, out/'poses', timeout=30)
                 (out/'final-status.json').write_bytes(status_path.read_bytes())
             finally:
                 # Stop only the prefix owned by this recipe, then its own server process.

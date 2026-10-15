@@ -526,3 +526,43 @@ Rebuild `25ab9683` differs from `bf7d304b` in 16 decal materials.
 - The moss normal buffer is clean.
 - Harness fix `4f286c8`: readiness ignored stale status and logs, which had
   produced two sky-only captures.
+
+## Fidelity run 2026-10-15 (`25ab9683`)
+
+Gallery: `/mnt/hdd/Projects/survarium-fidelity-20261015/index.html`. Each view
+page has an in-place toggle (click or hold Space) between original, port and
+port with the probe-specular look; side-by-side views; a FLIP error map;
+highest-error tiles; and a checklist with notes (browser storage, exported as
+JSON). The run is pinned by `manifest.json`, scored in `report.json`, and the
+tools are in `tools/render-compare/fidelity/`.
+
+Method:
+- Fresh original references for every pose: 0.11e for Chemical and Radar,
+  0.20e for Radar.
+- Settings aligned to the port: texture 2 on both sides. On 0.11e: post 3→2,
+  decorations 2→1, motion blur 3→2, preset 4→5 (custom).
+- Five frames per pose on each side, compared as the per-pixel median.
+- Every frame's camera is checked against the request; 0 views rejected.
+- NVIDIA FLIP (LDR) per pixel. Sky is flagged and excluded from the non-sky
+  score.
+- 1280×720, which is also the user's -next resolution.
+- The 0.11e capture hook stops acknowledging after about 155 frames per
+  launch. Its remaining views were captured in a second launch.
+
+| Map (views) | FLIP full | FLIP non-sky | FLIP shadow | FLIP sunlit | Shadow luma ratio | Sunlit luma ratio |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Chemical 0.11e (37) | .222 | .221 | .141 | .452 | 1.00 | .68 |
+| Radar 0.11e (36) | .192 | .191 | .128 | .396 | 1.02 | .83 |
+| Radar 0.20e (28) | .191 | .190 | .153 | .298 | .87 | .91 |
+
+The probe-specular look changes FLIP by less than .002.
+
+Findings:
+- Covered shade now matches (luma ratio about 1.0).
+- The largest remaining gap is brightly lit surfaces on Chemical (ratio .68).
+  The worst view is the control-room floor `upper-sit1-down60` (FLIP .605):
+  the original floor is brighter and warmer.
+- The 0.20e `hangar-stairs` sunlight is the known missing casters/shadow item.
+- At `sit-east-000` the original's `puddle_rust_01` shows a bright orange rust
+  area and no stripes. The port's is dull and striped, so the 0.26 decal
+  blend differs from the source for this decal.
