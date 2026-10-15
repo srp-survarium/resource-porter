@@ -791,23 +791,22 @@ enum PackCommand {
         #[arg(long)]
         force: bool,
     },
-    /// Compose packs into a client release: a same-size head region of the
-    /// base archive plus an appended tail, without writing a whole database.
+    /// Compose packs into the players' final resources.db: the base with a
+    /// same-size head written over its start and a tail appended. Writes
+    /// `<output-db>.json`, the release's record.
     Release {
         #[arg(long)]
         base_db: PathBuf,
         #[arg(long = "pack", required = true)]
         packs: Vec<PathBuf>,
+        /// `ARCHIVE_PATH=FILE`: the bytes players have now for a base file
+        /// (e.g. the server's own menus); the packs' edits apply on top.
+        #[arg(long = "replace")]
+        replace: Vec<String>,
         #[arg(long)]
         work_dir: PathBuf,
-        /// Receives resources-head.bin, resources-tail.bin and release.json.
         #[arg(long)]
-        output_dir: PathBuf,
-        /// A composed path to keep out of the archive (shipped separately).
-        #[arg(long = "exclude")]
-        exclude: Vec<String>,
-        #[arg(long)]
-        server_export: Option<PathBuf>,
+        output_db: PathBuf,
         /// Signer for the file table: run as `<command> <head> <offset>`.
         #[arg(long)]
         sign_command: Option<String>,
@@ -816,26 +815,6 @@ enum PackCommand {
         deep_verify: bool,
         #[arg(long)]
         force: bool,
-    },
-    /// Draw the packs' lobby icons into a lobby movie and pad it to the
-    /// retail entry's size and CRC, as an updater region target.
-    LobbyRegion {
-        /// The lobby movie players have now (e.g. the live region target).
-        #[arg(long)]
-        swf: PathBuf,
-        /// The retail `flash_movies/lobby_menu.swf` (size and CRC to keep).
-        #[arg(long)]
-        original: PathBuf,
-        #[arg(long = "pack", required = true)]
-        packs: Vec<PathBuf>,
-        #[arg(long)]
-        output: PathBuf,
-        /// Required atlas width before drawing.
-        #[arg(long, default_value_t = 855)]
-        expect_width: usize,
-        /// The retail archive, for the updater plan line.
-        #[arg(long)]
-        base_db: Option<PathBuf>,
     },
     /// Confirm a database carries every operation of the given packs.
     Verify {
@@ -2450,22 +2429,30 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
         PackCommand::Release {
             base_db,
             packs,
+            replace,
             work_dir,
-            output_dir,
-            exclude,
-            server_export,
+            output_db,
             sign_command,
             deep_verify,
             force,
         } => {
+            let replace = replace
+                .iter()
+                .map(|item| {
+                    let (path, file) = item
+                        .split_once('=')
+                        .with_context(|| format!("--replace {item}: ARCHIVE_PATH=FILE"))?;
+                    Ok((path.to_owned(), PathBuf::from(file)))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let started = std::time::Instant::now();
             let manifest =
                 content_pack::release::release(&content_pack::release::ReleaseOptions {
                     base_db: &base_db,
                     packs: &packs,
+                    replace: &replace,
                     work_dir: &work_dir,
-                    output_dir: &output_dir,
-                    exclude: &exclude,
-                    server_export: server_export.as_deref(),
+                    output_db: &output_db,
                     sign_command: sign_command.as_deref(),
                     deep_verify,
                     force,
@@ -2479,50 +2466,31 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             for moved in &manifest.moved_payloads {
                 println!("moved={} {} -> {}", moved.path, moved.from, moved.to);
             }
+            for replaced in &manifest.replaced {
+                println!(
+                    "replaced={} size={} sha256={} in_place={}",
+                    replaced.path, replaced.size, replaced.sha256, replaced.in_place
+                );
+            }
             println!(
                 "head_size={} sha256={}",
-                manifest.head.blob.size, manifest.head.blob.sha256
+                manifest.head.size, manifest.head.sha256
             );
             println!(
                 "tail_size={} sha256={}",
                 manifest.tail.size, manifest.tail.sha256
             );
+            println!("signature={}", manifest.signature.status);
+            println!("output={}", output_db.display());
             println!(
                 "output_size={} sha256={}",
                 manifest.output.size, manifest.output.sha256
             );
-            println!("signature={}", manifest.signature.status);
-            for line in &manifest.plan_lines {
-                println!("plan: {line}");
-            }
             println!(
-                "manifest={}",
-                output_dir.join(content_pack::release::MANIFEST).display()
+                "record={}",
+                content_pack::release::record_path(&output_db).display()
             );
-        }
-        PackCommand::LobbyRegion {
-            swf,
-            original,
-            packs,
-            output,
-            expect_width,
-            base_db,
-        } => {
-            let region =
-                content_pack::release::lobby_region(&content_pack::release::LobbyRegionOptions {
-                    swf: &swf,
-                    original: &original,
-                    packs: &packs,
-                    output: &output,
-                    expect_width: Some(expect_width),
-                    base_db: base_db.as_deref(),
-                })?;
-            let record = serde_json::to_string_pretty(&region)?;
-            let mut json = output.clone().into_os_string();
-            json.push(".json");
-            std::fs::write(&json, format!("{record}\n"))?;
-            println!("{record}");
-            println!("output={}", output.display());
+            println!("seconds={}", started.elapsed().as_secs());
         }
         PackCommand::Verify { db, packs } => {
             let operations = content_pack::verify(&db, &packs)?;

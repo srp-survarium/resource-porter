@@ -319,11 +319,44 @@ pub fn verify_untouched(
     changed: &dyn Fn(&[u8]) -> bool,
     deep: bool,
 ) -> io::Result<HeadroomCheck> {
-    let mut base = Archive::open(base_path)?;
     let overlaid = OverlaidFile::open(base_path, head, tail)?;
     let head_len = std::fs::metadata(head)?.len();
+    untouched_in(
+        base_path,
+        Archive::from_reader(Box::new(overlaid))?,
+        head_len,
+        changed,
+        deep,
+    )
+}
+
+/// [`verify_untouched`] on a written archive: the base with a head of
+/// `head_len` bytes written over its start and a tail appended.
+pub fn verify_untouched_file(
+    base_path: &Path,
+    output_path: &Path,
+    head_len: u64,
+    changed: &dyn Fn(&[u8]) -> bool,
+    deep: bool,
+) -> io::Result<HeadroomCheck> {
+    untouched_in(
+        base_path,
+        Archive::open(output_path)?,
+        head_len,
+        changed,
+        deep,
+    )
+}
+
+fn untouched_in(
+    base_path: &Path,
+    mut output: Archive,
+    head_len: u64,
+    changed: &dyn Fn(&[u8]) -> bool,
+    deep: bool,
+) -> io::Result<HeadroomCheck> {
+    let mut base = Archive::open(base_path)?;
     let base_len = std::fs::metadata(base_path)?.len();
-    let mut output = Archive::from_reader(Box::new(overlaid))?;
     let output_entries = file_entries(&output);
     let mut check = HeadroomCheck::default();
     for (path, entry) in file_entries(&base) {

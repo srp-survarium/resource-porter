@@ -472,6 +472,9 @@ pub struct Plan<'a> {
     whole: BTreeMap<String, WholeFile>,
     edits: BTreeMap<String, Vec<Edit<'a>>>,
     atlas: BTreeMap<(String, String), Vec<IconEdit<'a>>>,
+    /// Base files given new bytes from outside the packs ([`Plan::replace`]):
+    /// the packs' edits of such a file apply on top of them.
+    replacements: BTreeMap<String, Vec<u8>>,
     pub problems: Vec<String>,
 }
 
@@ -484,6 +487,7 @@ impl<'a> Plan<'a> {
             whole: BTreeMap::new(),
             edits: BTreeMap::new(),
             atlas: BTreeMap::new(),
+            replacements: BTreeMap::new(),
             problems: Vec::new(),
         };
         for pack in packs {
@@ -780,9 +784,28 @@ impl<'a> Plan<'a> {
 
     /// Resolve the plan against a base archive: run every base-dependent
     /// check and compute the effective content of each touched resource.
+    /// Give the base file `path` new bytes before the packs apply: what
+    /// players have now in place of the stock file (a menu of the server's
+    /// own). Packs may edit it (a lobby movie gets its icons drawn on these
+    /// bytes, not the stock ones) but not add or replace it whole.
+    pub fn replace(&mut self, path: &str, bytes: Vec<u8>) {
+        self.replacements.insert(path.to_owned(), bytes);
+    }
+
     pub fn resolve(mut self, base: &mut ResourceDb, base_sha256: Option<&str>) -> Result<Resolved> {
         let mut problems = std::mem::take(&mut self.problems);
         let mut resolved = Resolved::default();
+        for path in self.replacements.keys() {
+            if !base.is_file(path) {
+                problems.push(format!("replacement {path} is not a file of the base"));
+            }
+            if let Some(whole) = self.whole.get(path) {
+                problems.push(format!(
+                    "{} adds or replaces {path} whole, which is also replaced from outside",
+                    self.pack_id(whole.pack)
+                ));
+            }
+        }
         for pack in self.packs {
             if let (Some(expected), Some(actual)) = (&pack.manifest.base_db_sha256, base_sha256)
                 && expected != actual
@@ -846,6 +869,13 @@ impl<'a> Plan<'a> {
                 Err(error) => problems.push(format!("{error:#}")),
             }
         }
+        for (path, bytes) in &self.replacements {
+            if !resolved.files.contains_key(path) {
+                resolved
+                    .files
+                    .insert(path.clone(), Content::Bytes(bytes.clone()));
+            }
+        }
         if !problems.is_empty() {
             bail!(
                 "{} problem(s):\n  {}",
@@ -860,6 +890,7 @@ impl<'a> Plan<'a> {
         match self.whole.get(path) {
             Some(whole) => fs::read(&whole.source)
                 .with_context(|| format!("reading {}", whole.source.display())),
+            None if self.replacements.contains_key(path) => Ok(self.replacements[path].clone()),
             None if base.is_file(path) => base.read(path),
             None => bail!("edits target {path}, which is neither in the base nor added by a pack"),
         }

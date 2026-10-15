@@ -1,37 +1,39 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! `pack release`: compose packs into the blobs an installed client needs.
+//! `pack release`: compose packs into the players' final `resources.db`.
 //!
-//! Instead of a whole new `resources.db`, a release is the retail file plus
-//! a same-size head region (header, larger file table, signature slot) and an
-//! appended tail (new and changed payloads, and the few base payloads the
-//! larger table displaced); see [`resources_db::headroom`]. Paths listed as
-//! excluded (the lobby movie, which ships as its own updater region) stay out
-//! of the archive; their composed bytes are written next to the blobs for
-//! reference only.
+//! The final database is the stock file with a same-size head written over
+//! its start (header, larger file table, signature slot) and a tail appended
+//! (new and changed payloads, and the few stock payloads the larger table
+//! displaced); see [`resources_db::headroom`]. Every other stock payload keeps
+//! its bytes and offset, so whoever turns the final database into an update
+//! (skhid-srp's `make_client_026g.py --resources-db`) finds a small head, the
+//! tail, and nothing else changed.
 //!
-//! The file table is signed in the shipped archive. Signing the new table is
-//! the last step: [`sign_file_table`] runs the configured signer, or leaves
-//! the slot zeroed and records the release as unsigned.
+//! `--replace` gives base files the bytes players have now instead of the
+//! stock ones (the server's own menus), before the packs apply: a lobby movie
+//! gets the packs' icons drawn onto the live movie. A replaced or edited
+//! movie that still fits its stock entry is padded to that size with the
+//! entry's hash and written in place; anything else goes to the tail.
+//!
+//! The file table is signed: signing is the last change to the head
+//! ([`sign_file_table`]), before it is written into the database.
 
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::process::Command;
 
 use anyhow::ensure;
-use resources_db::headroom::{self, HeadroomPatch, OverlaidFile, SIGNATURE_LEN};
+use resources_db::headroom::{self, HeadroomPatch, SIGNATURE_LEN};
 
 use super::*;
-
-/// Where the release's archive lives inside a client installation.
-pub const CLIENT_DB_PATH: &str = "game/resources.db";
 
 pub struct ReleaseOptions<'a> {
     pub base_db: &'a Path,
     pub packs: &'a [PathBuf],
+    /// `(archive path, file)`: the bytes players have now for a base file.
+    pub replace: &'a [(String, PathBuf)],
     pub work_dir: &'a Path,
-    pub output_dir: &'a Path,
-    /// Composed paths kept out of the archive.
-    pub exclude: &'a [String],
-    pub server_export: Option<&'a Path>,
+    /// The final database. Its record is written next to it, `<db>.json`.
+    pub output_db: &'a Path,
     /// Signer run as `<command words…> <head file> <signature offset>`; it
     /// must write exactly the 256-byte slot at that offset.
     pub sign_command: Option<&'a str>,
@@ -42,19 +44,10 @@ pub struct ReleaseOptions<'a> {
 }
 
 #[derive(Debug, Serialize)]
-pub struct BlobIdentity {
-    pub file: String,
+pub struct RangeIdentity {
     pub offset: u64,
     pub size: u64,
     pub sha256: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct HeadIdentity {
-    #[serde(flatten)]
-    pub blob: BlobIdentity,
-    /// The base's bytes over the same range.
-    pub original_sha256: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -75,29 +68,42 @@ pub struct MovedPayload {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ExcludedFile {
+pub struct InPlace {
     pub path: String,
-    pub file: String,
+    pub offset: u64,
     pub size: u64,
     pub sha256: String,
 }
 
 #[derive(Debug, Serialize)]
+pub struct Replacement {
+    pub path: String,
+    pub file: String,
+    pub file_sha256: String,
+    /// The bytes the final database holds (with the packs' edits, padded).
+    pub size: u64,
+    pub sha256: String,
+    /// Written over the stock entry (same size and hash), else in the tail.
+    pub in_place: bool,
+}
+
+/// The release's record, `<final db>.json`: what went in and what came out.
+#[derive(Debug, Serialize)]
 pub struct ReleaseManifest {
     pub format_version: u32,
     pub target_build: String,
-    /// The archive's path inside a client installation.
-    pub path: String,
     pub base: DbIdentity,
     pub output: DbIdentity,
-    pub head: HeadIdentity,
-    pub tail: BlobIdentity,
+    /// The bytes over the base's start: header, table, signature, moved space.
+    pub head: RangeIdentity,
+    /// The base's bytes over the same range.
+    pub head_original_sha256: String,
+    pub tail: RangeIdentity,
     pub signature: SignatureSlot,
     pub moved_payloads: Vec<MovedPayload>,
-    pub excluded: Vec<ExcludedFile>,
-    /// Updater plan lines: the head as a region of the original-size file,
-    /// and the tail as an append.
-    pub plan_lines: Vec<String>,
+    /// Files written over their stock entries (same size and hash).
+    pub in_place: Vec<InPlace>,
+    pub replaced: Vec<Replacement>,
     pub packs: Vec<InstalledPack>,
     pub added_files: Vec<String>,
     pub replaced_files: Vec<String>,
@@ -105,24 +111,32 @@ pub struct ReleaseManifest {
     pub notes: Vec<String>,
 }
 
-pub const MANIFEST: &str = "release.json";
-/// The manifest skhid-srp's `make_client_026g.py --resource-grow` reads.
-pub const GROW_MANIFEST: &str = "grow.json";
-pub const GROW_FORMAT: &str = "skhid-db-grow 1";
-pub const HEAD: &str = "resources-head.bin";
-pub const TAIL: &str = "resources-tail.bin";
+const HEAD: &str = "resources-head.bin";
+const TAIL: &str = "resources-tail.bin";
 
-fn sha256_range(path: &Path, len: u64) -> Result<String> {
+/// The release record's path for a final database.
+pub fn record_path(output_db: &Path) -> PathBuf {
+    let mut name = output_db.as_os_str().to_owned();
+    name.push(".json");
+    PathBuf::from(name)
+}
+
+fn sha256_range(path: &Path, offset: u64, len: u64) -> Result<String> {
+    let mut file = fs::File::open(path)?;
+    file.seek(SeekFrom::Start(offset))?;
     let mut hasher = Sha256::new();
-    let mut reader = fs::File::open(path)?.take(len);
-    std::io::copy(&mut reader, &mut hasher)?;
+    let copied = std::io::copy(&mut file.take(len), &mut hasher)?;
+    ensure!(
+        copied == len,
+        "{} ends inside [{offset}, +{len})",
+        path.display()
+    );
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-/// Fill the file-table signature slot of `head`. This is the release's last
-/// write: nothing may change the head afterwards. Without a signer the slot
-/// stays zeroed and the release is marked unsigned; clients then need the
-/// table check skipped (or our key, once the exe accepts it).
+/// Fill the file-table signature slot of `head`. This is the head's last
+/// change. Without a signer the slot stays zeroed and the release is
+/// recorded as unsigned.
 pub fn sign_file_table(head: &Path, offset: u64, signer: Option<&str>) -> Result<SignatureSlot> {
     let Some(signer) = signer else {
         return Ok(SignatureSlot {
@@ -163,55 +177,87 @@ pub fn sign_file_table(head: &Path, offset: u64, signer: Option<&str>) -> Result
     })
 }
 
+/// `bytes` as they can stand in place of the stock entry `stock`: as they
+/// are when size and hash match, or, for a movie that is shorter, padded to
+/// the entry's size with the entry's hash (the player ignores bytes past the
+/// movie's own length). `None` when they must go to the tail.
+pub(super) fn in_place_bytes(path: &str, bytes: &[u8], stock: &[u8]) -> Result<Option<Vec<u8>>> {
+    let hash = resources_db::pack::crc32;
+    if bytes.len() == stock.len() && hash(bytes) == hash(stock) {
+        return Ok(Some(bytes.to_vec()));
+    }
+    if !path.ends_with(".swf") || bytes.len() + 4 > stock.len() {
+        return Ok(None);
+    }
+    let mut padded = bytes.to_vec();
+    padded.resize(stock.len() - 4, 0);
+    let trailer = crc_trailer(&padded, crc32fast::hash(stock))?;
+    padded.extend_from_slice(&trailer);
+    ensure!(
+        hash(&padded) == hash(stock),
+        "{path}: padding did not reach the entry's hash"
+    );
+    Ok(Some(padded))
+}
+
 pub fn release(options: &ReleaseOptions<'_>) -> Result<ReleaseManifest> {
-    let out = options.output_dir;
-    if out.exists() {
-        if !options.force {
+    let output_db = options.output_db;
+    let record = record_path(output_db);
+    for path in [output_db, record.as_path()] {
+        if path.exists() && !options.force {
             bail!(
                 "release output already exists (use --force): {}",
-                out.display()
+                path.display()
             );
         }
-        fs::remove_dir_all(out)?;
-    }
-    fs::create_dir_all(out)?;
-    if let Some(export) = options.server_export {
-        if options.force && export.exists() {
-            fs::remove_dir_all(export)?;
-        }
-        crate::weapon::prepare_empty_output(export)?;
     }
     let packs = load_packs(options.packs)?;
     if packs.is_empty() {
         bail!("at least one pack is required");
     }
     let base_sha = sha256_file(options.base_db)?;
+    let base_len = fs::metadata(options.base_db)?.len();
     let mut base = ResourceDb::open(options.base_db)?;
-    let plan = Plan::new(&packs, &base_languages(&base));
+    let mut plan = Plan::new(&packs, &base_languages(&base));
+    let mut replaced_from = BTreeMap::new();
+    for (path, file) in options.replace {
+        let bytes = fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+        ensure!(
+            replaced_from
+                .insert(path.clone(), (file.clone(), sha256_hex(&bytes)))
+                .is_none(),
+            "{path} is replaced twice"
+        );
+        plan.replace(path, bytes);
+    }
     let resolved = plan.resolve(&mut base, Some(&base_sha))?;
 
-    let mut excluded = Vec::new();
-    for path in options.exclude {
-        let content = resolved
-            .files
-            .get(path)
-            .with_context(|| format!("excluded path {path} is not part of the composition"))?;
-        let bytes = content.bytes()?;
-        let file = format!("excluded/{path}");
-        let destination = safe_join(out, &file)?;
-        fs::create_dir_all(destination.parent().unwrap())?;
-        fs::write(&destination, &bytes)?;
-        excluded.push(ExcludedFile {
-            path: path.clone(),
-            file,
-            size: bytes.len() as u64,
-            sha256: sha256_hex(&bytes),
+    // What each touched file holds in the final database, and whether it
+    // can be written over its stock entry.
+    let mut finals = BTreeMap::<String, Vec<u8>>::new();
+    let mut in_place = BTreeMap::<String, u64>::new();
+    for (path, content) in &resolved.files {
+        let mut bytes = content.bytes()?;
+        let stored = base.entries().get(path).and_then(|entry| {
+            (entry.inline_buffer_offset.is_none()
+                && entry.size_in_db != 0
+                && entry.size_in_db == entry.uncompressed_size)
+                .then_some(entry.pos_in_db)
         });
+        if let Some(offset) = stored.filter(|_| base.is_file(path))
+            && let Some(fitted) = in_place_bytes(path, &bytes, &base.read(path)?)?
+        {
+            in_place.insert(path.clone(), offset);
+            bytes = fitted;
+        }
+        finals.insert(path.clone(), bytes);
     }
-    let kept = |path: &String| !options.exclude.contains(path);
     let donor = build_donor(
         options.base_db,
-        resolved.files.iter().filter(|(path, _)| kept(path)),
+        resolved
+            .files
+            .iter()
+            .filter(|(path, _)| !in_place.contains_key(*path)),
         options.work_dir,
         options.force,
     )?;
@@ -220,90 +266,111 @@ pub fn release(options: &ReleaseOptions<'_>) -> Result<ReleaseManifest> {
         .iter()
         .map(|path| path.clone().into_bytes())
         .collect();
-    let (head, tail) = (out.join(HEAD), out.join(TAIL));
+    let (head, tail) = (options.work_dir.join(HEAD), options.work_dir.join(TAIL));
     let patch: HeadroomPatch =
         headroom::build_headroom_overlay(options.base_db, &donor, &materialized, &head, &tail)?;
     fs::remove_file(&donor)?;
+    for (path, offset) in &in_place {
+        ensure!(
+            *offset >= patch.head_len,
+            "{path} at {offset} lies inside the head [0, {})",
+            patch.head_len
+        );
+    }
     let signature = sign_file_table(&head, patch.fat_end, options.sign_command)?;
 
-    // Everything below reads the client's resulting archive virtually.
-    let overlaid =
-        || -> Result<OverlaidFile> { Ok(OverlaidFile::open(options.base_db, &head, &tail)?) };
-    let mut output = ResourceDb::from_reader(Box::new(overlaid()?))?;
-    for (path, content) in resolved.files.iter().filter(|(path, _)| kept(path)) {
-        if sha256_hex(&content.bytes()?) != sha256_hex(&output.read(path)?) {
-            bail!("released resource {path} does not match its effective content");
+    // The final database: base, head over its start, in-place files, tail.
+    if let Some(parent) = output_db.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut partial = output_db.as_os_str().to_owned();
+    partial.push(".partial");
+    let partial = PathBuf::from(partial);
+    {
+        let mut out = fs::File::create(&partial)?;
+        std::io::copy(&mut fs::File::open(options.base_db)?, &mut out)?;
+        out.seek(SeekFrom::Start(0))?;
+        out.write_all(&fs::read(&head)?)?;
+        for (path, offset) in &in_place {
+            out.seek(SeekFrom::Start(*offset))?;
+            out.write_all(&finals[path])?;
+        }
+        out.seek(SeekFrom::End(0))?;
+        std::io::copy(&mut fs::File::open(&tail)?, &mut out)?;
+        out.sync_all()?;
+    }
+    fs::rename(&partial, output_db)?;
+    ensure!(
+        fs::metadata(output_db)?.len() == patch.new_len,
+        "the final database is not {} bytes",
+        patch.new_len
+    );
+
+    // Everything below reads the final database as written.
+    let mut output = ResourceDb::open(output_db)?;
+    for (path, bytes) in &finals {
+        if sha256_hex(bytes) != sha256_hex(&output.read(path)?) {
+            bail!("released resource {path} does not hold its composed bytes");
         }
     }
-    for path in options.exclude {
-        if sha256_hex(&output.read(path)?) != sha256_hex(&base.read(path)?) {
-            bail!("excluded resource {path} changed in the archive");
-        }
+    for (path, offset) in &in_place {
+        let entry = output
+            .entries()
+            .get(path)
+            .with_context(|| format!("{path} is gone from the final table"))?;
+        ensure!(
+            entry.pos_in_db == *offset,
+            "{path} moved although it was written in place"
+        );
     }
-    let operations = verify_in(&mut output, options.packs, options.exclude)?;
+    let operations = verify_in(&mut output, options.packs, &[])?;
     println!("verified_operations={operations}");
-    let changed: BTreeSet<Vec<u8>> = resolved
-        .files
+    let changed: BTreeSet<Vec<u8>> = finals
         .keys()
-        .filter(|path| kept(path))
         .map(|path| path.clone().into_bytes())
         .collect();
-    let check = headroom::verify_untouched(
+    let check = headroom::verify_untouched_file(
         options.base_db,
-        &head,
-        &tail,
+        output_db,
+        patch.head_len,
         &|path| changed.contains(path),
         options.deep_verify,
     )?;
     println!(
-        "untouched={} moved={} compared={}",
-        check.untouched, check.moved, check.compared
+        "untouched={} moved={} compared={} in_place={}",
+        check.untouched,
+        check.moved,
+        check.compared,
+        in_place.len()
     );
 
-    let mut hasher = Sha256::new();
-    std::io::copy(&mut overlaid()?, &mut hasher)?;
-    let output_sha = format!("{:x}", hasher.finalize());
-    let head_identity = HeadIdentity {
-        blob: BlobIdentity {
-            file: HEAD.into(),
+    let replaced = replaced_from
+        .into_iter()
+        .map(|(path, (file, file_sha256))| Replacement {
+            size: finals[&path].len() as u64,
+            sha256: sha256_hex(&finals[&path]),
+            in_place: in_place.contains_key(&path),
+            file: file.display().to_string(),
+            file_sha256,
+            path,
+        })
+        .collect();
+    let manifest = ReleaseManifest {
+        format_version: 2,
+        target_build: TARGET_BUILD.into(),
+        base: DbIdentity::of(options.base_db, base_sha)?,
+        output: DbIdentity::of(output_db, sha256_file(output_db)?)?,
+        head: RangeIdentity {
             offset: 0,
             size: patch.head_len,
-            sha256: sha256_file(&head)?,
+            sha256: sha256_range(output_db, 0, patch.head_len)?,
         },
-        original_sha256: sha256_range(options.base_db, patch.head_len)?,
-    };
-    let tail_identity = BlobIdentity {
-        file: TAIL.into(),
-        offset: patch.base_len,
-        size: patch.tail_len,
-        sha256: sha256_file(&tail)?,
-    };
-    let plan_lines = vec![
-        format!(
-            "region {CLIENT_DB_PATH} {} 0 {} {} {} resources_head",
-            patch.base_len,
-            patch.head_len,
-            head_identity.original_sha256,
-            head_identity.blob.sha256
-        ),
-        // The tail names the region holding the table that points into it.
-        format!(
-            "tail {CLIENT_DB_PATH} {} {} {} resources_tail resources_head",
-            patch.base_len, patch.new_len, tail_identity.sha256
-        ),
-    ];
-    let manifest = ReleaseManifest {
-        format_version: 1,
-        target_build: TARGET_BUILD.into(),
-        path: CLIENT_DB_PATH.into(),
-        base: DbIdentity::of(options.base_db, base_sha)?,
-        output: DbIdentity {
-            path: format!("{} + {HEAD} + {TAIL}", options.base_db.display()),
-            size: patch.new_len,
-            sha256: output_sha,
+        head_original_sha256: sha256_range(options.base_db, 0, patch.head_len)?,
+        tail: RangeIdentity {
+            offset: base_len,
+            size: patch.tail_len,
+            sha256: sha256_range(output_db, base_len, patch.tail_len)?,
         },
-        head: head_identity,
-        tail: tail_identity,
         signature,
         moved_payloads: patch
             .moved
@@ -315,77 +382,26 @@ pub fn release(options: &ReleaseOptions<'_>) -> Result<ReleaseManifest> {
                 to: m.to,
             })
             .collect(),
-        excluded,
-        plan_lines,
+        in_place: in_place
+            .iter()
+            .map(|(path, offset)| InPlace {
+                path: path.clone(),
+                offset: *offset,
+                size: finals[path].len() as u64,
+                sha256: sha256_hex(&finals[path]),
+            })
+            .collect(),
+        replaced,
         packs: installed_packs(&packs),
         added_files: kinds_of(&resolved, WholeKind::Add),
         replaced_files: kinds_of(&resolved, WholeKind::Replace),
         edited_files: resolved.edited.iter().cloned().collect(),
         notes: resolved.notes.clone(),
     };
-    fs::write(out.join(MANIFEST), serde_json::to_vec_pretty(&manifest)?)?;
-    let grow = serde_json::json!({
-        "format": GROW_FORMAT,
-        "path": CLIENT_DB_PATH,
-        "original_size": patch.base_len,
-        "new_size": patch.new_len,
-        "head": {
-            "name": "resources_head",
-            "offset": 0,
-            "size": patch.head_len,
-            "file": HEAD,
-            "original_sha256": manifest.head.original_sha256,
-            "target_sha256": manifest.head.blob.sha256,
-        },
-        "tail": {"name": "resources_tail", "file": TAIL, "sha256": manifest.tail.sha256},
-    });
-    fs::write(out.join(GROW_MANIFEST), serde_json::to_vec_pretty(&grow)?)?;
-    if let Some(export) = options.server_export {
-        let record = InstallRecord {
-            format_version: 1,
-            target_build: TARGET_BUILD.into(),
-            base_db: DbIdentity::of(options.base_db, manifest.base.sha256.clone())?,
-            output_db: DbIdentity {
-                path: manifest.output.path.clone(),
-                size: manifest.output.size,
-                sha256: manifest.output.sha256.clone(),
-            },
-            packs: installed_packs(&packs),
-            added_files: manifest.added_files.clone(),
-            replaced_files: manifest.replaced_files.clone(),
-            edited_files: manifest.edited_files.clone(),
-            notes: manifest.notes.clone(),
-        };
-        export_server(&mut base, &mut output, &resolved, &record, export)?;
-    }
+    fs::write(&record, serde_json::to_vec_pretty(&manifest)?)?;
+    fs::remove_file(&head)?;
+    fs::remove_file(&tail)?;
     Ok(manifest)
-}
-
-pub struct LobbyRegionOptions<'a> {
-    /// The lobby movie players have now (e.g. the live updater region).
-    pub swf: &'a Path,
-    /// The retail archive entry: the region keeps its size and CRC.
-    pub original: &'a Path,
-    pub packs: &'a [PathBuf],
-    pub output: &'a Path,
-    /// Required atlas width before drawing (the stock atlas is 855).
-    pub expect_width: Option<usize>,
-    /// The retail archive, to locate the entry for the updater plan line.
-    pub base_db: Option<&'a Path>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct LobbyRegion {
-    pub size: u64,
-    pub sha256: String,
-    pub input_sha256: String,
-    pub original_sha256: String,
-    /// Length of the movie itself; the rest is padding and the CRC trailer.
-    pub movie_len: u64,
-    pub cells: Vec<(u32, u32)>,
-    pub atlas_width: (usize, usize),
-    /// Updater plan line for this region, when the base archive was given.
-    pub plan_line: Option<String>,
 }
 
 /// Four trailing bytes that give `prefix ++ bytes` the CRC-32 `target`. The
@@ -433,134 +449,4 @@ fn crc_trailer(prefix: &[u8], target: u32) -> Result<[u8; 4]> {
         "CRC trailer does not reach its target"
     );
     Ok(trailer)
-}
-
-/// Draw the packs' lobby icons into `swf` and pad the movie to the retail
-/// entry's size with its CRC, so the archive's file table entry stays valid.
-pub fn lobby_region(options: &LobbyRegionOptions<'_>) -> Result<LobbyRegion> {
-    let input = fs::read(options.swf)?;
-    let original = fs::read(options.original)?;
-    ensure!(
-        input.len() == original.len(),
-        "the lobby movie is {} bytes, the retail entry {}",
-        input.len(),
-        original.len()
-    );
-    let packs = load_packs(options.packs)?;
-    let symbol = atlas::DEFAULT_SYMBOL;
-    let live = atlas::Swf::parse(&input).context("parsing the lobby movie")?;
-    let before = live.bitmap(symbol)?;
-    if let Some(width) = options.expect_width {
-        ensure!(
-            before.width == width,
-            "the lobby atlas is {} wide, expected {width}",
-            before.width
-        );
-    }
-    let mut bitmap = before.clone();
-    let mut cells = Vec::new();
-    let mut drawn = Vec::new();
-    for pack in &packs {
-        for operation in &pack.manifest.operations {
-            let Operation::AtlasIconsAdd {
-                swf,
-                symbol: s,
-                icons,
-            } = operation
-            else {
-                continue;
-            };
-            ensure!(
-                swf.as_deref().unwrap_or(atlas::DEFAULT_SWF) == atlas::DEFAULT_SWF
-                    && s.as_deref().unwrap_or(symbol) == symbol,
-                "{}: only the lobby equipment atlas is supported",
-                pack.id()
-            );
-            for icon in icons {
-                let pixels =
-                    atlas::read_icon_png(&safe_join(&pack.dir, &icon.source)?, icon.premultiplied)?;
-                ensure!(
-                    bitmap.cell(icon.row, icon.col)?.iter().all(|b| *b == 0),
-                    "{}: atlas cell [{}, {}] is already occupied",
-                    pack.id(),
-                    icon.row,
-                    icon.col
-                );
-                bitmap.put_cell(icon.row, icon.col, &pixels)?;
-                cells.push((icon.row, icon.col));
-                drawn.push((icon.row, icon.col, pixels));
-            }
-        }
-    }
-    ensure!(!cells.is_empty(), "the packs draw no lobby icons");
-    let mut edited = atlas::Swf::parse(&input)?;
-    edited.set_bitmap(symbol, &bitmap)?;
-    let movie = edited.to_bytes()?;
-
-    // Re-read: only the atlas changed, old pixels kept, new cells drawn.
-    let check = atlas::Swf::parse(&movie)?;
-    ensure!(
-        check.same_except_bitmap(&live, symbol)?,
-        "the lobby movie changed outside its atlas"
-    );
-    let after = check.bitmap(symbol)?;
-    ensure!(after.height == before.height, "atlas height changed");
-    for line in 0..before.height {
-        let old = &before.argb[line * before.width * 4..(line + 1) * before.width * 4];
-        let new = &after.argb[line * after.width * 4..line * after.width * 4 + before.width * 4];
-        ensure!(old == new, "atlas row {line} changed");
-    }
-    for (row, col, pixels) in &drawn {
-        ensure!(
-            &after.cell(*row, *col)? == pixels,
-            "cell [{row}, {col}] differs"
-        );
-    }
-
-    let size = original.len();
-    ensure!(
-        movie.len() + 4 <= size,
-        "the lobby movie grew to {} bytes, the region holds {size}",
-        movie.len()
-    );
-    let mut region = movie.clone();
-    region.resize(size - 4, 0);
-    let trailer = crc_trailer(&region, crc32fast::hash(&original))?;
-    region.extend_from_slice(&trailer);
-    ensure!(
-        resources_db::pack::crc32(&region) == resources_db::pack::crc32(&original),
-        "the region's archive hash differs from the retail entry"
-    );
-    fs::write(options.output, &region)?;
-    let plan_line = match options.base_db {
-        Some(db) => {
-            let base = ResourceDb::open(db)?;
-            let entry = base
-                .entries()
-                .get(atlas::DEFAULT_SWF)
-                .context("the base archive has no lobby movie")?;
-            ensure!(
-                entry.size_in_db as usize == size && entry.inline_buffer_offset.is_none(),
-                "the base lobby entry does not match the retail movie"
-            );
-            Some(format!(
-                "region {CLIENT_DB_PATH} {} {} {size} {} {} lobby_menu",
-                fs::metadata(db)?.len(),
-                entry.pos_in_db,
-                sha256_hex(&original),
-                sha256_hex(&region)
-            ))
-        }
-        None => None,
-    };
-    Ok(LobbyRegion {
-        size: size as u64,
-        sha256: sha256_hex(&region),
-        input_sha256: sha256_hex(&input),
-        original_sha256: sha256_hex(&original),
-        movie_len: movie.len() as u64,
-        cells,
-        atlas_width: (before.width, after.width),
-        plan_line,
-    })
 }
