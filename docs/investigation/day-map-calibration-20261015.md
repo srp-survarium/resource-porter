@@ -613,7 +613,7 @@ orange puddle. The dull look in play is the same local-light deficit; the
 puddle lies in a lamp's cone. The port alone has the thin albedo stripes,
 from the native 0.26 decal pass; that cause is still open.
 
-## Encoded local lights and floor decals (staged `4f2f9fa5`, not promoted)
+## Encoded local lights and floor decals (`4f2f9fa5`, promoted to -next)
 
 **Light identities.** The 0.11e presets' F0=1 local-light overrides were
 created for eight native identities on both 0.11e maps:
@@ -653,3 +653,57 @@ than the final frame. Some pass after `copy_image` brightens display values
 (10→18, 30→41, 100→116, 180→198 in 8-bit). The port does not reproduce it,
 so its bright surfaces sit about 0.82 of the original. That pass is not yet
 identified.
+
+**Promotion.** With coordinator approval, `-next` now carries db
+`4f2f9fa5…` and the harness presets and looks (encoded-light asset and the
+new hook in every look). The previous `25ab9683` package is backed up with
+`SHA256SUMS` in `/tmp/three-day-map-candidate-next-backup-25ab`. After
+install: `play-maps verify` passes (104 files); texture verifier 0 missing;
+shader verifier 0 missing (2 runtime-proven, 14 stage-switch evidence).
+
+## 0.11e display lift after `copy_image`: a motion-blur shader bug (no change made)
+
+**What it is.** In 0.11e every motion-blur variant sums one more tap than it
+divides by:
+
+| Shader (0.11e) | Colour taps | Output scale | Gain on a still image |
+| --- | --- | --- | --- |
+| `motion_blur_low.ps` | 5 | ×0.25 | 1.25 |
+| `motion_blur_medium.ps` (`84797df0`) | 9 | ×0.125 | 1.125 |
+| `motion_blur_high.ps` | 13 | ×0.0833 | 1.083 |
+
+The taps run from −0.09 to +0.07 in steps of 0.02, scaled by the blur
+amount. With a still camera they all hit the same pixel, so the pass scales
+the gamma-encoded image by the gain (1.125 is about 1.30 in linear light).
+0.20e (five `motion_blur.ps` variants) and 0.26g (four variants) take 9 taps
+and divide by 9, so they have no lift.
+
+**Evidence.**
+
+- After `copy_image`, each 0.11e frame runs olta_blend, olta_blur (a copy),
+  temporal AA (a lerp of at most 0.5 toward history), motion_blur_medium,
+  aberration (per-channel offset resample) and present (a copy). Every
+  render target is R8G8B8A8_UNORM with a UNORM view, so there is no sRGB
+  conversion.
+- `copy_image` matches pow(x, 1/(2.2·1.0)) to within 0.0022.
+  `r_gamma_correction_factor` is 1.0.
+- The screenshot is a raw copy of the swapchain backbuffer, taken in the
+  same frame as the stage readback. A display gamma ramp (driver, Wine or
+  SetGammaRamp) cannot reach it.
+- On 16×16 block averages the final frame is 1.118–1.123 × the
+  `copy_image` output, with offset ≈ 0, on all three stage views. The
+  prediction is 9/8 = 1.125.
+
+**User setting.** The gain is controlled by `r_use_motion_blur` and
+`r_motion_blur_quality`. The fidelity and stage references used quality 2
+(medium). The long-lived 0.11e profile they came from had quality 3 (high,
+gain 1.083) with graphics preset 4. With motion blur off the lift is 1.0.
+The default for a fresh profile is not established.
+
+**Consequence.** The 0.11e reference images are 12.5% brighter in display
+values than the scene the engine rendered. Part of the remaining
+bright-surface gap (sunlit luma ratio .822 on Chemical) is this lift, not a
+lighting difference. Scaling the references by 8/9 would move that
+display ratio from .822 to about .92. Whether the port
+reproduces the lift is a per-look decision for the two 0.11e looks, not a
+bug fix. The 0.20e look must not get it.
