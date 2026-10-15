@@ -866,6 +866,98 @@ pub(super) fn geometry(bytes: &[u8], rebase_wrapped_uv: bool) -> Result<Vec<u8>>
     Ok(result)
 }
 
+
+/// Wall-overlay materials whose far LOD meshes were authored partly inside the
+/// surface they cover. On Chemical (0.11e level/04 `moss*.model`) the LOD1 moss
+/// sits up to 8.2 cm inside the wall (5th percentile; LOD0: 1.2 cm), and in
+/// 0.26 it flickers against the wall at a distance while the camera moves.
+/// These LOD≥1 surfaces are lifted along their normals.
+pub(super) const WALL_OVERLAY_MATERIALS: &[&str] = &["anomaly/anomaly_moss"];
+/// Measured penetration rounded up (user-confirmed in game: LOD1 +10 cm).
+pub(super) const WALL_OVERLAY_LOD_LIFT: f32 = 0.10;
+
+/// Surfaces of a model's LOD1+ levels that use a wall-overlay material.
+/// Material names may already be relocated (`ported/<build>/...`).
+pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeSet<String>> {
+    let mut result = BTreeSet::new();
+    let Some(ConfigValue::Named(levels)) = settings.named("lod_hierrarchy") else {
+        return Ok(result);
+    };
+    for level in levels {
+        // Levels other than LOD<n> (for example `unassigned`) are not
+        // distance LODs.
+        let Some(Ok(lod)) = level.name.strip_prefix("LOD").map(str::parse::<u32>) else {
+            continue;
+        };
+        if lod == 0 {
+            continue;
+        }
+        let Some(surfaces) = level.value.named("surfaces") else {
+            continue;
+        };
+        for surface in array(surfaces)? {
+            let ConfigValue::String(surface) = surface else {
+                bail!("LOD{lod} surface is not a string");
+            };
+            let material = settings
+                .named("material_settings")
+                .and_then(|m| m.named(surface))
+                .and_then(|m| string(m, "material_name"))
+                .unwrap_or("")
+                .replace('\\', "/");
+            if WALL_OVERLAY_MATERIALS.iter().any(|overlay| {
+                material == *overlay
+                    || material
+                        .strip_suffix(overlay)
+                        .is_some_and(|head| head.starts_with("ported/") && head.ends_with('/'))
+            }) {
+                result.insert(surface.clone());
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// Move every vertex of converted (0.26 layout) static geometry `distance`
+/// metres along its packed normal. Returns the vertex count.
+pub(super) fn lift_along_normals(converted: &mut [u8], distance: f32) -> Result<usize> {
+    let u32_at = |bytes: &[u8], offset: usize| -> Result<usize> {
+        Ok(u32::from_le_bytes(
+            bytes
+                .get(offset..offset + 4)
+                .context("truncated static geometry")?
+                .try_into()
+                .unwrap(),
+        ) as usize)
+    };
+    ensure!(u32_at(converted, 0)? == 3, "expected a static vertex chunk");
+    let size = u32_at(converted, 4)?;
+    let count = u32_at(converted, 8)?;
+    ensure!(
+        count > 0 && size >= 4 && converted.len() >= 8 + size,
+        "truncated static vertex chunk"
+    );
+    let stride = (size - 4) / count;
+    ensure!(
+        matches!(stride, 28 | 32) && 4 + stride * count == size,
+        "unsupported static stride"
+    );
+    for vertex in converted[12..8 + size].chunks_exact_mut(stride) {
+        // Packed basis bytes are z, y, x, alpha (see `packed_basis`).
+        let mut normal = [vertex[14], vertex[13], vertex[12]].map(|b| b as f32 / 127.5 - 1.);
+        let length = normal.iter().map(|v| v * v).sum::<f32>().sqrt();
+        ensure!(length > 0.5, "degenerate packed normal");
+        normal = normal.map(|v| v / length);
+        for axis in 0..3 {
+            let at = axis * 4;
+            let value = f32::from_le_bytes(vertex[at..at + 4].try_into().unwrap())
+                + distance * normal[axis];
+            ensure!(value.is_finite(), "non-finite lifted position");
+            vertex[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+    }
+    Ok(count)
+}
 /// The runtime consumes float3 positions (0x58) and normals (0x59).
 /// 0x4d/0x4e are editor painting data; retain them without resampling.
 pub(super) fn vegetation_instances(bytes: &[u8]) -> Result<usize> {
@@ -1498,6 +1590,94 @@ mod tests {
             name,
             ConfigValue::String("ported/v010b/weather/rain/rain".into())
         );
+    }
+
+    #[test]
+    fn wall_overlay_lods_are_lifted_along_normals_and_nothing_else() {
+        let named = |name: &str, value| NamedValue {
+            name: name.into(),
+            value,
+        };
+        let group = |values: Vec<NamedValue>| ConfigValue::Named(values);
+        let surfaces = |names: &[&str]| {
+            group(vec![named(
+                "surfaces",
+                ConfigValue::Indexed(
+                    names
+                        .iter()
+                        .map(|n| ConfigValue::String((*n).into()))
+                        .collect(),
+                ),
+            )])
+        };
+        let materials = [
+            ("moss_base", "anomaly/anomaly_moss"),
+            ("moss_lod", "anomaly\\anomaly_moss"),
+            ("moss_far", "ported/v011e/anomaly/anomaly_moss"),
+            ("moss_lod_spare", "anomaly/anomaly_moss"),
+            ("stump", "anomaly/anomaly_stump"),
+            ("stump_lod", "anomaly/anomaly_moss_detail"),
+        ]
+        .map(|(surface, material)| {
+            named(
+                surface,
+                group(vec![named(
+                    "material_name",
+                    ConfigValue::String(material.into()),
+                )]),
+            )
+        });
+        let settings = group(vec![
+            named(
+                "lod_hierrarchy",
+                group(vec![
+                    named("LOD0", surfaces(&["moss_base", "stump"])),
+                    named("LOD1", surfaces(&["stump_lod", "moss_lod"])),
+                    named("LOD2", surfaces(&["moss_far"])),
+                    named("unassigned", surfaces(&["moss_lod_spare"])),
+                ]),
+            ),
+            named("material_settings", group(materials.into())),
+        ]);
+        assert_eq!(
+            wall_overlay_lod_surfaces(&settings).unwrap(),
+            BTreeSet::from(["moss_far".to_owned(), "moss_lod".to_owned()])
+        );
+        assert!(
+            wall_overlay_lod_surfaces(&ConfigValue::Named(vec![]))
+                .unwrap()
+                .is_empty()
+        );
+
+        // Two converted vertices: normal +x (bytes z,y,x = 127.5-ish, 127.5-ish, 255)
+        // and normal -y; the basis/UV bytes must be untouched.
+        let mut converted = Vec::new();
+        converted.extend(3u32.to_le_bytes());
+        converted.extend((4 + 2 * 28u32).to_le_bytes());
+        converted.extend(2u32.to_le_bytes());
+        for (position, normal) in [
+            ([1f32, 2., 3.], [128u8, 128, 255]),
+            ([0., 0., 0.], [128, 0, 128]),
+        ] {
+            for v in position {
+                converted.extend(v.to_le_bytes());
+            }
+            converted.extend(normal);
+            converted.extend([255, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 11, 12]);
+        }
+        converted.extend([4, 0, 0, 0, 2, 0, 0, 0, 0, 0]);
+        let before = converted.clone();
+        assert_eq!(lift_along_normals(&mut converted, 0.1).unwrap(), 2);
+        let f = |bytes: &[u8], at: usize| f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        assert!((f(&converted, 12) - 1.1).abs() < 1e-3);
+        assert!((f(&converted, 16) - 2.).abs() < 1e-2 && (f(&converted, 20) - 3.).abs() < 1e-2);
+        assert!((f(&converted, 40 + 4) + 0.1).abs() < 1e-3);
+        for vertex in 0..2 {
+            let at = 12 + vertex * 28 + 12;
+            assert_eq!(converted[at..at + 16], before[at..at + 16]);
+        }
+        assert_eq!(converted[68..], before[68..]);
+        assert!(lift_along_normals(&mut converted[..60].to_vec(), 0.1).is_err());
     }
 
     #[test]
