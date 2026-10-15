@@ -798,3 +798,18 @@ the geometry. The three-view `pipeline-lamp-hangar-local-light` runtime batch
 selects the exact outdoor cone after rejecting two other origins. Both hangar
 views reject their unrelated cones and correctly produce no selected-volume
 readback. The capture checkpoint preserves this evidence and the loaded DLL.
+
+## Footstep diagnostics (0.26 only)
+
+`SRP_STEP_LOG=1` appends one JSON line per footstep query to `step.log` next to
+the control file (`<runtime>/step.log`): `step` lines (position, actor
+material), `pair` lines when the step ray hit something (the raw 16-bit surface
+value, the material-table entries, the pair `get_pair` returned and its sound
+and effect, on_step's stack frame), and one `material`/`sound_object` dump per
+distinct pointer. A step without a pair line is a ray miss. The hook checks
+every byte it relies on first; on a mismatch it patches nothing, writes the
+reason as `{"installed":0,...}` and the game runs normally. The game thread
+only queues records; a writer thread reads game memory through
+`ReadProcessMemory` and writes the lines. `test_step_diagnostic.c` runs the
+stubs against the real `get_pair` bytes under Wine (console only):
+`test_step_diagnostic.exe <survarium-capture.exe> <log directory>`.
