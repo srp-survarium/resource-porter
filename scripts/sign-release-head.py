@@ -22,13 +22,15 @@ def main():
     spec = importlib.util.spec_from_file_location('sign_resources_026g', a.signer)
     S = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(S)
-    header = a.head.read_bytes()[:24]
-    start, end = S.signature_range(header)
+    with open(a.head, 'rb') as handle:
+        _, table, _ = S.read_table(handle)
+    start = 24 + len(table)
     if start != a.offset:
         raise SystemExit(f'signature slot is at {start}, the release expects {a.offset}')
-    S.sign_file(str(a.head), S.load_private_key(str(a.key or S.DEFAULT_KEY)))
+    S.sign_file(str(a.head), str(a.key or S.DEFAULT_KEY))
     with open(a.head, 'rb') as handle:
         _, table, signature = S.read_table(handle)
+    end = start + len(signature)
     if S.which_key(table, signature) != 'skhid':
         raise SystemExit('the signed table does not verify with the Skhid key')
     # A changed table must not verify.
