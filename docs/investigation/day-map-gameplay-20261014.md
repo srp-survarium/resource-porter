@@ -343,7 +343,7 @@ differences from the target's conventions on walkable areas, now fixed:
 
 | Map | Model / surface | Source (0.11e) | Before | After | Area (top) |
 |---|---|---|---|---|---|
-| 194 | `test/mattest_cube01` `default` (two scaled test boxes; the one at Y 5.6 is the only floor collision of the old-factory hall, x −90…−70.6, z 46.5…72.1) | 65535 (0.11e runtime: default steps) | 65535 (out-of-range lookup) | `default` (reviewed binding: what 0.11e played) | 519 m² |
+| 194 | `test/mattest_cube01` `default` (two scaled 0.11e material-test boxes rendered with `water/water_green_shit`; the one with its top at Y 5.6, x −90…−70.6, z 46.5…72.1, is a closed room in the old factory; a player spawned there stands on green water) | 65535 (0.11e runtime: default steps) | 65535 (out-of-range lookup) | `default` (reviewed binding: what 0.11e played; not reachable in normal play) | 519 m² |
 | 194 | `props/machines/turbine` `default` | 65535 | 65535 | `metall_thick` (native 0.26 binding of the same surface) | 5 m² |
 | 194 | `flora/bush_s_006` `default`, `level/04/moss_alfa` `default` | 65535 | 65535 | `foliage_deciduous`, `ground` (native bindings; no walkable top) | 0 |
 
