@@ -61,8 +61,10 @@ def foreign_clients(owned):
     return found
 
 
-def wait_ready(runtime, deadline_seconds=150):
+def wait_ready(runtime, launched, deadline_seconds=150):
+    """Wait for this launch's renderer; status and logs older than the launch are a previous run's."""
     deadline = time.monotonic()+deadline_seconds
+    fresh = lambda path: path.exists() and path.stat().st_mtime >= launched
     status_path = runtime/'camera.txt.status.json'
     while time.monotonic() < deadline:
         state_path = runtime/'state.json'
@@ -70,7 +72,7 @@ def wait_ready(runtime, deadline_seconds=150):
             state = json.loads(state_path.read_text())
             if state.get('status') in ('stopped', 'cleanup incomplete'):
                 raise RuntimeError('launcher stopped: '+str(state.get('error')))
-        if status_path.exists():
+        if fresh(status_path):
             try:
                 status = json.loads(status_path.read_text())
             except json.JSONDecodeError:
@@ -79,7 +81,7 @@ def wait_ready(runtime, deadline_seconds=150):
             if status.get('error'):
                 raise RuntimeError(status['error'])
             log = runtime/'server.log'
-            loaded = log.exists() and 'initial snapshot' in log.read_text(errors='replace')
+            loaded = fresh(log) and 'initial snapshot' in log.read_text(errors='replace')
             if loaded and status.get('present_calls', 0) > 20:
                 return status
         time.sleep(.25)
@@ -152,16 +154,17 @@ def main():
             started = time.time()
             stopped = False
             try:
+                launched = time.time()
                 subprocess.run(launch+['start', arm['map'], '--ui', 'off'], check=True,
                                stdout=subprocess.DEVNULL)
-                wait_ready(runtime)
+                wait_ready(runtime, launched)
                 warm = dict(poses[0], name='warmup', buffers=False, settle_ms=5000)
                 capture.capture(runtime/'camera.txt', [warm], destination/'warmup', timeout=40)
                 capture.capture(runtime/'camera.txt', poses, destination, timeout=60)
             finally:
                 state = json.loads((runtime/'state.json').read_text())
                 subprocess.run(launch+['stop'], check=True, stdout=subprocess.DEVNULL)
-                env = dict(os.environ, WINEPREFIX=state['prefix'])
+                env = dict(os.environ, WINEPREFIX=state.get('prefix') or str(runtime/'wineprefix'))
                 subprocess.run([str(Path(catalog['wine']).with_name('wineserver')), '-w'],
                                env=env, check=True, timeout=60)
                 pids = [state.get(k) for k in ('pid', 'server_pid', 'client_pid') if state.get(k)]
