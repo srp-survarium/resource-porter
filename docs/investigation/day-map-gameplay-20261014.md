@@ -368,7 +368,7 @@ wagon's wall and 3.6 m from the spot; native 0.26 keeps the same spawner
 0.6 m further out (20.95, 2.81, 4.14). The user confirmed the spawn works
 in game; nothing was changed.
 
-### Silent second-floor walkways (third report: "all rails on the second floor")
+### Open item (parked by the user): silent second-floor walkways (third report: "all rails on the second floor")
 
 The report means the tread-plate walkways above the train (`loading_station_01/02`,
 `loading_station_balkony`) and the passages (`perehod*`), not the tracks.
@@ -383,9 +383,14 @@ Tried and ruled out: binding the walkways' walker surfaces (`coll_restrictSG`,
 `metall_thick_walkable`. The user found the walkways still silent with it,
 so it was reverted; the walker surfaces stay unlisted, as in native 0.26.
 
-Next: the step log. The 0.26 step handler (VA 0x248ad0) casts the ray and
-calls `get_pair` (VA 0x306d50) with the hit surface's 16-bit material value.
-`get_pair` indexes its 128-slot material table with all 16 bits (no
-`& 0x3fff`), so a surface that keeps walker-behaviour bits reads outside
-the table. The log records the raw value, the table entries, the pair and
-its sound per step (`SRP_STEP_LOG=1`, `tools/render-compare/step_diagnostic.c`).
+Parked: the user decided to leave the walkways silent for now. If it is
+picked up again, the step log is ready but has never run in game
+(`SRP_STEP_LOG=1`, `tools/render-compare/step_diagnostic.c`, off by
+default; console test `test_step_diagnostic.c`). The 0.26 step handler
+(VA 0x248ad0) casts the ray and calls `get_pair` (VA 0x306d50) with the
+hit surface's 16-bit material value, and `get_pair` indexes its 128-slot
+material table with all 16 bits (no `& 0x3fff`), so a surface that keeps
+walker-behaviour bits would read outside the table. The log records per
+step the raw value, the table entries, the pair and its sound, so one walk
+on a walkway and on the ground next to it would show which of these differs.
+A native comparison is map 79 (native level_04 day_2) with the same client.
