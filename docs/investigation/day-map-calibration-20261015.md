@@ -1094,3 +1094,56 @@ code change. Evidence so far:
   material. 212 candidate 0.26 variants with `t_normal` + `t_translucency`
   are extracted under `lighting-build-20261015/foliage/gb26/`. A green-sign
   or back-face difference would explain the upward bias.
+
+## Moss flicker on Chemical walls (user test in progress, no content change)
+
+The user reports that moss on Chemical walls flickers at a distance, but only
+while moving (the screenshot at 14:35:13, "see those stripes", was taken in
+variant A below).
+
+What the moss is:
+- It is overlay geometry, not decals: `moss`, `moss2`, `moss3` and `moss4`,
+  each with `anomaly_moss_base_sg` (LOD0) and `anomaly_moss_lod_sg` (LOD1).
+  The LOD switch parameters are 70/200/240; `moss.model` uses param0 = 100.
+  Only Chemical has these overlays.
+- The geometry is byte-identical to 0.11e. LOD0 sits close to the wall (5th
+  percentile −1.2 cm, that is, slightly inside). LOD1 dips further in, down
+  to −8.2 cm at the 5th percentile.
+- The textures have full mips (1024², 9 levels). There is no alpha test;
+  `use_parallax` is on.
+
+Ruled out or equal to 0.11e:
+- **Sun-shadow bias:** the native 0.26 `sun_shadow.ps` (for example variant
+  `____10…2`, 4324 B) already applies the 0.11e normal-offset bias
+  N·((1.5−|N·L|)·6+2)·max(0.02·depth, .25), scaled by cb1[24].w·16.
+- **TAA resolve:** it is the same in both versions, a blend weight of
+  0.5·(1−min(100|Δuv|,1)) with no neighbourhood clamp.
+- **Not settled, the jitter:** 0.26 `r_antialiasing_method 2` is "2xTAA",
+  which jitters the projection. 0.11e has FXAA/SRAA methods plus a separate
+  `r_use_temporal_antialiasing`, and no 0.11e shader uses
+  `t_jitter_lookup`, so 0.11e jitter is unverified.
+
+Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
+(runtime `/tmp/moss-test-runtime`, port 2284). The plans are kept in
+`/mnt/hdd/Projects/lighting-build-20261015/moss/`.
+
+| Variant | Change | Verdict |
+|---|---|---|
+| A | all 8 moss surfaces +2 cm off the wall (`plan-fixA`) | still flickers at a distance |
+| B | TAA off | looked fixed, but still flickers at a very far distance |
+| C, L, P | no moss shadow (`plan-noshadow`); LOD0 kept to 199 m (`plan-fixC`); parallax off (`plan-parallax`) | prepared, no verdict |
+| "J" | meant to remove jitter, but the hook latched the loading-screen camera, so it was really N | "still a very good fix" (= N) |
+| N | plain -next (db `2c286a7d`), TAA 2 | testing |
+| J2 | TAA 2, jitter zeroed on every camera (`SRP_DEJITTER=1`) | testing |
+| LOD1 | LOD1 surfaces +10 cm (`plan-lod1`, 4 surfaces) | testing |
+| J2LOD1 | both | testing |
+
+- Switch with `moss-test.sh <variant>`. It stops only the test runtime,
+  applies one plan at a time, sets TAA 2, puts the variant in the window
+  title (`SRP_WINDOW_NOTE`), and appends the hook receipt to
+  `ACTIVE_VARIANT.txt`.
+- The hook now handles every camera director before the latched-director
+  check. The receipt reports `projection_offset` with min/max, `dejitter`,
+  `keep_jitter` and `director_calls`.
+- `SRP_CAPTURE_KEEP_JITTER=1` keeps the native offsets in capture overrides.
+- All of these are off by default.
