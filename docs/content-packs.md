@@ -174,7 +174,8 @@ vostok-port pack lobby-region --swf CURRENT_LOBBY --original RETAIL_LOBBY \
 * `release.json` records sizes and SHA-256s of base, head (and the base's
   bytes it replaces), tail and the resulting archive, the moved payloads,
   the signature slot and the updater plan lines (`region … resources_head`,
-  `tail … resources_tail`).
+  `tail … resources_tail resources_head`), and `grow.json`, the same head and
+  tail in the form skhid-srp's `make_client_026g.py --resource-grow` reads.
 * Nothing writes a whole archive: verification reads retail + head + tail as
   one virtual file (`resources_db::headroom::OverlaidFile`). It checks every
   composed resource, every pack operation (`verify`), and that every other

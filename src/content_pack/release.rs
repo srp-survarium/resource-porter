@@ -106,6 +106,9 @@ pub struct ReleaseManifest {
 }
 
 pub const MANIFEST: &str = "release.json";
+/// The manifest skhid-srp's `make_client_026g.py --resource-grow` reads.
+pub const GROW_MANIFEST: &str = "grow.json";
+pub const GROW_FORMAT: &str = "skhid-db-grow 1";
 pub const HEAD: &str = "resources-head.bin";
 pub const TAIL: &str = "resources-tail.bin";
 
@@ -283,8 +286,9 @@ pub fn release(options: &ReleaseOptions<'_>) -> Result<ReleaseManifest> {
             head_identity.original_sha256,
             head_identity.blob.sha256
         ),
+        // The tail names the region holding the table that points into it.
         format!(
-            "tail {CLIENT_DB_PATH} {} {} {} resources_tail",
+            "tail {CLIENT_DB_PATH} {} {} {} resources_tail resources_head",
             patch.base_len, patch.new_len, tail_identity.sha256
         ),
     ];
@@ -320,6 +324,22 @@ pub fn release(options: &ReleaseOptions<'_>) -> Result<ReleaseManifest> {
         notes: resolved.notes.clone(),
     };
     fs::write(out.join(MANIFEST), serde_json::to_vec_pretty(&manifest)?)?;
+    let grow = serde_json::json!({
+        "format": GROW_FORMAT,
+        "path": CLIENT_DB_PATH,
+        "original_size": patch.base_len,
+        "new_size": patch.new_len,
+        "head": {
+            "name": "resources_head",
+            "offset": 0,
+            "size": patch.head_len,
+            "file": HEAD,
+            "original_sha256": manifest.head.original_sha256,
+            "target_sha256": manifest.head.blob.sha256,
+        },
+        "tail": {"name": "resources_tail", "file": TAIL, "sha256": manifest.tail.sha256},
+    });
+    fs::write(out.join(GROW_MANIFEST), serde_json::to_vec_pretty(&grow)?)?;
     if let Some(export) = options.server_export {
         let record = InstallRecord {
             format_version: 1,
