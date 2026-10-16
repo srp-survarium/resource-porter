@@ -41,11 +41,21 @@ struct RawValue {
 
 impl BinaryConfig {
     pub fn parse(bytes: &[u8]) -> Result<Self> {
+        if is_compact(bytes) {
+            return Ok(Self {
+                root: parse_compact(bytes, 0, 0)?,
+            });
+        }
         if bytes.len() < VALUE_SIZE {
             bail!("binary config is shorter than one value");
         }
         let root = parse_value(bytes, read_raw(bytes, 0)?, 0)?;
         Ok(Self { root })
+    }
+
+    /// Whether `bytes` use the later builds' 16-byte value records (0.69d).
+    pub fn is_compact(bytes: &[u8]) -> bool {
+        is_compact(bytes)
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
@@ -209,6 +219,85 @@ fn parse_value(bytes: &[u8], raw: RawValue, depth: usize) -> Result<ConfigValue>
         7 => ConfigValue::Float3(read_floats::<3>(bytes, usize::try_from(raw.data)?)?),
         8 => ConfigValue::Float4(read_floats::<4>(bytes, usize::try_from(raw.data)?)?),
         other => bail!("unsupported binary config value type {other}"),
+    })
+}
+
+// Later builds (0.69d) pack a value into 16 bytes, little-endian:
+//
+//   u64 bits  0..44  data: inline scalar, or byte offset of a table, string or vector
+//             44..48 kind: the same 0..8 type codes as the 24-byte records
+//             48..64 count: children of a table, or byte size of the payload
+//   u64 bits  0..48  byte offset of the NUL-terminated key (named children only)
+//             48..64 16-bit key hash (not needed to read; recomputed on write)
+//
+// Integers are sign-extended into the 44-bit data field. The root is a table
+// whose children start at byte 16, which no 24-byte config can have.
+const COMPACT_SIZE: usize = 16;
+const COMPACT_DATA_MASK: u64 = (1 << 44) - 1;
+
+fn is_compact(bytes: &[u8]) -> bool {
+    let Some(head) = bytes.get(0..8) else {
+        return false;
+    };
+    let a = u64::from_le_bytes(head.try_into().unwrap());
+    a & COMPACT_DATA_MASK == COMPACT_SIZE as u64 && matches!((a >> 44) & 0xf, 3 | 4)
+}
+
+fn parse_compact(bytes: &[u8], offset: usize, depth: usize) -> Result<ConfigValue> {
+    if depth > 256 {
+        bail!("binary config nesting exceeds 256 tables");
+    }
+    let record = checked_slice(bytes, offset, COMPACT_SIZE)?;
+    let a = u64::from_le_bytes(record[0..8].try_into().unwrap());
+    let data = a & COMPACT_DATA_MASK;
+    let kind = (a >> 44) & 0xf;
+    let count = (a >> 48) as usize;
+    let at = || usize::try_from(data).context("config offset overflow");
+    Ok(match kind {
+        0 => ConfigValue::Boolean(data != 0),
+        1 => ConfigValue::Integer(data as u32 as i32),
+        2 => ConfigValue::Float(f32::from_bits(data as u32)),
+        3 | 4 => {
+            let table = at()?;
+            checked_slice(
+                bytes,
+                table,
+                count.checked_mul(COMPACT_SIZE).context("table size overflow")?,
+            )?;
+            let children = (0..count).map(|index| table + index * COMPACT_SIZE);
+            if kind == 3 {
+                let mut values = Vec::with_capacity(count);
+                for (index, child) in children.enumerate() {
+                    let b = u64::from_le_bytes(bytes[child + 8..child + 16].try_into().unwrap());
+                    let name = read_cp1251_cstr(bytes, usize::try_from(b & ((1 << 48) - 1))?)
+                        .with_context(|| format!("reading key for named child {index}"))?;
+                    values.push(NamedValue {
+                        name,
+                        value: parse_compact(bytes, child, depth + 1)?,
+                    });
+                }
+                ConfigValue::Named(values)
+            } else {
+                children
+                    .map(|child| parse_compact(bytes, child, depth + 1))
+                    .collect::<Result<_>>()
+                    .map(ConfigValue::Indexed)?
+            }
+        }
+        5 => {
+            if count == 0 {
+                bail!("string value has zero length");
+            }
+            let data = checked_slice(bytes, at()?, count)?;
+            if data.last() != Some(&0) {
+                bail!("string value is not NUL terminated");
+            }
+            decode_cp1251(&data[..data.len() - 1])?
+        }
+        6 => ConfigValue::Float2(read_floats::<2>(bytes, at()?)?),
+        7 => ConfigValue::Float3(read_floats::<3>(bytes, at()?)?),
+        8 => ConfigValue::Float4(read_floats::<4>(bytes, at()?)?),
+        other => bail!("unsupported compact config value type {other}"),
     })
 }
 
@@ -468,5 +557,121 @@ mod tests {
                 ConfigValue::Integer(2)
             ]))
         );
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    /// Minimal writer of the 16-byte layout, mirroring what 0.69d ships:
+    /// tables breadth-first after the root, payloads and keys after the records.
+    fn compact(root: &ConfigValue) -> Vec<u8> {
+        let mut records: Vec<(u64, u64)> = Vec::new();
+        let mut tail: Vec<u8> = Vec::new();
+        let mut pending: Vec<(usize, &str, u64, u64)> = Vec::new(); // record, key, payload id, ...
+        let mut queue = VecDeque::from([(root, None::<&str>)]);
+        let total = count_values(root);
+        let base = (total * COMPACT_SIZE) as u64;
+        let mut next_table = 1_usize;
+        while let Some((value, key)) = queue.pop_front() {
+            let index = records.len();
+            let (kind, count, data): (u64, u64, u64) = match value {
+                ConfigValue::Boolean(v) => (0, 1, u64::from(*v)),
+                ConfigValue::Integer(v) => (1, 4, (*v as i64 as u64) & COMPACT_DATA_MASK),
+                ConfigValue::Float(v) => (2, 4, u64::from(v.to_bits())),
+                ConfigValue::String(s) => {
+                    let offset = base + tail.len() as u64;
+                    tail.extend(s.as_bytes());
+                    tail.push(0);
+                    (5, s.len() as u64 + 1, offset)
+                }
+                ConfigValue::Float3(v) => {
+                    let offset = base + tail.len() as u64;
+                    v.iter().for_each(|f| tail.extend(f.to_le_bytes()));
+                    (7, 12, offset)
+                }
+                ConfigValue::Named(children) => {
+                    let start = next_table;
+                    next_table += children.len();
+                    children.iter().for_each(|c| queue.push_back((&c.value, Some(c.name.as_str()))));
+                    (3, children.len() as u64, (start * COMPACT_SIZE) as u64)
+                }
+                ConfigValue::Indexed(children) => {
+                    let start = next_table;
+                    next_table += children.len();
+                    children.iter().for_each(|c| queue.push_back((c, None)));
+                    (4, children.len() as u64, (start * COMPACT_SIZE) as u64)
+                }
+                _ => unreachable!(),
+            };
+            records.push((data | kind << 44 | count << 48, 0));
+            if let Some(key) = key {
+                pending.push((index, key, 0, 0));
+            }
+        }
+        for (index, key, ..) in pending {
+            let offset = base + tail.len() as u64;
+            tail.extend(key.as_bytes());
+            tail.push(0);
+            records[index].1 = offset | 0xbeef << 48;
+        }
+        let mut out = Vec::new();
+        for (a, b) in records {
+            out.extend(a.to_le_bytes());
+            out.extend(b.to_le_bytes());
+        }
+        out.extend(tail);
+        out
+    }
+
+    #[test]
+    fn compact_records_decode_to_the_same_tree_and_re_encode_as_24_byte_records() {
+        let tree = ConfigValue::Named(vec![
+            NamedValue { name: "clip_angle".into(), value: ConfigValue::Integer(-90) },
+            NamedValue { name: "enabled".into(), value: ConfigValue::Boolean(true) },
+            NamedValue { name: "scale".into(), value: ConfigValue::Float(0.25) },
+            NamedValue { name: "lib_name".into(), value: ConfigValue::String("level/11/rls_duga".into()) },
+            NamedValue { name: "position".into(), value: ConfigValue::Float3([1.0, -2.5, 3.0]) },
+            NamedValue {
+                name: "client_objects".into(),
+                value: ConfigValue::Indexed(vec![
+                    ConfigValue::Named(vec![NamedValue {
+                        name: "type".into(),
+                        value: ConfigValue::String("respawn_point".into()),
+                    }]),
+                    ConfigValue::Indexed(vec![]),
+                ]),
+            },
+        ]);
+        let bytes = compact(&tree);
+        assert!(BinaryConfig::is_compact(&bytes));
+        let parsed = BinaryConfig::parse(&bytes).unwrap();
+        assert_eq!(parsed.root, tree);
+        // Writing always produces the 24-byte layout 0.26 reads.
+        let classic = parsed.to_bytes().unwrap();
+        assert!(!BinaryConfig::is_compact(&classic));
+        let reparsed = BinaryConfig::parse(&classic).unwrap().root;
+        assert_eq!(reparsed.named("clip_angle"), Some(&ConfigValue::Integer(-90)));
+        assert_eq!(reparsed.named("position"), Some(&ConfigValue::Float3([1.0, -2.5, 3.0])));
+    }
+
+    #[test]
+    fn a_24_byte_config_is_not_mistaken_for_a_compact_one() {
+        let bytes = BinaryConfig { root: ConfigValue::Named(vec![]) }.to_bytes().unwrap();
+        assert!(!BinaryConfig::is_compact(&bytes));
+        let one = BinaryConfig {
+            root: ConfigValue::Indexed(vec![ConfigValue::Integer(16)]),
+        }
+        .to_bytes()
+        .unwrap();
+        assert!(!BinaryConfig::is_compact(&one));
+    }
+
+    #[test]
+    fn truncated_compact_tables_are_rejected() {
+        let tree = ConfigValue::Indexed(vec![ConfigValue::Integer(1), ConfigValue::Integer(2)]);
+        let bytes = compact(&tree);
+        assert!(BinaryConfig::parse(&bytes[..24]).is_err());
     }
 }
