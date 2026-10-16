@@ -401,6 +401,77 @@ impl Clip {
         Ok(bytes)
     }
 
+    /// Reads a clip back from its `.b-spline` image and `.bones_names`, the
+    /// layout [`Self::to_bspline`] writes (retail clips use it too). Event
+    /// channels, which follow the bone curves, are skipped.
+    pub fn parse(bspline: &[u8], bones_names: &[u8]) -> Result<Self> {
+        let config = BinaryConfig::parse(bones_names)?;
+        let Some(ConfigValue::Indexed(names)) = config.root.named("bones_names") else {
+            bail!("bones_names lists no bones");
+        };
+        let bones: Vec<String> = names
+            .iter()
+            .map(|name| match name {
+                ConfigValue::String(name) => Ok(name.clone()),
+                _ => bail!("bones_names holds a non-string"),
+            })
+            .collect::<Result<_>>()?;
+        let header = bspline
+            .get(..4)
+            .context("b-spline shorter than its header")?;
+        let count = usize::from(u16::from_le_bytes([header[0], header[1]]));
+        let events = usize::from(header[2]);
+        let animation_type = header[3];
+        if count != bones.len() {
+            bail!(
+                "b-spline drives {count} bones; bones_names lists {}",
+                bones.len()
+            );
+        }
+        let mut at = 4 + count * BONE_RECORD_BYTES + events * 0x10;
+        let read_u32 = |at: &mut usize| -> Result<u32> {
+            let bytes = bspline.get(*at..*at + 4).context("truncated b-spline")?;
+            *at += 4;
+            Ok(u32::from_le_bytes(bytes.try_into()?))
+        };
+        let mut tracks = Vec::with_capacity(count);
+        for bone in &bones {
+            let mut channels = Vec::with_capacity(CHANNELS);
+            for _ in 0..CHANNELS {
+                let pairs = read_u32(&mut at)? as usize;
+                let bytes = bspline
+                    .get(at..at + pairs * 8)
+                    .with_context(|| format!("truncated curve of {bone}"))?;
+                at += pairs * 8;
+                let value = |k: usize| f32::from_le_bytes(bytes[k..k + 4].try_into().unwrap());
+                channels.push(Channel {
+                    knots: (0..pairs).map(|i| value(i * 8)).collect(),
+                    points: (0..pairs).map(|i| value(i * 8 + 4)).collect(),
+                });
+            }
+            tracks.push(BoneTracks {
+                channels: channels.try_into().expect("nine channels"),
+            });
+        }
+        if events == 0 && at != bspline.len() {
+            bail!("b-spline has {} bytes after its curves", bspline.len() - at);
+        }
+        Ok(Self {
+            bones,
+            tracks,
+            animation_type,
+        })
+    }
+
+    /// The clip's length: its longest curve's end knot.
+    pub fn duration(&self) -> f32 {
+        self.tracks
+            .iter()
+            .flat_map(|track| &track.channels)
+            .filter_map(|channel| channel.knots.last().copied())
+            .fold(0.0, f32::max)
+    }
+
     /// The `.bones_names` binary config.
     pub fn to_bones_names(&self) -> Result<Vec<u8>> {
         let config = BinaryConfig {
@@ -425,6 +496,9 @@ pub const ROOT_MOTION_CHANNEL: &str = "object_movement";
 /// A 3x3 rotation in the engine's row-vector convention: a row vector is
 /// multiplied on the left, so `multiply(a, b)` applies `a` first.
 pub type Basis = [[f32; 3]; 3];
+
+/// A bone's model-space frame: its basis and translation.
+pub type Frame = (Basis, [f32; 3]);
 
 pub const IDENTITY_BASIS: Basis = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
@@ -555,6 +629,72 @@ impl Rig {
 
     pub fn rest_basis(&self, index: usize) -> Basis {
         euler_to_basis(self.bones[index].rest_rotation)
+    }
+
+    /// Every bone's model-space frame `(basis, translation)` at `time` of
+    /// `clip`, in bind-pose order. A bone the clip drives takes its local
+    /// translation and angles from the curves (scale is ignored); any other
+    /// keeps its rest frame relative to its parent. Root motion
+    /// (`object_movement`) is left out: the pose stands where the bind pose does.
+    pub fn pose(&self, clip: &Clip, time: f32) -> Vec<Frame> {
+        let mut frames: Vec<Option<Frame>> = vec![None; self.bones.len()];
+        fn resolve(
+            rig: &Rig,
+            clip: &Clip,
+            time: f32,
+            index: usize,
+            frames: &mut [Option<Frame>],
+        ) -> Frame {
+            if let Some(frame) = frames[index] {
+                return frame;
+            }
+            let (translation, angles) = match clip
+                .bones
+                .iter()
+                .position(|name| *name == rig.bones[index].name)
+            {
+                Some(track) => {
+                    let c = &clip.tracks[track].channels;
+                    (
+                        [
+                            c[0].evaluate(time),
+                            c[1].evaluate(time),
+                            c[2].evaluate(time),
+                        ],
+                        [
+                            c[3].evaluate(time),
+                            c[4].evaluate(time),
+                            c[5].evaluate(time),
+                        ],
+                    )
+                }
+                None => rig.local_rest(index),
+            };
+            let local = euler_to_basis(angles);
+            let frame = match rig.bones[index].parent {
+                None => (local, translation),
+                Some(parent) => {
+                    let (parent_basis, parent_at) = resolve(rig, clip, time, parent, frames);
+                    let offset = transform(translation, &parent_basis);
+                    (
+                        multiply(&local, &parent_basis),
+                        [0, 1, 2].map(|k| offset[k] + parent_at[k]),
+                    )
+                }
+            };
+            frames[index] = Some(frame);
+            frame
+        }
+        (0..self.bones.len())
+            .map(|index| resolve(self, clip, time, index, &mut frames))
+            .collect()
+    }
+
+    /// Every bone's model-space rest frame, as [`Self::pose`] gives a pose.
+    pub fn rest(&self) -> Vec<Frame> {
+        (0..self.bones.len())
+            .map(|index| (self.rest_basis(index), self.bones[index].rest_translation))
+            .collect()
     }
 
     /// A bone's rest frame relative to its parent, as `(translation, angles)`.
@@ -766,5 +906,77 @@ mod tests {
         };
         let error = clip.to_bspline().unwrap_err().to_string();
         assert!(error.contains("names 2 bones"), "{error}");
+    }
+
+    #[test]
+    fn a_written_clip_reads_back() {
+        let clip = Clip {
+            bones: vec!["object_movement".to_owned(), "Hip".to_owned()],
+            tracks: vec![
+                BoneTracks::rest([0.0; 3], [0.0; 3], 2.0),
+                BoneTracks::rest([0.1, 0.9, 0.0], [0.2, 0.0, -0.3], 2.0),
+            ],
+            animation_type: 0,
+        };
+        let parsed =
+            Clip::parse(&clip.to_bspline().unwrap(), &clip.to_bones_names().unwrap()).unwrap();
+        assert_eq!(parsed.bones, clip.bones);
+        assert_eq!(parsed.duration(), 2.0);
+        for (a, b) in parsed.tracks.iter().zip(&clip.tracks) {
+            assert_eq!(a.channels, b.channels);
+        }
+        // A clip that names fewer bones than it drives is refused.
+        let one = Clip {
+            bones: vec!["Hip".to_owned()],
+            ..clip.clone()
+        };
+        assert!(Clip::parse(&clip.to_bspline().unwrap(), &one.to_bones_names().unwrap()).is_err());
+    }
+
+    /// A clip that holds every bone at its local rest frame poses the rig in
+    /// its bind pose: the pose composes local frames as `local_rest` splits them.
+    #[test]
+    fn a_rest_clip_poses_the_bind_pose() {
+        let rig = Rig {
+            bones: vec![
+                RigBone {
+                    name: "Hip".into(),
+                    parent: None,
+                    rest_translation: [0.0, 1.0, 0.0],
+                    rest_rotation: [0.1, 0.2, 0.3],
+                },
+                RigBone {
+                    name: "Spin".into(),
+                    parent: Some(0),
+                    rest_translation: [0.05, 1.2, 0.02],
+                    rest_rotation: [-0.4, 0.5, 0.1],
+                },
+                RigBone {
+                    name: "Head".into(),
+                    parent: Some(1),
+                    rest_translation: [0.0, 1.7, 0.1],
+                    rest_rotation: [0.3, -0.2, 0.6],
+                },
+            ],
+        };
+        let clip = Clip {
+            bones: vec!["Hip".into(), "Spin".into()],
+            tracks: (0..2)
+                .map(|i| {
+                    let (t, r) = rig.local_rest(i);
+                    BoneTracks::rest(t, r, 1.0)
+                })
+                .collect(),
+            animation_type: 0,
+        };
+        // Head is not in the clip and keeps its rest frame under Spin.
+        for (posed, rest) in rig.pose(&clip, 0.5).iter().zip(rig.rest()) {
+            for k in 0..3 {
+                assert!((posed.1[k] - rest.1[k]).abs() < 1e-5);
+                for c in 0..3 {
+                    assert!((posed.0[k][c] - rest.0[k][c]).abs() < 1e-5);
+                }
+            }
+        }
     }
 }

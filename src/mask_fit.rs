@@ -17,6 +17,17 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 const CORNEA_AHEAD_OF_EYE_BONE: f64 = 0.0155;
 /// Gap kept between the native head surface and the fitted mask.
 const CLEARANCE: f64 = 0.004;
+/// More over the cheeks and jaw, where the face moves most under the cloth
+/// when the head turns.
+const FACE_EXTRA_CLEARANCE: f64 = 0.001;
+/// The cheeks and jaw: in front of the Head bone and this far below the eye
+/// bones, clear of the eye holes' rims.
+const BELOW_EYES: f64 = 0.02;
+
+/// Whether a bind-pose point is over the cheeks or jaw.
+fn lower_face(p: [f64; 3], head_bone: [f64; 3], eyes_y: f64) -> bool {
+    p[2] > head_bone[2] && p[1] < eyes_y - BELOW_EYES
+}
 /// Tighter gap on the neck so the hem stays under stock collars.
 const NECK_CLEARANCE: f64 = 0.003;
 /// Below this height above the Neck bone the mask lies fully on the neck.
@@ -622,6 +633,16 @@ pub fn fit_to_native_head_under(
         let r = dot(d, d).sqrt();
         (d.map(|v| v / r), r)
     };
+    let face = |p: [f64; 3]| lower_face(p, head_bone, eyes[1]);
+    let clearance = |p: [f64; 3]| CLEARANCE + if face(p) { FACE_EXTRA_CLEARANCE } else { 0.0 };
+    // The jaw and the lower cheeks reach below the skull; above the tucked
+    // neck they too keep the cloth off.
+    let covered: Vec<[f64; 3]> = head
+        .positions
+        .iter()
+        .copied()
+        .filter(|&p| p[1] > skull_floor || (face(p) && p[1] >= neck[1] + TUCK_FULL_ABOVE_NECK))
+        .collect();
     let mut converged = false;
     for _ in 0..30 {
         let mut need = vec![0.0_f64; welded_count];
@@ -634,14 +655,14 @@ pub fn fit_to_native_head_under(
             let (dir, r) = ray(p);
             if let Some((t, _, _)) = farthest_hit(centre, dir, &head.positions, &head.triangles) {
                 let w = &mut need[weld[i]];
-                *w = w.max(t + CLEARANCE - r);
+                *w = w.max(t + clearance(p) - r);
             }
         }
         // Head vertices poking between mask vertices.
-        for &p in &skull {
+        for &p in &covered {
             let (dir, r) = ray(p);
             if let Some((t, tri, bary)) = farthest_hit(centre, dir, &positions, &mesh.triangles) {
-                let pen = r + CLEARANCE - t;
+                let pen = r + clearance(p) - t;
                 if pen > 0.0 {
                     for (corner, b) in mesh.triangles[tri].iter().zip(bary) {
                         let w = &mut need[weld[*corner]];
@@ -985,6 +1006,282 @@ fn refine(mask: &[u8], split: impl Fn([f64; 3]) -> bool) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// A vertex's skin: its bones and their weights.
+pub(crate) type Skin = Vec<(u8, f64)>;
+
+/// The skin of each vertex of a converted model: four influences for the
+/// 48-byte layout (three weights stored, the fourth the rest), two for the
+/// native head's 40-byte one (one weight stored).
+pub(crate) fn skins(model: &[u8], stride: usize) -> Result<Vec<Skin>> {
+    let count = read_u32(model, 8)?;
+    (0..count)
+        .map(|i| {
+            let v = model
+                .get(12 + i * stride..12 + (i + 1) * stride)
+                .context("truncated vertex")?;
+            let bones = &v[12..16];
+            let weights: Vec<f64> = match stride {
+                48 => {
+                    let w = [read_f32(v, 16)?, read_f32(v, 20)?, read_f32(v, 24)?];
+                    vec![w[0], w[1], w[2], 1.0 - w[0] - w[1] - w[2]]
+                }
+                40 => {
+                    let w = read_f32(v, 16)?;
+                    vec![w, 1.0 - w]
+                }
+                _ => bail!("no skin layout for {stride}-byte vertices"),
+            };
+            let mut skin: BTreeMap<u8, f64> = BTreeMap::new();
+            for (&bone, weight) in bones.iter().zip(weights) {
+                if weight > 1e-6 {
+                    *skin.entry(bone).or_default() += weight;
+                }
+            }
+            Ok(skin.into_iter().collect())
+        })
+        .collect()
+}
+
+/// Writes a skin into a 48-byte vertex: its four heaviest bones, renormalised.
+fn put_skin(vertex: &mut [u8], skin: &[(u8, f64)]) {
+    let mut skin = skin.to_vec();
+    skin.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+    skin.truncate(4);
+    let total: f64 = skin.iter().map(|(_, w)| w).sum();
+    let first = skin[0].0;
+    for k in 0..4 {
+        let (bone, weight) = skin.get(k).copied().unwrap_or((first, 0.0));
+        vertex[12 + k] = bone;
+        if k < 3 {
+            vertex[16 + k * 4..20 + k * 4]
+                .copy_from_slice(&((weight / total) as f32).to_le_bytes());
+        }
+    }
+}
+
+/// The closest point of triangle `abc` to `p`, as barycentric weights
+/// (Ericson, Real-Time Collision Detection 5.1.5).
+fn closest_on_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> [f64; 3] {
+    let (ab, ac, ap) = (sub(b, a), sub(c, a), sub(p, a));
+    let (d1, d2) = (dot(ab, ap), dot(ac, ap));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return [1.0, 0.0, 0.0];
+    }
+    let bp = sub(p, b);
+    let (d3, d4) = (dot(ab, bp), dot(ac, bp));
+    if d3 >= 0.0 && d4 <= d3 {
+        return [0.0, 1.0, 0.0];
+    }
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        let v = d1 / (d1 - d3);
+        return [1.0 - v, v, 0.0];
+    }
+    let cp = sub(p, c);
+    let (d5, d6) = (dot(ab, cp), dot(ac, cp));
+    if d6 >= 0.0 && d5 <= d6 {
+        return [0.0, 0.0, 1.0];
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        let w = d2 / (d2 - d6);
+        return [1.0 - w, 0.0, w];
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0 {
+        let w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return [0.0, 1.0 - w, w];
+    }
+    let denom = 1.0 / (va + vb + vc);
+    let (v, w) = (vb * denom, vc * denom);
+    [1.0 - v - w, v, w]
+}
+
+/// How the cloth's skin was made the head's.
+pub struct WeightFollow {
+    /// Vertices whose skin changed.
+    pub changed: usize,
+    /// The farthest a vertex is from the head surface it took its skin from (m).
+    pub max_distance: f32,
+    /// Vertices that had a bone the head has none of (Chest, a clavicle).
+    pub off_head_bones: usize,
+}
+
+/// Gives every vertex of the cloth (48-byte vertices) the skin of the
+/// closest point of the native head (40-byte vertices): the head is skinned
+/// to Head and Neck only, while the donor's cloth also followed the Chest and
+/// clavicles, so whenever the head turned against the chest the cloth over
+/// the cheeks and jaw lagged behind and the face showed through it. Worn
+/// over the head, the cloth now moves exactly as the skin under it does.
+pub fn follow_head_weights(mask: &mut [u8], head: &[u8]) -> Result<WeightFollow> {
+    let cloth = parse_mesh(mask, 48, "mask")?;
+    let head_mesh = parse_mesh(head, 40, "native head")?;
+    let head_skins = skins(head, 40)?;
+    let head_bones: BTreeSet<u8> = head_skins.iter().flatten().map(|(b, _)| *b).collect();
+    let before = skins(mask, 48)?;
+    let mut follow = WeightFollow {
+        changed: 0,
+        max_distance: 0.0,
+        off_head_bones: 0,
+    };
+    for (i, &p) in cloth.positions.iter().enumerate() {
+        let mut best = (f64::INFINITY, [0.0; 3], 0);
+        for (t, tri) in head_mesh.triangles.iter().enumerate() {
+            let [a, b, c] = tri.map(|v| head_mesh.positions[v]);
+            let bary = closest_on_triangle(p, a, b, c);
+            let q = [0, 1, 2].map(|k| bary[0] * a[k] + bary[1] * b[k] + bary[2] * c[k]);
+            let d = sub(p, q);
+            let d = dot(d, d);
+            if d < best.0 {
+                best = (d, bary, t);
+            }
+        }
+        let (distance, bary, t) = best;
+        ensure!(distance.is_finite(), "the native head has no triangles");
+        let mut skin: BTreeMap<u8, f64> = BTreeMap::new();
+        for (corner, b) in head_mesh.triangles[t].iter().zip(bary) {
+            for &(bone, w) in &head_skins[*corner] {
+                *skin.entry(bone).or_default() += w * b;
+            }
+        }
+        let skin: Skin = skin.into_iter().filter(|(_, w)| *w > 1e-6).collect();
+        follow.max_distance = follow.max_distance.max(distance.sqrt() as f32);
+        follow.off_head_bones +=
+            usize::from(before[i].iter().any(|(b, _)| !head_bones.contains(b)));
+        let vertex = &mut mask[12 + i * 48..12 + (i + 1) * 48];
+        let old = vertex.to_vec();
+        put_skin(vertex, &skin);
+        follow.changed += usize::from(old != vertex);
+    }
+    Ok(follow)
+}
+
+/// A bone frame `(basis, translation)` in the engine's row-vector convention,
+/// as `skeleton_animation::Rig::pose` gives them.
+pub use crate::skeleton_animation::Frame;
+
+/// Skins model-space positions from the bind frames to the posed ones.
+fn skin_positions(
+    positions: &[[f64; 3]],
+    skins: &[Skin],
+    bind: &[Frame],
+    pose: &[Frame],
+) -> Result<Vec<[f64; 3]>> {
+    let apply = |v: [f64; 3], basis: &[[f32; 3]; 3], transpose: bool| {
+        let m = |r: usize, c: usize| f64::from(if transpose { basis[c][r] } else { basis[r][c] });
+        [0, 1, 2].map(|c| v[0] * m(0, c) + v[1] * m(1, c) + v[2] * m(2, c))
+    };
+    positions
+        .iter()
+        .zip(skins)
+        .map(|(&p, skin)| {
+            let mut out = [0.0; 3];
+            for &(bone, w) in skin {
+                let b = usize::from(bone);
+                let (bind_basis, bind_at) = bind.get(b).context("skin bone outside the rig")?;
+                let (pose_basis, pose_at) = pose.get(b).context("skin bone outside the pose")?;
+                let local = apply(sub(p, bind_at.map(f64::from)), bind_basis, true);
+                let posed = apply(local, pose_basis, false);
+                for k in 0..3 {
+                    out[k] += w * (posed[k] + f64::from(pose_at[k]));
+                }
+            }
+            Ok(out)
+        })
+        .collect()
+}
+
+/// How close the native head comes to the cloth in one pose.
+#[derive(Debug, Clone, Copy)]
+pub struct PosedClearance {
+    /// The least gap between a head vertex and the cloth over it (m);
+    /// negative where the face shows through.
+    pub min: f64,
+    /// The least gap over the cheeks and jaw, where the user saw the face
+    /// through.
+    pub face_min: f64,
+    /// Where that is (bind pose).
+    pub face_at: [f64; 3],
+    /// Head vertices outside the cloth.
+    pub through: usize,
+    /// Where (bind-pose position of the head vertex; the face looks to +z,
+    /// and -x is the character's left).
+    pub at: [f64; 3],
+}
+
+/// The cloth's clearance over the native head in a pose: both meshes skinned
+/// from `bind` to `pose`, then from inside the posed skull a ray through every
+/// head vertex above the tucked neck (as the fit measures it in the bind
+/// pose) to the farthest cloth it meets. Rays out of the eye holes meet none.
+pub fn posed_clearance(
+    mask: &[u8],
+    head: &[u8],
+    bind_pose: &[u8],
+    bind: &[Frame],
+    pose: &[Frame],
+) -> Result<PosedClearance> {
+    let cloth = parse_mesh(mask, 48, "mask")?;
+    let head_mesh = parse_mesh(head, 40, "native head")?;
+    let bones = bone_origins(bind_pose)?;
+    let bone = |name: &str| {
+        bones
+            .get(name)
+            .copied()
+            .with_context(|| format!("no {name} bone"))
+    };
+    let (neck, left_eye, right_eye) = (bone("Neck")?, bone("LeftEye")?, bone("RightEye")?);
+    let head_index = crate::armor::bind_pose_origins(bind_pose, "native head bind pose")?
+        .iter()
+        .position(|(name, _)| name == "Head")
+        .context("no Head bone")?;
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for p in &head_mesh.positions {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    let centre = [
+        (lo[0] + hi[0]) / 2.0,
+        (left_eye[1] + right_eye[1]) / 2.0,
+        (lo[2] + hi[2]) / 2.0,
+    ];
+    let posed_cloth = skin_positions(&cloth.positions, &skins(mask, 48)?, bind, pose)?;
+    let posed_head = skin_positions(&head_mesh.positions, &skins(head, 40)?, bind, pose)?;
+    let posed_centre = skin_positions(&[centre], &[vec![(head_index as u8, 1.0)]], bind, pose)?[0];
+    let head_bone = bone("Head")?;
+    let mut result = PosedClearance {
+        min: f64::INFINITY,
+        face_min: f64::INFINITY,
+        face_at: [0.0; 3],
+        through: 0,
+        at: [0.0; 3],
+    };
+    for (bind_at, &p) in head_mesh.positions.iter().zip(&posed_head) {
+        if bind_at[1] < neck[1] + TUCK_FULL_ABOVE_NECK {
+            continue;
+        }
+        let d = sub(p, posed_centre);
+        let r = dot(d, d).sqrt();
+        let dir = d.map(|v| v / r);
+        let Some((t, _, _)) = farthest_hit(posed_centre, dir, &posed_cloth, &cloth.triangles)
+        else {
+            continue;
+        };
+        let gap = t - r;
+        result.through += usize::from(gap < 0.0);
+        if lower_face(*bind_at, head_bone, left_eye[1]) && gap < result.face_min {
+            result.face_min = gap;
+            result.face_at = *bind_at;
+        }
+        if gap < result.min {
+            result.min = gap;
+            result.at = *bind_at;
+        }
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1171,5 +1468,134 @@ mod tests {
         let m = &out[12 + 4 * 48..12 + 5 * 48];
         let f = |at: usize| f32::from_le_bytes(m[at..at + 4].try_into().unwrap());
         assert_eq!([f(0), f(4), f(40), f(44)], [1.0, 0.5, 1.0, 0.5]);
+    }
+
+    /// A synthetic rig: Chest at the origin, Neck, Head, and the two eyes
+    /// ahead of the head (+z), identity bases.
+    const CHEST: u8 = 0;
+    const NECK: u8 = 1;
+    const HEAD: u8 = 2;
+    fn bind_pose() -> Vec<u8> {
+        let bones: [(&str, [f32; 3]); 5] = [
+            ("Chest", [0.0, -0.25, 0.0]),
+            ("Neck", [0.0, -0.16, 0.0]),
+            ("Head", [0.0, -0.10, 0.0]),
+            ("LeftEye", [-0.03, 0.03, 0.08]),
+            ("RightEye", [0.03, 0.03, 0.08]),
+        ];
+        let mut b = (bones.len() as u16).to_le_bytes().to_vec();
+        for (name, at) in bones {
+            b.extend_from_slice(name.as_bytes());
+            b.push(0);
+            for v in at.into_iter().chain([0.0; 3]).chain([1.0; 3]) {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        b
+    }
+
+    fn frames(bind: &[u8]) -> Vec<Frame> {
+        crate::armor::bind_pose_origins(bind, "test")
+            .unwrap()
+            .into_iter()
+            .map(|(_, at)| ([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], at))
+            .collect()
+    }
+
+    /// A converted model of `mesh` with `stride`-byte vertices, every vertex
+    /// skinned by `skin`.
+    fn skinned(mesh: &Mesh, stride: usize, skin: impl Fn([f64; 3]) -> (u8, u8, f32)) -> Vec<u8> {
+        let mut b = vec![];
+        for v in [
+            3u32,
+            (4 + mesh.positions.len() * stride) as u32,
+            mesh.positions.len() as u32,
+        ] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        for &p in &mesh.positions {
+            let mut v = vec![0_u8; stride];
+            for k in 0..3 {
+                v[k * 4..k * 4 + 4].copy_from_slice(&(p[k] as f32).to_le_bytes());
+            }
+            let (b0, b1, w) = skin(p);
+            v[12] = b0;
+            v[13] = b1;
+            v[16..20].copy_from_slice(&w.to_le_bytes());
+            if stride == 48 {
+                v[20..24].copy_from_slice(&(1.0 - w).to_le_bytes());
+            }
+            b.extend_from_slice(&v);
+        }
+        let indices: Vec<u16> = mesh.triangles.iter().flatten().map(|&i| i as u16).collect();
+        for v in [4u32, (4 + indices.len() * 2) as u32, indices.len() as u32] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        for i in indices {
+            b.extend_from_slice(&i.to_le_bytes());
+        }
+        b
+    }
+
+    #[test]
+    fn the_cloth_takes_the_skin_of_the_head_under_it() {
+        // The head: Head above its middle, blending into the Neck below.
+        let head_mesh = sphere([0.0; 3], 0.09, 24, 12);
+        let head = skinned(&head_mesh, 40, |p| {
+            if p[1] > 0.0 {
+                (HEAD, HEAD, 1.0)
+            } else {
+                (NECK, HEAD, 0.5)
+            }
+        });
+        // The donor's cloth followed the chest.
+        let cloth = sphere([0.0; 3], 0.094, 24, 12);
+        let mut mask = skinned(&cloth, 48, |_| (CHEST, HEAD, 0.6));
+        let follow = follow_head_weights(&mut mask, &head).unwrap();
+        assert_eq!(follow.off_head_bones, cloth.positions.len());
+        assert!(follow.max_distance < 0.0045);
+        for (p, skin) in cloth.positions.iter().zip(skins(&mask, 48).unwrap()) {
+            assert!(
+                skin.iter().all(|(b, _)| *b == HEAD || *b == NECK),
+                "{skin:?}"
+            );
+            let total: f64 = skin.iter().map(|(_, w)| w).sum();
+            assert!((total - 1.0).abs() < 1e-5);
+            if p[1] > 0.02 {
+                assert_eq!(skin, vec![(HEAD, 1.0)], "at {p:?}");
+            }
+        }
+    }
+
+    /// The user's report: the face showed through the cheek while the head
+    /// moved in the lobby's idle. A head turned 35 degrees against the
+    /// chest shows through cloth that half follows the chest; once the cloth
+    /// has the head's skin it keeps its bind-pose gap in every pose.
+    #[test]
+    fn a_turned_head_stays_under_the_cloth_once_it_follows_the_head() {
+        let bind_bytes = bind_pose();
+        let bind = frames(&bind_bytes);
+        let head_mesh = sphere([0.0; 3], 0.09, 32, 16);
+        let head = skinned(&head_mesh, 40, |_| (HEAD, HEAD, 1.0));
+        let cloth = sphere([0.0; 3], 0.095, 32, 16);
+        let mut mask = skinned(&cloth, 48, |_| (CHEST, HEAD, 0.5));
+        // The head nods about its bone at the base of the skull, so the
+        // face swings forward, as it does when the head turns on the neck.
+        let turned = |degrees: f32| {
+            let (s, c) = degrees.to_radians().sin_cos();
+            let mut pose = bind.clone();
+            pose[usize::from(HEAD)].0 = [[1.0, 0.0, 0.0], [0.0, c, s], [0.0, -s, c]];
+            pose
+        };
+        let bind_gap = posed_clearance(&mask, &head, &bind_bytes, &bind, &bind).unwrap();
+        assert!(bind_gap.min > 0.004, "{bind_gap:?}");
+        let lagging = posed_clearance(&mask, &head, &bind_bytes, &bind, &turned(35.0)).unwrap();
+        assert!(lagging.through > 0 && lagging.min < 0.0, "{lagging:?}");
+        follow_head_weights(&mut mask, &head).unwrap();
+        for degrees in [-35.0, -10.0, 0.0, 20.0, 35.0] {
+            let c = posed_clearance(&mask, &head, &bind_bytes, &bind, &turned(degrees)).unwrap();
+            assert_eq!(c.through, 0, "{degrees}: {c:?}");
+            assert!((c.min - bind_gap.min).abs() < 1e-4, "{degrees}: {c:?}");
+        }
     }
 }

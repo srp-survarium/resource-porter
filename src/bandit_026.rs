@@ -70,6 +70,91 @@ pub(crate) fn helmets_worn_over_masks(
     Ok(shells)
 }
 
+/// The native head the balaclava is worn on.
+pub const HEAD_MODEL: &str = "models/character/human/base/base_character_head.skinned_model/render/black_market_01_head_s/converted_model";
+const HEAD_BIND_POSE: &str =
+    "models/character/human/base/base_character_head.skinned_model/render/bind_pose";
+/// The player's rig, which every clip below drives.
+const PLAYER_SKELETON: &str = "animations/skeletons/scavengers_01.skeleton";
+/// The balaclava's surface.
+pub const MASK_MODEL: &str =
+    "models/ported/bandit_026/mask.skinned_model/render/mask/converted_model";
+
+/// Clips the cloth is checked through: the lobby's idles (the user saw the
+/// face through the left cheek there, holding a pistol) and the match's
+/// standing, aiming, running, sprinting and crouching, with a pistol and a
+/// rifle. Each name is under `animations/single/weapons/`.
+pub const POSE_CLIPS: &[&str] = &[
+    "tt33/player/stand/3rd_view/on_site/idle_wpn_loby",
+    "tt33/player/stand/3rd_view/on_site/idle_wpn_loby_1",
+    "tt33/player/stand/3rd_view/on_site/idle_wpn_loby_2",
+    "tt33/player/stand/3rd_view/on_site/idle_wpn_loby_4",
+    "ak/player/stand/3rd_view/on_site/idle_lobby",
+    "ak/player/stand/3rd_view/on_site/idle_wpn_lobby_5",
+    "ak/player/stand/3rd_view/on_site/idle_wpn_loby_1",
+    "ak/player/stand/3rd_view/on_site/idle_wpn_loby_6",
+    "rem870/player/stand/3rd_view/on_site/idle_wpn_loby_6",
+    "ak/player/stand/3rd_view/on_site/on_site_idle",
+    "ak/player/stand/3rd_view/on_site/aimed_on_site_idle",
+    "ak/player/stand/3rd_view/run/forward",
+    "ak/player/stand/3rd_view/run/aimed_forward_left",
+    "ak/player/stand/3rd_view/run/backward_right",
+    "ak/player/stand/3rd_view/sprint/sprint",
+    "tt33/player/stand/3rd_view/sprint/sprint_left",
+    "ak/player/crouch/3rd_view/on_site_idle",
+    "ak/player/crouch/3rd_view/aimed_forward",
+    "ak/player/crouch/3rd_view/forward_right",
+];
+/// Poses sampled across each clip.
+const POSE_SAMPLES: usize = 24;
+/// The least gap the cloth keeps over the head in every sampled pose (m):
+/// nothing shows through, with a margin. The fit keeps 0.5 mm in the bind
+/// pose where a helmet presses the cloth down; where the Head and Neck
+/// weights blend, behind the jaw, a pose takes up to 0.2 mm of that.
+pub const POSED_CLEARANCE: f64 = 0.0002;
+
+/// The worst pose of each of [`POSE_CLIPS`]: the native head and `mask`
+/// skinned through it.
+pub fn pose_clearances(
+    db: &mut ResourceDb,
+    mask: &[u8],
+    head: &[u8],
+) -> Result<Vec<(String, crate::mask_fit::PosedClearance)>> {
+    use crate::skeleton_animation::{Clip, Rig};
+    let bind_pose = db.read(HEAD_BIND_POSE)?;
+    let rig = Rig::parse(&bind_pose, &db.read(PLAYER_SKELETON)?)?;
+    let bind = rig.rest();
+    let mut out = vec![(
+        "bind pose".to_owned(),
+        crate::mask_fit::posed_clearance(mask, head, &bind_pose, &bind, &bind)?,
+    )];
+    for name in POSE_CLIPS {
+        let path = format!("animations/single/weapons/{name}");
+        let clip = Clip::parse(
+            &db.read(&format!("{path}.b-spline"))?,
+            &db.read(&format!("{path}.bones_names"))?,
+        )
+        .with_context(|| path.clone())?;
+        ensure!(
+            clip.animation_type == 0,
+            "{path}: animation type {}; only whole-body clips are checked",
+            clip.animation_type
+        );
+        let end = clip.duration();
+        let mut worst: Option<crate::mask_fit::PosedClearance> = None;
+        for k in 0..POSE_SAMPLES {
+            let time = end * k as f32 / (POSE_SAMPLES - 1) as f32;
+            let pose = rig.pose(&clip, time);
+            let c = crate::mask_fit::posed_clearance(mask, head, &bind_pose, &bind, &pose)?;
+            if worst.is_none_or(|w| c.min < w.min) {
+                worst = Some(c);
+            }
+        }
+        out.push(((*name).to_owned(), worst.context("no poses sampled")?));
+    }
+    Ok(out)
+}
+
 pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     let mut manifest: ArmorPortManifest =
         serde_json::from_str(include_str!("../ports/bandit-stk2-to-026g.json"))?;
@@ -104,12 +189,38 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     let shells = helmets_worn_over_masks(&mut target, &bind_pose)?;
     let fit = crate::mask_fit::fit_to_native_head_under(
         &mut mask,
-        &target.read(&format!(
-            "{head_root}/black_market_01_head_s/converted_model"
-        ))?,
+        &target.read(HEAD_MODEL)?,
         &bind_pose,
         &shells,
     )?;
+    // The cloth moves as the skin under it: the donor's weights followed
+    // the chest too, and the face showed through the cheek as the head turned.
+    let head = target.read(HEAD_MODEL)?;
+    let follow = crate::mask_fit::follow_head_weights(&mut mask, &head)?;
+    println!(
+        "Balaclava skin: {} vertices take the head's (Head, Neck), {} had chest or clavicle weights; farthest from the head {:.1} mm",
+        follow.changed,
+        follow.off_head_bones,
+        follow.max_distance * 1000.0
+    );
+    let (mut worst, mut face) = (f64::INFINITY, f64::INFINITY);
+    for (clip, c) in pose_clearances(&mut target, &mask, &head)? {
+        worst = worst.min(c.min);
+        face = face.min(c.face_min);
+        ensure!(
+            c.min >= POSED_CLEARANCE,
+            "the face shows through the balaclava in {clip}: {:.2} mm at {:?} ({} head vertices through)",
+            c.min * 1000.0,
+            c.at,
+            c.through
+        );
+    }
+    println!(
+        "  least gap over the head in {} clips x {POSE_SAMPLES} poses: {:.2} mm (cheeks and jaw {:.2} mm)",
+        POSE_CLIPS.len(),
+        worst * 1000.0,
+        face * 1000.0
+    );
     out.raw(mask_path, &mask, files)?;
     // The fit refines the cloth over the skull; the surface's properties
     // carry its counts.
