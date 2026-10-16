@@ -24,12 +24,12 @@ pub struct MaskFit {
     pub pushed_vertices: usize,
 }
 
-struct Mesh {
-    positions: Vec<[f64; 3]>,
-    triangles: Vec<[usize; 3]>,
+pub(crate) struct Mesh {
+    pub positions: Vec<[f64; 3]>,
+    pub triangles: Vec<[usize; 3]>,
 }
 
-fn read_u32(b: &[u8], at: usize) -> Result<usize> {
+pub(crate) fn read_u32(b: &[u8], at: usize) -> Result<usize> {
     let bytes = b.get(at..at + 4).context("truncated converted model")?;
     Ok(u32::from_le_bytes(bytes.try_into()?) as usize)
 }
@@ -39,7 +39,7 @@ fn read_f32(b: &[u8], at: usize) -> Result<f64> {
     Ok(f64::from(f32::from_le_bytes(bytes.try_into()?)))
 }
 
-fn parse_mesh(b: &[u8], stride: usize, label: &str) -> Result<Mesh> {
+pub(crate) fn parse_mesh(b: &[u8], stride: usize, label: &str) -> Result<Mesh> {
     ensure!(read_u32(b, 0)? == 3, "{label}: no vertex chunk");
     let count = read_u32(b, 8)?;
     ensure!(
@@ -75,13 +75,13 @@ fn parse_mesh(b: &[u8], stride: usize, label: &str) -> Result<Mesh> {
     })
 }
 
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub(crate) fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub(crate) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
-fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub(crate) fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -119,7 +119,7 @@ fn farthest_hit(
     best
 }
 
-fn bone_origins(bind_pose: &[u8]) -> Result<BTreeMap<String, [f64; 3]>> {
+pub(crate) fn bone_origins(bind_pose: &[u8]) -> Result<BTreeMap<String, [f64; 3]>> {
     Ok(
         crate::armor::bind_pose_origins(bind_pose, "native head bind pose")?
             .into_iter()

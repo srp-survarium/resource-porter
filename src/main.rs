@@ -791,6 +791,31 @@ enum PackCommand {
         #[arg(long)]
         force: bool,
     },
+    /// Compose packs into the players' final resources.db: the base with a
+    /// same-size head written over its start and a tail appended. Writes
+    /// `<output-db>.json`, the release's record.
+    Release {
+        #[arg(long)]
+        base_db: PathBuf,
+        #[arg(long = "pack", required = true)]
+        packs: Vec<PathBuf>,
+        /// `ARCHIVE_PATH=FILE`: the bytes players have now for a base file
+        /// (e.g. the server's own menus); the packs' edits apply on top.
+        #[arg(long = "replace")]
+        replace: Vec<String>,
+        #[arg(long)]
+        work_dir: PathBuf,
+        #[arg(long)]
+        output_db: PathBuf,
+        /// Signer for the file table: run as `<command> <head> <offset>`.
+        #[arg(long)]
+        sign_command: Option<String>,
+        /// Also compare the bytes of every untouched resource.
+        #[arg(long)]
+        deep_verify: bool,
+        #[arg(long)]
+        force: bool,
+    },
     /// Confirm a database carries every operation of the given packs.
     Verify {
         #[arg(long)]
@@ -2400,6 +2425,72 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             }
             println!("output={}", output_db.display());
             println!("sha256={}", record.output_db.sha256);
+        }
+        PackCommand::Release {
+            base_db,
+            packs,
+            replace,
+            work_dir,
+            output_db,
+            sign_command,
+            deep_verify,
+            force,
+        } => {
+            let replace = replace
+                .iter()
+                .map(|item| {
+                    let (path, file) = item
+                        .split_once('=')
+                        .with_context(|| format!("--replace {item}: ARCHIVE_PATH=FILE"))?;
+                    Ok((path.to_owned(), PathBuf::from(file)))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let started = std::time::Instant::now();
+            let manifest =
+                content_pack::release::release(&content_pack::release::ReleaseOptions {
+                    base_db: &base_db,
+                    packs: &packs,
+                    replace: &replace,
+                    work_dir: &work_dir,
+                    output_db: &output_db,
+                    sign_command: sign_command.as_deref(),
+                    deep_verify,
+                    force,
+                })?;
+            for note in &manifest.notes {
+                println!("note: {note}");
+            }
+            for pack in &manifest.packs {
+                println!("pack={} version={}", pack.id, pack.version);
+            }
+            for moved in &manifest.moved_payloads {
+                println!("moved={} {} -> {}", moved.path, moved.from, moved.to);
+            }
+            for replaced in &manifest.replaced {
+                println!(
+                    "replaced={} size={} sha256={} in_place={}",
+                    replaced.path, replaced.size, replaced.sha256, replaced.in_place
+                );
+            }
+            println!(
+                "head_size={} sha256={}",
+                manifest.head.size, manifest.head.sha256
+            );
+            println!(
+                "tail_size={} sha256={}",
+                manifest.tail.size, manifest.tail.sha256
+            );
+            println!("signature={}", manifest.signature.status);
+            println!("output={}", output_db.display());
+            println!(
+                "output_size={} sha256={}",
+                manifest.output.size, manifest.output.sha256
+            );
+            println!(
+                "record={}",
+                content_pack::release::record_path(&output_db).display()
+            );
+            println!("seconds={}", started.elapsed().as_secs());
         }
         PackCommand::Verify { db, packs } => {
             let operations = content_pack::verify(&db, &packs)?;

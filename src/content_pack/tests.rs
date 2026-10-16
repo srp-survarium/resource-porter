@@ -626,3 +626,263 @@ fn from_bundle_keeps_only_owned_shared_changes() {
     assert!(composed.contains("material_instances/ported/new/body.material"));
     assert!(!composed.contains("gameplay/items/earlier.options"));
 }
+
+fn release_pack(fixture: &Fixture) -> PathBuf {
+    let scratch = fixture.temp.path().join("release-icons");
+    let (_, red) = icon_png(&scratch, "red.png", 200);
+    fixture.pack(
+        "release",
+        json!([
+            {"op": "add_file", "path": "gameplay/items/armour/torso/new.options"},
+            {"op": "add_file", "path": "misc/new/payload.bin"},
+            {"op": "dictionary_add", "table": "items_dict",
+             "entries": [{"cfg_name": "gameplay/items/armour/torso/new.options",
+                          "dict_id": 1805, "is_stack": false, "base_cost": 7}]},
+            {"op": "localization_add", "strings": {"st_new": "New"}},
+            {"op": "atlas_icons_add", "icons": [{"row": 2, "col": 3, "source": "icons/i.png", "premultiplied": true}]},
+        ]),
+        &[
+            (
+                "files/gameplay/items/armour/torso/new.options",
+                &config(json!({"table": {
+                    "parameters": {"table": {"armor": 0.9, "weight": 35.0}},
+                    "data": {"table": {"additional_model_slots": ["helmet", "mask"]}},
+                }})),
+            ),
+            ("files/misc/new/payload.bin", &b"payload ".repeat(5000)),
+            ("icons/i.png", &red),
+        ],
+    )
+}
+
+fn release_options<'a>(
+    fixture: &'a Fixture,
+    packs: &'a [PathBuf],
+    replace: &'a [(String, PathBuf)],
+    sign_command: Option<&'a str>,
+    name: &str,
+) -> release::ReleaseOptions<'a> {
+    let leak = |path: PathBuf| -> &'a Path { Box::leak(path.into_boxed_path()) };
+    release::ReleaseOptions {
+        base_db: &fixture.base,
+        packs,
+        replace,
+        work_dir: leak(fixture.temp.path().join(format!("rwork-{name}"))),
+        output_db: leak(fixture.temp.path().join(format!("rout-{name}.db"))),
+        sign_command,
+        deep_verify: true,
+        force: false,
+    }
+}
+
+#[test]
+fn release_writes_the_composed_database_over_the_base() {
+    let fixture = Fixture::new();
+    let packs = [release_pack(&fixture)];
+    fixture.compose("full", &packs).unwrap();
+    let options = release_options(&fixture, &packs, &[], None, "plain");
+    let manifest = release::release(&options).unwrap();
+    assert_eq!(manifest.signature.status, "unsigned");
+    let base_len = fs::metadata(&fixture.base).unwrap().len();
+    assert_eq!(manifest.tail.offset, base_len);
+    assert_eq!(manifest.output.size, base_len + manifest.tail.size);
+    assert!(release::record_path(options.output_db).exists());
+
+    // It reads like the composed database, the lobby with its icons too.
+    let mut released = ResourceDb::open(options.output_db).unwrap();
+    let mut composed = fixture.output("full");
+    let paths: Vec<String> = composed
+        .entries()
+        .keys()
+        .filter(|p| composed.is_file(p))
+        .cloned()
+        .collect();
+    let mut base = ResourceDb::open(&fixture.base).unwrap();
+    for path in &paths {
+        let (got, want) = (released.read(path).unwrap(), composed.read(path).unwrap());
+        if path == atlas::DEFAULT_SWF {
+            // The edited movie fits its stock entry: padded there, in place.
+            let stock = base.read(path).unwrap();
+            assert!(got.starts_with(&want) && got.len() == stock.len());
+            assert_eq!(
+                resources_db::pack::crc32(&got),
+                resources_db::pack::crc32(&stock)
+            );
+        } else {
+            assert_eq!(got, want, "{path}");
+        }
+    }
+    // Base bytes past the head are untouched.
+    // Base bytes past the head are untouched, but for files written in place.
+    let mut base_bytes = fs::read(&fixture.base).unwrap();
+    let mut whole = fs::read(options.output_db).unwrap();
+    let head = manifest.head.size as usize;
+    assert_eq!(manifest.in_place.len(), 1);
+    for written in &manifest.in_place {
+        let range = written.offset as usize..(written.offset + written.size) as usize;
+        assert_eq!(sha256_hex(&whole[range.clone()]), written.sha256);
+        whole[range.clone()].fill(0);
+        base_bytes[range].fill(0);
+    }
+    assert_eq!(&whole[head..base_bytes.len()], &base_bytes[head..]);
+    assert_eq!(
+        manifest.head_original_sha256,
+        sha256_hex(&fs::read(&fixture.base).unwrap()[..head])
+    );
+
+    // Deterministic, and refuses to overwrite without --force.
+    assert!(release::release(&options).is_err());
+    let again = release::release(&release::ReleaseOptions {
+        force: true,
+        ..release_options(&fixture, &packs, &[], None, "plain")
+    })
+    .unwrap();
+    assert_eq!(again.output.sha256, manifest.output.sha256);
+}
+
+#[test]
+fn release_replaces_base_files_and_draws_icons_on_the_replacement() {
+    let fixture = Fixture::new();
+    let packs = [release_pack(&fixture)];
+    let mut base = ResourceDb::open(&fixture.base).unwrap();
+    let dir = fixture.temp.path();
+    // What players have now: the stock texture as it is, a lobby with a cell
+    // of the server's own, and a changed config.
+    fs::write(dir.join("texture.bin"), base.read(TEXTURE).unwrap()).unwrap();
+    let mut live = atlas::Swf::parse(&base.read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    let mut bitmap = live.bitmap(atlas::DEFAULT_SYMBOL).unwrap();
+    bitmap.put_cell(2, 1, &icon(7)).unwrap();
+    live.set_bitmap(atlas::DEFAULT_SYMBOL, &bitmap).unwrap();
+    fs::write(dir.join("lobby.swf"), live.to_bytes().unwrap()).unwrap();
+    let mode = config(json!({"table": {"mode": {"table": {"name": "level_01_live"}}}}));
+    fs::write(dir.join("mode.options"), &mode).unwrap();
+    let replace = [
+        (TEXTURE.to_owned(), dir.join("texture.bin")),
+        (atlas::DEFAULT_SWF.to_owned(), dir.join("lobby.swf")),
+        (MODE.to_owned(), dir.join("mode.options")),
+    ];
+    let options = release_options(&fixture, &packs, &replace, None, "replace");
+    let manifest = release::release(&options).unwrap();
+    let by_path = |path: &str| manifest.replaced.iter().find(|r| r.path == path).unwrap();
+    assert!(
+        by_path(TEXTURE).in_place,
+        "same size and hash: written over the entry"
+    );
+    assert!(!by_path(MODE).in_place, "another size: into the tail");
+
+    let mut released = ResourceDb::open(options.output_db).unwrap();
+    assert_eq!(released.read(TEXTURE).unwrap(), base.read(TEXTURE).unwrap());
+    assert_eq!(released.read(MODE).unwrap(), mode);
+    assert_eq!(
+        released.entries()[TEXTURE].pos_in_db,
+        base.entries()[TEXTURE].pos_in_db
+    );
+    // The pack's icon is drawn on the live movie: its own cell stays.
+    let movie = atlas::Swf::parse(&released.read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    let drawn = movie.bitmap(atlas::DEFAULT_SYMBOL).unwrap();
+    assert_eq!(drawn.cell(2, 1).unwrap(), icon(7));
+    assert_eq!(drawn.cell(1, 1).unwrap(), icon(1));
+    assert_eq!(drawn.cell(2, 3).unwrap(), icon(200));
+
+    // A pack may not add or replace a replaced file whole.
+    let other = fixture.pack(
+        "texture",
+        json!([{"op": "replace_file", "path": TEXTURE,
+                "base_sha256": sha256_hex(&base.read(TEXTURE).unwrap())}]),
+        &[(&format!("files/{TEXTURE}"), b"other texture")],
+    );
+    let both = [other];
+    assert!(
+        error_text(release::release(&release_options(
+            &fixture,
+            &both,
+            &replace[..1],
+            None,
+            "whole"
+        )))
+        .contains("also replaced from outside")
+    );
+}
+
+#[test]
+fn a_shorter_movie_is_padded_to_its_entry_with_the_entry_hash() {
+    let stock: Vec<u8> = (0..4096u32).map(|i| (i * 7) as u8).collect();
+    let movie = b"FWS movie bytes".to_vec();
+    let fitted = release::in_place_bytes("flash_movies/x.swf", &movie, &stock)
+        .unwrap()
+        .unwrap();
+    assert_eq!(fitted.len(), stock.len());
+    assert!(fitted.starts_with(&movie));
+    assert_eq!(
+        resources_db::pack::crc32(&fitted),
+        resources_db::pack::crc32(&stock)
+    );
+    // Only movies are padded, and only when they fit.
+    assert!(
+        release::in_place_bytes("misc/x.bin", &movie, &stock)
+            .unwrap()
+            .is_none()
+    );
+    let long = vec![1u8; stock.len() - 3];
+    assert!(
+        release::in_place_bytes("flash_movies/x.swf", &long, &stock)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[cfg(unix)]
+fn signer(fixture: &Fixture, name: &str, body: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    let path = fixture.temp.path().join(name);
+    fs::write(&path, format!("#!/bin/sh\nset -e\n{body}\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+    path.display().to_string()
+}
+
+#[cfg(unix)]
+#[test]
+fn release_signs_only_the_signature_slot() {
+    let fixture = Fixture::new();
+    let packs = [release_pack(&fixture)];
+    let good = signer(
+        &fixture,
+        "good.sh",
+        "printf 'S%.0s' $(seq 256) | dd of=\"$1\" bs=1 seek=\"$2\" conv=notrunc status=none",
+    );
+    let options = release_options(&fixture, &packs, &[], Some(&good), "good");
+    let manifest = release::release(&options).unwrap();
+    assert_eq!(manifest.signature.status, "signed");
+    let db = fs::read(options.output_db).unwrap();
+    let slot = manifest.signature.offset as usize;
+    assert!(db[slot..slot + 256].iter().all(|b| *b == b'S'));
+    let table = u32::from_le_bytes(db[20..24].try_into().unwrap()) as usize;
+    assert_eq!(slot, 24 + table, "the slot follows the file table");
+
+    let stray = signer(
+        &fixture,
+        "stray.sh",
+        "printf 'X' | dd of=\"$1\" bs=1 seek=0 conv=notrunc status=none",
+    );
+    assert!(
+        error_text(release::release(&release_options(
+            &fixture,
+            &packs,
+            &[],
+            Some(&stray),
+            "stray"
+        )))
+        .contains("outside the signature slot")
+    );
+    let lazy = signer(&fixture, "lazy.sh", "true");
+    assert!(
+        error_text(release::release(&release_options(
+            &fixture,
+            &packs,
+            &[],
+            Some(&lazy),
+            "lazy"
+        )))
+        .contains("left the signature slot empty")
+    );
+}

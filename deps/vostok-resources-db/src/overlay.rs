@@ -46,7 +46,7 @@ pub struct OverlayStats {
     pub output_nodes: u32,
 }
 
-fn invalid_data(message: impl Into<String>) -> io::Error {
+pub(crate) fn invalid_data(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
@@ -182,7 +182,7 @@ fn collect_raw_paths(
     Ok(())
 }
 
-fn file_entries(archive: &Archive) -> BTreeMap<Vec<u8>, FileEntry> {
+pub(crate) fn file_entries(archive: &Archive) -> BTreeMap<Vec<u8>, FileEntry> {
     archive
         .list()
         .into_iter()
@@ -347,7 +347,7 @@ fn shift_payload_positions(node: &mut RawNode, minimum: u64, delta: u64) -> io::
     Ok(())
 }
 
-fn first_stored_payload_position(node: &RawNode) -> Option<u64> {
+pub(crate) fn first_stored_payload_position(node: &RawNode) -> Option<u64> {
     let own = (!node.is_folder()
         && node.hard_link_target_off.is_none()
         && !node.flags.contains(NodeFlags::INLINED)
@@ -370,19 +370,28 @@ pub fn apply_db_overlay(
     apply_db_overlay_with_materialized_paths(base_path, donor_path, output_path, &[])
 }
 
-/// Apply an overlay while converting selected base hard-link nodes into
-/// independent archive-file nodes. The payload bytes remain identical; only
-/// the runtime ownership identity changes.
-pub fn apply_db_overlay_with_materialized_paths(
+/// The resolved shape of an overlay before anything is written: the base
+/// archive, the changed payloads, and the output FAT tree in which every
+/// changed or new file is placed after the base archive's end, in `changes`
+/// order.
+pub(crate) struct OverlayPlan {
+    pub base_archive: Archive,
+    pub base_entries: BTreeMap<Vec<u8>, FileEntry>,
+    pub changes: BTreeMap<Vec<u8>, Vec<u8>>,
+    pub root: RawNode,
+    pub output_nodes: u32,
+    pub base_origin: usize,
+    pub base_len: u64,
+    /// End of the appended change payloads.
+    pub payload_end: u64,
+    pub stats: OverlayStats,
+}
+
+pub(crate) fn plan_overlay(
     base_path: &Path,
     donor_path: &Path,
-    output_path: &Path,
     materialized_paths: &[Vec<u8>],
-) -> io::Result<OverlayStats> {
-    if base_path == output_path || donor_path == output_path {
-        return Err(invalid_data("overlay output must differ from both inputs"));
-    }
-
+) -> io::Result<OverlayPlan> {
     let mut base_archive = Archive::open(base_path)?;
     let mut donor_archive = Archive::open(donor_path)?;
     let base_entries = file_entries(&base_archive);
@@ -495,6 +504,49 @@ pub fn apply_db_overlay_with_materialized_paths(
     let output_nodes = count_nodes(&root)
         .checked_add(helper_overcount)
         .ok_or_else(|| invalid_data("output header node count overflow"))?;
+    Ok(OverlayPlan {
+        base_archive,
+        base_entries,
+        changes,
+        root,
+        output_nodes,
+        base_origin,
+        base_len,
+        payload_end: next_payload_pos,
+        stats: OverlayStats {
+            unchanged_files,
+            replaced_files,
+            added_files,
+            added_folders,
+            detached_hard_links,
+            appended_payload_bytes: next_payload_pos - base_len,
+            output_nodes,
+        },
+    })
+}
+
+/// Apply an overlay while converting selected base hard-link nodes into
+/// independent archive-file nodes. The payload bytes remain identical; only
+/// the runtime ownership identity changes.
+pub fn apply_db_overlay_with_materialized_paths(
+    base_path: &Path,
+    donor_path: &Path,
+    output_path: &Path,
+    materialized_paths: &[Vec<u8>],
+) -> io::Result<OverlayStats> {
+    if base_path == output_path || donor_path == output_path {
+        return Err(invalid_data("overlay output must differ from both inputs"));
+    }
+    let OverlayPlan {
+        mut base_archive,
+        base_entries,
+        changes,
+        mut root,
+        output_nodes,
+        base_origin,
+        stats,
+        ..
+    } = plan_overlay(base_path, donor_path, materialized_paths)?;
     let mut fat_prefix = pack::build_fat_with_header(&root, output_nodes);
     let output_origin = if fat_prefix.len() <= base_origin {
         base_origin
@@ -564,15 +616,7 @@ pub fn apply_db_overlay_with_materialized_paths(
         }
     }
 
-    Ok(OverlayStats {
-        unchanged_files,
-        replaced_files,
-        added_files,
-        added_folders,
-        detached_hard_links,
-        appended_payload_bytes: next_payload_pos - base_len,
-        output_nodes,
-    })
+    Ok(stats)
 }
 
 #[cfg(test)]

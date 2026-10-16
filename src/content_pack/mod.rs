@@ -13,6 +13,7 @@
 
 pub mod atlas;
 pub mod from_bundle;
+pub mod release;
 pub mod value;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -471,6 +472,9 @@ pub struct Plan<'a> {
     whole: BTreeMap<String, WholeFile>,
     edits: BTreeMap<String, Vec<Edit<'a>>>,
     atlas: BTreeMap<(String, String), Vec<IconEdit<'a>>>,
+    /// Base files given new bytes from outside the packs ([`Plan::replace`]):
+    /// the packs' edits of such a file apply on top of them.
+    replacements: BTreeMap<String, Vec<u8>>,
     pub problems: Vec<String>,
 }
 
@@ -483,6 +487,7 @@ impl<'a> Plan<'a> {
             whole: BTreeMap::new(),
             edits: BTreeMap::new(),
             atlas: BTreeMap::new(),
+            replacements: BTreeMap::new(),
             problems: Vec::new(),
         };
         for pack in packs {
@@ -779,9 +784,28 @@ impl<'a> Plan<'a> {
 
     /// Resolve the plan against a base archive: run every base-dependent
     /// check and compute the effective content of each touched resource.
+    /// Give the base file `path` new bytes before the packs apply: what
+    /// players have now in place of the stock file (a menu of the server's
+    /// own). Packs may edit it (a lobby movie gets its icons drawn on these
+    /// bytes, not the stock ones) but not add or replace it whole.
+    pub fn replace(&mut self, path: &str, bytes: Vec<u8>) {
+        self.replacements.insert(path.to_owned(), bytes);
+    }
+
     pub fn resolve(mut self, base: &mut ResourceDb, base_sha256: Option<&str>) -> Result<Resolved> {
         let mut problems = std::mem::take(&mut self.problems);
         let mut resolved = Resolved::default();
+        for path in self.replacements.keys() {
+            if !base.is_file(path) {
+                problems.push(format!("replacement {path} is not a file of the base"));
+            }
+            if let Some(whole) = self.whole.get(path) {
+                problems.push(format!(
+                    "{} adds or replaces {path} whole, which is also replaced from outside",
+                    self.pack_id(whole.pack)
+                ));
+            }
+        }
         for pack in self.packs {
             if let (Some(expected), Some(actual)) = (&pack.manifest.base_db_sha256, base_sha256)
                 && expected != actual
@@ -845,6 +869,13 @@ impl<'a> Plan<'a> {
                 Err(error) => problems.push(format!("{error:#}")),
             }
         }
+        for (path, bytes) in &self.replacements {
+            if !resolved.files.contains_key(path) {
+                resolved
+                    .files
+                    .insert(path.clone(), Content::Bytes(bytes.clone()));
+            }
+        }
         if !problems.is_empty() {
             bail!(
                 "{} problem(s):\n  {}",
@@ -859,6 +890,7 @@ impl<'a> Plan<'a> {
         match self.whole.get(path) {
             Some(whole) => fs::read(&whole.source)
                 .with_context(|| format!("reading {}", whole.source.display())),
+            None if self.replacements.contains_key(path) => Ok(self.replacements[path].clone()),
             None if base.is_file(path) => base.read(path),
             None => bail!("edits target {path}, which is neither in the base nor added by a pack"),
         }
@@ -1180,6 +1212,48 @@ pub fn install_record_path(output_db: &Path) -> PathBuf {
     output_db.with_file_name(name)
 }
 
+/// Write the effective files as an overlay directory under `work_dir`,
+/// validate it against `base_db` and pack it into `work_dir/packs-overlay.db`.
+pub(crate) fn build_donor<'a>(
+    base_db: &Path,
+    files: impl Iterator<Item = (&'a String, &'a Content)>,
+    work_dir: &Path,
+    force: bool,
+) -> Result<PathBuf> {
+    let overlay = work_dir.join("overlay");
+    if overlay.exists() {
+        if !force {
+            bail!(
+                "work overlay already exists (use --force): {}",
+                overlay.display()
+            );
+        }
+        fs::remove_dir_all(&overlay)?;
+    }
+    fs::create_dir_all(&overlay)?;
+    for (path, content) in files {
+        let destination = safe_join(&overlay, path)?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        match content {
+            Content::Source(source) => {
+                if fs::hard_link(source, &destination).is_err() {
+                    fs::copy(source, &destination)
+                        .with_context(|| format!("copying {}", source.display()))?;
+                }
+            }
+            Content::Bytes(bytes) => fs::write(&destination, bytes)?,
+        }
+    }
+    crate::model_validation::validate_effective_overlay(base_db, &overlay)
+        .context("validating effective model surface/settings contracts")?;
+    let donor = work_dir.join("packs-overlay.db");
+    let source = resources_db::pack::build_src_tree(&overlay)?;
+    resources_db::pack::assemble_to_file(&source, &donor)?;
+    Ok(donor)
+}
+
 /// `pack compose`: resolve all packs into one overlay and apply it once.
 pub fn compose(options: &ComposeOptions<'_>) -> Result<InstallRecord> {
     if options.output_db.exists() && !options.force {
@@ -1200,37 +1274,12 @@ pub fn compose(options: &ComposeOptions<'_>) -> Result<InstallRecord> {
     let plan = Plan::new(&packs, &base_languages(&base));
     let resolved = plan.resolve(&mut base, Some(&base_sha))?;
 
-    let overlay = options.work_dir.join("overlay");
-    if overlay.exists() {
-        if !options.force {
-            bail!(
-                "work overlay already exists (use --force): {}",
-                overlay.display()
-            );
-        }
-        fs::remove_dir_all(&overlay)?;
-    }
-    fs::create_dir_all(&overlay)?;
-    for (path, content) in &resolved.files {
-        let destination = safe_join(&overlay, path)?;
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        match content {
-            Content::Source(source) => {
-                if fs::hard_link(source, &destination).is_err() {
-                    fs::copy(source, &destination)
-                        .with_context(|| format!("copying {}", source.display()))?;
-                }
-            }
-            Content::Bytes(bytes) => fs::write(&destination, bytes)?,
-        }
-    }
-    crate::model_validation::validate_effective_overlay(options.base_db, &overlay)
-        .context("validating effective model surface/settings contracts")?;
-    let donor = options.work_dir.join("packs-overlay.db");
-    let source = resources_db::pack::build_src_tree(&overlay)?;
-    resources_db::pack::assemble_to_file(&source, &donor)?;
+    let donor = build_donor(
+        options.base_db,
+        resolved.files.iter(),
+        options.work_dir,
+        options.force,
+    )?;
     if let Some(parent) = options.output_db.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1261,17 +1310,7 @@ pub fn compose(options: &ComposeOptions<'_>) -> Result<InstallRecord> {
         target_build: TARGET_BUILD.into(),
         base_db: DbIdentity::of(options.base_db, base_sha)?,
         output_db: DbIdentity::of(options.output_db, output_sha)?,
-        packs: packs
-            .iter()
-            .map(|pack| InstalledPack {
-                id: pack.manifest.id.clone(),
-                version: pack.manifest.version.clone(),
-                manifest_sha256: pack.manifest_sha256.clone(),
-                requires: pack.manifest.requires.clone(),
-                operations: pack.manifest.operations.len(),
-                server: pack.manifest.server.clone(),
-            })
-            .collect(),
+        packs: installed_packs(&packs),
         added_files: kinds_of(&resolved, WholeKind::Add),
         replaced_files: kinds_of(&resolved, WholeKind::Replace),
         edited_files: resolved.edited.iter().cloned().collect(),
@@ -1285,6 +1324,20 @@ pub fn compose(options: &ComposeOptions<'_>) -> Result<InstallRecord> {
         export_server(&mut base, &mut output, &resolved, &record, export)?;
     }
     Ok(record)
+}
+
+fn installed_packs(packs: &[Pack]) -> Vec<InstalledPack> {
+    packs
+        .iter()
+        .map(|pack| InstalledPack {
+            id: pack.manifest.id.clone(),
+            version: pack.manifest.version.clone(),
+            manifest_sha256: pack.manifest_sha256.clone(),
+            requires: pack.manifest.requires.clone(),
+            operations: pack.manifest.operations.len(),
+            server: pack.manifest.server.clone(),
+        })
+        .collect()
 }
 
 fn kinds_of(resolved: &Resolved, kind: WholeKind) -> Vec<String> {
@@ -1340,6 +1393,23 @@ pub fn server_export_paths(
     Ok(paths)
 }
 
+/// What the server needs to know about an exported item config without
+/// parsing it: the armour slots its model also occupies.
+fn exported_item(path: &str, bytes: &[u8]) -> Result<Json> {
+    let config = BinaryConfig::parse(bytes).with_context(|| format!("parsing {path}"))?;
+    let slots: Vec<Json> = match value_at(&config.root, "data.additional_model_slots") {
+        Some(ConfigValue::Indexed(values)) => values
+            .iter()
+            .filter_map(|value| match value {
+                ConfigValue::String(slot) => Some(Json::String(slot.clone())),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    Ok(serde_json::json!({"config": path, "additional_model_slots": slots}))
+}
+
 fn export_server(
     base: &mut ResourceDb,
     output: &mut ResourceDb,
@@ -1348,12 +1418,17 @@ fn export_server(
     export: &Path,
 ) -> Result<()> {
     let changed: BTreeSet<String> = resolved.files.keys().cloned().collect();
+    let mut items = Vec::new();
     for path in server_export_paths(base, output, &changed)? {
         let destination = safe_join(export, &path)?;
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&destination, output.read(&path)?)?;
+        let bytes = output.read(&path)?;
+        if path.starts_with("gameplay/items/") {
+            items.push(exported_item(&path, &bytes)?);
+        }
+        fs::write(&destination, bytes)?;
     }
     let server: Map<String, Json> = record
         .packs
@@ -1362,6 +1437,7 @@ fn export_server(
         .collect();
     let mut content = serde_json::to_value(record)?;
     content["server"] = Json::Object(server);
+    content["items"] = Json::Array(items);
     fs::write(
         export.join("content.json"),
         serde_json::to_vec_pretty(&content)?,
@@ -1371,9 +1447,14 @@ fn export_server(
 
 /// `pack verify`: confirm a database carries every operation of the packs.
 pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
+    verify_in(&mut ResourceDb::open(db_path)?, dirs, &[])
+}
+
+/// [`verify`] on an open database. Operations on `skipped` paths (shipped
+/// outside the archive) are not checked.
+pub fn verify_in(db: &mut ResourceDb, dirs: &[PathBuf], skipped: &[String]) -> Result<usize> {
     let packs = load_packs(dirs)?;
-    let mut db = ResourceDb::open(db_path)?;
-    let languages = base_languages(&db);
+    let languages = base_languages(db);
     let mut configs = BTreeMap::<String, BinaryConfig>::new();
     let mut problems = Vec::new();
     let mut checked = 0;
@@ -1396,7 +1477,7 @@ pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
                         }
                     }
                     Operation::ConfigSet { path, values } => {
-                        let root = config(&mut db, path)?;
+                        let root = config(db, path)?;
                         for (key, json) in values {
                             let actual = value_at(&root, key)
                                 .with_context(|| format!("{path} has no {key}"))?;
@@ -1410,7 +1491,7 @@ pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
                         array_path,
                         values,
                     } => {
-                        let root = config(&mut db, path)?;
+                        let root = config(db, path)?;
                         let Some(ConfigValue::Indexed(array)) = value_at(&root, array_path) else {
                             bail!("{path} {array_path} is not an indexed table");
                         };
@@ -1426,7 +1507,7 @@ pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
                         id_field,
                         entries,
                     } => {
-                        let root = config(&mut db, DICTIONARY)?;
+                        let root = config(db, DICTIONARY)?;
                         let id_field = id_field.as_deref().unwrap_or(default_id_field(table));
                         let Some(ConfigValue::Indexed(values)) = root.named(table) else {
                             bail!("dictionary has no indexed {table}");
@@ -1451,7 +1532,7 @@ pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
                         languages: listed,
                     } => {
                         for language in listed.as_ref().unwrap_or(&languages) {
-                            let root = config(&mut db, &localization_path(language))?;
+                            let root = config(db, &localization_path(language))?;
                             for (key, text) in strings {
                                 if root.named("strings").and_then(|table| table.named(key))
                                     != Some(&ConfigValue::String(text.clone()))
@@ -1463,6 +1544,9 @@ pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
                     }
                     Operation::AtlasIconsAdd { swf, symbol, icons } => {
                         let path = swf.as_deref().unwrap_or(atlas::DEFAULT_SWF);
+                        if skipped.iter().any(|skip| skip == path) {
+                            return Ok(());
+                        }
                         let movie = atlas::Swf::parse(&db.read(path)?)?;
                         let bitmap =
                             movie.bitmap(symbol.as_deref().unwrap_or(atlas::DEFAULT_SYMBOL))?;

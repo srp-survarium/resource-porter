@@ -149,6 +149,57 @@ Removals cannot be expressed: a deleted dictionary row, a removed config key
 or a cleared atlas cell is noted but not carried over. A structural config
 change falls back to `replace_file`.
 
+## Releases to installed clients
+
+`compose` writes a whole new database, and a growing file table shifts every
+payload, so the result differs from retail across the whole 6.3 GB file.
+`pack release` writes the players' final database instead, laid out so that
+it differs from retail only where it must:
+
+```
+vostok-port pack release --base-db RETAIL --pack A --pack B … --work-dir W \
+    --output-db FINAL.db [--replace ARCHIVE_PATH=FILE …] \
+    [--sign-command "CMD …"] [--deep-verify] [--force]
+```
+
+* The head, the same-size range `[0, H)`, is written over the retail start:
+  the header, the larger file table, the 256-byte signature slot right after
+  the table (`[24 + table_size, +256)`) and zeros. Every retail payload keeps
+  its offset, except the few that started inside the space the table now
+  needs: they move to the tail. `H` is the end of the last moved payload.
+* The tail is appended at the retail end: new and changed payloads in
+  overlay order, then the moved payloads.
+* `--replace ARCHIVE_PATH=FILE` gives a retail file the bytes players have
+  now (the server's own menus) before the packs apply; a pack's edits of that
+  file (the lobby movie's `atlas_icons_add`) land on those bytes, not the
+  retail ones. A pack may not add or replace a replaced file whole.
+* A touched file that keeps its retail entry's size and archive hash is
+  written over the entry in place; a movie (`.swf`) that is shorter is padded
+  to the entry's size with four trailing bytes that keep its hash (the player
+  ignores bytes past the movie's own length). Everything else goes to the
+  tail. So the server's menus and the lobby with its icons stay small in-place
+  changes instead of 40 MB in the tail.
+* `--sign-command` runs on the head, last, as `<command words…> <head> <slot
+  offset>`, and may write only the slot. `scripts/sign-release-head.py
+  --signer <skhid-srp>/srp-026g/client-patches/sign_resources_026g.py [--key
+  KEY]` signs with the Skhid key (never copied). Without a signer the release
+  is recorded as `unsigned`.
+* The final database is written through a `.partial` file and then read
+  back as written: every composed resource, every pack operation (`verify`),
+  the in-place files at their retail offsets, and every other retail entry at
+  its offset with its bytes (`--deep-verify` compares the bytes of all of
+  them, else only the moved and inline ones).
+* `FINAL.db.json` is the release's record: base and output (size, SHA-256),
+  head (size, SHA-256, and the retail bytes it covers), tail, signature slot,
+  moved payloads, in-place files, replacements (source file and result), the
+  packs with their versions, and the files added, replaced and edited.
+* The same packs, replacements and base give the same bytes.
+
+Turning the final database into an update for installed clients is the
+release tool's job, not the porter's: skhid-srp's `make_client_026g.py
+--resources-db FINAL.db` compares it with the players' retail file and ships
+what differs.
+
 ## Runtime requirement
 
 A client whose `resources.db` differs from retail needs the resource
