@@ -525,3 +525,24 @@ tilted to it; collector and group placements gained `pitch`/`roll`).
   the static collector visuals, so the fill overlay no longer carries the
   195 project; outside the fill objects the rebuilt 194 project equals
   -next's.
+
+**Release scope (user decision).** The release covers battery and
+deathmatch play, with no chargers. In 0.26 a *charger* is the mode-3 battery
+spawn station (`victory_item_spawn_point` with temporary charging-device
+visuals; native level_04 day_3 has four, all along the central tracks); a
+*container* is the team's battery deposit (`victory_items_container`, the
+box_atlant12 pair). 194 runs mode 2 (33 battery spawners, no chargers), as
+native level_04 day_2. Layout B (containers on the train, based on a
+misreading of "charger") is dropped: its pack, the layout switch and its
+database are gone; `chemical-011e-collectors-base.json` is now
+`chemical-011e-containers.json`.
+
+**Team 0 kit was floating.** `place_base_kit.py` took the floor from the
+movement collision; in the west passage that is `perehod_01`'s walker ramp,
+up to 0.35 m above the visible metal floor. The visible floor (render
+triangles of `perehod_01`, `metal_bare_s`) is level at 2.935 m: the team 0
+container and crate now stand level at y 2.935 (were 3.276 with a 6 deg
+tilt). Players there walk on the invisible ramp above the visible floor and
+can still reach both. The team 1 tunnel kit already stood on the visible
+terrain (render floor 3.986 / 3.801 under the container / crate, placed at
+3.985 / 3.811) and keeps its tilt, as the terrain really slopes there.

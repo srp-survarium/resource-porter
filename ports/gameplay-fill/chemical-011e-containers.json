@@ -1,5 +1,5 @@
 {
-  "name": "chemical-011e native chargers at the player-chosen base spots",
+  "name": "chemical-011e native battery containers at the player-chosen base spots",
   "map_id": 194,
   "template_project": "projects/level_04/day_2/client_project",
   "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
@@ -15,12 +15,12 @@
       "to": {
         "position": [
           -33.038,
-          3.276,
+          2.935,
           51.284
         ],
-        "yaw": -1.1257,
-        "pitch": 0.2579,
-        "roll": 0.2729
+        "yaw": -1.1411,
+        "pitch": 0.0,
+        "roll": 0.0
       },
       "replaced_model": "item/quest/container"
     },

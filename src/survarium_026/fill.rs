@@ -671,14 +671,14 @@ mod tests {
         }
         assert_eq!(dark, 1);
         assert!(fog.groups.len() >= 10, "level_03 uses nine clouds for a smaller field");
-        // Each crate stands beside its own team's base charger (layout A).
+        // Each crate stands beside its own team's battery container.
         let resupply = pack(include_str!("../../ports/gameplay-fill/chemical-011e-resupply.json"));
-        let chargers = pack(include_str!("../../ports/gameplay-fill/chemical-011e-collectors-base.json"));
+        let containers = pack(include_str!("../../ports/gameplay-fill/chemical-011e-containers.json"));
         for g in &resupply.groups {
             let crate_at = g.to.expect("placed").position;
-            let charger = chargers.collectors.iter().find(|c| Some(c.team) == g.team).expect("same-team charger").to.position;
-            let d = ((crate_at[0] - charger[0]).powi(2) + (crate_at[2] - charger[2]).powi(2)).sqrt();
-            assert!(d < 3.0, "team {:?} crate {d} m from its charger", g.team);
+            let container = containers.collectors.iter().find(|c| Some(c.team) == g.team).expect("same-team container").to.position;
+            let d = ((crate_at[0] - container[0]).powi(2) + (crate_at[2] - container[2]).powi(2)).sqrt();
+            assert!(d < 3.0, "team {:?} crate {d} m from its container", g.team);
         }
     }
 
