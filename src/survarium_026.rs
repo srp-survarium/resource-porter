@@ -148,10 +148,12 @@ pub struct ServerProjectFallback {
     pub projects: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Map {
     pub id: u8,
+    /// Native level whose `{weather}_{mode}` project supplies the object
+    /// schemas, environment template and game-mode options.
     pub level: String,
     pub weather: String,
     /// Look-defining environment choices for early donors. Bug fixes apply
@@ -162,7 +164,158 @@ pub struct Map {
     /// (object_sound) that the early scene lacks. 0.11e Chemical has one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_ambient_fill: bool,
+    /// Native game mode suffix: 2 (battery collectors, the default) or 4
+    /// (team deathmatch, `{level}_{weather}_4.options`). 0.26g has no
+    /// free-for-all mode; mode 3 is the charger variant of mode 2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u8>,
+    /// Donor project directory under `projects/` when the map is not the
+    /// retail `{level}{weather}` scene, e.g. a Shadow of Chernobyl map
+    /// converted into 0.10b (`soc_mp_pool`). `level` then only selects the
+    /// native template.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub donor_project: Option<String>,
+    /// Deathmatch spawns. Every source gameplay group is replaced by these
+    /// points, each registered for both teams.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deathmatch: Option<Deathmatch>,
+    /// Invisible walker-only ramps standing in for ladders: 0.26g has no
+    /// ladder gameplay.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub walker_ramps: Vec<WalkerRamp>,
+    /// Invisible walker-only boxes: lids over ladder pits and shafts, or
+    /// blockers in front of ladders that lead nowhere reachable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub walker_boxes: Vec<WalkerBox>,
+    /// Keep 0.26's height-based ambient. Early maps turn it off so the
+    /// encoded-probe decode runs; a scene without environment probes (a
+    /// converted X-Ray map) has no probe light to decode, and its source
+    /// skylight is what height-based ambient replaced.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub height_ambient: bool,
 }
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Deathmatch {
+    /// Where the points come from, e.g. the source `level.game` records.
+    pub source: String,
+    /// `[x, y, z, yaw]` in the map's coordinates, feet on the floor.
+    pub respawns: Vec<[f32; 4]>,
+    /// Points dropped after review, with the reason.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dropped: BTreeMap<String, String>,
+    /// Points moved after review (source position -> reason).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub adjusted: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WalkerRamp {
+    pub name: String,
+    /// Centre of the ramp's lower end, on the lower floor.
+    pub from: [f32; 3],
+    /// Centre of the ramp's upper end, on the upper floor.
+    pub to: [f32; 3],
+    pub width: f32,
+    pub reason: String,
+    /// Lay visible native wooden planks on the ramp (the walker slab stays
+    /// the collision; the planks are render-only props on its top face).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub planks: bool,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct WalkerBox {
+    pub name: String,
+    pub centre: [f32; 3],
+    /// Half extents along the box's own axes (x, y up, z) before `yaw`.
+    pub half: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
+    /// Cover the top face with planks running along the box's x axis.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub planks: bool,
+    pub reason: String,
+}
+
+/// Native 0.26 board laid as a plank: 0.28 m wide, 2 m long along +y from
+/// its origin, 2.6 cm thick (props/cover/plywood_04).
+pub const PLANK_MODEL: &str = "props/cover/plywood_04";
+const PLANK_LENGTH: f32 = 2.0;
+const PLANK_PITCH: f32 = 0.3;
+const PLANK_HALF_THICKNESS: f32 = 0.013;
+
+/// Euler angles whose `primitive_rotation` has these rows (local axes).
+pub fn euler_from_rows(r: [[f32; 3]; 3]) -> [f32; 3] {
+    [
+        (-r[1][2]).atan2(r[2][2]),
+        r[0][2].clamp(-1.0, 1.0).asin(),
+        (-r[0][1]).atan2(r[0][0]),
+    ]
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
+}
+
+fn unit_hash(seed: &str, index: usize, salt: u32) -> f32 {
+    let mut h: u32 = 0x811c_9dc5 ^ salt;
+    for b in seed.bytes().chain((index as u32).to_le_bytes()) {
+        h = (h ^ u32::from(b)).wrapping_mul(0x0100_0193);
+    }
+    h ^= h >> 15;
+    (h & 0xffff) as f32 / 65535.0
+}
+
+/// Plank transforms (position, rotation, scale) covering a strip that starts
+/// at `start` and runs `length` along `dir` on a surface with normal
+/// `normal`, `lanes` planks side by side, each slightly uneven.
+pub fn plank_strip(
+    name: &str,
+    start: [f32; 3],
+    dir: [f32; 3],
+    normal: [f32; 3],
+    length: f32,
+    lanes: usize,
+) -> Vec<([f32; 3], [f32; 3], [f32; 3])> {
+    let pieces = if length <= PLANK_LENGTH {
+        1
+    } else {
+        ((length - 0.1) / (PLANK_LENGTH - 0.1)).ceil() as usize
+    };
+    let stretch = if pieces == 1 { length / PLANK_LENGTH } else { 1.0 };
+    let step = if pieces > 1 { (length - PLANK_LENGTH) / (pieces - 1) as f32 } else { 0.0 };
+    let mut out = Vec::new();
+    for lane in 0..lanes {
+        for piece in 0..pieces {
+            let index = lane * pieces + piece;
+            let turn = (unit_hash(name, index, 1) - 0.5) * 0.05; // about +-1.4 degrees
+            let lateral = (lane as f32 - (lanes as f32 - 1.0) * 0.5) * PLANK_PITCH
+                + (unit_hash(name, index, 2) - 0.5) * 0.03;
+            let lift = PLANK_HALF_THICKNESS + unit_hash(name, index, 3) * 0.008
+                + if piece % 2 == 1 { 2.0 * PLANK_HALF_THICKNESS } else { 0.0 };
+            let along = piece as f32 * step + (unit_hash(name, index, 4) - 0.5) * 0.06;
+            let side = cross(dir, normal);
+            let (s, c) = turn.sin_cos();
+            let u: [f32; 3] = std::array::from_fn(|i| dir[i] * c + side[i] * s);
+            let a = cross(u, normal);
+            let origin = std::array::from_fn(|i| {
+                start[i] + dir[i] * along.max(0.0) + side[i] * lateral + normal[i] * lift
+            });
+            out.push((origin, euler_from_rows([a, u, normal]), [1.0, stretch, 1.0]));
+        }
+    }
+    out
+}
+
+/// Steepest walker ramp accepted.
+pub const MAX_RAMP_DEGREES: f32 = 40.0;
+/// Ramp slab half thickness, and how far each end runs past its landing.
+const RAMP_HALF_THICKNESS: f32 = 0.1;
+const RAMP_OVERLAP: f32 = 0.3;
 
 /// Named environment looks. `source` follows the donor; the legacy look
 /// reproduces the earlier 0.10b-atmosphere candidate (snapshot
@@ -182,7 +335,13 @@ impl EnvironmentLook {
     }
 }
 impl Map {
+    fn mode_number(&self) -> u8 {
+        self.mode.unwrap_or(2)
+    }
     fn donor_project(&self, source: SourceBuild) -> String {
+        if let Some(project) = &self.donor_project {
+            return format!("projects/{project}/client_project");
+        }
         if source.early() {
             let suffix = match self.weather.as_str() {
                 "day" => "",
@@ -196,10 +355,15 @@ impl Map {
         }
     }
     fn target_project(&self) -> String {
-        format!("projects/{}/{}_2/client_project", self.level, self.weather)
+        format!(
+            "projects/{}/{}_{}/client_project",
+            self.level,
+            self.weather,
+            self.mode_number()
+        )
     }
     fn project_name(&self, source: SourceBuild) -> String {
-        let root = if source.early() {
+        let root = if source.early() || self.donor_project.is_some() {
             self.donor_project(source)
                 .trim_start_matches("projects/")
                 .trim_end_matches("/client_project")
@@ -207,22 +371,103 @@ impl Map {
         } else {
             self.level.clone()
         };
-        format!("{}_{root}/{}_2", source.prefix(), self.weather)
+        format!(
+            "{}_{root}/{}_{}",
+            source.prefix(),
+            self.weather,
+            self.mode_number()
+        )
     }
     fn output_project(&self, source: SourceBuild) -> String {
         format!("projects/{}/client_project", self.project_name(source))
     }
     fn mode(&self) -> String {
         format!(
-            "{}_{}_2.options",
+            "{}_{}_{}.options",
             self.level,
             if self.weather == "evening" {
                 "evn"
             } else {
                 &self.weather
-            }
+            },
+            self.mode_number()
         )
     }
+    /// The project variant key environment probes are looked up by.
+    fn variant(&self) -> String {
+        format!("{}_{}", self.weather, self.mode_number())
+    }
+    /// The model holding this map's ladder ramps, relocated like donor models.
+    fn ramp_model(&self, source: SourceBuild) -> String {
+        let project = self
+            .donor_project(source)
+            .trim_start_matches("projects/")
+            .trim_end_matches("/client_project")
+            .replace('/', "_");
+        format!("models/ported/{}/srp/{project}_ramps.model", source.prefix())
+    }
+}
+
+/// Euler angles (the collision-primitive convention: rows of
+/// `rotation(a)` are the local axes in world space) and half extents of the
+/// slab whose top face runs from `from` to `to`, plus its centre.
+pub fn ramp_box(ramp: &WalkerRamp) -> Result<([f32; 3], [f32; 3], [f32; 3])> {
+    let d: [f32; 3] = std::array::from_fn(|i| ramp.to[i] - ramp.from[i]);
+    let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let run = (d[0] * d[0] + d[2] * d[2]).sqrt();
+    ensure!(
+        ramp.from.iter().chain(&ramp.to).all(|v| v.is_finite()) && run > 0.5 && d[1] > 0.0,
+        "ramp {} must rise over at least 0.5 m of run",
+        ramp.name
+    );
+    ensure!(
+        ramp.width.is_finite() && (0.4..=4.0).contains(&ramp.width),
+        "ramp {} width must be 0.4-4 m",
+        ramp.name
+    );
+    let slope = d[1].atan2(run).to_degrees();
+    ensure!(
+        slope <= MAX_RAMP_DEGREES,
+        "ramp {} rises {slope:.1} degrees; at most {MAX_RAMP_DEGREES}",
+        ramp.name
+    );
+    let u = d.map(|v| v / length);
+    // Local x runs up the ramp, local y is the slab normal (world up made
+    // perpendicular to x), local z = x cross y is the level width axis.
+    let up = [-u[0] * u[1], 1.0 - u[1] * u[1], -u[2] * u[1]];
+    let n = (up[0] * up[0] + up[1] * up[1] + up[2] * up[2]).sqrt();
+    let normal = up.map(|v| v / n);
+    let width = [
+        u[1] * normal[2] - u[2] * normal[1],
+        u[2] * normal[0] - u[0] * normal[2],
+        u[0] * normal[1] - u[1] * normal[0],
+    ];
+    // Rows of rotation(a): r00 = cy*cz, r01 = -cy*sz, r02 = sy,
+    // r12 = -sx*cy, r22 = cx*cy.
+    let ry = u[2].clamp(-1.0, 1.0).asin();
+    let rz = (-u[1]).atan2(u[0]);
+    let rx = (-normal[2]).atan2(width[2]);
+    let centre = std::array::from_fn(|i| {
+        (ramp.from[i] + ramp.to[i]) * 0.5 - normal[i] * RAMP_HALF_THICKNESS
+    });
+    let half = [
+        length * 0.5 + RAMP_OVERLAP,
+        RAMP_HALF_THICKNESS,
+        ramp.width * 0.5,
+    ];
+    Ok(([rx, ry, rz], half, centre))
+}
+
+/// The collision-primitive rotation convention (rows are local axes).
+pub fn primitive_rotation(a: [f32; 3]) -> [[f32; 3]; 3] {
+    let (sx, cx) = a[0].sin_cos();
+    let (sy, cy) = a[1].sin_cos();
+    let (sz, cz) = a[2].sin_cos();
+    [
+        [cy * cz, -cy * sz, sy],
+        [sy * sx * cz + cx * sz, -sx * sy * sz + cx * cz, -sx * cy],
+        [-cx * sy * cz + sx * sz, cx * sy * sz + sx * cz, cx * cy],
+    ]
 }
 
 #[derive(Serialize)]
@@ -474,10 +719,20 @@ pub fn battery_body_transform(object: &ConfigValue, offset: [f32; 3]) -> Result<
     ]))
 }
 
+#[cfg(test)]
 fn adapt_objects(
     objects: &mut ConfigValue,
     templates: &[ConfigValue],
     battery_offset: [f32; 3],
+) -> Result<()> {
+    adapt_objects_for(objects, templates, battery_offset, "_2")
+}
+
+fn adapt_objects_for(
+    objects: &mut ConfigValue,
+    templates: &[ConfigValue],
+    battery_offset: [f32; 3],
+    mode_suffix: &str,
 ) -> Result<()> {
     let ConfigValue::Indexed(objects) = objects else {
         return Ok(());
@@ -572,7 +827,7 @@ fn adapt_objects(
                     .cloned()
                     .collect();
                 for mut entry in old {
-                    entry.name.push_str("_2");
+                    entry.name.push_str(mode_suffix);
                     textures.retain(|v| v.name != entry.name);
                     textures.push(entry);
                 }
@@ -652,7 +907,8 @@ fn adapt_project(
     let donor_objects = donor
         .named_mut("client_objects")
         .context("source project lacks client_objects")?;
-    adapt_objects(donor_objects, &templates, battery_offset)?;
+    let mode_suffix = format!("_{}", map.mode_number());
+    adapt_objects_for(donor_objects, &templates, battery_offset, &mode_suffix)?;
     let ConfigValue::Named(groups) = donor
         .named_mut("server_objects")
         .context("source project lacks server_objects")?
@@ -660,7 +916,7 @@ fn adapt_project(
         bail!("invalid server_objects")
     };
     for group in groups {
-        adapt_objects(&mut group.value, &templates, battery_offset)?;
+        adapt_objects_for(&mut group.value, &templates, battery_offset, &mode_suffix)?;
     }
     // Add root-level fields only. Recursing across heterogeneous object arrays
     // would incorrectly copy another map's objects and transforms.
@@ -693,7 +949,11 @@ fn adapt_project(
         }
     }
     validate_anomalies(&donor)?;
-    validate_gameplay(&donor)?;
+    if map.mode_number() == 4 {
+        validate_deathmatch(&donor)?;
+    } else {
+        validate_gameplay(&donor)?;
+    }
     Ok(donor)
 }
 
@@ -762,6 +1022,45 @@ fn validate_anomalies(project: &ConfigValue) -> Result<()> {
     Ok(())
 }
 
+/// Team deathmatch: respawns for both teams and no battery objectives.
+fn validate_deathmatch(project: &ConfigValue) -> Result<()> {
+    let groups = project
+        .named("server_objects")
+        .context("missing server objects")?;
+    for group in ["victory_items_containers", "victory_item_spawners"] {
+        if let Some(items) = groups.named(group) {
+            ensure!(array(items)?.is_empty(), "deathmatch must not keep {group}");
+        }
+    }
+    let objects = array(
+        project
+            .named("client_objects")
+            .context("missing client objects")?,
+    )?;
+    ensure!(
+        !objects
+            .iter()
+            .any(|o| string(o, "game_object_type") == Some("victory_items_container")),
+        "deathmatch must not keep collectors"
+    );
+    let teams: BTreeSet<i32> = array(
+        groups
+            .named("respawn_points")
+            .context("deathmatch has no respawn points")?,
+    )?
+    .iter()
+    .filter_map(|p| match p.named("team") {
+        Some(ConfigValue::Integer(team)) => Some(*team),
+        _ => None,
+    })
+    .collect();
+    ensure!(
+        teams == BTreeSet::from([0, 1]),
+        "deathmatch respawns must cover teams 0 and 1"
+    );
+    Ok(())
+}
+
 /// All authored interaction-zone references must still resolve after upgrading.
 fn validate_gameplay(project: &ConfigValue) -> Result<()> {
     let objects = array(
@@ -821,6 +1120,138 @@ fn validate_gameplay(project: &ConfigValue) -> Result<()> {
         Ok(())
     }
     check(groups, &names)
+}
+
+/// Native walker-only box model the ladder ramps are cloned from: an
+/// invisible surface (empty material) and walker collision primitives.
+const RAMP_TEMPLATE: &str = "models/level/04/level_border.model";
+
+/// Write one walker-collision model holding every ramp of `map` as box
+/// primitives and instance it (walker mask only) in `project`.
+fn emit_walker_ramps(
+    map: &Map,
+    source: SourceBuild,
+    target: &mut ResourceDb,
+    project: &mut ConfigValue,
+    output: &Path,
+    files: &mut Vec<BuiltFile>,
+) -> Result<(usize, usize)> {
+    let model = map.ramp_model(source);
+    ensure!(
+        target.is_file(&format!("models/{PLANK_MODEL}.model/settings"))
+            || !(map.walker_ramps.iter().any(|r| r.planks) || map.walker_boxes.iter().any(|b| b.planks)),
+        "plank model {PLANK_MODEL} is missing from the target"
+    );
+    let mut planks: Vec<([f32; 3], [f32; 3], [f32; 3])> = Vec::new();
+    for path in [
+        "settings",
+        "render/export_properties",
+        "render/donotwalkhere_sg/export_properties",
+        "render/donotwalkhere_sg/converted_model",
+    ] {
+        let dest = format!("{model}/{path}");
+        ensure!(!target.contains(&dest), "ramp model overwrites native {dest}");
+        let bytes = target.read(&format!("{RAMP_TEMPLATE}/{path}"))?;
+        emit(output, &dest, &bytes, "0.26g-walker-box-template", files)?;
+    }
+    let mut primitives = cfg(target, &format!("{RAMP_TEMPLATE}/walker_collision/exported_primitives"))?;
+    let template = array(primitives.named("primitives").context("template primitives")?)?
+        .first()
+        .context("template has no primitive")?
+        .clone();
+    let mut boxes = Vec::new();
+    for (index, ramp) in map.walker_ramps.iter().enumerate() {
+        let (rotation, half, centre) = ramp_box(ramp)?;
+        let mut primitive = template.clone();
+        primitive.set_path("type", ConfigValue::Integer(1))?;
+        primitive.set_path("mtl", ConfigValue::Integer(0))?;
+        primitive.set_path("position", ConfigValue::Float3(centre))?;
+        primitive.set_path("rotation", ConfigValue::Float3(rotation))?;
+        primitive.set_path("scale", ConfigValue::Float3(half))?;
+        primitive.set_path(
+            "node_name",
+            ConfigValue::String(format!("|ladder_ramps|walker_col|{}_{index:02}", ramp.name)),
+        )?;
+        boxes.push(primitive);
+        if ramp.planks {
+            let r = primitive_rotation(rotation);
+            let length = (0..3).map(|i| (ramp.to[i] - ramp.from[i]).powi(2)).sum::<f32>().sqrt();
+            let lanes = ((ramp.width / PLANK_PITCH).round() as usize).max(2);
+            planks.extend(plank_strip(&ramp.name, ramp.from, r[0], r[1], length + 0.25, lanes));
+        }
+    }
+    for (index, block) in map.walker_boxes.iter().enumerate() {
+        ensure!(
+            block.centre.iter().chain(&block.half).all(|v| v.is_finite())
+                && block.half.iter().all(|v| *v > 0.0 && *v < 20.0)
+                && block.yaw.is_finite(),
+            "invalid walker box {}",
+            block.name
+        );
+        let mut primitive = template.clone();
+        primitive.set_path("type", ConfigValue::Integer(1))?;
+        primitive.set_path("mtl", ConfigValue::Integer(0))?;
+        primitive.set_path("position", ConfigValue::Float3(block.centre))?;
+        primitive.set_path("rotation", ConfigValue::Float3([0.0, block.yaw, 0.0]))?;
+        primitive.set_path("scale", ConfigValue::Float3(block.half))?;
+        primitive.set_path(
+            "node_name",
+            ConfigValue::String(format!("|ladder_ramps|walker_col|{}_{:02}", block.name, map.walker_ramps.len() + index)),
+        )?;
+        boxes.push(primitive);
+        if block.planks {
+            let r = primitive_rotation([0.0, block.yaw, 0.0]);
+            let top = [block.centre[0], block.centre[1] + block.half[1], block.centre[2]];
+            let start = std::array::from_fn(|i| top[i] - r[0][i] * (block.half[0] + 0.15));
+            let lanes = ((2.0 * block.half[2] / PLANK_PITCH).ceil() as usize).max(2);
+            planks.extend(plank_strip(&block.name, start, r[0], [0.0, 1.0, 0.0], 2.0 * block.half[0] + 0.3, lanes));
+        }
+    }
+    let count = boxes.len();
+    primitives.set_path("primitives", ConfigValue::Indexed(boxes))?;
+    emit(
+        output,
+        &format!("{model}/walker_collision/exported_primitives"),
+        &BinaryConfig { root: primitives }.to_bytes()?,
+        "srp-ladder-ramps",
+        files,
+    )?;
+    let ConfigValue::Indexed(collisions) = project
+        .named_mut("collision_objects")
+        .context("project has no collision_objects")?
+    else {
+        bail!("collision_objects is not indexed")
+    };
+    collisions.push(ConfigValue::Named(vec![
+        NamedValue { name: "rotation".into(), value: ConfigValue::Float3([0.0; 3]) },
+        NamedValue { name: "position".into(), value: ConfigValue::Float3([0.0; 3]) },
+        NamedValue { name: "cmask".into(), value: ConfigValue::Integer(4) },
+        NamedValue {
+            name: "lib_name".into(),
+            value: ConfigValue::String(format!("resources/{model}/walker_collision")),
+        },
+        NamedValue { name: "cgroup".into(), value: ConfigValue::Integer(2) },
+        NamedValue { name: "scale".into(), value: ConfigValue::Float3([1.0; 3]) },
+    ]));
+    if !planks.is_empty() {
+        let ConfigValue::Indexed(visuals) = project
+            .named_mut("render_visuals")
+            .context("project has no render_visuals")?
+        else {
+            bail!("render_visuals is not indexed")
+        };
+        let prototype = visuals.first().context("project has no render visual")?.clone();
+        for (position, rotation, scale) in &planks {
+            let mut visual = prototype.clone();
+            visual.set_path("position", ConfigValue::Float3(*position))?;
+            visual.set_path("rotation", ConfigValue::Float3(*rotation))?;
+            visual.set_path("scale", ConfigValue::Float3(*scale))?;
+            visual.set_path("lib_name", ConfigValue::String(PLANK_MODEL.into()))?;
+            visual.set_path("visual_name", ConfigValue::String(PLANK_MODEL.into()))?;
+            visuals.push(visual);
+        }
+    }
+    Ok((count, planks.len()))
 }
 
 /// Replace audited donor collision with the target build's re-authored
@@ -1563,6 +1994,26 @@ pub fn build(
             "unsupported weather"
         );
         ensure!(
+            matches!(map.mode_number(), 2 | 4),
+            "unsupported game mode {}",
+            map.mode_number()
+        );
+        ensure!(
+            (map.mode_number() == 4) == map.deathmatch.is_some(),
+            "map {}: team deathmatch (mode 4) and deathmatch respawns go together",
+            map.id
+        );
+        if let Some(project) = &map.donor_project {
+            ensure!(
+                m.source_build.early()
+                    && !project.is_empty()
+                    && project
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_'),
+                "donor project {project} must be one early project directory name"
+            );
+        }
+        ensure!(
             ids.insert(map.id) && projects.insert(map.donor_project(m.source_build)),
             "duplicate map ID or project"
         );
@@ -1846,6 +2297,31 @@ pub fn build(
             "primitive override names a collision the maps do not import: {dir}"
         );
     }
+    for map in &m.maps {
+        if map.walker_ramps.is_empty() && map.walker_boxes.is_empty() {
+            continue;
+        }
+        let donor_project = map.donor_project(m.source_build);
+        let mut project = BinaryConfig::parse(&overrides[&donor_project])?;
+        let added = emit_walker_ramps(map, m.source_build, &mut target, &mut project.root, output, &mut files)?;
+        compatibility_notes.push(format!(
+            "{donor_project}: {} walker-only primitives and {} plank props stand in for ladders (0.26g has no ladder gameplay): {}",
+            added.0,
+            added.1,
+            map.walker_ramps
+                .iter()
+                .map(|r| format!("ramp {}{} ({})", r.name, if r.planks { " with planks" } else { "" }, r.reason))
+                .chain(map.walker_boxes.iter().map(|b| format!(
+                    "box {}{} ({})",
+                    b.name,
+                    if b.planks { " with planks" } else { "" },
+                    b.reason
+                )))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+        overrides.insert(donor_project, project.to_bytes()?);
+    }
     let successor_dirs = emit_collision_successors(
         &m.collision_successors,
         &plan.donor_files,
@@ -2110,18 +2586,29 @@ pub fn build(
         }
     }
     for map in &m.maps {
-        let mode_name = format!("{}_{}", m.source_build.prefix(), map.mode());
+        let (mode_name, name) = match &map.donor_project {
+            // Several converted maps can share one native template mode.
+            Some(project) => (
+                format!("{}_{project}_{}", m.source_build.prefix(), map.mode()),
+                format!("{}_{project}_{}", m.source_build.prefix(), map.mode_number()),
+            ),
+            None => (
+                format!("{}_{}", m.source_build.prefix(), map.mode()),
+                format!("{}_{}_{}", m.source_build.prefix(), map.level, map.mode_number()),
+            ),
+        };
         let mut mode = cfg(&mut target, &format!("gameplay/game_modes/{}", map.mode()))?;
-        mode.set_path(
-            "mode.name",
-            ConfigValue::String(format!("{}_{}_2", m.source_build.prefix(), map.level)),
-        )?;
+        mode.set_path("mode.name", ConfigValue::String(name))?;
         mode.set_path(
             "mode.match_making_params.map_name",
             ConfigValue::String(map.project_name(m.source_build)),
         )?;
         let path = format!("gameplay/game_modes/{mode_name}");
         ensure!(!target.contains(&path), "mode already exists");
+        ensure!(
+            !files.iter().any(|f| f.path == path),
+            "two maps would write the same mode {path}"
+        );
         emit(
             output,
             &path,
@@ -2301,6 +2788,7 @@ mod tests {
             weather: "rain".into(),
             environment_look: Default::default(),
             native_ambient_fill: false,
+            ..Default::default()
         };
         let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
@@ -2914,6 +3402,7 @@ mod tests {
             weather: "day".into(),
             environment_look: Default::default(),
             native_ambient_fill: false,
+            ..Default::default()
         };
         let converted = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         let visual = &array(converted.named("render_visuals").unwrap()).unwrap()[0];
@@ -3088,4 +3577,168 @@ mod tests {
             assert_eq!(v, ConfigValue::String(after.into()));
         }
     }
+
+    fn dm_map() -> Map {
+        Map {
+            id: 197,
+            level: "level_03".into(),
+            weather: "day".into(),
+            mode: Some(4),
+            donor_project: Some("soc_mp_pool".into()),
+            deathmatch: Some(Deathmatch {
+                source: "test".into(),
+                respawns: vec![[1.0, 0.0, 2.0, 0.5], [3.0, 5.35, 4.0, -1.0]],
+                dropped: BTreeMap::new(),
+                adjusted: BTreeMap::new(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn deathmatch_map_uses_the_native_mode_four_project_and_options() {
+        let map = dm_map();
+        assert_eq!(map.donor_project(SourceBuild::V010b), "projects/soc_mp_pool/client_project");
+        assert_eq!(map.target_project(), "projects/level_03/day_4/client_project");
+        assert_eq!(map.mode(), "level_03_day_4.options");
+        assert_eq!(map.project_name(SourceBuild::V010b), "v010b_soc_mp_pool/day_4");
+        assert_eq!(map.output_project(SourceBuild::V010b), "projects/v010b_soc_mp_pool/day_4/client_project");
+        assert_eq!(map.variant(), "day_4");
+        assert_eq!(map.ramp_model(SourceBuild::V010b), "models/ported/v010b/srp/soc_mp_pool_ramps.model");
+        // The retail maps keep their established mode-2 names.
+        let factory = Map { id: 180, level: "level_03".into(), weather: "day".into(), ..Default::default() };
+        assert_eq!(factory.target_project(), "projects/level_03/day_2/client_project");
+        assert_eq!(factory.mode(), "level_03_day_2.options");
+        assert_eq!(factory.project_name(SourceBuild::V010b), "v010b_level_03/day_2");
+        let manifest: Manifest = serde_json::from_str(
+            r#"{"source_build": "0.10b", "donor_sha256": "a", "target_sha256": "b",
+                "maps": [{"id": 197, "level": "level_03", "weather": "day", "mode": 4,
+                          "donor_project": "soc_mp_pool", "height_ambient": true,
+                          "deathmatch": {"source": "s", "respawns": [[0, 0, 0, 0]]},
+                          "walker_ramps": [{"name": "r", "from": [0, 0, 0], "to": [4, 2, 0],
+                                            "width": 1, "reason": "ladder"}]}]}"#,
+        )
+        .unwrap();
+        assert!(manifest.maps[0].height_ambient && manifest.maps[0].walker_ramps.len() == 1);
+    }
+
+    #[test]
+    fn deathmatch_points_serve_both_teams_with_native_rules_and_no_zones() {
+        let template = named(vec![
+            ("position", ConfigValue::Float3([70.0, 1.0, 12.0])),
+            ("rotation", ConfigValue::Float3([3.1, 1.4, 3.1])),
+            ("team", ConfigValue::Integer(1)),
+            ("invulnerability_time", ConfigValue::Integer(6)),
+            ("enemy_check_radius", ConfigValue::Float(1.2)),
+            ("ally_zones", named(vec![])),
+            ("enemy_zones", named(vec![])),
+            ("name", ConfigValue::String("respawn_point(13)".into())),
+        ]);
+        let target = named(vec![(
+            "server_objects",
+            named(vec![("respawn_points", ConfigValue::Indexed(vec![template]))]),
+        )]);
+        let map = dm_map();
+        let mut notes = Vec::new();
+        let groups =
+            early::deathmatch_groups(map.deathmatch.as_ref().unwrap(), &target, "p", &mut notes).unwrap();
+        let ConfigValue::Named(fields) = &groups else { panic!() };
+        assert_eq!(fields.len(), 1, "only respawn points survive");
+        let points = array(groups.named("respawn_points").unwrap()).unwrap();
+        assert_eq!(points.len(), 4);
+        let teams: Vec<_> = points.iter().map(|p| p.named("team").cloned()).collect();
+        assert_eq!(
+            teams,
+            [0, 0, 1, 1].map(|t| Some(ConfigValue::Integer(t))).to_vec()
+        );
+        assert_eq!(points[1].named("position"), Some(&ConfigValue::Float3([3.0, 5.35, 4.0])));
+        assert_eq!(points[1].named("rotation"), Some(&ConfigValue::Float3([0.0, -1.0, 0.0])));
+        assert_eq!(points[3].named("invulnerability_time"), Some(&ConfigValue::Integer(6)));
+        assert!(points.iter().all(|p| p.named("ally_zones").is_none() && p.named("enemy_zones").is_none()));
+        // Mode 4 validation: both teams, and no battery objectives anywhere.
+        let project = named(vec![
+            ("client_objects", ConfigValue::Indexed(vec![])),
+            ("server_objects", groups.clone()),
+        ]);
+        validate_deathmatch(&project).unwrap();
+        let mut with_collector = project.clone();
+        with_collector
+            .set_path(
+                "server_objects.victory_items_containers",
+                ConfigValue::Indexed(vec![named(vec![])]),
+            )
+            .unwrap();
+        assert!(validate_deathmatch(&with_collector).is_err());
+    }
+
+    #[test]
+    fn ladder_ramp_slab_top_runs_through_both_landings() {
+        let check = |from: [f32; 3], to: [f32; 3]| {
+            let ramp = WalkerRamp { name: "r".into(), from, to, width: 1.0, reason: String::new(), planks: true };
+            let (rotation, half, centre) = ramp_box(&ramp).unwrap();
+            let r = primitive_rotation(rotation);
+            // Local x points from `from` to `to`; local y is the up-facing normal.
+            let d: [f32; 3] = std::array::from_fn(|i| to[i] - from[i]);
+            let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            for i in 0..3 {
+                assert!((r[0][i] - d[i] / len).abs() < 1e-5, "{from:?}->{to:?} axis {i}");
+            }
+            assert!(r[1][1] > 0.5 && r[2][1].abs() < 1e-5, "normal up, width level");
+            // Top face centre (centre + normal * half thickness) is the midpoint.
+            for i in 0..3 {
+                let top = centre[i] + r[1][i] * half[1];
+                assert!((top - (from[i] + to[i]) * 0.5).abs() < 1e-5);
+            }
+            assert!((half[0] - (len * 0.5 + RAMP_OVERLAP)).abs() < 1e-5 && half[2] == 0.5);
+        };
+        check([16.0, -2.93, -39.0], [11.97, 0.0, -39.0]);
+        check([18.2, 0.0, -31.75], [25.64, 5.35, -31.75]);
+        check([21.0, 16.4, 8.0], [21.0, 19.0, 3.5]);
+        check([0.0, 0.0, 0.0], [3.0, 1.5, 3.0]);
+        let steep = WalkerRamp { name: "s".into(), from: [0.0; 3], to: [1.0, 2.0, 0.0], width: 1.0, reason: String::new(), planks: false };
+        assert!(ramp_box(&steep).is_err());
+    }
+
+    #[test]
+    fn planks_lie_on_the_ramp_side_by_side_and_cover_its_length() {
+        let ramp = WalkerRamp {
+            name: "pool_exit".into(),
+            from: [16.0, -2.93, -39.0],
+            to: [11.97, 0.0, -39.0],
+            width: 1.0,
+            reason: String::new(),
+            planks: true,
+        };
+        let (rotation, _, _) = ramp_box(&ramp).unwrap();
+        let r = primitive_rotation(rotation);
+        let length = 4.99_f32;
+        let planks = plank_strip(&ramp.name, ramp.from, r[0], r[1], length + 0.25, 3);
+        assert_eq!(planks.len(), 3 * 3, "three lanes of three 2 m boards");
+        for (position, euler, scale) in &planks {
+            let p = primitive_rotation(*euler);
+            // Each board's long axis stays within 2 degrees of the ramp and its
+            // face normal is the ramp normal; it rests on (just above) the slab top.
+            let along: f32 = (0..3).map(|i| p[1][i] * r[0][i]).sum();
+            assert!(along > 0.999, "{along}");
+            let up: f32 = (0..3).map(|i| p[2][i] * r[1][i]).sum();
+            assert!(up > 0.9999);
+            let height: f32 = (0..3).map(|i| (position[i] - ramp.from[i]) * r[1][i]).sum();
+            assert!((0.0..0.06).contains(&height), "{height}");
+            assert_eq!(*scale, [1.0, 1.0, 1.0]);
+        }
+        // Lanes spread across the width, not on top of each other.
+        let lateral: Vec<f32> = planks
+            .iter()
+            .step_by(3)
+            .map(|(p, _, _)| (0..3).map(|i| (p[i] - ramp.from[i]) * r[2][i]).sum())
+            .collect();
+        assert!((lateral[2] - lateral[0]).abs() > 0.5);
+        // Deterministic.
+        assert_eq!(plank_strip(&ramp.name, ramp.from, r[0], r[1], length + 0.25, 3), planks);
+        // A short cover is one stretched board per lane.
+        let lid = plank_strip("lid", [0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 1.9, 7);
+        assert_eq!(lid.len(), 7);
+        assert!((lid[0].2[1] - 0.95).abs() < 1e-6);
+    }
 }
+

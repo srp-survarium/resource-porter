@@ -20,7 +20,7 @@ fn number(value: &ConfigValue) -> Result<f32> {
     }
 }
 
-fn transfer_probe(object: &mut ConfigValue, weather: &str, source: SourceBuild) -> Result<()> {
+fn transfer_probe(object: &mut ConfigValue, variant: &str, source: SourceBuild) -> Result<()> {
     let texture = string(object, "texture")
         .context("early probe texture")?
         .to_owned();
@@ -28,7 +28,7 @@ fn transfer_probe(object: &mut ConfigValue, weather: &str, source: SourceBuild) 
         "textures",
         ConfigValue::Named(vec![
             NamedValue {
-                name: format!("{weather}_2"),
+                name: variant.to_owned(),
                 value: ConfigValue::String(texture.clone()),
             },
             NamedValue {
@@ -151,7 +151,14 @@ pub(super) fn project(
     remove(&mut groups, "collision_objects");
     remove(&mut groups, "collision_geometry");
     remove(&mut old, "respawn_points");
-    let converted = convert_respawn_invulnerability(&mut groups)?;
+    // Before anything reads the source objectives: a deathmatch keeps none,
+    // and its points carry native (seconds) protection already.
+    let converted = if let Some(deathmatch) = &map.deathmatch {
+        groups = deathmatch_groups(deathmatch, target, &path, notes)?;
+        0
+    } else {
+        convert_respawn_invulnerability(&mut groups)?
+    };
     if converted > 0 {
         notes.push(format!(
             "{path}: converted {converted} authored respawn invulnerability times from milliseconds to native seconds"
@@ -196,6 +203,14 @@ pub(super) fn project(
                 .context("environment properties")?
                 .clone();
             transfer_environment(&mut properties, post, sun, notes, &path, map.environment_look)?;
+            if map.height_ambient {
+                // No probes: nothing for the encoded-probe decode to restore.
+                // Height ambient carries the source skylight colours set above.
+                properties.set_path("use_height_based_ambient", ConfigValue::Boolean(true))?;
+                notes.push(format!(
+                    "{path}: height-based ambient kept on (no environment probes); it carries the source skylight colour, power and band"
+                ));
+            }
             object.set_path("properties", properties)?;
             remove(&mut object, "post_effect");
         }
@@ -203,7 +218,7 @@ pub(super) fn project(
             continue;
         }
         if kind == "environment_probe" {
-            transfer_probe(&mut object, &map.weather, source)?;
+            transfer_probe(&mut object, &map.variant(), source)?;
             if global.contains(&index) {
                 // 0.26 has no skylight underlay (height ambient stays off), so
                 // this probe's diffuse stands in for the source skylight. Its
@@ -308,6 +323,58 @@ pub(super) fn project(
     old.set_path("server_objects", groups)?;
     old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
     Ok(old)
+}
+
+/// Server groups of a deathmatch: only respawn points, every source point
+/// registered once per team. Fields come from the native mode project's first
+/// respawn point (its 0.26 protection and spawn-check rules), never its place.
+pub(super) fn deathmatch_groups(
+    deathmatch: &Deathmatch,
+    target: &ConfigValue,
+    path: &str,
+    notes: &mut Vec<String>,
+) -> Result<ConfigValue> {
+    let template = target
+        .named("server_objects")
+        .and_then(|g| g.named("respawn_points"))
+        .map(array)
+        .transpose()?
+        .and_then(|points| points.first())
+        .context("native mode project has no respawn point template")?;
+    ensure!(!deathmatch.respawns.is_empty(), "deathmatch has no respawn points");
+    let mut points = Vec::new();
+    for team in 0..2 {
+        for (index, point) in deathmatch.respawns.iter().enumerate() {
+            ensure!(
+                point.iter().all(|v| v.is_finite()),
+                "non-finite deathmatch respawn {index}"
+            );
+            let mut object = template.clone();
+            let name = format!("respawn_point({index})");
+            object.set_path("position", ConfigValue::Float3([point[0], point[1], point[2]]))?;
+            object.set_path("rotation", ConfigValue::Float3([0.0, point[3], 0.0]))?;
+            object.set_path("team", ConfigValue::Integer(team))?;
+            object.set_path("point_id", ConfigValue::Integer(i32::try_from(index)?))?;
+            object.set_path("name", ConfigValue::String(name.clone()))?;
+            object.set_path(
+                "full_name",
+                ConfigValue::String(format!("logic/deathmatch/team{}/{name}", team + 1)),
+            )?;
+            for zones in ["ally_zones", "enemy_zones"] {
+                remove(&mut object, zones);
+            }
+            points.push(object);
+        }
+    }
+    notes.push(format!(
+        "{path}: deathmatch: {} source points ({}) registered for both teams; victory items, collectors and source gameplay zones omitted; protection and spawn checks follow the native mode template",
+        deathmatch.respawns.len(),
+        deathmatch.source
+    ));
+    Ok(ConfigValue::Named(vec![NamedValue {
+        name: "respawn_points".into(),
+        value: ConfigValue::Indexed(points),
+    }]))
 }
 
 /// Append the native project's ambient emitters whose sound the early scene
@@ -1386,6 +1453,7 @@ mod tests {
             weather: "day".into(),
             environment_look: Default::default(),
             native_ambient_fill: false,
+            ..Default::default()
         };
         let project = project(
             old,
@@ -1466,6 +1534,7 @@ mod tests {
             weather: "day".into(),
             environment_look: Default::default(),
             native_ambient_fill: false,
+            ..Default::default()
         };
         let project = project(
             old,
@@ -1678,7 +1747,7 @@ mod tests {
                 value: ConfigValue::Integer(0),
             },
         ]);
-        transfer_probe(&mut probe, "rain", SourceBuild::V010b).unwrap();
+        transfer_probe(&mut probe, "rain_2", SourceBuild::V010b).unwrap();
         let width = number(probe.named("probe_side_width").unwrap()).unwrap();
         // Observed 0.26 upload: outer = 0.98*radius, inner = radius-width-0.05.
         let outer = 294.;
@@ -1695,7 +1764,7 @@ mod tests {
         probe
             .set_path("probe_side_width", ConfigValue::Float(0.5))
             .unwrap();
-        transfer_probe(&mut probe, "day", SourceBuild::V011e).unwrap();
+        transfer_probe(&mut probe, "day_2", SourceBuild::V011e).unwrap();
         assert_eq!(
             probe.named("probe_side_width"),
             Some(&ConfigValue::Float(0.5))
@@ -1977,6 +2046,7 @@ mod tests {
             weather: "day".into(),
             environment_look: Default::default(),
             native_ambient_fill: false,
+            ..Default::default()
         };
         assert_eq!(
             chemical.output_project(SourceBuild::V011e),
@@ -1993,6 +2063,7 @@ mod tests {
             weather: "evening".into(),
             environment_look: Default::default(),
             native_ambient_fill: false,
+            ..Default::default()
         };
         assert_eq!(
             map.output_project(SourceBuild::V010b),
