@@ -27,6 +27,33 @@ from capture import capture  # noqa: E402
 XVFB = '/nix/store/vdpfrvny2hz0cd14yrsnk11xns9n35yp-xorg-server-21.1.24/bin/Xvfb'
 
 
+def virtual_desktop(package, runtime, env, size):
+    """Run the runtime prefix's windows in a Wine virtual desktop.
+
+    On a bare Xvfb the monitor mode has no refresh rate and DXVK's dxgi
+    divides by it at device creation; a virtual desktop reports one.
+    """
+    import tarfile
+    prefix = runtime/'wineprefix'
+    if not (prefix/'system.reg').exists():
+        runtime.mkdir(parents=True, exist_ok=True)
+        marker = runtime/'package.json'
+        if not marker.exists():
+            if any(runtime.iterdir()):
+                raise SystemExit('refusing to prepare an unowned runtime directory')
+            marker.write_text(json.dumps({'package': str(package.resolve())}, indent=2) + '\n')
+        with tarfile.open(package/'wineprefix.tar.gz') as archive:
+            archive.extractall(runtime, filter='fully_trusted')
+    catalog = json.loads((package/'maps.json').read_text())
+    wine = Path(catalog['wine'])
+    env = dict(env, WINEPREFIX=str(prefix), WINEDEBUG='-all')
+    for key, name, value in [(r'HKCU\Software\Wine\Explorer', 'Desktop', 'Default'),
+                             (r'HKCU\Software\Wine\Explorer\Desktops', 'Default', size)]:
+        subprocess.run([str(wine), 'reg', 'add', key, '/v', name, '/d', value, '/f'], env=env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([str(wine.parent/'wineserver'), '-w'], env=env, check=True)
+
+
 def status(path):
     try:
         return json.loads(path.read_text())
@@ -71,6 +98,7 @@ def main():
         time.sleep(2)
         if xvfb.poll() is not None:
             raise SystemExit('Xvfb failed to start')
+        virtual_desktop(a.package, a.runtime, env, '1280x720')
         subprocess.run(launcher + ['start', a.map, '--ui', 'off', '--quality', a.quality,
                                    '--frame-rate', str(a.frame_rate)] + common, env=env, check=True,
                        stdout=subprocess.DEVNULL)
@@ -83,7 +111,9 @@ def main():
             state = status(a.runtime/'state.json') or {}
             if state.get('status') == 'stopped':
                 raise SystemExit('package stopped before the map loaded: ' + str(state.get('error')))
-            if s and s.get('camera_calls', 0) > 200:
+            server_log = a.runtime/'server.log'
+            started = server_log.exists() and 'Verified checkpoint' in server_log.read_text(errors='replace')
+            if s and s.get('camera_calls', 0) > 0 and started:
                 loaded = loaded or time.monotonic()
                 if time.monotonic() - loaded > 20:
                     break
