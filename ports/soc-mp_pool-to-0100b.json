@@ -27,6 +27,7 @@
     "retained_object_types": ["sky", "environment", "volume_fog", "light"]
   },
   "surfaces_per_model": 200,
+  "max_surface_vertices": 35000,
   "disable_foliage_wind": true,
   "spawn_position": [25.44, 0.5, -31.18],
   "material_templates": {

@@ -32,6 +32,7 @@
     ]
   },
   "surfaces_per_model": 200,
+  "max_surface_vertices": 35000,
   "disable_foliage_wind": true,
   "spawn_position": [
     -60.741,

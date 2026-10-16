@@ -883,6 +883,12 @@ fn half(value: f32) -> Result<u16> {
     Ok(sign | (((exponent + 15) as u16) << 10) | mantissa)
 }
 
+/// Largest static surface 0.26 loads. Its static surface loader copies the
+/// vertices through a 20-byte-per-vertex `_alloca` (0x16ebd8..0x16ebe4) on a
+/// 1 MiB thread stack; native surfaces stop at 35,003 vertices. A 65,238-vertex
+/// part (Clear Sky mp_rembasa) is a STACK_OVERFLOW while the map loads.
+pub(super) const MAX_STATIC_SURFACE_VERTICES: usize = 35_003;
+
 pub(super) fn geometry(bytes: &[u8], rebase_wrapped_uv: bool) -> Result<Vec<u8>> {
     ensure!(
         matches!(
@@ -899,6 +905,10 @@ pub(super) fn geometry(bytes: &[u8], rebase_wrapped_uv: bool) -> Result<Vec<u8>>
         .find(|&offset| bytes.get(offset..offset + 8) == Some(&[255, 0, 0, 0, 17, 0, 0, 0]))
         .context("declaration terminator")?;
     let count = u32_at(declaration + 8);
+    ensure!(
+        count <= MAX_STATIC_SURFACE_VERTICES,
+        "static surface has {count} vertices; 0.26 overflows its loader stack above {MAX_STATIC_SURFACE_VERTICES} (split the source surface)"
+    );
     let start = declaration + 12;
     let stride = (end - start) / count;
     ensure!(matches!(stride, 32 | 36), "unsupported early static stride");

@@ -238,11 +238,25 @@ struct ResolvedVisual {
     is_tree: bool,
 }
 
-/// Weld every static visual into per-shader surfaces.
+/// Weld every static visual into per-shader surfaces of at most one `u16`
+/// index space.
 pub fn merge_visuals(
     visuals: &[Visual],
     buffers: &GeometryBuffers,
 ) -> Result<(Vec<MergedSurface>, MergeReport)> {
+    merge_visuals_limited(visuals, buffers, MAX_SURFACE_VERTICES)
+}
+
+/// Weld every static visual into per-shader surfaces of at most
+/// `max_vertices` vertices (at most one `u16` index space).
+pub fn merge_visuals_limited(
+    visuals: &[Visual],
+    buffers: &GeometryBuffers,
+    max_vertices: usize,
+) -> Result<(Vec<MergedSurface>, MergeReport)> {
+    if max_vertices == 0 || max_vertices > MAX_SURFACE_VERTICES {
+        bail!("a surface may hold 1..={MAX_SURFACE_VERTICES} vertices, not {max_vertices}");
+    }
     let mut report = MergeReport {
         visuals: visuals.len(),
         ..MergeReport::default()
@@ -279,16 +293,16 @@ pub fn merge_visuals(
         let mut part = 0;
         let mut current: Option<MergedSurface> = None;
         for resolved in group {
-            if resolved.vertices.len() > MAX_SURFACE_VERTICES {
+            if resolved.vertices.len() > max_vertices {
                 bail!(
-                    "a single visual for shader {shader_id} has {} vertices, which exceeds one \
-                     u16 index space",
+                    "a single visual for shader {shader_id} has {} vertices, which exceeds the \
+                     {max_vertices}-vertex surface limit",
                     resolved.vertices.len()
                 );
             }
             let needs_new_part = match &current {
                 Some(surface) => {
-                    surface.vertices.len() + resolved.vertices.len() > MAX_SURFACE_VERTICES
+                    surface.vertices.len() + resolved.vertices.len() > max_vertices
                 }
                 None => true,
             };
@@ -586,6 +600,26 @@ mod tests {
         assert_eq!(surfaces[0].indices, vec![0, 1, 2, 3, 4, 5]);
         assert_eq!(report.rendered_visuals, 2);
         assert_eq!(report.triangles, 2);
+    }
+
+    #[test]
+    fn starts_a_new_part_at_the_vertex_limit() {
+        let buffers = buffers(9, vec![0, 1, 2]);
+        let visuals = vec![
+            visual(VisualKind::Normal, 4, 0, 3),
+            visual(VisualKind::Normal, 4, 3, 3),
+            visual(VisualKind::Normal, 4, 6, 3),
+        ];
+        let (surfaces, _) = merge_visuals_limited(&visuals, &buffers, 6).unwrap();
+        let parts: Vec<(String, usize)> =
+            surfaces.iter().map(|s| (s.name(), s.vertices.len())).collect();
+        assert_eq!(
+            parts,
+            vec![("shader_0004_part_000".into(), 6), ("shader_0004_part_001".into(), 3)]
+        );
+        assert_eq!(surfaces[1].indices, vec![0, 1, 2]);
+        assert!(merge_visuals_limited(&visuals, &buffers, 2).is_err());
+        assert!(merge_visuals_limited(&visuals, &buffers, MAX_SURFACE_VERTICES + 1).is_err());
     }
 
     #[test]

@@ -296,6 +296,15 @@ pub struct SocMapManifest {
     /// never checks.
     #[serde(default = "default_max_collision_triangles")]
     pub max_collision_triangles: usize,
+    /// Largest render surface (vertex count) a shader part may have.
+    ///
+    /// The default is one `u16` index space. A map that continues into 0.26
+    /// sets 35,000, the native exporter's bound: 0.26 copies each static
+    /// surface's vertices through a 20-byte-per-vertex stack buffer while
+    /// loading it (`_alloca` at 0x16ebe4 under a 1 MiB thread stack), and a
+    /// 65,238-vertex part (mp_rembasa) overflows it on load.
+    #[serde(default = "default_max_surface_vertices")]
+    pub max_surface_vertices: usize,
     /// Accept source mip chains that continue past the last complete 4x4 block.
     /// v0.100b can substitute its visible `missing texture` fallback for those,
     /// so this must be a deliberate, recorded decision.
@@ -371,6 +380,10 @@ fn default_post_process_material() -> String {
 
 fn default_max_collision_triangles() -> usize {
     super::convert::collision::MAX_TRIANGLES_PER_MODEL
+}
+
+fn default_max_surface_vertices() -> usize {
+    super::convert::surface::MAX_SURFACE_VERTICES
 }
 
 fn default_face_dictionary() -> FaceDictionary {
@@ -577,6 +590,7 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         emit_collision: true,
         collision_face_dictionary: default_face_dictionary(),
         max_collision_triangles: default_max_collision_triangles(),
+        max_surface_vertices: default_max_surface_vertices(),
         texture_aliases: BTreeMap::new(),
         normal_texture_overrides: BTreeMap::new(),
         material_aliases: BTreeMap::new(),

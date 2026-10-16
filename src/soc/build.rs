@@ -114,7 +114,8 @@ pub fn build_bundle(
     } = decoded;
 
     // --- convert ----------------------------------------------------------
-    let (surfaces, merge_report) = surface::merge_visuals(&visuals, &buffers)?;
+    let (surfaces, merge_report) =
+        surface::merge_visuals_limited(&visuals, &buffers, manifest.max_surface_vertices)?;
     if surfaces.is_empty() {
         bail!("the level produced no convertible render surfaces");
     }
