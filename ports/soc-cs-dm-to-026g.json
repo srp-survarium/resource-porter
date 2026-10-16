@@ -1,6 +1,6 @@
 {
   "source_build": "0.10b",
-  "donor_sha256": "49efe743fb4688bbbda6dacad8fa79146f6e0fa277688d047ef0baad06772bb4",
+  "donor_sha256": "1dcae4904c59a903a1bf22e747b5b1112bf820f3602d336a2608db9461e545d8",
   "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
   "maps": [
     {
@@ -10,6 +10,7 @@
       "mode": 4,
       "donor_project": "soc_mp_pool",
       "height_ambient": true,
+      "skylight_probe": {},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: SoC testers_mp_pool level.game: every actor rpoint (35, all team 0 = deathmatch)",
         "respawns": [
@@ -394,6 +395,7 @@
       "mode": 4,
       "donor_project": "cs_training_camp",
       "height_ambient": true,
+      "skylight_probe": {},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_training_camp level.game: the 14 team-0 actor rpoints with the deathmatch bit (0x2); team bases (0x4) left out",
         "respawns": [
@@ -511,6 +513,7 @@
       "mode": 4,
       "donor_project": "cs_mp_rembasa",
       "height_ambient": true,
+      "skylight_probe": {},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_rembasa level.game: the 19 team-0 actor rpoints with the deathmatch bit (0x2)",
         "respawns": [
@@ -668,6 +671,7 @@
       "mode": 4,
       "donor_project": "cs_mp_sport_center",
       "height_ambient": true,
+      "skylight_probe": {},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_sport_center level.game: the 32 team-0 actor rpoints with the deathmatch bit (0x2)",
         "respawns": [
@@ -926,6 +930,7 @@
       "mode": 4,
       "donor_project": "cs_mp_firestation",
       "height_ambient": true,
+      "skylight_probe": {},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_firestation level.game: the 47 team-0 actor rpoints with the deathmatch bit (0x2), 4 dropped in ladder-only pockets",
         "respawns": [

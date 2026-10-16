@@ -13,6 +13,8 @@ use std::{
 };
 
 mod early;
+mod skylight;
+pub use skylight::SkylightProbe;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
@@ -193,6 +195,11 @@ pub struct Map {
     /// skylight is what height-based ambient replaced.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub height_ambient: bool,
+    /// Add a map-wide environment probe holding the source 0.10b skylight
+    /// (see `skylight`). For converted maps without probes, whose 0.26
+    /// ambient is otherwise zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skylight_probe: Option<SkylightProbe>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -2320,6 +2327,28 @@ pub fn build(
                 .collect::<Vec<_>>()
                 .join("; ")
         ));
+        overrides.insert(donor_project, project.to_bytes()?);
+    }
+    for map in &m.maps {
+        let Some(settings) = &map.skylight_probe else {
+            continue;
+        };
+        ensure!(m.source_build.early(), "a skylight probe ports a 0.10b skylight");
+        let donor_project = map.donor_project(m.source_build);
+        let mut project = BinaryConfig::parse(&overrides[&donor_project])?;
+        let note = skylight::emit(
+            map,
+            settings,
+            m.source_build,
+            &mut donor,
+            &mut target,
+            &target_projects[&map.target_project()],
+            &mut project.root,
+            output,
+            &mut files,
+        )
+        .with_context(|| format!("adding the skylight probe of {donor_project}"))?;
+        compatibility_notes.push(note);
         overrides.insert(donor_project, project.to_bytes()?);
     }
     let successor_dirs = emit_collision_successors(
