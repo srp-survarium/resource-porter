@@ -10,6 +10,66 @@ use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
 use std::{collections::BTreeMap, fs, path::Path};
 
+/// The surfaces of every stock helmet that can be worn together with a mask:
+/// those whose item does not also take the mask slot.
+pub(crate) fn helmets_worn_over_masks(
+    target: &mut ResourceDb,
+    bind_pose: &[u8],
+) -> Result<Vec<crate::mask_fit::Shell>> {
+    let prefix = "gameplay/items/armour/helmet/";
+    let configs: Vec<String> = target
+        .paths_with_prefix(prefix)
+        .filter(|p| p.ends_with(".options"))
+        .map(str::to_owned)
+        .collect();
+    let mut shells = vec![];
+    for path in configs {
+        let config = parse_config(target, &path, "helmet")?;
+        let data = config.root.named("data").context("helmet without data")?;
+        let takes_mask = matches!(
+            data.named("additional_model_slots"),
+            Some(V::Indexed(slots)) if slots.iter().any(|s| matches!(s, V::String(s) if s == "mask"))
+        );
+        if takes_mask {
+            continue;
+        }
+        let mut parts = vec![data];
+        if let Some(V::Indexed(extra)) = data.named("additional_models") {
+            parts.extend(extra);
+        }
+        for part in parts {
+            let (Some(V::String(model)), Some(V::String(surface))) =
+                (part.named("base_model"), part.named("part_name"))
+            else {
+                bail!("{path}: model part without base_model/part_name");
+            };
+            let root = format!("models/{model}.skinned_model/render");
+            // Helmets bind fewer bones than the head; the ones they share
+            // must sit where the head's do, so both meshes share one space.
+            let own = crate::mask_fit::bone_origins(&target.read(&format!("{root}/bind_pose"))?)?;
+            let head = crate::mask_fit::bone_origins(bind_pose)?;
+            for (bone, at) in &own {
+                if let Some(native) = head.get(bone) {
+                    let d = crate::mask_fit::sub(*at, *native);
+                    ensure!(
+                        crate::mask_fit::dot(d, d).sqrt() < 1e-4,
+                        "{path}: {model} binds {bone} elsewhere than the native head"
+                    );
+                }
+            }
+            ensure!(own.contains_key("Head"), "{path}: {model} has no Head bone");
+            let label = format!(
+                "{} {surface}",
+                path.trim_start_matches(prefix).trim_end_matches(".options")
+            );
+            let bytes = target.read(&format!("{root}/{surface}/converted_model"))?;
+            shells.push(crate::mask_fit::Shell::parse(label, &bytes)?);
+        }
+    }
+    ensure!(!shells.is_empty(), "no stock helmet is worn over a mask");
+    Ok(shells)
+}
+
 pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     let mut manifest: ArmorPortManifest =
         serde_json::from_str(include_str!("../ports/bandit-stk2-to-026g.json"))?;
@@ -38,21 +98,54 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     );
     let mask_path = "models/ported/bandit_026/mask.skinned_model/render/mask/converted_model";
     let mut mask = fs::read(overlay.join(mask_path))?;
-    let fit = crate::mask_fit::fit_to_native_head(
+    // Stock masks have no per-helmet variant or hide flag; a helmet that
+    // cannot be worn over a mask takes the mask slot itself
+    // (`additional_model_slots`). Every other helmet must cover the cloth.
+    let shells = helmets_worn_over_masks(&mut target, &bind_pose)?;
+    let fit = crate::mask_fit::fit_to_native_head_under(
         &mut mask,
         &target.read(&format!(
             "{head_root}/black_market_01_head_s/converted_model"
         ))?,
         &bind_pose,
+        &shells,
     )?;
     out.raw(mask_path, &mask, files)?;
+    // The fit refines the cloth over the skull; the surface's properties
+    // carry its counts.
+    let props_path = mask_path.replace("/converted_model", "/export_properties");
+    let mut props = crate::BinaryConfig::parse(&fs::read(overlay.join(&props_path))?)?;
+    let vertices = crate::mask_fit::read_u32(&mask, 8)?;
+    let indices = crate::mask_fit::read_u32(&mask, 12 + vertices * 48 + 8)?;
+    for (key, value) in [
+        ("source.vertices", vertices),
+        ("source.indices", indices),
+        ("source.primitives", indices / 3),
+    ] {
+        props
+            .root
+            .set_path(key, V::Integer(i32::try_from(value)?))?;
+    }
+    out.config(&props_path, &props, files)?;
     println!(
-        "Fitted balaclava: moved {:?} m, tucked {} vertices onto the neck, pushed {} up to {:.1} mm",
+        "Fitted balaclava: moved {:?} m, tucked {} vertices onto the neck, pushed {} up to {:.1} mm, pulled {} under helmets up to {:.1} mm",
         fit.offset,
         fit.tucked_vertices,
         fit.pushed_vertices,
-        fit.max_push * 1000.0
+        fit.max_push * 1000.0,
+        fit.pulled_vertices,
+        fit.max_pull * 1000.0
     );
+    for s in &fit.shells {
+        println!(
+            "  {}: {} vertices outside (deepest {:.1} mm) -> {} ({:.1} mm)",
+            s.label,
+            s.outside_before,
+            s.depth_before * 1000.0,
+            s.outside_after,
+            s.depth_after * 1000.0
+        );
+    }
     out.refit_bounds(manifest.model.target_models.iter(), files)?;
     // The donor's own face skin is not ported: the balaclava sits on the
     // native head like the stock masks.
