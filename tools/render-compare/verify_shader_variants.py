@@ -16,6 +16,10 @@ and materials present only in the candidate (not provable this way).
 --evidence PORT_MANIFEST accepts that manifest's runtime_proven_switches
 (changes within the observed switches, same shader catalogue); they are
 listed as runtime_proven instead of missing.
+--templates PORT_MANIFEST proves materials the baseline lacks (a newly
+imported map) against the native template each was converted onto: the
+manifest's converted_materials names it, and the template ships in the
+baseline, which loads.
 Exit status is 1 when anything is missing or unprovable.
 """
 import hashlib
@@ -60,6 +64,13 @@ def shadow(material):
     return bool(value.get('value')) if isinstance(value, dict) else None
 
 
+def template_paths(manifest):
+    """Imported material path -> the native template it was converted onto."""
+    build = 'v'+manifest['donor_build'].split('-')[0].replace('.', '')
+    return {material.replace('material_instances/', f'material_instances/ported/{build}/', 1): template
+            for material, template in manifest.get('converted_materials', {}).items()}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--porter', type=Path, required=True)
@@ -67,7 +78,11 @@ def main():
     parser.add_argument('candidate', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--evidence', type=Path, action='append', default=[])
+    parser.add_argument('--templates', type=Path, action='append', default=[])
     args = parser.parse_args()
+    templates = {}
+    for manifest in args.templates:
+        templates.update(template_paths(json.loads(manifest.read_text())))
     listing = lambda db: subprocess.check_output([str(args.porter), 'list', '--db', str(db)], text=True,
                                                   stderr=subprocess.DEVNULL).split()
     candidate_paths = listing(args.candidate)
@@ -91,7 +106,7 @@ def main():
             families.setdefault(parts[2], set()).add(parts[3])
     report = {'baseline': str(args.baseline), 'candidate': str(args.candidate),
               'checked_materials': 0, 'missing': {}, 'new_shadow_casters': [], 'unprovable_new_materials': [],
-              'runtime_proven': {}, 'shader_catalog_sha256': catalog,
+              'runtime_proven': {}, 'shader_catalog_sha256': catalog, 'proven_against_template': 0,
               'stage_switch_evidence': report_stage_evidence}
     with tempfile.TemporaryDirectory() as scratch:
         def read(db, path):
@@ -104,10 +119,15 @@ def main():
                 continue
             new_bytes = read(args.candidate, path)
             if path not in baseline_paths:
-                if '/ported/' in path:
-                    report['unprovable_new_materials'].append(path)
-                continue
-            old_bytes = read(args.baseline, path)
+                template = templates.get(path)
+                if template is None or template not in baseline_paths:
+                    if '/ported/' in path:
+                        report['unprovable_new_materials'].append(path)
+                    continue
+                report['proven_against_template'] += 1
+                old_bytes = read(args.baseline, template)
+            else:
+                old_bytes = read(args.baseline, path)
             if old_bytes == new_bytes:
                 continue
             old, new = config(old_bytes), config(new_bytes)
