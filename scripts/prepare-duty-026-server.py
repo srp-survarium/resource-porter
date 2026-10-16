@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Stage an isolated SRP direct-match server that equips the complete Duty exoskeleton.
+"""Stage an isolated SRP direct-match server that equips the Duty set (body and helmet).
 
 The upstream checkout is read only. Build the staged workspace with Cargo;
 SRP_026_DUTY=1 enables the equipment for this local test server only.
@@ -17,7 +17,7 @@ PATCH = '''
         if std::env::var("SRP_026_DUTY").as_deref() == Ok("1") {
             for player in &mut roster {
                 for slot in 0..7 { player.profiles[0].slots[slot] = None; }
-                for (slot, dictionary_id) in [(3usize, 1805u16)] {
+                for (slot, dictionary_id) in [(2usize, 1805u16), (0usize, 1800u16)] {
                     let inventory_index = u16::try_from(player.inventory.len())?;
                     player.inventory.push(InventoryItem {
                         id: u32::from(inventory_index) + 1,
@@ -60,7 +60,7 @@ def main():
     (out / 'duty-staging.json').write_text(json.dumps({
         'srp_source': str(root),
         'server_source_sha256': hashlib.sha256(original.encode()).hexdigest(),
-        'equipment': {'3': 1805},
+        'equipment': {'2': 1805, '0': 1800},
         'enable': 'SRP_026_DUTY=1',
     }, indent=2) + '\n')
     print(out / 'Cargo.toml')
