@@ -1084,3 +1084,65 @@ fn an_icon_redraws_only_the_cell_it_names() {
     );
     assert!(error_text(fixture.check(&[empty])).contains("empty cell"));
 }
+
+/// A bundle that draws into the weapon atlas becomes an `atlas_icons_add` of
+/// that atlas; the equipment atlas is left alone.
+#[test]
+fn from_bundle_finds_the_weapon_icon_atlas() {
+    let temp = TempDir::new().unwrap();
+    let tree = temp.path().join("base-tree");
+    write(&tree, DICTIONARY, &dictionary(json!([item_entry(3, ITEM)]), json!([])));
+    write(&tree, &localization_path("english"), &localization(json!({"st_stock": "Stock"})));
+    let weapons = "LobbyMenu_WeaponIcons";
+    let base_swf = atlas::tests::synthetic_swf_with(&[(atlas::DEFAULT_SYMBOL, 342, 182), (weapons, 513, 728)]);
+    write(&tree, atlas::DEFAULT_SWF, &base_swf);
+    let base = temp.path().join("base.db");
+    crate::archive::write_folder(&tree, &base).unwrap();
+
+    let bundle = temp.path().join("bundle");
+    let mut swf = atlas::Swf::parse(&base_swf).unwrap();
+    let mut bitmap = swf.bitmap(weapons).unwrap();
+    bitmap.put_cell(7, 3, &icon(77)).unwrap();
+    swf.set_bitmap(weapons, &bitmap).unwrap();
+    let bytes = swf.to_bytes().unwrap();
+    write(&bundle.join("overlay"), atlas::DEFAULT_SWF, &bytes);
+    write(
+        &bundle,
+        "port-manifest.json",
+        &serde_json::to_vec(&json!({"asset_id": "rifles", "files": [
+            {"path": atlas::DEFAULT_SWF, "sha256": sha256_hex(&bytes), "size": bytes.len(), "source": "test"}
+        ]}))
+        .unwrap(),
+    );
+    let output = temp.path().join("pack");
+    let manifest = from_bundle(&FromBundleOptions {
+        base_db: &base,
+        base_patches: &[],
+        build_base_db: None,
+        bundle: &bundle,
+        output: &output,
+        id: "rifles",
+        version: "1",
+    })
+    .unwrap();
+    let operations = serde_json::to_value(&manifest.operations).unwrap();
+    assert_eq!(operations.as_array().unwrap().len(), 1, "{operations}");
+    assert_eq!(operations[0]["op"], "atlas_icons_add");
+    assert_eq!(operations[0]["symbol"], weapons);
+    assert_eq!(operations[0]["icons"][0]["row"], 7);
+    assert_eq!(operations[0]["icons"][0]["col"], 3);
+
+    let installed = temp.path().join("out.db");
+    compose(&ComposeOptions {
+        base_db: &base,
+        packs: &[output],
+        work_dir: &temp.path().join("work"),
+        output_db: &installed,
+        server_export: None,
+        force: false,
+    })
+    .unwrap();
+    let movie = atlas::Swf::parse(&ResourceDb::open(&installed).unwrap().read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    assert_eq!(movie.bitmap(weapons).unwrap().cell(7, 3).unwrap(), icon(77));
+    assert!(movie.same_except_bitmap(&atlas::Swf::parse(&base_swf).unwrap(), weapons).unwrap());
+}
