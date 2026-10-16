@@ -17,6 +17,15 @@ use flate2::write::ZlibEncoder;
 
 pub const DEFAULT_SWF: &str = "flash_movies/lobby_menu.swf";
 pub const DEFAULT_SYMBOL: &str = "LobbyMenu_EquipmentIcons";
+/// The lobby's item icon atlases (`lobby_menu.swf`), one per item kind; an
+/// item's `ui_desc.icon` is a cell of its kind's.
+pub const ICON_SYMBOLS: [&str; 5] = [
+    DEFAULT_SYMBOL,
+    "LobbyMenu_WeaponIcons",
+    "LobbyMenu_AmmoIcons",
+    "LobbyMenu_BundleIcons",
+    "LobbyMenu_VoucherIcons",
+];
 pub const CELL_WIDTH: usize = 171;
 pub const CELL_HEIGHT: usize = 83;
 pub const ROW_PITCH: usize = 91;

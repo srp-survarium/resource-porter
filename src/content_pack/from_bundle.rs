@@ -584,12 +584,31 @@ impl Builder {
         output: &Path,
     ) -> Result<()> {
         let files_dir = output.join("files");
-        let symbol = atlas::DEFAULT_SYMBOL;
         let (Ok(base_swf), Ok(target_swf)) = (atlas::Swf::parse(base), atlas::Swf::parse(bytes))
         else {
             self.notes
                 .push(format!("{path}: not a parseable SWF; replaced whole"));
             return self.replace_file(&files_dir, path, base, bytes);
+        };
+        // The one icon bitmap the bundle draws into: equipment by default,
+        // or weapons, ammo, ... (the lobby keeps one atlas per item kind).
+        let changed: Vec<&str> = atlas::ICON_SYMBOLS
+            .iter()
+            .copied()
+            .filter(|symbol| match (base_swf.bitmap(symbol), target_swf.bitmap(symbol)) {
+                (Ok(a), Ok(b)) => a != b,
+                _ => false,
+            })
+            .collect();
+        let symbol = match changed.as_slice() {
+            [] => atlas::DEFAULT_SYMBOL,
+            [one] => one,
+            _ => {
+                self.notes.push(format!(
+                    "{path}: bundle draws into several icon atlases {changed:?}; replaced whole"
+                ));
+                return self.replace_file(&files_dir, path, base, bytes);
+            }
         };
         let previous_swf = previous.and_then(|bytes| atlas::Swf::parse(bytes).ok());
         let same =
@@ -665,7 +684,7 @@ impl Builder {
         if !icons.is_empty() {
             self.edits.push(Operation::AtlasIconsAdd {
                 swf: None,
-                symbol: None,
+                symbol: (symbol != atlas::DEFAULT_SYMBOL).then(|| symbol.to_owned()),
                 icons,
             });
         }
