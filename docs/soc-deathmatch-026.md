@@ -358,20 +358,29 @@ off-by-one header of any early DXT texture and refuses any other mismatch.
 
 ## Checks
 
+On the final database:
+
 - `verify_shader_variants.py --templates`: 751 materials proven against
   their native templates, 0 missing shader variants, 0 new shadow casters,
   0 unprovable.
 - `verify_material_textures.py`: 751 materials, 0 sampled or inert missing
   textures.
-- Spawn audit (`tools/day-map-objectives/audit_respawns.py`): support,
-  standing capsule and facing for every point of every map. After the
-  adjustments recorded in the spec, 0 points are flagged (35, 14, 19, 32
-  and 43 points). The audit's "closer to the other team centroid" note is
-  expected: both teams share every point.
+- `verify_finite_bundle.py`: 0 defects on every map.
+- `verify_probe_textures.py`: every scene has its probes (10–13), and every
+  cube and `_diffuse` resolves.
+- Spawn audit (`tools/day-map-objectives/audit_respawns.py`, on the
+  gameplay-objects branch): support, standing capsule and facing for every
+  point of every map, 0 problems (70, 28, 38, 64 and 86 registrations). The
+  audit's "closer to the other team centroid" note is expected: both teams
+  share every point.
+- `vostok-port verify` and `play-maps verify` pass.
+- Static, input-free captures of all five maps load and render; rembasa no
+  longer crashes. A player-camera capture with the HUD shows the sports
+  center's own minimap with the marker on the map.
 - Reachability (X-Ray cform, 0.25 m grid, 0.45 m step) with the ramps:
   the pool's deck, basin and balcony form one area of 1,545 m², and the
   sports center's ground, basin and upper level one area of 6,474 m².
-- 321 porter tests and 11 script tests.
+- 324 porter tests and 11 script tests.
 
 ## Non-finite values
 
@@ -447,8 +456,14 @@ it is a baseline and not this defect.
   walk test, the 39.4° sports-center ramp most of all.
 - The respawn yaw is copied from X-Ray `level.game`. Whether players face
   the authored direction is not verified.
-- The loading screens are placeholders until in-game captures replace
-  `assets/soc-dm-loading/` (see [Minimaps and names](#minimaps-and-names)).
+- The loading screens are in-game shots (`assets/soc-dm-loading/`,
+  poses in `shots.json`); they await the user's approval. A loading screen
+  was not captured in game: the Flash overlay is not visible to the
+  capture hook.
+- Broken window glass on mp_pool shows row-striped alpha at a distance,
+  like the parked "stripes on low mips" item of the day maps.
+- The NaN reported while firing is attributed to the missing probe (as on
+  native Cologne); firing needs input and was not reproduced.
 - Team deathmatch has 100 tickets and runs 15 minutes. Both teams spawn at
   every point (the source's deathmatch points), and protection is 0.26's
   6 s.
@@ -467,6 +482,7 @@ it is a baseline and not this defect.
 ```sh
 TARGET010=/path/to/retail-0100b/resources.db TARGET026=/path/to/retail-026g/resources.db \
 OUT=/tmp/soc-dm VP=target/release/vostok-port FFDEC=/path/to/ffdec PYTHON=python3-with-numpy-pillow-scipy \
+JAVA=/path/to/java JAVAC=/path/to/javac \
   nix develop -c bash scripts/build-soc-dm-026.sh
 python3 tools/playable-map-pack/build_day_presets.py ... \
   --maps pool-soc-dm,training-camp-cs-dm,rembasa-cs-dm,sport-center-cs-dm,firestation-cs-dm --output PRESETS
@@ -478,4 +494,6 @@ PACKAGE/play-maps stop
 
 `--quality low|medium|high` applies a whole graphics preset over the
 recipe's `user.cfg`, and `--frame-rate 0` lifts the 60 fps cap.
-`capture_dm_gallery.py` takes the static gallery on its own Xvfb display.
+`capture_dm_gallery.py` takes the static gallery on its own Xvfb display
+(`--window 1920x1080 --set r_motion_blur_quality=0` for loading-screen
+shots, `--ui on` with a `"mode": 3` pose for the HUD).
