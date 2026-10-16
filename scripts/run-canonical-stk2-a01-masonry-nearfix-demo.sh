@@ -34,7 +34,6 @@ base_sha256="5cfecbd2f850ddefc2fe1f01ba42ecf63c512fb9f562e25b2a6a9a7b40384e3f"
 retail_db="${repo_dir}/.work/resources-v0100b-original.db"
 retail_sha256="160dc7180b3e89279570d087442c3ad867aa5fe25bb2bf7789a8f7aaea628409"
 bundle="${repo_dir}/.work/canonical-stk2-a01-v2-masonry-nearfix-v3"
-apply_dir="${repo_dir}/.work/apply-canonical-stk2-a01-v2-masonry-nearfix-v3"
 output_db="${repo_dir}/.work/resources-v0100b-canonical-stk2-a01-v2-masonry-nearfix-v3.db"
 
 brick_material="material_instances/ported/stk2/stk2_a01_full/source_materials/architecture/mine/brick_red.material"
@@ -70,7 +69,7 @@ if [[ "${actual_retail_sha256}" != "${retail_sha256}" ]]; then
 fi
 
 if [[ "${reuse}" == false ]]; then
-  rm -rf -- "${bundle}" "${apply_dir}"
+  rm -rf -- "${bundle}"
   "${porter_bin}" build-material-patch \
     --source-db "${base_db}" \
     --target-db "${retail_db}" \
@@ -90,7 +89,6 @@ if [[ "${reuse}" == false ]]; then
   "${porter_bin}" apply \
     --base-db "${base_db}" \
     --bundle "${bundle}" \
-    --work-dir "${apply_dir}" \
     --output-db "${output_db}" \
     --force
   "${porter_bin}" verify --db "${output_db}" --bundle "${bundle}"

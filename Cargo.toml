@@ -10,7 +10,6 @@ repository = "https://github.com/srp-survarium/resource-porter"
 publish = false
 
 [workspace]
-members = ["deps/vostok-resources-db"]
 resolver = "3"
 
 [[bin]]
@@ -28,7 +27,9 @@ crc32fast = "1.4"
 encoding_rs = "0.8"
 flate2 = "1.0"
 png = "0.17"
-resources-db = { path = "deps/vostok-resources-db" }
+# The archive code: skhid-srp's `srp-026g/crates/resources-db` (branch
+# release/resources-db-porter-needs, on top of release/scripts).
+resources-db = { git = "https://github.com/srp-survarium/skhid-srp", rev = "c81c234906dcfd94207f6a701c9421af969049a1" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

@@ -16,21 +16,25 @@ pub struct ModelValidationReport {
 /// Validate the model directories visible after an additive overlay, before
 /// writing an archive.
 pub fn validate_effective_overlay(base_db: &Path, overlay: &Path) -> Result<ModelValidationReport> {
-    let mut base = ResourceDb::open(base_db)?;
+    validate_overlay_on(&mut ResourceDb::open(base_db)?, overlay)
+}
+
+/// [`validate_effective_overlay`] over an open base (the stock archive and
+/// its patches, for a patch).
+pub fn validate_overlay_on(base: &mut ResourceDb, overlay: &Path) -> Result<ModelValidationReport> {
     let overlay_files = collect_overlay_files(overlay)?;
-    validate_namespace_compatibility(&base, overlay_files.keys())?;
+    validate_namespace_compatibility(base, overlay_files.keys())?;
 
     let mut paths: BTreeSet<String> = base
-        .entries()
-        .keys()
+        .paths()
         .filter(|path| base.is_file(path))
-        .cloned()
+        .map(str::to_owned)
         .collect();
     paths.extend(overlay_files.keys().cloned());
-    let native = has_native_project_schema(&mut base)?;
+    let native = has_native_project_schema(base)?;
     let changed: BTreeSet<String> = overlay_files.keys().cloned().collect();
     validate_resource_pairs(&paths, native.then_some(&changed))?;
-    let mut report = validate_paths(&mut base, &overlay_files, &paths)?;
+    let mut report = validate_paths(base, &overlay_files, &paths)?;
     report.overlay_configs = validate_overlay_configs(&overlay_files)?;
     validate_overlay_collision_chunks(&overlay_files)?;
     Ok(report)
@@ -39,10 +43,9 @@ pub fn validate_effective_overlay(base_db: &Path, overlay: &Path) -> Result<Mode
 pub fn validate_database(db_path: &Path) -> Result<ModelValidationReport> {
     let mut db = ResourceDb::open(db_path)?;
     let paths: BTreeSet<String> = db
-        .entries()
-        .keys()
+        .paths()
         .filter(|path| db.is_file(path))
-        .cloned()
+        .map(str::to_owned)
         .collect();
     validate_resource_pairs(&paths, None)?;
     validate_paths(&mut db, &BTreeMap::new(), &paths)

@@ -33,14 +33,13 @@ armor_manifest="${repo_dir}/ports/dolg-exoskeleton-stk2-to-0100b.json"
 donor_model="${repo_dir}/.work/stk2-character-source/resources/exported/models/character/human/dolg/dolg_exo.skinned_model"
 donor_textures="${repo_dir}/.work/stk2-character-source/resources/sources/textures/character/human/dolg"
 armor_bundle="${repo_dir}/.work/canonical-dolg-exoskeleton-after-a01-weapons-v1"
-apply_dir="${repo_dir}/.work/apply-canonical-stk2-a01-weapons-exo-v2"
 output_db="${CANONICAL_OUTPUT_DB:-${repo_dir}/.work/resources-v0100b-canonical-stk2-a01-weapons-exo-v2.db}"
 srp_bin_dir="${SRP_BIN_DIR:-${repo_dir}/.work/srp-a01-showcase-runtime-bin}"
 
 if [[ "${reuse}" == false ]]; then
   "${script_dir}/run-canonical-stk2-a01-weapons-demo.sh" --build-only
 
-  rm -rf -- "${armor_bundle}" "${apply_dir}"
+  rm -rf -- "${armor_bundle}"
   "${porter_bin}" build-armor \
     --manifest "${armor_manifest}" \
     --donor-model-archive "${donor_model}" \
@@ -54,7 +53,6 @@ if [[ "${reuse}" == false ]]; then
   "${porter_bin}" apply \
     --base-db "${base_db}" \
     --bundle "${armor_bundle}" \
-    --work-dir "${apply_dir}" \
     --output-db "${output_db}" \
     --force
   "${porter_bin}" verify --db "${output_db}" --bundle "${armor_bundle}"

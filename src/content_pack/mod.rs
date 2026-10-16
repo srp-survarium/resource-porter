@@ -13,7 +13,7 @@
 
 pub mod atlas;
 pub mod from_bundle;
-pub mod release;
+pub mod patch;
 pub mod value;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -65,9 +65,6 @@ pub struct PackManifest {
     /// Pin the whole base archive (map bundles were built against retail).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_db_sha256: Option<String>,
-    /// Base hard-link nodes to turn into independent file nodes.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub materialize_hard_links: Vec<String>,
     pub operations: Vec<Operation>,
     /// Server-side content description, passed through untouched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -264,11 +261,6 @@ pub fn validate_pack(pack: &Pack) -> Vec<String> {
         .is_some_and(|sha| !is_sha256(sha))
     {
         report("base_db_sha256 is not a lowercase SHA-256".into());
-    }
-    for path in &manifest.materialize_hard_links {
-        if let Err(error) = validate_resource_path(path) {
-            report(error.to_string());
-        }
     }
     let mut whole_paths = BTreeSet::new();
     let mut dictionary_ids = BTreeSet::new();
@@ -815,9 +807,6 @@ impl<'a> Plan<'a> {
                     pack.id()
                 ));
             }
-            resolved
-                .materialize
-                .extend(pack.manifest.materialize_hard_links.iter().cloned());
         }
         for (path, whole) in &self.whole {
             let pack = self.packs[whole.pack].id();
@@ -1075,7 +1064,6 @@ pub struct Resolved {
     pub files: BTreeMap<String, Content>,
     pub kinds: BTreeMap<String, WholeKind>,
     pub edited: BTreeSet<String>,
-    pub materialize: BTreeSet<String>,
     pub notes: Vec<String>,
 }
 
@@ -1095,11 +1083,15 @@ pub fn load_packs(dirs: &[PathBuf]) -> Result<Vec<Pack>> {
 
 /// `pack check`: validate packs, their mutual conflicts and, given a base,
 /// every base-dependent precondition.
-pub fn check(dirs: &[PathBuf], base_db: Option<&Path>) -> Result<CheckReport> {
+pub fn check(
+    dirs: &[PathBuf],
+    base_db: Option<&Path>,
+    base_patches: &[PathBuf],
+) -> Result<CheckReport> {
     let packs = load_packs(dirs)?;
     let (languages, mut base) = match base_db {
         Some(path) => {
-            let base = ResourceDb::open(path)?;
+            let base = ResourceDb::open_layers(&patch::base_layers(path, base_patches)?)?;
             (base_languages(&base), Some(base))
         }
         None => (
@@ -1212,49 +1204,44 @@ pub fn install_record_path(output_db: &Path) -> PathBuf {
     output_db.with_file_name(name)
 }
 
-/// Write the effective files as an overlay directory under `work_dir`,
-/// validate it against `base_db` and pack it into `work_dir/packs-overlay.db`.
-pub(crate) fn build_donor<'a>(
-    base_db: &Path,
+/// Write `files` into the folder `dir` at their archive paths (a folder
+/// that exists is refused unless `force`, then cleared) and validate it as an
+/// overlay of `base` (`validate_effective_overlay`).
+pub(crate) fn write_overlay<'a>(
+    base: &mut ResourceDb,
     files: impl Iterator<Item = (&'a String, &'a Content)>,
-    work_dir: &Path,
+    dir: &Path,
     force: bool,
-) -> Result<PathBuf> {
-    let overlay = work_dir.join("overlay");
-    if overlay.exists() {
+) -> Result<()> {
+    if dir.exists() {
         if !force {
-            bail!(
-                "work overlay already exists (use --force): {}",
-                overlay.display()
-            );
+            bail!("{} already exists (use --force)", dir.display());
         }
-        fs::remove_dir_all(&overlay)?;
+        fs::remove_dir_all(dir)?;
     }
-    fs::create_dir_all(&overlay)?;
+    fs::create_dir_all(dir)?;
     for (path, content) in files {
-        let destination = safe_join(&overlay, path)?;
+        let destination = safe_join(dir, path)?;
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
         match content {
             Content::Source(source) => {
-                if fs::hard_link(source, &destination).is_err() {
-                    fs::copy(source, &destination)
-                        .with_context(|| format!("copying {}", source.display()))?;
-                }
+                fs::copy(source, &destination)
+                    .with_context(|| format!("copying {}", source.display()))?;
             }
             Content::Bytes(bytes) => fs::write(&destination, bytes)?,
         }
     }
-    crate::model_validation::validate_effective_overlay(base_db, &overlay)
+    crate::model_validation::validate_overlay_on(base, dir)
         .context("validating effective model surface/settings contracts")?;
-    let donor = work_dir.join("packs-overlay.db");
-    let source = resources_db::pack::build_src_tree(&overlay)?;
-    resources_db::pack::assemble_to_file(&source, &donor)?;
-    Ok(donor)
+    Ok(())
 }
 
-/// `pack compose`: resolve all packs into one overlay and apply it once.
+/// `pack compose`: resolve all packs into one overlay and write a whole
+/// database with it ([`crate::archive::write_over`]). The players' 0.26g
+/// game takes a patch instead (`pack patch`); a whole database is for local
+/// runs.
 pub fn compose(options: &ComposeOptions<'_>) -> Result<InstallRecord> {
     if options.output_db.exists() && !options.force {
         bail!(
@@ -1274,27 +1261,23 @@ pub fn compose(options: &ComposeOptions<'_>) -> Result<InstallRecord> {
     let plan = Plan::new(&packs, &base_languages(&base));
     let resolved = plan.resolve(&mut base, Some(&base_sha))?;
 
-    let donor = build_donor(
-        options.base_db,
+    write_overlay(
+        &mut base,
         resolved.files.iter(),
-        options.work_dir,
+        &options.work_dir.join("overlay"),
         options.force,
     )?;
-    if let Some(parent) = options.output_db.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let materialized: Vec<Vec<u8>> = resolved
-        .materialize
+    let files = resolved
+        .files
         .iter()
-        .map(|path| path.clone().into_bytes())
-        .collect();
-    resources_db::overlay::apply_db_overlay_with_materialized_paths(
-        options.base_db,
-        &donor,
-        options.output_db,
-        &materialized,
-    )?;
-    fs::remove_file(&donor)?;
+        .map(|(path, content)| {
+            Ok((
+                path.clone(),
+                crate::archive::NewFile::Bytes(content.bytes()?),
+            ))
+        })
+        .collect::<Result<BTreeMap<_, _>>>()?;
+    crate::archive::write_over(&mut base, &files, options.output_db)?;
     let output_sha = sha256_file(options.output_db)?;
 
     let mut output = ResourceDb::open(options.output_db)?;
@@ -1446,8 +1429,11 @@ fn export_server(
 }
 
 /// `pack verify`: confirm a database carries every operation of the packs.
-pub fn verify(db_path: &Path, dirs: &[PathBuf]) -> Result<usize> {
-    verify_in(&mut ResourceDb::open(db_path)?, dirs, &[])
+/// `patches` (`resources.db.patch_<n>`) are laid over it as the game mounts
+/// them.
+pub fn verify(db_path: &Path, patches: &[PathBuf], dirs: &[PathBuf]) -> Result<usize> {
+    let layers = patch::base_layers(db_path, patches)?;
+    verify_in(&mut ResourceDb::open_layers(&layers)?, dirs, &[])
 }
 
 /// [`verify`] on an open database. Operations on `skipped` paths (shipped

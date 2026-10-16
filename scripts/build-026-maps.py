@@ -36,7 +36,7 @@ def main():
                    '--donor-db', str(args.donor_db.resolve())]
     subprocess.run([porter, *command, '--target-db', str(target), '--output', str(bundle)], check=True)
     subprocess.run([porter, 'apply', '--base-db', str(target), '--bundle', str(bundle),
-                    '--work-dir', str(output / 'apply'), '--output-db', str(output / 'resources.db')], check=True)
+                    '--output-db', str(output / 'resources.db')], check=True)
     subprocess.run([porter, 'verify', '--db', str(output / 'resources.db'), '--bundle', str(bundle)], check=True)
     print(f'Playable database: {output / "resources.db"}')
     print('Map ID: 67' if args.profile == 'fog-school' else 'Map IDs: 160–177 (see docs/survarium-021-to-026.md)')

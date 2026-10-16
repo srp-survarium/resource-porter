@@ -238,10 +238,6 @@ pub struct TargetNativeMapManifest {
     /// project but contain no payload and must therefore be omitted.
     #[serde(default)]
     pub drop_empty_collision_families: BTreeSet<String>,
-    /// Stock archive hard links that must become independent file nodes for
-    /// target-runtime compatibility. Payload bytes are copied unchanged.
-    #[serde(default)]
-    pub materialize_target_hard_links: BTreeSet<String>,
     pub spawn_position: [f32; 3],
     pub spawn_orientation: f32,
 }
@@ -761,8 +757,6 @@ pub struct ComposedBundleRecord {
     /// Ordered from lowest to highest precedence.
     pub bundles: Vec<String>,
     pub overwritten_paths: Vec<String>,
-    #[serde(default)]
-    pub materialize_target_hard_links: BTreeSet<String>,
     pub files: Vec<BuiltFile>,
 }
 
@@ -1370,14 +1364,6 @@ impl TargetNativeMapManifest {
             bail!(
                 "target-native empty collision drops require complete models/.../(walker_)collision paths"
             );
-        }
-        if self.materialize_target_hard_links.iter().any(|path| {
-            path.starts_with('/')
-                || path
-                    .split('/')
-                    .any(|component| component.is_empty() || matches!(component, "." | ".."))
-        }) {
-            bail!("target-native materialized hard-link paths must be safe virtual paths");
         }
         if !self
             .spawn_position

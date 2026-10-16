@@ -35,7 +35,6 @@ weapon_source="${STK2_WEAPON_SOURCE_ROOT:-${repo_dir}/.work/stk2-content-source/
 weapon_manifest="${repo_dir}/ports/stk2-ak74-lobby-to-0100b.json"
 weapon_bundle="${repo_dir}/.work/canonical-stk2-weapons-from-retail-v1"
 combined_bundle="${repo_dir}/.work/canonical-stk2-a01-weapons-bundle-v1"
-apply_dir="${repo_dir}/.work/apply-canonical-stk2-a01-weapons-v1"
 output_db="${CANONICAL_OUTPUT_DB:-${repo_dir}/.work/resources-v0100b-canonical-stk2-a01-weapons-v1.db}"
 srp_bin_dir="${SRP_BIN_DIR:-${repo_dir}/.work/srp-stk2-a01-weapons-runtime-bin}"
 
@@ -74,7 +73,7 @@ if [[ "${rebuild_weapons}" == true || ! -f "${weapon_bundle}/port-manifest.json"
     --preserve-lobby
 fi
 
-rm -rf -- "${combined_bundle}" "${apply_dir}"
+rm -rf -- "${combined_bundle}"
 "${porter_bin}" compose \
   --bundle "${map_bundle}" \
   --bundle "${weapon_bundle}" \
@@ -87,7 +86,6 @@ rm -rf -- "${combined_bundle}" "${apply_dir}"
 "${porter_bin}" apply \
   --base-db "${retail_db}" \
   --bundle "${combined_bundle}" \
-  --work-dir "${apply_dir}" \
   --output-db "${output_db}" \
   --force
 

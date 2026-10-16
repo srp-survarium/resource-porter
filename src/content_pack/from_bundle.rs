@@ -180,17 +180,6 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
             .get("target_db_sha256")
             .and_then(Json::as_str)
             .map(str::to_owned),
-        materialize_hard_links: record
-            .get("materialize_target_hard_links")
-            .and_then(Json::as_array)
-            .map(|paths| {
-                paths
-                    .iter()
-                    .filter_map(Json::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-            .unwrap_or_default(),
         operations,
         server: (!server.is_empty()).then_some(Json::Object(server)),
         notes: builder.notes,

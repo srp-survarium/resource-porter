@@ -224,10 +224,11 @@ fn write_srp_content_manifest(manifest: &PortManifest, output: &Path) -> Result<
     Ok(())
 }
 
+/// A whole database: `base_db` with the bundle's overlay over it
+/// ([`crate::archive::write_over`]), for a build that mounts no patches.
 pub fn apply_bundle(
     base_db: &Path,
     bundle: &Path,
-    work_dir: &Path,
     output_db: &Path,
     force: bool,
 ) -> Result<String> {
@@ -235,8 +236,6 @@ pub fn apply_bundle(
     struct ApplyRecord {
         #[serde(default)]
         target_db_sha256: Option<String>,
-        #[serde(default)]
-        materialize_target_hard_links: BTreeSet<String>,
     }
 
     if output_db.exists() && !force {
@@ -256,31 +255,12 @@ pub fn apply_bundle(
     }
     crate::model_validation::validate_effective_overlay(base_db, &overlay)
         .context("validating effective model surface/settings contracts before packing")?;
-    fs::create_dir_all(work_dir)?;
-    let donor_db = work_dir.join("bundle-overlay.db");
-    if donor_db.exists() && !force {
-        bail!(
-            "bundle overlay database already exists (use --force to replace): {}",
-            donor_db.display()
-        );
-    }
-    let source = resources_db::pack::build_src_tree(&overlay)?;
-    resources_db::pack::assemble_to_file(&source, &donor_db)?;
-    if let Some(parent) = output_db.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let materialized_paths: Vec<Vec<u8>> = apply_record
-        .materialize_target_hard_links
+    let files = crate::archive::folder_files(&overlay)?
         .into_iter()
-        .map(String::into_bytes)
+        .map(|(path, file)| (path, crate::archive::NewFile::Disk(file)))
         .collect();
-    resources_db::overlay::apply_db_overlay_with_materialized_paths(
-        base_db,
-        &donor_db,
-        output_db,
-        &materialized_paths,
-    )?;
+    let mut base = ResourceDb::open(base_db)?;
+    crate::archive::write_over(&mut base, &files, output_db)?;
     let mut database = fs::File::open(output_db)?;
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 1024 * 1024];
@@ -310,15 +290,12 @@ pub fn compose_bundles(
     #[derive(serde::Deserialize)]
     struct InputRecord {
         files: Vec<BuiltFile>,
-        #[serde(default)]
-        materialize_target_hard_links: BTreeSet<String>,
     }
 
     let mut files = BTreeMap::<String, BuiltFile>::new();
     let mut overwritten_paths = BTreeSet::new();
     let mut owned_model_roots = BTreeSet::<String>::new();
     let mut bundle_names = Vec::with_capacity(bundles.len());
-    let mut materialize_target_hard_links = BTreeSet::new();
     for bundle in bundles {
         let bundle_name = bundle
             .file_name()
@@ -328,7 +305,6 @@ pub fn compose_bundles(
         let record: InputRecord =
             serde_json::from_reader(fs::File::open(bundle.join("port-manifest.json"))?)
                 .with_context(|| format!("reading bundle manifest {}", bundle.display()))?;
-        materialize_target_hard_links.extend(record.materialize_target_hard_links.iter().cloned());
         let incoming_model_roots: BTreeSet<String> = record
             .files
             .iter()
@@ -395,7 +371,6 @@ pub fn compose_bundles(
         asset_id: "all-versioned-maps-to-0100b".into(),
         bundles: bundle_names,
         overwritten_paths: overwritten_paths.into_iter().collect(),
-        materialize_target_hard_links,
         files: files.into_values().collect(),
     };
     to_writer_pretty(
@@ -415,15 +390,14 @@ pub fn extract_bundle(db_path: &Path, prefixes: &[String], output: &Path) -> Res
     let overlay = output.join("overlay");
     let mut db = ResourceDb::open(db_path)?;
     let paths: Vec<String> = db
-        .entries()
-        .keys()
+        .paths()
         .filter(|path| {
             db.is_file(path)
                 && prefixes
                     .iter()
                     .any(|prefix| path.starts_with(prefix.as_str()))
         })
-        .cloned()
+        .map(str::to_owned)
         .collect();
     if paths.is_empty() {
         bail!("{} holds no file under {prefixes:?}", db_path.display());
