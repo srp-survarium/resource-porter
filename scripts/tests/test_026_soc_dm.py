@@ -105,5 +105,29 @@ class SocDeathmatchTooling(unittest.TestCase):
         self.assertEqual(sorted(c for c, _ in missing), [76, 82])
         self.assertEqual(sorted(c for c, _ in added), [35, 76, 82])
 
+    def test_loading_screens_follow_the_native_26_in_spec_order(self):
+        ll = load('tools/playable-map-pack/lobby_loading.py', 'lobby_loading')
+        m = json.loads((ROOT/'ports/soc-cs-dm-to-026g.json').read_text())
+        ids = ll.loading_ids(m)
+        self.assertEqual(ids, {197: 26, 198: 27, 199: 28, 200: 29, 201: 30})
+        self.assertEqual(ll.loading_ids({'maps': [{'id': 5}, {'id': 6, 'loading_image': 'x.jpg'}]}), {6: 26})
+        for item in m['maps']:
+            self.assertTrue((ROOT/item['loading_image']).is_file(), item['loading_image'])
+        import numpy as np
+        from PIL import Image
+        # Crop keeps the centre at the native 1920 x 798; the grade is
+        # deterministic and lands on the native day-image statistics.
+        rng = np.random.default_rng(1)
+        src = Image.fromarray((rng.random((1080, 1920, 3)) ** 2 * 255).astype(np.uint8))
+        img = ll.crop(src)
+        self.assertEqual(img.size, (1920, 798))
+        a, b = ll.grade(img), ll.grade(img)
+        self.assertEqual(a.tobytes(), b.tobytes())
+        lum = np.asarray(a, np.float32) / 255 @ ll.LUMA
+        p5, p50, p95 = np.percentile(lum, [5, 50, 95])
+        self.assertAlmostEqual(p50, ll.TARGET['p50'], delta=0.03)
+        self.assertLess(p5, p50)
+        self.assertLess(p95, ll.TARGET['white'])
+
 if __name__ == '__main__':
     unittest.main()

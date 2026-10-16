@@ -219,6 +219,13 @@ pub struct Map {
     /// the map shows its template level's name. Requires `hud_key`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_name: Option<String>,
+    /// The map's own loading screen, a source image under the repository
+    /// root that tools/playable-map-pack/lobby_loading.py adds to
+    /// lobby_menu.swf. The mode's `ui.loading_screen_id` becomes
+    /// `NATIVE_LOADING_SCREENS + k`, k counting the maps with a loading image
+    /// in manifest order (the tool assigns the same ids). Requires `hud_key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loading_image: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1057,6 +1064,22 @@ fn validate_anomalies(project: &ConfigValue) -> Result<()> {
 }
 
 /// Team deathmatch: respawns for both teams and no battery objectives.
+/// lobby_menu.swf's native loading images (LobbyMenu._load_images, ids
+/// 0-25; the engine passes `ui.loading_screen_id` to set_loading_level).
+pub const NATIVE_LOADING_SCREENS: i32 = 26;
+
+/// The loading screen id of a map with its own loading image.
+pub fn loading_screen_id(maps: &[Map], id: u8) -> Option<i32> {
+    let mut next = NATIVE_LOADING_SCREENS;
+    for map in maps.iter().filter(|m| m.loading_image.is_some()) {
+        if map.id == id {
+            return Some(next);
+        }
+        next += 1;
+    }
+    None
+}
+
 /// HUD minimap keys hud.swf already knows (survarium.controls.Minimap).
 pub const NATIVE_HUD_KEYS: &[&str] = &[
     "default", "level_01", "level_02", "level_03", "level_03_evn", "level_03_rain", "level_04",
@@ -2118,6 +2141,13 @@ pub fn build(
                 map.id
             );
         }
+        if let Some(image) = &map.loading_image {
+            ensure!(
+                map.hud_key.is_some() && !image.trim().is_empty(),
+                "map {}: loading_image needs a hud_key",
+                map.id
+            );
+        }
         ensure!(
             ids.insert(map.id) && projects.insert(map.donor_project(m.source_build)),
             "duplicate map ID or project"
@@ -2755,6 +2785,14 @@ pub fn build(
         mode.set_path("mode.name", ConfigValue::String(name))?;
         if let Some(id) = map.map_name_id() {
             mode.set_path("mode.ui.map_name", ConfigValue::String(id))?;
+        }
+        if let Some(id) = loading_screen_id(&m.maps, map.id) {
+            ensure!(
+                matches!(mode.named("mode").and_then(|v| v.named("ui")).and_then(|v| v.named("loading_screen_id")),
+                         Some(ConfigValue::Integer(_))),
+                "template mode has no ui.loading_screen_id"
+            );
+            mode.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(id))?;
         }
         mode.set_path(
             "mode.match_making_params.map_name",
@@ -3813,6 +3851,15 @@ mod tests {
             string(table.named("strings").unwrap(), "st_cs_mp_sport_center_name"),
             Some("Sports Center")
         );
+        // Loading screens follow the 26 native ones, in manifest order.
+        let mut maps = vec![dm_map(), dm_map(), dm_map()];
+        maps[1].id = 198;
+        maps[2].id = 199;
+        maps[0].loading_image = Some("a.jpg".into());
+        maps[2].loading_image = Some("c.jpg".into());
+        assert_eq!(loading_screen_id(&maps, 197), Some(26));
+        assert_eq!(loading_screen_id(&maps, 198), None);
+        assert_eq!(loading_screen_id(&maps, 199), Some(27));
         // Never overwrite an id the game already has.
         assert!(add_map_names(&mut table, &names).is_err());
         let clash = vec![("st_level_03_name".to_owned(), "x".to_owned())];
