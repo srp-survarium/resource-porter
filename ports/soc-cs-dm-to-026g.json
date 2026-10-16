@@ -1,0 +1,2016 @@
+{
+  "source_build": "0.10b",
+  "donor_sha256": "49efe743fb4688bbbda6dacad8fa79146f6e0fa277688d047ef0baad06772bb4",
+  "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "maps": [
+    {
+      "id": 197,
+      "level": "level_03",
+      "weather": "day",
+      "mode": 4,
+      "donor_project": "soc_mp_pool",
+      "height_ambient": true,
+      "deathmatch": {
+        "source": "S.T.A.L.K.E.R.: SoC testers_mp_pool level.game: every actor rpoint (35, all team 0 = deathmatch)",
+        "respawns": [
+          [
+            21.442,
+            -0.004,
+            -21.813,
+            -2.007
+          ],
+          [
+            21.672,
+            -0.004,
+            -52.465,
+            -0.96
+          ],
+          [
+            30.631,
+            0.0,
+            -40.883,
+            -0.349
+          ],
+          [
+            30.531,
+            0.0,
+            -32.791,
+            -2.705
+          ],
+          [
+            8.517,
+            -0.0,
+            -25.87,
+            2.531
+          ],
+          [
+            8.583,
+            -0.0,
+            -47.573,
+            1.309
+          ],
+          [
+            18.485,
+            -2.572,
+            -27.056,
+            -4.538
+          ],
+          [
+            31.915,
+            -2.732,
+            -28.04,
+            -3.366
+          ],
+          [
+            31.888,
+            -2.732,
+            -46.307,
+            0.0
+          ],
+          [
+            10.389,
+            -2.732,
+            -47.193,
+            0.0
+          ],
+          [
+            10.43,
+            -2.732,
+            -26.879,
+            -3.159
+          ],
+          [
+            18.22,
+            -2.734,
+            -47.001,
+            -4.9
+          ],
+          [
+            24.391,
+            -2.461,
+            -37.018,
+            -1.507
+          ],
+          [
+            33.146,
+            5.337,
+            -50.567,
+            0.0
+          ],
+          [
+            6.736,
+            5.334,
+            -50.885,
+            0.0
+          ],
+          [
+            7.302,
+            5.336,
+            -24.025,
+            -3.195
+          ],
+          [
+            33.714,
+            5.337,
+            -23.619,
+            -3.346
+          ],
+          [
+            28.171,
+            5.466,
+            -42.596,
+            -3.148
+          ],
+          [
+            27.65,
+            0.0,
+            -36.653,
+            -4.792
+          ],
+          [
+            16.611,
+            5.35,
+            -47.428,
+            0.0
+          ],
+          [
+            26.71,
+            5.354,
+            -46.46,
+            0.0
+          ],
+          [
+            8.869,
+            5.351,
+            -39.027,
+            -1.539
+          ],
+          [
+            27.756,
+            5.358,
+            -31.662,
+            -4.642
+          ],
+          [
+            25.906,
+            0.0,
+            -27.374,
+            -1.534
+          ],
+          [
+            12.78,
+            -0.004,
+            -27.189,
+            -1.397
+          ],
+          [
+            5.693,
+            -0.0,
+            -34.858,
+            0.0
+          ],
+          [
+            5.853,
+            0.006,
+            -37.326,
+            -3.19
+          ],
+          [
+            12.686,
+            -0.004,
+            -47.168,
+            -1.573
+          ],
+          [
+            26.04,
+            0.0,
+            -46.97,
+            -1.589
+          ],
+          [
+            23.428,
+            -2.767,
+            -31.42,
+            -4.687
+          ],
+          [
+            24.458,
+            -2.767,
+            -42.712,
+            -4.707
+          ],
+          [
+            31.465,
+            8.293,
+            -38.061,
+            0.0
+          ],
+          [
+            17.425,
+            -2.204,
+            -36.326,
+            1.384
+          ],
+          [
+            10.928,
+            -0.003,
+            -52.048,
+            1.868
+          ],
+          [
+            11.345,
+            -0.004,
+            -22.273,
+            1.521
+          ]
+        ],
+        "adjusted": {
+          "26.94,5.35,-46.56": "moved 0.25 m off the balcony wall (capsule intersected mp_pool_002)"
+        }
+      },
+      "walker_ramps": [
+        {
+          "name": "pool_exit_west",
+          "from": [
+            16.0,
+            -2.93,
+            -38.5
+          ],
+          "to": [
+            16.0,
+            0.0,
+            -33.43
+          ],
+          "width": 1.0,
+          "reason": "replaces ladder clmbl#6 (pool bottom -2.93 to the deck 0.0 on the west wall): runs north along the west part of the basin to the north deck, 30 deg; the tunnel ring behind the hatch ladders clmbl#4/#5 opens into the pool",
+          "planks": true
+        },
+        {
+          "name": "pool_exit_east",
+          "from": [
+            25.5,
+            -2.93,
+            -36.0
+          ],
+          "to": [
+            25.5,
+            0.0,
+            -41.07
+          ],
+          "width": 1.0,
+          "reason": "second pool exit, east part of the basin to the south deck, 30 deg, clear of the source spawn at (24.39, -37.02)",
+          "planks": true
+        },
+        {
+          "name": "balcony_north_west",
+          "from": [
+            20.5,
+            0.0,
+            -42.25
+          ],
+          "to": [
+            11.23,
+            5.35,
+            -42.25
+          ],
+          "width": 1.0,
+          "reason": "replaces the four 7.8 m corner-shaft ladders clmbl#0-#3 (tunnel to the balcony 5.35): deck to the west balcony over the north deck strip, 30 deg",
+          "planks": true
+        },
+        {
+          "name": "balcony_south_east",
+          "from": [
+            17.0,
+            0.0,
+            -31.75
+          ],
+          "to": [
+            26.27,
+            5.35,
+            -31.75
+          ],
+          "width": 1.0,
+          "reason": "replaces clmbl#0-#3: deck to the east balcony over the south deck strip, 30 deg",
+          "planks": true
+        }
+      ],
+      "walker_boxes": [
+        {
+          "name": "hatch_lid_south",
+          "centre": [
+            17.75,
+            -0.1,
+            -47.05
+          ],
+          "half": [
+            1.0,
+            0.1,
+            1.2
+          ],
+          "planks": true,
+          "reason": "covers the 2.6 m hatch pit of ladder clmbl#4 at deck level; the tunnel below is reached from the pool"
+        },
+        {
+          "name": "hatch_lid_north",
+          "centre": [
+            17.75,
+            -0.1,
+            -27.1
+          ],
+          "half": [
+            1.0,
+            0.1,
+            1.15
+          ],
+          "planks": true,
+          "reason": "covers the hatch pit of ladder clmbl#5 at deck level"
+        },
+        {
+          "name": "shaft_lid_ne",
+          "centre": [
+            31.6,
+            5.25,
+            -27.9
+          ],
+          "half": [
+            0.95,
+            0.1,
+            1.15
+          ],
+          "planks": true,
+          "reason": "covers the 7.8 m shaft of ladder clmbl#0 at balcony level (no fall into the shaft)"
+        },
+        {
+          "name": "shaft_lid_nw",
+          "centre": [
+            10.45,
+            5.25,
+            -26.7
+          ],
+          "half": [
+            0.95,
+            0.1,
+            1.15
+          ],
+          "planks": true,
+          "reason": "covers the shaft of ladder clmbl#1 at balcony level"
+        },
+        {
+          "name": "shaft_lid_sw",
+          "centre": [
+            10.45,
+            5.25,
+            -47.5
+          ],
+          "half": [
+            0.95,
+            0.1,
+            1.15
+          ],
+          "planks": true,
+          "reason": "covers the shaft of ladder clmbl#2 at balcony level"
+        },
+        {
+          "name": "shaft_lid_se",
+          "centre": [
+            31.6,
+            5.25,
+            -46.2
+          ],
+          "half": [
+            0.95,
+            0.1,
+            1.15
+          ],
+          "planks": true,
+          "reason": "covers the shaft of ladder clmbl#3 at balcony level"
+        }
+      ]
+    },
+    {
+      "id": 198,
+      "level": "level_03",
+      "weather": "day",
+      "mode": 4,
+      "donor_project": "cs_training_camp",
+      "height_ambient": true,
+      "deathmatch": {
+        "source": "S.T.A.L.K.E.R.: Clear Sky mp_training_camp level.game: the 14 team-0 actor rpoints with the deathmatch bit (0x2); team bases (0x4) left out",
+        "respawns": [
+          [
+            12.06,
+            28.425,
+            -16.219,
+            -1.341
+          ],
+          [
+            36.09,
+            22.148,
+            -20.702,
+            0.766
+          ],
+          [
+            45.084,
+            28.425,
+            1.245,
+            1.762
+          ],
+          [
+            36.983,
+            22.694,
+            32.163,
+            1.474
+          ],
+          [
+            20.075,
+            16.395,
+            3.844,
+            0.918
+          ],
+          [
+            13.65,
+            20.87,
+            24.404,
+            -2.5
+          ],
+          [
+            7.087,
+            -0.048,
+            27.629,
+            -1.539
+          ],
+          [
+            7.906,
+            -0.326,
+            -19.149,
+            0.22
+          ],
+          [
+            48.307,
+            -0.048,
+            6.246,
+            0.918
+          ],
+          [
+            8.741,
+            28.425,
+            22.007,
+            -2.63
+          ],
+          [
+            10.096,
+            28.703,
+            -14.004,
+            -0.077
+          ],
+          [
+            44.22,
+            28.425,
+            6.008,
+            1.445
+          ],
+          [
+            35.75,
+            23.085,
+            30.77,
+            -5.162
+          ],
+          [
+            34.663,
+            22.148,
+            -20.3,
+            1.684
+          ]
+        ],
+        "adjusted": {
+          "7.906,0.159,-19.149": "lowered 0.49 m onto the ground under it",
+          "35.45,23.065,30.77": "moved 0.3 m off the wall (capsule intersected training_camp_014)"
+        }
+      },
+      "walker_boxes": [
+        {
+          "name": "walkway_ladder_block",
+          "centre": [
+            21.75,
+            18.4,
+            3.3
+          ],
+          "half": [
+            0.6,
+            1.95,
+            0.2
+          ],
+          "reason": "ladder clmbl#0 (16.4 m floor to the 53 m2 walkway at 20.1, no spawns) is not replaced: a beam at z 5 leaves no room for a ramp; this slab over the rungs keeps the walkway unreachable"
+        }
+      ]
+    },
+    {
+      "id": 199,
+      "level": "level_03",
+      "weather": "day",
+      "mode": 4,
+      "donor_project": "cs_mp_rembasa",
+      "height_ambient": true,
+      "deathmatch": {
+        "source": "S.T.A.L.K.E.R.: Clear Sky mp_rembasa level.game: the 19 team-0 actor rpoints with the deathmatch bit (0x2)",
+        "respawns": [
+          [
+            49.754,
+            0.402,
+            12.442,
+            1.597
+          ],
+          [
+            50.352,
+            0.348,
+            -6.328,
+            1.597
+          ],
+          [
+            50.426,
+            0.22,
+            -20.742,
+            1.597
+          ],
+          [
+            38.069,
+            0.194,
+            -66.874,
+            1.597
+          ],
+          [
+            64.182,
+            -8.743,
+            -148.241,
+            1.597
+          ],
+          [
+            29.562,
+            -12.237,
+            -192.067,
+            1.597
+          ],
+          [
+            -16.924,
+            -11.277,
+            -195.859,
+            1.597
+          ],
+          [
+            -56.174,
+            -13.534,
+            -179.274,
+            1.597
+          ],
+          [
+            -53.819,
+            -10.18,
+            -117.456,
+            1.597
+          ],
+          [
+            -12.01,
+            -13.08,
+            -106.217,
+            1.597
+          ],
+          [
+            -30.609,
+            0.287,
+            -29.259,
+            3.128
+          ],
+          [
+            -45.773,
+            0.543,
+            -2.349,
+            1.597
+          ],
+          [
+            -45.07,
+            0.543,
+            9.473,
+            1.597
+          ],
+          [
+            -40.442,
+            0.394,
+            29.586,
+            1.597
+          ],
+          [
+            -14.805,
+            -0.055,
+            29.669,
+            1.597
+          ],
+          [
+            11.049,
+            0.27,
+            25.426,
+            1.597
+          ],
+          [
+            6.629,
+            0.438,
+            -8.629,
+            1.597
+          ],
+          [
+            -15.941,
+            4.89,
+            -10.162,
+            1.597
+          ],
+          [
+            -13.301,
+            0.638,
+            -11.94,
+            1.597
+          ]
+        ]
+      },
+      "walker_boxes": [
+        {
+          "name": "ledge_ladder_block_west",
+          "centre": [
+            -4.76,
+            8.2,
+            -33.8
+          ],
+          "half": [
+            0.85,
+            7.75,
+            0.25
+          ],
+          "reason": "ladder clmbl#0 (15.5 m, 0.5 to 15.9) leads only to a 14 m2 ledge with no spawns: not replaced; this slab over the rungs keeps the ledge unreachable"
+        },
+        {
+          "name": "ledge_ladder_block_east",
+          "centre": [
+            42.07,
+            5.98,
+            18.87
+          ],
+          "half": [
+            0.75,
+            1.65,
+            0.25
+          ],
+          "reason": "ladder clmbl#1 (3.2 m, 4.4 to 7.6) leads only to a 15 m2 ledge with no spawns: blocked the same way"
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "level": "level_03",
+      "weather": "day",
+      "mode": 4,
+      "donor_project": "cs_mp_sport_center",
+      "height_ambient": true,
+      "deathmatch": {
+        "source": "S.T.A.L.K.E.R.: Clear Sky mp_sport_center level.game: the 32 team-0 actor rpoints with the deathmatch bit (0x2)",
+        "respawns": [
+          [
+            -28.559,
+            -0.004,
+            -31.721,
+            -0.457
+          ],
+          [
+            -29.754,
+            -0.004,
+            -40.256,
+            -2.041
+          ],
+          [
+            -20.278,
+            7.681,
+            -21.955,
+            -0.457
+          ],
+          [
+            -20.271,
+            -0.004,
+            -22.265,
+            -0.457
+          ],
+          [
+            -22.508,
+            1.914,
+            -17.413,
+            1.195
+          ],
+          [
+            -75.436,
+            4.161,
+            -17.335,
+            -0.963
+          ],
+          [
+            -75.233,
+            4.161,
+            -54.85,
+            -1.859
+          ],
+          [
+            -22.356,
+            1.914,
+            -54.768,
+            2.143
+          ],
+          [
+            -19.977,
+            -0.004,
+            -49.943,
+            -2.786
+          ],
+          [
+            -20.224,
+            7.681,
+            -50.414,
+            -2.786
+          ],
+          [
+            -51.711,
+            -2.069,
+            -36.965,
+            -2.786
+          ],
+          [
+            -75.469,
+            -0.004,
+            -13.039,
+            -2.786
+          ],
+          [
+            -75.37,
+            -0.004,
+            -60.261,
+            -0.17
+          ],
+          [
+            -75.421,
+            -0.004,
+            -53.195,
+            -1.414
+          ],
+          [
+            -75.757,
+            -0.004,
+            -40.937,
+            -1.414
+          ],
+          [
+            -75.302,
+            -0.004,
+            -31.378,
+            -1.414
+          ],
+          [
+            -75.327,
+            -0.004,
+            -38.21,
+            -1.414
+          ],
+          [
+            -65.76,
+            -0.004,
+            -23.42,
+            1.176
+          ],
+          [
+            -66.005,
+            -0.004,
+            -49.656,
+            -2.327
+          ],
+          [
+            -19.244,
+            11.609,
+            -42.047,
+            2.104
+          ],
+          [
+            -20.565,
+            11.609,
+            -29.687,
+            1.184
+          ],
+          [
+            -37.275,
+            10.218,
+            -13.629,
+            2.104
+          ],
+          [
+            -37.648,
+            10.218,
+            -55.753,
+            1.462
+          ],
+          [
+            -31.974,
+            -0.004,
+            -48.729,
+            2.628
+          ],
+          [
+            -32.371,
+            -0.004,
+            -23.465,
+            0.236
+          ],
+          [
+            -36.598,
+            0.238,
+            -52.395,
+            1.073
+          ],
+          [
+            -36.722,
+            0.087,
+            -19.719,
+            2.923
+          ],
+          [
+            -61.98,
+            0.121,
+            -19.784,
+            -2.422
+          ],
+          [
+            -62.118,
+            0.164,
+            -52.373,
+            -0.55
+          ],
+          [
+            -52.111,
+            5.756,
+            -17.805,
+            0.058
+          ],
+          [
+            -52.285,
+            5.756,
+            -54.363,
+            -3.118
+          ],
+          [
+            -75.142,
+            -0.004,
+            -19.051,
+            -1.414
+          ]
+        ],
+        "adjusted": {
+          "-51.711,-1.605,-36.965": "lowered 0.46 m onto the basin floor under it"
+        }
+      },
+      "walker_ramps": [
+        {
+          "name": "basin_exit_west",
+          "from": [
+            -93.05,
+            -1.24,
+            -48.0
+          ],
+          "to": [
+            -96.05,
+            0.44,
+            -48.0
+          ],
+          "width": 1.0,
+          "planks": true,
+          "reason": "replaces ladders clmbl#7 (-95.8,-45.2) and #6 (deep end, via the basin slope): basin shallow floor -1.24 to the west rim 0.44, 29.2 deg"
+        },
+        {
+          "name": "basin_exit_east",
+          "from": [
+            -83.35,
+            -1.24,
+            -46.5
+          ],
+          "to": [
+            -80.35,
+            0.44,
+            -46.5
+          ],
+          "width": 1.0,
+          "planks": true,
+          "reason": "replaces ladders clmbl#4 (-80.6,-45.2) and #5 (deep end, via the basin slope): basin shallow floor to the east rim 0.44, 29.2 deg; set at z -46.5 to clear the gravel heap at the wall"
+        },
+        {
+          "name": "stand_ramp",
+          "from": [
+            -78.4,
+            4.16,
+            -42.95
+          ],
+          "to": [
+            -78.4,
+            9.42,
+            -49.35
+          ],
+          "width": 0.8,
+          "planks": true,
+          "reason": "replaces ladders clmbl#2/#3 (gallery 4.16 to the tribune 9.2) and gives access to the whole upper level (2,684 m2, 4 spawns) that otherwise only ladders clmbl#0-#3 reach; 39.4 deg: tribune joists every 2.3 m (underside 9.2) leave no room for a 30 deg run, so this is the shallowest that clears them; 0.8 m wide, leaves 1.2 m and 2.0 m of gallery free on either side"
+        }
+      ]
+    },
+    {
+      "id": 201,
+      "level": "level_03",
+      "weather": "day",
+      "mode": 4,
+      "donor_project": "cs_mp_firestation",
+      "height_ambient": true,
+      "deathmatch": {
+        "source": "S.T.A.L.K.E.R.: Clear Sky mp_firestation level.game: the 47 team-0 actor rpoints with the deathmatch bit (0x2), 4 dropped in ladder-only pockets",
+        "respawns": [
+          [
+            -60.741,
+            6.178,
+            -3.827,
+            0.019
+          ],
+          [
+            -61.185,
+            10.314,
+            -6.63,
+            0.019
+          ],
+          [
+            -38.046,
+            4.382,
+            -11.187,
+            -3.135
+          ],
+          [
+            -58.9,
+            6.202,
+            12.089,
+            1.98
+          ],
+          [
+            -51.94,
+            6.398,
+            20.349,
+            -1.075
+          ],
+          [
+            -63.995,
+            7.67,
+            26.092,
+            -1.075
+          ],
+          [
+            -62.395,
+            7.505,
+            38.795,
+            -1.064
+          ],
+          [
+            -56.935,
+            7.134,
+            55.343,
+            -1.365
+          ],
+          [
+            -35.788,
+            7.046,
+            54.215,
+            0.03
+          ],
+          [
+            -35.076,
+            6.992,
+            44.374,
+            -2.709
+          ],
+          [
+            -14.541,
+            6.672,
+            31.917,
+            1.877
+          ],
+          [
+            -28.304,
+            6.728,
+            23.729,
+            1.877
+          ],
+          [
+            -32.769,
+            11.697,
+            19.029,
+            -0.85
+          ],
+          [
+            -16.437,
+            11.229,
+            28.834,
+            -1.887
+          ],
+          [
+            1.4,
+            6.638,
+            44.368,
+            -2.904
+          ],
+          [
+            10.282,
+            7.04,
+            48.595,
+            -2.898
+          ],
+          [
+            -23.376,
+            4.663,
+            23.941,
+            -2.043
+          ],
+          [
+            -12.545,
+            4.662,
+            -4.039,
+            0.86
+          ],
+          [
+            -17.995,
+            3.12,
+            6.234,
+            -2.136
+          ],
+          [
+            -3.716,
+            4.632,
+            -28.623,
+            -0.863
+          ],
+          [
+            27.484,
+            4.254,
+            -19.251,
+            1.173
+          ],
+          [
+            17.765,
+            4.4,
+            -5.691,
+            1.414
+          ],
+          [
+            16.535,
+            5.091,
+            17.365,
+            -2.42
+          ],
+          [
+            17.079,
+            5.569,
+            24.716,
+            -1.073
+          ],
+          [
+            27.429,
+            4.822,
+            15.191,
+            0.472
+          ],
+          [
+            35.381,
+            6.903,
+            47.384,
+            1.279
+          ],
+          [
+            13.9,
+            6.736,
+            36.517,
+            -1.263
+          ],
+          [
+            25.262,
+            1.419,
+            32.893,
+            0.059
+          ],
+          [
+            35.443,
+            -0.653,
+            27.429,
+            1.85
+          ],
+          [
+            46.648,
+            0.462,
+            22.446,
+            2.382
+          ],
+          [
+            46.19,
+            8.154,
+            11.122,
+            2.954
+          ],
+          [
+            14.04,
+            4.3,
+            -15.85,
+            2.96
+          ],
+          [
+            -12.415,
+            10.561,
+            -7.534,
+            0.404
+          ],
+          [
+            -57.219,
+            6.705,
+            30.7,
+            -1.285
+          ],
+          [
+            -22.29,
+            6.804,
+            54.124,
+            -0.969
+          ],
+          [
+            -10.13,
+            4.652,
+            20.056,
+            -0.969
+          ],
+          [
+            10.651,
+            5.877,
+            9.91,
+            1.393
+          ],
+          [
+            12.017,
+            5.877,
+            16.315,
+            1.393
+          ],
+          [
+            7.92,
+            4.407,
+            21.528,
+            -2.245
+          ],
+          [
+            7.177,
+            8.057,
+            19.344,
+            -0.646
+          ],
+          [
+            14.146,
+            10.239,
+            24.586,
+            1.791
+          ],
+          [
+            6.713,
+            10.416,
+            31.483,
+            -1.584
+          ],
+          [
+            8.49,
+            10.239,
+            24.25,
+            0.482
+          ]
+        ],
+        "dropped": {
+          "-66.482,14.831,38.419": "roof reached only by ladder clmbl#2 (7.1 m rise, too tall for a ramp); landing blocked",
+          "-32.912,17.19,20.791": "on a 37 m2 structure (14.8-20.0 m) above the west roof with no step-height (0.45 m) connection to it; unreachable without the source ladders/jumps",
+          "46.471,16.642,12.244": "tower top (118 m2 at 16.5-17.2) reached only by the 17.5 m ladder chain clmbl#7/#8 (or #9/#10); no cheap ramp (stairwell top at 14.7 sits under the 16.6 slab); blocked",
+          "39.318,16.642,24.464": "tower top, as above; blocked"
+        },
+        "adjusted": {
+          "14.267,4.308,-15.756": "moved 0.25 m off firestation_027 (capsule intersected it)",
+          "-22.538,6.804,54.124": "moved 0.25 m off firestation_001",
+          "8.311,10.239,24.074": "moved 0.25 m off firestation_017"
+        }
+      },
+      "walker_ramps": [
+        {
+          "name": "roof_west_ramp",
+          "from": [
+            -33.0,
+            6.66,
+            28.0
+          ],
+          "to": [
+            -26.22,
+            11.23,
+            28.0
+          ],
+          "width": 1.0,
+          "reason": "replaces ladder clmbl#1 (6.66 to the 11.23 roof edge, 4.6 m) 3.6 m south of it, rising east against the west wall at 34 degrees; opens the 678 m2 west roof (also the top of clmbl#0, 5.8 m) with 3 DM spawns"
+        }
+      ],
+      "walker_boxes": [
+        {
+          "name": "ladder2_rungs",
+          "centre": [
+            -63.67,
+            11.08,
+            42.79
+          ],
+          "half": [
+            0.25,
+            3.54,
+            0.61
+          ],
+          "reason": "slab over the rungs of clmbl#2 (7.5 to the 14.6 roof, 97 m2, blocked; its spawn dropped)"
+        },
+        {
+          "name": "ladder7_rungs",
+          "centre": [
+            50.07,
+            4.56,
+            18.59
+          ],
+          "half": [
+            0.25,
+            5.12,
+            0.66
+          ],
+          "reason": "slab over the rungs of clmbl#7, the bottom of the 17.5 m tower chain (-0.6 to 9.7, then clmbl#8 to the 16.9 tower top); tower top blocked"
+        },
+        {
+          "name": "ladder9_rungs",
+          "centre": [
+            50.03,
+            10.32,
+            11.55
+          ],
+          "half": [
+            0.66,
+            2.16,
+            0.25
+          ],
+          "reason": "slab over the rungs of clmbl#9 (8.2 stairwell landing to a 1 m2 ledge at 12.5, then clmbl#10 to the tower top); blocked"
+        }
+      ]
+    }
+  ],
+  "material_templates": {
+    "material_instances/tiled/floor/pol.material": "material_instances/tiled/floor/floortrash02_pol_vc.material",
+    "material_instances/ported/cs/firestation/shader_0004.material": "material_instances/weapons/tracer.material",
+    "material_instances/ported/cs/firestation/shader_0005.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0006.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0007.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0008.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0009.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0010.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0011.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0012.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0013.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0014.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0015.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0016.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0017.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0018.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0019.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0020.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0021.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0022.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0023.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0024.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0025.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0026.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0027.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0028.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0029.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0030.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0031.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0032.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0033.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0034.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0035.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0036.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0037.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0038.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0039.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0040.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0041.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0042.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0043.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0044.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0045.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0046.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0047.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0048.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0049.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/firestation/shader_0050.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/firestation/shader_0051.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0052.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0053.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0054.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0055.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0056.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0057.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0058.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0059.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0060.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0061.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0062.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0063.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0064.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0065.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0066.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0067.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0068.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0069.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0070.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0071.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0072.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0073.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0074.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0075.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0076.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0077.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0078.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0079.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0080.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0081.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0082.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0083.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0084.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0085.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0086.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0087.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0088.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0089.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0090.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0091.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0092.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0093.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0094.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0095.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0096.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0097.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0098.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0099.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0100.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0101.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0102.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0103.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0104.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0105.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0106.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0107.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0108.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0109.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0110.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0111.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0112.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0113.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0114.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0115.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0116.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0117.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0118.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0119.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0120.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0121.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0122.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0123.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0124.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0125.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0126.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0127.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0128.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0129.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0130.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0131.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0132.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0133.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0134.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0135.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0136.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0137.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0138.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0139.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0140.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0141.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0142.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0143.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0144.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0145.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0146.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0147.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0148.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0149.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0150.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0151.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0152.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0153.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0154.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0155.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0156.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0157.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0158.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0159.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0160.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0161.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0162.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0163.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0164.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0165.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0166.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0167.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0168.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0169.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0170.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0171.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0172.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0173.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0174.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0175.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0176.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0177.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0178.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0179.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0180.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0181.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0182.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0183.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0184.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0185.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0186.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0187.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0188.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0189.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0190.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0191.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0192.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0193.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0194.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0195.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0196.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0197.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0198.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0199.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0200.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0201.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0202.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0203.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0204.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0205.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0206.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0207.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0208.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0209.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0210.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0211.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0212.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0213.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0214.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0215.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0216.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0217.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0218.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0219.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0220.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0221.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0222.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0223.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0224.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0225.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0226.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0227.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0228.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0229.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0230.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0231.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0232.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0233.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0234.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0235.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0236.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0237.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0238.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0239.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0240.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/firestation/shader_0241.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/firestation/shader_0242.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0243.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/firestation/shader_0244.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/firestation/shader_0245.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/firestation/shader_0246.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0247.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/firestation/shader_0248.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0249.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0250.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/firestation/shader_0252.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0253.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0254.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/firestation/shader_0255.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/firestation/shader_0256.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/firestation/shader_0257.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0258.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0259.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0260.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/firestation/shader_0261.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0262.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0263.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0264.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0265.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0266.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/firestation/shader_0267.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0002.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0003.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0004.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0005.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0006.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0007.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0008.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0009.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/rembasa/shader_0010.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0011.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0012.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0013.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0014.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0015.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0016.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0017.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0018.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0019.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0020.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0021.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0022.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0023.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0024.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0025.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0026.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0027.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0028.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0029.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0030.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0031.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0032.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0033.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0034.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0035.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0036.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0037.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0038.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0039.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0040.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0041.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0042.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0043.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0044.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0045.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0046.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0047.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0048.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0049.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0050.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0051.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0052.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0053.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0054.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0055.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0056.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0057.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0058.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0059.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0060.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0061.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0062.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0063.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0064.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0065.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0066.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0067.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0068.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0069.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0070.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0071.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0072.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0073.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0074.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0075.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0076.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0077.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0078.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0079.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0080.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0081.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0082.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0083.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0084.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0085.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0086.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0087.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0088.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0089.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0090.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0091.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0092.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0093.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0094.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0095.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0096.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0097.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0098.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0099.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0100.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0101.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0102.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0103.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0104.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0105.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0106.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0107.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0108.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0109.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0110.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0111.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0112.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0113.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0114.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0115.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0116.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0117.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0118.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0119.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0120.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0121.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0122.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0123.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0124.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0125.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0126.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0127.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0128.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0129.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0130.material": "material_instances/tiled/window/glass.material",
+    "material_instances/ported/cs/rembasa/shader_0131.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0132.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0133.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0134.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0135.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0136.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0137.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0138.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0139.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0140.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0141.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0142.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0143.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0144.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/rembasa/shader_0145.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0146.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0147.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/rembasa/shader_0148.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/rembasa/shader_0149.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0150.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0152.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0153.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0154.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0155.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0156.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0157.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/rembasa/shader_0158.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/rembasa/shader_0159.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/rembasa/shader_0160.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0161.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0162.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0163.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0164.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0165.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0166.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0167.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0168.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0169.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0170.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/rembasa/shader_0171.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/rembasa/shader_0172.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0004.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0005.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0006.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0007.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0008.material": "material_instances/weapons/tracer.material",
+    "material_instances/ported/cs/sport_center/shader_0009.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0010.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0011.material": "material_instances/weapons/tracer.material",
+    "material_instances/ported/cs/sport_center/shader_0012.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0013.material": "material_instances/weapons/tracer.material",
+    "material_instances/ported/cs/sport_center/shader_0014.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0015.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0016.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0017.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0018.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0019.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0020.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0021.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0022.material": "material_instances/water/water_green.material",
+    "material_instances/ported/cs/sport_center/shader_0023.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0024.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0025.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0026.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0027.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0028.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0029.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0030.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0031.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/sport_center/shader_0032.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0033.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0034.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0035.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0036.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0037.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0038.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0039.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0040.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0041.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0042.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0043.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0044.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0045.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0046.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0047.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0048.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0049.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0050.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0051.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0052.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0053.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0054.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0055.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0056.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0057.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0058.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0059.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0060.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0061.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0062.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0063.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0064.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0065.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0066.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0067.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0068.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0069.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0070.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0071.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0072.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0073.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0074.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0075.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0076.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0077.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0078.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0079.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0080.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/sport_center/shader_0081.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0082.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0083.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0084.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0085.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0086.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0087.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0088.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0089.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0090.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0091.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0092.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0093.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0094.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0095.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/sport_center/shader_0096.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0097.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0098.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0099.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0100.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0101.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0102.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0103.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0104.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0105.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0106.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0107.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0108.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/sport_center/shader_0109.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0110.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0111.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0112.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0113.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0114.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0115.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0116.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0117.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0118.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0119.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0120.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0121.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/sport_center/shader_0122.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/sport_center/shader_0123.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0124.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/sport_center/shader_0125.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/sport_center/shader_0126.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0128.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0129.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0130.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0131.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0132.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0133.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/sport_center/shader_0134.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/training_camp/addons/elka_far.material": "material_instances/flora/elka.material",
+    "material_instances/ported/cs/training_camp/addons/wildflowers.material": "material_instances/flora/grass_l03_alt.material",
+    "material_instances/ported/cs/training_camp/shader_0002.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0003.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0004.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0005.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0006.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0007.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0008.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0009.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0010.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0011.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/training_camp/shader_0012.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0013.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0014.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0015.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0016.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0017.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/training_camp/shader_0018.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/training_camp/shader_0019.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0020.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0021.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0022.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0023.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0024.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0025.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0026.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0027.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0028.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0029.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0030.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0031.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0032.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0033.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0034.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0035.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0036.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0037.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0038.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0039.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0040.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0041.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0042.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0043.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0044.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0045.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0046.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0047.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0048.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0049.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0050.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0051.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0052.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0053.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0054.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0055.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0056.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0057.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0058.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0059.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0060.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0061.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0062.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0063.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0064.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0065.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0066.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/training_camp/shader_0067.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0068.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0069.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0070.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0071.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0072.material": "material_instances/tiled/window/glass.material",
+    "material_instances/ported/cs/training_camp/shader_0073.material": "material_instances/tiled/window/glass.material",
+    "material_instances/ported/cs/training_camp/shader_0074.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0075.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0076.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0077.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0078.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/training_camp/shader_0079.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/training_camp/shader_0080.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0081.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0082.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0083.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0084.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0085.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0086.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0087.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0088.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0089.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0090.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0091.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0092.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/cs/training_camp/shader_0093.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/training_camp/shader_0094.material": "material_instances/terrain/03_base_final.material",
+    "material_instances/ported/cs/training_camp/shader_0095.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/cs/training_camp/shader_0096.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/training_camp/shader_0097.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/training_camp/shader_0099.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/training_camp/shader_0100.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/training_camp/shader_0101.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/training_camp/shader_0102.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/training_camp/shader_0103.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/training_camp/shader_0104.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/training_camp/shader_0105.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0106.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0107.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0108.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0109.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/cs/training_camp/shader_0110.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/training_camp/shader_0111.material": "material_instances/flora/sosna_bark_lod.material",
+    "material_instances/ported/cs/training_camp/shader_0112.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/cs/training_camp/shader_0113.material": "material_instances/flora/poplar_leaves_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0004.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0005.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0006.material": "material_instances/weapons/tracer.material",
+    "material_instances/ported/soc/mp_pool/shader_0007.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0008.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0009.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0010.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0011.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0012.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0013.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0014.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0015.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0016.material": "material_instances/water/water_green.material",
+    "material_instances/ported/soc/mp_pool/shader_0017.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0018.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0019.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0020.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0021.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0022.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0023.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0024.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0025.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0026.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0027.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0028.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0029.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0030.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0031.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0032.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0033.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0034.material": "material_instances/tiled/window/glass.material",
+    "material_instances/ported/soc/mp_pool/shader_0035.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0036.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0037.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0038.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0039.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0040.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0041.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0042.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0043.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0044.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0045.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0046.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0047.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0048.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0049.material": "material_instances/tiled/trash/trash_concrete_alpha.material",
+    "material_instances/ported/soc/mp_pool/shader_0050.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0051.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0052.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0053.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0054.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0055.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0056.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0057.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0058.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0059.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0060.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0061.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0062.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0063.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0064.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0065.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0066.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0067.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0068.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0069.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0070.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0071.material": "material_instances/tiled/concrete/concrete_01.material",
+    "material_instances/ported/soc/mp_pool/shader_0072.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0073.material": "material_instances/tiled/concrete/concrete_02.material",
+    "material_instances/ported/soc/mp_pool/shader_0074.material": "material_instances/tiled/concrete/concrete_02.material"
+  }
+}
