@@ -916,15 +916,18 @@ pub(super) fn geometry(bytes: &[u8], rebase_wrapped_uv: bool) -> Result<Vec<u8>>
 /// surface they cover. On Chemical (0.11e level/04 `moss*.model`) the LOD1 moss
 /// sits up to 8.2 cm inside the wall (5th percentile; LOD0: 1.2 cm), and in
 /// 0.26 it flickers against the wall at a distance while the camera moves.
-/// These LOD≥1 surfaces are lifted along their normals.
+/// Their surfaces are lifted along their normals.
 pub(super) const WALL_OVERLAY_MATERIALS: &[&str] = &["anomaly/anomaly_moss"];
-/// Measured penetration rounded up (user-confirmed in game: LOD1 +10 cm).
-pub(super) const WALL_OVERLAY_LOD_LIFT: f32 = 0.10;
+/// LOD0 lift. User-chosen in game (variants +0/+5/+10 cm, 2026-10-16).
+pub(super) const WALL_OVERLAY_LOD0_LIFT: f32 = 0.05;
+/// LOD1+ lift: the measured penetration rounded up (10 cm) plus the same 5 cm.
+pub(super) const WALL_OVERLAY_LOD1_LIFT: f32 = 0.15;
 
-/// Surfaces of a model's LOD1+ levels that use a wall-overlay material.
-/// Material names may already be relocated (`ported/<build>/...`).
-pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeSet<String>> {
-    let mut result = BTreeSet::new();
+/// Lift per surface of a model that uses a wall-overlay material: LOD0
+/// surfaces get the LOD0 lift, LOD1+ surfaces the LOD1 lift. Material names
+/// may already be relocated (`ported/<build>/...`).
+pub(super) fn wall_overlay_lifts(settings: &ConfigValue) -> Result<BTreeMap<String, f32>> {
+    let mut result = BTreeMap::new();
     let Some(ConfigValue::Named(levels)) = settings.named("lod_hierrarchy") else {
         return Ok(result);
     };
@@ -934,9 +937,7 @@ pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeS
         let Some(Ok(lod)) = level.name.strip_prefix("LOD").map(str::parse::<u32>) else {
             continue;
         };
-        if lod == 0 {
-            continue;
-        }
+        let lift = if lod == 0 { WALL_OVERLAY_LOD0_LIFT } else { WALL_OVERLAY_LOD1_LIFT };
         let Some(surfaces) = level.value.named("surfaces") else {
             continue;
         };
@@ -956,7 +957,8 @@ pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeS
                         .strip_suffix(overlay)
                         .is_some_and(|head| head.starts_with("ported/") && head.ends_with('/'))
             }) {
-                result.insert(surface.clone());
+                let entry = result.entry(surface.clone()).or_insert(lift);
+                *entry = entry.max(lift);
             }
         }
     }
@@ -1731,11 +1733,15 @@ mod tests {
             named("material_settings", group(materials.into())),
         ]);
         assert_eq!(
-            wall_overlay_lod_surfaces(&settings).unwrap(),
-            BTreeSet::from(["moss_far".to_owned(), "moss_lod".to_owned()])
+            wall_overlay_lifts(&settings).unwrap(),
+            BTreeMap::from([
+                ("moss_base".to_owned(), WALL_OVERLAY_LOD0_LIFT),
+                ("moss_far".to_owned(), WALL_OVERLAY_LOD1_LIFT),
+                ("moss_lod".to_owned(), WALL_OVERLAY_LOD1_LIFT),
+            ])
         );
         assert!(
-            wall_overlay_lod_surfaces(&ConfigValue::Named(vec![]))
+            wall_overlay_lifts(&ConfigValue::Named(vec![]))
                 .unwrap()
                 .is_empty()
         );

@@ -1828,7 +1828,7 @@ pub fn build(
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
     let mut converted_geometry = BTreeSet::new();
-    let mut overlay_lods: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut overlay_lods: BTreeMap<String, BTreeMap<String, f32>> = BTreeMap::new();
     let mut vegetation_instances = BTreeMap::new();
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -1882,18 +1882,17 @@ pub fn build(
                 if !overlay_lods.contains_key(model) {
                     let settings = format!("{model}.model/settings");
                     let surfaces = if donor.is_file(&settings) {
-                        early::wall_overlay_lod_surfaces(&cfg(&mut donor, &settings)?)
+                        early::wall_overlay_lifts(&cfg(&mut donor, &settings)?)
                             .with_context(|| format!("reading LOD surfaces of {settings}"))?
                     } else {
-                        BTreeSet::new()
+                        BTreeMap::new()
                     };
                     overlay_lods.insert(model.to_owned(), surfaces);
                 }
-                if overlay_lods[model].contains(surface) {
-                    let vertices =
-                        early::lift_along_normals(&mut bytes, early::WALL_OVERLAY_LOD_LIFT)
-                            .with_context(|| format!("lifting wall overlay LOD {path}"))?;
-                    compatibility_notes.push(format!("{path}: wall-overlay LOD surface lifted {} m along its normals ({vertices} vertices; the authored mesh sits up to 8.2 cm inside the wall and flickers in 0.26)", early::WALL_OVERLAY_LOD_LIFT));
+                if let Some(&lift) = overlay_lods[model].get(surface) {
+                    let vertices = early::lift_along_normals(&mut bytes, lift)
+                        .with_context(|| format!("lifting wall overlay {path}"))?;
+                    compatibility_notes.push(format!("{path}: wall-overlay surface lifted {lift} m along its normals ({vertices} vertices; the authored moss sits up to 1.2 cm (LOD0) / 8.2 cm (LOD1) inside the wall and flickers in 0.26)"));
                 }
             }
         }
