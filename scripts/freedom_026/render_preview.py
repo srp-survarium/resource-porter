@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Offline preview of the ported Duty/Freedom exo meshes with a given texture set.
 Mesh loading and the rasteriser follow resource-porter scripts/render-duty-026-icons.py.
-usage: render_preview.py BUNDLE TEXDIR OUTDIR [--views name:yaw:pitch[:zoomx,zoomy,zoomw,zoomh] ...]
+usage: render_preview.py BUNDLE TEXDIR OUTDIR [--omit SURFACE ...] [name:yaw:pitch[:zoomx,zoomy,zoomw,zoomh] ...]
 """
 import sys, struct, numpy as np
 from pathlib import Path
@@ -66,7 +66,12 @@ def main():
     full=[m('torso_s1','torso_s','dolg_exo_torso'),m('torso_s1','sign_s','dol_sign'),m('torso_s1','exoskeleton_s','dold_exo_attach'),
           m('torso_s1','back_s','dold_exo_attach'),m('legs_s1','legs_s','dolg_exo_legs'),m('hand','torso_s','dolg_exo_torso'),
           m('boot','legs_s','dolg_exo_legs'),m('head','helmet_s','dolg_exo_helmet')]
-    views=[a for a in sys.argv[4:]] or ['front:15:6','back:195:6']
+    args=sys.argv[4:]; omit=set()
+    while '--omit' in args:
+        i=args.index('--omit'); omit.add(args[i+1]); del args[i:i+2]
+    parts_=[('torso_s1','torso_s'),('torso_s1','sign_s'),('torso_s1','exoskeleton_s'),('torso_s1','back_s'),('legs_s1','legs_s'),('hand','torso_s'),('boot','legs_s'),('head','helmet_s')]
+    full=[mm for mm,(pt,sf) in zip(full,parts_) if sf not in omit]   # e.g. --omit sign_s: the Freedom set has no chest disc
+    views=args or ['front:15:6','back:195:6']
     for v in views:
         parts=v.split(':'); name,yaw,pitch=parts[0],float(parts[1]),float(parts[2])
         crop=tuple(map(float,parts[3].split(','))) if len(parts)>3 else None
