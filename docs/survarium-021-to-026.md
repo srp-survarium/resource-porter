@@ -50,6 +50,41 @@ Projects are `projects/v021d_level_XX/<weather>_2/client_project`. Mode options
 clone the corresponding native battery mode, changing the project path and
 mode name. Existing loading-screen labels are retained.
 
+A manifest map may also set `map_id`, the mode's
+`match_making_params.map_id` (the server's map number: unset, the native
+level's, so a server counts the import as a weather of the native map; the
+0.26g exe never reads this key), and `name`, its own `ui.map_name` key with a
+text in each of the six client languages (written into every
+`localization/<language>/localization`). The build refuses a number a native
+mode uses, one number for two source levels, and a key a localization has.
+
+The loading screens of 0.21d's maps are the same pictures 0.26g shows for the
+same level and weather (`LobbyMenu._load_images`, byte-identical bitmaps in both
+`lobby_menu.swf`), so the cloned `ui.loading_screen_id` is already the original.
+0.21d's loading screen showed only the picture and the map's name; it had no
+description, and the clone keeps 0.26's mode description.
+
+### Skhid revision 17: RLS Vostok and Mamayev Kurgan
+
+`ports/survarium-021d-two-maps-to-026g.json`: 166 (level_03) and 175
+(level_06), day only, native 0.26 lighting, map numbers 10 and 11, named
+`st_level_10_name` / `st_level_11_name` ("RLS Vostok (v0.21)", "Mamayev
+Kurgan (v0.21)", each language's own name with "(v0.21)"). Built as a bundle,
+converted to a content pack against the stock archive with the released
+patches 12 and 14 (`pack from-bundle --base-patch`), and composed with the
+equipment packs into `resources.db.patch_17`:
+
+```sh
+vostok-port build-survarium021-maps --manifest ports/survarium-021d-two-maps-to-026g.json \
+  --donor-db "$DONOR_021_DB" --target-db "$TARGET_026_DB" --output maps-bundle
+vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch resources.db.patch_12 \
+  --base-patch resources.db.patch_14 --build-base-db "$TARGET_026_DB" \
+  --bundle maps-bundle --output packs/maps-021d-1 --id maps-021d --version 1
+```
+
+Both projects keep 0.21d's respawn points (22 and 20, half each team's) and
+collectors (container 0 is team 1's).
+
 Use the development `match-server-026` and its matching patched 0.26 client;
 these are described in `../srp/servers/match-server-026/README.md`. Pass, for
 example, `--map 166`. Use the imported database in an isolated client directory. The reviewed older
@@ -110,7 +145,17 @@ fixtures have been extended. This importer does not modify SRP.
   are dependencies too: the old electric-anomaly hit composite is absent from
   0.26, and omitting it crashes its sound loader.
 * Stale collision instances use the same donor model's surviving collision or
-  walker-collision payload when its requested counterpart is absent. Two old
+  walker-collision payload when its requested counterpart is absent. A
+  counterpart that is an empty folder node is an authored "no shape" and its
+  instance is omitted instead (as for the 0.20e/0.11e day maps). Before the
+  archive code moved to skhid-srp's `resources-db` crate, the reader missed
+  collision files that share their bytes with another node (0.21d stores
+  `level/03/anomal_tree_0X_`'s walker collision as its bullet collision's
+  bytes, `barrel_stove_01_fire`'s collision as its `hq_collision`'s): 20
+  instances on level_03 (9 anomaly-tree walker instances made bullet ones,
+  `soviet_comp_01`'s the other way) and 10 on level_06 (3 trees, 2 barrel
+  stoves) had the other kind. Every collision instance of the two maps now
+  matches the donor's (1,447 and 864, none changed). Two old
   poplar models (`poplar_04_sux` and `poplar_06_sux`) have no collision payload
   at all: their explicitly reviewed dangling collision instances are omitted.
   Their rendered trees remain. These trees therefore have no added collision.
@@ -140,6 +185,12 @@ the fort's posX changed from -10 to -1.096. They now select their corresponding
 separate HUD image/settings support; the importer does not replace native HUD
 assets. This limitation is distinct from the incorrect level_09 fallback.
 
+For level_03 and level_06 the 0.26 HUD keeps 0.21's settings exactly (size 100,
+posX 14 / posY -42.196 and posX 30 / posY 109) and redraws the same plan: level_03
+has the same outline and buildings with lighter fills; level_06 the same plan,
+with a little more area drawn at its right edge and a slightly different
+bottom-left border. Their 0.26 minimaps fit the 0.21 geometry.
+
 ## Old battery collectors
 
 Both builds use `victory_items_container`, with team, ID, `visual_geometry`
@@ -148,6 +199,18 @@ and `collision_geometries` fields. The model changed from
 the old model, its placement and its authored interaction-zone references,
 and verifies that the two collectors belong to opposing teams and their zones
 exist. The old collector is a static model, with no skeleton/animation to port.
+
+A collector's own `position` is not where it is. 0.21d level_06 has both at
+(30.04, 15.433, 82.267) and (32.398, 12.144, 85.445), in the fire pit 45-56 m
+from their models and zones, and native 0.26 level_06 the same (raised 7.28 m);
+native level_02, 04 and 05 have theirs 13-152 m off too. In 0.26g nothing of
+the container reads it: its cook takes `visual_geometry`'s position, rotation
+and model (and the model's battery locators, 0x232749..0x232791), its load
+`collision_geometries`, team and id (0x2F81F0, 0x31CAD0), its transform is its
+zone's (`usable_object::get_transform` 0x2F8440, vtable +44h of both container
+vtables), the minimap's container marks come from that transform
+(`gather_victory_items_rule::fill_match_hud_state` 0x3140C0), and a deposit is
+a 2 m ray onto the zone. The importer keeps the donor's values.
 
 0.26 spawners add a nested `spawned_item` transform. The importer derives this
 from each old spawner's own transform. Copying a template point would put
