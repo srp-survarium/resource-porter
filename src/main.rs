@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use resources_db::NodeKind;
 use vostok_resource_porter::armor;
 use vostok_resource_porter::config_patch;
 use vostok_resource_porter::dependency;
@@ -726,14 +725,13 @@ enum Command {
         #[arg(long)]
         db: PathBuf,
     },
-    /// Merge a bundle into a target archive and verify every emitted resource.
+    /// Write a whole target archive with a bundle over it (for a build that
+    /// mounts no patches) and verify every emitted resource.
     Apply {
         #[arg(long)]
         base_db: PathBuf,
         #[arg(long)]
         bundle: PathBuf,
-        #[arg(long)]
-        work_dir: PathBuf,
         #[arg(long)]
         output_db: PathBuf,
         #[arg(long)]
@@ -758,7 +756,7 @@ enum Command {
         #[arg(long)]
         overlay: PathBuf,
     },
-    /// Content packs: check, compose, verify and convert legacy bundles.
+    /// Content packs: check, make a patch, compose, verify and convert legacy bundles.
     Pack {
         #[command(subcommand)]
         command: PackCommand,
@@ -774,8 +772,39 @@ enum PackCommand {
         packs: Vec<PathBuf>,
         #[arg(long)]
         base_db: Option<PathBuf>,
+        /// An earlier `resources.db.patch_<n>` over the base (repeatable).
+        #[arg(long = "base-patch", requires = "base_db")]
+        base_patches: Vec<PathBuf>,
     },
-    /// Resolve packs (in the given order) into one overlay and apply it once.
+    /// Make a patch for 0.26g: compose the packs (in the given order) and
+    /// the replacements over the stock database and its earlier patches, and
+    /// write into --out-dir every file that is new or differs from that base;
+    /// with --archive also pack it, `resources.db.patch_<n>`. Writes
+    /// `<out-dir>.json`, the patch's record.
+    Patch {
+        /// The stock resources.db.
+        #[arg(long)]
+        base_db: PathBuf,
+        /// An earlier `resources.db.patch_<n>` over it (repeatable; the game
+        /// mounts them in ascending n, a later one's file wins).
+        #[arg(long = "base-patch")]
+        base_patches: Vec<PathBuf>,
+        #[arg(long = "pack")]
+        packs: Vec<PathBuf>,
+        /// `ARCHIVE_PATH=FILE`: the bytes players have now for a base file
+        /// (e.g. the server's own menus); the packs' edits apply on top.
+        #[arg(long = "replace")]
+        replace: Vec<String>,
+        #[arg(long)]
+        out_dir: PathBuf,
+        /// Pack the folder into this `resources.db.patch_<n>`.
+        #[arg(long)]
+        archive: Option<PathBuf>,
+        #[arg(long)]
+        force: bool,
+    },
+    /// Resolve packs (in the given order) into one overlay and write a whole
+    /// database with it (local runs; players take `pack patch`).
     Compose {
         #[arg(long)]
         base_db: PathBuf,
@@ -791,35 +820,13 @@ enum PackCommand {
         #[arg(long)]
         force: bool,
     },
-    /// Compose packs into the players' final resources.db: the base with a
-    /// same-size head written over its start and a tail appended. Writes
-    /// `<output-db>.json`, the release's record.
-    Release {
-        #[arg(long)]
-        base_db: PathBuf,
-        #[arg(long = "pack", required = true)]
-        packs: Vec<PathBuf>,
-        /// `ARCHIVE_PATH=FILE`: the bytes players have now for a base file
-        /// (e.g. the server's own menus); the packs' edits apply on top.
-        #[arg(long = "replace")]
-        replace: Vec<String>,
-        #[arg(long)]
-        work_dir: PathBuf,
-        #[arg(long)]
-        output_db: PathBuf,
-        /// Signer for the file table: run as `<command> <head> <offset>`.
-        #[arg(long)]
-        sign_command: Option<String>,
-        /// Also compare the bytes of every untouched resource.
-        #[arg(long)]
-        deep_verify: bool,
-        #[arg(long)]
-        force: bool,
-    },
     /// Confirm a database carries every operation of the given packs.
     Verify {
         #[arg(long)]
         db: PathBuf,
+        /// A `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "patch")]
+        patches: Vec<PathBuf>,
         #[arg(long = "pack", required = true)]
         packs: Vec<PathBuf>,
     },
@@ -892,16 +899,13 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Inventory { db } => {
             let archive = ResourceDb::open(db)?;
-            let mut files = 0_u64;
-            let mut stored_bytes = 0_u64;
-            for entry in archive.entries().values() {
-                if matches!(entry.kind, NodeKind::File { .. }) {
-                    files += 1;
-                    stored_bytes += u64::from(entry.size_in_db);
-                }
-            }
-            println!("files={files}");
-            println!("unique_paths={}", archive.entries().len());
+            let stored_bytes: u64 = archive
+                .paths()
+                .filter_map(|path| archive.entry(path))
+                .map(|(_, entry)| u64::from(entry.size))
+                .sum();
+            println!("files={}", archive.file_count());
+            println!("unique_paths={}", archive.paths().count());
             println!("stored_bytes={stored_bytes}");
         }
         Command::List { db, prefix } => {
@@ -912,16 +916,18 @@ fn main() -> Result<()> {
         }
         Command::Stat { db, path } => {
             let archive = ResourceDb::open(db)?;
-            let entry = archive
-                .entries()
-                .get(&path)
-                .ok_or_else(|| anyhow::anyhow!("resource does not exist: {path}"))?;
             println!("path={path}");
-            println!("kind={:?}", entry.kind);
-            println!("size_in_db={}", entry.size_in_db);
-            println!("uncompressed_size={}", entry.uncompressed_size);
-            println!("pos_in_db={}", entry.pos_in_db);
-            println!("inline_buffer_offset={:?}", entry.inline_buffer_offset);
+            if archive.is_empty_folder(&path) {
+                println!("kind=empty_folder");
+            } else {
+                let (_, entry) = archive
+                    .entry(&path)
+                    .ok_or_else(|| anyhow::anyhow!("resource does not exist: {path}"))?;
+                println!("kind=file");
+                println!("size={}", entry.size);
+                println!("offset={}", entry.offset);
+                println!("crc32={:08x}", entry.hash);
+            }
         }
         Command::DumpConfig { file, leaves } => {
             let config = BinaryConfig::parse(&std::fs::read(file)?)?;
@@ -2348,11 +2354,10 @@ fn main() -> Result<()> {
         Command::Apply {
             base_db,
             bundle,
-            work_dir,
             output_db,
             force,
         } => {
-            let sha = weapon::apply_bundle(&base_db, &bundle, &work_dir, &output_db, force)?;
+            let sha = weapon::apply_bundle(&base_db, &bundle, &output_db, force)?;
             println!("output={}", output_db.display());
             println!("sha256={sha}");
         }
@@ -2379,8 +2384,12 @@ fn main() -> Result<()> {
 fn run_pack_command(command: PackCommand) -> Result<()> {
     use vostok_resource_porter::content_pack;
     match command {
-        PackCommand::Check { packs, base_db } => {
-            let report = content_pack::check(&packs, base_db.as_deref())?;
+        PackCommand::Check {
+            packs,
+            base_db,
+            base_patches,
+        } => {
+            let report = content_pack::check(&packs, base_db.as_deref(), &base_patches)?;
             for note in &report.notes {
                 println!("note: {note}");
             }
@@ -2426,14 +2435,13 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             println!("output={}", output_db.display());
             println!("sha256={}", record.output_db.sha256);
         }
-        PackCommand::Release {
+        PackCommand::Patch {
             base_db,
+            base_patches,
             packs,
             replace,
-            work_dir,
-            output_db,
-            sign_command,
-            deep_verify,
+            out_dir,
+            archive,
             force,
         } => {
             let replace = replace
@@ -2445,55 +2453,45 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
                     Ok((path.to_owned(), PathBuf::from(file)))
                 })
                 .collect::<Result<Vec<_>>>()?;
-            let started = std::time::Instant::now();
-            let manifest =
-                content_pack::release::release(&content_pack::release::ReleaseOptions {
-                    base_db: &base_db,
-                    packs: &packs,
-                    replace: &replace,
-                    work_dir: &work_dir,
-                    output_db: &output_db,
-                    sign_command: sign_command.as_deref(),
-                    deep_verify,
-                    force,
-                })?;
-            for note in &manifest.notes {
+            let record = content_pack::patch::patch(&content_pack::patch::PatchOptions {
+                base_db: &base_db,
+                base_patches: &base_patches,
+                packs: &packs,
+                replace: &replace,
+                out_dir: &out_dir,
+                archive: archive.as_deref(),
+                force,
+            })?;
+            for note in &record.notes {
                 println!("note: {note}");
             }
-            for pack in &manifest.packs {
+            for pack in &record.packs {
                 println!("pack={} version={}", pack.id, pack.version);
             }
-            for moved in &manifest.moved_payloads {
-                println!("moved={} {} -> {}", moved.path, moved.from, moved.to);
-            }
-            for replaced in &manifest.replaced {
+            for file in &record.files {
                 println!(
-                    "replaced={} size={} sha256={} in_place={}",
-                    replaced.path, replaced.size, replaced.sha256, replaced.in_place
+                    "{}\t{}\t{}\t{}",
+                    file.path, file.size, file.sha256, file.kind
                 );
             }
-            println!(
-                "head_size={} sha256={}",
-                manifest.head.size, manifest.head.sha256
-            );
-            println!(
-                "tail_size={} sha256={}",
-                manifest.tail.size, manifest.tail.sha256
-            );
-            println!("signature={}", manifest.signature.status);
-            println!("output={}", output_db.display());
-            println!(
-                "output_size={} sha256={}",
-                manifest.output.size, manifest.output.sha256
-            );
+            for path in &record.unchanged {
+                println!("unchanged={path}");
+            }
+            println!("files={}", record.files.len());
+            println!("out_dir={}", out_dir.display());
             println!(
                 "record={}",
-                content_pack::release::record_path(&output_db).display()
+                content_pack::patch::record_path(&out_dir).display()
             );
-            println!("seconds={}", started.elapsed().as_secs());
+            if let Some(archive) = &record.archive {
+                println!(
+                    "archive={} size={} sha256={}",
+                    archive.path, archive.size, archive.sha256
+                );
+            }
         }
-        PackCommand::Verify { db, packs } => {
-            let operations = content_pack::verify(&db, &packs)?;
+        PackCommand::Verify { db, patches, packs } => {
+            let operations = content_pack::verify(&db, &patches, &packs)?;
             println!("verified_operations={operations}");
             println!("verified={}", db.display());
         }

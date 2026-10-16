@@ -984,19 +984,17 @@ pub fn build(
         );
     }
     let forced: BTreeSet<String> = donor
-        .entries()
-        .keys()
+        .paths()
         .filter(|p| {
             donor.is_file(p)
                 && (p.starts_with("textures/")
                     || p.starts_with("material_instances/")
                     || p.ends_with(".veg"))
         })
-        .cloned()
+        .map(str::to_owned)
         .chain(
             donor
-                .entries()
-                .keys()
+                .paths()
                 .filter_map(|p| p.split_once(".model/").map(|(p, _)| format!("{p}.model"))),
         )
         .collect();
@@ -1380,11 +1378,7 @@ mod tests {
         fs::create_dir_all(file.parent().unwrap()).unwrap();
         fs::write(file, b"geometry").unwrap();
         let dbpath = temp.path().join("source.db");
-        resources_db::pack::assemble_to_file(
-            &resources_db::pack::build_src_tree(&root).unwrap(),
-            &dbpath,
-        )
-        .unwrap();
+        crate::archive::write_folder(&root, &dbpath).unwrap();
         let db = ResourceDb::open(dbpath).unwrap();
         let make = |r: &str| named(vec![("lib_name", ConfigValue::String(r.into()))]);
         let project = || {

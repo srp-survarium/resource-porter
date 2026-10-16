@@ -59,17 +59,9 @@ fn cookable(folder: &str, exists: &dyn Fn(&str) -> bool) -> bool {
             .all(|part| exists(&format!("{folder}/{part}")))
 }
 
-/// Any node -- file, folder or link -- at a path.
+/// A file or an empty folder at a path.
 fn present(db: &ResourceDb, path: &str) -> bool {
-    db.entries().get(path).is_some_and(|entry| {
-        matches!(
-            entry.kind,
-            resources_db::NodeKind::File { .. }
-                | resources_db::NodeKind::Folder
-                | resources_db::NodeKind::HardLink
-                | resources_db::NodeKind::SoftLink
-        )
-    })
+    db.contains(path)
 }
 
 /// Drop every `collision_objects` entry whose folder cannot cook.
@@ -184,13 +176,12 @@ pub fn prune_uncookable_collision(base_db: &Path, bundle: &Path) -> Result<Colli
 pub fn audit_database(db: &Path) -> Result<CollisionReport> {
     let mut db = ResourceDb::open(db)?;
     let projects: Vec<String> = db
-        .entries()
-        .keys()
+        .paths()
         .filter(|path| {
             path.starts_with("projects/")
                 && (path.ends_with("/client_project") || path.ends_with("/server_project"))
         })
-        .cloned()
+        .map(str::to_owned)
         .collect();
     let mut report = CollisionReport::default();
     for path in projects {
@@ -210,12 +201,11 @@ pub fn audit_database(db: &Path) -> Result<CollisionReport> {
     // material's decals and sounds.
     let dictionary = crate::target_native_map::load_game_materials(&mut db)?;
     let settings: Vec<String> = db
-        .entries()
-        .keys()
+        .paths()
         .filter(|path| {
             path.ends_with(".model/settings") || path.ends_with(".skinned_model/settings")
         })
-        .cloned()
+        .map(str::to_owned)
         .collect();
     for path in settings {
         let Ok(config) = BinaryConfig::parse(&db.read(&path)?) else {

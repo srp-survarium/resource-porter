@@ -505,10 +505,13 @@ additive overlay directory
 compose zero or more bundles
         |
         v
-apply overlay to an extracted stock database
+0.26g: a patch, the overlay files that differ from the
+stock database (and earlier patches), packed as
+resources.db.patch_<n>; v0.100b: the stock database
+written again with the overlay over it
         |
         v
-pack, reopen, hash-verify, and structurally validate
+reopen, hash-verify, and structurally validate
 ```
 
 The important architectural decision is that conversion and archive packing are
@@ -537,28 +540,37 @@ content inspectable before a multi-gigabyte database is created.
 | `model_validation.rs` | effective-view model/settings/surface validation |
 | `lib.rs` | exposes the modules and central types to the CLI |
 
-`deps/vostok-resources-db` is intentionally separate. It owns the physical
-archive container format. The main crate owns the *meaning* of the files stored
-inside it.
+The archive code is intentionally separate: skhid-srp's `resources-db` crate
+(`srp-026g/crates/resources-db`, a git dependency) owns the physical archive
+container format: the reader, the overlay of an archive and its patches, and
+the writer. The main crate owns the *meaning* of the files stored inside it.
 
 ## `ResourceDb`: the virtual filesystem view
 
-`archive.rs` wraps the low-level archive reader in `ResourceDb`. Its important
+`archive.rs` wraps the crate's reader in `ResourceDb`. Its important
 operations are:
 
-- `open`: index all virtual paths;
+- `open`: index all virtual paths; `open_layers`: the stock archive with its
+  `resources.db.patch_<n>` files over it, as the 0.26g game mounts them (for
+  each path the last archive's file);
 - `contains` and `is_file`: distinguish an exact resource from a folder prefix;
 - `paths_with_prefix`: walk one virtual subtree;
-- `read`: decompress/read one file;
+- `read`: read one file;
 - `extract_file`, `extract_prefix`, and `extract_all`: materialize resources on
   the host filesystem.
 
 The wrapper intentionally stores entries in a `BTreeMap`. This gives stable
 ordering, which in turn makes reports and generated manifests reproducible.
 
-The archive can contain duplicate paths. The retail engine resolves the last
-one, so `ResourceDb::open` inserts paths in archive order and retains the last
-entry in the map.
+An archive that names a path twice, or holds node kinds 0.26g's archive
+has none of (compressed, inlined, soft-linked, erased or external nodes), is
+refused by the reader rather than guessed at; every Survarium archive from
+0.1.1a to 0.26g reads.
+
+`write_over` writes a whole archive again: every base file, with the given
+files added or put in their place, for a build that mounts no patches
+(v0.100b's `apply`). Files that share their bytes in the base (hard links)
+share one copy in the output, as separate file nodes.
 
 `safe_join` prevents a virtual resource path from escaping an output
 directory. Absolute paths, `..`, `.`, and other non-normal components are
@@ -668,8 +680,8 @@ or preserved.
 
 Describes a newer Survarium map reconstructed using explicit v0.100b ABI
 adapters. It contains reviewed material-template overrides, texture aliases,
-game-material translations, collision-family decisions, unsupported-object
-allowlists, and hard-link materialization.
+game-material translations, collision-family decisions and unsupported-object
+allowlists.
 
 ### `Stk2MapSliceManifest`
 
@@ -717,8 +729,9 @@ These four terms have specific meanings in the converter:
   paths;
 - a **bundle** is an overlay plus its build record and optional server metadata;
 - **compose** merges bundles in the specified order and records provenance;
-- **apply** extracts the base database, copies the overlay over it, packs the
-  result, reopens the database, and verifies hashes.
+- **apply** writes the base database again with the overlay over it,
+  reopens it, and verifies hashes (v0.100b); for 0.26g, content packs make a
+  patch instead (`pack patch`, `docs/content-packs.md`).
 
 Composition is ordered: later bundles supersede earlier files at the same
 path. Duplicate paths within one bundle are rejected. Superseding across
@@ -728,8 +741,9 @@ The default design is additive. Existing stock resources remain unless an
 output deliberately targets the same path. This is why AKMN and SKS receive
 new dictionary IDs and new paths instead of replacing AK-74u.
 
-The packer's temporary extracted tree is not an authoritative source. The
-manifest and overlay are. A partial or failed pack can be deleted and rebuilt.
+The manifest and overlay are the authoritative source. A database is written
+to `<output>.partial` and renamed when complete; a failed one can be deleted
+and rebuilt.
 
 ## Resource dependency graphs
 

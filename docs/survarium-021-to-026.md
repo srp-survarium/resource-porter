@@ -25,7 +25,7 @@ vostok-port build-survarium021-maps \
   --donor-db "$DONOR_021_DB" --target-db "$TARGET_026_DB" \
   --output .work/021-to-026/bundle
 vostok-port apply --base-db "$TARGET_026_DB" \
-  --bundle .work/021-to-026/bundle --work-dir .work/021-to-026/apply \
+  --bundle .work/021-to-026/bundle \
   --output-db .work/021-to-026/resources.db
 vostok-port verify --db .work/021-to-026/resources.db \
   --bundle .work/021-to-026/bundle
@@ -268,7 +268,6 @@ vostok-port build-survarium026-fog --target-db "$RETAIL_026_DB" \
   --output .work/026-dense-fog/volume-bundle-v3
 vostok-port apply --base-db "$RETAIL_026_DB" \
   --bundle .work/026-dense-fog/volume-bundle-v3 \
-  --work-dir .work/026-dense-fog/volume-apply-v3 \
   --output-db .work/026-dense-fog/resources-fog-final.db
 ```
 

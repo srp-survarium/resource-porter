@@ -82,7 +82,7 @@ fi
 if [ -z "$CS_FROM_DB" ] && [ ! -e "$B/$meadow/port-manifest.json" ]; then
   rm -rf "$OUT/cs-base" "${B:?}/$meadow"
   "$VP" apply --base-db "$TARGET" --bundle "$B/cs-training_camp-to-0100b" \
-    --work-dir "$OUT/cs-base/work" --output-db "$OUT/cs-base/resources.db"
+    --output-db "$OUT/cs-base/resources.db"
   "$VP" build-soc-map-addon --source-root "$CS" --level mp_training_camp \
     --base-db "$OUT/cs-base/resources.db" \
     --flower-png assets/cs-training-camp-addons/wildflower-atlas.png \
@@ -101,12 +101,11 @@ for w in $FEAR_WORLDS; do
   order+=("lilith-$w-to-0100b")
 done
 
-rm -rf "$OUT/composed" "$OUT/apply-work"
+rm -rf "$OUT/composed"
 "$VP" compose $(printf -- "--bundle $B/%s " "${order[@]}") --output "$OUT/composed"
 "$VP" prune-collision --base-db "$TARGET" --bundle "$OUT/composed"
 mkdir -p "$(dirname "$RELEASE")"
 "$VP" apply --base-db "$TARGET" --bundle "$OUT/composed" \
-  --work-dir "$OUT/apply-work" --output-db "$RELEASE" --force
+  --output-db "$RELEASE" --force
 "$VP" verify --db "$RELEASE" --bundle "$OUT/composed"
 "$VP" validate-models --db "$RELEASE"
-rm -rf "$OUT/apply-work"

@@ -484,7 +484,6 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use resources_db::pack;
     use tempfile::TempDir;
 
     use super::*;
@@ -497,7 +496,7 @@ mod tests {
     }
 
     fn pack_fixture(root: &Path, output: &Path) {
-        pack::assemble_to_file(&pack::build_src_tree(root).unwrap(), output).unwrap();
+        crate::archive::write_folder(root, output).unwrap();
     }
 
     #[test]

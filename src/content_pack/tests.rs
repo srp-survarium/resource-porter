@@ -91,8 +91,7 @@ impl Fixture {
         swf.set_bitmap(atlas::DEFAULT_SYMBOL, &bitmap).unwrap();
         write(&tree, atlas::DEFAULT_SWF, &swf.to_bytes().unwrap());
         let base = temp.path().join("base.db");
-        let source = resources_db::pack::build_src_tree(&tree).unwrap();
-        resources_db::pack::assemble_to_file(&source, &base).unwrap();
+        crate::archive::write_folder(&tree, &base).unwrap();
         Self { temp, base }
     }
 
@@ -140,7 +139,7 @@ impl Fixture {
     }
 
     fn check(&self, packs: &[PathBuf]) -> Result<CheckReport> {
-        check(packs, Some(&self.base))
+        check(packs, Some(&self.base), &[])
     }
 }
 
@@ -194,7 +193,9 @@ fn two_packs_adding_the_same_path_conflict() {
         &[("files/misc/ported/new.bin", b"a")],
     );
     let b = fixture.pack("b", operations, &[("files/misc/ported/new.bin", b"b")]);
-    assert!(error_text(check(&[a, b], None)).contains("both add or replace misc/ported/new.bin"));
+    assert!(
+        error_text(check(&[a, b], None, &[])).contains("both add or replace misc/ported/new.bin")
+    );
 }
 
 #[test]
@@ -205,7 +206,7 @@ fn add_file_rejects_an_existing_base_path() {
         json!([{"op": "add_file", "path": TEXTURE}]),
         &[(&format!("files/{TEXTURE}"), b"x")],
     );
-    assert!(check(std::slice::from_ref(&pack), None).is_ok());
+    assert!(check(std::slice::from_ref(&pack), None, &[]).is_ok());
     assert!(error_text(fixture.check(&[pack])).contains("already exists in the base"));
 }
 
@@ -246,7 +247,7 @@ fn config_set_edits_fields_and_conflicts_on_different_values() {
         json!([{"op": "config_set", "path": ITEM, "values": {"parameters.weight": 3.5, "parameters.new_flag": true}}]),
         &[],
     );
-    assert!(error_text(check(&[a.clone(), other], None)).contains("differently"));
+    assert!(error_text(check(&[a.clone(), other], None, &[])).contains("differently"));
     fixture.compose("set", &[a, same, weight]).unwrap();
     let root = read_config(&mut fixture.output("set"), ITEM);
     // The integer literal follows the stock float type.
@@ -281,7 +282,7 @@ fn overlapping_config_paths_from_different_packs_conflict() {
         json!([{"op": "config_set", "path": ITEM, "values": {"parameters": {"table": {"armor": 1.0}}}}]),
         &[],
     );
-    assert!(error_text(check(&[a, b], None)).contains("conflict"));
+    assert!(error_text(check(&[a, b], None, &[])).contains("conflict"));
 }
 
 #[test]
@@ -301,7 +302,7 @@ fn config_append_extends_arrays() {
     let root = read_config(&mut fixture.output("append"), ITEM);
     let expected: Vec<ConfigValue> = (1..=4).map(ConfigValue::Integer).collect();
     assert_eq!(root.named("list"), Some(&ConfigValue::Indexed(expected)));
-    verify(&fixture.temp.path().join("append.db"), &[a, b]).unwrap();
+    verify(&fixture.temp.path().join("append.db"), &[], &[a, b]).unwrap();
 }
 
 #[test]
@@ -313,7 +314,7 @@ fn dictionary_add_checks_ids_against_base_and_other_packs() {
     };
     let a = fixture.pack("a", add(1810, "gameplay/items/a.options"), &[]);
     let b = fixture.pack("b", add(1810, "gameplay/items/b.options"), &[]);
-    assert!(error_text(check(&[a.clone(), b], None)).contains("both add items_dict id 1810"));
+    assert!(error_text(check(&[a.clone(), b], None, &[])).contains("both add items_dict id 1810"));
     let taken = fixture.pack("taken", add(3, "gameplay/items/c.options"), &[]);
     assert!(error_text(fixture.check(&[taken])).contains("already occupied in the base"));
     let map = fixture.pack(
@@ -334,7 +335,7 @@ fn dictionary_add_checks_ids_against_base_and_other_packs() {
         panic!()
     };
     assert_eq!(maps[1].named("id"), Some(&ConfigValue::Integer(194)));
-    verify(&fixture.temp.path().join("dict.db"), &[a, map]).unwrap();
+    verify(&fixture.temp.path().join("dict.db"), &[], &[a, map]).unwrap();
 }
 
 #[test]
@@ -344,7 +345,7 @@ fn localization_add_conflicts_on_different_text() {
     let a = fixture.pack("a", add("New"), &[]);
     let same = fixture.pack("same", add("New"), &[]);
     let other = fixture.pack("other", add("Other"), &[]);
-    assert!(error_text(check(&[a.clone(), other], None)).contains("different text"));
+    assert!(error_text(check(&[a.clone(), other], None, &[])).contains("different text"));
     let base_clash = fixture.pack(
         "clash",
         json!([{"op": "localization_add", "strings": {"st_stock": "Changed"}}]),
@@ -394,7 +395,7 @@ fn atlas_icons_compose_and_reject_cell_collisions() {
     let icons = |row: u32, col: u32| json!([{"op": "atlas_icons_add", "icons": [{"row": row, "col": col, "source": "icons/i.png", "premultiplied": true}]}]);
     let a = fixture.pack("a", icons(1, 3), &[("icons/i.png", &red)]);
     let b = fixture.pack("b", icons(1, 3), &[("icons/i.png", &blue)]);
-    assert!(error_text(check(&[a.clone(), b], None)).contains("both draw atlas cell [1, 3]"));
+    assert!(error_text(check(&[a.clone(), b], None, &[])).contains("both draw atlas cell [1, 3]"));
     let stock = fixture.pack("stock", icons(1, 1), &[("icons/i.png", &blue)]);
     assert!(error_text(fixture.check(&[stock])).contains("already occupied"));
     let c = fixture.pack("c", icons(2, 3), &[("icons/i.png", &blue)]);
@@ -406,7 +407,7 @@ fn atlas_icons_compose_and_reject_cell_collisions() {
     assert_eq!(bitmap.cell(1, 1).unwrap(), icon(1));
     assert_eq!(bitmap.cell(1, 3).unwrap(), icon(200));
     assert_eq!(bitmap.cell(2, 3).unwrap(), icon(100));
-    verify(&fixture.temp.path().join("atlas.db"), &[a, c]).unwrap();
+    verify(&fixture.temp.path().join("atlas.db"), &[], &[a, c]).unwrap();
 }
 
 #[test]
@@ -421,10 +422,10 @@ fn editing_another_packs_file_requires_a_dependency() {
     );
     let edit = json!([{"op": "config_set", "path": new, "values": {"armor": 0.75}}]);
     let editor = fixture.pack("editor", edit.clone(), &[]);
-    assert!(error_text(check(&[adder.clone(), editor], None)).contains("declare `requires`"));
+    assert!(error_text(check(&[adder.clone(), editor], None, &[])).contains("declare `requires`"));
     let dependent = fixture.pack_with("dependent", edit, &[], json!({"requires": ["adder"]}));
     assert!(
-        error_text(check(&[dependent.clone(), adder.clone()], None))
+        error_text(check(&[dependent.clone(), adder.clone()], None, &[]))
             .contains("must be composed before it")
     );
     fixture.compose("requires", &[adder, dependent]).unwrap();
@@ -520,11 +521,7 @@ fn from_bundle_keeps_only_owned_shared_changes() {
     swf.set_bitmap(atlas::DEFAULT_SYMBOL, &bitmap).unwrap();
     write(&earlier_tree, atlas::DEFAULT_SWF, &swf.to_bytes().unwrap());
     let build_base = fixture.temp.path().join("earlier.db");
-    resources_db::pack::assemble_to_file(
-        &resources_db::pack::build_src_tree(&earlier_tree).unwrap(),
-        &build_base,
-    )
-    .unwrap();
+    crate::archive::write_folder(&earlier_tree, &build_base).unwrap();
 
     // The bundle: whole copies of every shared file, carrying the earlier port too.
     let bundle = fixture.temp.path().join("bundle");
@@ -614,7 +611,7 @@ fn from_bundle_keeps_only_owned_shared_changes() {
     fixture
         .compose("converted", std::slice::from_ref(&output))
         .unwrap();
-    verify(&fixture.temp.path().join("converted.db"), &[output]).unwrap();
+    verify(&fixture.temp.path().join("converted.db"), &[], &[output]).unwrap();
     let mut composed = fixture.output("converted");
     // Field-level edits reproduce the bundle's own copy exactly.
     assert!(semantic_eq(
@@ -627,11 +624,11 @@ fn from_bundle_keeps_only_owned_shared_changes() {
     assert!(!composed.contains("gameplay/items/earlier.options"));
 }
 
-fn release_pack(fixture: &Fixture) -> PathBuf {
-    let scratch = fixture.temp.path().join("release-icons");
+fn new_item_pack(fixture: &Fixture) -> PathBuf {
+    let scratch = fixture.temp.path().join("patch-icons");
     let (_, red) = icon_png(&scratch, "red.png", 200);
     fixture.pack(
-        "release",
+        "new-item",
         json!([
             {"op": "add_file", "path": "gameplay/items/armour/torso/new.options"},
             {"op": "add_file", "path": "misc/new/payload.bin"},
@@ -655,95 +652,207 @@ fn release_pack(fixture: &Fixture) -> PathBuf {
     )
 }
 
-fn release_options<'a>(
+fn patch_options<'a>(
     fixture: &'a Fixture,
+    base_patches: &'a [PathBuf],
     packs: &'a [PathBuf],
     replace: &'a [(String, PathBuf)],
-    sign_command: Option<&'a str>,
     name: &str,
-) -> release::ReleaseOptions<'a> {
+    number: u32,
+) -> patch::PatchOptions<'a> {
     let leak = |path: PathBuf| -> &'a Path { Box::leak(path.into_boxed_path()) };
-    release::ReleaseOptions {
+    patch::PatchOptions {
         base_db: &fixture.base,
+        base_patches,
         packs,
         replace,
-        work_dir: leak(fixture.temp.path().join(format!("rwork-{name}"))),
-        output_db: leak(fixture.temp.path().join(format!("rout-{name}.db"))),
-        sign_command,
-        deep_verify: true,
+        out_dir: leak(fixture.temp.path().join(format!("patch-{name}"))),
+        archive: Some(leak(
+            fixture
+                .temp
+                .path()
+                .join(format!("{name}/resources.db.patch_{number}")),
+        )),
         force: false,
     }
 }
 
-#[test]
-fn release_writes_the_composed_database_over_the_base() {
-    let fixture = Fixture::new();
-    let packs = [release_pack(&fixture)];
-    fixture.compose("full", &packs).unwrap();
-    let options = release_options(&fixture, &packs, &[], None, "plain");
-    let manifest = release::release(&options).unwrap();
-    assert_eq!(manifest.signature.status, "unsigned");
-    let base_len = fs::metadata(&fixture.base).unwrap().len();
-    assert_eq!(manifest.tail.offset, base_len);
-    assert_eq!(manifest.output.size, base_len + manifest.tail.size);
-    assert!(release::record_path(options.output_db).exists());
-
-    // It reads like the composed database, the lobby with its icons too.
-    let mut released = ResourceDb::open(options.output_db).unwrap();
-    let mut composed = fixture.output("full");
-    let paths: Vec<String> = composed
-        .entries()
-        .keys()
-        .filter(|p| composed.is_file(p))
-        .cloned()
-        .collect();
-    let mut base = ResourceDb::open(&fixture.base).unwrap();
-    for path in &paths {
-        let (got, want) = (released.read(path).unwrap(), composed.read(path).unwrap());
-        if path == atlas::DEFAULT_SWF {
-            // The edited movie fits its stock entry: padded there, in place.
-            let stock = base.read(path).unwrap();
-            assert!(got.starts_with(&want) && got.len() == stock.len());
-            assert_eq!(
-                resources_db::pack::crc32(&got),
-                resources_db::pack::crc32(&stock)
-            );
-        } else {
-            assert_eq!(got, want, "{path}");
-        }
-    }
-    // Base bytes past the head are untouched.
-    // Base bytes past the head are untouched, but for files written in place.
-    let mut base_bytes = fs::read(&fixture.base).unwrap();
-    let mut whole = fs::read(options.output_db).unwrap();
-    let head = manifest.head.size as usize;
-    assert_eq!(manifest.in_place.len(), 1);
-    for written in &manifest.in_place {
-        let range = written.offset as usize..(written.offset + written.size) as usize;
-        assert_eq!(sha256_hex(&whole[range.clone()]), written.sha256);
-        whole[range.clone()].fill(0);
-        base_bytes[range].fill(0);
-    }
-    assert_eq!(&whole[head..base_bytes.len()], &base_bytes[head..]);
-    assert_eq!(
-        manifest.head_original_sha256,
-        sha256_hex(&fs::read(&fixture.base).unwrap()[..head])
-    );
-
-    // Deterministic, and refuses to overwrite without --force.
-    assert!(release::release(&options).is_err());
-    let again = release::release(&release::ReleaseOptions {
-        force: true,
-        ..release_options(&fixture, &packs, &[], None, "plain")
-    })
-    .unwrap();
-    assert_eq!(again.output.sha256, manifest.output.sha256);
+fn folder(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    crate::archive::folder_files(dir)
+        .unwrap()
+        .into_iter()
+        .map(|(path, file)| (path, fs::read(file).unwrap()))
+        .collect()
 }
 
 #[test]
-fn release_replaces_base_files_and_draws_icons_on_the_replacement() {
+fn a_patch_holds_what_differs_and_mounts_as_the_composition() {
     let fixture = Fixture::new();
-    let packs = [release_pack(&fixture)];
+    let packs = [new_item_pack(&fixture)];
+    fixture.compose("full", &packs).unwrap();
+    let options = patch_options(&fixture, &[], &packs, &[], "plain", 14);
+    let record = patch::patch(&options).unwrap();
+    assert!(patch::record_path(options.out_dir).exists());
+
+    // The added files and the edited shared ones, nothing the base has.
+    let files = folder(options.out_dir);
+    let mut expected = vec![
+        DICTIONARY.to_owned(),
+        atlas::DEFAULT_SWF.to_owned(),
+        "gameplay/items/armour/torso/new.options".to_owned(),
+        localization_path("english"),
+        localization_path("russian"),
+        "misc/new/payload.bin".to_owned(),
+    ];
+    expected.sort();
+    assert_eq!(files.keys().cloned().collect::<Vec<_>>(), expected);
+    let kinds: BTreeMap<_, _> = record
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file.kind))
+        .collect();
+    assert_eq!(kinds[DICTIONARY], "override");
+    assert_eq!(kinds["misc/new/payload.bin"], "add");
+
+    // The archive is the folder, and the game's view (stock, then the
+    // patch) reads like the whole composed database.
+    let archive = options.archive.unwrap();
+    let mut packed = ResourceDb::open(archive).unwrap();
+    for (path, bytes) in &files {
+        assert_eq!(&packed.read(path).unwrap(), bytes, "{path}");
+    }
+    let mut mounted =
+        ResourceDb::open_layers(&[fixture.base.clone(), archive.to_path_buf()]).unwrap();
+    let mut composed = fixture.output("full");
+    let paths: Vec<String> = composed.paths().map(str::to_owned).collect();
+    assert_eq!(mounted.paths().count(), paths.len());
+    for path in &paths {
+        assert_eq!(
+            mounted.read(path).unwrap(),
+            composed.read(path).unwrap(),
+            "{path}"
+        );
+    }
+    assert_eq!(
+        record.archive.as_ref().unwrap().sha256,
+        sha256_file(archive).unwrap()
+    );
+
+    // Deterministic, and nothing is overwritten without --force.
+    assert!(error_text(patch::patch(&options)).contains("already exists"));
+    let again = patch::patch(&patch::PatchOptions {
+        force: true,
+        ..patch_options(&fixture, &[], &packs, &[], "plain", 14)
+    })
+    .unwrap();
+    assert_eq!(
+        again.archive.unwrap().sha256,
+        record.archive.unwrap().sha256
+    );
+}
+
+fn earlier_layers(fixture: &Fixture, earlier: &[PathBuf]) -> Vec<PathBuf> {
+    patch::base_layers(&fixture.base, earlier).unwrap()
+}
+
+#[test]
+fn a_patch_goes_over_earlier_patches_and_is_named_as_the_game_mounts_it() {
+    let fixture = Fixture::new();
+    let packs = [new_item_pack(&fixture)];
+    let first = patch_options(&fixture, &[], &packs, &[], "first", 14);
+    patch::patch(&first).unwrap();
+    let earlier = [first.archive.unwrap().to_path_buf()];
+
+    // The pack's files are in the base now: adding them again is refused.
+    assert!(
+        error_text(patch::patch(&patch_options(
+            &fixture,
+            &earlier,
+            &packs,
+            &[],
+            "again",
+            15
+        )))
+        .contains("already exists in the base")
+    );
+    // A replacement the base already has as it is makes no patch.
+    let mut mounted = ResourceDb::open_layers(&earlier_layers(&fixture, &earlier)).unwrap();
+    let same = fixture.temp.path().join("same.bin");
+    fs::write(&same, mounted.read(DICTIONARY).unwrap()).unwrap();
+    let replace = [(DICTIONARY.to_owned(), same)];
+    assert!(
+        error_text(patch::patch(&patch_options(
+            &fixture,
+            &earlier,
+            &[],
+            &replace,
+            "same",
+            15
+        )))
+        .contains("no patch")
+    );
+
+    // A new string goes onto the earlier patch's localization, not the
+    // stock one: the earlier patch's string stays.
+    let more = [fixture.pack(
+        "more",
+        json!([{"op": "localization_add", "strings": {"st_more": "More"}}]),
+        &[],
+    )];
+    let second = patch_options(&fixture, &earlier, &more, &[], "second", 15);
+    let record = patch::patch(&second).unwrap();
+    let files = folder(second.out_dir);
+    assert_eq!(
+        files.keys().cloned().collect::<Vec<_>>(),
+        [localization_path("english"), localization_path("russian")]
+    );
+    assert_eq!(record.base_patches.len(), 1);
+    let strings = BinaryConfig::parse(&files[&localization_path("english")])
+        .unwrap()
+        .root;
+    let strings = strings.named("strings").unwrap();
+    assert!(strings.named("st_new").is_some() && strings.named("st_more").is_some());
+
+    // Names the game does not mount, or a patch mounted before an earlier
+    // one, are refused.
+    let wrong = fixture.temp.path().join("resources.db.patch_01");
+    assert!(
+        error_text(patch::patch(&patch::PatchOptions {
+            archive: Some(&wrong),
+            ..patch_options(&fixture, &earlier, &more, &[], "wrong", 15)
+        }))
+        .contains("mounts only")
+    );
+    assert!(
+        error_text(patch::patch(&patch_options(
+            &fixture,
+            &earlier,
+            &more,
+            &[],
+            "low",
+            14
+        )))
+        .contains("mounted before")
+    );
+    let renamed = fixture.temp.path().join("earlier.db");
+    fs::copy(&earlier[0], &renamed).unwrap();
+    assert!(
+        error_text(patch::patch(&patch_options(
+            &fixture,
+            &[renamed],
+            &more,
+            &[],
+            "renamed",
+            15
+        )))
+        .contains("mounts only")
+    );
+}
+
+#[test]
+fn a_patch_takes_the_live_files_and_draws_icons_on_the_live_lobby() {
+    let fixture = Fixture::new();
+    let packs = [new_item_pack(&fixture)];
     let mut base = ResourceDb::open(&fixture.base).unwrap();
     let dir = fixture.temp.path();
     // What players have now: the stock texture as it is, a lobby with a cell
@@ -761,128 +870,36 @@ fn release_replaces_base_files_and_draws_icons_on_the_replacement() {
         (atlas::DEFAULT_SWF.to_owned(), dir.join("lobby.swf")),
         (MODE.to_owned(), dir.join("mode.options")),
     ];
-    let options = release_options(&fixture, &packs, &replace, None, "replace");
-    let manifest = release::release(&options).unwrap();
-    let by_path = |path: &str| manifest.replaced.iter().find(|r| r.path == path).unwrap();
-    assert!(
-        by_path(TEXTURE).in_place,
-        "same size and hash: written over the entry"
-    );
-    assert!(!by_path(MODE).in_place, "another size: into the tail");
-
-    let mut released = ResourceDb::open(options.output_db).unwrap();
-    assert_eq!(released.read(TEXTURE).unwrap(), base.read(TEXTURE).unwrap());
-    assert_eq!(released.read(MODE).unwrap(), mode);
-    assert_eq!(
-        released.entries()[TEXTURE].pos_in_db,
-        base.entries()[TEXTURE].pos_in_db
-    );
+    let options = patch_options(&fixture, &[], &packs, &replace, "live", 14);
+    let record = patch::patch(&options).unwrap();
+    assert_eq!(record.unchanged, [TEXTURE], "the stock bytes: not patched");
+    assert_eq!(record.replaced.len(), 3);
+    let files = folder(options.out_dir);
+    assert!(!files.contains_key(TEXTURE));
+    assert_eq!(files[MODE], mode);
     // The pack's icon is drawn on the live movie: its own cell stays.
-    let movie = atlas::Swf::parse(&released.read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    let movie = atlas::Swf::parse(&files[atlas::DEFAULT_SWF]).unwrap();
     let drawn = movie.bitmap(atlas::DEFAULT_SYMBOL).unwrap();
     assert_eq!(drawn.cell(2, 1).unwrap(), icon(7));
     assert_eq!(drawn.cell(1, 1).unwrap(), icon(1));
     assert_eq!(drawn.cell(2, 3).unwrap(), icon(200));
 
     // A pack may not add or replace a replaced file whole.
-    let other = fixture.pack(
+    let other = [fixture.pack(
         "texture",
         json!([{"op": "replace_file", "path": TEXTURE,
                 "base_sha256": sha256_hex(&base.read(TEXTURE).unwrap())}]),
         &[(&format!("files/{TEXTURE}"), b"other texture")],
-    );
-    let both = [other];
+    )];
     assert!(
-        error_text(release::release(&release_options(
+        error_text(patch::patch(&patch_options(
             &fixture,
-            &both,
+            &[],
+            &other,
             &replace[..1],
-            None,
-            "whole"
+            "whole",
+            14
         )))
         .contains("also replaced from outside")
-    );
-}
-
-#[test]
-fn a_shorter_movie_is_padded_to_its_entry_with_the_entry_hash() {
-    let stock: Vec<u8> = (0..4096u32).map(|i| (i * 7) as u8).collect();
-    let movie = b"FWS movie bytes".to_vec();
-    let fitted = release::in_place_bytes("flash_movies/x.swf", &movie, &stock)
-        .unwrap()
-        .unwrap();
-    assert_eq!(fitted.len(), stock.len());
-    assert!(fitted.starts_with(&movie));
-    assert_eq!(
-        resources_db::pack::crc32(&fitted),
-        resources_db::pack::crc32(&stock)
-    );
-    // Only movies are padded, and only when they fit.
-    assert!(
-        release::in_place_bytes("misc/x.bin", &movie, &stock)
-            .unwrap()
-            .is_none()
-    );
-    let long = vec![1u8; stock.len() - 3];
-    assert!(
-        release::in_place_bytes("flash_movies/x.swf", &long, &stock)
-            .unwrap()
-            .is_none()
-    );
-}
-
-#[cfg(unix)]
-fn signer(fixture: &Fixture, name: &str, body: &str) -> String {
-    use std::os::unix::fs::PermissionsExt;
-    let path = fixture.temp.path().join(name);
-    fs::write(&path, format!("#!/bin/sh\nset -e\n{body}\n")).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
-    path.display().to_string()
-}
-
-#[cfg(unix)]
-#[test]
-fn release_signs_only_the_signature_slot() {
-    let fixture = Fixture::new();
-    let packs = [release_pack(&fixture)];
-    let good = signer(
-        &fixture,
-        "good.sh",
-        "printf 'S%.0s' $(seq 256) | dd of=\"$1\" bs=1 seek=\"$2\" conv=notrunc status=none",
-    );
-    let options = release_options(&fixture, &packs, &[], Some(&good), "good");
-    let manifest = release::release(&options).unwrap();
-    assert_eq!(manifest.signature.status, "signed");
-    let db = fs::read(options.output_db).unwrap();
-    let slot = manifest.signature.offset as usize;
-    assert!(db[slot..slot + 256].iter().all(|b| *b == b'S'));
-    let table = u32::from_le_bytes(db[20..24].try_into().unwrap()) as usize;
-    assert_eq!(slot, 24 + table, "the slot follows the file table");
-
-    let stray = signer(
-        &fixture,
-        "stray.sh",
-        "printf 'X' | dd of=\"$1\" bs=1 seek=0 conv=notrunc status=none",
-    );
-    assert!(
-        error_text(release::release(&release_options(
-            &fixture,
-            &packs,
-            &[],
-            Some(&stray),
-            "stray"
-        )))
-        .contains("outside the signature slot")
-    );
-    let lazy = signer(&fixture, "lazy.sh", "true");
-    assert!(
-        error_text(release::release(&release_options(
-            &fixture,
-            &packs,
-            &[],
-            Some(&lazy),
-            "lazy"
-        )))
-        .contains("left the signature slot empty")
     );
 }
