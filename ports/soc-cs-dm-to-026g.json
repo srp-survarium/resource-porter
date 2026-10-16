@@ -13,7 +13,89 @@
       "hud_key": "soc_mp_pool",
       "map_name": "Pool",
       "height_ambient": true,
-      "skylight_probe": {"gain": 0.8, "native_tint": true},
+      "skylight_probe": {
+        "gain": 0.8,
+        "native_tint": true,
+        "interiors": [
+          {
+            "name": "room_00",
+            "centre": [20.69, 2.55, -49.31],
+            "half": [11.5, 3.09, 6.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 276 m2 under cover, mean sky visibility 0.00 (77% of the box covered)"
+          },
+          {
+            "name": "room_01",
+            "centre": [15.69, 1.82, -24.81],
+            "half": [6.5, 2.33, 5.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 143 m2 under cover, mean sky visibility 0.00 (72% of the box covered)"
+          },
+          {
+            "name": "room_02",
+            "centre": [26.69, 1.8, -24.81],
+            "half": [5.5, 2.35, 5.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 121 m2 under cover, mean sky visibility 0.00 (72% of the box covered)"
+          },
+          {
+            "name": "room_03",
+            "centre": [7.19, 1.82, -47.31],
+            "half": [3.0, 2.33, 8.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 96 m2 under cover, mean sky visibility 0.00 (85% of the box covered)"
+          },
+          {
+            "name": "room_04",
+            "centre": [7.19, 1.77, -26.31],
+            "half": [3.0, 2.38, 7.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 84 m2 under cover, mean sky visibility 0.00 (91% of the box covered)"
+          },
+          {
+            "name": "room_05",
+            "centre": [28.69, 5.51, -37.31],
+            "half": [4.5, 9.21, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 72 m2 under cover, mean sky visibility 0.00 (75% of the box covered)"
+          },
+          {
+            "name": "room_06",
+            "centre": [27.19, -1.63, -31.31],
+            "half": [6.0, 1.8, 3.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 72 m2 under cover, mean sky visibility 0.00 (76% of the box covered)"
+          },
+          {
+            "name": "room_07",
+            "centre": [7.19, 1.83, -36.31],
+            "half": [3.0, 2.33, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 48 m2 under cover, mean sky visibility 0.00 (91% of the box covered)"
+          },
+          {
+            "name": "room_08",
+            "centre": [17.69, -1.63, -29.81],
+            "half": [2.5, 1.8, 4.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 45 m2 under cover, mean sky visibility 0.00 (84% of the box covered)"
+          },
+          {
+            "name": "room_09",
+            "centre": [17.69, -1.55, -45.31],
+            "half": [2.5, 1.72, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 40 m2 under cover, mean sky visibility 0.00 (75% of the box covered)"
+          },
+          {
+            "name": "room_10",
+            "centre": [9.69, 1.65, -45.31],
+            "half": [2.5, 4.92, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 40 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+          }
+        ]
+      },
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: SoC testers_mp_pool level.game: every actor rpoint (35, all team 0 = deathmatch)",
         "respawns": [
@@ -400,7 +482,75 @@
       "hud_key": "cs_training_camp",
       "map_name": "Training Camp",
       "height_ambient": true,
-      "skylight_probe": {"gain": 0.8, "native_tint": true},
+      "skylight_probe": {
+        "gain": 0.8,
+        "native_tint": true,
+        "interiors": [
+          {
+            "name": "room_00",
+            "centre": [31.59, 4.57, -58.84],
+            "half": [6.0, 3.77, 4.5],
+            "diffuse": 0.51,
+            "reason": "interior_probes.py: 108 m2 under cover, mean sky visibility 0.04 (84% of the box covered)"
+          },
+          {
+            "name": "room_01",
+            "centre": [41.09, 2.02, 3.16],
+            "half": [3.5, 3.31, 6.5],
+            "diffuse": 0.52,
+            "reason": "interior_probes.py: 91 m2 under cover, mean sky visibility 0.05 (81% of the box covered)"
+          },
+          {
+            "name": "room_02",
+            "centre": [-0.41, 1.51, 3.66],
+            "half": [4.0, 2.83, 5.0],
+            "diffuse": 0.55,
+            "reason": "interior_probes.py: 80 m2 under cover, mean sky visibility 0.07 (95% of the box covered)"
+          },
+          {
+            "name": "room_03",
+            "centre": [14.59, 1.27, -17.84],
+            "half": [4.0, 2.55, 4.5],
+            "diffuse": 0.49,
+            "reason": "interior_probes.py: 72 m2 under cover, mean sky visibility 0.03 (73% of the box covered)"
+          },
+          {
+            "name": "room_04",
+            "centre": [12.59, 2.5, -10.84],
+            "half": [5.0, 3.82, 3.5],
+            "diffuse": 0.53,
+            "reason": "interior_probes.py: 70 m2 under cover, mean sky visibility 0.05 (78% of the box covered)"
+          },
+          {
+            "name": "room_05",
+            "centre": [11.59, 1.54, 18.66],
+            "half": [4.0, 2.82, 4.0],
+            "diffuse": 0.54,
+            "reason": "interior_probes.py: 64 m2 under cover, mean sky visibility 0.06 (71% of the box covered)"
+          },
+          {
+            "name": "room_06",
+            "centre": [5.59, 4.43, -13.84],
+            "half": [3.0, 5.89, 4.5],
+            "diffuse": 0.47,
+            "reason": "interior_probes.py: 54 m2 under cover, mean sky visibility 0.01 (72% of the box covered)"
+          },
+          {
+            "name": "room_07",
+            "centre": [11.59, 4.34, 27.16],
+            "half": [4.0, 5.59, 2.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 40 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+          },
+          {
+            "name": "room_08",
+            "centre": [5.59, 7.14, 22.66],
+            "half": [3.0, 8.39, 3.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 36 m2 under cover, mean sky visibility 0.00 (72% of the box covered)"
+          }
+        ]
+      },
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_training_camp level.game: the 14 team-0 actor rpoints with the deathmatch bit (0x2); team bases (0x4) left out",
         "respawns": [
@@ -520,7 +670,96 @@
       "hud_key": "cs_mp_rembasa",
       "map_name": "Repair Depot",
       "height_ambient": true,
-      "skylight_probe": {"gain": 0.8, "native_tint": true},
+      "skylight_probe": {
+        "gain": 0.8,
+        "native_tint": true,
+        "interiors": [
+          {
+            "name": "room_00",
+            "centre": [-16.67, 1.9, -13.33],
+            "half": [8.0, 2.14, 7.5],
+            "diffuse": 0.46,
+            "reason": "interior_probes.py: 240 m2 under cover, mean sky visibility 0.01 (79% of the box covered)"
+          },
+          {
+            "name": "room_01",
+            "centre": [-46.17, 2.35, 5.67],
+            "half": [4.5, 2.86, 7.5],
+            "diffuse": 0.55,
+            "reason": "interior_probes.py: 135 m2 under cover, mean sky visibility 0.07 (77% of the box covered)"
+          },
+          {
+            "name": "room_02",
+            "centre": [-7.17, 2.16, 17.67],
+            "half": [6.5, 2.54, 4.5],
+            "diffuse": 0.54,
+            "reason": "interior_probes.py: 117 m2 under cover, mean sky visibility 0.06 (71% of the box covered)"
+          },
+          {
+            "name": "room_03",
+            "centre": [-46.17, 2.29, -5.33],
+            "half": [4.5, 2.9, 3.5],
+            "diffuse": 0.58,
+            "reason": "interior_probes.py: 63 m2 under cover, mean sky visibility 0.09 (83% of the box covered)"
+          },
+          {
+            "name": "room_04",
+            "centre": [-32.67, 2.46, -16.83],
+            "half": [5.0, 2.62, 3.0],
+            "diffuse": 0.53,
+            "reason": "interior_probes.py: 60 m2 under cover, mean sky visibility 0.05 (87% of the box covered)"
+          },
+          {
+            "name": "room_05",
+            "centre": [6.83, 9.16, 27.67],
+            "half": [5.5, 9.59, 2.5],
+            "diffuse": 0.53,
+            "reason": "interior_probes.py: 55 m2 under cover, mean sky visibility 0.05 (80% of the box covered)"
+          },
+          {
+            "name": "room_06",
+            "centre": [-20.17, 2.16, 11.17],
+            "half": [4.5, 2.58, 3.0],
+            "diffuse": 0.55,
+            "reason": "interior_probes.py: 54 m2 under cover, mean sky visibility 0.07 (75% of the box covered)"
+          },
+          {
+            "name": "room_07",
+            "centre": [44.83, 2.09, 15.67],
+            "half": [3.5, 2.65, 3.5],
+            "diffuse": 0.54,
+            "reason": "interior_probes.py: 49 m2 under cover, mean sky visibility 0.06 (72% of the box covered)"
+          },
+          {
+            "name": "room_08",
+            "centre": [-39.67, 2.5, -15.83],
+            "half": [3.0, 2.63, 4.0],
+            "diffuse": 0.5,
+            "reason": "interior_probes.py: 48 m2 under cover, mean sky visibility 0.03 (89% of the box covered)"
+          },
+          {
+            "name": "room_09",
+            "centre": [-15.17, 1.89, -3.83],
+            "half": [3.5, 2.15, 3.0],
+            "diffuse": 0.51,
+            "reason": "interior_probes.py: 42 m2 under cover, mean sky visibility 0.04 (87% of the box covered)"
+          },
+          {
+            "name": "room_10",
+            "centre": [-17.17, 3.6, 29.17],
+            "half": [2.5, 4.47, 4.0],
+            "diffuse": 0.64,
+            "reason": "interior_probes.py: 40 m2 under cover, mean sky visibility 0.13 (71% of the box covered)"
+          },
+          {
+            "name": "room_11",
+            "centre": [5.83, 3.25, 3.67],
+            "half": [3.5, 3.46, 2.5],
+            "diffuse": 0.61,
+            "reason": "interior_probes.py: 35 m2 under cover, mean sky visibility 0.10 (83% of the box covered)"
+          }
+        ]
+      },
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_rembasa level.game: the 19 team-0 actor rpoints with the deathmatch bit (0x2)",
         "respawns": [
@@ -680,7 +919,96 @@
       "hud_key": "cs_mp_sport_center",
       "map_name": "Sports Center",
       "height_ambient": true,
-      "skylight_probe": {"gain": 0.8, "native_tint": true},
+      "skylight_probe": {
+        "gain": 0.8,
+        "native_tint": true,
+        "interiors": [
+          {
+            "name": "room_00",
+            "centre": [-82.26, 5.45, -44.04],
+            "half": [19.0, 7.2, 17.5],
+            "diffuse": 0.55,
+            "reason": "interior_probes.py: 1330 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+          },
+          {
+            "name": "room_01",
+            "centre": [-49.76, 6.2, -36.04],
+            "half": [14.5, 7.94, 17.5],
+            "diffuse": 0.55,
+            "reason": "interior_probes.py: 1015 m2 under cover, mean sky visibility 0.00 (95% of the box covered)"
+          },
+          {
+            "name": "room_02",
+            "centre": [-76.26, 2.07, -19.54],
+            "half": [13.0, 2.58, 8.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 416 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+          },
+          {
+            "name": "room_03",
+            "centre": [-47.76, 6.57, -57.54],
+            "half": [20.5, 3.2, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 328 m2 under cover, mean sky visibility 0.00 (99% of the box covered)"
+          },
+          {
+            "name": "room_04",
+            "centre": [-25.26, 1.82, -26.54],
+            "half": [9.0, 2.33, 8.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 288 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+          },
+          {
+            "name": "room_05",
+            "centre": [-47.76, 6.57, -15.04],
+            "half": [20.5, 3.2, 3.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 287 m2 under cover, mean sky visibility 0.00 (99% of the box covered)"
+          },
+          {
+            "name": "room_06",
+            "centre": [-25.26, 1.82, -45.04],
+            "half": [9.0, 2.33, 7.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 270 m2 under cover, mean sky visibility 0.00 (72% of the box covered)"
+          },
+          {
+            "name": "room_07",
+            "centre": [-87.76, 3.97, -33.54],
+            "half": [8.5, 8.22, 7.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 238 m2 under cover, mean sky visibility 0.00 (74% of the box covered)"
+          },
+          {
+            "name": "room_08",
+            "centre": [-87.76, 3.32, -25.04],
+            "half": [8.5, 8.46, 5.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 187 m2 under cover, mean sky visibility 0.00 (84% of the box covered)"
+          },
+          {
+            "name": "room_09",
+            "centre": [-94.76, 6.08, -17.54],
+            "half": [6.5, 6.58, 5.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 130 m2 under cover, mean sky visibility 0.00 (84% of the box covered)"
+          },
+          {
+            "name": "room_10",
+            "centre": [-22.26, 5.8, -57.54],
+            "half": [6.0, 4.99, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 96 m2 under cover, mean sky visibility 0.00 (82% of the box covered)"
+          },
+          {
+            "name": "room_11",
+            "centre": [-22.26, 6.25, -15.04],
+            "half": [6.0, 5.37, 3.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 84 m2 under cover, mean sky visibility 0.00 (85% of the box covered)"
+          }
+        ]
+      },
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_sport_center level.game: the 32 team-0 actor rpoints with the deathmatch bit (0x2)",
         "respawns": [
@@ -941,7 +1269,96 @@
       "hud_key": "cs_mp_firestation",
       "map_name": "Fire Station",
       "height_ambient": true,
-      "skylight_probe": {"gain": 0.8, "native_tint": true},
+      "skylight_probe": {
+        "gain": 0.8,
+        "native_tint": true,
+        "interiors": [
+          {
+            "name": "room_00",
+            "centre": [-18.5, 6.87, 7.34],
+            "half": [8.0, 3.2, 18.5],
+            "diffuse": 0.46,
+            "reason": "interior_probes.py: 592 m2 under cover, mean sky visibility 0.01 (83% of the box covered)"
+          },
+          {
+            "name": "room_01",
+            "centre": [29.0, 1.55, 16.84],
+            "half": [10.5, 2.7, 13.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 546 m2 under cover, mean sky visibility 0.00 (78% of the box covered)"
+          },
+          {
+            "name": "room_02",
+            "centre": [-19.0, 8.62, 29.34],
+            "half": [7.5, 2.45, 4.5],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 135 m2 under cover, mean sky visibility 0.00 (94% of the box covered)"
+          },
+          {
+            "name": "room_03",
+            "centre": [10.0, 7.02, 13.34],
+            "half": [5.5, 3.26, 5.5],
+            "diffuse": 0.46,
+            "reason": "interior_probes.py: 121 m2 under cover, mean sky visibility 0.01 (76% of the box covered)"
+          },
+          {
+            "name": "room_04",
+            "centre": [10.5, 11.94, 27.84],
+            "half": [5.0, 2.2, 5.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 100 m2 under cover, mean sky visibility 0.00 (90% of the box covered)"
+          },
+          {
+            "name": "room_05",
+            "centre": [43.0, 1.55, 18.84],
+            "half": [4.5, 2.7, 5.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 90 m2 under cover, mean sky visibility 0.00 (97% of the box covered)"
+          },
+          {
+            "name": "room_06",
+            "centre": [44.0, 9.3, 10.84],
+            "half": [7.5, 2.75, 3.0],
+            "diffuse": 0.46,
+            "reason": "interior_probes.py: 90 m2 under cover, mean sky visibility 0.00 (70% of the box covered)"
+          },
+          {
+            "name": "room_07",
+            "centre": [-61.0, 12.56, 16.84],
+            "half": [4.5, 2.2, 4.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 72 m2 under cover, mean sky visibility 0.00 (79% of the box covered)"
+          },
+          {
+            "name": "room_08",
+            "centre": [-30.5, 8.93, 20.84],
+            "half": [4.0, 2.7, 4.0],
+            "diffuse": 0.46,
+            "reason": "interior_probes.py: 64 m2 under cover, mean sky visibility 0.01 (86% of the box covered)"
+          },
+          {
+            "name": "room_09",
+            "centre": [-62.0, 10.14, 40.34],
+            "half": [4.5, 3.63, 3.5],
+            "diffuse": 0.57,
+            "reason": "interior_probes.py: 63 m2 under cover, mean sky visibility 0.08 (88% of the box covered)"
+          },
+          {
+            "name": "room_10",
+            "centre": [-53.0, 7.95, 8.84],
+            "half": [5.5, 3.19, 2.0],
+            "diffuse": 0.54,
+            "reason": "interior_probes.py: 44 m2 under cover, mean sky visibility 0.06 (87% of the box covered)"
+          },
+          {
+            "name": "room_11",
+            "centre": [-65.0, 11.57, 29.84],
+            "half": [3.5, 3.19, 3.0],
+            "diffuse": 0.45,
+            "reason": "interior_probes.py: 42 m2 under cover, mean sky visibility 0.00 (70% of the box covered)"
+          }
+        ]
+      },
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_firestation level.game: the 47 team-0 actor rpoints with the deathmatch bit (0x2), 4 dropped in ladder-only pockets",
         "respawns": [

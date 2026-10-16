@@ -229,6 +229,34 @@ Not done: the loading screen. It is `lobby_menu.swf`'s
 `_load_images[ui.loading_screen_id]` (`LobbyMenu.set_loading_level`); a new
 image needs a lobby_menu patch of the same kind.
 
+## Interior probes
+
+0.10b lit the converted rooms like open ground: its skylight is one ambient
+cube, darkened only by SSAO. The skylight probe that ports it to 0.26 is
+equally flat indoors. Native 0.26 maps darken interiors with box probes, so
+`skylight_probe.interiors` lists box probes per map. Each uses the skylight
+cube at `diffuse` times the map-wide strength (specular and ambient alike).
+
+- **Box contract:** the box is the unit cube (−1..1) under the probe
+  transform, so `scale` holds half extents. The native level_03 `indoor` box
+  is a 26 × 12.6 × 43 m hall at scale 13.16, 6.32, 21.71. The inner box is
+  the half extents minus `probe_side_width`, and the probe fades smoothly
+  between the two. The width is 1 m here, so the transition sits at walls
+  and doorways. `radius` only orders the draws (largest first). It is set to
+  0.75 × the largest half extent, as 0.10b derives it, so every box draws
+  over the map-wide sphere.
+- **Proposal:** `tools/playable-map-pack/interior_probes.py` proposes the
+  boxes.
+  - Sky visibility is measured on every reachable 1 m floor cell: 48 upper
+    hemisphere rays through a 0.5 m voxelization of the collision, glass
+    faces excluded.
+  - Cells with visibility under 0.2 are grouped per storey into boxes that
+    are at least 70% covered, at most 12 per map.
+  - Boxes run floor to ceiling plus 0.5 m past the covered cells.
+  - `diffuse` is 0.45 for a closed room, up to 0.75 as visibility rises, plus
+    0.1 for halls over 600 m².
+  - Rerun it with `--write` after the geometry changes.
+
 ## Checks
 
 - `verify_shader_variants.py --templates`: 751 materials proven against

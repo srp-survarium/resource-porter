@@ -39,7 +39,36 @@ pub struct SkylightProbe {
     /// skylight (0.816, 0.897, 1.0), which reads blue under 0.26's grading.
     #[serde(default)]
     pub native_tint: bool,
+    /// Box probes that darken covered interiors. 0.10b's skylight lit every
+    /// room like open ground (only SSAO darkened it); native 0.26 maps place
+    /// box probes with low multipliers over their interiors instead. Each box
+    /// uses the same cube at `diffuse` times the map-wide probe's strength.
+    /// Proposed from sky visibility by tools/playable-map-pack/interior_probes.py.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interiors: Vec<InteriorBox>,
 }
+
+/// One interior box probe, in world coordinates.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct InteriorBox {
+    pub name: String,
+    pub centre: [f32; 3],
+    /// Half extents along the box's own axes (x, y up, z) before `yaw`.
+    pub half: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
+    /// Strength relative to the map-wide skylight probe (diffuse, and
+    /// specular alike).
+    pub diffuse: f32,
+    pub reason: String,
+}
+
+/// Width of a box probe's falloff (metres inside each face). 0.26 builds the
+/// inner box by subtracting `probe_side_width` from each half extent and
+/// fades smoothly between the inner and outer box (box PS: `t = saturate((
+/// |q| * outer - inner) / (outer - inner))`, alpha = prod(1 - smoothstep)).
+pub const INTERIOR_SIDE_WIDTH: f32 = 1.0;
 
 fn default_gain() -> f32 {
     2.5
@@ -58,6 +87,7 @@ impl Default for SkylightProbe {
             specular: default_specular(),
             margin: default_margin(),
             native_tint: false,
+            interiors: Vec::new(),
         }
     }
 }
@@ -308,6 +338,98 @@ fn global_template(target_project: &ConfigValue) -> Result<&ConfigValue> {
         .context("native template has no sphere probe")
 }
 
+/// The native template's box probe: the indoor box (geometry 1) with the
+/// largest volume.
+fn box_template(target_project: &ConfigValue) -> Result<&ConfigValue> {
+    array(target_project.named("client_objects").context("target objects")?)?
+        .iter()
+        .filter(|o| string(o, "game_object_type") == Some("environment_probe"))
+        .filter(|o| matches!(o.named("geometry"), Some(ConfigValue::Integer(1))))
+        .filter(|o| string(o, "full_name").is_some_and(|n| n.contains("indoor")))
+        .max_by(|a, b| {
+            let v = |o: &ConfigValue| match o.named("scale") {
+                Some(ConfigValue::Float3(s)) => s[0] * s[1] * s[2],
+                _ => 0.0,
+            };
+            v(a).total_cmp(&v(b))
+        })
+        .context("native template has no indoor box probe")
+}
+
+fn scalar(value: Option<&ConfigValue>) -> Option<f32> {
+    match value {
+        Some(ConfigValue::Float(v)) => Some(*v),
+        Some(ConfigValue::Integer(v)) => Some(*v as f32),
+        _ => None,
+    }
+}
+
+/// A native box probe object for `entry`, cloned from `template`.
+///
+/// The box is the unit cube (-1..1) under the probe transform, so `scale`
+/// holds half extents (0.10b environment_probe.cpp: the transform's scale,
+/// geometry_primitives.cpp cube_solid; native level_03 "indoor" boxes are
+/// 26 x 12.6 x 43 m halls at scale 13.16, 6.32, 21.71). `radius` only orders
+/// the probe draws (largest first): 0.75 x the largest half extent, as 0.10b
+/// derives it, so every box draws over the map-wide sphere.
+pub fn box_probe(
+    template: &ConfigValue,
+    entry: &InteriorBox,
+    texture: &str,
+    variant: &str,
+    specular: f32,
+    ambient: f32,
+) -> Result<ConfigValue> {
+    ensure!(
+        entry.centre.iter().chain(&entry.half).all(|v| v.is_finite()) && entry.yaw.is_finite(),
+        "non-finite interior box {}",
+        entry.name
+    );
+    ensure!(
+        entry.half.iter().all(|h| *h > INTERIOR_SIDE_WIDTH + 0.25 && *h < 200.0),
+        "interior box {} must be {}..200 m in each half extent",
+        entry.name,
+        INTERIOR_SIDE_WIDTH + 0.25
+    );
+    ensure!(
+        entry.diffuse.is_finite() && entry.diffuse > 0.0 && entry.diffuse <= 1.5,
+        "interior box {} diffuse {} outside 0..1.5",
+        entry.name,
+        entry.diffuse
+    );
+    ensure!(
+        !entry.name.is_empty() && entry.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'),
+        "interior box name must be [A-Za-z0-9_]+"
+    );
+    let mut probe = template.clone();
+    probe.set_path("geometry", ConfigValue::Integer(1))?;
+    probe.set_path("position", ConfigValue::Float3(entry.centre))?;
+    probe.set_path("rotation", ConfigValue::Float3([0.0, entry.yaw, 0.0]))?;
+    probe.set_path("scale", ConfigValue::Float3(entry.half))?;
+    let largest = entry.half.iter().fold(0.0f32, |m, v| m.max(*v));
+    probe.set_path("radius", ConfigValue::Float(0.75 * largest))?;
+    probe.set_path("probe_side_width", ConfigValue::Float(INTERIOR_SIDE_WIDTH))?;
+    probe.set_path("texture", ConfigValue::String(texture.into()))?;
+    probe.set_path(
+        "textures",
+        ConfigValue::Named(vec![
+            NamedValue { name: variant.into(), value: ConfigValue::String(texture.into()) },
+            NamedValue { name: "default".into(), value: ConfigValue::String(texture.into()) },
+        ]),
+    )?;
+    probe.set_path("diffuse_multiplier", ConfigValue::Float(entry.diffuse))?;
+    probe.set_path("specular_multiplier", ConfigValue::Float(specular * entry.diffuse))?;
+    probe.set_path("ambient_multiplier", ConfigValue::Float(ambient * entry.diffuse))?;
+    probe.set_path("enabled", ConfigValue::Boolean(true))?;
+    probe.set_path("is_temporary", ConfigValue::Boolean(false))?;
+    probe.set_path("name", ConfigValue::String(format!("interior_{}", entry.name)))?;
+    probe.set_path(
+        "full_name",
+        ConfigValue::String(format!("environment_and_lights/probes/interior_{}", entry.name)),
+    )?;
+    Ok(probe)
+}
+
 /// Texture paths of the generated probe, as the probe object names them.
 pub fn texture_name(map: &Map, source: SourceBuild) -> String {
     let project = map
@@ -399,6 +521,25 @@ pub(super) fn emit(
             .context("converted scene has no environment")?;
         environment.set_path("properties.height_based_ambient_high_color", native)?;
     }
+    let boxes = if settings.interiors.is_empty() {
+        Vec::new()
+    } else {
+        let box_template = box_template(target_project)?;
+        let ambient = scalar(template.named("ambient_multiplier")).context("global probe ambient multiplier")?;
+        let mut names = BTreeSet::new();
+        let mut out = Vec::new();
+        for entry in &settings.interiors {
+            ensure!(names.insert(entry.name.clone()), "duplicate interior box {}", entry.name);
+            ensure!(
+                (0..3).all(|c| (entry.centre[c] - centre[c]).abs() + entry.half.iter().fold(0.0f32, |m, v| m.max(*v)) < radius),
+                "interior box {} reaches outside the skylight sphere",
+                entry.name
+            );
+            out.push(box_probe(box_template, entry, &name, &map.variant(), settings.specular, ambient)?);
+        }
+        out
+    };
+    let box_count = boxes.len();
     let mut probe = template;
     probe.set_path("position", ConfigValue::Float3(centre))?;
     probe.set_path("rotation", ConfigValue::Float3([0.0; 3]))?;
@@ -425,8 +566,9 @@ pub(super) fn emit(
         bail!("project objects are not an array");
     };
     objects.push(probe);
+    objects.extend(boxes);
     Ok(format!(
-        "{}: skylight probe (0.10b skylight in 0.26's probe contract): sphere at [{:.1}, {:.1}, {:.1}] radius {radius:.1} m over the render bounds; cube = source ambient cube x {}, specular {}, height-ambient colour from the {}; faces {:?}",
+        "{}: skylight probe (0.10b skylight in 0.26's probe contract): sphere at [{:.1}, {:.1}, {:.1}] radius {radius:.1} m over the render bounds; cube = source ambient cube x {}, specular {}, height-ambient colour from the {}; {box_count} interior box probes; faces {:?}",
         map.donor_project(source),
         centre[0],
         centre[1],
@@ -521,6 +663,92 @@ mod tests {
                     assert!(v.is_finite() && v > 1.0 && v < 2.8, "texel decodes to {v}");
                 }
             }
+        }
+    }
+
+    fn named(fields: &[(&str, ConfigValue)]) -> ConfigValue {
+        ConfigValue::Named(
+            fields.iter().map(|(n, v)| NamedValue { name: (*n).into(), value: v.clone() }).collect(),
+        )
+    }
+
+    fn indoor_template() -> ConfigValue {
+        named(&[
+            ("game_object_type", ConfigValue::String("environment_probe".into())),
+            ("full_name", ConfigValue::String("environment_and_lights/probes/indoor".into())),
+            ("geometry", ConfigValue::Integer(1)),
+            ("position", ConfigValue::Float3([38.149, 5.688, 4.438])),
+            ("rotation", ConfigValue::Float3([0.0; 3])),
+            ("scale", ConfigValue::Float3([13.16, 6.318, 21.711])),
+            ("radius", ConfigValue::Integer(5)),
+            ("probe_side_width", ConfigValue::Float(0.5)),
+            ("diffuse_multiplier", ConfigValue::Integer(1)),
+            ("specular_multiplier", ConfigValue::Float(0.6)),
+            ("ambient_multiplier", ConfigValue::Float(0.1)),
+            ("texture", ConfigValue::String("environment_probes/level_03/x".into())),
+            ("face_average_color_0", ConfigValue::Float4([0.0; 4])),
+        ])
+    }
+
+    fn hall() -> InteriorBox {
+        InteriorBox {
+            name: "pool_hall".into(),
+            centre: [-88.0, 3.0, -45.0],
+            half: [14.0, 6.0, 9.0],
+            yaw: 0.3,
+            diffuse: 0.5,
+            reason: "test".into(),
+        }
+    }
+
+    #[test]
+    fn interior_box_probe_is_a_native_box_with_half_extents() {
+        let probe = box_probe(&indoor_template(), &hall(), "environment_probes/srp/x_skylight", "day_4", 0.3, 0.2).unwrap();
+        assert_eq!(probe.named("geometry"), Some(&ConfigValue::Integer(1)));
+        assert_eq!(probe.named("position"), Some(&ConfigValue::Float3([-88.0, 3.0, -45.0])));
+        assert_eq!(probe.named("rotation"), Some(&ConfigValue::Float3([0.0, 0.3, 0.0])));
+        assert_eq!(probe.named("scale"), Some(&ConfigValue::Float3([14.0, 6.0, 9.0])));
+        assert_eq!(probe.named("radius"), Some(&ConfigValue::Float(10.5)));
+        assert_eq!(probe.named("probe_side_width"), Some(&ConfigValue::Float(INTERIOR_SIDE_WIDTH)));
+        assert_eq!(probe.named("diffuse_multiplier"), Some(&ConfigValue::Float(0.5)));
+        assert_eq!(probe.named("specular_multiplier"), Some(&ConfigValue::Float(0.15)));
+        assert_eq!(probe.named("ambient_multiplier"), Some(&ConfigValue::Float(0.1)));
+        assert_eq!(string(&probe, "texture"), Some("environment_probes/srp/x_skylight"));
+        assert_eq!(
+            probe.named("textures").and_then(|t| t.named("day_4")),
+            Some(&ConfigValue::String("environment_probes/srp/x_skylight".into()))
+        );
+        assert_eq!(string(&probe, "full_name"), Some("environment_and_lights/probes/interior_pool_hall"));
+        // Untouched template fields stay (schema), e.g. the face colours.
+        assert!(probe.named("face_average_color_0").is_some());
+        let mut walk = Vec::new();
+        fn finite(v: &ConfigValue, out: &mut Vec<f32>) {
+            match v {
+                ConfigValue::Float(f) => out.push(*f),
+                ConfigValue::Float3(f) => out.extend(f),
+                ConfigValue::Float4(f) => out.extend(f),
+                ConfigValue::Named(fs) => fs.iter().for_each(|f| finite(&f.value, out)),
+                ConfigValue::Indexed(vs) => vs.iter().for_each(|v| finite(v, out)),
+                _ => {}
+            }
+        }
+        finite(&probe, &mut walk);
+        assert!(walk.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn interior_boxes_refuse_bad_sizes_and_values() {
+        let t = indoor_template();
+        for bad in [
+            InteriorBox { half: [1.0, 6.0, 9.0], ..hall() },
+            InteriorBox { half: [14.0, 6.0, 250.0], ..hall() },
+            InteriorBox { centre: [f32::NAN, 0.0, 0.0], ..hall() },
+            InteriorBox { diffuse: 0.0, ..hall() },
+            InteriorBox { diffuse: f32::INFINITY, ..hall() },
+            InteriorBox { yaw: f32::NAN, ..hall() },
+            InteriorBox { name: "bad name".into(), ..hall() },
+        ] {
+            assert!(box_probe(&t, &bad, "t", "day_4", 0.3, 0.2).is_err(), "{bad:?}");
         }
     }
 
