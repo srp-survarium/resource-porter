@@ -375,6 +375,21 @@ off-by-one header of any early DXT texture and refuses any other mismatch.
 
 ## Non-finite values
 
+**Probes first.** 0.26g renders NaN where a probe it draws has no cube. On
+native Cologne (`level_08/prerain_3`) two probes name cubes the retail
+database lacks (`probe_prerain_3_10629444731943501094` and
+`_10746810447428071133`); there the game shows a black screen when firing
+and flickering squares that spread through TAA, the defect the user saw
+("similar to keln"). The deathmatch maps had no probe at all, so forward
+passes had no cube either. With the skylight probe every scene has one, and
+`tools/playable-map-pack/verify_probe_textures.py` checks that every scene
+has an enabled probe and that every probe's cube for the scene's variant
+(and its `_diffuse`) exists; it reproduces the two Cologne findings. The
+importer refuses a converted scene that ends without a probe. Static
+buffer captures (sports center, before and after; native Cologne day) show
+no non-finite texel beyond the native `$user$mie_scattering` baseline; the
+firing case needs input, so it was not captured.
+
 The spec sets `strict_finite`. The importer then rebuilds static tangent
 frames that 0.26 cannot use, and refuses non-finite or NaN-prone output:
 
