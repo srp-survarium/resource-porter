@@ -1245,6 +1245,10 @@ Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
     rims on the terrain is not measured.
 - Texture quality 2 (the 0.11e reference value; the presets use 1) was in
   every test package, but it is not decided and not in the presets.
+- The -next candidate pairs this lift with `804b990` (from `ec7f47a` on
+  gameplay-fill-footsteps): early collectors keep their authored static
+  model. 194 and 195 each gain their two `item/quest/container` render
+  visuals; nothing else in those projects changes, and 196 is untouched.
 
 ### Open item (parked by the user): stripes on low mips
 
