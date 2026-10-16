@@ -1095,7 +1095,7 @@ code change. Evidence so far:
   are extracted under `lighting-build-20261015/foliage/gb26/`. A green-sign
   or back-face difference would explain the upward bias.
 
-## Moss flicker on Chemical walls (LOD1 lift adopted, candidate pending)
+## Moss flicker on Chemical walls (lift adopted: LOD0 5 cm, LOD1 15 cm)
 
 The user reports that moss on Chemical walls flickers at a distance, but only
 while moving (the screenshot at 14:35:13, "see those stripes", was taken in
@@ -1228,3 +1228,76 @@ Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
     bumped one level coarser. If that is the shadow pass, moss shadows come
     from LOD1 even close up, and the lift moves them too.
 
+### Lift amount chosen in game (`835eca8`)
+
+- After LOD1 +10 cm the user compared two extra lifts on every moss surface:
+  M5 (LOD0 5 cm, LOD1 15 cm) and M10 (LOD0 10 cm, LOD1 20 cm). They kept
+  M5. The rule is now `WALL_OVERLAY_LOD0_LIFT` 0.05 and
+  `WALL_OVERLAY_LOD1_LIFT` 0.15 (test
+  `wall_overlay_lods_are_lifted_along_normals_and_nothing_else`).
+- Offline sanity (ray casts against the 881k static-scene triangles):
+  - Edges that rest on a surface float by the lift: 5 cm (LOD0) and 15 cm
+    (LOD1).
+  - 87 of 8,862 moss vertices (about 1%) reach a neighbouring surface
+    within the extra lift: small clusters at concave corners, pipes and wall
+    bases. M10 had 285.
+  - The heightfield terrain is not in the scene set, so the gap at the mound
+    rims on the terrain is not measured.
+- Texture quality 2 (the 0.11e reference value; the presets use 1) was in
+  every test package, but it is not decided and not in the presets.
+
+### Open item (parked by the user): stripes on low mips
+
+Symptoms, all from the user:
+- Light/dark streaks on sunlit moss mounds, and black stripes on walls, while
+  the surface is on its lower mip levels. They show from far away up to near
+  the player and disappear once the full-resolution mips are in use up close.
+- Any angle. Independent of TAA (off helps only slightly) and of texture
+  streaming (off: still there).
+
+Ruled out:
+- Parallax: 0.26 runs it below 20 m view depth (0.11e: 12 m) and the user
+  says it is unrelated. A parallax-off variant was not tested.
+- Legacy SSAO replay: sized from the scene depth since `477a371`; its shaders
+  take screen size from constants.
+- Fresnel: 0.11e writes a constant 0.04 for anomaly_moss (no shipped 0.26
+  permutation without textured fresnel). A zero-width emulation (`716d520`)
+  looked worse to the user and was reverted (`0b4046f`).
+- LOD crossfade: `static_render_model_instance::select_lod` (0x16EEC0)
+  returns only an index (LOD0 below p0, LOD1 below p1, LOD2 below p2, else
+  not drawn; an empty LOD2 falls back to LOD1). No dither.
+- Texture files: the ported moss textures are byte-identical to 0.11e. Their
+  DDS header equals the native moss header; the trailing byte is the sRGB
+  flag in native and ported files alike; `.options` match. All 1483 ported
+  textures follow the native layout. The low mips decode clean (DXT5nm,
+  x²+y²>1 only on 6% of mip-0 texels and on none from mip 5).
+- Dropped-mip creation: `texture_cook_wrapper::on_dds_header_ready`
+  (0x3E19F0, helpers 0x3E17D0/0x3E16B0) patches the header and finds the
+  first kept mip by a geometric (1/4 per level) sum based on the header's
+  linear size (cooker convention: total + 1). Emulated for every drop count:
+  exact for every regular 2D texture, native and ported.
+- Shaders: the 0.26 static-mesh moss variants (high and low shader LOD)
+  decode normals like 0.11e; the shader-LOD switch only drops parallax; no
+  detail textures; the fuzziness rim term is the same formula.
+
+Not run (discriminators):
+- Plain 0.26 lighting of the port (all hook shader replacements off, the
+  hook only drives the camera). It splits our legacy lighting passes from
+  the engine's G-buffer path. The package was built and deleted unrun.
+- Native maps check: do native 0.26 maps (native Chemical has the same
+  moss model with native textures) show the same stripes at a distance?
+- Location of the striped walls, to compare their model and material with
+  the moss.
+
+Next ideas:
+- Trace the engine's sampler states for these materials (MinLOD/MaxLOD/
+  MipLODBias/anisotropy; the 0.26 roughness sample uses `s_anisotropic`
+  where 0.11e used `s_base`).
+- Decompile the 0.11e texture loader and mip setup; `llvm-pdbutil` cannot
+  read the 0.11e PDB ("too many directory blocks").
+
+Also on the branch from this round:
+- `0778702`: BC2-sourced textures (remains `rag*`) now declare DXT5 in their
+  options (0.11e declared DXT1a over DXT3 data).
+- `3d1880f`/`c652d60`: the optional `native_ambient_fill` (off by default)
+  stays; the shared-sample sound mix was removed at the user's request.
