@@ -394,3 +394,77 @@ walker-behaviour bits would read outside the table. The log records per
 step the raw value, the table entries, the pair and its sound, so one walk
 on a walkway and on the ground next to it would show which of these differs.
 A native comparison is map 79 (native level_04 day_2) with the same client.
+
+### 194 fill, round 2: cloud anomaly, visible chargers, ammo crates at native spots (2026-10-16)
+
+User feedback: the anomaly should be a cloud, not the native 0.26 Chemical
+spores/smoke/bugs; there was no battery container; the ammo crates were in
+the wrong place; "didn't the original map have those at some locations?".
+
+**Cloud anomaly.** The anomaly pack now copies only the native level_04
+toxic-moss logic (`logic/anomaly/`: 2 controllers, 27 artefact containers,
+the face toxic damage zone, max_hit 0.1, and the idle zone; timings
+unchanged). The level_04 fx (11 spori, 6 spori_mini, 6 radial_smoke, 6 bugs)
+are gone. The cloud is the native 0.26 level_03 (Radar) rust anomaly fog:
+- `fx/level_3_anomaly/rust_smoke` (9 objects in level_03): one emitter, 100
+  particles, 12/s, 15 s life, billboards growing 1.96 -> 3.17 m, white with
+  alpha peaking at 0.19, cylinder spawn domain of radius 5 m, material
+  `fx/level_3_anomaly/smoke` (lit `fx/lighted_smoke/smoke1` with normal map
+  and UV distortion). Scale 1, no sound.
+- `fx/level_3_anomaly/rust_smoke_dark` (1 object): nine box emitters (up to
+  15 x 8 m, 10-100 particles each), same smoke material, plus two invisible
+  trail emitters whose distortion texture `fx/anomaly/chemical_nmap` is
+  missing in retail too.
+- Damage: the clouds carry none. level_03 pairs them with the outer gas
+  damage zone (toxic, face, max_hit 0.08, seven spheres of radius 4.5-10.3 m),
+  an inner gas zone (face, 0.16) and a puddle zone (feet, 0); the spring has
+  5 containers (first 60 s, respawn 70 +- 30 s, 1 artefact), the onyx 5
+  (70 s, 2 artefacts).
+
+Conventions measured in level_03 (`plan_rust_fog.py`): clouds sit on or
+beside the spring's artefact spots (every spring spot within 4.52 m of a
+cloud), every outer gas sphere holds a cloud, median height 0.85 m above the
+nearest spot, the dark cloud 2.58 m. For 194 the planner covers all 27
+toxic-moss spots that way (11 clouds), adds a cloud to each damage-zone
+primitive left without one (3), and the dark cloud over the spots'
+centroid: 14 + 1 clouds (`ports/gameplay-fill/chemical-011e-rust-fog.json`,
+template level_03 day_2 hash-pinned). Heights are the 194 movement-collision
+ground plus those offsets. The level_04 containers and timings are kept;
+level_03 differs (5 + 5 containers, 60/70 s first spawn, 70 +- 30 s
+respawn, 1/2 artefacts vs level_04's 14 + 13, 70/60 s, 60 +- 30 s, 2/2).
+
+**Chargers were invisible.** A collector's `visual_geometry` draws nothing in
+0.26: native 0.26, 0.20e, 0.11e and 0.11a all place a static render visual at
+the same transform (native level_04: two stacked `box_atlant12`, 0.77 m
+apart). The early-map converter moved the 0.11e collector visual into
+`visual_geometry` and dropped the static one, so the faithful 194 and 195
+have had no visible collector; the fill copied only `visual_geometry` and
+the top box's collision. Fixed: the converter keeps the static collector
+visual, and the collector fill copies every render visual and collision of
+the native charger model within 1 m of its `visual_geometry` and removes the
+old collector's visual and collision. Battery mode is mode 2 ("Protective
+device", 10 batteries), which 194, 195 and 196 already run; mode 3 is the
+same objective with timed battery spawns, mode 4 is Team Deathmatch.
+
+**Ammo crates.** 0.11a, 0.11e and 0.20e level_04 have no resupply object
+(0.11e/0.11a: 44 respawn points, 33 battery spawners, 2 collectors). Native
+0.26 keeps its crates near the charger (9.9 / 13.6 m) and far from the
+spawns (nearest 35-52 m, none within 15 m). The native crate spots are clear
+floor in 194 (floor within 0.03 m), so the crates now stay at the native
+transforms: team 0 at (-38.216, 1.937, 28.819), 33.1 m from the nearest team
+0 spawn; team 1 at (64.691, 3.601, 46.992), 48.5 m from the nearest team 1
+spawn. The chargers stay at the original 0.11e collector spots.
+
+**Artefacts.** The match server relays inputs; anomaly controllers and
+artefact spawns run in the native client simulation from the project, as in
+any 0.26 map with an anomaly. In the rebuilt 194 every link resolves
+(controller -> 14 / 13 containers, controller -> damage / idle zone,
+container -> its spot sphere). All 27 spots are within 4.34 m of a cloud
+(level_03's widest: 4.52 m). 26 lie inside the toxic damage zone; spot 20's
+centre misses a zone cylinder by 0.13 m (its 1.07 m sphere overlaps), as in
+native level_04. All ten level_03 spots lie inside a gas zone. Artefact
+spawning on 194 has not been observed in game yet.
+
+Rebuilt `pkg-fill-test`: layout A `8073dd93`, layout B `c0ce2564`; the 195
+project gains only its two collector visuals
+(`check_collector_visuals_only.py`).

@@ -72,6 +72,9 @@ pub struct CollectorFill {
     pub replaced_model: String,
 }
 
+/// Radius around a native charger's visual_geometry that holds its parts.
+const CHARGER_RADIUS: f32 = 1.0;
+
 fn float3(o: &ConfigValue, key: &str) -> Option<[f32; 3]> {
     match o.named(key) {
         Some(ConfigValue::Float3(v)) => Some(*v),
@@ -297,18 +300,25 @@ fn apply_collector(
         .context("native zone")?
         .clone();
     let charger = model_of(&native_visual).context("native charger model")?;
-    let charger_collisions: Vec<ConfigValue> = array(
-        native
-            .named("collision_objects")
-            .context("native collisions")?,
-    )?
-    .iter()
-    .filter(|o| model_of(o).as_deref() == Some(charger.as_str()) && near(o, native_visual_at, 0.05))
-    .cloned()
-    .collect();
+    // The native charger is drawn by static render visuals (level_04: two
+    // stacked box_atlant12, 0.77 m apart) at its visual_geometry; the
+    // visual_geometry itself draws nothing. Copy every instance of the model
+    // within CHARGER_RADIUS of it, render visuals and collisions alike.
+    let charger_parts = |key: &str| -> Result<Vec<ConfigValue>> {
+        Ok(array(native.named(key).context("native charger group")?)?
+            .iter()
+            .filter(|o| {
+                model_of(o).as_deref() == Some(charger.as_str())
+                    && near(o, native_visual_at, CHARGER_RADIUS)
+            })
+            .cloned()
+            .collect())
+    };
+    let charger_visuals = charger_parts("render_visuals")?;
+    let charger_collisions = charger_parts("collision_objects")?;
     ensure!(
-        !charger_collisions.is_empty(),
-        "native charger has no collision instances"
+        !charger_visuals.is_empty() && !charger_collisions.is_empty(),
+        "native charger has no render visual or no collision near its visual_geometry"
     );
     // Our collector of this team, its zone and its old model.
     let ConfigValue::Indexed(ours) = project
@@ -356,29 +366,38 @@ fn apply_collector(
             zone.set_path(key, value.clone())?;
         }
     }
-    let collisions = indexed_mut(project, "collision_objects")?;
-    let before = collisions.len();
-    collisions.retain(|o| {
-        !(model_of(o).as_deref() == Some(fill.replaced_model.as_str())
-            && near(o, old_visual_at, 0.1))
-    });
-    let removed = before - collisions.len();
+    // The old collector's static model and its collision go; the charger's come in.
+    let mut removed = [0; 2];
+    let mut added = [0; 2];
+    let mut models = BTreeSet::new();
+    for (i, (key, parts)) in [("render_visuals", charger_visuals), ("collision_objects", charger_collisions)]
+        .into_iter()
+        .enumerate()
+    {
+        let items = indexed_mut(project, key)?;
+        let before = items.len();
+        items.retain(|o| {
+            !(model_of(o).as_deref() == Some(fill.replaced_model.as_str())
+                && near(o, old_visual_at, 0.1))
+        });
+        removed[i] = before - items.len();
+        for mut part in parts {
+            fill.to.apply(fill.anchor, &mut part)?;
+            if let Some(lib) = string(&part, "lib_name") {
+                models.insert(lib.to_owned());
+            }
+            items.push(part);
+            added[i] += 1;
+        }
+    }
     ensure!(
-        removed > 0,
+        removed[1] > 0,
         "old collector collision of {} not found",
         fill.replaced_model
     );
-    let mut models = BTreeSet::new();
-    for mut c in charger_collisions {
-        fill.to.apply(fill.anchor, &mut c)?;
-        if let Some(lib) = string(&c, "lib_name") {
-            models.insert(lib.to_owned());
-        }
-        collisions.push(c);
-    }
     let note = format!(
-        "gameplay fill collector team {}: {} at {:?} yaw {} ({removed} old collision instances removed)",
-        fill.team, charger, fill.to.position, fill.to.yaw
+        "gameplay fill collector team {}: {} at {:?} yaw {} ({} render visuals and {} collisions added; {} old visuals and {} old collisions removed)",
+        fill.team, charger, fill.to.position, fill.to.yaw, added[0], added[1], removed[0], removed[1]
     );
     Ok((note, models))
 }
@@ -400,6 +419,157 @@ mod tests {
     }
     fn s(v: &str) -> ConfigValue {
         ConfigValue::String(v.into())
+    }
+
+    fn f3(v: [f32; 3]) -> ConfigValue {
+        ConfigValue::Float3(v)
+    }
+    fn part(lib: &str, at: [f32; 3]) -> ConfigValue {
+        named(vec![("lib_name", s(lib)), ("position", f3(at)), ("rotation", f3([0.0; 3]))])
+    }
+    fn zone(name: &str, at: [f32; 3]) -> ConfigValue {
+        named(vec![
+            ("full_name", s(name)),
+            ("position", f3(at)),
+            ("rotation", f3([0.0; 3])),
+            ("scale", f3([1.0; 3])),
+            ("meshes", ConfigValue::Indexed(vec![named(vec![("scale", f3([2.0; 3]))])])),
+        ])
+    }
+    fn container(team: i32, name: &str, model: &str, visual_at: [f32; 3], zone: &str) -> ConfigValue {
+        named(vec![
+            ("full_name", s(name)),
+            ("team", ConfigValue::Integer(team)),
+            (
+                "visual_geometry",
+                named(vec![("model_name", s(model)), ("position", f3(visual_at)), ("rotation", f3([0.0; 3]))]),
+            ),
+            ("collision_geometries", ConfigValue::Indexed(vec![named(vec![("name", s(zone))])])),
+        ])
+    }
+
+    #[test]
+    fn collector_takes_the_whole_native_charger_and_drops_the_old_model() {
+        let charger = "item/storage_device/box_atlant12";
+        let old = "item/quest/container";
+        let native = named(vec![
+            ("client_objects", ConfigValue::Indexed(vec![zone("logic/vip/team2/container_collision", [71.0, 4.0, 54.0])])),
+            (
+                "render_visuals",
+                ConfigValue::Indexed(vec![
+                    part(charger, [71.334, 4.579, 54.393]),
+                    part(charger, [71.343, 3.811, 54.397]),
+                    part(charger, [-30.9, 2.2, 40.4]),
+                ]),
+            ),
+            (
+                "collision_objects",
+                ConfigValue::Indexed(vec![
+                    part(&format!("resources/models/{charger}.model/collision"), [71.334, 4.579, 54.393]),
+                    part(&format!("resources/models/{charger}.model/collision"), [71.343, 3.811, 54.397]),
+                    part(&format!("resources/models/{charger}.model/collision"), [-30.9, 2.2, 40.4]),
+                ]),
+            ),
+            (
+                "server_objects",
+                named(vec![(
+                    "victory_items_containers",
+                    ConfigValue::Indexed(vec![container(
+                        1,
+                        "logic/vip/team2/victory_items_container",
+                        charger,
+                        [71.334, 4.579, 54.393],
+                        "logic/vip/team2/container_collision",
+                    )]),
+                )]),
+            ),
+        ]);
+        let mut project = named(vec![
+            ("client_objects", ConfigValue::Indexed(vec![zone("logic/team1/victory_container_collision", [-73.4, 5.6, 41.0])])),
+            ("render_visuals", ConfigValue::Indexed(vec![part(old, [-73.942, 5.611, 44.038])])),
+            (
+                "collision_objects",
+                ConfigValue::Indexed(vec![part(&format!("resources/models/{old}.model/collision"), [-73.942, 5.611, 44.038])]),
+            ),
+            (
+                "server_objects",
+                named(vec![(
+                    "victory_items_containers",
+                    ConfigValue::Indexed(vec![container(
+                        0,
+                        "logic/team1/victory_items_container",
+                        old,
+                        [-73.942, 5.611, 44.038],
+                        "logic/team1/victory_container_collision",
+                    )]),
+                )]),
+            ),
+        ]);
+        let pack = FillPack {
+            name: "chargers".into(),
+            map_id: 194,
+            template_project: "projects/level_04/day_2/client_project".into(),
+            template_sha256: String::new(),
+            groups: vec![],
+            collectors: vec![CollectorFill {
+                team: 0,
+                template_container: "logic/vip/team2/victory_items_container".into(),
+                anchor: [71.334, 3.817, 54.393],
+                to: Placement { position: [-73.942, 5.611, 44.038], yaw: 0.0 },
+                replaced_model: old.into(),
+            }],
+        };
+        apply(&mut project, &native, &pack).unwrap();
+        for key in ["render_visuals", "collision_objects"] {
+            let items = array(project.named(key).unwrap()).unwrap();
+            assert_eq!(items.len(), 2, "{key}: both stacked boxes, the old model gone");
+            let mut heights: Vec<f32> = items
+                .iter()
+                .map(|o| {
+                    assert_eq!(model_of(o).as_deref(), Some(charger), "{key}");
+                    let p = float3(o, "position").unwrap();
+                    assert!((p[0] + 73.942).abs() < 0.02 && (p[2] - 44.038).abs() < 0.02, "{key} {p:?}");
+                    p[1]
+                })
+                .collect();
+            heights.sort_by(f32::total_cmp);
+            assert!((heights[0] - 5.605).abs() < 1e-3 && (heights[1] - 6.373).abs() < 1e-3, "{key} {heights:?}");
+        }
+        let collector = &array(project.named("server_objects").unwrap().named("victory_items_containers").unwrap()).unwrap()[0];
+        let visual = collector.named("visual_geometry").unwrap();
+        assert_eq!(string(visual, "model_name"), Some(charger));
+        assert_eq!(string(visual, "name"), Some("logic/team1/victory_items_container"));
+    }
+
+    fn pack(text: &str) -> FillPack {
+        serde_json::from_str(text).unwrap()
+    }
+
+    #[test]
+    fn chemical_packs_keep_the_native_anomaly_logic_and_draw_the_level_03_cloud() {
+        let anomaly = pack(include_str!("../../ports/gameplay-fill/chemical-011e-anomaly.json"));
+        let prefixes: Vec<&str> = anomaly.groups.iter().flat_map(|g| g.client_object_prefixes.iter().map(String::as_str)).collect();
+        assert_eq!(prefixes, ["logic/anomaly/"], "no level_04 fx in the anomaly pack");
+        let fog = pack(include_str!("../../ports/gameplay-fill/chemical-011e-rust-fog.json"));
+        assert_eq!(fog.map_id, 194);
+        assert_eq!(fog.template_project, "projects/level_03/day_2/client_project");
+        let mut names = BTreeSet::new();
+        let mut dark = 0;
+        for group in &fog.groups {
+            assert!(group.client_object_prefixes.is_empty() && group.models.is_empty() && group.team.is_none());
+            let [source] = group.client_objects.as_slice() else { panic!("{}: one native object", group.name) };
+            assert!(source == "fx/smoke" || source == "fx/smoke_dark", "{source}");
+            dark += usize::from(source == "fx/smoke_dark");
+            let renamed = &group.rename[source];
+            assert!(renamed.starts_with("fx/fill_rust_fog/") && names.insert(renamed.clone()), "{renamed}");
+            // Inside the 194 moss field, at most 6 m up its slope.
+            let p = group.to.expect("placed").position;
+            assert!((-5.0..40.0).contains(&p[0]) && (-25.0..10.0).contains(&p[2]) && (2.0..9.0).contains(&p[1]), "{p:?}");
+        }
+        assert_eq!(dark, 1);
+        assert!(fog.groups.len() >= 10, "level_03 uses nine clouds for a smaller field");
+        let resupply = pack(include_str!("../../ports/gameplay-fill/chemical-011e-resupply.json"));
+        assert!(resupply.groups.iter().all(|g| g.to.is_none()), "crates stay at the native 0.26 spots");
     }
 
     #[test]

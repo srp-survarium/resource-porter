@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Usage: fill-layout.sh A|B|status
 # Switches this package's Chemical 194 gameplay-fill layout while its session is stopped:
-#   A  native chargers at the two bases (default), resupply crates, toxic-moss anomaly
-#   B  native chargers at the central train (contested), resupply crates, toxic-moss anomaly
+#   A  native chargers at the original 0.11e collector spots (default), ammo crates at the native 0.26 spots, rust-fog anomaly
+#   B  native chargers at the central train (contested), the same crates and anomaly
 # Both layouts carry the footstep bindings. The inactive database waits in layouts/<X>.db;
 # switching renames files on the same disk and updates manifest.json, so it is instant.
 set -eu

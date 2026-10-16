@@ -1,0 +1,323 @@
+{
+  "name": "chemical-011e rust fog",
+  "map_id": 194,
+  "template_project": "projects/level_03/day_2/client_project",
+  "template_sha256": "87c89c0f18a3ea3691026c6b42b42291b1c590e1e953d54fc2044108de9e9fee",
+  "groups": [
+    {
+      "name": "rust fog cloud 01 (artefact spots 3,9,10,21,25)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          8.406,
+          2.993,
+          -7.14
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_01"
+      }
+    },
+    {
+      "name": "rust fog cloud 02 (artefact spots 5,16,17,27)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          33.805,
+          4.757,
+          -4.623
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_02"
+      }
+    },
+    {
+      "name": "rust fog cloud 03 (artefact spots 4,13,14,15)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          23.033,
+          2.816,
+          -0.499
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_03"
+      }
+    },
+    {
+      "name": "rust fog cloud 04 (artefact spots 1,11,22)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          12.773,
+          3.077,
+          0.607
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_04"
+      }
+    },
+    {
+      "name": "rust fog cloud 05 (artefact spots 19,23,24)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          5.274,
+          3.218,
+          -1.779
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_05"
+      }
+    },
+    {
+      "name": "rust fog cloud 06 (artefact spots 2,8)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          14.852,
+          3.411,
+          -9.926
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_06"
+      }
+    },
+    {
+      "name": "rust fog cloud 07 (artefact spots 7,26)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          7.892,
+          3.984,
+          -20.489
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_07"
+      }
+    },
+    {
+      "name": "rust fog cloud 08 (artefact spots 6)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          5.295,
+          4.4,
+          -15.455
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_08"
+      }
+    },
+    {
+      "name": "rust fog cloud 09 (artefact spots 12)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          18.925,
+          3.708,
+          3.41
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_09"
+      }
+    },
+    {
+      "name": "rust fog cloud 10 (artefact spots 18)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          29.383,
+          3.167,
+          1.177
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_10"
+      }
+    },
+    {
+      "name": "rust fog cloud 11 (artefact spots 20)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          7.874,
+          2.73,
+          2.195
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_11"
+      }
+    },
+    {
+      "name": "rust fog cloud 12 (damage-zone primitive 2)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          17.53,
+          4.482,
+          6.987
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_12"
+      }
+    },
+    {
+      "name": "rust fog cloud 13 (damage-zone primitive 3)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          8.561,
+          4.175,
+          5.335
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_13"
+      }
+    },
+    {
+      "name": "rust fog cloud 14 (damage-zone primitive 4)",
+      "client_objects": [
+        "fx/smoke"
+      ],
+      "anchor": [
+        18.354999542236328,
+        1.2690000534057617,
+        -47.262001037597656
+      ],
+      "to": {
+        "position": [
+          -1.833,
+          3.293,
+          -2.047
+        ]
+      },
+      "rename": {
+        "fx/smoke": "fx/fill_rust_fog/cloud_14"
+      }
+    },
+    {
+      "name": "rust fog dark core (centroid of the artefact spots)",
+      "client_objects": [
+        "fx/smoke_dark"
+      ],
+      "anchor": [
+        29.819000244140625,
+        3.990000009536743,
+        -49.00899887084961
+      ],
+      "to": {
+        "position": [
+          15.963,
+          5.449,
+          -5.35
+        ]
+      },
+      "rename": {
+        "fx/smoke_dark": "fx/fill_rust_fog/dark_core"
+      }
+    }
+  ]
+}

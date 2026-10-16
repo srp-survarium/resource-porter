@@ -269,8 +269,12 @@ pub(super) fn project(
             ));
         }
     }
-    // Old collectors are already rendered as placed static models. Bind that
-    // original mesh and transform instead of inheriting a modern collector.
+    // Old collectors are rendered as placed static models. Bind that original
+    // mesh and transform as the collector's visual_geometry too, and keep the
+    // static model: visual_geometry alone draws nothing in 0.26 (native 0.26,
+    // 0.20e, 0.11e and 0.11a all place a static render visual at the
+    // collector's visual_geometry transform; a 194 build without it showed
+    // no collector in game).
     let mut collector_visuals = Vec::new();
     if let Some(ConfigValue::Indexed(collectors)) = groups.named_mut("victory_items_containers") {
         let visuals = array(old.named("render_visuals").context("old visuals")?)?;
@@ -293,9 +297,6 @@ pub(super) fn project(
             collector.set_path("visual_geometry", geometry)?;
             collector_visuals.push(visual.clone());
         }
-    }
-    if let Some(ConfigValue::Indexed(visuals)) = old.named_mut("render_visuals") {
-        visuals.retain(|v| !collector_visuals.contains(v));
     }
     old.set_path("client_objects", ConfigValue::Indexed(client))?;
     old.set_path("server_objects", groups)?;

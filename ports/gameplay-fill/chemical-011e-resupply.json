@@ -1,11 +1,11 @@
 {
-  "name": "chemical-011e ammo resupply",
+  "name": "chemical-011e ammo resupply (native 0.26 crate spots)",
   "map_id": 194,
   "template_project": "projects/level_04/day_2/client_project",
   "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
   "groups": [
     {
-      "name": "team 0 ammo crate (native team1 resupply: zone, collision, ammo decal, container_closed crate)",
+      "name": "team 0 ammo crate at the native 0.26 team1 crate spot (zone, collision, ammo decal, container_closed crate; 194 floor +0.03 m, 33 m from the nearest team 0 spawn, as native keeps crates 35-52 m from spawns)",
       "client_objects": [
         "logic/vip/team1/resupply/resupply_zone",
         "logic/vip/team1/resupply/resupply_collision",
@@ -20,21 +20,13 @@
         28.819
       ],
       "radius": 1.5,
-      "to": {
-        "position": [
-          -73.94,
-          5.611,
-          40.04
-        ],
-        "yaw": -1.542
-      },
       "team": 0,
       "rename": {
         "logic/vip/team1/": "logic/fill/team1/"
       }
     },
     {
-      "name": "team 1 ammo crate (native team2 resupply)",
+      "name": "team 1 ammo crate at the native 0.26 team2 crate spot (194 floor +0.03 m, 48.5 m from the nearest team 1 spawn)",
       "client_objects": [
         "logic/vip/team2/resupply/resupply_zone",
         "logic/vip/team2/resupply/resupply_collision",
@@ -49,14 +41,6 @@
         46.992
       ],
       "radius": 1.5,
-      "to": {
-        "position": [
-          98.66,
-          6.59,
-          79.44
-        ],
-        "yaw": 0.614
-      },
       "team": 1,
       "rename": {
         "logic/vip/team2/": "logic/fill/team2/"
