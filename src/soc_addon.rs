@@ -1624,11 +1624,15 @@ fn write_native_foliage(
         material
             .root
             .set_path("material.g_stage.is_cast_shadow.value", ConfigValue::Boolean(false))?;
+        // A tile is one instance: wind would sway its trees as one block.
+        material
+            .root
+            .set_path("material.g_stage.effect.wind_motion.value", ConfigValue::Integer(0))?;
         write_config_resource(
             overlay,
             &format!("material_instances/{FAR_FOREST_MATERIAL}.material"),
             &material,
-            "addon:far-forest-material-no-shadow",
+            "addon:far-forest-material-no-shadow-no-wind",
             files,
         )?;
     }
