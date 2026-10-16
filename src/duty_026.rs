@@ -23,6 +23,76 @@ const BASE: &str = "models/character/human/base/base_character_boot.skinned_mode
 const DICT: &str = "gameplay/db_static_dictionaries";
 const MATERIAL: &str =
     "material_instances/characters/human/renesanse_tank/renesanse_tank_torso.material";
+/// A torso's sleeve variants, which a gloves item's `data.model_type` picks.
+const TORSO_TABLES: [&str; 3] = ["data_full", "data_long", "data_short"];
+/// The player's hit volumes; their `hit_param`s are every region a hit lands on.
+const HIT_TARGETS: &str =
+    "models/character/human/base/base_character_full.skinned_model/hit_targets";
+
+/// The regions of a config's `hit_params`.
+fn regions(cfg: &V) -> Result<BTreeSet<String>> {
+    let Some(V::Named(parts)) = cfg.named("hit_params") else {
+        bail!("hit parameters missing");
+    };
+    Ok(parts.iter().map(|part| part.name.clone()).collect())
+}
+
+/// Every region of the player's hit table is protected once: the helmet's
+/// by the helmet, all others (the native torso's, trousers', gloves' and
+/// boots') by the body, with every hit type.
+fn check_coverage(hit_targets: &V, body: &V, helmet: &V) -> Result<()> {
+    let Some(V::Indexed(targets)) = hit_targets.named("hit_targets") else {
+        bail!("hit targets missing");
+    };
+    let all: BTreeSet<String> = targets
+        .iter()
+        .map(|t| match t.named("hit_param") {
+            Some(V::String(name)) => Ok(name.clone()),
+            _ => bail!("hit target without hit_param"),
+        })
+        .collect::<Result<_>>()?;
+    let (body_regions, helmet_regions) = (regions(body)?, regions(helmet)?);
+    ensure!(
+        body_regions.is_disjoint(&helmet_regions),
+        "body and helmet both protect {:?}",
+        body_regions
+            .intersection(&helmet_regions)
+            .collect::<Vec<_>>()
+    );
+    let covered: BTreeSet<String> = body_regions.union(&helmet_regions).cloned().collect();
+    ensure!(
+        covered == all,
+        "the set leaves {:?} unprotected and protects unknown {:?}",
+        all.difference(&covered).collect::<Vec<_>>(),
+        covered.difference(&all).collect::<Vec<_>>()
+    );
+    for cfg in [body, helmet] {
+        let Some(V::Named(parts)) = cfg.named("hit_params") else {
+            unreachable!()
+        };
+        for part in parts {
+            let Some(V::Named(types)) = part.value.named("hit_types") else {
+                bail!("{}: no hit types", part.name);
+            };
+            let names: BTreeSet<&str> = types.iter().map(|t| t.name.as_str()).collect();
+            ensure!(
+                names
+                    == BTreeSet::from([
+                        "explosive",
+                        "fire",
+                        "radiation",
+                        "ranged",
+                        "shock",
+                        "slash",
+                        "toxic"
+                    ]),
+                "{} protects only {names:?}",
+                part.name
+            );
+        }
+    }
+    Ok(())
+}
 
 fn field(name: &str, value: V) -> NamedValue {
     NamedValue {
@@ -688,8 +758,25 @@ fn set_items<'v>(
             cfg.set_path(&format!("parameters.{key}"), V::Integer(15))?;
         }
         cfg.set_path("parameters.max_carried_weight_modifier", V::Integer(0))?;
-        // Owner's decision (2026-10-15): sold only, never dropped from a match.
-        cfg.set_path("parameters.drop_weight", V::Integer(0))?;
+        // The body is sold only, never dropped from a match (owner,
+        // 2026-10-15). The helmet drops as the native helmet of its tier
+        // does (owner, 2026-10-16): its template's weight, Zubr UM-4's and
+        // Pilgrim's 10.
+        let drop_weight = if body {
+            0
+        } else {
+            match template
+                .named("parameters")
+                .and_then(|p| p.named("drop_weight"))
+            {
+                Some(V::Integer(weight)) if *weight > 0 => *weight,
+                other => bail!(
+                    "native helmet {} drops with weight {other:?}",
+                    piece.template
+                ),
+            }
+        };
+        cfg.set_path("parameters.drop_weight", V::Integer(drop_weight))?;
         // Imported textures have no customization masks.
         cfg.set_path("parameters.camo_available", V::Boolean(false))?;
         cfg.set_path("parameters.decal_available", V::Boolean(false))?;
@@ -700,17 +787,25 @@ fn set_items<'v>(
                 V::Indexed(piece.modifications.iter().map(|&m| V::Integer(m)).collect()),
             )?;
         }
-        // 0.26g reads only `data`; drop the template's legacy variants so
-        // no native Zubr model stays referenced.
-        for key in ["data_full", "data_long", "data_short"] {
+        // The template's sleeve variants name native models; the body
+        // writes its own below.
+        for key in TORSO_TABLES {
             remove_field(&mut cfg, key);
         }
         let covers = V::Indexed(piece.covers.iter().map(|&s| string(s)).collect());
         let model = |name: &str, surface: &str| {
-            table(vec![
+            let mut fields = vec![
                 field("base_model", string(format!("{ns}/duty_03_{name}"))),
                 field("part_name", string(surface)),
-            ])
+            ];
+            // The hands carry their first-person model as native gloves do.
+            if name == "hand" {
+                fields.extend([
+                    field("base_model_hud", string(format!("{ns}/duty_03_hand_hud"))),
+                    field("part_name_hud", string(surface)),
+                ]);
+            }
+            table(fields)
         };
         let mut shown = vec![
             (6, format!("{}", (armor * 100.0f32).round())),
@@ -731,11 +826,14 @@ fn set_items<'v>(
                     .context("oxygen data missing")?;
                 data.push(field(key, value.clone()));
             }
-            data.extend([
+            // No `base_model_hud` here: 0.26g's skin cook
+            // (`profile_skin_visual_cook::on_configs_loaded`, 0x205336) draws
+            // a part's hud model instead of its `base_model` wherever the
+            // table has one, which hid the suit behind the hand model. The
+            // hands carry it, as native gloves do.
+            let visual = vec![
                 field("base_model", string(format!("{ns}/duty_03_torso_s1"))),
                 field("part_name", string("torso_s")),
-                field("base_model_hud", string(format!("{ns}/duty_03_hand_hud"))),
-                field("part_name_hud", string("torso_s")),
                 field(
                     "additional_models",
                     V::Indexed(
@@ -753,8 +851,15 @@ fn set_items<'v>(
                         .collect(),
                     ),
                 ),
-                field("additional_model_slots", covers),
-            ]);
+            ];
+            // The cook reads the torso from the table the gloves' `model_type`
+            // names (`data` while the body covers the gloves, as it does).
+            // Native torsos have all three sleeve tables; each is the suit.
+            for key in TORSO_TABLES {
+                cfg.set_path(key, table(visual.clone()))?;
+            }
+            data.extend(visual);
+            data.push(field("additional_model_slots", covers));
             data
         } else {
             vec![
@@ -1125,6 +1230,11 @@ pub fn build_variant(
         |v| !matches!(v.named("dict_id"), Some(V::Integer(id)) if variant.reusable.contains(id)),
     );
     let pieces = set_items(variant, &natives, icons_swf.is_some())?;
+    check_coverage(
+        &parse_config(&mut target, HIT_TARGETS, "player hit targets")?.root,
+        &pieces[0].2,
+        &pieces[1].2,
+    )?;
     for (piece, row, _) in &pieces {
         ensure!(
             !items
@@ -1352,7 +1462,40 @@ mod tests {
         };
         assert_eq!(models.len(), 6);
         assert!(!format!("{models:?}").contains("duty_03_head"));
-        assert!(cfg.named("data_full").is_none());
+        // The suit itself is drawn: a hud model in the torso's table would
+        // take the place of its `base_model` (the user's invisible jacket).
+        assert_eq!(data_of(cfg, "base_model_hud"), None);
+        assert_eq!(data_of(cfg, "part_name_hud"), None);
+        assert_eq!(
+            data_of(cfg, "base_model"),
+            Some(&string("ported/duty_026/duty_03_torso_s1"))
+        );
+        // The hands carry the first-person model, as native gloves do.
+        let hands: Vec<&V> = models
+            .iter()
+            .filter(|m| m.named("base_model_hud").is_some())
+            .collect();
+        assert_eq!(hands.len(), 1);
+        assert_eq!(
+            hands[0].named("base_model"),
+            Some(&string("ported/duty_026/duty_03_hand"))
+        );
+        assert_eq!(
+            hands[0].named("base_model_hud"),
+            Some(&string("ported/duty_026/duty_03_hand_hud"))
+        );
+        // Every sleeve table a gloves' `model_type` may pick is the suit,
+        // with its frame; none names a native model.
+        for key in TORSO_TABLES {
+            let sleeve = cfg.named(key).unwrap_or_else(|| panic!("no {key}"));
+            assert_eq!(sleeve.named("base_model"), data_of(cfg, "base_model"));
+            assert_eq!(
+                sleeve.named("additional_models"),
+                data_of(cfg, "additional_models")
+            );
+            assert_eq!(sleeve.named("base_model_hud"), None);
+        }
+        assert!(!format!("{cfg:?}").contains("zubr"));
         assert_eq!(
             cfg.named("default_modifications"),
             Some(&V::Indexed(
@@ -1414,9 +1557,18 @@ mod tests {
             _ => panic!("no cost"),
         };
         assert_eq!(cost(&body.1) + cost(&head.1), 300_000);
+        // The body is sold only; the helmet drops as the native helmet
+        // it is made from (the fixture's 10, Zubr UM-4's and Pilgrim's).
+        let drop = |cfg: &V| {
+            cfg.named("parameters")
+                .unwrap()
+                .named("drop_weight")
+                .cloned()
+        };
+        assert_eq!(drop(&body.2), Some(V::Integer(0)));
+        assert_eq!(drop(&head.2), Some(V::Integer(10)));
         for (_, _, cfg) in &set {
             let p = cfg.named("parameters").unwrap();
-            assert_eq!(p.named("drop_weight"), Some(&V::Integer(0)));
             assert_eq!(p.named("item_level"), Some(&V::Integer(15)));
         }
         // No icon swf: the template's own icon stays.
@@ -1500,6 +1652,7 @@ mod tests {
         assert_eq!(param(&body.2, "ano_armor"), Some(V::Float(0.80)));
         assert_eq!(param(&head.2, "ano_armor"), Some(V::Float(0.80)));
         assert_eq!(param(&body.2, "drop_weight"), Some(V::Integer(0)));
+        assert_eq!(param(&head.2, "drop_weight"), Some(V::Integer(10)));
         assert_eq!(param(&body.2, "item_level"), Some(V::Integer(15)));
         assert_eq!(
             body.2
@@ -1545,6 +1698,162 @@ mod tests {
         assert_eq!(variant("freedom").unwrap().ns, "ported/freedom_026");
         assert!(variant("svoboda").is_err());
     }
+    /// The player's twelve hit regions (`base_character_full` hit_targets)
+    /// and the native level 15 pieces that protect them.
+    const HEAD_REGIONS: [&str; 2] = ["brain", "face"];
+    const NATIVE_REGIONS: [(&str, &[&str]); 5] = [
+        ("helmet", &HEAD_REGIONS),
+        ("torso", &["back", "front", "left_forearm", "right_forearm"]),
+        ("legs", &["left_hip", "right_hip"]),
+        ("gloves", &["left_arm", "right_arm"]),
+        ("boots", &["left_foot", "right_foot"]),
+    ];
+
+    fn real_natives() -> Natives {
+        let mut natives = natives();
+        let hit_types = [
+            "explosive",
+            "fire",
+            "radiation",
+            "ranged",
+            "shock",
+            "slash",
+            "toxic",
+        ];
+        natives.protection = NATIVE_REGIONS
+            .iter()
+            .map(|(category, regions)| {
+                let mut cfg = native("arm", regions, table(vec![]));
+                let parts = regions
+                    .iter()
+                    .map(|r| {
+                        let types = hit_types
+                            .iter()
+                            .map(|t| {
+                                field(
+                                    t,
+                                    table(vec![
+                                        field("armor", V::Float(0.5)),
+                                        field("absorption", V::Float(0.1)),
+                                    ]),
+                                )
+                            })
+                            .collect();
+                        field(r, table(vec![field("hit_types", table(types))]))
+                    })
+                    .collect();
+                cfg.set_path("hit_params", table(parts)).unwrap();
+                ((*category).to_owned(), cfg)
+            })
+            .collect();
+        natives
+    }
+
+    fn hit_targets(regions: &[&str]) -> V {
+        table(vec![field(
+            "hit_targets",
+            V::Indexed(
+                regions
+                    .iter()
+                    .map(|r| table(vec![field("hit_param", string(*r))]))
+                    .collect(),
+            ),
+        )])
+    }
+
+    fn all_regions() -> Vec<&'static str> {
+        NATIVE_REGIONS
+            .iter()
+            .flat_map(|(_, r)| r.iter().copied())
+            .collect()
+    }
+
+    #[test]
+    fn each_body_protects_every_region_a_native_set_does_at_its_armour() {
+        // The user's report: the body takes the legs', gloves' and boots'
+        // slots, so it must protect the legs, arms and body as their native
+        // pieces would.
+        for variant in [&DUTY, &FREEDOM] {
+            let set = set_items(variant, &real_natives(), false).unwrap();
+            let (body, head) = (&set[0].2, &set[1].2);
+            check_coverage(&hit_targets(&all_regions()), body, head).unwrap();
+            let body_regions: Vec<String> = zones(body);
+            let mut expected: Vec<&str> = NATIVE_REGIONS[1..]
+                .iter()
+                .flat_map(|(_, r)| r.iter().copied())
+                .collect();
+            expected.sort_unstable();
+            assert_eq!(body_regions, expected, "{}", variant.key);
+            assert_eq!(zones(head), HEAD_REGIONS, "{}", variant.key);
+            for (cfg, ballistic) in [(body, variant.ballistic.0), (head, variant.ballistic.1)] {
+                let Some(V::Named(parts)) = cfg.named("hit_params") else {
+                    unreachable!()
+                };
+                for part in parts {
+                    let Some(V::Named(types)) = part.value.named("hit_types") else {
+                        panic!("{}", part.name)
+                    };
+                    for hit in types {
+                        let wanted =
+                            if ["ranged", "slash", "explosive"].contains(&hit.name.as_str()) {
+                                ballistic
+                            } else {
+                                variant.anomaly
+                            };
+                        assert_eq!(
+                            hit.value.named("armor"),
+                            Some(&V::Float(wanted)),
+                            "{} {} {}",
+                            variant.key,
+                            part.name,
+                            hit.name
+                        );
+                        // The native piece's other values stay.
+                        assert_eq!(hit.value.named("absorption"), Some(&V::Float(0.1)));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_region_left_unprotected_or_protected_twice_stops_the_build() {
+        let set = set_items(&DUTY, &real_natives(), false).unwrap();
+        let (body, head) = (&set[0].2, &set[1].2);
+        // A hit region no piece protects (say, a future neck target).
+        let mut more = all_regions();
+        more.push("neck");
+        assert!(check_coverage(&hit_targets(&more), body, head).is_err());
+        // The helmet protecting a region the body also does.
+        let mut both = head.clone();
+        let front = body
+            .named("hit_params")
+            .unwrap()
+            .named("front")
+            .unwrap()
+            .clone();
+        let Some(V::Named(parts)) = both.named_mut("hit_params") else {
+            unreachable!()
+        };
+        parts.push(field("front", front));
+        assert!(check_coverage(&hit_targets(&all_regions()), body, &both).is_err());
+        // A region without every hit type.
+        let mut thin = body.clone();
+        thin.set_path("hit_params.front.hit_types", table(vec![]))
+            .unwrap();
+        assert!(check_coverage(&hit_targets(&all_regions()), &thin, head).is_err());
+    }
+
+    #[test]
+    fn a_helmet_whose_native_tier_never_drops_is_refused() {
+        let mut natives = natives();
+        natives.templates[1]
+            .1
+            .set_path("parameters.drop_weight", V::Integer(0))
+            .unwrap();
+        assert!(set_items(&DUTY, &natives, false).is_err());
+    }
+
     #[test]
     fn backpack_split_keeps_whole_components_and_vertex_attributes() {
         // Two rear triangles, one joined across a UV seam to a frame triangle.

@@ -143,7 +143,8 @@ Recommended: a **new, separate item set** next to Duty. Duty stays unchanged.
 Stock items end at 737. Duty owns and retires 1800–1806. The Bandit pack
 uses 1810–1814 (balaclava, jacket, jeans, hands, shoes). 1807 and 1808 are
 free, and they are outside the range Duty's builder deletes. Covered slots,
-oxygen (30 s), level 15, cost and `drop_weight` 0 copy Duty's `BODY`/`HELMET`.
+oxygen (30 s), level 15, cost and the drops (body never, helmet as its
+template, 10) copy Duty's `BODY`/`HELMET`.
 The faction and the characteristics differ (next section). 0.26g has no
 Freedom faction. Owner's decision (2026-10-16): the Freedom exo belongs to
 the **Fringe Settlers**.
@@ -161,7 +162,7 @@ Read from 0.26g's `resources.db` (`gameplay/db_static_dictionaries`
 | Rank needed in the shop | 10 "Colonel" (`st_renaissance_level_10`, 35 250 reputation) | **10 "Magister"** (`st_edge_level_10`, 35 250). Rank 9 is "Keeper" (29 340). |
 | How srp lists it | seller = config `faction`, level = `item_level − 5` (`seller_level`, Renaissance and Edge); no `server.items` sellers entry | the same rule gives seller 4 at level 10, so no override is needed. To be explicit, the pack's `server.items` can say `"sellers": [[4, 10]]` |
 | `faction_affinity` | body 30, helmet 20 (template) | body 30, helmet 20 (template; the same values) |
-| Drops | `drop_weight` 0: sold, never dropped | `drop_weight` 0 |
+| Drops | body `drop_weight` 0 (sold only); helmet 10, as Zubr UM-4's | body 0; helmet 10, as Pilgrim's |
 | Faction access | Renaissance opens only after a basic faction's top rank (srp `rules.rs` `faction_unlocked`) | the same rule for the Fringe Settlers |
 
 The level-15 native sets: "Zubr UM-4" (Renaissance, `renesanse_*_6`,

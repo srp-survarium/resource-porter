@@ -27,7 +27,31 @@ and 6 (table 0x925FD8; caller 0x2D8D88). The body keeps native oxygen data
 (`data.type = 1`, an `oxygen_tank`; `amount_time_sec = 30`; `influences`
 from `scavenger_oxygen_1`), so its oxygen is found in the torso slot.
 Armour (`hit_params`) and weight are read per worn item, not per slot.
-Oxygen in a toxic area has not been playtested.
+Oxygen in a toxic area has not been playtested. `data.type` only chooses
+the usable object `items_cook` makes of the item (1 an `oxygen_tank`, 4
+none); the skin cook below never reads it.
+
+### How the client draws the body (v17)
+
+0.26g's `profile_skin_visual_cook::on_configs_loaded` (0x204560) walks the
+slots in the order of 0xA79870: gloves, torso, boots, pants, helmet, mask,
+back. A slot another worn item covers is skipped whole (0x204a35). For the
+torso it reads the table the gloves' `data.model_type` names
+(`data_full`, `data_long` or `data_short`, the sleeve variants), `data` while
+no gloves were read (0x20470b), and for the pants the boots' likewise.
+Wherever a part's table has `base_model_hud` and `part_name_hud`, the cook
+draws that model in place of `base_model` (0x205336), as it does for every
+native gloves item; additional models follow the same rule (0x205546).
+
+Up to v16 the body's `data` carried the hands' `base_model_hud`, left from
+the one-item suit (whose base model went to the head part through
+`remove_head_model`, 0x2051cb, so it was never replaced). In the torso slot
+the hud hands took the suit's place: the user saw the helmet, the frame,
+the back unit, the legs, boots and gloves, but no jacket or sleeves. Since
+v17 the hud pair is on the hands' additional model, as on native gloves,
+and the body has all three sleeve tables, each the whole suit, for a gloves
+item whose `model_type` picks one (the body covers the gloves, so the cook
+reads `data`).
 
 The helmet is the v10 split helmet: same ID, config path, internal name and
 name string, and the original combined head surface (byte-identical to
@@ -55,9 +79,17 @@ isolation, modifiers and oxygen. The split follows the native sets. The
 helmet costs the average of the Zubr and Pilgrim helmets (77 500 and
 72 500). Its weight is between their 6 and 5 kg. The modifiers add a pocket,
 an ammo bag, pocket capacity and an artefact slot. They sit on the body, as
-native torso modifiers do. Each of Zubr UM-4's 12 hit regions is authored
-once, on one piece. Both pieces have Renaissance faction, item and
-matchmaking level 15, and `drop_weight` 0: they are sold, never dropped.
+native torso modifiers do. Each of the player's 12 hit regions
+(`base_character_full` `hit_targets`) is protected once, on one piece, with
+all seven hit types: the helmet brain and face, the body every region the
+native torso, trousers, gloves and boots protect (front, back, both
+forearms, arms, hips and feet), at the set's armour. The build stops if a
+region is left out or protected twice (`check_coverage`). Both pieces have
+Renaissance faction, item and matchmaking level 15. The body has
+`drop_weight` 0: it is sold, never dropped from a match. Since v18 the
+helmet drops as the native helmet of its tier does (owner, 2026-10-16): its
+template's `drop_weight`, Zubr UM-4's and Pilgrim's 10. 0.26g has no way
+for a player to throw an item away; "droppable" is the match drop.
 Camouflage and decals remain disabled: imported textures have no
 customization masks.
 
