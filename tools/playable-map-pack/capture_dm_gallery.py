@@ -74,6 +74,9 @@ def main():
     ap.add_argument('--frame-rate', type=int, default=60)
     ap.add_argument('--fps-seconds', type=float, default=0)
     ap.add_argument('--load-timeout', type=float, default=420)
+    ap.add_argument('--window', default='1280x720', help='client resolution, e.g. 1920x1080 for loading screens')
+    ap.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+                    help='extra user.cfg overrides passed to the launcher, e.g. r_motion_blur_quality=0')
     a = ap.parse_args()
     if Path(f'/tmp/.X11-unix/X{a.display[1:]}').exists():
         raise SystemExit(f'display {a.display} is in use')
@@ -89,7 +92,7 @@ def main():
     env = {k: v for k, v in os.environ.items() if k not in ('WAYLAND_DISPLAY', 'XDG_SESSION_TYPE')}
     env['DISPLAY'] = a.display
     log = (a.output/'xvfb.log').open('w')
-    xvfb = subprocess.Popen([XVFB, a.display, '-screen', '0', '1920x1080x24', '-nolisten', 'tcp'],
+    xvfb = subprocess.Popen([XVFB, a.display, '-screen', '0', '2560x1440x24', '-nolisten', 'tcp'],
                             stdout=log, stderr=subprocess.STDOUT, env=env)
     launcher = [str(a.package/'play-maps')]
     common = ['--runtime', str(a.runtime), '--port', str(a.port)]
@@ -98,9 +101,14 @@ def main():
         time.sleep(2)
         if xvfb.poll() is not None:
             raise SystemExit('Xvfb failed to start')
-        virtual_desktop(a.package, a.runtime, env, '1280x720')
+        size = tuple(int(v) for v in a.window.split('x'))
+        # Leave room around the window: a window as large as the desktop is
+        # shrunk by its frame and the backbuffer misses the requested size.
+        desktop = a.window if size == (1280, 720) else f'{size[0] + 64}x{size[1] + 64}'
+        virtual_desktop(a.package, a.runtime, env, desktop)
+        extra = [f'--set=r_resolution={a.window}'] + [f'--set={item}' for item in a.set]
         subprocess.run(launcher + ['start', a.map, '--ui', 'off', '--quality', a.quality,
-                                   '--frame-rate', str(a.frame_rate)] + common, env=env, check=True,
+                                   '--frame-rate', str(a.frame_rate)] + extra + common, env=env, check=True,
                        stdout=subprocess.DEVNULL)
         control = a.runtime/'camera.txt'
         status_path = control.with_name(control.name + '.status.json')
@@ -122,7 +130,7 @@ def main():
             raise SystemExit('the match camera never started; see the runtime logs')
         results['load_seconds'] = round(a.load_timeout - (deadline - time.monotonic()), 1)
         for pose in poses:
-            record = capture(control, [pose], a.output, timeout=60)[0]
+            record = capture(control, [pose], a.output, timeout=60, size=size)[0]
             if a.fps_seconds:
                 first = status(status_path)
                 time.sleep(a.fps_seconds)

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 
-def capture(control, poses, output, timeout=30):
+def capture(control, poses, output, timeout=30, size=(1280, 720)):
     output.mkdir(parents=True, exist_ok=True)
     status_path = control.with_name(control.name + '.status.json')
     results = []
@@ -19,7 +19,7 @@ def capture(control, poses, output, timeout=30):
         destination = (output / (name + '.bmp')).resolve()
         if destination.exists():
             raise FileExistsError(destination)
-        values = pose['position'] + pose['forward'] + [pose.get('fov', 65), pose.get('aspect', 1280/720), pose.get('near', .05), pose.get('far', 500)]
+        values = pose['position'] + pose['forward'] + [pose.get('fov', 65), pose.get('aspect', size[0]/size[1]), pose.get('near', .05), pose.get('far', 500)]
         if len(values) != 10 or not all(math.isfinite(v) for v in values):
             raise ValueError('invalid camera values')
         temporary = control.with_suffix('.tmp')
@@ -39,8 +39,8 @@ def capture(control, poses, output, timeout=30):
                         raise RuntimeError('captured camera position differs from request')
                 if abs(status['fov'] - pose.get('fov', 65)) > .001:
                     raise RuntimeError('captured field of view differs from request')
-                if (status['width'], status['height']) != (1280, 720):
-                    raise RuntimeError('expected a 1280x720 backbuffer; run viewport.exe')
+                if (status['width'], status['height']) != tuple(size):
+                    raise RuntimeError(f'expected a {size[0]}x{size[1]} backbuffer; run viewport.exe')
                 record = {'pose': pose, 'status': status, 'image': str(destination)}
                 (output / (name + '.json')).write_text(json.dumps(record, indent=2) + '\n')
                 results.append(record)

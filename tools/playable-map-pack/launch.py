@@ -176,6 +176,11 @@ def run(catalog, args):
             config = prefix/'drive_c/users/sheep/Documents/Survarium/user.cfg'
             config.parent.mkdir(parents=True, exist_ok=True)
             overrides = dict(QUALITY.get(args.quality, {}), ui=args.ui)
+            for option in args.set:
+                key, _, value = option.partition('=')
+                if not key or not value or any(c.isspace() for c in key + value):
+                    raise RuntimeError('--set takes KEY=VALUE: ' + option)
+                overrides[key] = value
             lines = [s for s in (PACKAGE/recipe['config']).read_text().splitlines() if s.split()[:1] not in [[k] for k in overrides]]
             config.write_text('\n'.join(lines+[f'{k} {v}' for k, v in overrides.items()])+'\n')
             for control in slot.glob('camera.txt*'):
@@ -246,6 +251,8 @@ def main():
     parser.add_argument('--quality', choices=['preset', 'low', 'medium', 'high'], default='preset',
                         help="graphics options: the recipe's user.cfg, or a whole low/medium/high preset")
     parser.add_argument('--frame-rate', type=int, default=60, help='DXVK frame cap; 0 = uncapped')
+    parser.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
+                        help='override one user.cfg option for this run, e.g. r_resolution=1920x1080')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--token', default='')
     args = parser.parse_args()
@@ -295,7 +302,8 @@ def main():
         with supervisor_log.open('w') as log:
             child = subprocess.Popen([sys.executable, str(PACKAGE/'launch.py'), '_run', args.map,
                 '--runtime', str(runtime), '--port', str(args.port), '--ui', args.ui, '--clients', str(args.clients),
-                '--quality', args.quality, '--frame-rate', str(args.frame_rate), '--token', token],
+                '--quality', args.quality, '--frame-rate', str(args.frame_rate), '--token', token]
+                + [f'--set={option}' for option in args.set],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.monotonic()+10
         while time.monotonic()<deadline:
