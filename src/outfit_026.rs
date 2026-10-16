@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Shared steps for STK2 outfit pieces retargeted to the native v0.26g player.
 use crate::manifest::{BuiltFile, TargetModelSpec, TextureCompression};
-use crate::weapon::{add_localization_strings, parse_config, record_file, write_generated_config};
+use crate::weapon::{parse_config, record_file, write_generated_config};
 use crate::{BinaryConfig, ConfigValue as V, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
@@ -182,28 +182,6 @@ impl Writer<'_> {
             &mat,
             files,
         )
-    }
-
-    pub(crate) fn localize(
-        &self,
-        target: &mut ResourceDb,
-        strings: &BTreeMap<String, String>,
-        files: &mut Vec<BuiltFile>,
-    ) -> Result<()> {
-        for lang in [
-            "english",
-            "original",
-            "russian",
-            "polish",
-            "german",
-            "ukrainian",
-        ] {
-            let p = format!("localization/{lang}/localization");
-            let mut c = parse_config(target, &p, "localization")?;
-            add_localization_strings(&mut c.root, strings)?;
-            self.config(&p, &c, files)?;
-        }
-        Ok(())
     }
 }
 

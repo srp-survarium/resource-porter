@@ -3,12 +3,17 @@
 //!
 //! Only the balaclava ships (owner's decision, 2026-10-15); the jacket, jeans,
 //! hands and shoes stay in the port manifest but are not built.
+use crate::localization_026::{LANGUAGES, Text, check_item_texts, set_string};
 use crate::outfit_026::{Piece, Writer, add_piece, set_card_prop};
 use crate::weapon::parse_config;
 use crate::{ArmorPortManifest, ConfigValue as V, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+};
 
 /// The surfaces of every stock helmet that can be worn together with a mask:
 /// those whose item does not also take the mask slot.
@@ -69,6 +74,30 @@ pub(crate) fn helmets_worn_over_masks(
     ensure!(!shells.is_empty(), "no stock helmet is worn over a mask");
     Ok(shells)
 }
+
+/// The balaclava's name and description in every client language.
+pub const TEXTS: [(&str, Text); 2] = [
+    (
+        "st_bandit_026_mask_name",
+        Text {
+            english: "Bandit balaclava",
+            russian: "Бандитская балаклава",
+            ukrainian: "Бандитська балаклава",
+            german: "Banditen-Sturmhaube",
+            polish: "Kominiarka bandyty",
+        },
+    ),
+    (
+        "st_bandit_026_mask_desc",
+        Text {
+            english: "Bandit balaclava from the cancelled S.T.A.L.K.E.R. 2.",
+            russian: "Бандитская балаклава из отменённого S.T.A.L.K.E.R. 2.",
+            ukrainian: "Бандитська балаклава зі скасованого S.T.A.L.K.E.R. 2.",
+            german: "Banditen-Sturmhaube aus dem eingestellten S.T.A.L.K.E.R. 2.",
+            polish: "Kominiarka bandyty z anulowanego S.T.A.L.K.E.R. 2.",
+        },
+    ),
+];
 
 /// The native head the balaclava is worn on.
 pub const HEAD_MODEL: &str = "models/character/human/base/base_character_head.skinned_model/render/black_market_01_head_s/converted_model";
@@ -276,6 +305,7 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     };
     let mut registration = vec![];
     let mut strings = BTreeMap::new();
+    let mut item_configs = vec![];
     for (id, slot, category, model, part, name) in
         [(1810, 1, "mask", "mask", "mask", "Bandit balaclava")]
     {
@@ -346,10 +376,36 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
                 .set_path("base_cost", V::Integer(10_000))?;
         }
         out.config(&path, &c, files)?;
+        item_configs.push(c.root.clone());
         registration.push(registration_entry);
     }
     out.config("gameplay/db_static_dictionaries", &dictionary, files)?;
-    out.localize(&mut target, &strings, files)?;
+    // Every language the client ships, each in its own words.
+    ensure!(
+        strings.keys().map(String::as_str).collect::<BTreeSet<_>>()
+            == TEXTS.iter().map(|(key, _)| *key).collect(),
+        "the balaclava's string keys changed: {:?}",
+        strings.keys()
+    );
+    let mut localizations = vec![];
+    for language in LANGUAGES {
+        let path = format!("localization/{language}/localization");
+        let mut loc = parse_config(&mut target, &path, "localization")?;
+        for (key, text) in &TEXTS {
+            set_string(&mut loc.root, key, text.get(language)?)?;
+        }
+        localizations.push((language, path, loc));
+    }
+    let views: Vec<(&str, &V)> = localizations
+        .iter()
+        .map(|(l, _, c)| (*l, &c.root))
+        .collect();
+    for item in &item_configs {
+        check_item_texts(item, &views)?;
+    }
+    for (_, path, loc) in &localizations {
+        out.config(path, loc, files)?;
+    }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     fs::write(
         output.join("port-manifest.json"),
@@ -362,4 +418,57 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     crate::model_validation::validate_effective_overlay(db, &overlay)?;
     println!("Built Bandit balaclava: {} resources", record.files.len());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{ConfigValue, NamedValue};
+
+    #[test]
+    fn the_balaclava_is_named_and_described_in_every_client_language() {
+        let named = |name: &str, value: ConfigValue| NamedValue {
+            name: name.into(),
+            value,
+        };
+        // As add_piece names them for the mask.
+        let item = ConfigValue::Named(vec![named(
+            "ui_desc",
+            ConfigValue::Named(vec![named(
+                "text_descriptions",
+                ConfigValue::Named(vec![
+                    named(
+                        "name",
+                        ConfigValue::String("st_bandit_026_mask_name".into()),
+                    ),
+                    named(
+                        "description",
+                        ConfigValue::String("st_bandit_026_mask_desc".into()),
+                    ),
+                ]),
+            )]),
+        )]);
+        let roots: Vec<(&str, ConfigValue)> = LANGUAGES
+            .iter()
+            .map(|&language| {
+                let mut root =
+                    ConfigValue::Named(vec![named("strings", ConfigValue::Named(vec![]))]);
+                for (key, text) in &TEXTS {
+                    set_string(&mut root, key, text.get(language).unwrap()).unwrap();
+                }
+                (language, root)
+            })
+            .collect();
+        let views: Vec<(&str, &ConfigValue)> = roots.iter().map(|(l, r)| (*l, r)).collect();
+        check_item_texts(&item, &views).unwrap();
+        let russian = crate::localization_026::string_of(&roots[2].1, "st_bandit_026_mask_name")
+            .unwrap()
+            .unwrap();
+        assert_eq!(russian, "Бандитская балаклава");
+        for (key, text) in &TEXTS {
+            for other in [text.russian, text.ukrainian, text.german, text.polish] {
+                assert_ne!(other, text.english, "{key} is untranslated");
+            }
+        }
+    }
 }

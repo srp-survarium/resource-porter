@@ -4,11 +4,9 @@
 //! namespace, items, faction template and protection. The six pre-split Duty
 //! models use the native 69-bone rig, rotated 180° around Y. Equipment is
 //! additive; native 0.26 item/shader schemas are retained.
+use crate::localization_026::{LANGUAGES, Text, check_item_texts, set_string};
 use crate::manifest::{BuiltFile, TextureCompression};
-use crate::weapon::{
-    add_localization_strings, parse_config, prepare_empty_output, record_file,
-    write_generated_config,
-};
+use crate::weapon::{parse_config, prepare_empty_output, record_file, write_generated_config};
 use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
@@ -518,8 +516,8 @@ pub struct Variant {
     /// Duty only: its pre-split preview rows (1800..=1806) may be replaced.
     legacy_split: bool,
     /// Suit name, suit description, helmet name, helmet description:
-    /// (string key, English text).
-    strings: [(&'static str, &'static str); 4],
+    /// (string key, text in every client language).
+    strings: [(&'static str, Text); 4],
     /// The brass disc with the red star on the chest (`sign_s`).
     chest_disc: bool,
     /// Ballistic protection (ranged, slash, explosive): body, head.
@@ -535,16 +533,48 @@ pub const DUTY: Variant = Variant {
     set: [BODY, HELMET],
     reusable: 1800..=1806,
     legacy_split: true,
+    // The factions as the localized S.T.A.L.K.E.R. games name them: Долг,
+    // Обов'язок, Pflicht, Powinność.
     strings: [
-        ("st_duty_026_suit_name", "Duty exoskeleton"),
+        (
+            "st_duty_026_suit_name",
+            Text {
+                english: "Duty exoskeleton",
+                russian: "Экзоскелет \"Долга\"",
+                ukrainian: "Екзоскелет \"Обов'язку\"",
+                german: "Pflicht-Exoskelett",
+                polish: "Egzoszkielet Powinności",
+            },
+        ),
         (
             "st_duty_026_suit_desc",
-            "An experimental sample of a military exoskeleton. Was never mass-produced due to extraordinary cost and some design flaws. Small batches are still made in underground facilities outside Ukraine. Comes with a built-in artifact container.",
+            Text {
+                english: "An experimental sample of a military exoskeleton. Was never mass-produced due to extraordinary cost and some design flaws. Small batches are still made in underground facilities outside Ukraine. Comes with a built-in artifact container.",
+                russian: "Экспериментальный образец военного экзоскелета. В серийное производство так и не пошёл из-за огромной стоимости и ряда конструктивных недостатков. Небольшие партии до сих пор собирают в подпольных мастерских за пределами Украины. Оснащён встроенным контейнером для артефактов.",
+                ukrainian: "Експериментальний зразок військового екзоскелета. У серійне виробництво так і не пішов через величезну вартість і низку конструктивних недоліків. Невеликі партії досі збирають у підпільних майстернях за межами України. Оснащений вбудованим контейнером для артефактів.",
+                german: "Ein experimentelles Muster eines militärischen Exoskeletts. Wegen der enormen Kosten und einiger Konstruktionsmängel ging es nie in Serie. Kleine Stückzahlen werden noch immer in Untergrundwerkstätten außerhalb der Ukraine gefertigt. Mit eingebautem Artefaktbehälter.",
+                polish: "Eksperymentalny egzemplarz wojskowego egzoszkieletu. Nigdy nie trafił do produkcji seryjnej z powodu ogromnych kosztów i wad konstrukcyjnych. Niewielkie partie wciąż powstają w podziemnych warsztatach poza Ukrainą. Wyposażony we wbudowany pojemnik na artefakty.",
+            },
         ),
-        ("st_duty_026_helmet_name", "Duty exoskeleton helmet"),
+        (
+            "st_duty_026_helmet_name",
+            Text {
+                english: "Duty exoskeleton helmet",
+                russian: "Шлем экзоскелета \"Долга\"",
+                ukrainian: "Шолом екзоскелета \"Обов'язку\"",
+                german: "Pflicht-Exoskeletthelm",
+                polish: "Hełm egzoszkieletu Powinności",
+            },
+        ),
         (
             "st_duty_026_head_desc",
-            "The sealed helmet of the experimental Duty exoskeleton, with a built-in respirator. Covers the whole head and face.",
+            Text {
+                english: "The sealed helmet of the experimental Duty exoskeleton, with a built-in respirator. Covers the whole head and face.",
+                russian: "Герметичный шлем экспериментального экзоскелета \"Долга\" со встроенным респиратором. Закрывает всю голову и лицо.",
+                ukrainian: "Герметичний шолом експериментального екзоскелета \"Обов'язку\" з вбудованим респіратором. Закриває всю голову та обличчя.",
+                german: "Der versiegelte Helm des experimentellen Pflicht-Exoskeletts, mit eingebautem Atemschutz. Bedeckt den ganzen Kopf und das Gesicht.",
+                polish: "Hermetyczny hełm eksperymentalnego egzoszkieletu Powinności z wbudowanym respiratorem. Osłania całą głowę i twarz.",
+            },
         ),
     ],
     chest_disc: true,
@@ -564,16 +594,47 @@ pub const FREEDOM: Variant = Variant {
     set: [FREEDOM_BODY, FREEDOM_HELMET],
     reusable: 1807..=1808,
     legacy_split: false,
+    // Свобода, Свобода, Freiheit, Swoboda.
     strings: [
-        ("st_freedom_026_suit_name", "Freedom exoskeleton"),
+        (
+            "st_freedom_026_suit_name",
+            Text {
+                english: "Freedom exoskeleton",
+                russian: "Экзоскелет \"Свободы\"",
+                ukrainian: "Екзоскелет \"Свободи\"",
+                german: "Freiheit-Exoskelett",
+                polish: "Egzoszkielet Swobody",
+            },
+        ),
         (
             "st_freedom_026_suit_desc",
-            "An experimental military exoskeleton repainted in Freedom colours. Never mass-produced due to its cost and design flaws; small batches still leave underground workshops. Comes with a built-in artifact container.",
+            Text {
+                english: "An experimental military exoskeleton repainted in Freedom colours. Never mass-produced due to its cost and design flaws; small batches still leave underground workshops. Comes with a built-in artifact container.",
+                russian: "Экспериментальный военный экзоскелет, перекрашенный в цвета \"Свободы\". В серию не пошёл из-за стоимости и конструктивных недостатков; небольшие партии до сих пор выходят из подпольных мастерских. Оснащён встроенным контейнером для артефактов.",
+                ukrainian: "Експериментальний військовий екзоскелет, перефарбований у кольори \"Свободи\". У серію не пішов через вартість і конструктивні недоліки; невеликі партії досі виходять із підпільних майстерень. Оснащений вбудованим контейнером для артефактів.",
+                german: "Ein experimentelles militärisches Exoskelett in den Farben der Freiheit. Wegen der Kosten und der Konstruktionsmängel ging es nie in Serie; kleine Stückzahlen verlassen noch immer Untergrundwerkstätten. Mit eingebautem Artefaktbehälter.",
+                polish: "Eksperymentalny wojskowy egzoszkielet przemalowany w barwy Swobody. Nigdy nie trafił do produkcji seryjnej z powodu kosztów i wad konstrukcyjnych; niewielkie partie wciąż opuszczają podziemne warsztaty. Wyposażony we wbudowany pojemnik na artefakty.",
+            },
         ),
-        ("st_freedom_026_helmet_name", "Freedom exoskeleton helmet"),
+        (
+            "st_freedom_026_helmet_name",
+            Text {
+                english: "Freedom exoskeleton helmet",
+                russian: "Шлем экзоскелета \"Свободы\"",
+                ukrainian: "Шолом екзоскелета \"Свободи\"",
+                german: "Freiheit-Exoskeletthelm",
+                polish: "Hełm egzoszkieletu Swobody",
+            },
+        ),
         (
             "st_freedom_026_head_desc",
-            "The sealed helmet of the Freedom exoskeleton, with a built-in respirator. Covers the whole head and face.",
+            Text {
+                english: "The sealed helmet of the Freedom exoskeleton, with a built-in respirator. Covers the whole head and face.",
+                russian: "Герметичный шлем экзоскелета \"Свободы\" со встроенным респиратором. Закрывает всю голову и лицо.",
+                ukrainian: "Герметичний шолом екзоскелета \"Свободи\" з вбудованим респіратором. Закриває всю голову та обличчя.",
+                german: "Der versiegelte Helm des Freiheit-Exoskeletts, mit eingebautem Atemschutz. Bedeckt den ganzen Kopf und das Gesicht.",
+                polish: "Hermetyczny hełm egzoszkieletu Swobody z wbudowanym respiratorem. Osłania całą głowę i twarz.",
+            },
         ),
     ],
     chest_disc: false,
@@ -1245,11 +1306,7 @@ pub fn build_variant(
         );
         items.push(row.clone());
     }
-    let strings: BTreeMap<String, String> = variant
-        .strings
-        .iter()
-        .map(|(key, text)| ((*key).into(), (*text).into()))
-        .collect();
+    let item_configs: Vec<V> = pieces.iter().map(|(_, _, cfg)| cfg.clone()).collect();
     let mut registration = vec![];
     for (piece, row, cfg) in pieces {
         config(&overlay, piece.path, cfg, &mut files)?;
@@ -1276,25 +1333,27 @@ pub fn build_variant(
         raw(&overlay, "flash_movies/lobby_menu.swf", &bytes, &mut files)?;
     }
     config(&overlay, DICT, dictionary.root, &mut files)?;
-    for lang in [
-        "english",
-        "original",
-        "russian",
-        "polish",
-        "german",
-        "ukrainian",
-    ] {
+    // Every language the client ships, each in its own words.
+    let mut localizations = vec![];
+    for lang in LANGUAGES {
         let path = format!("localization/{lang}/localization");
         let mut loc = parse_config(&mut target, &path, "localization")?;
-        let missing = strings
-            .iter()
-            .filter_map(|(key, text)| {
-                (loc.root.named("strings").and_then(|v| v.named(key)) != Some(&string(text)))
-                    .then(|| (key.clone(), text.clone()))
-            })
-            .collect();
-        add_localization_strings(&mut loc.root, &missing)?;
-        config(&overlay, &path, loc.root, &mut files)?;
+        for (key, text) in &variant.strings {
+            set_string(&mut loc.root, key, text.get(lang)?)?;
+        }
+        localizations.push((lang, loc.root));
+    }
+    let views: Vec<(&str, &V)> = localizations.iter().map(|(l, r)| (*l, r)).collect();
+    for cfg in &item_configs {
+        check_item_texts(cfg, &views)?;
+    }
+    for (lang, root) in localizations {
+        config(
+            &overlay,
+            &format!("localization/{lang}/localization"),
+            root,
+            &mut files,
+        )?;
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     fs::write(
@@ -1842,6 +1901,51 @@ mod tests {
         thin.set_path("hit_params.front.hit_types", table(vec![]))
             .unwrap();
         assert!(check_coverage(&hit_targets(&all_regions()), &thin, head).is_err());
+    }
+
+    /// The client's localizations with only a strings table, each given the
+    /// texts in its own language.
+    fn localizations(texts: &[(&str, Text)]) -> Vec<(&'static str, V)> {
+        LANGUAGES
+            .iter()
+            .map(|&language| {
+                let mut root = table(vec![field("strings", table(vec![]))]);
+                for (key, text) in texts {
+                    set_string(&mut root, key, text.get(language).unwrap()).unwrap();
+                }
+                (language, root)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_set_piece_is_named_and_described_in_every_client_language() {
+        for variant in [&DUTY, &FREEDOM] {
+            let roots = localizations(&variant.strings);
+            let views: Vec<(&str, &V)> = roots.iter().map(|(l, r)| (*l, r)).collect();
+            for (piece, _, cfg) in set_items(variant, &natives(), true).unwrap() {
+                check_item_texts(&cfg, &views).unwrap_or_else(|e| panic!("{}: {e:#}", piece.id));
+            }
+            for (key, text) in &variant.strings {
+                // Russian and Ukrainian in Cyrillic, every language its own words.
+                for cyrillic in [text.russian, text.ukrainian] {
+                    assert!(
+                        cyrillic
+                            .chars()
+                            .any(|c| ('\u{400}'..='\u{4ff}').contains(&c)),
+                        "{key}"
+                    );
+                }
+                for other in [text.russian, text.ukrainian, text.german, text.polish] {
+                    assert_ne!(other, text.english, "{key} is untranslated");
+                }
+            }
+        }
+        // A key no language has stops the build.
+        let roots = localizations(&DUTY.strings[..3]);
+        let views: Vec<(&str, &V)> = roots.iter().map(|(l, r)| (*l, r)).collect();
+        let set = set_items(&DUTY, &natives(), true).unwrap();
+        assert!(check_item_texts(&set[1].2, &views).is_err());
     }
 
     #[test]
