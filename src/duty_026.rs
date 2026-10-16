@@ -841,14 +841,32 @@ pub fn build(
             &mut files,
         )?;
     }
+    // The suit and its patch are padded cloth; the helmet and the
+    // exoskeleton frame and back unit (`attach`) are painted metal.
+    use crate::outfit_026::Finish;
     let texture_sets = [
-        ("torso", "dolg_exo_torso", "dolg_exo_torso_nmap"),
-        ("legs", "dolg_exo_legs", "dolg_exo_legs_nmap"),
-        ("helmet", "dolg_exo_helmet", "dolg_exo_helmet_nmap"),
-        ("attach", "dold_exo_attach", "dolg_exo_attach_nmap"),
-        ("sign", "dol_sign", "dol_sign _nmap"),
+        (
+            "torso",
+            "dolg_exo_torso",
+            "dolg_exo_torso_nmap",
+            Finish::CLOTH,
+        ),
+        ("legs", "dolg_exo_legs", "dolg_exo_legs_nmap", Finish::CLOTH),
+        (
+            "helmet",
+            "dolg_exo_helmet",
+            "dolg_exo_helmet_nmap",
+            Finish::ARMOUR,
+        ),
+        (
+            "attach",
+            "dold_exo_attach",
+            "dolg_exo_attach_nmap",
+            Finish::ARMOUR,
+        ),
+        ("sign", "dol_sign", "dol_sign _nmap", Finish::CLOTH),
     ];
-    for (part, diffuse, normal) in texture_sets {
+    for (part, diffuse, normal, finish) in texture_sets {
         let mut material = parse_config(&mut target, MATERIAL, "native equipped armor material")?;
         for (role, source_name, compression, srgb) in [
             ("diffuse", diffuse, TextureCompression::Dxt1, true),
@@ -895,22 +913,8 @@ pub fn build(
         }
         // The donor's *_fmap is an old specular-power map, not the modern
         // Fresnel input. Do not interpret it as metallic reflectance. Keep the
-        // native shader permutation but use an explicit matte approximation.
-        for (name, value) in [
-            ("constant_fresnel_min", 0.008),
-            ("constant_fresnel_max", 0.008),
-            ("constant_roughness_min", 0.98),
-            ("constant_roughness_max", 0.98),
-        ] {
-            material.root.set_path(
-                &format!("material.g_stage.effect.{name}.value"),
-                V::Float(value),
-            )?;
-        }
-        material.root.set_path(
-            "material.g_stage.effect.constant_specular_color_multiplier.value",
-            V::Float3([0.025; 3]),
-        )?;
+        // native shader permutation with a constant stock-like finish.
+        crate::outfit_026::set_finish(&mut material, finish)?;
         let material_path = format!("material_instances/{NS}/{part}.material");
         // A revision can reuse an identical installed material. Do not mark it
         // as replaced: that would require auditing every unrelated stock model.

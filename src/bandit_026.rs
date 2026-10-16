@@ -155,7 +155,7 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
         "bandit_026",
         "attach",
         &textures.join("bandit_01_attach"),
-        0.98,
+        crate::outfit_026::Finish::CLOTH,
         files,
     )?;
     let mut dictionary =

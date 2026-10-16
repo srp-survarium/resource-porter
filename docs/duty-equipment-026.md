@@ -96,8 +96,14 @@ cleanup; the retained v10 baseline replaces it for this update.
 * v0.26g DDS headers require both `DDSD_PITCH` and `DDSD_LINEARSIZE`; the size
   includes the trailing color-space byte. Head/legs use their own textures,
   boots use the leg atlas, and hands use the torso atlas.
-* Approved matte materials retain specular multiplier 0.025, Fresnel 0.008
-  and roughness 0.98. Identical installed materials are reused by updates.
+* Materials keep the native template's shader permutation with a constant
+  finish (`outfit_026::Finish`): `constant_roughness` is gloss in 0.26g (the
+  G-buffer stores one minus it as smoothness), so the suit, legs and patch
+  take stock cloth's 0.1 (Fresnel 0.03) and the helmet and frame stock
+  exo armour's 0.12 (Fresnel 0.12), specular colour 1. The earlier 0.98
+  (with Fresnel 0.008, specular 0.025) was a mirror: on high and ultra
+  lighting quality it showed a sheen with sliding glints. Identical
+  installed materials are reused by updates.
 * Existing Duty IDs may be replaced only when their config path and internal
   name match an earlier Duty row (`check_reused_id`): a split preview item
   1800–1806, the v13–v15 back-slot suit, or a piece of this set. The builder
