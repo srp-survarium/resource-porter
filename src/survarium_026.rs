@@ -2480,6 +2480,20 @@ pub fn build(
         compatibility_notes.push(note);
         overrides.insert(donor_project, project.to_bytes()?);
     }
+    // 0.26 renders NaN where a drawn probe has no cube (native Cologne
+    // prerain names two it does not ship: black screen when firing,
+    // spreading squares), and a scene with no probe at all leaves forward
+    // passes without one. A converted scene must end with a probe.
+    for map in m.maps.iter().filter(|map| map.donor_project.is_some()) {
+        let project = BinaryConfig::parse(&overrides[&map.donor_project(m.source_build)])?;
+        ensure!(
+            array(project.root.named("client_objects").context("project objects")?)?
+                .iter()
+                .any(|o| string(o, "game_object_type") == Some("environment_probe")),
+            "{}: the converted scene has no environment probe (0.26 renders NaN without one); set skylight_probe",
+            map.donor_project(m.source_build)
+        );
+    }
     let successor_dirs = emit_collision_successors(
         &m.collision_successors,
         &plan.donor_files,
