@@ -14,6 +14,7 @@
 pub mod atlas;
 pub mod from_bundle;
 pub mod patch;
+pub mod probes;
 pub mod value;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1099,6 +1100,36 @@ pub fn base_languages(base: &ResourceDb) -> Vec<String> {
         .collect()
 }
 
+/// A project the packs write must not name an environment probe cubemap
+/// the game's files lack (with one missing, 0.26g renders NaNs:
+/// [`probes`]).
+pub(crate) fn refuse_missing_probes(
+    base: &ResourceDb,
+    files: &BTreeMap<String, Content>,
+) -> Result<()> {
+    let missing = probes::missing_in_files(base, files)?;
+    if !missing.is_empty() {
+        bail!(
+            "{} probe cubemap reference(s) do not resolve:\n  {}",
+            missing.len(),
+            missing
+                .iter()
+                .map(|m| format!(
+                    "{} client_objects[{}] {} {}: {} ({})",
+                    m.project,
+                    m.index,
+                    m.name,
+                    m.field,
+                    m.texture,
+                    m.missing.join(", ")
+                ))
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
+    Ok(())
+}
+
 pub fn load_packs(dirs: &[PathBuf]) -> Result<Vec<Pack>> {
     dirs.iter().map(|dir| Pack::load(dir)).collect()
 }
@@ -1155,6 +1186,7 @@ pub fn check(
                 None
             };
             let resolved = plan.resolve(base, base_sha.as_deref())?;
+            refuse_missing_probes(base, &resolved.files)?;
             Ok(CheckReport {
                 notes: resolved.notes,
                 effective_files: resolved.files.len(),

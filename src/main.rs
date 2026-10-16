@@ -820,6 +820,15 @@ enum PackCommand {
         #[arg(long)]
         force: bool,
     },
+    /// List every project's environment probe cubemap the files lack (the
+    /// database with its patches over it, as the game mounts them).
+    Probes {
+        #[arg(long)]
+        db: PathBuf,
+        /// A `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "patch")]
+        patches: Vec<PathBuf>,
+    },
     /// Confirm a database carries every operation of the given packs.
     Verify {
         #[arg(long)]
@@ -2492,6 +2501,24 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
                     archive.path, archive.size, archive.sha256
                 );
             }
+        }
+        PackCommand::Probes { db, patches } => {
+            let mut layers = vec![db.clone()];
+            layers.extend(patches.iter().cloned());
+            let mut layered = ResourceDb::open_layers(&layers)?;
+            let missing = content_pack::probes::missing_in_db(&mut layered)?;
+            for m in &missing {
+                println!(
+                    "{}\tclient_objects[{}]\t{}\t{}\t{}\t{}",
+                    m.project,
+                    m.index,
+                    m.name,
+                    m.field,
+                    m.texture,
+                    m.missing.join(" ")
+                );
+            }
+            println!("missing_probe_references={}", missing.len());
         }
         PackCommand::Verify { db, patches, packs } => {
             let operations = content_pack::verify(&db, &patches, &packs)?;

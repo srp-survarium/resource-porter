@@ -173,6 +173,7 @@ pub fn patch(options: &PatchOptions<'_>) -> Result<PatchRecord> {
         plan.replace(path, bytes);
     }
     let resolved = plan.resolve(&mut base, Some(&base_sha))?;
+    super::refuse_missing_probes(&base, &resolved.files)?;
 
     // Only what differs from the base goes into the patch.
     let mut changed = BTreeMap::<String, Content>::new();
