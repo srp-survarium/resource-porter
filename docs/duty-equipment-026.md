@@ -85,11 +85,20 @@ all seven hit types: the helmet brain and face, the body every region the
 native torso, trousers, gloves and boots protect (front, back, both
 forearms, arms, hips and feet), at the set's armour. The build stops if a
 region is left out or protected twice (`check_coverage`). Both pieces have
-Renaissance faction, item and matchmaking level 15. The body has
-`drop_weight` 0: it is sold, never dropped from a match. Since v18 the
-helmet drops as the native helmet of its tier does (owner, 2026-10-16): its
-template's `drop_weight`, Zubr UM-4's and Pilgrim's 10. 0.26g has no way
-for a player to throw an item away; "droppable" is the match drop.
+Renaissance faction, item and matchmaking level 15. Since v18 both drop
+from matches (owner, 2026-10-16). The helmet drops as the native helmet of
+its tier: its template's `drop_weight`, Zubr UM-4's and Pilgrim's 10. The
+body is a whole torso, trousers, gloves and boots in one item, so it drops
+half as often as the native torso it is made from: 5, against the Zubr and
+Pilgrim torsos' 10 (`BODY_DROP_DIVISOR`). srp's roll (`v026g::drops`) takes
+a category group, a category of it evenly, an item level from the match
+level's row, then an item of that category and level by weight, so the
+bodies share the level-15 torso roll with Zubr's and Pilgrim's: each body
+gets 5/30 of it, each native torso 10/30 (was 10/20). In a generic match
+drop that is 0.10 (armour) x 1/7 (torso) x the row's level-15 share (10 % at
+match level 15, 50 % at 20) x 5/30: 0.024 % to 0.12 % per match for each
+body, against 0.048 % to 0.24 % for each native torso. 0.26g has no way for
+a player to throw an item away; "droppable" is the match drop.
 Camouflage and decals remain disabled: imported textures have no
 customization masks.
 

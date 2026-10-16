@@ -18,7 +18,7 @@ Owner's decisions (2026-10-16):
   below are kept only for a possible disc-keeping variant. The builder does
   not use them for Freedom.
 * **Fringe Settlers, slightly different stats**: still heavy, +3% movement
-  speed and −4% stamina use, other utility as Duty's, ballistic protection
+  speed and −4% stamina use, no pocket capacity, other utility as Duty's, ballistic protection
   0.85 / 0.70 and anomaly protection 0.80 (the armour is provisional). See
   "Faction" and "Characteristics" under the integration plan.
 
@@ -143,8 +143,8 @@ Recommended: a **new, separate item set** next to Duty. Duty stays unchanged.
 Stock items end at 737. Duty owns and retires 1800–1806. The Bandit pack
 uses 1810–1814 (balaclava, jacket, jeans, hands, shoes). 1807 and 1808 are
 free, and they are outside the range Duty's builder deletes. Covered slots,
-oxygen (30 s), level 15, cost and the drops (body never, helmet as its
-template, 10) copy Duty's `BODY`/`HELMET`.
+oxygen (30 s), level 15, cost and the drops (body half its template's
+torso, 5; helmet as its template, 10) copy Duty's `BODY`/`HELMET`.
 The faction and the characteristics differ (next section). 0.26g has no
 Freedom faction. Owner's decision (2026-10-16): the Freedom exo belongs to
 the **Fringe Settlers**.
@@ -162,7 +162,7 @@ Read from 0.26g's `resources.db` (`gameplay/db_static_dictionaries`
 | Rank needed in the shop | 10 "Colonel" (`st_renaissance_level_10`, 35 250 reputation) | **10 "Magister"** (`st_edge_level_10`, 35 250). Rank 9 is "Keeper" (29 340). |
 | How srp lists it | seller = config `faction`, level = `item_level − 5` (`seller_level`, Renaissance and Edge); no `server.items` sellers entry | the same rule gives seller 4 at level 10, so no override is needed. To be explicit, the pack's `server.items` can say `"sellers": [[4, 10]]` |
 | `faction_affinity` | body 30, helmet 20 (template) | body 30, helmet 20 (template; the same values) |
-| Drops | body `drop_weight` 0 (sold only); helmet 10, as Zubr UM-4's | body 0; helmet 10, as Pilgrim's |
+| Drops | body `drop_weight` 5 (half Zubr UM-4's torso); helmet 10, as Zubr's | body 5 (half Pilgrim's torso); helmet 10, as Pilgrim's |
 | Faction access | Renaissance opens only after a basic faction's top rank (srp `rules.rs` `faction_unlocked`) | the same rule for the Fringe Settlers |
 
 The level-15 native sets: "Zubr UM-4" (Renaissance, `renesanse_*_6`,
@@ -196,9 +196,9 @@ Final values (2026-10-16): **user-approved; the armour numbers are
 provisional** (the owner may still tweak them). Compared with Duty, the
 Freedom set has 2 points less ballistic protection (equal to Pilgrim),
 10 points more anomaly protection (still 10 below Pilgrim), and is 2 kg
-lighter. Its only utility change is mobility: +3% movement speed and −4%
-stamina use. Quick slots, pocket size, ammo bags and the artefact slot stay
-as Duty's. There is no health regeneration and no second artefact slot (an
+lighter. Its utility changes are mobility, +3% movement speed and −4%
+stamina use, and no pocket capacity (Duty's 1170 is left out; owner,
+2026-10-16). Quick slots, ammo bags and the artefact slot stay as Duty's. There is no health regeneration and no second artefact slot (an
 earlier proposal had them; the owner removed them). The set's oxygen stays.
 
 | Stat (config field) | Zubr UM-4 | Pilgrim | Duty | **Freedom (final)** |
@@ -208,7 +208,7 @@ earlier proposal had them; the owner removed them). The set's oxygen stays.
 | Ballistic: `armor`, `arms_armor`, `back_armor`; `hit_params.*.{ranged,slash,explosive}.armor` | 0.90 | 0.85 | 0.87 | **0.85** (provisional) |
 | Anomaly: `ano_armor`; `hit_params.*.{fire,shock,radiation,toxic}.armor` | 0.50 | 0.90 | 0.70 | **0.80** (provisional) |
 | Quick slots `pocket_slots_modifier` | +1 (legs, 1030) | +1 (legs, 1030) | +1 (1030) | +1 (1030) |
-| Pocket size `pocket_slot_size_modifier` | +1 (1170) | — | +1 (1170) | +1 (1170) |
+| Pocket size `pocket_slot_size_modifier` | +1 (1170) | — | +1 (1170) | **—** |
 | Ammo bags `ammo_bags_modifier` | +3 (1051, 1050) | — | +1 (1050) | +1 (1050) |
 | Artefact slots `artefact_slots_modifier` | — | +2 (1040 torso, 1040 back) | +1 (1040) | +1 (1040) |
 | Health regen `health_regeneration_speed_modifier` | — | +0.15 (1094, back) | — | — |
@@ -238,7 +238,7 @@ Why it is about the same power as Duty:
   `max_carried_weight` of `default.player`, so it stays a heavy suit with an
   overweight penalty), +3% movement speed (the same modification as the
   level-14 Fringe boots), and −4% stamina use.
-* Every other utility value is Duty's.
+* No pocket capacity (1170). Every other utility value is Duty's.
 
 How the modifications reach the game: the client applies an item's
 `default_modifications` from its own config tables. srp's `modifications.rs`
@@ -260,7 +260,7 @@ Per-variant values the builder needs (in addition to the namespace):
   faction 4, `faction_affinity` 30/20, the dictionary row's `item_category`
   3/1, and `edge_helmet_6`'s mask cover.
 * `SetPiece.weight` 28.5 / 4.5; `cost` 225 000 / 75 000.
-* `SetPiece.modifications` (body) `[1030, 1050, 1170, 1040, 1112, 1161]`;
+* `SetPiece.modifications` (body) `[1030, 1050, 1040, 1112, 1161]`;
   helmet `[]`.
 * The protection now hard-coded in `split_protection` and `duty_set`
   (0.87 / 0.72 ballistic, 0.70 anomaly) becomes variant fields: Freedom
