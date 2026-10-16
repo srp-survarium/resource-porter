@@ -23,7 +23,7 @@ def capture(control, poses, output, timeout=30, size=(1280, 720)):
         if len(values) != 10 or not all(math.isfinite(v) for v in values):
             raise ValueError('invalid camera values')
         temporary = control.with_suffix('.tmp')
-        mode = 1 if pose.get('buffers', True) else 2
+        mode = pose.get('mode', 1 if pose.get('buffers', True) else 2)
         temporary.write_text(f'{request} {mode} ' + ' '.join(map(str, values)) + f" {pose.get('settle_ms', 3000)}\nZ:" + str(destination).replace('/', '\\') + '\n')
         temporary.replace(control)
         deadline = time.monotonic() + timeout
@@ -35,9 +35,9 @@ def capture(control, poses, output, timeout=30, size=(1280, 720)):
                 if not destination.is_file() or destination.stat().st_size < 54:
                     raise RuntimeError('hook acknowledged a missing image')
                 for actual, expected in zip(status['position'], pose['position']):
-                    if abs(actual - expected) > .001:
+                    if mode != 3 and abs(actual - expected) > .001:
                         raise RuntimeError('captured camera position differs from request')
-                if abs(status['fov'] - pose.get('fov', 65)) > .001:
+                if mode != 3 and abs(status['fov'] - pose.get('fov', 65)) > .001:
                     raise RuntimeError('captured field of view differs from request')
                 if (status['width'], status['height']) != tuple(size):
                     raise RuntimeError(f'expected a {size[0]}x{size[1]} backbuffer; run viewport.exe')

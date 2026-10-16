@@ -54,9 +54,11 @@ All of it is opt-in per map and off for the existing 0.10b–0.11e maps:
   enemy zone links are dropped. A mode-4 map is validated for two teams and
   no battery objectives.
 - **`height_ambient`** keeps 0.26's height-based ambient on. The early
-  maps turn it off so that the encoded-probe decode runs. These maps have no
-  environment probes, and their source skylight is exactly what
-  height-based ambient replaced.
+  maps turn it off so that the encoded-probe decode runs. In 0.26 it
+  multiplies probe light, so on its own it lights nothing: these maps need
+  the `skylight_probe` below.
+- **`skylight_probe`** adds the map-wide probe that carries the 0.10b
+  skylight, plus interior box probes (see [Lighting](#lighting)).
 - **`walker_ramps`** and **`walker_boxes`** are invisible, walker-only box
   primitives (cmask 4, cgroup 2), in one generated model per map that is
   cloned from native `level/04/level_border`. A ramp is a slab whose top
@@ -251,6 +253,53 @@ of the LobbyMenu constructor, which appends them only if the array holds the
 patched SWF is listed in the bundle files. The images in
 `assets/soc-dm-loading/` are placeholders.
 
+## v0.10b against 0.26, by subsystem
+
+The v0.100b builds of these maps are the reference. The table lists what
+reached 0.26 before this round and what changed.
+
+| Subsystem | v0.10b | 0.26 before | 0.26 now |
+| --- | --- | --- | --- |
+| Ambient | skylight stage: ambient cube x skylight colour x SSAO x 2.5 on every pixel | none: height ambient multiplies probe light and there were no probes, so everything unlit was black | `skylight_probe`: a native global sphere probe holding the source cube; native height-ambient tint; interior box probes |
+| Sun, sky, fog | template sun, sky, post-process | translated (`transfer_environment`) | unchanged |
+| Lamps | none (template lamps dropped) | none | none; the "lamp cone" in the user's screenshot is sunlight through a window with foliage shadows, shown alone because ambient was zero |
+| Textures | DDS pitch field = payload, accepted | the same header: 0.26's streamer reads the packed mip tail one byte early, so distant mips of streamed textures render as colour noise (pool `wood_plank7/8`) | native header (0xA100F, payload + colour-space byte) at the source, and repaired by the importer |
+| Geometry | parts up to 65,536 vertices | rembasa's 65,238/65,384-vertex terrain parts overflow 0.26's 1 MiB loader stack (crash on load) | parts split at 35,000, refused above 35,003 |
+| Tangent frames | X-Ray bake, some parallel | the same | rebuilt (`strict_finite`) |
+| Materials | v0.100b family templates | their 0.26 namesakes | unchanged (proven, 0 missing variants) |
+| Water, terrain, foliage | water_green, terrain shader, meadow addon | 0.26 namesakes | unchanged |
+| Collision, ladders, spawns | X-Ray cform, ladders | cform; ramps and lids | unchanged; audit clean |
+| Minimap, name, loading screen | level_03's | level_03's | each map's own (below) |
+
+## Lighting
+
+0.10b lights every pixel with its skylight stage first (`skylight.ps`): the
+six axis colours of the post-process (`environment_skycolor_*`) weighted by
+the squared world normal, times `pow(skylight_color, 2.2) *
+skylight_multiplier`, the height ramp and SSAO x 2.5. 0.26 has no such
+stage. Its ambient is environment-probe light, which height-based ambient
+then multiplies. These scenes have no probes, so their 0.26 ambient was
+zero: the maps were black wherever the sun did not reach.
+
+`skylight_probe` restores it in 0.26's own contract:
+
+- One native global sphere probe, cloned from the template's largest sphere
+  probe, centred on the map's render bounds with a radius enclosing them
+  (42 m pool to 577 m sports center) and a 1 + 0.02 r falloff width.
+- Its cube (64 px, DXT5) and diffuse cube (16 px) hold the source ambient
+  cube at every texel direction, times `gain`. 0.26 decodes a probe texel
+  as pow(rgb / a, 2.2); a constant non-zero alpha keeps that finite.
+- `native_tint` takes the height-ambient colour from the native template
+  (warm white) instead of the source skylight. All five maps inherited the
+  same cold 0.10b template skylight (0.816, 0.897, 1.0), which reads blue
+  under 0.26's grading: blue/red 1.28 against 0.65–0.78 on native level_03.
+  With the native tint the sports-center halls measure 0.95–1.04.
+- `gain` 0.8 puts the interiors in the native range (static captures:
+  native level_03 interiors mean luminance 0.17–0.24, sports-center halls
+  0.22–0.29 before the interior probes). Eye adaptation absorbs most of a
+  global change; contrast comes from the interior probes.
+- Specular 0.3, as on the native global probe.
+
 ## Interior probes
 
 0.10b lit the converted rooms like open ground: its skylight is one ambient
@@ -278,6 +327,34 @@ cube at `diffuse` times the map-wide strength (specular and ambient alike).
   - `diffuse` is 0.45 for a closed room, up to 0.75 as visibility rises, plus
     0.1 for halls over 600 m².
   - Rerun it with `--write` after the geometry changes.
+
+## Rembasa crashed on load
+
+The client log ends `STACK_OVERFLOW` right after rembasa's terrain textures
+stream in. The minidump faults in `_alloca_probe` (0x429f47) with ESI
+0x13f420: 0.26's static surface loader copies a surface's vertices
+through a 20-byte-per-vertex `_alloca` (0x16ebd8..0x16ebe4) on a 1 MiB
+thread stack, and rembasa's terrain parts had 65,238 and 65,384 vertices.
+Native 0.26 surfaces stop at 35,003 vertices (the largest of 7,854 native
+static surfaces). `build-soc-map` takes `max_surface_vertices` from the
+manifest (default one u16 index space); the five deathmatch manifests set
+35,000, which changes only rembasa's output. The 0.26 importer refuses any
+early static surface above 35,003 vertices.
+
+## Texture headers
+
+Every retail v0.100b and 0.26 DDS has flags 0xA100F and
+`dwPitchOrLinearSize` = every byte after the header: the mip payload plus
+the trailing colour-space byte. `build-soc-map` wrote 0xA1007 and the
+payload alone. 0.26's cooker locates the first kept mip from that field
+(`texture_cook_wrapper::on_dds_header_ready`, cooker convention total + 1),
+so it read the packed tail one byte early. On mp_pool, `wood_plank7` and
+`wood_plank8` (1024 px) showed per-block rainbow noise in the albedo
+buffer; the same bytes under another path stayed broken, and the same bytes
+with the native header rendered correctly. `canonicalize_dds` now writes the
+native header (SoC, Clear Sky, F.E.A.R., the meadow addon), the generated
+probe cubes count the colour-space byte, and the importer repairs the
+off-by-one header of any early DXT texture and refuses any other mismatch.
 
 ## Checks
 

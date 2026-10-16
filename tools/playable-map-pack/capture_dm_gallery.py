@@ -75,6 +75,10 @@ def main():
     ap.add_argument('--fps-seconds', type=float, default=0)
     ap.add_argument('--load-timeout', type=float, default=420)
     ap.add_argument('--window', default='1280x720', help='client resolution, e.g. 1920x1080 for loading screens')
+    ap.add_argument('--ui', choices=['on', 'off'], default='off',
+                    help='on keeps the HUD (minimap) in the shots; a pose with "mode": 3 shoots the player camera')
+    ap.add_argument('--loading-shots', type=float, default=0,
+                    help='seconds between whole-display screenshots while the map loads (0 = none)')
     ap.add_argument('--set', action='append', default=[], metavar='KEY=VALUE',
                     help='extra user.cfg overrides passed to the launcher, e.g. r_motion_blur_quality=0')
     a = ap.parse_args()
@@ -107,14 +111,23 @@ def main():
         desktop = a.window if size == (1280, 720) else f'{size[0] + 64}x{size[1] + 64}'
         virtual_desktop(a.package, a.runtime, env, desktop)
         extra = [f'--set=r_resolution={a.window}'] + [f'--set={item}' for item in a.set]
-        subprocess.run(launcher + ['start', a.map, '--ui', 'off', '--quality', a.quality,
+        subprocess.run(launcher + ['start', a.map, '--ui', a.ui, '--quality', a.quality,
                                    '--frame-rate', str(a.frame_rate)] + extra + common, env=env, check=True,
                        stdout=subprocess.DEVNULL)
         control = a.runtime/'camera.txt'
         status_path = control.with_name(control.name + '.status.json')
         deadline = time.monotonic() + a.load_timeout
         loaded = None
+        next_shot, shots = time.monotonic(), 0
         while time.monotonic() < deadline:
+            if a.loading_shots and time.monotonic() >= next_shot and not loaded:
+                # The loading screen is Flash over the window; the hook only
+                # sees scene cameras, so take the X display itself.
+                subprocess.run(['import', '-display', a.display, '-window', 'root',
+                                str(a.output/f'loading-{shots:03d}.png')], env=env,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                shots += 1
+                next_shot = time.monotonic() + a.loading_shots
             s = status(status_path)
             state = status(a.runtime/'state.json') or {}
             if state.get('status') == 'stopped':
