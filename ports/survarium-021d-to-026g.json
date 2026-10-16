@@ -35,17 +35,20 @@
     {
       "id": 166,
       "level": "level_03",
-      "weather": "day"
+      "weather": "day",
+      "native_lighting": true
     },
     {
       "id": 167,
       "level": "level_03",
-      "weather": "evening"
+      "weather": "evening",
+      "native_lighting": true
     },
     {
       "id": 168,
       "level": "level_03",
-      "weather": "rain"
+      "weather": "rain",
+      "native_lighting": true
     },
     {
       "id": 169,
@@ -80,17 +83,20 @@
     {
       "id": 175,
       "level": "level_06",
-      "weather": "day"
+      "weather": "day",
+      "native_lighting": true
     },
     {
       "id": 176,
       "level": "level_06",
-      "weather": "evening"
+      "weather": "evening",
+      "native_lighting": true
     },
     {
       "id": 177,
       "level": "level_06",
-      "weather": "rain"
+      "weather": "rain",
+      "native_lighting": true
     }
   ],
   "material_templates": {

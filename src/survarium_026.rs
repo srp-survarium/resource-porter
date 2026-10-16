@@ -39,6 +39,12 @@ pub struct Map {
     pub id: u8,
     pub level: String,
     pub weather: String,
+    /// Take the lighting objects (environment probes, ambient lights, lights)
+    /// from the native 0.26 project of the same level and weather instead of
+    /// the donor's. For levels that 0.26 itself ships, whose probes were
+    /// re-baked and re-tuned for 0.26's lighting.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub native_lighting: bool,
 }
 impl Map {
     fn donor_project(&self) -> String {
@@ -207,6 +213,94 @@ fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result
         }
     }
     Ok(())
+}
+
+/// Lighting object types replaced by `Map::native_lighting`.
+const LIGHTING_OBJECT_TYPES: [&str; 3] = ["environment_probe", "ambient_light", "light"];
+
+/// Translation from the native project's layout to the donor's: the most
+/// common position difference of models placed exactly once in both. 0.26
+/// level_03 matches 0.21d exactly; 0.26 level_06 is the same layout raised by
+/// 7.28 m.
+fn layout_offset(donor: &ConfigValue, native: &ConfigValue) -> Result<[f32; 3]> {
+    let placements = |project: &ConfigValue| -> Result<BTreeMap<String, Vec<[f32; 3]>>> {
+        let mut result: BTreeMap<String, Vec<[f32; 3]>> = BTreeMap::new();
+        if let Some(visuals) = project.named("render_visuals") {
+            for visual in array(visuals)? {
+                if let (Some(name), Some(ConfigValue::Float3(position))) =
+                    (string(visual, "lib_name"), visual.named("position"))
+                {
+                    result.entry(name.to_owned()).or_default().push(*position);
+                }
+            }
+        }
+        Ok(result)
+    };
+    let (donor, native) = (placements(donor)?, placements(native)?);
+    let mut votes: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    let mut unique = 0;
+    for (name, at) in &donor {
+        let Some(other) = native.get(name) else { continue };
+        if at.len() != 1 || other.len() != 1 {
+            continue;
+        }
+        unique += 1;
+        let key = [0, 1, 2].map(|i| ((at[0][i] - other[0][i]) * 100.).round() as i64);
+        *votes.entry(key).or_default() += 1;
+    }
+    let (key, count) = votes
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .context("no model placed once in both projects")?;
+    ensure!(
+        count >= 10 && count * 2 >= unique,
+        "native layout does not match the donor: best common offset has {count} of {unique} unique models"
+    );
+    Ok(key.map(|v| v as f32 / 100.))
+}
+
+/// Replace the donor's lighting objects with the native project's, moved by
+/// `offset` (native to donor layout). Returns (removed, added).
+fn adopt_native_lighting(
+    project: &mut ConfigValue,
+    native: &ConfigValue,
+    offset: [f32; 3],
+) -> Result<(usize, usize)> {
+    let is_lighting = |o: &ConfigValue| {
+        string(o, "game_object_type").is_some_and(|kind| LIGHTING_OBJECT_TYPES.contains(&kind))
+    };
+    let replacement: Vec<ConfigValue> = array(
+        native
+            .named("client_objects")
+            .context("native project lacks client_objects")?,
+    )?
+    .iter()
+    .filter(|o| is_lighting(o))
+    .cloned()
+    .map(|mut o| {
+        if let Some(ConfigValue::Float3(position)) = o.named_mut("position") {
+            for i in 0..3 {
+                position[i] += offset[i];
+            }
+        }
+        o
+    })
+    .collect();
+    ensure!(
+        replacement
+            .iter()
+            .any(|o| string(o, "game_object_type") == Some("environment_probe")),
+        "native project has no environment probes"
+    );
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("project lacks indexed client_objects");
+    };
+    let before = objects.len();
+    objects.retain(|o| !is_lighting(o));
+    let removed = before - objects.len();
+    let added = replacement.len();
+    objects.extend(replacement);
+    Ok((removed, added))
 }
 
 fn adapt_project(
@@ -970,6 +1064,18 @@ pub fn build(
             &templates,
         )
         .with_context(|| format!("adapting {}", map.donor_project()))?;
+        if map.native_lighting {
+            let native = &target_projects[&map.target_project()];
+            let offset = layout_offset(&project, native)
+                .with_context(|| format!("native lighting layout for {}", map.donor_project()))?;
+            let (removed, added) = adopt_native_lighting(&mut project, native, offset)
+                .with_context(|| format!("native lighting for {}", map.donor_project()))?;
+            eprintln!(
+                "{}: {removed} donor lighting objects (probes, ambient lights, lights) replaced by the {added} of native {} moved by {offset:?}; the donor probes were baked and tuned for 0.21 (diffuse multipliers up to 7.5; 0.26 has no sun light object)",
+                map.donor_project(),
+                map.target_project()
+            );
+        }
         adapt_collisions(
             &mut project,
             &donor,
@@ -1252,6 +1358,74 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_lighting_replaces_only_lighting_objects() {
+        let object = |kind: &str, name: &str| {
+            ConfigValue::Named(vec![
+                NamedValue { name: "game_object_type".into(), value: ConfigValue::String(kind.into()) },
+                NamedValue { name: "name".into(), value: ConfigValue::String(name.into()) },
+            ])
+        };
+        let objects = |list: Vec<ConfigValue>| {
+            ConfigValue::Named(vec![NamedValue {
+                name: "client_objects".into(),
+                value: ConfigValue::Indexed(list),
+            }])
+        };
+        let mut project = objects(vec![
+            object("environment_probe", "old probe"),
+            object("light", "sun"),
+            object("ambient_light", "old fill"),
+            object("respawn_point", "spawn"),
+            object("collision_geometry", "zone"),
+        ]);
+        let native = objects(vec![
+            object("environment_probe", "indoor"),
+            object("environment_probe", "global"),
+            object("light", "spot_light"),
+            object("ambient_light", "fill"),
+            object("particle", "smoke"),
+        ]);
+        assert_eq!(adopt_native_lighting(&mut project, &native, [0., -1.5, 0.]).unwrap(), (3, 4));
+        let names: Vec<_> = array(project.named("client_objects").unwrap())
+            .unwrap()
+            .iter()
+            .map(|o| string(o, "name").unwrap().to_owned())
+            .collect();
+        assert_eq!(names, ["spawn", "zone", "indoor", "global", "spot_light", "fill"]);
+        assert!(adopt_native_lighting(&mut project, &objects(vec![object("light", "x")]), [0.; 3]).is_err());
+        // Positions follow the layout offset.
+        let mut probe = object("environment_probe", "p");
+        probe.set_path("position", ConfigValue::Float3([1., 10., 2.])).unwrap_or_else(|_| {
+            if let ConfigValue::Named(v) = &mut probe {
+                v.push(NamedValue { name: "position".into(), value: ConfigValue::Float3([1., 10., 2.]) });
+            }
+        });
+        let mut target = objects(vec![]);
+        adopt_native_lighting(&mut target, &objects(vec![probe]), [0., -7.28, 0.]).unwrap();
+        let moved = &array(target.named("client_objects").unwrap()).unwrap()[0];
+        assert_eq!(moved.named("position"), Some(&ConfigValue::Float3([1., 10. - 7.28, 2.])));
+    }
+
+    #[test]
+    fn layout_offset_finds_the_common_translation() {
+        let visual = |name: &str, at: [f32; 3]| {
+            ConfigValue::Named(vec![
+                NamedValue { name: "lib_name".into(), value: ConfigValue::String(name.into()) },
+                NamedValue { name: "position".into(), value: ConfigValue::Float3(at) },
+            ])
+        };
+        let project = |list: Vec<ConfigValue>| {
+            ConfigValue::Named(vec![NamedValue { name: "render_visuals".into(), value: ConfigValue::Indexed(list) }])
+        };
+        let donor = project((0..12).map(|i| visual(&format!("m{i}"), [i as f32, 0., 0.])).collect());
+        let mut moved: Vec<_> = (0..11).map(|i| visual(&format!("m{i}"), [i as f32, 7.28, 0.])).collect();
+        moved.push(visual("m11", [50., 0., 0.]));
+        assert_eq!(layout_offset(&donor, &project(moved)).unwrap(), [0., -7.28, 0.]);
+        let unrelated = project((0..12).map(|i| visual(&format!("m{i}"), [i as f32 * 3., 1., 0.])).collect());
+        assert!(layout_offset(&donor, &unrelated).is_err());
+    }
     #[test]
     fn shared_particle_and_texture_names_do_not_follow_a_material_alias() {
         let paths = BTreeSet::from(["material_instances/fx/lights/oil_lamp.material".into()]);
@@ -1334,6 +1508,7 @@ mod tests {
             id: 165,
             level: "level_02".into(),
             weather: "rain".into(),
+            native_lighting: false,
         };
         let output = adapt_project(donor.clone(), &donor, &map, &[]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
@@ -1452,6 +1627,7 @@ mod tests {
             id: 166,
             level: "level_03".into(),
             weather: "day".into(),
+            native_lighting: false,
         };
         let converted = adapt_project(donor.clone(), &donor, &map, &[]).unwrap();
         let visual = &array(converted.named("render_visuals").unwrap()).unwrap()[0];
