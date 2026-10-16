@@ -73,6 +73,44 @@ pub struct Manifest {
     /// per instance). Collision instances are unchanged.
     #[serde(default)]
     pub batch_cell: Option<f32>,
+    /// Material clusters: the imported render instances of a square cell
+    /// become one render-only model with one surface per material and LOD.
+    /// 0.26 picks a model's LOD by the distance to its bounding-box centre,
+    /// so the cluster switches `max distance from its centre to a member's`
+    /// later than `lod_distances`: no member is drawn coarser than alone.
+    #[serde(default)]
+    pub material_clusters: Option<MaterialClusters>,
+    /// Terrain render meshes (`decimate_terrain`) simplified with their open
+    /// borders locked, so neighbouring tiles stay sealed whatever each one
+    /// sheds; collision is unchanged. Without it grid tiles keep every second
+    /// grid line.
+    #[serde(default)]
+    pub terrain_simplify: Option<TerrainSimplify>,
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialClusters {
+    /// Cell size (metres, x and z).
+    pub cell: f32,
+    /// Instances of larger models (bounding radius with instance scale,
+    /// metres) merge only with models alike.
+    pub max_member_radius: f32,
+    /// Cell size for clusters of models alike (same LOD switching, same
+    /// material set; copies of one model or e.g. native trees sharing one
+    /// material), formed first. Foliage, grass (whose shading may depend on
+    /// the instance), native models and models above `max_member_radius`
+    /// only ever merge this way.
+    pub model_cell: f32,
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerrainSimplify {
+    /// Target triangle ratio.
+    pub ratio: f32,
+    /// Relative error bound (fraction of the tile extent).
+    pub max_error: f32,
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -95,9 +133,28 @@ pub struct Simplify {
     pub min_triangles: usize,
     /// Relative error bound (fraction of the mesh extent).
     pub max_error: f32,
+    /// Error bound of LOD2 surfaces (drawn beyond the second LOD distance),
+    /// when looser than `max_error`.
+    #[serde(default)]
+    pub lod2_max_error: Option<f32>,
+    /// LOD2 surfaces may collapse across UV and normal seams and drop small
+    /// disconnected parts (meshoptimizer `Permissive | Prune`): far geometry
+    /// is otherwise held at its seams.
+    #[serde(default)]
+    pub lod2_permissive: bool,
     /// Models without LODs whose LOD0 exceeds this many triangles get
     /// generated LOD1/LOD2 surfaces at the two ratios.
     pub generate_above: usize,
+}
+
+impl Simplify {
+    fn options(&self, lod: usize) -> meshopt::SimplifyOptions {
+        if lod >= 2 && self.lod2_permissive {
+            meshopt::SimplifyOptions::Permissive | meshopt::SimplifyOptions::Prune
+        } else {
+            meshopt::SimplifyOptions::None
+        }
+    }
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -128,6 +185,12 @@ pub struct MapSpec {
     pub ambient_lights: bool,
     /// Which donor respawn folder supplies the spawns (TDM).
     pub spawn_folder: String,
+    /// Donor mode options whose `ui.map_name` names the map.
+    pub donor_mode: String,
+    /// `mode.ui.loading_screen_id`: the lobby_menu.swf slot that shows the
+    /// donor's loading screen (filled by the UI bundle).
+    #[serde(default)]
+    pub loading_screen_id: Option<u8>,
 }
 
 fn value_of<'a>(effect: &'a ConfigValue, name: &str) -> Option<&'a ConfigValue> {
@@ -474,6 +537,95 @@ pub fn bake_instances(bytes: &[u8], placements: &[Placement]) -> Result<(Vec<u8>
         out.extend(i.to_le_bytes());
     }
     Ok((out, lo, hi))
+}
+
+/// Concatenate static meshes of one stride (0.26 layout, world space) into
+/// as few meshes as 16-bit indices allow. Returns each merged mesh with its
+/// bounds.
+pub fn concat_meshes(meshes: &[Vec<u8>]) -> Result<Vec<(Vec<u8>, [f32; 3], [f32; 3])>> {
+    let mut out = Vec::new();
+    let mut current: Option<(usize, Vec<u8>, usize, Vec<u16>, [f32; 3], [f32; 3])> = None;
+    let finish = |c: (usize, Vec<u8>, usize, Vec<u16>, [f32; 3], [f32; 3]), out: &mut Vec<(Vec<u8>, [f32; 3], [f32; 3])>| -> Result<()> {
+        let (_, vertices, count, indices, lo, hi) = c;
+        let mut b = Vec::new();
+        b.extend(3u32.to_le_bytes());
+        b.extend(u32::try_from(4 + vertices.len())?.to_le_bytes());
+        b.extend(u32::try_from(count)?.to_le_bytes());
+        b.extend(vertices);
+        b.extend(4u32.to_le_bytes());
+        b.extend(u32::try_from(4 + indices.len() * 2)?.to_le_bytes());
+        b.extend(u32::try_from(indices.len())?.to_le_bytes());
+        for i in indices {
+            b.extend(i.to_le_bytes());
+        }
+        out.push((b, lo, hi));
+        Ok(())
+    };
+    for mesh in meshes {
+        let s = stride(mesh).context("not a static mesh")?;
+        let u = |o: usize| u32::from_le_bytes(mesh[o..o + 4].try_into().unwrap()) as usize;
+        let (size, count) = (u(4), u(8));
+        let vertices = &mesh[12..8 + size];
+        let at = 8 + size;
+        ensure!(u(at) == 4, "expected index chunk");
+        let n = u(at + 8);
+        ensure!(count <= 65_536, "mesh exceeds 16-bit indices");
+        if current.as_ref().is_some_and(|c| c.0 != s || c.2 + count > 65_536) {
+            finish(current.take().unwrap(), &mut out)?;
+        }
+        let c = current.get_or_insert_with(|| (s, Vec::new(), 0, Vec::new(), [f32::MAX; 3], [f32::MIN; 3]));
+        for v in vertices.chunks_exact(s) {
+            for i in 0..3 {
+                let x = f32::from_le_bytes(v[i * 4..i * 4 + 4].try_into().unwrap());
+                c.4[i] = c.4[i].min(x);
+                c.5[i] = c.5[i].max(x);
+            }
+        }
+        c.1.extend_from_slice(vertices);
+        for k in 0..n {
+            let i = u16::from_le_bytes([mesh[at + 12 + 2 * k], mesh[at + 13 + 2 * k]]) as usize;
+            c.3.push(u16::try_from(c.2 + i)?);
+        }
+        c.2 += count;
+    }
+    if let Some(c) = current {
+        finish(c, &mut out)?;
+    }
+    Ok(out)
+}
+
+/// One render instance offered to a material cluster: its placement and,
+/// per LOD (0..3, an empty LOD falls back to the one below), its surfaces as
+/// (material, model-space mesh).
+pub struct ClusterMember {
+    pub placement: Placement,
+    pub lods: [Vec<(String, Vec<u8>)>; 3],
+}
+
+/// Bake cluster members into world space and merge their surfaces by
+/// material per LOD. With `lods` false every member is LOD-less and only
+/// LOD0 is produced.
+pub fn merge_cluster(members: &[ClusterMember], lods: bool) -> Result<Vec<Vec<(String, Vec<u8>, [f32; 3], [f32; 3])>>> {
+    let levels = if lods { 3 } else { 1 };
+    let mut out = Vec::new();
+    for level in 0..levels {
+        let mut by_material: BTreeMap<(String, usize), Vec<Vec<u8>>> = BTreeMap::new();
+        for member in members {
+            let surfaces = (0..=level).rev().map(|l| &member.lods[l]).find(|s| !s.is_empty()).context("member without LOD0")?;
+            for (material, mesh) in surfaces {
+                let (baked, _, _) = bake_instances(mesh, &[member.placement])?;
+                by_material.entry((material.clone(), stride(mesh).context("not static")?)).or_default().push(baked);
+            }
+        }
+        let mut merged = Vec::new();
+        for ((material, _), meshes) in by_material {
+            for (mesh, lo, hi) in concat_meshes(&meshes)? {
+                merged.push((material.clone(), mesh, lo, hi));
+            }
+        }
+        out.push(merged);
+    }
+    Ok(out)
 }
 
 fn set_bounds(properties: &mut ConfigValue, lo: [f32; 3], hi: [f32; 3]) -> Result<()> {
@@ -1689,6 +1841,11 @@ pub fn convert_scene(
         notes.push(format!("dropped {n} {what} (no 0.26 counterpart or not part of TDM)"));
     }
 
+    // project_name is the HUD minimap key, not a directory. 0.26's
+    // Minimap.setProps sends keys it does not know to its level_09 slot,
+    // which no 0.26 map uses; the UI bundle (build_069d_ui.py) puts the
+    // donor minimap there.
+    notes.push(format!("HUD minimap key: the donor's {:?}; 0.26 resolves unknown keys to its unused level_09 minimap slot", spec.level));
     let mut project = named(vec![
         ("project_name", ConfigValue::String(spec.level.clone())),
         ("client_objects", ConfigValue::Indexed(objects)),
@@ -1705,6 +1862,22 @@ pub fn convert_scene(
             copy_shared(&mut camera, c, &["position", "rotation", "direction", "fov"])?;
         }
         project.set_path("camera", camera)?;
+    }
+    // Groups every native project carries (victory_item_spawn_points,
+    // temporary_* instances) are present, empty: the 0.26 client reads them
+    // on match setup whatever the mode is. Scalars (levelmap bounds) are not
+    // copied; level_07 ships without them.
+    if let (ConfigValue::Named(fields), ConfigValue::Named(native)) = (&mut project, template) {
+        for field in native {
+            let empty = match field.value {
+                ConfigValue::Indexed(_) => ConfigValue::Indexed(Vec::new()),
+                ConfigValue::Named(_) => ConfigValue::Named(Vec::new()),
+                _ => continue,
+            };
+            if !fields.iter().any(|f| f.name == field.name) {
+                fields.push(NamedValue { name: field.name.clone(), value: empty });
+            }
+        }
     }
     Ok(SceneReport {
         project,
@@ -2204,6 +2377,7 @@ pub fn build(
     let source = "0.69d0+0.26g-adapter";
     let mut halved = 0usize;
     let mut decimated = 0usize;
+    let mut terrain_triangles = (0usize, 0usize);
     let mut simplified_triangles = (0usize, 0usize);
     let mut blended_terrain = 0usize;
     let mut generated: BTreeMap<String, Vec<(usize, String, String)>> = BTreeMap::new();
@@ -2219,7 +2393,17 @@ pub fn build(
         };
         if path.ends_with("/converted_model") {
             bytes = geometry(&bytes).with_context(|| format!("repacking {path}"))?;
-            if m.decimate_terrain.iter().any(|p| path.starts_with(&format!("models/{p}"))) {
+            let terrain = m.decimate_terrain.iter().any(|p| path.starts_with(&format!("models/{p}")));
+            let locked = match (terrain, m.terrain_simplify) {
+                (true, Some(t)) => simplify_mesh_with(&bytes, t.ratio, t.max_error, meshopt::SimplifyOptions::LockBorder)?,
+                _ => None,
+            };
+            if let Some(smaller) = locked {
+                terrain_triangles.0 += triangles(&bytes);
+                terrain_triangles.1 += triangles(&smaller);
+                decimated += 1;
+                bytes = smaller;
+            } else if terrain {
                 match decimate_grid(&bytes) {
                     Ok(Some(smaller)) => {
                         decimated += 1;
@@ -2246,7 +2430,8 @@ pub fn build(
             if let (Some(simplify), Some(&lod)) = (m.simplify, surface_lod.get(path)) {
                 if lod > 0 && triangles(&bytes) >= simplify.min_triangles {
                     let ratio = if lod == 1 { simplify.lod1_ratio } else { simplify.lod2_ratio };
-                    if let Some(smaller) = simplify_mesh(&bytes, ratio, simplify.max_error).with_context(|| format!("simplifying {path}"))? {
+                    let error = if lod == 1 { simplify.max_error } else { simplify.lod2_max_error.unwrap_or(simplify.max_error) };
+                    if let Some(smaller) = simplify_mesh_with(&bytes, ratio, error, simplify.options(lod)).with_context(|| format!("simplifying {path}"))? {
                         simplified_triangles.0 += triangles(&bytes);
                         simplified_triangles.1 += triangles(&smaller);
                         bytes = smaller;
@@ -2256,7 +2441,8 @@ pub fn build(
             if let (Some(simplify), Some((model_root, surface))) = (m.simplify, path.strip_suffix("/converted_model").and_then(|p| p.split_once("/render/"))) {
                 if generate_lods.get(model_root).is_some_and(|l| l.iter().any(|x| x == surface)) {
                     for (level, ratio) in [(1, simplify.lod1_ratio), (2, simplify.lod2_ratio)] {
-                        let lod = simplify_mesh(&bytes, ratio, simplify.max_error)?.unwrap_or_else(|| bytes.clone());
+                        let error = if level == 1 { simplify.max_error } else { simplify.lod2_max_error.unwrap_or(simplify.max_error) };
+                        let lod = simplify_mesh_with(&bytes, ratio, error, simplify.options(level))?.unwrap_or_else(|| bytes.clone());
                         let name = format!("srp_lod{level}_{surface}");
                         let gen_dest = relocate(&format!("{model_root}/render/{name}/converted_model"));
                         emit(output, &gen_dest, &lod, "0.69d LOD0 simplified by meshoptimizer", &mut files)?;
@@ -2382,14 +2568,16 @@ pub fn build(
         ensure!(!target.contains(&dest), "would overwrite native resource {dest}");
         emit(output, &dest, &bytes, source, &mut files)?;
     }
-    if decimated > 0 {
+    if let (true, Some(t)) = (decimated > 0, m.terrain_simplify) {
+        notes.push(format!("{decimated} terrain render meshes simplified with locked borders from {} to {} triangles (error bound {} of the tile extent; collision unchanged)", terrain_triangles.0, terrain_triangles.1, t.max_error));
+    } else if decimated > 0 {
         notes.push(format!("{decimated} terrain render meshes reduced to about a quarter of their triangles (every second grid line, or border-locked simplification for re-cut tiles; collision unchanged)"));
     }
     if blended_terrain > 0 {
         notes.push(format!("{blended_terrain} terrain meshes carry two-layer blend weights in a new vertex colour (stride 28 -> 32)"));
     }
     if simplified_triangles.0 > 0 {
-        notes.push(format!("authored LOD1/LOD2 surfaces simplified from {} to {} triangles (meshoptimizer, error bound {})", simplified_triangles.0, simplified_triangles.1, m.simplify.unwrap().max_error));
+        notes.push(format!("authored LOD1/LOD2 surfaces simplified from {} to {} triangles (meshoptimizer, error bound {}, LOD2 {})", simplified_triangles.0, simplified_triangles.1, m.simplify.unwrap().max_error, m.simplify.unwrap().lod2_max_error.unwrap_or(m.simplify.unwrap().max_error)));
     }
     if lods_generated > 0 {
         notes.push(format!("{lods_generated} imported models without LODs above {} LOD0 triangles got generated LOD1/LOD2 surfaces", m.simplify.unwrap().generate_above));
@@ -2511,6 +2699,263 @@ pub fn build(
         notes.push(format!("static batching ({cell} m cells): {batched} render instances of repeated imported models baked into {batches} render-only batch models; collision instances unchanged"));
     }
 
+    // Material clusters of render instances.
+    if let Some(cluster) = m.material_clusters {
+        let overlay = output.join("overlay");
+        // A model's files: imported ones from the overlay, native ones from 0.26.
+        fn read_model_file(target: &mut ResourceDb, overlay: &Path, native: bool, rel: &str) -> Result<Vec<u8>> {
+            if native { target.read(rel) } else { fs::read(overlay.join(rel)).with_context(|| format!("reading {rel}")) }
+        }
+        fn read_model_config(target: &mut ResourceDb, overlay: &Path, native: bool, rel: &str) -> Result<ConfigValue> {
+            Ok(BinaryConfig::parse(&read_model_file(target, overlay, native, rel)?)?.root)
+        }
+        // Blended and terrain materials stay per instance (draw order, tile
+        // borders); foliage and grass merge only with models of the same
+        // material set.
+        let category = |material: &str| {
+            let name = material.strip_prefix("ported/v069d/").unwrap_or(material);
+            converted_materials.get(name).map(|c| c.category)
+        };
+        let alone = |material: &str| matches!(category(material), Some(Category::Glass | Category::Water | Category::Terrain | Category::ProjectedDecal));
+        let own_model = |material: &str| matches!(category(material), Some(Category::Foliage | Category::Grass));
+        let imported_distances = m.lod_distances.context("material clusters need lod_distances")?;
+        let Some(ConfigValue::Indexed(visuals)) = scene.project.named_mut("render_visuals") else { bail!("no render visuals") };
+        struct Prepared {
+            settings: ConfigValue,
+            root: String,
+            native: bool,
+            /// Per LOD: (material, surface).
+            lods: [Vec<(String, String)>; 3],
+            centre: [f32; 3],
+            radius: f32,
+            /// Merges only with models of the same material set.
+            own: bool,
+            /// Type-0 switching distances; None for a LOD-less model.
+            distances: Option<[f32; 3]>,
+            /// Distances and material set: models alike merge first.
+            signature: String,
+        }
+        let mut prepared: BTreeMap<String, Option<Prepared>> = BTreeMap::new();
+        let mut cells: BTreeMap<(i64, i64, String), Vec<usize>> = BTreeMap::new();
+        // (instance, world centre, merges only with models alike)
+        let mut alike: BTreeMap<(i64, i64, String), Vec<(usize, [f32; 3], bool)>> = BTreeMap::new();
+        for (i, v) in visuals.iter().enumerate() {
+            let model = model_of_reference(string(v, "lib_name").unwrap_or(""));
+            let native = native_models.contains(&model);
+            if !(native || donor_models.contains(&model))
+                || scene.vegetation_models.contains(&model)
+                || m.decimate_terrain.iter().any(|p| model.starts_with(p.as_str()))
+            {
+                continue;
+            }
+            if !prepared.contains_key(&model) {
+                let root = if native { format!("models/{model}.model") } else { format!("models/ported/v069d/{model}.model") };
+                let settings = read_model_config(&mut target, &overlay, native, &format!("{root}/settings"))?;
+                let materials = settings.named("material_settings");
+                let mut lods: [Vec<(String, String)>; 3] = Default::default();
+                let (mut ok, mut own) = (true, native);
+                for (level, lod) in ["LOD0", "LOD1", "LOD2"].iter().enumerate() {
+                    let Some(ConfigValue::Indexed(list)) = settings.named("lod_hierrarchy").and_then(|h| h.named(lod)).and_then(|l| l.named("surfaces")) else { continue };
+                    for surface in list {
+                        let ConfigValue::String(surface) = surface else { continue };
+                        let material = materials.and_then(|m| m.named(surface)).and_then(|e| string(e, "material_name")).unwrap_or("");
+                        own |= own_model(material);
+                        ok &= !material.is_empty() && !alone(material);
+                        match read_model_file(&mut target, &overlay, native, &format!("{root}/render/{surface}/converted_model")) {
+                            // Only the 0.26 static layouts bake (basis words at 12..24).
+                            Ok(mesh) => ok &= matches!(stride(&mesh), Some(28 | 32)),
+                            Err(_) => ok = false,
+                        }
+                        lods[level].push((material.to_owned(), surface.clone()));
+                    }
+                }
+                ok &= settings.named("lod_hierrarchy").and_then(|h| h.named("LOD3")).is_none() && !lods[0].is_empty();
+                let has_lods = !lods[1].is_empty() || !lods[2].is_empty();
+                let switching = settings.named("lod_switching");
+                let distances = match (has_lods, switching.and_then(|s| integer(s, "type")), switching.and_then(|s| s.named("default_params"))) {
+                    (false, _, _) => None,
+                    // 0.26 select_lod defaults (see docs: 20/40/240).
+                    (true, None | Some(0), None | Some(ConfigValue::Boolean(true))) => Some([20.0, 40.0, 240.0]),
+                    (true, Some(0), _) => {
+                        let s = switching.unwrap();
+                        Some([real(s, "param0").unwrap_or(20.0), real(s, "param1").unwrap_or(40.0), real(s, "param2").unwrap_or(240.0)])
+                    }
+                    _ => {
+                        ok = false;
+                        None
+                    }
+                };
+                let (lo, hi) = bounding_box(&read_model_config(&mut target, &overlay, native, &format!("{root}/render/export_properties"))?).context("model bounds")?;
+                let centre: [f32; 3] = std::array::from_fn(|k| (lo[k] + hi[k]) / 2.0);
+                let radius = (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f32>().sqrt() / 2.0;
+                let materials: BTreeSet<&str> = lods.iter().flatten().map(|(m, _)| m.as_str()).collect();
+                let signature = format!("{distances:?} {}", materials.into_iter().collect::<Vec<_>>().join(" "));
+                prepared.insert(model.clone(), ok.then_some(Prepared { settings, root, native, lods, centre, radius, own, distances, signature }));
+            }
+            let Some(p) = &prepared[&model] else { continue };
+            let scale = float3(v, "scale")?;
+            // Larger instances merge only with models alike.
+            let own = p.own || p.radius * scale.iter().fold(0.0f32, |a, s| a.max(s.abs())) > cluster.max_member_radius;
+            // Cells hold the instance's world bounding-box centre (some models
+            // are authored far from their origin).
+            let placement = Placement { position: float3(v, "position")?, rotation: float3(v, "rotation")?, scale };
+            let c = placement.apply(&instance_rotation(placement.rotation), p.centre, scale);
+            let c: [f32; 3] = std::array::from_fn(|k| c[k] + placement.position[k]);
+            let size = cluster.model_cell;
+            alike.entry(((c[0] / size).floor() as i64, (c[2] / size).floor() as i64, p.signature.clone())).or_default().push((i, c, own));
+        }
+        // Instances of models alike (same switching, same materials) in a
+        // model cell merge first; what is left of the small imported ones
+        // merges across models in the finer cells.
+        let mut signatures = Vec::new();
+        for ((cx, cz, signature), members) in alike {
+            if members.len() >= 2 {
+                signatures.push(signature);
+                cells.insert((cx, cz, format!("alike{}", signatures.len() - 1)), members.iter().map(|m| m.0).collect());
+                continue;
+            }
+            for (i, c, own) in members {
+                if !own {
+                    cells.entry(((c[0] / cluster.cell).floor() as i64, (c[2] / cluster.cell).floor() as i64, String::new())).or_default().push(i);
+                }
+            }
+        }
+        let mut removed = BTreeSet::new();
+        let mut added = Vec::new();
+        let (mut clusters, mut clustered, mut native_clustered, mut draws_before, mut draws_after) = (0usize, 0usize, 0usize, [0usize; 3], [0usize; 3]);
+        for ((cx, cz, group), members) in cells {
+            if members.len() < 2 {
+                continue;
+            }
+            let mut offered = Vec::new();
+            let mut centres = Vec::new();
+            let mut first: Option<(ConfigValue, String, bool)> = None;
+            // (material, stride) -> export_properties of a source surface (its
+            // mesh `type` says whether the surface carries vertex colour).
+            let mut surface_properties: BTreeMap<(String, usize), ConfigValue> = BTreeMap::new();
+            let mut distances: Option<[f32; 3]> = None;
+            for &i in &members {
+                let model = model_of_reference(string(&visuals[i], "lib_name").unwrap_or(""));
+                let p = prepared[&model].as_ref().unwrap();
+                let placement = Placement { position: float3(&visuals[i], "position")?, rotation: float3(&visuals[i], "rotation")?, scale: float3(&visuals[i], "scale")? };
+                let r = instance_rotation(placement.rotation);
+                let c = placement.apply(&r, p.centre, placement.scale);
+                centres.push(std::array::from_fn::<f32, 3, _>(|k| c[k] + placement.position[k]));
+                if let Some(d) = p.distances {
+                    ensure!(distances.is_none_or(|x| x == d), "cluster {group} {cx},{cz} mixes LOD distances");
+                    distances = Some(d);
+                }
+                let mut member = ClusterMember { placement, lods: Default::default() };
+                for level in 0..3 {
+                    for (material, surface) in &p.lods[level] {
+                        let mesh = read_model_file(&mut target, &overlay, p.native, &format!("{}/render/{surface}/converted_model", p.root))?;
+                        let key = (material.clone(), stride(&mesh).context("not static")?);
+                        if !surface_properties.contains_key(&key) {
+                            surface_properties.insert(key, read_model_config(&mut target, &overlay, p.native, &format!("{}/render/{surface}/export_properties", p.root))?);
+                        }
+                        member.lods[level].push((material.clone(), mesh));
+                    }
+                }
+                for level in 0..3 {
+                    draws_before[level] += (0..=level).rev().map(|l| member.lods[l].len()).find(|n| *n > 0).unwrap_or(0);
+                }
+                native_clustered += p.native as usize;
+                first.get_or_insert_with(|| (p.settings.clone(), p.root.clone(), p.native));
+                offered.push(member);
+            }
+            if group.is_empty() && distances.is_some() {
+                ensure!(distances == Some(imported_distances), "mixed cluster {cx},{cz} has non-imported LOD distances");
+            }
+            let lods = distances.is_some();
+            let merged = merge_cluster(&offered, lods).with_context(|| format!("clustering cell {cx},{cz}"))?;
+            let (settings, member_root, member_native) = first.unwrap();
+            let name = if group.is_empty() { format!("srp_cluster/cell_{cx}_{cz}") } else { format!("srp_cluster/{group}_{cx}_{cz}") };
+            let dest = format!("models/ported/v069d/{name}.model");
+            let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+            let mut hierarchy = Vec::new();
+            let mut material_settings = Vec::new();
+            for (level, surfaces) in merged.iter().enumerate() {
+                let mut names = Vec::new();
+                for (k, (material, mesh, a, b)) in surfaces.iter().enumerate() {
+                    let surface = format!("lod{level}_{k}");
+                    for j in 0..3 {
+                        lo[j] = lo[j].min(a[j]);
+                        hi[j] = hi[j].max(b[j]);
+                    }
+                    emit(output, &format!("{dest}/render/{surface}/converted_model"), mesh, "instances merged by material", &mut files)?;
+                    let mut properties = surface_properties[&(material.clone(), stride(mesh).context("not static")?)].clone();
+                    set_bounds(&mut properties, *a, *b)?;
+                    if properties.named("source").is_some() {
+                        // Counts of the merged mesh, as the STK2 builder writes them.
+                        let u = |o: usize| u32::from_le_bytes(mesh[o..o + 4].try_into().unwrap()) as usize;
+                        let (vertices, indices) = (u(8), u(8 + u(4) + 8));
+                        properties.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                        properties.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                        properties.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
+                    }
+                    emit(output, &format!("{dest}/render/{surface}/export_properties"), &BinaryConfig { root: properties }.to_bytes()?, "instances merged by material", &mut files)?;
+                    material_settings.push(NamedValue { name: surface.clone(), value: named(vec![("material_name", ConfigValue::String(material.clone()))]) });
+                    names.push(ConfigValue::String(surface));
+                }
+                draws_after[level] += names.len();
+                hierarchy.push(NamedValue { name: format!("LOD{level}"), value: named(vec![("surfaces", ConfigValue::Indexed(names))]) });
+            }
+            if !lods {
+                for level in 1..3 {
+                    draws_after[level] += merged[0].len();
+                }
+            }
+            let centre: [f32; 3] = std::array::from_fn(|k| (lo[k] + hi[k]) / 2.0);
+            let reach = centres.iter().map(|c| (0..3).map(|k| (c[k] - centre[k]).powi(2)).sum::<f32>().sqrt()).fold(0.0f32, f32::max);
+            let mut settings = settings;
+            settings.set_path("lod_hierrarchy", ConfigValue::Named(hierarchy))?;
+            settings.set_path("material_settings", ConfigValue::Named(material_settings))?;
+            if settings.named("game_material_settings").is_some() {
+                settings.set_path("game_material_settings", ConfigValue::Named(Vec::new()))?;
+            }
+            for field in ["collision_enabled", "walker_collision_enabled"] {
+                if settings.named(field).is_some() {
+                    settings.set_path(field, ConfigValue::Boolean(false))?;
+                }
+            }
+            if let Some(d) = distances {
+                settings.set_path(
+                    "lod_switching",
+                    named(vec![
+                        ("type", ConfigValue::Integer(0)),
+                        ("default_params", ConfigValue::Boolean(false)),
+                        ("param0", ConfigValue::Float(d[0] + reach)),
+                        ("param1", ConfigValue::Float(d[1] + reach)),
+                        ("param2", ConfigValue::Float(d[2] + reach)),
+                    ]),
+                )?;
+            }
+            emit(output, &format!("{dest}/settings"), &BinaryConfig { root: settings }.to_bytes()?, "instances merged by material", &mut files)?;
+            let mut properties = read_model_config(&mut target, &overlay, member_native, &format!("{member_root}/render/export_properties"))?;
+            set_bounds(&mut properties, lo, hi)?;
+            emit(output, &format!("{dest}/render/export_properties"), &BinaryConfig { root: properties }.to_bytes()?, "instances merged by material", &mut files)?;
+            added.push(named(vec![
+                ("lib_name", ConfigValue::String(format!("ported/v069d/{name}"))),
+                ("position", ConfigValue::Float3([0.0; 3])),
+                ("rotation", ConfigValue::Float3([0.0; 3])),
+                ("scale", ConfigValue::Float3([1.0; 3])),
+            ]));
+            removed.extend(members.iter().copied());
+            clusters += 1;
+            clustered += members.len();
+        }
+        let mut index = 0;
+        visuals.retain(|_| {
+            index += 1;
+            !removed.contains(&(index - 1))
+        });
+        visuals.extend(added);
+        notes.push(format!(
+            "material clusters (instances of models alike, same LOD switching and material set, per {2} m cell first, then the remaining imported instances up to {1} m radius across models per {0} m cell; foliage, native and larger models only with models alike): {clustered} render instances ({native_clustered} of native models) merged into {clusters} render-only models, one surface per material and LOD; surfaces per LOD {draws_before:?} -> {draws_after:?}; each cluster switches LOD later by its centre-to-member reach; collision instances unchanged",
+            cluster.cell, cluster.max_member_radius, cluster.model_cell
+        ));
+    }
+
     // Scene references.
     let mut project = scene.project;
     rewrite_scene(&mut project, &donor_models, &converted_materials)?;
@@ -2522,7 +2967,32 @@ pub fn build(
     let mut mode = cfg(&mut target, &spec.template_mode)?;
     mode.set_path("mode.name", ConfigValue::String(spec.mode_name.trim_end_matches(".options").into()))?;
     mode.set_path("mode.match_making_params.map_name", ConfigValue::String(spec.output_project.clone()))?;
-    mode.set_path("mode.ui.map_name", ConfigValue::String(format!("st_{}_name", spec.level)))?;
+    // The donor's own map name, its strings added to 0.26 localization below.
+    let donor_mode = cfg(&mut donor, &spec.donor_mode)?;
+    let name_key = string(&donor_mode, "mode.ui.map_name").or_else(|| donor_mode.named("mode").and_then(|m| m.named("ui")).and_then(|u| string(u, "map_name"))).context("donor mode has no ui.map_name")?.to_owned();
+    mode.set_path("mode.ui.map_name", ConfigValue::String(name_key.clone()))?;
+    if let Some(id) = spec.loading_screen_id {
+        mode.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(id.into()))?;
+        notes.push(format!("loading screen: slot {id} of lobby_menu.swf (the UI bundle puts the donor's image there)"));
+    }
+    let mut added_strings = Vec::new();
+    for path in target.paths_with_prefix("localization/").filter(|p| p.ends_with("/localization")).map(str::to_owned).collect::<Vec<_>>() {
+        let mut strings = cfg(&mut target, &path)?;
+        let ConfigValue::Named(entries) = strings.named("strings").context("localization without strings")? else { bail!("{path}: strings is not a table") };
+        if entries.iter().any(|e| e.name == name_key) {
+            continue;
+        }
+        // The same language from the donor, else its English text.
+        let donor_path = if donor.is_file(&path) { path.clone() } else { "localization/english/localization".to_owned() };
+        let donor_strings = cfg(&mut donor, &donor_path)?;
+        let text = donor_strings.named("strings").and_then(|s| string(s, &name_key)).with_context(|| format!("{donor_path} has no {name_key}"))?.to_owned();
+        let Some(ConfigValue::Named(entries)) = strings.named_mut("strings") else { unreachable!() };
+        entries.push(NamedValue { name: name_key.clone(), value: ConfigValue::String(text) });
+        emit(output, &path, &BinaryConfig { root: strings }.to_bytes()?, &format!("0.26g localization + {name_key} from {donor_path}"), &mut files)?;
+        added_strings.push(path.split('/').nth(1).unwrap_or("").to_owned());
+    }
+    ensure!(!added_strings.is_empty() || target.is_file("localization/english/localization"), "no localization to extend");
+    notes.push(format!("map name: the donor's {name_key} added to 0.26 localization ({})", added_strings.join(", ")));
     let mode_path = format!("gameplay/game_modes/{}", spec.mode_name);
     ensure!(!target.contains(&mode_path), "mode exists");
     emit(output, &mode_path, &BinaryConfig { root: mode }.to_bytes()?, "0.26g mode template", &mut files)?;
@@ -2770,6 +3240,80 @@ mod tests {
         assert_eq!(&out[at + 12 + 6..at + 12 + 12], &[1, 0, 1, 0, 1, 0]);
     }
 
+    /// `count` vertices along +X at x = 0..count, triangles (i, i+1, i+2).
+    fn strip(count: usize, stride: usize) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend(3u32.to_le_bytes());
+        b.extend(((4 + stride * count) as u32).to_le_bytes());
+        b.extend((count as u32).to_le_bytes());
+        for i in 0..count {
+            for v in [i as f32, 0.0, 0.0] {
+                b.extend(v.to_le_bytes());
+            }
+            b.extend(pack_basis([0.0, 1.0, 0.0], 0x7f).to_le_bytes());
+            b.extend(pack_basis([1.0, 0.0, 0.0], 0xff).to_le_bytes());
+            b.extend(pack_basis([0.0, 0.0, 1.0], 0xff).to_le_bytes());
+            b.extend(vec![0u8; stride - 24]);
+        }
+        let tris = count - 2;
+        b.extend(4u32.to_le_bytes());
+        b.extend(((4 + tris * 6) as u32).to_le_bytes());
+        b.extend(((tris * 3) as u32).to_le_bytes());
+        for t in 0..tris {
+            for i in [t, t + 1, t + 2] {
+                b.extend((i as u16).to_le_bytes());
+            }
+        }
+        b
+    }
+
+    fn mesh_counts(m: &[u8]) -> (usize, Vec<u16>) {
+        let u = |o: usize| u32::from_le_bytes(m[o..o + 4].try_into().unwrap()) as usize;
+        let at = 8 + u(4);
+        (u(8), (0..u(at + 8)).map(|k| u16::from_le_bytes([m[at + 12 + 2 * k], m[at + 13 + 2 * k]])).collect())
+    }
+
+    #[test]
+    fn concatenated_meshes_rebase_indices_and_split_at_the_16_bit_limit() {
+        let merged = concat_meshes(&[strip(4, 28), strip(3, 28)]).unwrap();
+        assert_eq!(merged.len(), 1);
+        let (count, indices) = mesh_counts(&merged[0].0);
+        assert_eq!(count, 7);
+        assert_eq!(indices, [0, 1, 2, 1, 2, 3, 4, 5, 6], "second mesh indexes its own vertices");
+        assert_eq!((merged[0].1[0], merged[0].2[0]), (0.0, 3.0));
+        // 40000 + 30000 vertices do not fit one surface; a stride change starts another.
+        let parts = concat_meshes(&[strip(40_000, 28), strip(30_000, 28), strip(3, 32)]).unwrap();
+        assert_eq!(parts.iter().map(|p| mesh_counts(&p.0).0).collect::<Vec<_>>(), [40_000, 30_000, 3]);
+        assert_eq!(stride(&parts[2].0), Some(32));
+    }
+
+    #[test]
+    fn a_cluster_merges_surfaces_by_material_per_lod_and_lod_less_members_fill_every_level() {
+        let at = |x: f32| Placement { position: [x, 0.0, 0.0], rotation: [0.0; 3], scale: [1.0; 3] };
+        let with_lods = ClusterMember {
+            placement: at(0.0),
+            lods: [
+                vec![("brick".into(), strip(4, 28)), ("metal".into(), strip(3, 28))],
+                vec![("brick".into(), strip(3, 28))],
+                vec![],
+            ],
+        };
+        let lod_less = ClusterMember { placement: at(100.0), lods: [vec![("brick".into(), strip(3, 28))], vec![], vec![]] };
+        let merged = merge_cluster(&[with_lods, lod_less], true).unwrap();
+        let summary: Vec<Vec<(String, usize)>> = merged
+            .iter()
+            .map(|level| level.iter().map(|(m, mesh, _, _)| (m.clone(), mesh_counts(mesh).0)).collect())
+            .collect();
+        assert_eq!(summary, [
+            vec![("brick".into(), 7), ("metal".into(), 3)],
+            vec![("brick".into(), 6)],
+            vec![("brick".into(), 6)],
+        ], "an empty LOD2 falls back to LOD1, as 0.26 does");
+        let (_, _, lo, hi) = &merged[0][0];
+        assert_eq!((lo[0], hi[0]), (0.0, 102.0), "members are baked at their placements");
+        assert_eq!(merge_cluster(&[ClusterMember { placement: at(0.0), lods: [vec![("a".into(), strip(3, 28))], vec![], vec![]] }], false).unwrap().len(), 1);
+    }
+
     #[test]
     fn halving_drops_the_top_mip_and_keeps_the_trailer() {
         let mut dds = vec![0u8; 128];
@@ -2884,6 +3428,10 @@ mod tests {
         let tf = |p: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))];
         let with = |mut base: Vec<(&'static str, ConfigValue)>, more: Vec<(&'static str, ConfigValue)>| { base.extend(more); obj(base) };
         let template = obj(vec![
+            ("project_name", ConfigValue::String("level_03".into())),
+            ("levelmap_min", ConfigValue::Float3([1.0; 3])),
+            ("victory_item_spawn_points", obj(vec![])),
+            ("temporary_render_visuals", obj(vec![])),
             ("client_objects", ConfigValue::Indexed(vec![
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment".into())), ("properties", obj(vec![("sun_angle", ConfigValue::Float(1.0)), ("sun_position_azimut", ConfigValue::Float(2.0))]))]),
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment_probe".into())), ("geometry", ConfigValue::Integer(0)), ("radius", ConfigValue::Float(600.0)), ("texture", ConfigValue::String("environment_probes/level_03/global".into()))]),
@@ -2916,6 +3464,7 @@ mod tests {
             output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: [0.0; 3],
             global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
             probe_classes: Vec::new(), ambient_lights: false,
+            donor_mode: "d".into(), loading_screen_id: None,
         };
         let scene = convert_scene(&donor, &template, &spec, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
@@ -2929,5 +3478,10 @@ mod tests {
         assert_eq!(spawns.len(), 2, "only the TDM folder");
         assert_eq!(integer(&spawns[0], "invulnerability_time"), Some(6), "native rule kept where the donor has none");
         assert_eq!(float3(&spawns[1], "position").unwrap(), [2.0, 0.0, 0.0]);
+        // Native groups present and empty; the HUD key is a 0.26 level; scalars not copied.
+        assert_eq!(string(&scene.project, "project_name"), Some("level_11"), "the donor's HUD key");
+        assert!(matches!(scene.project.named("victory_item_spawn_points"), Some(ConfigValue::Named(v)) if v.is_empty()));
+        assert!(matches!(scene.project.named("temporary_render_visuals"), Some(ConfigValue::Named(v)) if v.is_empty()));
+        assert!(scene.project.named("levelmap_min").is_none());
     }
 }

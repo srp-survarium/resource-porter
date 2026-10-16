@@ -25,6 +25,39 @@ pub struct ResourceDb {
 
 pub const SPLIT_EXTENSION: &str = "split";
 
+/// Mount one volume's nodes over the earlier ones. The engine resolves the
+/// last occurrence of a path; in a split set an erased node removes the path
+/// and, when it names a folder (0.69d erases whole `.model` folders before
+/// re-exporting them), everything below it.
+fn mount_volume(
+    entries: &mut BTreeMap<String, FileEntry>,
+    owner: &mut BTreeMap<String, usize>,
+    index: usize,
+    nodes: impl IntoIterator<Item = FileEntry>,
+    split: bool,
+) -> Result<()> {
+    for entry in nodes {
+        let key = String::from_utf8(entry.path.clone()).with_context(|| "resource path is not valid UTF-8")?;
+        if matches!(entry.kind, NodeKind::Erased) && split {
+            let below = format!("{key}/");
+            let gone: Vec<String> = entries
+                .range(below.clone()..)
+                .take_while(|(path, _)| path.starts_with(&below))
+                .map(|(path, _)| path.clone())
+                .chain(std::iter::once(key))
+                .collect();
+            for path in gone {
+                entries.remove(&path);
+                owner.remove(&path);
+            }
+            continue;
+        }
+        entries.insert(key.clone(), entry);
+        owner.insert(key, index);
+    }
+    Ok(())
+}
+
 /// Volume paths of a `.split` file, in mount order.
 pub fn split_volumes(path: &Path) -> Result<Vec<PathBuf>> {
     let text = fs::read_to_string(path)
@@ -82,19 +115,7 @@ impl ResourceDb {
         for (index, path) in volumes.iter().enumerate() {
             let archive = Archive::open(path)
                 .with_context(|| format!("opening resource database {}", path.display()))?;
-            for entry in archive.list() {
-                let key = String::from_utf8(entry.path.clone())
-                    .with_context(|| "resource path is not valid UTF-8")?;
-                if matches!(entry.kind, NodeKind::Erased) && volumes.len() > 1 {
-                    // A patch volume removes the path from earlier volumes.
-                    entries.remove(&key);
-                    owner.remove(&key);
-                    continue;
-                }
-                // The engine resolves the last occurrence of a duplicate path.
-                entries.insert(key.clone(), entry);
-                owner.insert(key, index);
-            }
+            mount_volume(&mut entries, &mut owner, index, archive.list(), volumes.len() > 1)?;
             archives.push(archive);
         }
         Ok(Self {
@@ -264,6 +285,28 @@ mod tests {
         assert!(error.contains("only a FAT head"), "{error}");
         assert_eq!(db.read("models/x/settings").unwrap(), b"new");
         let _ = second;
+    }
+
+    fn node(path: &str, kind: NodeKind) -> FileEntry {
+        FileEntry { path: path.as_bytes().to_vec(), kind, size_in_db: 1, uncompressed_size: 1, pos_in_db: 0, inline_buffer_offset: None }
+    }
+
+    #[test]
+    fn an_erased_folder_removes_its_subtree_and_a_later_volume_can_re_add_it() {
+        let file = || NodeKind::File { compressed: false, inlined: false };
+        let (mut entries, mut owner) = (BTreeMap::new(), BTreeMap::new());
+        mount_volume(&mut entries, &mut owner, 0, [
+            node("models/a.model/render/old/converted_model", file()),
+            node("models/a.model/settings", file()),
+            node("models/a.modelx/settings", file()),
+            node("textures/t.dds", file()),
+        ], true).unwrap();
+        mount_volume(&mut entries, &mut owner, 1, [node("models/a.model", NodeKind::Erased), node("textures/t.dds", NodeKind::Erased)], true).unwrap();
+        mount_volume(&mut entries, &mut owner, 2, [node("models/a.model/settings", file())], true).unwrap();
+        let paths: Vec<&str> = entries.keys().map(String::as_str).collect();
+        assert_eq!(paths, ["models/a.model/settings", "models/a.modelx/settings"], "stale surface and erased file gone, sibling prefix kept");
+        assert_eq!(owner["models/a.model/settings"], 2);
+        assert_eq!(owner["models/a.modelx/settings"], 0);
     }
 
     #[test]
