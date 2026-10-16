@@ -225,9 +225,31 @@ called at the end of the Minimap constructor. Every native method body and
 every other SWF tag stays byte-identical (checked on save). The patched
 hud.swf goes into the bundle and its `files`, so `verify` checks it.
 
-Not done: the loading screen. It is `lobby_menu.swf`'s
-`_load_images[ui.loading_screen_id]` (`LobbyMenu.set_loading_level`); a new
-image needs a lobby_menu patch of the same kind.
+**Loading screens.** The engine reads `mode.ui.loading_screen_id` and calls
+`root.set_loading_level(id)` with it unchanged (0.26g 0x2204AE..0x2204EA, an
+unsigned argument, no range check). `flash_movies/lobby_menu.swf` (build
+2777 `ab6f22d8…`; the `lobby_menu.swf.orig` beside it is never loaded) shows
+`LobbyMenu._load_images[id]`: 26 native images, ids 0–25 (level_03 day is
+2). They are plain `DefineBits` JPEGs, 1920 × 798 for levels 1–6 and
+1920 × 680 for 7 and 8, wide-angle in-game shots with no text, logo or
+vignette baked in. `LobbyGameLoad` scales the image to the stage width,
+centres it in the band between the `LoadingTop` (1920 × 411, the SURVARIUM
+logo) and `LoadingBottom` (1920 × 595) frames, whose alpha edges darken it,
+and draws the map name (`ui.map_name`), mode name and description over it.
+On the native day images luminance p5/p50/p95 is about 0.09/0.30/0.61
+(highlights under 0.8) and mean saturation 0.27.
+
+Every map with a **`loading_image`** gets id 26 + k (k counting those maps
+in spec order: 197 → 26 … 201 → 30); `build-survarium-maps-026` writes it
+as the mode's `ui.loading_screen_id`. `tools/playable-map-pack/lobby_loading.py`
+centre-crops each image to 1920:798, resizes it to 1920 × 798, grades it to
+those statistics (unless `--no-grade`) and patches lobby_menu.swf with
+`hud_minimaps/PatchLobbyLoading.java`: a `DefineBitsJPEG3` + `BitmapData`
+class per image and `SrpLoadingImages.register(this._load_images)` at the end
+of the LobbyMenu constructor, which appends them only if the array holds the
+26 native images. Every other method body and tag stays byte-identical; the
+patched SWF is listed in the bundle files. The images in
+`assets/soc-dm-loading/` are placeholders.
 
 ## Checks
 
@@ -244,7 +266,7 @@ image needs a lobby_menu patch of the same kind.
 - Reachability (X-Ray cform, 0.25 m grid, 0.45 m step) with the ramps:
   the pool's deck, basin and balcony form one area of 1,545 m², and the
   sports center's ground, basin and upper level one area of 6,474 m².
-- 314 porter tests and 10 script tests.
+- 321 porter tests and 11 script tests.
 
 ## Non-finite values
 
@@ -305,8 +327,8 @@ it is a baseline and not this defect.
   walk test, the 39.4° sports-center ramp most of all.
 - The respawn yaw is copied from X-Ray `level.game`. Whether players face
   the authored direction is not verified.
-- The loading screen comes from the native `level_03` (day, mode 4)
-  template (see [Minimaps and names](#minimaps-and-names)).
+- The loading screens are placeholders until in-game captures replace
+  `assets/soc-dm-loading/` (see [Minimaps and names](#minimaps-and-names)).
 - Team deathmatch has 100 tickets and runs 15 minutes. Both teams spawn at
   every point (the source's deathmatch points), and protection is 0.26's
   6 s.

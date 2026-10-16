@@ -96,6 +96,11 @@ if [ ! -e "$OUT/resources.db" ]; then
     --spec ports/soc-cs-dm-to-026g.json --target-db "$TARGET026" --ffdec "${FFDEC:?JPEXS FFDec directory}" \
     --java "${JAVA:-java}" --javac "${JAVAC:-javac}" --vostok-port "$VP" --work "$OUT/hud-minimaps" \
     > "$OUT/logs/hud-minimaps.log"
+  # Each map's own loading screen in lobby_menu.swf (ids 26.., set by the importer).
+  "${PYTHON:-python3}" tools/playable-map-pack/lobby_loading.py --bundle "$B/soc-cs-dm-026g" \
+    --spec ports/soc-cs-dm-to-026g.json --target-db "$TARGET026" --ffdec "$FFDEC" \
+    --java "${JAVA:-java}" --javac "${JAVAC:-javac}" --vostok-port "$VP" --work "$OUT/lobby-loading" \
+    > "$OUT/logs/lobby-loading.log"
   "$VP" apply --base-db "$TARGET026" --bundle "$B/soc-cs-dm-026g" \
     --work-dir "$OUT/packing" --output-db "$OUT/resources.db" > "$OUT/logs/pack-026g.log"
   "$VP" verify --db "$OUT/resources.db" --bundle "$B/soc-cs-dm-026g"
