@@ -21,9 +21,10 @@ Converted bundles and client binaries are not included.
 
 ## Build
 
-The archive reader and writer are included under `deps/vostok-resources-db`;
-no submodule initialization is needed. Clone the repository, then build with
-a stable Rust toolchain and a C linker installed:
+The archive reader and writer are skhid-srp's `resources-db` crate
+(`srp-026g/crates/resources-db`), a git dependency that cargo fetches. Clone
+the repository, then build with a stable Rust toolchain and a C linker
+installed:
 
 ```sh
 git clone https://github.com/srp-survarium/resource-porter.git
@@ -92,7 +93,6 @@ declare source levels, namespaces, target templates and conversion overrides.
 vostok-port apply \
   --base-db /path/to/v0100b/resources.db \
   --bundle .work/cordon-bundle \
-  --work-dir .work/cordon-apply \
   --output-db .work/cordon-release/resources.db
 
 vostok-port verify \
@@ -100,8 +100,27 @@ vostok-port verify \
   --bundle .work/cordon-bundle
 ```
 
-`apply` validates and packs the overlaid tree, then reopens the database and
-checks the bundle's hashes. Existing work/output paths require `--force`.
+`apply` validates the overlay and writes the whole database again with it
+(for build 802, which mounts no patches), then reopens the database and
+checks the bundle's hashes. An existing output requires `--force`.
+
+## Content for 0.26g players: patches
+
+The 0.26g game mounts the stock `resources.db` and then each
+`resources.db.patch_<n>` beside it in ascending n; a later archive's file
+wins. New items, balance changes and the server's menus therefore ship as a
+patch: the files that differ from the stock database and the earlier
+patches, whole, packed by the same writer:
+
+```sh
+vostok-port pack patch --base-db /path/to/retail-026g/resources.db \
+  [--base-patch resources.db.patch_14 …] \
+  --pack packs/duty-exo --pack packs/bandit-mask \
+  [--replace flash_movies/lobby_menu.swf=live-lobby.swf …] \
+  --out-dir .work/patch15 --archive .work/resources.db.patch_15
+```
+
+See [content packs](docs/content-packs.md).
 
 Compose multiple bundles before applying. The first bundle wins shared paths:
 

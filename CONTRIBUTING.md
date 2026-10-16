@@ -6,8 +6,10 @@ the provided environment with `nix develop`:
 ```sh
 cargo fmt --all -- --check
 cargo test --locked --all-targets
-cargo test --locked --manifest-path deps/vostok-resources-db/Cargo.toml
 ```
+
+The archive code is skhid-srp's `resources-db` crate, a git dependency;
+changes to it go to skhid-srp, and `Cargo.toml` pins the commit.
 
 Keep changes scoped to a source format or conversion contract. Add meaningful
 regression coverage for decoder and conversion bugs using synthetic fixtures;

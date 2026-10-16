@@ -2,14 +2,12 @@
 
 ## Archive reader and writer
 
-`deps/vostok-resources-db` is included as source so a fresh clone can build
-without unpublished submodule commits. Its upstream is
-[srp-survarium/vostok-resources-db](https://github.com/srp-survarium/vostok-resources-db).
-The imported revision is `104ef7b46437aee95a4b85611fd424e3f73c6c32`,
-which includes the local packer and overlay support used by this project.
-The source authors are sheepfleece / sushi-shi. The included copy is licensed
-under GPL-3.0-or-later with this repository; its original documentation is
-preserved in the dependency directory.
+The archive code is the `resources-db` crate of
+[srp-survarium/skhid-srp](https://github.com/srp-survarium/skhid-srp)
+(`srp-026g/crates/resources-db`), a git dependency pinned to a commit in
+`Cargo.toml`. It began as srp-survarium/vostok-resources-db (archived), whose
+copy this repository used to carry under `deps/`. The source authors are
+sheepfleece / sushi-shi; it is licensed under GPL-3.0-or-later.
 
 Rust dependencies fetched from crates.io retain their respective licenses.
 The root `Cargo.lock` records the versions used to build the porter.

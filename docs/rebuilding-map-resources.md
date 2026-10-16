@@ -44,7 +44,7 @@ for manifest in ports/soc-*.json; do
 done
 vostok-port compose "${bundles[@]}" --output .work/soc-composed
 vostok-port apply --base-db "$TARGET" --bundle .work/soc-composed \
-  --work-dir .work/soc-apply --output-db .work/soc-release/resources.db
+  --output-db .work/soc-release/resources.db
 vostok-port verify --db .work/soc-release/resources.db --bundle .work/soc-composed
 ```
 

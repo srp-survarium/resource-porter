@@ -1,13 +1,17 @@
 # Content packs (v0.26g)
 
-A content pack is a patch for the v0.26g client's `resources.db`. It can
-change resources that already exist and add new ones, including items and
-maps. Packs compose: `pack compose` parses each shared base file once and
-applies every pack's edits to it in order. It then writes one overlay through
-the non-lossy archive overlay writer (`resources_db::overlay`). Legacy bundles
-each carried a whole copy of `db_static_dictionaries`, the localizations and
-`lobby_menu.swf`, so two bundles overwrote each other's copies. Packs edit
-those files field by field, so this no longer happens.
+A content pack is a change to the v0.26g client's resources. It can change
+resources that already exist and add new ones, including items and maps.
+Packs compose: the porter parses each shared base file once and applies
+every pack's edits to it in order, then ships the result as a patch
+(`pack patch`): the files that are new or differ from the base, whole, packed
+as `resources.db.patch_<n>`. Legacy bundles each carried a whole copy of
+`db_static_dictionaries`, the localizations and `lobby_menu.swf`, so two
+bundles overwrote each other's copies. Packs edit those files field by field,
+so this no longer happens.
+
+The archive code (reader, the overlay of an archive and its patches, the
+writer) is skhid-srp's `resources-db` crate.
 
 ```
 my-pack/
@@ -25,8 +29,7 @@ my-pack/
   "version": "8",
   "target_build": "0.26g",
   "requires": ["duty-exo"],        // must be composed earlier in the same run
-  "base_db_sha256": "c74078be…",   // optional: pin the whole base archive
-  "materialize_hard_links": [],    // optional: base hard links to detach
+  "base_db_sha256": "c74078be…",   // optional: pin the stock archive
   "operations": [ … ],
   "server": { … },                 // passed through untouched (see below)
   "notes": [ … ]                   // provenance, ignored by tools
@@ -75,22 +78,34 @@ Example: rebalance a stock item and add a map.
 ## Commands
 
 ```
-vostok-port pack check   --pack A [--pack B …] [--base-db DB]
+vostok-port pack check   --pack A [--pack B …] [--base-db DB [--base-patch P …]]
+vostok-port pack patch   --base-db DB [--base-patch P …] --pack A [--pack B …] \
+                         [--replace ARCHIVE_PATH=FILE …] --out-dir DIR \
+                         [--archive resources.db.patch_N] [--force]
+vostok-port pack verify  --db DB [--patch P …] --pack A --pack B …
 vostok-port pack compose --base-db DB --pack A --pack B … --work-dir W \
                          --output-db OUT [--server-export DIR] [--force]
-vostok-port pack verify  --db OUT --pack A --pack B …
 vostok-port pack from-bundle --base-db DB [--build-base-db BUILT_ON] \
                          --bundle BUNDLE --output PACK --id ID --version V
 ```
 
+`--base-patch` and `--patch` name `resources.db.patch_<n>` files laid over
+the database as the game mounts them: in ascending n whatever their order on
+the command line, a later archive's file winning. A file of another name is
+refused (the game mounts none).
+
 Without `--base-db`, `check` validates the manifests, sources and cross-pack
 conflicts. With it, `check` also runs every base precondition: drift, ids,
-strings and cells. `compose` also validates the effective overlay
-(`validate_effective_overlay`) and re-reads every touched resource. It writes
-`OUT.packs.json`, the install record: pack ids, versions, manifest SHA-256s,
-base and output identity, added/replaced/edited paths and `server` sections.
-It prints the output SHA-256. The same inputs produce a byte-identical
-database.
+strings and cells, against the database and its patches. `verify` confirms
+that the database, with its patches over it, carries every operation of the
+packs.
+
+`compose` writes a whole database (local runs; players get a patch). It also
+validates the effective overlay (`validate_effective_overlay`, in
+`W/overlay`) and re-reads every touched resource. It writes `OUT.packs.json`,
+the install record: pack ids, versions, manifest SHA-256s, base and output
+identity, added/replaced/edited paths and `server` sections. It prints the
+output SHA-256. The same inputs produce a byte-identical database.
 
 `--server-export DIR` writes the effective server-side content under resource
 paths, so the server never interprets operations:
@@ -149,60 +164,56 @@ Removals cannot be expressed: a deleted dictionary row, a removed config key
 or a cleared atlas cell is noted but not carried over. A structural config
 change falls back to `replace_file`.
 
-## Releases to installed clients
+## Patches for players
 
-`compose` writes a whole new database, and a growing file table shifts every
-payload, so the result differs from retail across the whole 6.3 GB file.
-`pack release` writes the players' final database instead, laid out so that
-it differs from retail only where it must:
+The players' 0.26g game (Skhid client revision 14 on) mounts the stock
+`resources.db` and then every `resources.db.patch_<n>` beside it, n from 1 to
+255 ascending: a later archive's file replaces an earlier one's, new files
+are added, folders merge, and nothing is taken away. So a release of content
+is one new patch:
 
 ```
-vostok-port pack release --base-db RETAIL --pack A --pack B … --work-dir W \
-    --output-db FINAL.db [--replace ARCHIVE_PATH=FILE …] \
-    [--sign-command "CMD …"] [--deep-verify] [--force]
+vostok-port pack patch --base-db RETAIL/resources.db \
+    [--base-patch RETAIL/resources.db.patch_14 …] \
+    --pack A --pack B … [--replace ARCHIVE_PATH=FILE …] \
+    --out-dir patch15 [--archive resources.db.patch_15] [--force]
 ```
 
-* The head, the same-size range `[0, H)`, is written over the retail start:
-  the header, the larger file table, the 256-byte signature slot right after
-  the table (`[24 + table_size, +256)`) and zeros. Every retail payload keeps
-  its offset, except the few that started inside the space the table now
-  needs: they move to the tail. `H` is the end of the last moved payload.
-* The tail is appended at the retail end: new and changed payloads in
-  overlay order, then the moved payloads.
-* `--replace ARCHIVE_PATH=FILE` gives a retail file the bytes players have
-  now (the server's own menus) before the packs apply; a pack's edits of that
-  file (the lobby movie's `atlas_icons_add`) land on those bytes, not the
-  retail ones. A pack may not add or replace a replaced file whole.
-* A touched file that keeps its retail entry's size and archive hash is
-  written over the entry in place; a movie (`.swf`) that is shorter is padded
-  to the entry's size with four trailing bytes that keep its hash (the player
-  ignores bytes past the movie's own length). Everything else goes to the
-  tail. So the server's menus and the lobby with its icons stay small in-place
-  changes instead of 40 MB in the tail.
-* `--sign-command` runs on the head, last, as `<command words…> <head> <slot
-  offset>`, and may write only the slot. `scripts/sign-release-head.py
-  --signer <skhid-srp>/srp-026g/client-patches/sign_resources_026g.py [--key
-  KEY]` signs with the Skhid key (never copied). Without a signer the release
-  is recorded as `unsigned`.
-* The final database is written through a `.partial` file and then read
-  back as written: every composed resource, every pack operation (`verify`),
-  the in-place files at their retail offsets, and every other retail entry at
-  its offset with its bytes (`--deep-verify` compares the bytes of all of
-  them, else only the moved and inline ones).
-* `FINAL.db.json` is the release's record: base and output (size, SHA-256),
-  head (size, SHA-256, and the retail bytes it covers), tail, signature slot,
-  moved payloads, in-place files, replacements (source file and result), the
-  packs with their versions, and the files added, replaced and edited.
-* The same packs, replacements and base give the same bytes.
+* The base is the stock database with the earlier patches over it, as the
+  game mounts them. The packs compose over it in the given order; an edit of
+  a shared file (`dictionary_add`, `localization_add`, `atlas_icons_add`, …)
+  lands on the base's current copy, the earlier patches' if they have one.
+* `--replace ARCHIVE_PATH=FILE` gives a base file the bytes players have now
+  (the server's own menus) before the packs apply; a pack's edits of that
+  file (the lobby movie's `atlas_icons_add`) land on those bytes. A pack may
+  not add or replace a replaced file whole.
+* `--out-dir` gets every file the composition makes that is new or differs
+  from the base, at its archive path, whole; a file the base already has as
+  it is (a replacement equal to it) is left out. The folder is validated as an
+  overlay of the base (`validate_effective_overlay`). Nothing to patch is an
+  error.
+* `--archive` packs the folder with the crate's writer
+  (`resources_db::pack::pack`: deterministic, a zeroed signature slot after
+  the table, payloads from the next 2048-byte boundary), reads it back, then
+  reads the game's view (base, earlier patches, the new patch) and checks
+  every composed file and every pack operation there. The name must be
+  `resources.db.patch_<n>` with n above every base patch. skhid-srp's
+  `srp-game-data pack --dir DIR` gives the same bytes from the same folder.
+* `DIR.json`, beside the folder, is the patch's record: the base and the
+  earlier patches (size, SHA-256), the packs with their versions, the
+  replacements, every file of the patch (size, SHA-256, `add` or
+  `override`), the files left out as unchanged, and the archive.
+* An existing folder, record or archive is refused without `--force`. The
+  same packs, replacements and base give the same bytes.
 
-Turning the final database into an update for installed clients is the
-release tool's job, not the porter's: skhid-srp's `make_client_026g.py
---resources-db FINAL.db` compares it with the players' retail file and ships
-what differs.
+The server builds its game data from the same archives (skhid-srp's
+`srp-game-data build`), so it needs no export from the porter.
 
 ## Runtime requirement
 
-A client whose `resources.db` differs from retail needs the resource
-signature/hash check bypassed in the executable. `scripts/run-026-map.py`
-applies `tools/patch-026-map-resources.py`, which skips the check at
-VA 0x135d3. That patch is client-side and outside this tool.
+A patch needs the client that mounts patches (Skhid revision 14 on). A whole
+database from `compose` or `apply` differs from retail and needs the
+resource signature/hash check bypassed in the executable:
+`scripts/run-026-map.py` applies `tools/patch-026-map-resources.py`, which
+skips the check at VA 0x135d3. That patch is client-side and outside this
+tool.

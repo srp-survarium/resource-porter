@@ -100,7 +100,6 @@ python3 scripts/render-duty-026-icons.py \
 vostok-port apply \
   --base-db .work/duty-026/resources-v10-base.db \
   --bundle .work/duty-026/bundle-v13 \
-  --work-dir .work/duty-026/new-apply \
   --output-db .work/duty-026/new-resources.db
 vostok-port verify --db .work/duty-026/new-resources.db \
   --bundle .work/duty-026/bundle-v13
