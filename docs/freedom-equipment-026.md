@@ -17,6 +17,9 @@ Owner's decisions (2026-10-16):
   mounting mark, so nothing needs filling. The star-free `dol_sign` textures
   below are kept only for a possible disc-keeping variant. The builder does
   not use them for Freedom.
+* **Fringe Settlers, slightly different stats**: still heavy, a bit faster,
+  more utility, armour a bit below Duty, anomaly protection a bit below
+  Pilgrim. See "Faction" and "Characteristics" under the integration plan.
 
 ## What changes
 
@@ -127,21 +130,142 @@ Recommended: a **new, separate item set** next to Duty. Duty stays unchanged.
 | Freedom exoskeleton | 1807 | torso (2), category 3 | `gameplay/items/armour/torso/freedom_exo_026.options` | `freedom_exo_suit` | [4, 6] |
 | Freedom exoskeleton helmet | 1808 | helmet (0), category 1 | `gameplay/items/armour/helmet/freedom_exo_026.options` | `freedom_exo_helmet` | [5, 6] |
 
-Stock items end at 737. Duty owns and retires 1800–1806, and the Bandit
-balaclava is 1810. 1807 and 1808 are free, and they are outside the range
-Duty's builder deletes. Stats copy Duty's `BODY`/`HELMET`: template, covered
-slots, weight, cost, modifications, protection split, oxygen,
-faction/level 15 and `drop_weight` 0. Changing the faction is a separate
-balance decision. The 0.26g factions have no Freedom.
+Stock items end at 737. Duty owns and retires 1800–1806. The Bandit pack
+uses 1810–1814 (balaclava, jacket, jeans, hands, shoes). 1807 and 1808 are
+free, and they are outside the range Duty's builder deletes. Covered slots,
+oxygen (30 s), level 15, cost and `drop_weight` 0 copy Duty's `BODY`/`HELMET`.
+The faction and the characteristics differ (next section). 0.26g has no
+Freedom faction. Owner's decision (2026-10-16): the Freedom exo belongs to
+the **Fringe Settlers**.
+
+### Faction: Fringe Settlers (owner's decision, 2026-10-16)
+
+Read from 0.26g's `resources.db` (`gameplay/db_static_dictionaries`
+`factions_dict`, `localization/english`, the item configs) and from srp
+(`crates/survarium/src/v026g/prices.rs`).
+
+| | Duty 1805/1800 | Freedom 1807/1808 |
+| --- | --- | --- |
+| Faction (`parameters.faction`) | 3, `st_renaissance_faction` "The Renaissance Army", from the templates `renesanse_torso_6` / `renesanse_helmet_6` | **4**, `st_border_faction` "The Fringe Settlers" (srp `faction::EDGE`), from the templates **`edge_torso_6` / `edge_helmet_6`** (the "Pilgrim" vest and helmet) |
+| `item_level`, `match_making_level` | 15, 15 | 15, 15 |
+| Rank needed in the shop | 10 "Colonel" (`st_renaissance_level_10`, 35 250 reputation) | **10 "Magister"** (`st_edge_level_10`, 35 250). Rank 9 is "Keeper" (29 340). |
+| How srp lists it | seller = config `faction`, level = `item_level − 5` (`seller_level`, Renaissance and Edge); no `server.items` sellers entry | the same rule gives seller 4 at level 10, so no override is needed. To be explicit, the pack's `server.items` can say `"sellers": [[4, 10]]` |
+| `faction_affinity` | body 30, helmet 20 (template) | body 30, helmet 20 (template; the same values) |
+| Drops | `drop_weight` 0: sold, never dropped | `drop_weight` 0 |
+| Faction access | Renaissance opens only after a basic faction's top rank (srp `rules.rs` `faction_unlocked`) | the same rule for the Fringe Settlers |
+
+The level-15 native sets: "Zubr UM-4" (Renaissance, `renesanse_*_6`,
+dict 316–320, 287 500 for five pieces) and "Pilgrim" (Fringe Settlers,
+`edge_*_6` and the container `edge_back_6`, dict 310–315, 310 000 for six).
+Duty's balance was already set between the two.
+
+### Characteristics (proposal)
+
+The owner's direction: still a heavy exo, a bit faster, more utility,
+armour a bit below Duty, and anomaly protection a bit below Pilgrim.
+
+What the native sets emphasise:
+
+* **Renaissance (Zubr):** ballistic 0.90 (head 0.75) and anomaly 0.50. It
+  is heavier (torso 20, boots 3, helmet 6). Its utility is ammo: torso +2
+  ammo bags and pocket size +1, legs +1 pocket and +1 ammo bag.
+* **Fringe Settlers (Pilgrim):** ballistic 0.85 (head 0.70) and anomaly 0.90.
+  It is lighter per piece (torso 17, boots 1.9, helmet 5). Its utility is
+  artefacts and sustain: torso +1 artefact slot, container +1 artefact slot
+  and +15% health regeneration, legs +1 pocket.
+* **Lower-tier Fringe gear:** level-14 `edge_*_5` adds mobility and handling,
+  for example boots +3% movement speed (1112) and gloves −4% dispersion
+  (1071). Renaissance level-14 boots instead have −2% stamina spending
+  (1160).
+* **Set bonuses: none.** 0.26g has no set id or set bonus: no such field in
+  any item config or dictionary. A "set" is only same-faction, same-level
+  pieces.
+
+The proposal shifts Duty toward the Fringe style: 3 points less ballistic,
+10 points more anomaly (still 10 below Pilgrim), 2 kg lighter, and a little
+speed and utility. The Freedom body covers the back slot, so it folds in
+the Pilgrim container's role (an artefact slot and health regeneration).
+That role is smaller here: +10% health regeneration, not +15%. The set's
+oxygen stays.
+
+| Stat (config field) | Zubr UM-4 | Pilgrim | Duty | **Freedom (proposed)** |
+| --- | --- | --- | --- | --- |
+| **Body**: template | `renesanse_torso_6` | `edge_torso_6` (+ legs, gloves, boots, back) | `renesanse_torso_6` | **`edge_torso_6`** |
+| `parameters.weight` (body pieces) | 28.6 (20 + 5 + 0.6 + 3) | 30.3 (17 + 4 + 0.4 + 1.9 + 7) | 30 | **28.5** |
+| Ballistic: `armor`, `arms_armor`, `back_armor`; `hit_params.*.{ranged,slash,explosive}.armor` | 0.90 | 0.85 | 0.87 | **0.84** |
+| Anomaly: `ano_armor`; `hit_params.*.{fire,shock,radiation,toxic}.armor` | 0.50 | 0.90 | 0.70 | **0.80** |
+| Quick slots `pocket_slots_modifier` | +1 (legs, 1030) | +1 (legs, 1030) | +1 (1030) | +1 (1030) |
+| Pocket size `pocket_slot_size_modifier` | +1 (1170) | — | +1 (1170) | +1 (1170) |
+| Ammo bags `ammo_bags_modifier` | +3 (1051, 1050) | — | +1 (1050) | +1 (1050) |
+| Artefact slots `artefact_slots_modifier` | — | +2 (1040 torso, 1040 back) | +1 (1040) | **+2 (1041)** |
+| Health regen `health_regeneration_speed_modifier` | — | +0.15 (1094, back) | — | **+0.10 (1092)** |
+| Movement `movement_speed_modifier` | — | — | — | **+0.02 (1111)** |
+| Stamina `stamina_spending_speed_modifier` | — | — | — | **−0.04 (1161)** |
+| Oxygen (`data.amount_time_sec`) | — | — | 30 s | 30 s |
+| Cost (`base_cost`, body pieces) | 210 000 (4 pieces) | 237 500 (5 pieces) | 225 000 | 225 000 |
+| **Helmet**: template | `renesanse_helmet_6` | `edge_helmet_6` | `renesanse_helmet_6` | **`edge_helmet_6`** |
+| `parameters.weight` | 6 | 5 | 5 | **4.5** |
+| Ballistic (brain, face) | 0.75 | 0.70 | 0.72 | **0.69** |
+| Anomaly (brain, face) | 0.50 | 0.90 | 0.70 | **0.80** |
+| Modifications | — | — | — | — |
+| Cost | 77 500 | 72 500 | 75 000 | 75 000 |
+| **Set total weight** | 34.6 | 35.3 | 35 | **33** |
+
+Native costs: Zubr torso 105 000, legs 52 500, gloves 26 250, boots
+26 250, helmet 77 500. Pilgrim torso 95 000, container 47 500, legs 47 500,
+gloves 23 750, boots 23 750, helmet 72 500. Zubr has no level-15 back
+piece. Set totals: Zubr 287 500, Pilgrim 310 000, Duty and Freedom 300 000.
+
+Why it is about the same power as Duty:
+
+* Ballistic protection carries the most weight in PvP, and Freedom gives up
+  3 points of it on all 12 regions. The 10 extra anomaly points only matter
+  in anomalies, fire and gas.
+* Mobility, three ways, all modest: 2 kg less (the set is still over the
+  30 kg `max_carried_weight` of `default.player`, so it stays a heavy suit
+  with an overweight penalty), +2% movement speed (less than the
+  level-14 Fringe boots' +3%), and −4% stamina spending.
+* Utility: one artefact slot more than Duty (as many as Pilgrim's torso and
+  container together) and +10% health regeneration (Pilgrim's container
+  gives +15%). Ammo stays at Duty's +1 bag.
+* The 2 kg comes off the body, so the helmet drops only 0.5 kg.
+
+How the modifications reach the game: the client applies an item's
+`default_modifications` from its own config tables. srp's `modifications.rs`
+notes they are not on the wire, and the lobby's "rank" counts only rolled
+ones. Native gear uses all the chosen ids as defaults: 1041 and 1092 are of
+the same types as Pilgrim's 1040/1094, 1111 as `edge_boots_5`'s 1112, and
+1161 as `renesanse_boots_5`'s 1160. Seven defaults is within the eight that
+srp's `item_params.rs` test allows native items. The deployed `duty-exo` pack v13 (the back-slot
+suit) still carried 1031, 1114 and 1165. The current split drops speed,
+stamina and carry bonuses on purpose. Freedom brings back smaller ones, as
+its faction's style.
+
+Per-variant values the builder needs (in addition to the namespace):
+
+* `SetPiece.template`: `gameplay/items/armour/torso/edge_torso_6.options`
+  and `gameplay/items/armour/helmet/edge_helmet_6.options`. They give
+  faction 4, `faction_affinity` 30/20, the dictionary row's `item_category`
+  3/1, and `edge_helmet_6`'s mask cover.
+* `SetPiece.weight` 28.5 / 4.5; `cost` 225 000 / 75 000.
+* `SetPiece.modifications` (body) `[1030, 1050, 1170, 1041, 1092, 1111, 1161]`;
+  helmet `[]`.
+* The protection now hard-coded in `split_protection` and `duty_set`
+  (0.87 / 0.72 ballistic, 0.70 anomaly) becomes variant fields: Freedom
+  0.84 / 0.69 and 0.80. `ui_desc.props_list` (prop 6 armour, 8 anomaly, 15
+  weight) follows them.
+* The Zubr pieces stay the source of the 12 hit regions, with the same
+  region names in Pilgrim.
 
 Changes to `src/duty_026.rs`:
 
 1. Add a variant descriptor, for example
-   `struct Variant { ns, asset_id, set: [SetPiece; 2], reusable: RangeInclusive<i32>, strings: [(&str, &str); 4], chest_disc: bool }`,
+   `struct Variant { ns, asset_id, set: [SetPiece; 2], reusable: RangeInclusive<i32>, strings: [(&str, &str); 4], chest_disc: bool, ballistic: (f32, f32), anomaly: f32 }`,
    with `DUTY` (the current values) and `FREEDOM`: `ns =
    "ported/freedom_026"`, `asset_id = "freedom-exoskeleton-026g"`,
-   `reusable = 1807..=1808`, `chest_disc = false`, and pieces as in the
-   table above. Pass it into `build()`.
+   `reusable = 1807..=1808`, `chest_disc = false`, `ballistic = (0.84,
+   0.69)`, `anomaly = 0.80`, and pieces with the Fringe templates, weights
+   and modifications above. Pass it into `build()`.
 2. Use the variant's namespace wherever `NS` is used today: the model paths
    (`base_model`, `base_model_hud`, `models/{NS}/…`), every surface's
    `material_name`, `material_instances/{NS}/{part}.material`, and
