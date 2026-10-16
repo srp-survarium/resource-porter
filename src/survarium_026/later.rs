@@ -539,9 +539,17 @@ pub fn bake_instances(bytes: &[u8], placements: &[Placement]) -> Result<(Vec<u8>
     Ok((out, lo, hi))
 }
 
+/// Largest merged surface. 0.26 loads a static surface's buffers on the
+/// main thread's stack (`static_render_surface::load` overflows it with a
+/// 1.2 MB surface); native surfaces stop at 35 001 vertices, 980 084 bytes
+/// of vertex data and 103 935 indices.
+pub const MAX_SURFACE_VERTICES: usize = 32_000;
+pub const MAX_SURFACE_VERTEX_BYTES: usize = 900_000;
+pub const MAX_SURFACE_INDICES: usize = 96_000;
+
 /// Concatenate static meshes of one stride (0.26 layout, world space) into
-/// as few meshes as 16-bit indices allow. Returns each merged mesh with its
-/// bounds.
+/// as few meshes as the native surface limits allow. Returns each merged
+/// mesh with its bounds.
 pub fn concat_meshes(meshes: &[Vec<u8>]) -> Result<Vec<(Vec<u8>, [f32; 3], [f32; 3])>> {
     let mut out = Vec::new();
     let mut current: Option<(usize, Vec<u8>, usize, Vec<u16>, [f32; 3], [f32; 3])> = None;
@@ -569,8 +577,12 @@ pub fn concat_meshes(meshes: &[Vec<u8>]) -> Result<Vec<(Vec<u8>, [f32; 3], [f32;
         let at = 8 + size;
         ensure!(u(at) == 4, "expected index chunk");
         let n = u(at + 8);
-        ensure!(count <= 65_536, "mesh exceeds 16-bit indices");
-        if current.as_ref().is_some_and(|c| c.0 != s || c.2 + count > 65_536) {
+        // A mesh at the native maximum (0.69d splits like 0.26 does) stays a
+        // surface of its own; merged ones stay under the limits.
+        ensure!(count <= 35_001 && count * s <= 980_084 && n <= 103_935, "a {count}-vertex, {n}-index mesh exceeds the largest native surface");
+        if current.as_ref().is_some_and(|c| {
+            c.0 != s || c.2 + count > MAX_SURFACE_VERTICES || (c.2 + count) * s > MAX_SURFACE_VERTEX_BYTES || c.3.len() + n > MAX_SURFACE_INDICES
+        }) {
             finish(current.take().unwrap(), &mut out)?;
         }
         let c = current.get_or_insert_with(|| (s, Vec::new(), 0, Vec::new(), [f32::MAX; 3], [f32::MIN; 3]));
@@ -1743,13 +1755,20 @@ pub fn convert_scene(
             }
             "vegetation" => {
                 let mut v = first_template(template, "vegetation")?;
+                let native_layer = array(v.named("layers").context("template vegetation layers")?)?.first().cloned().context("template vegetation has no layer")?;
                 place(&mut v, object, &full_name)?;
                 let mut layers = Vec::new();
                 for layer in array(object.named("layers").context("vegetation layers")?)? {
                     let mut l = layer.clone();
-                    if let ConfigValue::Named(fields) = &mut l {
-                        // 0.26 reads the same keys; wind_factor is 0.69d-only.
-                        fields.retain(|f| f.name != "wind_factor");
+                    // 0.26's grass cook reads every native layer key (a layer
+                    // without wind_factor crashes the client on match setup):
+                    // keys the donor lacks come from the template's layer.
+                    if let (ConfigValue::Named(fields), ConfigValue::Named(native)) = (&mut l, &native_layer) {
+                        for field in native {
+                            if field.name != "model_def" && !fields.iter().any(|f| f.name == field.name) {
+                                fields.push(field.clone());
+                            }
+                        }
                     }
                     for def in array(layer.named("model_def").context("model_def")?)? {
                         vegetation_models.insert(model_of_reference(string(def, "name").context("veg model")?));
@@ -3281,10 +3300,15 @@ mod tests {
         assert_eq!(count, 7);
         assert_eq!(indices, [0, 1, 2, 1, 2, 3, 4, 5, 6], "second mesh indexes its own vertices");
         assert_eq!((merged[0].1[0], merged[0].2[0]), (0.0, 3.0));
-        // 40000 + 30000 vertices do not fit one surface; a stride change starts another.
-        let parts = concat_meshes(&[strip(40_000, 28), strip(30_000, 28), strip(3, 32)]).unwrap();
-        assert_eq!(parts.iter().map(|p| mesh_counts(&p.0).0).collect::<Vec<_>>(), [40_000, 30_000, 3]);
+        // 20000 + 15000 vertices exceed a native-sized surface; a stride change starts another.
+        let parts = concat_meshes(&[strip(20_000, 28), strip(15_000, 28), strip(3, 32)]).unwrap();
+        assert_eq!(parts.iter().map(|p| mesh_counts(&p.0).0).collect::<Vec<_>>(), [20_000, 15_000, 3]);
         assert_eq!(stride(&parts[2].0), Some(32));
+        // 900 kB of vertex data at most: 28 000 vertices of stride 32 do not fit with 4 000 more.
+        let parts = concat_meshes(&[strip(25_000, 32), strip(4_000, 32)]).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(concat_meshes(&[strip(3, 28), strip(34_000, 28)]).unwrap().len(), 2, "a native-sized mesh stays alone");
+        assert!(concat_meshes(&[strip(36_000, 28)]).is_err(), "a mesh above the native maximum is an error");
     }
 
     #[test]
@@ -3440,6 +3464,9 @@ mod tests {
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("light".into())), ("light_type", ConfigValue::Integer(1)), ("intensity", ConfigValue::Float(1.0))]),
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("resupply_zone".into())), ("team", ConfigValue::Integer(0)), ("resupply_time_in_ms", ConfigValue::Integer(1))]),
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("collision_geometry".into())), ("meshes", ConfigValue::Indexed(vec![obj(vec![("type", ConfigValue::Integer(1)), ("position", ConfigValue::Float3([0.0; 3])), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))])]))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("vegetation".into())), ("layers", ConfigValue::Indexed(vec![obj(vec![
+                    ("name", ConfigValue::String("a_high".into())), ("wind_factor", ConfigValue::Integer(1)), ("model_def", ConfigValue::Indexed(vec![obj(vec![("name", ConfigValue::String("level/03/flora/a".into()))])])),
+                ])]))]),
             ])),
             ("server_objects", obj(vec![("respawn_points", ConfigValue::Indexed(vec![with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("respawn_point".into())), ("team", ConfigValue::Integer(0)), ("invulnerability_time", ConfigValue::Integer(6))])]))])),
         ]);
@@ -3453,6 +3480,10 @@ mod tests {
                 with(tf([5.0, 0.0, 5.0]), vec![("game_object_type", ConfigValue::String("collision_geometry".into())), ("full_name", ConfigValue::String("logic/resupply/a/resupply_collision".into())),
                     ("meshes", ConfigValue::Indexed(vec![obj(vec![("type", ConfigValue::Integer(1)), ("position", ConfigValue::Float3([0.0; 3])), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([2.0; 3]))])]))]),
                 with(tf([9.0; 3]), vec![("game_object_type", ConfigValue::String("winner_point".into()))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("vegetation".into())), ("full_name", ConfigValue::String("env/vegetation".into())), ("layers", ConfigValue::Indexed(vec![obj(vec![
+                    ("name", ConfigValue::String("green".into())), ("filename", ConfigValue::String("vegetation/green.veg".into())),
+                    ("model_def", ConfigValue::Indexed(vec![obj(vec![("name", ConfigValue::String("flora/v2/grass".into()))])])),
+                ])]))]),
             ])),
             ("server_objects", obj(vec![
                 ("logic_objects", ConfigValue::Indexed(vec![obj(vec![("game_object_type", ConfigValue::String("environment".into())), ("sun_elevation", ConfigValue::Integer(35)), ("sun_azimuth", ConfigValue::Integer(20))])])),
@@ -3478,7 +3509,12 @@ mod tests {
         assert_eq!(spawns.len(), 2, "only the TDM folder");
         assert_eq!(integer(&spawns[0], "invulnerability_time"), Some(6), "native rule kept where the donor has none");
         assert_eq!(float3(&spawns[1], "position").unwrap(), [2.0, 0.0, 0.0]);
-        // Native groups present and empty; the HUD key is a 0.26 level; scalars not copied.
+        let veg = objects.iter().find(|o| kind(o) == "vegetation").unwrap();
+        let layer = &array(veg.named("layers").unwrap()).unwrap()[0];
+        assert_eq!(integer(layer, "wind_factor"), Some(1), "native layer keys the donor lacks are filled");
+        assert_eq!(array(layer.named("model_def").unwrap()).unwrap().len(), 1, "the donor's models, not the template's");
+        assert!(scene.vegetation_models.contains("flora/v2/grass"));
+        // Native groups present and empty; the HUD key is the donor's; scalars not copied.
         assert_eq!(string(&scene.project, "project_name"), Some("level_11"), "the donor's HUD key");
         assert!(matches!(scene.project.named("victory_item_spawn_points"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(matches!(scene.project.named("temporary_render_visuals"), Some(ConfigValue::Named(v)) if v.is_empty()));
