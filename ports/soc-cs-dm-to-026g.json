@@ -13,7 +13,7 @@
       "hud_key": "soc_mp_pool",
       "map_name": "Pool",
       "height_ambient": true,
-      "skylight_probe": {},
+      "skylight_probe": {"gain": 0.8, "native_tint": true},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: SoC testers_mp_pool level.game: every actor rpoint (35, all team 0 = deathmatch)",
         "respawns": [
@@ -400,7 +400,7 @@
       "hud_key": "cs_training_camp",
       "map_name": "Training Camp",
       "height_ambient": true,
-      "skylight_probe": {},
+      "skylight_probe": {"gain": 0.8, "native_tint": true},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_training_camp level.game: the 14 team-0 actor rpoints with the deathmatch bit (0x2); team bases (0x4) left out",
         "respawns": [
@@ -520,7 +520,7 @@
       "hud_key": "cs_mp_rembasa",
       "map_name": "Repair Depot",
       "height_ambient": true,
-      "skylight_probe": {},
+      "skylight_probe": {"gain": 0.8, "native_tint": true},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_rembasa level.game: the 19 team-0 actor rpoints with the deathmatch bit (0x2)",
         "respawns": [
@@ -680,7 +680,7 @@
       "hud_key": "cs_mp_sport_center",
       "map_name": "Sports Center",
       "height_ambient": true,
-      "skylight_probe": {},
+      "skylight_probe": {"gain": 0.8, "native_tint": true},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_sport_center level.game: the 32 team-0 actor rpoints with the deathmatch bit (0x2)",
         "respawns": [
@@ -941,7 +941,7 @@
       "hud_key": "cs_mp_firestation",
       "map_name": "Fire Station",
       "height_ambient": true,
-      "skylight_probe": {},
+      "skylight_probe": {"gain": 0.8, "native_tint": true},
       "deathmatch": {
         "source": "S.T.A.L.K.E.R.: Clear Sky mp_firestation level.game: the 47 team-0 actor rpoints with the deathmatch bit (0x2), 4 dropped in ladder-only pockets",
         "respawns": [

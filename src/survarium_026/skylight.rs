@@ -32,6 +32,13 @@ pub struct SkylightProbe {
     /// Metres added around the map's render bounds.
     #[serde(default = "default_margin")]
     pub margin: f32,
+    /// Take the height-based ambient colour from the native template (warm
+    /// white on level_03 day) instead of the source skylight colour. The
+    /// cube keeps the source's axis colours; `gain` then sets the level.
+    /// Every converted X-Ray map inherited the same cold 0.10b template
+    /// skylight (0.816, 0.897, 1.0), which reads blue under 0.26's grading.
+    #[serde(default)]
+    pub native_tint: bool,
 }
 
 fn default_gain() -> f32 {
@@ -46,7 +53,12 @@ fn default_margin() -> f32 {
 
 impl Default for SkylightProbe {
     fn default() -> Self {
-        Self { gain: default_gain(), specular: default_specular(), margin: default_margin() }
+        Self {
+            gain: default_gain(),
+            specular: default_specular(),
+            margin: default_margin(),
+            native_tint: false,
+        }
     }
 }
 
@@ -370,6 +382,23 @@ pub(super) fn emit(
         emit_file(output, &format!("textures/{name}{suffix}.options"), &options, "0.26g-probe-options-template", files)?;
     }
 
+    if settings.native_tint {
+        let native = array(target_project.named("client_objects").context("target objects")?)?
+            .iter()
+            .find(|o| string(o, "game_object_type") == Some("environment"))
+            .and_then(|o| o.named("properties"))
+            .and_then(|p| p.named("height_based_ambient_high_color"))
+            .cloned()
+            .context("native template has no height-ambient colour")?;
+        let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+            bail!("project objects are not an array");
+        };
+        let environment = objects
+            .iter_mut()
+            .find(|o| string(o, "game_object_type") == Some("environment"))
+            .context("converted scene has no environment")?;
+        environment.set_path("properties.height_based_ambient_high_color", native)?;
+    }
     let mut probe = template;
     probe.set_path("position", ConfigValue::Float3(centre))?;
     probe.set_path("rotation", ConfigValue::Float3([0.0; 3]))?;
@@ -397,13 +426,14 @@ pub(super) fn emit(
     };
     objects.push(probe);
     Ok(format!(
-        "{}: skylight probe (0.10b skylight in 0.26's probe contract): sphere at [{:.1}, {:.1}, {:.1}] radius {radius:.1} m over the render bounds; cube = source ambient cube x {} (0.10b SSAO gain), specular {}; faces {:?}",
+        "{}: skylight probe (0.10b skylight in 0.26's probe contract): sphere at [{:.1}, {:.1}, {:.1}] radius {radius:.1} m over the render bounds; cube = source ambient cube x {}, specular {}, height-ambient colour from the {}; faces {:?}",
         map.donor_project(source),
         centre[0],
         centre[1],
         centre[2],
         settings.gain,
         settings.specular,
+        if settings.native_tint { "native template" } else { "source skylight" },
         cube.faces
     ))
 }
