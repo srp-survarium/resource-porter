@@ -124,6 +124,15 @@ server, but it is not licensed for redistribution.
 
 ## Integration plan (after the Duty split lands)
 
+**Done (2026-10-16)**: `duty_026::FREEDOM` (namespace `ported/freedom_026`,
+body 1807, helmet 1808, no `sign_s`, per-variant `reusable` IDs and
+`check_reused_id`). Build it with
+`build-duty-026 --variant freedom --texture-dir '.../freedom-bright/textures'`
+against the stock database, then `pack from-bundle` as `freedom-exo` and add
+the `atlas_icons_add` cells (4, 6) and (5, 6) with `icon-body.png` and
+`icon-helmet.png`. The materials take the shared `outfit_026::Finish`. The
+plan below is kept as written.
+
 Recommended: a **new, separate item set** next to Duty. Duty stays unchanged.
 
 | Item | ID | Slot | Config | Dictionary name | Icon |

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! The Duty exoskeleton set (body 1805, helmet 1800). The six pre-split Duty
+//! The STK2 exoskeleton sets: Duty (body 1805, helmet 1800) and its Freedom
+//! repaint (body 1807, helmet 1808), each a [`Variant`] with its own
+//! namespace, items, faction template and protection. The six pre-split Duty
 //! models use the native 69-bone rig, rotated 180° around Y. Equipment is
 //! additive; native 0.26 item/shader schemas are retained.
 use crate::manifest::{BuiltFile, TextureCompression};
@@ -13,11 +15,11 @@ use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
+    ops::RangeInclusive,
     path::Path,
 };
 
 const BASE: &str = "models/character/human/base/base_character_boot.skinned_model";
-const NS: &str = "ported/duty_026";
 const DICT: &str = "gameplay/db_static_dictionaries";
 const MATERIAL: &str =
     "material_instances/characters/human/renesanse_tank/renesanse_tank_torso.material";
@@ -400,7 +402,122 @@ const HELMET: SetPiece = SetPiece {
     modifications: &[],
 };
 
-static SET: [SetPiece; 2] = [BODY, HELMET];
+/// The Freedom repaint's body: Duty's suit as a Fringe Settlers item (the
+/// "Pilgrim" vest's template gives faction 4, affinity 30 and category 3).
+/// Owner's stats (2026-10-16; armour provisional): 2 kg lighter than Duty,
+/// +3% movement speed (1112, as the level 14 Fringe boots) and -4% stamina
+/// use (1161, as 1160 on the Renaissance boots); other utility as Duty's.
+const FREEDOM_BODY: SetPiece = SetPiece {
+    id: 1807,
+    name: "freedom_exo_suit",
+    label: "Freedom exoskeleton",
+    path: "gameplay/items/armour/torso/freedom_exo_026.options",
+    template: "gameplay/items/armour/torso/edge_torso_6.options",
+    weight: 28.5,
+    icon: [4, 6],
+    modifications: &[1030, 1050, 1170, 1040, 1112, 1161],
+    ..BODY
+};
+
+/// The Freedom repaint's helmet, on the "Pilgrim" helmet's template (which
+/// covers the mask, as Zubr's does).
+const FREEDOM_HELMET: SetPiece = SetPiece {
+    id: 1808,
+    name: "freedom_exo_helmet",
+    label: "Freedom exoskeleton helmet",
+    path: "gameplay/items/armour/helmet/freedom_exo_026.options",
+    template: "gameplay/items/armour/helmet/edge_helmet_6.options",
+    weight: 4.5,
+    icon: [5, 6],
+    ..HELMET
+};
+
+/// One exoskeleton set: its namespace, items and protection. Both sets are
+/// built from the same STK2 Duty models; Freedom has its own repainted
+/// textures (`scripts/freedom_026`) and no chest disc.
+pub struct Variant {
+    /// `--variant` name.
+    pub key: &'static str,
+    /// The models', materials' and textures' namespace.
+    ns: &'static str,
+    asset_id: &'static str,
+    /// Body, then helmet.
+    set: [SetPiece; 2],
+    /// The dictionary IDs this variant owns and may replace.
+    reusable: RangeInclusive<i32>,
+    /// Duty only: its pre-split preview rows (1800..=1806) may be replaced.
+    legacy_split: bool,
+    /// Suit name, suit description, helmet name, helmet description:
+    /// (string key, English text).
+    strings: [(&'static str, &'static str); 4],
+    /// The brass disc with the red star on the chest (`sign_s`).
+    chest_disc: bool,
+    /// Ballistic protection (ranged, slash, explosive): body, head.
+    ballistic: (f32, f32),
+    /// Anomaly protection (fire, shock, radiation, toxic).
+    anomaly: f32,
+}
+
+pub const DUTY: Variant = Variant {
+    key: "duty",
+    ns: "ported/duty_026",
+    asset_id: "duty-exoskeleton-026g",
+    set: [BODY, HELMET],
+    reusable: 1800..=1806,
+    legacy_split: true,
+    strings: [
+        ("st_duty_026_suit_name", "Duty exoskeleton"),
+        (
+            "st_duty_026_suit_desc",
+            "An experimental sample of a military exoskeleton. Was never mass-produced due to extraordinary cost and some design flaws. Small batches are still made in underground facilities outside Ukraine. Comes with a built-in artifact container.",
+        ),
+        ("st_duty_026_helmet_name", "Duty exoskeleton helmet"),
+        (
+            "st_duty_026_head_desc",
+            "The sealed helmet of the experimental Duty exoskeleton, with a built-in respirator. Covers the whole head and face.",
+        ),
+    ],
+    chest_disc: true,
+    // Between Zubr 0.90/0.75 and Pilgrim 0.85/0.70; anomaly between Zubr
+    // 0.5 and Pilgrim 0.9.
+    ballistic: (0.87, 0.72),
+    anomaly: 0.70,
+};
+
+/// Owner's decisions (2026-10-16): the bright Freedom look, no chest disc,
+/// Fringe Settlers (faction 4, sold at rank 10 "Magister"), ballistic as
+/// Pilgrim's and anomaly 10 points below it (provisional).
+pub const FREEDOM: Variant = Variant {
+    key: "freedom",
+    ns: "ported/freedom_026",
+    asset_id: "freedom-exoskeleton-026g",
+    set: [FREEDOM_BODY, FREEDOM_HELMET],
+    reusable: 1807..=1808,
+    legacy_split: false,
+    strings: [
+        ("st_freedom_026_suit_name", "Freedom exoskeleton"),
+        (
+            "st_freedom_026_suit_desc",
+            "An experimental military exoskeleton repainted in Freedom colours. Never mass-produced due to its cost and design flaws; small batches still leave underground workshops. Comes with a built-in artifact container.",
+        ),
+        ("st_freedom_026_helmet_name", "Freedom exoskeleton helmet"),
+        (
+            "st_freedom_026_head_desc",
+            "The sealed helmet of the Freedom exoskeleton, with a built-in respirator. Covers the whole head and face.",
+        ),
+    ],
+    chest_disc: false,
+    ballistic: (0.85, 0.70),
+    anomaly: 0.80,
+};
+
+/// The variant a `--variant` name stands for.
+pub fn variant(key: &str) -> Result<&'static Variant> {
+    [&DUTY, &FREEDOM]
+        .into_iter()
+        .find(|v| v.key == key)
+        .with_context(|| format!("no exoskeleton variant {key}; expected duty or freedom"))
+}
 
 /// The profile slot a `data.additional_model_slots` name stands for.
 fn profile_slot(name: &str) -> Option<u8> {
@@ -431,28 +548,34 @@ struct Natives {
     oxygen: V,
     /// Zubr UM-4's pieces by category: helmet, torso, legs, gloves, boots.
     protection: Vec<(String, V)>,
-    /// Each [`SET`] piece's template: its dictionary row and config.
+    /// Each set piece's template: its dictionary row and config.
     templates: Vec<(V, V)>,
 }
 
-/// An earlier Duty row, which the builder may replace: a split preview
-/// item, the one-item suit worn in the back slot, or a piece of this set.
-fn check_reused_id(id: i32, row: &V) -> Result<()> {
+/// An earlier row of this variant, which the builder may replace: for Duty a
+/// split preview item or the one-item suit worn in the back slot, and a
+/// piece of the variant's own set. Never another variant's or mod's row.
+fn check_reused_id(variant: &Variant, id: i32, row: &V) -> Result<()> {
     let is = |path: &str, name: &str| {
         row.named("cfg_name") == Some(&string(path)) && row.named("name") == Some(&string(name))
     };
-    let split = ["helmet", "torso", "legs", "gloves", "boots", "back", "mask"]
-        .get(usize::try_from(id - 1800)?)
-        .is_some_and(|category| {
-            is(
-                &format!("gameplay/items/armour/{category}/duty_exo_026.options"),
-                &format!("duty_exo_{category}"),
-            )
-        });
-    let ours = SET
+    let split = variant.legacy_split
+        && ["helmet", "torso", "legs", "gloves", "boots", "back", "mask"]
+            .get(usize::try_from(id - 1800).unwrap_or(usize::MAX))
+            .is_some_and(|category| {
+                is(
+                    &format!("gameplay/items/armour/{category}/duty_exo_026.options"),
+                    &format!("duty_exo_{category}"),
+                )
+            });
+    let ours = variant
+        .set
         .iter()
         .any(|piece| piece.id == id && is(piece.path, piece.name));
-    ensure!(split || ours, "item ID {id} belongs to other content");
+    ensure!(
+        variant.reusable.contains(&id) && (split || ours),
+        "item ID {id} belongs to other content"
+    );
     Ok(())
 }
 
@@ -465,7 +588,7 @@ fn remove_field(value: &mut V, key: &str) {
 /// Zubr UM-4's hit regions with the set's armour: the helmet's regions
 /// (brain, face) for the helmet, every other region for the body, each
 /// region once.
-fn split_protection(natives: &[(String, V)]) -> Result<(V, V)> {
+fn split_protection(variant: &Variant, natives: &[(String, V)]) -> Result<(V, V)> {
     let mut head = BTreeMap::new();
     let mut body = BTreeMap::new();
     for (category, native) in natives {
@@ -481,13 +604,13 @@ fn split_protection(natives: &[(String, V)]) -> Result<(V, V)> {
                 let protection = if matches!(hit.name.as_str(), "slash" | "explosive" | "ranged") {
                     // Zubr 0.75/0.90 and Pilgrim 0.70/0.85 (head/body).
                     if matches!(part.name.as_str(), "brain" | "face") {
-                        0.72
+                        variant.ballistic.1
                     } else {
-                        0.87
+                        variant.ballistic.0
                     }
                 } else {
                     // Zubr 0.5, Pilgrim 0.9.
-                    0.70
+                    variant.anomaly
                 };
                 hit.value.set_path("armor", V::Float(protection))?;
             }
@@ -523,16 +646,22 @@ fn props(values: &[(i32, String)]) -> V {
     )
 }
 
-/// The dictionary row and config of each [`SET`] piece.
-fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V, V)>> {
+/// The dictionary row and config of each piece of the variant's set.
+fn set_items<'v>(
+    variant: &'v Variant,
+    natives: &Natives,
+    icons: bool,
+) -> Result<Vec<(&'v SetPiece, V, V)>> {
     ensure!(
-        natives.templates.len() == SET.len(),
+        natives.templates.len() == variant.set.len(),
         "set templates missing"
     );
-    let (head_zones, body_zones) = split_protection(&natives.protection)?;
+    let ns = variant.ns;
+    let (head_zones, body_zones) = split_protection(variant, &natives.protection)?;
     let mut out = vec![];
-    for (piece, (row, template)) in SET.iter().zip(&natives.templates) {
-        let body = piece.id == BODY.id;
+    for (index, (piece, (row, template))) in variant.set.iter().zip(&natives.templates).enumerate()
+    {
+        let body = index == 0;
         let mut row = row.clone();
         row.set_path("dict_id", V::Integer(piece.id))?;
         row.set_path("cfg_name", string(piece.path))?;
@@ -540,14 +669,14 @@ fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V,
         row.set_path("base_cost", V::Integer(piece.cost))?;
         let mut cfg = template.clone();
         let (armor, protection) = if body {
-            (0.87, &body_zones)
+            (variant.ballistic.0, &body_zones)
         } else {
-            (0.72, &head_zones)
+            (variant.ballistic.1, &head_zones)
         };
         let mut values = vec![
             ("weight", piece.weight),
             ("armor", armor),
-            ("ano_armor", 0.7),
+            ("ano_armor", variant.anomaly),
         ];
         if body {
             values.extend([("arms_armor", armor), ("back_armor", armor)]);
@@ -579,13 +708,13 @@ fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V,
         let covers = V::Indexed(piece.covers.iter().map(|&s| string(s)).collect());
         let model = |name: &str, surface: &str| {
             table(vec![
-                field("base_model", string(format!("{NS}/duty_03_{name}"))),
+                field("base_model", string(format!("{ns}/duty_03_{name}"))),
                 field("part_name", string(surface)),
             ])
         };
         let mut shown = vec![
             (6, format!("{}", (armor * 100.0f32).round())),
-            (8, "70".into()),
+            (8, format!("{}", (variant.anomaly * 100.0f32).round())),
             (15, format!("{:.1}", piece.weight)),
         ];
         let data = if body {
@@ -603,20 +732,26 @@ fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V,
                 data.push(field(key, value.clone()));
             }
             data.extend([
-                field("base_model", string(format!("{NS}/duty_03_torso_s1"))),
+                field("base_model", string(format!("{ns}/duty_03_torso_s1"))),
                 field("part_name", string("torso_s")),
-                field("base_model_hud", string(format!("{NS}/duty_03_hand_hud"))),
+                field("base_model_hud", string(format!("{ns}/duty_03_hand_hud"))),
                 field("part_name_hud", string("torso_s")),
                 field(
                     "additional_models",
-                    V::Indexed(vec![
-                        model("torso_s1", "exoskeleton_s"),
-                        model("torso_s1", "back_s"),
-                        model("torso_s1", "sign_s"),
-                        model("legs_s1", "legs_s"),
-                        model("hand", "torso_s"),
-                        model("boot", "legs_s"),
-                    ]),
+                    V::Indexed(
+                        [
+                            ("torso_s1", "exoskeleton_s"),
+                            ("torso_s1", "back_s"),
+                            ("torso_s1", "sign_s"),
+                            ("legs_s1", "legs_s"),
+                            ("hand", "torso_s"),
+                            ("boot", "legs_s"),
+                        ]
+                        .into_iter()
+                        .filter(|(_, surface)| variant.chest_disc || *surface != "sign_s")
+                        .map(|(name, surface)| model(name, surface))
+                        .collect(),
+                    ),
                 ),
                 field("additional_model_slots", covers),
             ]);
@@ -631,7 +766,7 @@ fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V,
                         .context("native helmet type missing")?
                         .clone(),
                 ),
-                field("base_model", string(format!("{NS}/duty_03_head"))),
+                field("base_model", string(format!("{ns}/duty_03_head"))),
                 field("part_name", string("helmet_s")),
                 // The combined helmet and mask cover the whole head.
                 field("remove_head_model", V::Boolean(true)),
@@ -640,10 +775,11 @@ fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V,
         };
         cfg.set_path("data", table(data))?;
         cfg.set_path("ui_desc.props_list", props(&shown))?;
+        let [suit, suit_desc, helmet, helmet_desc] = variant.strings;
         let (name, description) = if body {
-            ("st_duty_026_suit_name", "st_duty_026_suit_desc")
+            (suit.0, suit_desc.0)
         } else {
-            ("st_duty_026_helmet_name", "st_duty_026_head_desc")
+            (helmet.0, helmet_desc.0)
         };
         cfg.set_path("ui_desc.text_descriptions.name", string(name))?;
         cfg.set_path("ui_desc.text_descriptions.description", string(description))?;
@@ -658,6 +794,7 @@ fn duty_set(natives: &Natives, icons: bool) -> Result<Vec<(&'static SetPiece, V,
     Ok(out)
 }
 
+/// Builds the Duty set.
 pub fn build(
     source: &Path,
     textures: &Path,
@@ -665,6 +802,19 @@ pub fn build(
     icons_swf: Option<&Path>,
     output: &Path,
 ) -> Result<()> {
+    build_variant(&DUTY, source, textures, db, icons_swf, output)
+}
+
+/// Builds one exoskeleton set from the STK2 Duty models and `textures`.
+pub fn build_variant(
+    variant: &Variant,
+    source: &Path,
+    textures: &Path,
+    db: &Path,
+    icons_swf: Option<&Path>,
+    output: &Path,
+) -> Result<()> {
+    let ns = variant.ns;
     prepare_empty_output(output)?;
     let overlay = output.join("overlay");
     fs::create_dir_all(&overlay)?;
@@ -672,16 +822,17 @@ pub fn build(
     let bind = target.read(&format!("{BASE}/render/bind_pose"))?;
     let mut files = vec![];
     let mut provenance = BTreeMap::new();
+    let mut torso = vec![
+        ("torso_s", "torso"),
+        ("exoskeleton_s", "attach"),
+        ("back_s", "attach"),
+    ];
+    // Freedom drops the chest disc surface; it is not just hidden.
+    if variant.chest_disc {
+        torso.push(("sign_s", "sign"));
+    }
     let parts = [
-        (
-            "torso_s1",
-            vec![
-                ("torso_s", "torso"),
-                ("exoskeleton_s", "attach"),
-                ("back_s", "attach"),
-                ("sign_s", "sign"),
-            ],
-        ),
+        ("torso_s1", torso),
         ("head", vec![("helmet_s", "helmet")]),
         ("legs_s1", vec![("legs_s", "legs")]),
         ("boot", vec![("legs_s", "legs")]),
@@ -698,7 +849,7 @@ pub fn build(
         let platform = source
             .join("resources/platforms/pc_dx11/models/character/human/duty")
             .join(&name);
-        let root = format!("models/{NS}/{name}");
+        let root = format!("models/{ns}/{name}");
         let mut settings =
             parse_config(&mut target, &format!("{BASE}/settings"), "model template")?;
         settings.root.set_path(
@@ -720,7 +871,7 @@ pub fn build(
                         field(
                             s,
                             table(vec![
-                                field("material_name", string(format!("{NS}/{m}"))),
+                                field("material_name", string(format!("{ns}/{m}"))),
                                 field("used_in_portals", V::Boolean(false)),
                             ]),
                         )
@@ -867,6 +1018,9 @@ pub fn build(
         ("sign", "dol_sign", "dol_sign _nmap", Finish::CLOTH),
     ];
     for (part, diffuse, normal, finish) in texture_sets {
+        if part == "sign" && !variant.chest_disc {
+            continue;
+        }
         let mut material = parse_config(&mut target, MATERIAL, "native equipped armor material")?;
         for (role, source_name, compression, srgb) in [
             ("diffuse", diffuse, TextureCompression::Dxt1, true),
@@ -877,7 +1031,7 @@ pub fn build(
                 input.display().to_string(),
                 record_file("", "", &fs::read(&input)?).sha256,
             );
-            let path = format!("textures/{NS}/{part}_{role}");
+            let path = format!("textures/{ns}/{part}_{role}");
             let dest = overlay.join(format!("{path}.dds"));
             fs::create_dir_all(dest.parent().unwrap())?;
             crate::armor::convert_texture(&input, &dest, compression)?;
@@ -908,14 +1062,14 @@ pub fn build(
             )?;
             material.root.set_path(
                 &format!("material.g_stage.effect.texture_{role}.value"),
-                string(format!("{NS}/{part}_{role}")),
+                string(format!("{ns}/{part}_{role}")),
             )?;
         }
         // The donor's *_fmap is an old specular-power map, not the modern
         // Fresnel input. Do not interpret it as metallic reflectance. Keep the
         // native shader permutation with a constant stock-like finish.
         crate::outfit_026::set_finish(&mut material, finish)?;
-        let material_path = format!("material_instances/{NS}/{part}.material");
+        let material_path = format!("material_instances/{ns}/{part}.material");
         // A revision can reuse an identical installed material. Do not mark it
         // as replaced: that would require auditing every unrelated stock model.
         if !target.is_file(&material_path) || target.read(&material_path)? != material.to_bytes()? {
@@ -948,7 +1102,7 @@ pub fn build(
     else {
         bail!("expected the 0.26 indexed dictionary");
     };
-    for piece in &SET {
+    for piece in &variant.set {
         let row = items
             .iter()
             .find(|v| v.named("cfg_name") == Some(&string(piece.template)))
@@ -957,20 +1111,20 @@ pub fn build(
         let config = parse_config(&mut target, piece.template, "native set template")?;
         natives.templates.push((row, config.root));
     }
-    // Retire earlier Duty rows (the split preview items and the one-item
-    // suit in the back slot), but never remove another mod's IDs.
-    for id in 1800..=1806 {
+    // Retire this variant's earlier rows (for Duty the split preview items
+    // and the one-item suit in the back slot), never another's or a mod's.
+    for id in variant.reusable.clone() {
         if let Some(existing) = items
             .iter()
             .find(|v| v.named("dict_id") == Some(&V::Integer(id)))
         {
-            check_reused_id(id, existing)?;
+            check_reused_id(variant, id, existing)?;
         }
     }
     items.retain(
-        |v| !matches!(v.named("dict_id"), Some(V::Integer(id)) if (1800..=1806).contains(id)),
+        |v| !matches!(v.named("dict_id"), Some(V::Integer(id)) if variant.reusable.contains(id)),
     );
-    let pieces = duty_set(&natives, icons_swf.is_some())?;
+    let pieces = set_items(variant, &natives, icons_swf.is_some())?;
     for (piece, row, _) in &pieces {
         ensure!(
             !items
@@ -981,12 +1135,11 @@ pub fn build(
         );
         items.push(row.clone());
     }
-    let strings: BTreeMap<String, String> = BTreeMap::from([
-        ("st_duty_026_suit_name".into(), "Duty exoskeleton".into()),
-        ("st_duty_026_suit_desc".into(), "An experimental sample of a military exoskeleton. Was never mass-produced due to extraordinary cost and some design flaws. Small batches are still made in underground facilities outside Ukraine. Comes with a built-in artifact container.".into()),
-        ("st_duty_026_helmet_name".into(), "Duty exoskeleton helmet".into()),
-        ("st_duty_026_head_desc".into(), "The sealed helmet of the experimental Duty exoskeleton, with a built-in respirator. Covers the whole head and face.".into()),
-    ]);
+    let strings: BTreeMap<String, String> = variant
+        .strings
+        .iter()
+        .map(|(key, text)| ((*key).into(), (*text).into()))
+        .collect();
     let mut registration = vec![];
     for (piece, row, cfg) in pieces {
         config(&overlay, piece.path, cfg, &mut files)?;
@@ -1037,7 +1190,7 @@ pub fn build(
     fs::write(
         output.join("port-manifest.json"),
         serde_json::to_vec_pretty(
-            &json!({"format_version":1,"asset_id":"duty-exoskeleton-026g","files":files,"inputs":provenance,"items":registration,"base_db":db,"limitations":["Custom experimental balance; native Renaissance tier requirements","Approximate matte material response; source diffuse and normal textures"]}),
+            &json!({"format_version":1,"asset_id":variant.asset_id,"files":files,"inputs":provenance,"items":registration,"base_db":db,"limitations":["Custom experimental balance; native Renaissance tier requirements","Approximate matte material response; source diffuse and normal textures"]}),
         )?,
     )?;
     fs::write(
@@ -1046,7 +1199,10 @@ pub fn build(
     )?;
     crate::model_validation::validate_effective_overlay(db, &overlay)?;
     println!(
-        "Built the Duty set, body 1805 and helmet 1800: {} resources",
+        "Built the {} set, body {} and helmet {}: {} resources",
+        variant.key,
+        variant.set[0].id,
+        variant.set[1].id,
         files.len()
     );
     Ok(())
@@ -1163,7 +1319,7 @@ mod tests {
 
     #[test]
     fn duty_body_is_torso_armour_and_keeps_its_oxygen() {
-        let set = duty_set(&natives(), true).unwrap();
+        let set = set_items(&DUTY, &natives(), true).unwrap();
         let (piece, row, cfg) = &set[0];
         assert_eq!(piece.id, 1805);
         // The user's report: the suit was a backpack (category 4, slot 3).
@@ -1211,7 +1367,7 @@ mod tests {
 
     #[test]
     fn duty_helmet_covers_the_mask_like_zubrs() {
-        let set = duty_set(&natives(), true).unwrap();
+        let set = set_items(&DUTY, &natives(), true).unwrap();
         let (piece, row, cfg) = &set[1];
         assert_eq!((piece.id, piece.slot), (1800, 0));
         assert_eq!(row.named("item_category"), Some(&V::Integer(1)));
@@ -1233,7 +1389,7 @@ mod tests {
 
     #[test]
     fn duty_set_splits_the_suit_without_overlap() {
-        let set = duty_set(&natives(), false).unwrap();
+        let set = set_items(&DUTY, &natives(), false).unwrap();
         let (body, head) = (&set[0], &set[1]);
         // Worn together: neither covers the other's slots.
         let body_slots: Vec<u8> = [vec![body.0.slot], body.0.covered_slots().unwrap()].concat();
@@ -1280,13 +1436,114 @@ mod tests {
             "duty_exo_back",
         );
         // The released one-item suit, and this set's own rows, are replaced.
-        check_reused_id(1805, &back).unwrap();
-        check_reused_id(1805, &row(BODY.path, BODY.name)).unwrap();
-        check_reused_id(1800, &row(HELMET.path, HELMET.name)).unwrap();
+        check_reused_id(&DUTY, 1805, &back).unwrap();
+        check_reused_id(&DUTY, 1805, &row(BODY.path, BODY.name)).unwrap();
+        check_reused_id(&DUTY, 1800, &row(HELMET.path, HELMET.name)).unwrap();
         // Another mod's item, or a Duty row under a foreign ID, is not.
-        assert!(check_reused_id(1805, &row("gameplay/items/other.options", "other")).is_err());
-        assert!(check_reused_id(1803, &row(BODY.path, BODY.name)).is_err());
-        assert!(check_reused_id(1804, &back).is_err());
+        assert!(
+            check_reused_id(&DUTY, 1805, &row("gameplay/items/other.options", "other")).is_err()
+        );
+        assert!(check_reused_id(&DUTY, 1803, &row(BODY.path, BODY.name)).is_err());
+        assert!(check_reused_id(&DUTY, 1804, &back).is_err());
+    }
+
+    #[test]
+    fn freedom_is_its_own_fringe_set_without_the_chest_disc() {
+        let set = set_items(&FREEDOM, &natives(), true).unwrap();
+        let (body, head) = (&set[0], &set[1]);
+        assert_eq!((body.0.id, body.0.slot), (1807, 2));
+        assert_eq!((head.0.id, head.0.slot), (1808, 0));
+        assert_eq!(
+            body.0.template,
+            "gameplay/items/armour/torso/edge_torso_6.options"
+        );
+        assert_eq!(
+            head.0.template,
+            "gameplay/items/armour/helmet/edge_helmet_6.options"
+        );
+        assert_eq!(body.0.covered_slots().unwrap(), [3, 4, 5, 6]);
+        assert_eq!(head.0.covered_slots().unwrap(), [1]);
+        // The owner's decision: no chest disc, dropped rather than hidden.
+        let Some(V::Indexed(models)) = data_of(&body.2, "additional_models") else {
+            panic!("no additional models")
+        };
+        assert_eq!(models.len(), 5);
+        let text = format!("{models:?}");
+        assert!(!text.contains("sign_s"));
+        assert!(text.contains("ported/freedom_026/duty_03_torso_s1"));
+        assert!(!text.contains("duty_026"));
+        assert_eq!(
+            data_of(&head.2, "base_model"),
+            Some(&string("ported/freedom_026/duty_03_head"))
+        );
+        // Oxygen stays.
+        assert_eq!(data_of(&body.2, "type"), Some(&V::Integer(1)));
+        // Stats: 28.5 + 4.5 kg, 225 000 + 75 000, +3% speed and -4% stamina.
+        assert_eq!(body.0.weight + head.0.weight, 33.0);
+        let cost = |row: &V| match row.named("base_cost") {
+            Some(V::Integer(cost)) => *cost,
+            _ => panic!("no cost"),
+        };
+        assert_eq!((cost(&body.1), cost(&head.1)), (225_000, 75_000));
+        assert_eq!(
+            body.2.named("default_modifications"),
+            Some(&V::Indexed(
+                [1030, 1050, 1170, 1040, 1112, 1161]
+                    .map(V::Integer)
+                    .to_vec()
+            ))
+        );
+        assert!(head.2.named("default_modifications").is_none());
+        let param = |cfg: &V, key: &str| cfg.named("parameters").unwrap().named(key).cloned();
+        assert_eq!(param(&body.2, "armor"), Some(V::Float(0.85)));
+        assert_eq!(param(&head.2, "armor"), Some(V::Float(0.70)));
+        assert_eq!(param(&body.2, "ano_armor"), Some(V::Float(0.80)));
+        assert_eq!(param(&head.2, "ano_armor"), Some(V::Float(0.80)));
+        assert_eq!(param(&body.2, "drop_weight"), Some(V::Integer(0)));
+        assert_eq!(param(&body.2, "item_level"), Some(V::Integer(15)));
+        assert_eq!(
+            body.2
+                .named("ui_desc")
+                .and_then(|u| u.named("text_descriptions"))
+                .and_then(|t| t.named("name")),
+            Some(&string("st_freedom_026_suit_name"))
+        );
+        assert_eq!(
+            body.2.named("ui_desc").and_then(|u| u.named("icon")),
+            Some(&V::Indexed(vec![V::Integer(4), V::Integer(6)]))
+        );
+    }
+
+    #[test]
+    fn each_variant_replaces_only_its_own_rows() {
+        let row = |path: &str, name: &str| {
+            table(vec![
+                field("cfg_name", string(path)),
+                field("name", string(name)),
+            ])
+        };
+        check_reused_id(&FREEDOM, 1807, &row(FREEDOM_BODY.path, FREEDOM_BODY.name)).unwrap();
+        check_reused_id(
+            &FREEDOM,
+            1808,
+            &row(FREEDOM_HELMET.path, FREEDOM_HELMET.name),
+        )
+        .unwrap();
+        // Freedom never takes Duty's rows, nor Duty Freedom's.
+        assert!(check_reused_id(&FREEDOM, 1805, &row(BODY.path, BODY.name)).is_err());
+        assert!(check_reused_id(&FREEDOM, 1800, &row(HELMET.path, HELMET.name)).is_err());
+        assert!(check_reused_id(&DUTY, 1807, &row(FREEDOM_BODY.path, FREEDOM_BODY.name)).is_err());
+        // Duty's legacy split rows are Duty's only.
+        let back = row(
+            "gameplay/items/armour/back/duty_exo_026.options",
+            "duty_exo_back",
+        );
+        assert!(check_reused_id(&FREEDOM, 1805, &back).is_err());
+        // Disjoint ID ranges, and clear of the balaclava (1810).
+        assert!(!DUTY.reusable.contains(&1807) && !FREEDOM.reusable.contains(&1806));
+        assert!(!FREEDOM.reusable.contains(&1810));
+        assert_eq!(variant("freedom").unwrap().ns, "ported/freedom_026");
+        assert!(variant("svoboda").is_err());
     }
     #[test]
     fn backpack_split_keeps_whole_components_and_vertex_attributes() {
