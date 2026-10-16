@@ -317,19 +317,19 @@
       },
       "walker_ramps": [
         {
-          "name": "pool_exit_west",
+          "name": "ladder6_planks",
           "from": [
-            16.0,
-            -2.93,
-            -38.5
+            16.73,
+            -2.55,
+            -37.06
           ],
           "to": [
-            16.0,
+            12.23,
             0.0,
-            -33.43
+            -37.06
           ],
-          "width": 1.0,
-          "reason": "replaces ladder clmbl#6 (pool bottom -2.93 to the deck 0.0 on the west wall): runs north along the west part of the basin to the north deck, 30 deg; the tunnel ring behind the hatch ladders clmbl#4/#5 opens into the pool",
+          "width": 0.6,
+          "reason": "two planks laid over ladder clmbl#6 itself (pool bottom -2.55 to the west deck 0.0), 30 deg, 4.5 m into the basin; replaces pool_exit_west, which ran 4 m east of the ladder (the user found the original ladder unclimbable)",
           "planks": true
         },
         {
@@ -1215,36 +1215,68 @@
       },
       "walker_ramps": [
         {
-          "name": "basin_exit_west",
+          "name": "ladder7_planks",
           "from": [
-            -93.05,
+            -92.79,
             -1.24,
-            -48.0
+            -45.18
           ],
           "to": [
-            -96.05,
+            -95.79,
             0.44,
-            -48.0
+            -45.18
           ],
-          "width": 1.0,
-          "planks": true,
-          "reason": "replaces ladders clmbl#7 (-95.8,-45.2) and #6 (deep end, via the basin slope): basin shallow floor -1.24 to the west rim 0.44, 29.2 deg"
+          "width": 0.6,
+          "reason": "two planks over ladder clmbl#7 (basin shallow end -1.24 to the rim 0.44), 29 deg; replaces basin_exit_west, 2.8 m south of the ladder",
+          "planks": true
         },
         {
-          "name": "basin_exit_east",
+          "name": "ladder4_planks",
           "from": [
-            -83.35,
+            -83.56,
             -1.24,
-            -46.5
+            -45.18
           ],
           "to": [
-            -80.35,
+            -80.56,
             0.44,
-            -46.5
+            -45.18
           ],
-          "width": 1.0,
-          "planks": true,
-          "reason": "replaces ladders clmbl#4 (-80.6,-45.2) and #5 (deep end, via the basin slope): basin shallow floor to the east rim 0.44, 29.2 deg; set at z -46.5 to clear the gravel heap at the wall"
+          "width": 0.6,
+          "reason": "two planks over ladder clmbl#4 (basin shallow end to the rim), 29 deg; replaces basin_exit_east, 1.3 m south of the ladder",
+          "planks": true
+        },
+        {
+          "name": "ladder5_planks",
+          "from": [
+            -87.31,
+            -4.31,
+            -24.95
+          ],
+          "to": [
+            -80.56,
+            0.44,
+            -24.95
+          ],
+          "width": 0.6,
+          "reason": "two planks over ladder clmbl#5 (deep end -4.31 to the rim 0.44), 35 deg, 6.75 m into the basin; its foot stays 1.7 m clear of ladder6_planks",
+          "planks": true
+        },
+        {
+          "name": "ladder6_planks",
+          "from": [
+            -89.04,
+            -4.31,
+            -24.95
+          ],
+          "to": [
+            -95.79,
+            0.44,
+            -24.95
+          ],
+          "width": 0.6,
+          "reason": "two planks over ladder clmbl#6 (deep end to the rim), 35 deg",
+          "planks": true
         },
         {
           "name": "stand_ramp",
@@ -1653,6 +1685,22 @@
           ],
           "width": 1.0,
           "reason": "replaces ladder clmbl#1 (6.66 to the 11.23 roof edge, 4.6 m) 3.6 m south of it, rising east against the west wall at 34 degrees; opens the 678 m2 west roof (also the top of clmbl#0, 5.8 m) with 3 DM spawns"
+        },
+        {
+          "name": "ladder0_planks",
+          "from": [
+            -35.14,
+            5.48,
+            15.27
+          ],
+          "to": [
+            -26.39,
+            10.52,
+            15.27
+          ],
+          "width": 0.6,
+          "reason": "two planks over ladder clmbl#0 (5.48 to the 10.52 roof behind it), 30 deg, 8.75 m; the roof is already reached by roof_west_ramp",
+          "planks": true
         }
       ],
       "walker_boxes": [
