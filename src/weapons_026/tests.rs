@@ -98,21 +98,25 @@ fn ids_stay_clear_of_the_equipment_packs() {
 }
 
 #[test]
-fn reload_cues_stay_inside_their_sound_lists() {
+fn reload_sounds_are_0_69ds_own_list_and_cues() {
+    // `weapons.hk416.states.reload.sounds` of 0.69d's game.options; the
+    // Radon's is the same list.
+    assert_eq!(HK416.reload_sounds, RADON.reload_sounds);
+    assert_eq!(HK416.reload_sounds[0], "weapons/hk416/wear_line");
+    assert_eq!(HK416.reload_sounds[6], "weapons/hk416/bolt_close");
     for rifle in RIFLES {
-        for events in [rifle.empty_events, rifle.tactical_events].into_iter().flatten() {
-            assert!(events.iter().all(|e| usize::from(*e) < rifle.reload_sounds.len()));
-        }
+        assert!(rifle.empty_events.is_none() && rifle.tactical_events.is_none());
     }
-    // The Radon's tactical reload stows the magazine instead of dropping it.
-    let tactical: Vec<&str> = RADON
-        .tactical_events
-        .unwrap()
-        .iter()
-        .map(|i| RADON.reload_sounds[usize::from(*i)])
-        .collect();
-    assert!(tactical.contains(&"weapons/hk416/wear_line"));
-    assert!(!tactical.contains(&"weapons/hk416/mag_fall"));
+}
+
+#[test]
+fn fire_modes_and_levels_follow_0_69d() {
+    assert_eq!(HK416.stats.fire_modes, [-1, 1]);
+    assert_eq!(RADON.stats.fire_modes, [-1, 1, 3], "the Radon fires bursts of three");
+    // Equal in 0.69d (level 4, one under the AK-12): equal here, under the
+    // native AK-12's 15.
+    assert_eq!(HK416.stats.level, RADON.stats.level);
+    assert!(HK416.stats.level < 15);
 }
 
 #[test]
@@ -142,4 +146,67 @@ fn composites_name_collections_with_their_offsets() {
     // The master layer is the H&K's own report.
     let master = int_of(c.named("composite_sound").unwrap().named("master_layer_index")).unwrap();
     assert_eq!(HK416.fire_first[master as usize].collection, "weapons/hk416/hk416_loud");
+}
+
+/// The runtime pointer slots of a 0.26g clip (filled on load; retail files
+/// hold whatever the exporter's memory did) and the padding after each event
+/// name, zeroed.
+fn without_runtime_bytes(b: &[u8]) -> Vec<u8> {
+    let h = convert::clip_header(b).unwrap();
+    let mut out = b.to_vec();
+    for slot in 0..h.bones * 9 {
+        out[4 + slot * 8 + 4..4 + slot * 8 + 8].fill(0);
+    }
+    let base = 4 + h.bones * 0x48;
+    for event in 0..h.events {
+        let at = base + event * 16;
+        out[at + 4..at + 8].fill(0);
+        out[at + 12..at + 16].fill(0);
+    }
+    for e in convert::events_026(b).unwrap() {
+        // Name, NUL, then padding to four bytes.
+        let needle = [e.name.as_bytes(), &[0]].concat();
+        let start = out.windows(needle.len()).rposition(|w| w == needle.as_slice()).unwrap();
+        let mut at = start + needle.len();
+        while at % 4 != 0 && at < out.len() {
+            out[at] = 0;
+            at += 1;
+        }
+    }
+    out
+}
+
+/// With the stock 0.26g database (`VOSTOK_026G_DB`) and the 0.69d donor
+/// archive (`VOSTOK_069D_WEAPONS_DB`, from `pack-donor-tree`): the AK-12's
+/// clips that both builds ship, converted, are 0.26g's own bytes.
+#[test]
+fn shared_ak12_clips_convert_to_the_026g_bytes() {
+    let (Some(stock), Some(donor)) = (
+        std::env::var_os("VOSTOK_026G_DB"),
+        std::env::var_os("VOSTOK_069D_WEAPONS_DB"),
+    ) else {
+        eprintln!("skipped: set VOSTOK_026G_DB and VOSTOK_069D_WEAPONS_DB");
+        return;
+    };
+    let mut stock = ResourceDb::open(stock).unwrap();
+    let mut donor = ResourceDb::open(donor).unwrap();
+    for clip in [
+        "item/stand/3rd_view/show",
+        "item/stand/3rd_view/hide",
+        "player/stand/3rd_view/on_site/hands_only/hide",
+    ] {
+        let path = format!("animations/single/weapons/ak_12/{clip}.b-spline");
+        let native = stock.read(&path).unwrap();
+        let converted = convert::bspline_069_to_026(&donor.read(&path).unwrap()).unwrap();
+        assert_eq!(
+            without_runtime_bytes(&converted),
+            without_runtime_bytes(&native),
+            "{clip}"
+        );
+        let names = format!("animations/single/weapons/ak_12/{clip}.bones_names");
+        assert_eq!(
+            clip_bones(&donor.read(&names).unwrap()).unwrap(),
+            clip_bones(&stock.read(&names).unwrap()).unwrap()
+        );
+    }
 }

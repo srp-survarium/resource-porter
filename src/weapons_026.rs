@@ -88,6 +88,7 @@ pub struct Stats {
     pub weight: f32,
     pub reload_time: f32,
     pub aim_time: f32,
+    pub aim_zoom_factor: f32,
     pub base_dispersion: f32,
     pub magazine: i32,
     pub min_damage_distance: i32,
@@ -172,18 +173,10 @@ pub const HK416: Rifle = Rifle {
     ],
     muzzle_module: "muzzlebrakes/hk416a5_i05x28_muzzlebrake",
     handguard: "handguard_point",
-    // The empty reload's seven cues in clip order (frames 20, 21, 47, 90,
-    // 110, 137, 140); the tactical clip cues 1..4 of them (frames 17, 43, 90,
-    // 110), which is what leaves the falling magazine and the bolt out.
-    reload_sounds: &[
-        "weapons/hk416/mag_fall",
-        "weapons/hk416/mag_eject",
-        "weapons/hk416/wear_line",
-        "weapons/hk416/mag_set",
-        "weapons/hk416/mag_set_ready",
-        "weapons/hk416/bolt_button",
-        "weapons/hk416/bolt_close",
-    ],
+    // 0.69d's own list (`gameplay/game.options`, `weapons.hk416.states.reload`);
+    // the clips' cues index it as 0.69d did (empty: seven in order;
+    // tactical: 1..4).
+    reload_sounds: &RELOAD_SOUNDS,
     empty_events: None,
     tactical_events: None,
     // The donor's own layers, then the AK-12's first-person tails in place
@@ -233,6 +226,9 @@ pub const HK416: Rifle = Rifle {
     ],
     fire_third_master: None,
     composites: ["weapons/hk416", "weapons/hk416_m"],
+    // 0.69d: Black Market, level 4 (the AK-12 5), 850 rpm, 0.35 damage
+    // (the AK-12 0.39; 0.26g's AK-12 has 0.55), 3.5 kg, auto and single,
+    // reload 3 s (tactical 2.2 s), aim zoom 1.2.
     stats: Stats {
         faction: 4,
         level: 13,
@@ -245,6 +241,7 @@ pub const HK416: Rifle = Rifle {
         weight: 3.5,
         reload_time: 3.0,
         aim_time: 0.3,
+        aim_zoom_factor: 1.2,
         base_dispersion: 0.18,
         magazine: 30,
         min_damage_distance: 50,
@@ -313,23 +310,11 @@ pub const RADON: Rifle = Rifle {
     ],
     muzzle_module: "muzzlebrakes/msbsradon_i05x28_muzzlebrake",
     handguard: "LeftHand_idle",
-    // 0.69d gave the Radon no reload sounds of its own (its server named
-    // other weapons'); these are the H&K's, cued by the clips' own frames.
-    // Empty: release (1), out (26), fall (39), in (98), seat (118), bolt
-    // release (154), bolt (156). Tactical: release (20), out (26), stow (38),
-    // in (100), seat (116).
-    reload_sounds: &[
-        "weapons/hk416/bolt_button",
-        "weapons/hk416/mag_eject",
-        "weapons/hk416/mag_fall",
-        "weapons/hk416/mag_set",
-        "weapons/hk416/mag_set_ready",
-        "weapons/hk416/bolt_button",
-        "weapons/hk416/bolt_close",
-        "weapons/hk416/wear_line",
-    ],
-    empty_events: Some(&[0, 1, 2, 3, 4, 5, 6]),
-    tactical_events: Some(&[0, 1, 7, 3, 4]),
+    // 0.69d's Radon used the H&K's reload sounds, in the same list; its
+    // clips cue seven (empty) and five (tactical) of them in order.
+    reload_sounds: &RELOAD_SOUNDS,
+    empty_events: None,
+    tactical_events: None,
     fire_first: &[
         Layer {
             collection: "weapons/akm_n/akmn_base",
@@ -401,23 +386,26 @@ pub const RADON: Rifle = Rifle {
     ],
     fire_third_master: None,
     composites: ["weapons/msbs", "weapons/msbs_m"],
+    // 0.69d: Scavengers, level 4, 750 rpm, 0.38 damage, 4 kg, auto,
+    // single and three-round bursts, reload 3 s (tactical 2.2 s), aim zoom 1.2.
     stats: Stats {
         faction: 4,
-        level: 12,
-        drop_weight: 40,
-        base_cost: 72_000,
-        rounds_per_minute: 700,
-        bullet_damage: 0.5,
+        level: 13,
+        drop_weight: 30,
+        base_cost: 80_000,
+        rounds_per_minute: 750,
+        bullet_damage: 0.53,
         bullet_pierce: 0.3,
         stopping_power: 0.15,
-        weight: 3.4,
+        weight: 4.0,
         reload_time: 3.0,
         aim_time: 0.3,
+        aim_zoom_factor: 1.2,
         base_dispersion: 0.2,
         magazine: 30,
         min_damage_distance: 50,
         max_damage_distance: 20,
-        fire_modes: &[-1, 1],
+        fire_modes: &[-1, 1, 3],
     },
     texts: [
         (
@@ -433,11 +421,11 @@ pub const RADON: Rifle = Rifle {
         (
             "st_msbs_radon_026_description",
             Text {
-                english: "Polish modular assault rifle, adopted by the Polish army in 2017 as the Grot. Converted to fire 5.45x39 ammunition. Supports single shot and automatic fire modes.",
-                russian: "Польская модульная штурмовая винтовка, принятая на вооружение польской армии в 2017 году под названием Grot. Переделана под патрон 5.45×39. Поддерживает одиночный и автоматический режим стрельбы.",
-                ukrainian: "Польська модульна штурмова гвинтівка, прийнята на озброєння польської армії 2017 року під назвою Grot. Перероблена під набій 5.45×39. Підтримує одиночний і автоматичний режим стрільби.",
-                german: "Polnisches modulares Sturmgewehr, 2017 als Grot bei der polnischen Armee eingeführt. Auf 5,45x39-Munition umgebaut. Einzel- und Dauerfeuer.",
-                polish: "Polski modułowy karabin szturmowy, przyjęty na uzbrojenie Wojska Polskiego w 2017 roku jako Grot. Przerobiony na amunicję 5,45x39. Ogień pojedynczy i ciągły.",
+                english: "Polish modular assault rifle, adopted by the Polish army in 2017 as the Grot. Converted to fire 5.45x39 ammunition. Supports single shot, three-round burst and automatic fire modes.",
+                russian: "Польская модульная штурмовая винтовка, принятая на вооружение польской армии в 2017 году под названием Grot. Переделана под патрон 5.45×39. Поддерживает одиночный режим, очередь по три выстрела и автоматический режим стрельбы.",
+                ukrainian: "Польська модульна штурмова гвинтівка, прийнята на озброєння польської армії 2017 року під назвою Grot. Перероблена під набій 5.45×39. Підтримує одиночний режим, черги по три постріли й автоматичний режим стрільби.",
+                german: "Polnisches modulares Sturmgewehr, 2017 als Grot bei der polnischen Armee eingeführt. Auf 5,45x39-Munition umgebaut. Einzelfeuer, Dreischussfeuerstöße und Dauerfeuer.",
+                polish: "Polski modułowy karabin szturmowy, przyjęty na uzbrojenie Wojska Polskiego w 2017 roku jako Grot. Przerobiony na amunicję 5,45x39. Ogień pojedynczy, seriami po trzy strzały i ciągły.",
             },
         ),
     ],
@@ -446,6 +434,22 @@ pub const RADON: Rifle = Rifle {
 };
 
 pub const RIFLES: [&Rifle; 2] = [&HK416, &RADON];
+
+/// Both rifles' reload sounds in 0.69d, by index.
+pub const RELOAD_SOUNDS: [&str; 7] = [
+    "weapons/hk416/wear_line",
+    "weapons/hk416/mag_eject",
+    "weapons/hk416/mag_fall",
+    "weapons/hk416/mag_set_ready",
+    "weapons/hk416/mag_set",
+    "weapons/hk416/bolt_button",
+    "weapons/hk416/bolt_close",
+];
+/// The draw and holster sound 0.69d gives both (0.26g ships it).
+pub const SHOW_SOUNDS: [&str; 2] = [
+    "weapons/show_hide_aimed_states/show_state",
+    "weapons/show_hide_aimed_states/show_state_m",
+];
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -1195,6 +1199,7 @@ fn item_config(rifle: &Rifle, target: &mut ResourceDb, model: &str, icons: bool)
         ("weight", V::Float(st.weight)),
         ("reload_time", V::Float(st.reload_time)),
         ("aim_time", V::Float(st.aim_time)),
+        ("aim_zoom_factor", V::Float(st.aim_zoom_factor)),
         ("base_dispersion", V::Float(st.base_dispersion)),
         ("magazine_capacity", V::Integer(st.magazine)),
         ("min_damage_distance", V::Integer(st.min_damage_distance)),
@@ -1249,6 +1254,11 @@ fn item_config(rifle: &Rifle, target: &mut ResourceDb, model: &str, icons: bool)
         "states.reload.sounds.simultaneous_sounds_queue_size",
         V::Integer(i32::try_from(rifle.reload_sounds.len())?),
     )?;
+    for state in ["show", "hide"] {
+        for (view, sound) in ["first_view", "third_view"].into_iter().zip(SHOW_SOUNDS) {
+            cfg.set_path(&format!("states.{state}.sounds.{view}"), sound_list(&[sound]))?;
+        }
+    }
     cfg.set_path(
         "states.fire.sounds.first_view",
         V::Indexed(vec![V::Indexed(vec![V::Integer(257), s(rifle.composites[0])])]),
