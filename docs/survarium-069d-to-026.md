@@ -94,11 +94,21 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
   one zone per team. Native ambient sound emitters come from level_07.
 * **Models** identical in 0.26 (same collision, render bounds within 5 cm)
   stay native; the rest are imported under `ported/v069d`.
-* **Project schema**: the project carries every container group of the native
-  template (`victory_item_spawn_points`, `temporary_render_visuals`,
-  `temporary_collision_objects`), empty. Builds without them crashed the
-  client 20 ms after match setup (ACCESS_VIOLATION at "thir"), before any
-  resource loaded; every working port has them.
+* **Project schema** (three client crashes on match setup, found by fixed-
+  camera loads and their minidumps labelled with `tools/re-kit/v026g`):
+  - The project carries every container group of the native template
+    (`victory_item_spawn_points`, `temporary_render_visuals`,
+    `temporary_collision_objects`), empty, as every working port does.
+    Without them the client crashed 20 ms after match setup
+    (ACCESS_VIOLATION, EIP "thir"); with them it got further.
+  - Vegetation layers keep `wind_factor` (0.26 reads it too) and take any
+    other native layer key the donor lacks from the template: without it
+    `grass_cook::translate_query` crashed 140 ms after match setup.
+  - Merged surfaces stay native-sized (at most 32 000 vertices, 900 kB of
+    vertex data, 96 000 indices; native surfaces stop at 35 001 / 980 084 /
+    103 935, `examples/surface_sizes`): `static_render_surface::load` takes
+    a surface's buffers on the main thread's stack and overflowed it with a
+    1.2 MB merged surface.
 * **Name, loading screen, minimap**: `mode.ui.map_name` is the donor's
   (`st_level_11_name`); its text from each 0.69d localization (english,
   german, original, polish, russian, ukrainian) is added to 0.26's. 0.26 has
@@ -118,35 +128,50 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
   296 m square and the level_09 props in Minimap's constructor become
   size 148, posX -4, posY -2, rewritten in place (same code length, a
   double constant used only there).
-* **Performance**: imported models with LODs switch by distance 12/30 m;
-  authored far LODs are simplified (meshoptimizer, error-bounded; LOD2 may
-  collapse across UV seams and drop small parts) and heavy LOD-less models
-  get generated LODs; terrain render meshes are simplified with locked
-  borders (tiles stay sealed; error <= 0.4% of a tile, about 14 cm);
-  imported textures above 1024 (smoothness maps above 512) lose their top
-  mip. **Material clusters** merge render instances into render-only models
-  with one surface per material and LOD: first models alike (same LOD
-  switching, same material set: copies of a model, or the native elka
-  trees sharing `flora/elka`) per 32 m cell, then the remaining small
-  imported instances (radius <= 10 m) across models per 12 m cell; glass,
-  water, terrain and projected decals stay alone, foliage and native
-  models merge only with models alike. 0.26 picks a model's LOD by the
-  distance to its bounding-box centre (`select_lod`), so each cluster
-  switches later by its centre-to-member reach: no member is drawn coarser
-  than it would be alone. Collision instances are unchanged.
+* **Performance**. Static geometry is the hard budget: 0.26 maps load
+  25-54 MiB of render geometry (`examples/geometry_bytes`; the client logs a
+  108 MB geometry pool), the raw port 310 MiB. In order:
+  - LOD0 and LOD-less imported surfaces are simplified (meshoptimizer,
+    error <= 0.4% of the mesh extent, target 30%): 3.86 M -> ~1.8 M
+    triangles. Authored LOD1/LOD2 are simplified further (error 4%/6%; both
+    may collapse across UV seams and drop small parts), heavy LOD-less
+    models get generated LODs, imported textures above 1024 (smoothness maps
+    above 512) lose their top mip.
+  - Terrain render meshes are simplified with locked borders (tiles stay
+    sealed; error <= 0.4% of a tile, about 14 cm; 976 k -> 50 k triangles).
+  - Imported models that are translated copies of another (the Duga antenna
+    sections, exported as separate models at their own offsets; re-exported
+    wires may differ by a few vertices, so surfaces match exactly or by
+    vertex count within 0.2% and bounds within 1 cm) draw the first copy,
+    moved by the offset.
+  - **Material clusters** merge render instances into render-only models
+    with one surface per material and LOD: first models alike (same LOD
+    switching, same material set: copies of a model, or the native elka
+    trees sharing `flora/elka`) per 32 m cell, then the remaining small
+    imported instances (radius <= 10 m) across models per 12 m cell; glass,
+    water, terrain and projected decals stay alone, foliage and native
+    models merge only with models alike, and models above 64 KiB of
+    geometry stay instanced (baking copies multiplies memory: a 128 KiB cap
+    saves 320 more draws for 35 MiB more geometry). 0.26 picks a model's LOD
+    by the distance to its bounding-box centre (`select_lod`), so each
+    cluster switches later by its centre-to-member reach: no member is drawn
+    coarser than it would be alone. Collision instances are unchanged.
+  - Imported models with LODs switch by distance 12/30 m.
 
-Static budget at the 42 spawns (`examples/view_budget`, omnidirectional):
+Static budget at the 42 spawns (`examples/view_budget`, omnidirectional) and
+render geometry (`examples/geometry_bytes`):
 
-| | mean tris | worst tris | mean draws | worst draws |
-|---|---|---|---|---|
-| level_03 day_4 | 634 026 | 680 149 | 1 081 | 1 105 |
-| level_07 day_4 | 790 954 | 905 423 | 1 457 | 1 606 |
-| Duga, first build (b9) | 988 080 | 1 034 572 | 1 936 | 1 945 |
-| Duga | 814 014 | 965 991 | 1 717 | 1 724 |
+| | mean tris | worst tris | mean draws | worst draws | geometry |
+|---|---|---|---|---|---|
+| level_03 day_4 | 634 026 | 680 149 | 1 081 | 1 105 | 46.6 MiB |
+| level_07 day_4 | 790 954 | 905 423 | 1 457 | 1 606 | 48.1 MiB |
+| Duga, first build (b9) | 988 080 | 1 034 572 | 1 936 | 1 945 | |
+| Duga, clusters without memory cap | 814 014 | 965 991 | 1 717 | 1 724 | 310.5 MiB |
+| Duga | 554 957 | 583 814 | 2 245 | 2 257 | 110.8 MiB |
 
-Texture payload 651 MiB (level_03 638, level_07 720); particles 0. Draws
-stay ~7% above level_07's worst spawn: larger alike cells (40 m) bring them
-to 1 611 but push the worst spawn to 1.15 M triangles.
+Texture payload 651 MiB (level_03 638, level_07 720); particles 0. Draws are
+~40% above level_07's worst spawn and geometry about twice a native map's:
+Duga's buildings use many more materials and polygons than 0.26's.
 
 ## Ladders
 

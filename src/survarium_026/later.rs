@@ -80,6 +80,10 @@ pub struct Manifest {
     /// later than `lod_distances`: no member is drawn coarser than alone.
     #[serde(default)]
     pub material_clusters: Option<MaterialClusters>,
+    /// Render instances of imported models whose LOD0 equals another's up to
+    /// a translation draw that one, moved (memory for repeated structures).
+    #[serde(default)]
+    pub dedup_translated_copies: bool,
     /// Terrain render meshes (`decimate_terrain`) simplified with their open
     /// borders locked, so neighbouring tiles stay sealed whatever each one
     /// sheds; collision is unchanged. Without it grid tiles keep every second
@@ -102,6 +106,10 @@ pub struct MaterialClusters {
     /// the instance), native models and models above `max_member_radius`
     /// only ever merge this way.
     pub model_cell: f32,
+    /// Models whose render geometry (all LODs, bytes) exceeds this stay
+    /// instanced: baking copies of heavy models multiplies their memory
+    /// (0.26 maps load 25-54 MiB of static geometry).
+    pub max_member_bytes: usize,
 }
 
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
@@ -142,6 +150,18 @@ pub struct Simplify {
     /// is otherwise held at its seams.
     #[serde(default)]
     pub lod2_permissive: bool,
+    /// The same for LOD1 surfaces (drawn from the first LOD distance on).
+    #[serde(default)]
+    pub lod1_permissive: bool,
+    /// Target ratio for LOD0 and LOD-less surfaces (None: kept as authored).
+    #[serde(default)]
+    pub lod0_ratio: Option<f32>,
+    /// Their error bound (fraction of the mesh extent); default `max_error`.
+    #[serde(default)]
+    pub lod0_max_error: Option<f32>,
+    /// Their size threshold; default `min_triangles`.
+    #[serde(default)]
+    pub lod0_min_triangles: Option<usize>,
     /// Models without LODs whose LOD0 exceeds this many triangles get
     /// generated LOD1/LOD2 surfaces at the two ratios.
     pub generate_above: usize,
@@ -149,7 +169,7 @@ pub struct Simplify {
 
 impl Simplify {
     fn options(&self, lod: usize) -> meshopt::SimplifyOptions {
-        if lod >= 2 && self.lod2_permissive {
+        if (lod >= 2 && self.lod2_permissive) || (lod == 1 && self.lod1_permissive) {
             meshopt::SimplifyOptions::Permissive | meshopt::SimplifyOptions::Prune
         } else {
             meshopt::SimplifyOptions::None
@@ -604,6 +624,67 @@ pub fn concat_meshes(meshes: &[Vec<u8>]) -> Result<Vec<(Vec<u8>, [f32; 3], [f32;
         finish(c, &mut out)?;
     }
     Ok(out)
+}
+
+/// Geometry key of a model's LOD0 surfaces (0.26 layout, sorted by surface
+/// name) up to a translation: positions relative to the first vertex at
+/// 1 mm, the remaining vertex bytes except the packed basis (exports
+/// differ by one in its rounding), and the set of triangles (their order
+/// differs between exports). Returns the key and the first vertex.
+pub fn translation_key(surfaces: &[(String, Vec<u8>)]) -> Option<(Vec<u8>, [f32; 3])> {
+    let mut key = Vec::new();
+    let mut origin = None;
+    for (name, mesh) in surfaces {
+        let s = stride(mesh)?;
+        let u = |o: usize| u32::from_le_bytes(mesh[o..o + 4].try_into().unwrap()) as usize;
+        let (size, count) = (u(4), u(8));
+        let at = 8 + size;
+        if mesh.get(at..at + 4)? != 4u32.to_le_bytes() {
+            return None;
+        }
+        let n = u(at + 8);
+        let o = *origin.get_or_insert_with(|| std::array::from_fn::<f32, 3, _>(|i| f32::from_le_bytes(mesh[12 + 4 * i..16 + 4 * i].try_into().unwrap())));
+        key.extend(name.as_bytes());
+        key.extend((count as u32).to_le_bytes());
+        for v in mesh[12..8 + size].chunks_exact(s) {
+            for i in 0..3 {
+                let x = f32::from_le_bytes(v[4 * i..4 * i + 4].try_into().unwrap()) - o[i];
+                key.extend(((x * 1000.0).round() as i32).to_le_bytes());
+            }
+            key.extend(&v[24..]);
+        }
+        let mut triangles: Vec<[u16; 3]> = (0..n / 3)
+            .map(|t| {
+                let mut tri: [u16; 3] = std::array::from_fn(|k| u16::from_le_bytes([mesh[at + 12 + 2 * (3 * t + k)], mesh[at + 13 + 2 * (3 * t + k)]]));
+                // Same winding, any rotation.
+                let r = (0..3).min_by_key(|&k| tri[k]).unwrap();
+                tri.rotate_left(r);
+                tri
+            })
+            .collect();
+        triangles.sort();
+        for t in triangles {
+            for i in t {
+                key.extend(i.to_le_bytes());
+            }
+        }
+    }
+    Some((key, origin?))
+}
+
+/// Bounds of a static mesh's positions.
+fn mesh_bounds(mesh: &[u8]) -> Option<([f32; 3], [f32; 3])> {
+    let s = stride(mesh)?;
+    let size = u32::from_le_bytes(mesh[4..8].try_into().ok()?) as usize;
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    for v in mesh.get(12..8 + size)?.chunks_exact(s) {
+        for i in 0..3 {
+            let x = f32::from_le_bytes(v[4 * i..4 * i + 4].try_into().unwrap());
+            lo[i] = lo[i].min(x);
+            hi[i] = hi[i].max(x);
+        }
+    }
+    Some((lo, hi))
 }
 
 /// One render instance offered to a material cluster: its placement and,
@@ -2397,6 +2478,7 @@ pub fn build(
     let mut halved = 0usize;
     let mut decimated = 0usize;
     let mut terrain_triangles = (0usize, 0usize);
+    let mut lod0_triangles = (0usize, 0usize);
     let mut simplified_triangles = (0usize, 0usize);
     let mut blended_terrain = 0usize;
     let mut generated: BTreeMap<String, Vec<(usize, String, String)>> = BTreeMap::new();
@@ -2445,6 +2527,17 @@ pub fn build(
             if let (Some(&(base, blended)), Some((mask, tile))) = (terrain_blend.get(path), &terrain_mask) {
                 bytes = blend_colours(&bytes, mask, *tile, base, blended).with_context(|| format!("blending {path}"))?;
                 blended_terrain += 1;
+            }
+            // LOD0 (and LOD-less) surfaces: 0.69d meshes are several times
+            // denser than 0.26's, whose maps load 25-54 MiB of static geometry.
+            if let (Some(simplify), Some(ratio), false) = (m.simplify, m.simplify.and_then(|s| s.lod0_ratio), terrain) {
+                if surface_lod.get(path).copied().unwrap_or(0) == 0 && triangles(&bytes) >= simplify.lod0_min_triangles.unwrap_or(simplify.min_triangles) {
+                    if let Some(smaller) = simplify_mesh(&bytes, ratio, simplify.lod0_max_error.unwrap_or(simplify.max_error)).with_context(|| format!("simplifying {path}"))? {
+                        lod0_triangles.0 += triangles(&bytes);
+                        lod0_triangles.1 += triangles(&smaller);
+                        bytes = smaller;
+                    }
+                }
             }
             if let (Some(simplify), Some(&lod)) = (m.simplify, surface_lod.get(path)) {
                 if lod > 0 && triangles(&bytes) >= simplify.min_triangles {
@@ -2595,6 +2688,10 @@ pub fn build(
     if blended_terrain > 0 {
         notes.push(format!("{blended_terrain} terrain meshes carry two-layer blend weights in a new vertex colour (stride 28 -> 32)"));
     }
+    if lod0_triangles.0 > 0 {
+        let s = m.simplify.unwrap();
+        notes.push(format!("LOD0 and LOD-less surfaces simplified from {} to {} triangles (meshoptimizer, error bound {} of the mesh extent; collision unchanged)", lod0_triangles.0, lod0_triangles.1, s.lod0_max_error.unwrap_or(s.max_error)));
+    }
     if simplified_triangles.0 > 0 {
         notes.push(format!("authored LOD1/LOD2 surfaces simplified from {} to {} triangles (meshoptimizer, error bound {}, LOD2 {})", simplified_triangles.0, simplified_triangles.1, m.simplify.unwrap().max_error, m.simplify.unwrap().lod2_max_error.unwrap_or(m.simplify.unwrap().max_error)));
     }
@@ -2718,6 +2815,105 @@ pub fn build(
         notes.push(format!("static batching ({cell} m cells): {batched} render instances of repeated imported models baked into {batches} render-only batch models; collision instances unchanged"));
     }
 
+    // Imported models that are translated copies of another (0.69d exports
+    // the Duga antenna sections as eight models at their own offsets): their
+    // render instances draw the first copy, moved by the offset. Collision
+    // instances keep their own models; the copies' files stay emitted.
+    if m.dedup_translated_copies {
+        // Per model: LOD structure and materials, then per LOD0 surface its
+        // translation key, first vertex, vertex count and bounds.
+        struct Shape {
+            model: String,
+            structure: String,
+            origin: [f32; 3],
+            surfaces: Vec<(Vec<u8>, [f32; 3], usize, [f32; 3], [f32; 3])>,
+        }
+        let mut shapes: Vec<Shape> = Vec::new();
+        for model in &donor_models {
+            if scene.vegetation_models.contains(model) || m.decimate_terrain.iter().any(|p| model.starts_with(p.as_str())) {
+                continue;
+            }
+            let root = format!("models/{model}.model");
+            let settings = cfg(&mut donor, &format!("{root}/settings"))?;
+            let Some(ConfigValue::Indexed(list)) = settings.named("lod_hierrarchy").and_then(|h| h.named("LOD0")).and_then(|l| l.named("surfaces")) else { continue };
+            let mut surfaces = Vec::new();
+            let mut materials = Vec::new();
+            for surface in list {
+                let ConfigValue::String(surface) = surface else { continue };
+                let path = format!("{root}/render/{surface}/converted_model");
+                if !donor.is_file(&path) {
+                    continue;
+                }
+                surfaces.push((surface.clone(), geometry(&donor.read(&path)?)?));
+                materials.push(settings.named("material_settings").and_then(|t| t.named(surface)).and_then(|e| string(e, "material_name")).unwrap_or("").to_owned());
+            }
+            surfaces.sort();
+            let mut shape = Shape {
+                model: model.clone(),
+                structure: format!("{:?}{materials:?}{:?}", settings.named("lod_hierrarchy"), surfaces.iter().map(|s| &s.0).collect::<Vec<_>>()),
+                origin: [0.0; 3],
+                surfaces: Vec::new(),
+            };
+            let mut ok = !surfaces.is_empty();
+            for (k, (name, mesh)) in surfaces.iter().enumerate() {
+                let Some((key, first)) = translation_key(&[(name.clone(), mesh.clone())]) else { ok = false; break };
+                let Some((lo, hi)) = mesh_bounds(mesh) else { ok = false; break };
+                if k == 0 {
+                    shape.origin = first;
+                }
+                let count = u32::from_le_bytes(mesh[8..12].try_into().unwrap()) as usize;
+                shape.surfaces.push((key, first, count, lo, hi));
+            }
+            if ok {
+                shapes.push(shape);
+            }
+        }
+        // A copy matches surface by surface: the same geometry at the model's
+        // offset, or (re-exported wires and the like) a vertex count within
+        // 0.2% and the same bounds within 1 cm; at least half of the vertices
+        // in exactly equal surfaces.
+        let same_copy = |a: &Shape, b: &Shape| -> bool {
+            if a.structure != b.structure {
+                return false;
+            }
+            let offset: [f32; 3] = std::array::from_fn(|i| b.origin[i] - a.origin[i]);
+            let close = |x: [f32; 3], y: [f32; 3], tolerance: f32| (0..3).all(|i| (y[i] - x[i] - offset[i]).abs() <= tolerance);
+            let (mut exact, mut total) = (0, 0);
+            for (sa, sb) in a.surfaces.iter().zip(&b.surfaces) {
+                total += sa.2;
+                if sa.0 == sb.0 && close(sa.1, sb.1, 0.001) {
+                    exact += sa.2;
+                } else if sa.2.abs_diff(sb.2) * 500 > sa.2 || !close(sa.3, sb.3, 0.01) || !close(sa.4, sb.4, 0.01) {
+                    return false;
+                }
+            }
+            exact * 2 >= total
+        };
+        let mut alias: BTreeMap<String, (String, [f32; 3])> = BTreeMap::new();
+        let mut canonical: Vec<usize> = Vec::new();
+        for (i, shape) in shapes.iter().enumerate() {
+            match canonical.iter().find(|&&c| same_copy(&shapes[c], shape)) {
+                Some(&c) => {
+                    alias.insert(shape.model.clone(), (shapes[c].model.clone(), std::array::from_fn(|k| shape.origin[k] - shapes[c].origin[k])));
+                }
+                None => canonical.push(i),
+            }
+        }
+        let Some(ConfigValue::Indexed(visuals)) = scene.project.named_mut("render_visuals") else { bail!("no render visuals") };
+        let mut moved = 0;
+        for v in visuals.iter_mut() {
+            let lib = string(v, "lib_name").unwrap_or("").to_owned();
+            let model = model_of_reference(&lib);
+            let Some((canonical, offset)) = alias.get(&model) else { continue };
+            let placement = Placement { position: float3(v, "position")?, rotation: float3(v, "rotation")?, scale: float3(v, "scale")? };
+            let d = placement.apply(&instance_rotation(placement.rotation), *offset, placement.scale);
+            v.set_path("position", ConfigValue::Float3(std::array::from_fn(|i| placement.position[i] + d[i])))?;
+            v.set_path("lib_name", ConfigValue::String(lib.replacen(&model, canonical, 1)))?;
+            moved += 1;
+        }
+        notes.push(format!("{} imported models are translated copies of others; {moved} render instances draw the original moved by the offset", alias.len()));
+    }
+
     // Material clusters of render instances.
     if let Some(cluster) = m.material_clusters {
         let overlay = output.join("overlay");
@@ -2772,7 +2968,7 @@ pub fn build(
                 let settings = read_model_config(&mut target, &overlay, native, &format!("{root}/settings"))?;
                 let materials = settings.named("material_settings");
                 let mut lods: [Vec<(String, String)>; 3] = Default::default();
-                let (mut ok, mut own) = (true, native);
+                let (mut ok, mut own, mut geometry_bytes) = (true, native, 0usize);
                 for (level, lod) in ["LOD0", "LOD1", "LOD2"].iter().enumerate() {
                     let Some(ConfigValue::Indexed(list)) = settings.named("lod_hierrarchy").and_then(|h| h.named(lod)).and_then(|l| l.named("surfaces")) else { continue };
                     for surface in list {
@@ -2782,13 +2978,17 @@ pub fn build(
                         ok &= !material.is_empty() && !alone(material);
                         match read_model_file(&mut target, &overlay, native, &format!("{root}/render/{surface}/converted_model")) {
                             // Only the 0.26 static layouts bake (basis words at 12..24).
-                            Ok(mesh) => ok &= matches!(stride(&mesh), Some(28 | 32)),
+                            Ok(mesh) => {
+                                ok &= matches!(stride(&mesh), Some(28 | 32));
+                                geometry_bytes += mesh.len();
+                            }
                             Err(_) => ok = false,
                         }
                         lods[level].push((material.to_owned(), surface.clone()));
                     }
                 }
                 ok &= settings.named("lod_hierrarchy").and_then(|h| h.named("LOD3")).is_none() && !lods[0].is_empty();
+                ok &= geometry_bytes <= cluster.max_member_bytes;
                 let has_lods = !lods[1].is_empty() || !lods[2].is_empty();
                 let switching = settings.named("lod_switching");
                 let distances = match (has_lods, switching.and_then(|s| integer(s, "type")), switching.and_then(|s| s.named("default_params"))) {
@@ -2970,8 +3170,8 @@ pub fn build(
         });
         visuals.extend(added);
         notes.push(format!(
-            "material clusters (instances of models alike, same LOD switching and material set, per {2} m cell first, then the remaining imported instances up to {1} m radius across models per {0} m cell; foliage, native and larger models only with models alike): {clustered} render instances ({native_clustered} of native models) merged into {clusters} render-only models, one surface per material and LOD; surfaces per LOD {draws_before:?} -> {draws_after:?}; each cluster switches LOD later by its centre-to-member reach; collision instances unchanged",
-            cluster.cell, cluster.max_member_radius, cluster.model_cell
+            "material clusters (instances of models alike, same LOD switching and material set, per {2} m cell first, then the remaining imported instances up to {1} m radius across models per {0} m cell; foliage, native and larger models only with models alike; models above {3} bytes of geometry stay instanced): {clustered} render instances ({native_clustered} of native models) merged into {clusters} render-only models, one surface per material and LOD; surfaces per LOD {draws_before:?} -> {draws_after:?}; each cluster switches LOD later by its centre-to-member reach; collision instances unchanged",
+            cluster.cell, cluster.max_member_radius, cluster.model_cell, cluster.max_member_bytes
         ));
     }
 
@@ -3336,6 +3536,28 @@ mod tests {
         let (_, _, lo, hi) = &merged[0][0];
         assert_eq!((lo[0], hi[0]), (0.0, 102.0), "members are baked at their placements");
         assert_eq!(merge_cluster(&[ClusterMember { placement: at(0.0), lods: [vec![("a".into(), strip(3, 28))], vec![], vec![]] }], false).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn translated_copies_share_a_key_whatever_their_triangle_order() {
+        let a = strip(5, 28);
+        let mut b = a.clone();
+        // Move every vertex by (25, 0, 0) and reverse the triangle order.
+        for k in 0..5 {
+            let o = 12 + 28 * k;
+            let x = f32::from_le_bytes(b[o..o + 4].try_into().unwrap()) + 25.0;
+            b[o..o + 4].copy_from_slice(&x.to_le_bytes());
+        }
+        let at = 8 + u32::from_le_bytes(b[4..8].try_into().unwrap()) as usize + 12;
+        let tris: Vec<[u8; 6]> = b[at..at + 18].chunks(6).map(|c| c.try_into().unwrap()).rev().collect();
+        b[at..at + 18].copy_from_slice(&tris.concat());
+        let (ka, oa) = translation_key(&[("s".into(), a.clone())]).unwrap();
+        let (kb, ob) = translation_key(&[("s".into(), b)]).unwrap();
+        assert_eq!(ka, kb);
+        assert_eq!(ob[0] - oa[0], 25.0);
+        let mut c = a;
+        c[12 + 28 + 24] ^= 1; // a different UV
+        assert_ne!(translation_key(&[("s".into(), c)]).unwrap().0, ka);
     }
 
     #[test]

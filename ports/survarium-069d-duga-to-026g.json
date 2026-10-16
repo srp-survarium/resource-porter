@@ -96,6 +96,10 @@
     "max_error": 0.04,
     "lod2_max_error": 0.06,
     "lod2_permissive": true,
+    "lod1_permissive": true,
+    "lod0_ratio": 0.3,
+    "lod0_max_error": 0.004,
+    "lod0_min_triangles": 300,
     "generate_above": 1500
   },
   "texture_limits": {
@@ -114,10 +118,12 @@
       0.0
     ]
   },
+  "dedup_translated_copies": true,
   "material_clusters": {
     "cell": 12.0,
     "max_member_radius": 10.0,
-    "model_cell": 32.0
+    "model_cell": 32.0,
+    "max_member_bytes": 65536
   },
   "terrain_simplify": {
     "ratio": 0.05,
