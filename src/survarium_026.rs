@@ -2388,6 +2388,7 @@ pub fn build(
     let mut vegetation_instances = BTreeMap::new();
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
+    let mut dds_headers_fixed = 0usize;
     for path in &m.wrapped_uv_surfaces {
         ensure!(
             m.source_build.early()
@@ -2531,6 +2532,14 @@ pub fn build(
                     "{path}: BC2 re-encoded as BC3 for the 0.26 texture streamer (colour blocks, mips and sRGB byte kept; {} blocks, max alpha error {:.1}/255, {} alpha-test threshold crossings)",
                     report.blocks, report.max_alpha_error, report.threshold_crossings
                 ));
+            }
+            if m.source_build.early() {
+                if let Some(fixed) = early::native_dds_header(&bytes)
+                    .with_context(|| format!("checking the DDS header of {path}"))?
+                {
+                    bytes = fixed;
+                    dds_headers_fixed += 1;
+                }
             }
         }
         if path.ends_with(".veg") {
@@ -2812,6 +2821,11 @@ pub fn build(
             "{}: map names {}",
             tables.join(", "),
             names.iter().map(|(id, name)| format!("{id} = {name:?}")).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    if dds_headers_fixed > 0 {
+        compatibility_notes.push(format!(
+            "{dds_headers_fixed} DDS headers given the native pitch field (DDSD_PITCH set, dwPitchOrLinearSize = payload + colour-space byte): with the payload alone the 0.26 streamer misplaces the packed mip tail and distant mips render as colour noise"
         ));
     }
     if null_texture_used {

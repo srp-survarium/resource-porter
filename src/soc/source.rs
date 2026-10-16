@@ -342,8 +342,11 @@ fn chain_bytes(info: DdsInfo, levels: u32) -> Result<usize> {
 /// texture cooker substitute its visible `missing texture` fallback:
 ///
 /// * the mip chain stops at the last complete 4x4 block, not at 1x1;
-/// * `dwPitchOrLinearSize` holds the *whole retained payload*, with
-///   `DDSD_LINEARSIZE` set;
+/// * `dwPitchOrLinearSize` holds every byte after the header -- the retained
+///   payload plus the colour-space byte below -- with `DDSD_PITCH` and
+///   `DDSD_LINEARSIZE` set, exactly as in every retail v0.100b and 0.26 DDS
+///   (flags 0xA100F). One byte short, 0.26's streamer reads the packed mip
+///   tail one byte early and distant mips render as colour noise;
 /// * one trailing byte follows the payload, carrying the colour space — 1 for
 ///   sRGB colour, 0 for linear data such as a normal map.
 ///
@@ -428,6 +431,7 @@ pub fn canonicalize_dds(bytes: &[u8], info: DdsInfo, srgb: bool) -> Result<Vec<u
     const DDSD_CAPS: u32 = 0x1;
     const DDSD_HEIGHT: u32 = 0x2;
     const DDSD_WIDTH: u32 = 0x4;
+    const DDSD_PITCH: u32 = 0x8;
     const DDSD_PIXELFORMAT: u32 = 0x1000;
     const DDSD_MIPMAPCOUNT: u32 = 0x2_0000;
     const DDSD_LINEARSIZE: u32 = 0x8_0000;
@@ -441,11 +445,12 @@ pub fn canonicalize_dds(bytes: &[u8], info: DdsInfo, srgb: bool) -> Result<Vec<u
         DDSD_CAPS
             | DDSD_HEIGHT
             | DDSD_WIDTH
+            | DDSD_PITCH
             | DDSD_PIXELFORMAT
             | DDSD_MIPMAPCOUNT
             | DDSD_LINEARSIZE,
     );
-    write(&mut output, 20, u32::try_from(payload)?);
+    write(&mut output, 20, u32::try_from(payload + 1)?);
     write(&mut output, 28, levels);
     output[32..76].fill(0);
 

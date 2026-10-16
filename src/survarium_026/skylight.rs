@@ -232,7 +232,8 @@ pub fn cube_dds(header: &[u8], cube: &AmbientCube, gain: f32, size: usize) -> Re
         }
     }
     let mut out = header[..128].to_vec();
-    for (offset, value) in [(12, size), (16, size), (20, data.len()), (28, mips)] {
+    // dwPitchOrLinearSize counts the trailing colour-space byte (native).
+    for (offset, value) in [(12, size), (16, size), (20, data.len() + 1), (28, mips)] {
         out[offset..offset + 4].copy_from_slice(&u32::try_from(value)?.to_le_bytes());
     }
     out.extend(data);
@@ -467,6 +468,7 @@ mod tests {
         assert_eq!(dds.len(), 128 + 6 * 21 * 16 + 1);
         assert_eq!(u32::from_le_bytes(dds[28..32].try_into().unwrap()), 3);
         assert_eq!(u32::from_le_bytes(dds[12..16].try_into().unwrap()), 16);
+        assert_eq!(u32::from_le_bytes(dds[20..24].try_into().unwrap()) as usize, dds.len() - 128);
         // +y face, centre block of mip 0: straight up = 1.0 x 2.5.
         let face = 2;
         let block_index = face * 21 + 5;

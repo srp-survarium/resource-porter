@@ -1370,6 +1370,45 @@ pub(super) fn vegetation_instances(bytes: &[u8]) -> Result<usize> {
     Ok(positions.len() / 12)
 }
 
+/// The DDS container every retail v0.100b and 0.26 texture uses: flags
+/// 0xA100F (caps, height, width, pitch, pixel format, mip count, linear size)
+/// and `dwPitchOrLinearSize` = every byte after the 128-byte header, i.e. the
+/// mip payload plus the trailing colour-space byte.
+const NATIVE_DDS_FLAGS: u32 = 0xA100F;
+
+/// Rewrite a block-compressed DDS header to the native pitch convention, or
+/// `None` when it already has it. A header that holds the payload alone (one
+/// byte short) and lacks DDSD_PITCH loads in 0.26, but its streamer then reads
+/// the packed mip tail one byte early: the distant mips of 1024+ textures
+/// render as per-block colour noise (SoC mp_pool `wood_plank7/8`).
+pub(super) fn native_dds_header(bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    ensure!(bytes.len() > 129 && &bytes[..4] == b"DDS ", "not a DDS");
+    let read = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
+    if !matches!(&bytes[84..88], b"DXT1" | b"DXT3" | b"DXT5") {
+        return Ok(None);
+    }
+    let expected = u32::try_from(bytes.len() - 128)?;
+    let (flags, linear) = (read(8), read(20));
+    if flags == NATIVE_DDS_FLAGS && linear == expected {
+        return Ok(None);
+    }
+    // Only the known off-by-one producer is repaired; anything else is a
+    // container this importer does not understand.
+    ensure!(
+        linear == expected || linear + 1 == expected,
+        "DDS pitch field {linear} matches neither the native {expected} nor the payload {}",
+        expected - 1
+    );
+    ensure!(
+        flags & !0x8 == NATIVE_DDS_FLAGS & !0x8,
+        "unexpected DDS header flags {flags:#x}"
+    );
+    let mut out = bytes.to_vec();
+    out[8..12].copy_from_slice(&NATIVE_DDS_FLAGS.to_le_bytes());
+    out[20..24].copy_from_slice(&expected.to_le_bytes());
+    Ok(Some(out))
+}
+
 /// 0.26 asks for an additional diffuse cube. Preserve the source probe's
 /// coarse mip tail instead of borrowing lighting baked in another map.
 /// This is a blurred-cube approximation, not an irradiance convolution.
@@ -1413,7 +1452,8 @@ pub(super) fn diffuse_probe(bytes: &[u8]) -> Result<Vec<u8>> {
         "probe cube length mismatch"
     );
     let mut result = bytes[..128].to_vec();
-    for (o, n) in [(12, 16), (16, 16), (20, (total - skip) * 6), (28, 3)] {
+    // dwPitchOrLinearSize counts the trailing colour-space byte (native).
+    for (o, n) in [(12, 16), (16, 16), (20, (total - skip) * 6 + 1), (28, 3)] {
         result[o..o + 4].copy_from_slice(&(n as u32).to_le_bytes());
     }
     for face in 0..6 {
@@ -1645,6 +1685,24 @@ mod tests {
         off.set_path("use_height_based_ambient", ConfigValue::Boolean(false)).unwrap();
         off.set_path("height_based_ambient_power", ConfigValue::Integer(0)).unwrap();
         assert!(environment_hazards(&off).is_empty());
+    }
+
+    #[test]
+    fn dds_headers_get_the_native_pitch_field() {
+        let mut dds = vec![0u8; 128 + 8 + 1];
+        dds[..4].copy_from_slice(b"DDS ");
+        dds[4..8].copy_from_slice(&124u32.to_le_bytes());
+        dds[84..88].copy_from_slice(b"DXT1");
+        // build-soc-map's original container: no DDSD_PITCH, payload only.
+        dds[8..12].copy_from_slice(&0xA1007u32.to_le_bytes());
+        dds[20..24].copy_from_slice(&8u32.to_le_bytes());
+        let fixed = native_dds_header(&dds).unwrap().unwrap();
+        assert_eq!(u32::from_le_bytes(fixed[8..12].try_into().unwrap()), 0xA100F);
+        assert_eq!(u32::from_le_bytes(fixed[20..24].try_into().unwrap()), 9);
+        assert_eq!(fixed[24..], dds[24..]);
+        assert!(native_dds_header(&fixed).unwrap().is_none());
+        dds[20..24].copy_from_slice(&100u32.to_le_bytes());
+        assert!(native_dds_header(&dds).is_err());
     }
 
     #[test]
