@@ -3,6 +3,7 @@ pub mod archive;
 pub mod armor;
 pub mod bandit_026;
 pub mod binary_config;
+pub mod clip_pose_patch;
 pub mod collision_check;
 pub mod config_patch;
 pub mod content_pack;

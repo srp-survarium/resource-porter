@@ -186,6 +186,44 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Hold bones of retail clips at another clip's pose, as a content pack:
+    /// their constant curves are rewritten in place (anything else is refused),
+    /// and with --inside-model the held bones must stay inside one bone's box.
+    BuildClipPosePatch {
+        /// The stock resources.db.
+        #[arg(long)]
+        base_db: PathBuf,
+        /// An earlier `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "base-patch")]
+        base_patches: Vec<PathBuf>,
+        /// A clip to rewrite, without extension (repeatable).
+        #[arg(long = "clip", required = true)]
+        clips: Vec<String>,
+        /// A bone to hold (repeatable).
+        #[arg(long = "bone", required = true)]
+        bones: Vec<String>,
+        /// The clip, without extension, whose pose the bones take.
+        #[arg(long)]
+        reference: String,
+        /// The reference clip's time (frames) to take the pose at.
+        #[arg(long, default_value_t = 0.0)]
+        time: f32,
+        /// A rigid `.skinned_model` folder to pose the rewritten clips on.
+        #[arg(long, requires = "inside_bone")]
+        inside_model: Option<String>,
+        /// The model bone whose vertices must bound the held bones' vertices.
+        #[arg(long, requires = "inside_model")]
+        inside_bone: Option<String>,
+        /// The pack folder to write (`pack.json`, `files/`).
+        #[arg(long)]
+        pack_dir: PathBuf,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        force: bool,
+    },
     /// Inspect a Maya Binary scene's skin-cluster influences and weights.
     InspectMayaSkin {
         #[arg(long)]
@@ -1113,6 +1151,52 @@ fn main() -> Result<()> {
             resource_copy_patch::build_bundle(&source_db, &copies, &output)?;
             println!("copies={}", copies.len());
             println!("bundle={}", output.display());
+        }
+        Command::BuildClipPosePatch {
+            base_db,
+            base_patches,
+            clips,
+            bones,
+            reference,
+            time,
+            inside_model,
+            inside_bone,
+            pack_dir,
+            id,
+            version,
+            force,
+        } => {
+            use vostok_resource_porter::clip_pose_patch::{self, BoundsCheck, ClipPoseOptions};
+            let bounds = inside_model
+                .zip(inside_bone)
+                .map(|(model, inside_bone)| BoundsCheck { model, inside_bone });
+            let reports = clip_pose_patch::build(&ClipPoseOptions {
+                base_db: &base_db,
+                base_patches: &base_patches,
+                clips: &clips,
+                bones: &bones,
+                reference: &reference,
+                time,
+                bounds: bounds.as_ref(),
+                pack_dir: &pack_dir,
+                id: &id,
+                version: &version,
+                force,
+            })?;
+            for report in &reports {
+                let outside = |gap: Option<f32>| gap.map_or("-".to_owned(), |g| format!("{g:.3}"));
+                println!(
+                    "clip={} bytes={} changed_bytes={} base_sha256={} sha256={} outside_before_m={} outside_after_m={}",
+                    report.path,
+                    report.bytes,
+                    report.changed_bytes,
+                    report.base_sha256,
+                    report.sha256,
+                    outside(report.outside_before),
+                    outside(report.outside_after)
+                );
+            }
+            println!("pack={}", pack_dir.display());
         }
         Command::InspectMayaSkin {
             scene,
