@@ -179,6 +179,58 @@ given by the shape matrix, and its landings were mapped. Reachability on a
   sports center's ground, basin and upper level one area of 6,474 m².
 - 314 porter tests and 8 script tests.
 
+## Non-finite values
+
+The spec sets `strict_finite`. The importer then rebuilds static tangent
+frames that 0.26 cannot use, and refuses non-finite or NaN-prone output:
+
+- **Tangent frames.** 0.26 interpolates the packed normal, tangent and
+  binormal unnormalised and normalises T·x + B·y + N·z per pixel
+  (`gbuffer_pass.ps`). The X-Ray tangent bake left 2,596 vertices in 78
+  surfaces with a tangent or binormal parallel to the normal or to each
+  other (8.1° or closer): pool 564, Training Camp 347, Rembasa 365, Sports
+  center 298, Fire station 1,022. They are rebuilt orthonormal around the
+  kept normal, with the vertex's own handedness or the model's majority.
+  Nothing else in those models changes, and no other file of the bundle
+  changes.
+- **Refused:** non-finite positions, Inf/NaN half UVs, unusable frames,
+  non-finite floats in any emitted config, and environment values a 0.26
+  shader turns into NaN. These are an empty height-ambient band or power
+  ≤ 0 (`apply_ssao_and_hba.ps` computes exp(log(t)·power)),
+  `mie_fog_sun_color_falloff` ≤ 0, and fog far distances ≤ 0.
+- `tools/playable-map-pack/verify_finite_bundle.py --bundle B` counts the
+  same per map on a built bundle. Before the fix it reports 2,596 frames,
+  and after it 0. There are no non-finite positions, UVs or constants, and
+  no environment hazard, in either build.
+
+The shader audit (DXBC of the shipped 0.26g permutations, disassembled with
+vkd3d-compiler) bounds where a NaN can come from:
+
+- The g-buffer normal is R16G16_FLOAT and can hold a NaN, but every reader
+  (composition, probes, sun mask, SSAO) clamps the decoded normal with
+  max(-1)/min(1), and D3D min/max (DXVK NMin/NMax) return the non-NaN
+  operand. Albedo and parameters are RGBA8 UNORM.
+- `composition.ps` reads the light accumulators through max(x, 0), which
+  turns NaN into 0 (black, not spreading).
+- The probe stage blends each probe over the accumulator by its falloff
+  alpha. There is no division by a probe weight sum, so a map without
+  probes is black, not NaN.
+- TAA (`temporal_antialiasing.ps`) lerps the bilinearly reprojected history
+  with no clamp. A NaN that reaches the HDR frame therefore persists and
+  grows by a pixel per frame of camera motion. The tonemap's LUT lookup
+  shows it as black, and Inf as white.
+
+Therefore the NaN must enter after composition, in a forward or post pass.
+The forward water (`forward_simple_water`, pool and Sports center only)
+decodes its reflection cube as rgb²/a² without a guard. The shipped cube is
+DXT1 with no transparent texel, so a = 1 there. Which pass produces the
+NaN still needs a runtime stage capture: a mode-1 pose with buffers, then
+`tools/render-compare/scan_nonfinite_buffers.py CAPTURE_DIR`. It lists NaN
+and Inf counts per float target and stage. Native 0.26 already has one
+finding: `$user$mie_scattering` (256×128) holds NaN in its last two
+columns, which lie below the horizon. Its readers cap the lookup at 0.8, so
+it is a baseline and not this defect.
+
 ## Known issues
 
 - Nothing has been walked in game yet. Only static, input-free checks
