@@ -468,3 +468,60 @@ spawning on 194 has not been observed in game yet.
 Rebuilt `pkg-fill-test`: layout A `8073dd93`, layout B `c0ce2564`; the 195
 project gains only its two collector visuals
 (`check_collector_visuals_only.py`).
+
+### 194 fill, round 3: growing track anomaly, base kits at player-chosen spots (2026-10-16)
+
+**Growing track anomaly** (`chemical-011e-track-anomaly.json`, optional,
+template level_02 day_2 hash-pinned, made by `plan_track_anomaly.py`). The
+native mechanism is the level_02 fruit anomaly: a `generic_anomaly_core`
+state machine in the client simulation. `select_state` takes the last
+enabled state whose `energy_threshold` is reached; a state with
+`active_time_sec` sets energy to its `energy_on_exit` when it runs out; a
+state change deactivates the old state's zones (stopping their particles)
+and activates the new state's. Fog zones are `damage_zone`s with
+`max_hit` 0, an `idle_particle` and `effect_zones` offsets (the fruit
+`fx_locator` pattern). The fill pack format gained `clones`: copy a native
+client object under a new name with field overrides (scalars keep the
+template's type; tables merge; arrays are rebuilt on the template's
+elements).
+- Fog: 16 controllers, one per stage, so a stage never restarts the fog of
+  an earlier one. State 0 holds an underground dummy zone for 180 + 15 (k-1)
+  s and exits with energy 1; state 1 holds the stage's fog carrier: two
+  `rust_smoke` clouds 0.85 m above the ground on the tracks (x 12.9 and
+  18.6), z = 20 + 5 (k-1). Stage 1 at 3:00, stage 16 (z 95) at 6:45.
+- Damage: one controller with a timed chain: idle, then face toxic boxes
+  over both tracks (x 9.9..21.6) from z 15 to 4.5 m behind the newest
+  cloud: 0.06 at 4:00 (z 35.5), 0.08 at 5:00 (55.5), 0.10 at 6:00 (75.5),
+  0.12 at 7:00 (90.5). Only one step is active at a time.
+- Every controller has `energy_enabled` false (players cannot move the
+  timers), no artefacts (`max_artefacts_count` 0, no containers).
+- Placement check: a rail of the 194 railroad collision under every cloud,
+  ground from the movement collision; 4 clouds stand beside hopper wagons.
+- Totals: 17 controllers, 37 damage zones (16 dummy, 16 fog carriers, 1
+  damage idle, 4 damage steps), 21 collision geometries, 32 clouds.
+- Open: the timers count from the controllers' first tick; whether that is
+  map load or match start is for the calibration run. All timings are
+  `plan_track_anomaly.py` parameters (`--start`, `--interval`, `--damage`,
+  `--lag`, ...), so calibration is a rebuild.
+
+**Base kits.** The user stood where each base's charger and crate should go
+(position report, eye positions). `place_base_kit.py` finds the floor and
+the nearest wall, lines the charger (two stacked `box_atlant12`, 1.13 x 1.77
+x 1.61 m) and the crate up along that wall, long axes parallel to it, 0.4 m
+apart, and fits the floor plane under each footprint (the objects are
+tilted to it; collector and group placements gained `pitch`/`roll`).
+- Team 0, the west passage `perehod_01` (the 12-55-30 screenshot): along
+  the passage's far wall (the near one leans inward), backs 0.6 m from it,
+  on a 6.1 deg planar ramp; charger (-33.038, 3.276, 51.284), crate
+  (-34.974, 3.276, 50.705); 3.35 m of passage left free.
+- Team 1, the east tunnel (eye 62.36, 5.46, 64.34): along the tunnel's
+  north side wall, backs 0.3 m from it; charger (62.701, 3.985, 63.819)
+  on a 6.7 deg slope, crate (64.717, 3.811, 63.952) on 2.5 deg; 2.51 m of
+  the 3.95 m tunnel left free.
+- Balance (layout A): charger to the nearest own spawn 40.3 / 42.1 m, to
+  the enemy spawn centroid 144.6 / 145.3 m (before: 2.3 / 0.9 m and 186 /
+  188 m). Layout B keeps the chargers on the train; the crates move in both.
+- Base: -next was rebuilt to `4923aaa9` (2026-10-16 15:42) and already has
+  the static collector visuals, so the fill overlay no longer carries the
+  195 project; outside the fill objects the rebuilt 194 project equals
+  -next's.

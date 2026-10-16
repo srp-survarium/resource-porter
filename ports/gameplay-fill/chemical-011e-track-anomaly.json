@@ -1,0 +1,3010 @@
+{
+  "name": "chemical-011e growing track anomaly",
+  "map_id": 194,
+  "template_project": "projects/level_02/day_2/client_project",
+  "template_sha256": "859e4ae54cfed4bfe25328689d27ae4a8e32dbf9da92f40a747c29ea26e05197",
+  "clones": [
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_01/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.679,
+          20.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_01/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.321,
+          20.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_01/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_01/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.321,
+          20.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_01/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.874,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.825,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_01/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.321,
+          20.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 180,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_01/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_01/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_02/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.768,
+          25.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_02/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.232,
+          25.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_02/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_02/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.232,
+          25.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_02/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.922,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.777,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_02/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.232,
+          25.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 195,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_02/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_02/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_03/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.384,
+          30.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_03/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.616,
+          30.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_03/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_03/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.616,
+          30.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_03/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              1.334,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.365,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_03/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.616,
+          30.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 210,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_03/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_03/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_04/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.682,
+          35.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_04/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.318,
+          35.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_04/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_04/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.318,
+          35.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_04/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.865,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.834,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_04/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.318,
+          35.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 225,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_04/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_04/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_05/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.915,
+          40.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_05/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.085,
+          40.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_05/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_05/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.085,
+          40.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_05/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.683,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.018,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_05/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.085,
+          40.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 240,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_05/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_05/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_06/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.679,
+          45.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_06/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.321,
+          45.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_06/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_06/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.321,
+          45.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_06/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.792,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.909,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_06/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.321,
+          45.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 255,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_06/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_06/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_07/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.661,
+          50.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_07/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.339,
+          50.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_07/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_07/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.339,
+          50.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_07/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.798,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.902,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_07/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.339,
+          50.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 270,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_07/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_07/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_08/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.313,
+          55.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_08/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.687,
+          55.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_08/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_08/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.687,
+          55.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_08/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.438,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.263,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_08/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.687,
+          55.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 285,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_08/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_08/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_09/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.359,
+          60.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_09/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.641,
+          60.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_09/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_09/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.641,
+          60.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_09/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.391,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.309,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_09/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.641,
+          60.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 300,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_09/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_09/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_10/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.676,
+          65.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_10/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.324,
+          65.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_10/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_10/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.324,
+          65.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_10/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.878,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.822,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_10/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.324,
+          65.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 315,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_10/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_10/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_11/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.325,
+          70.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_11/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.675,
+          70.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_11/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_11/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.675,
+          70.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_11/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              1.275,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.425,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_11/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.675,
+          70.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 330,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_11/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_11/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_12/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.34,
+          75.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_12/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.66,
+          75.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_12/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_12/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.66,
+          75.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_12/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              1.29,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.41,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_12/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.66,
+          75.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 345,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_12/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_12/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_13/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.236,
+          80.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_13/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.764,
+          80.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_13/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_13/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.764,
+          80.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_13/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              1.186,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.513,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_13/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.764,
+          80.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 360,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_13/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_13/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_14/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.684,
+          85.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_14/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.316,
+          85.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_14/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_14/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.316,
+          85.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_14/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.905,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.794,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_14/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.316,
+          85.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 375,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_14/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_14/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_15/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.659,
+          90.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_15/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.341,
+          90.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_15/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_15/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.341,
+          90.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_15/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.895,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.805,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_15/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.341,
+          90.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 390,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_15/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_15/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_16/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.338,
+          95.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_16/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.662,
+          95.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_16/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_16/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.662,
+          95.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_16/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.412,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.288,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_16/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.662,
+          95.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 405,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_16/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_16/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -16.92,
+          20.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/damage/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          3.08,
+          20.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_1_geometry",
+      "set": {
+        "position": [
+          15.75,
+          5.08,
+          25.25
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              5.85,
+              2.5,
+              10.25
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_1",
+      "set": {
+        "position": [
+          15.75,
+          3.08,
+          25.25
+        ],
+        "max_hit": 0.06,
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/zone_1_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_2_geometry",
+      "set": {
+        "position": [
+          15.75,
+          5.08,
+          35.25
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              5.85,
+              2.5,
+              20.25
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_2",
+      "set": {
+        "position": [
+          15.75,
+          3.08,
+          35.25
+        ],
+        "max_hit": 0.08,
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/zone_2_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_3_geometry",
+      "set": {
+        "position": [
+          15.75,
+          5.08,
+          45.25
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              5.85,
+              2.5,
+              30.25
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_3",
+      "set": {
+        "position": [
+          15.75,
+          3.08,
+          45.25
+        ],
+        "max_hit": 0.1,
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/zone_3_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_4_geometry",
+      "set": {
+        "position": [
+          15.75,
+          5.08,
+          52.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              5.85,
+              2.5,
+              37.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_4",
+      "set": {
+        "position": [
+          15.75,
+          3.08,
+          52.75
+        ],
+        "max_hit": 0.12,
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/zone_4_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/damage/controller",
+      "set": {
+        "position": [
+          15.75,
+          3.08,
+          20.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 240,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 60,
+            "energy_on_exit": 2,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/zone_1"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 2,
+            "active_time_sec": 60,
+            "energy_on_exit": 3,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/zone_2"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 3,
+            "active_time_sec": 60,
+            "energy_on_exit": 4,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/zone_3"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 4,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/zone_4"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

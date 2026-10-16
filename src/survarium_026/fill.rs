@@ -21,6 +21,81 @@ pub struct FillPack {
     pub groups: Vec<FillGroup>,
     #[serde(default)]
     pub collectors: Vec<CollectorFill>,
+    /// Native client objects copied under a new name with field overrides.
+    #[serde(default)]
+    pub clones: Vec<CloneFill>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloneFill {
+    /// Native client object copied (exact full name).
+    pub source: String,
+    /// The copy's full name; its `name` becomes the last path component.
+    pub full_name: String,
+    /// Fields merged onto the copy. A JSON object merges into the matching
+    /// named table, a JSON array replaces an array (element i built on the
+    /// template's element i, or its last one), and a scalar takes the type of
+    /// the field it replaces (an integer field stays an integer).
+    #[serde(default)]
+    pub set: serde_json::Map<String, serde_json::Value>,
+}
+
+/// A JSON override built on `like`, the template value it replaces.
+fn merged(value: &serde_json::Value, like: Option<&ConfigValue>) -> Result<ConfigValue> {
+    use serde_json::Value as J;
+    Ok(match (value, like) {
+        (J::Object(fields), like) => {
+            let mut out = match like {
+                Some(v @ ConfigValue::Named(_)) => v.clone(),
+                None => ConfigValue::Named(Vec::new()),
+                Some(_) => bail!("an object cannot replace a scalar or an array"),
+            };
+            for (key, v) in fields {
+                let next = merged(v, out.named(key))?;
+                out.set_path(key, next)?;
+            }
+            out
+        }
+        (J::Array(items), Some(ConfigValue::Float2(_) | ConfigValue::Float3(_) | ConfigValue::Float4(_))) | (J::Array(items), None)
+            if (2..=4).contains(&items.len()) && items.iter().all(J::is_number) && !matches!(like, Some(ConfigValue::Indexed(_))) =>
+        {
+            let f: Vec<f32> = items.iter().map(|v| v.as_f64().unwrap() as f32).collect();
+            match f.len() {
+                2 => ConfigValue::Float2([f[0], f[1]]),
+                3 => ConfigValue::Float3([f[0], f[1], f[2]]),
+                _ => ConfigValue::Float4([f[0], f[1], f[2], f[3]]),
+            }
+        }
+        (J::Array(items), like) => {
+            let template = match like {
+                Some(ConfigValue::Indexed(v)) => v.as_slice(),
+                None => &[],
+                Some(_) => bail!("an array cannot replace a scalar or a table"),
+            };
+            ConfigValue::Indexed(
+                items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| merged(v, template.get(i).or(template.last())))
+                    .collect::<Result<_>>()?,
+            )
+        }
+        (J::Bool(b), None | Some(ConfigValue::Boolean(_))) => ConfigValue::Boolean(*b),
+        (J::String(s), None | Some(ConfigValue::String(_))) => ConfigValue::String(s.clone()),
+        (J::Number(n), Some(ConfigValue::Integer(_))) => ConfigValue::Integer(
+            n.as_i64()
+                .and_then(|v| i32::try_from(v).ok())
+                .with_context(|| format!("{n} is not an i32 for an integer field"))?,
+        ),
+        (J::Number(n), Some(ConfigValue::Float(_))) => ConfigValue::Float(n.as_f64().unwrap() as f32),
+        (J::Number(n), None) => match n.as_i64().and_then(|v| i32::try_from(v).ok()) {
+            Some(v) => ConfigValue::Integer(v),
+            None => ConfigValue::Float(n.as_f64().unwrap() as f32),
+        },
+        (v, Some(like)) => bail!("{v} cannot replace {like:?}"),
+        (v, None) => bail!("unsupported override {v}"),
+    })
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize, PartialEq, Debug)]
@@ -31,6 +106,11 @@ pub struct Placement {
     /// Rotation about the vertical axis through the anchor, radians.
     #[serde(default)]
     pub yaw: f32,
+    /// Tilt to a sloped floor (engine XYZ Euler with `yaw`), radians.
+    #[serde(default)]
+    pub pitch: f32,
+    #[serde(default)]
+    pub roll: f32,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -84,7 +164,7 @@ fn float3(o: &ConfigValue, key: &str) -> Option<[f32; 3]> {
 
 impl Placement {
     fn apply(&self, anchor: [f32; 3], object: &mut ConfigValue) -> Result<()> {
-        let yaw = euler_to_basis([0.0, self.yaw, 0.0]);
+        let yaw = euler_to_basis([self.pitch, self.yaw, self.roll]);
         if let Some(p) = float3(object, "position") {
             let local = [p[0] - anchor[0], p[1] - anchor[1], p[2] - anchor[2]];
             let moved: [f32; 3] = std::array::from_fn(|j| {
@@ -257,6 +337,28 @@ pub fn apply(project: &mut ConfigValue, native: &ConfigValue, pack: &FillPack) -
         let (note, models) = apply_collector(project, native, native_objects, collector)?;
         notes.push(note);
         native_models.extend(models);
+    }
+    for clone in &pack.clones {
+        let found: Vec<_> = native_objects
+            .iter()
+            .filter(|o| string(o, "full_name") == Some(clone.source.as_str()))
+            .collect();
+        ensure!(found.len() == 1, "clone source {} not unique", clone.source);
+        let mut object = found[0].clone();
+        for (key, value) in &clone.set {
+            ensure!(key != "full_name" && key != "name", "{}: name fields come from full_name", clone.full_name);
+            let next = merged(value, object.named(key))
+                .with_context(|| format!("{}: field {key}", clone.full_name))?;
+            object.set_path(key, next)?;
+        }
+        object.set_path("full_name", ConfigValue::String(clone.full_name.clone()))?;
+        let short = clone.full_name.rsplit('/').next().unwrap_or(&clone.full_name).to_owned();
+        object.set_path("name", ConfigValue::String(short))?;
+        ensure!(names.insert(clone.full_name.clone()), "object name {} already exists", clone.full_name);
+        indexed_mut(project, "client_objects")?.push(object);
+    }
+    if !pack.clones.is_empty() {
+        notes.push(format!("gameplay fill {}: {} cloned native objects", pack.name, pack.clones.len()));
     }
     Ok(Applied {
         notes,
@@ -515,9 +617,10 @@ mod tests {
                 team: 0,
                 template_container: "logic/vip/team2/victory_items_container".into(),
                 anchor: [71.334, 3.817, 54.393],
-                to: Placement { position: [-73.942, 5.611, 44.038], yaw: 0.0 },
+                to: Placement { position: [-73.942, 5.611, 44.038], yaw: 0.0, pitch: 0.0, roll: 0.0 },
                 replaced_model: old.into(),
             }],
+            clones: vec![],
         };
         apply(&mut project, &native, &pack).unwrap();
         for key in ["render_visuals", "collision_objects"] {
@@ -568,8 +671,132 @@ mod tests {
         }
         assert_eq!(dark, 1);
         assert!(fog.groups.len() >= 10, "level_03 uses nine clouds for a smaller field");
+        // Each crate stands beside its own team's base charger (layout A).
         let resupply = pack(include_str!("../../ports/gameplay-fill/chemical-011e-resupply.json"));
-        assert!(resupply.groups.iter().all(|g| g.to.is_none()), "crates stay at the native 0.26 spots");
+        let chargers = pack(include_str!("../../ports/gameplay-fill/chemical-011e-collectors-base.json"));
+        for g in &resupply.groups {
+            let crate_at = g.to.expect("placed").position;
+            let charger = chargers.collectors.iter().find(|c| Some(c.team) == g.team).expect("same-team charger").to.position;
+            let d = ((crate_at[0] - charger[0]).powi(2) + (crate_at[2] - charger[2]).powi(2)).sqrt();
+            assert!(d < 3.0, "team {:?} crate {d} m from its charger", g.team);
+        }
+    }
+
+    #[test]
+    fn clone_merges_overrides_with_the_template_types() {
+        let state = |threshold: i32, zones: &[&str]| {
+            named(vec![
+                ("energy_threshold", ConfigValue::Integer(threshold)),
+                ("active_time_sec", ConfigValue::Integer(0)),
+                (
+                    "groups",
+                    ConfigValue::Indexed(vec![named(vec![
+                        ("keep_all_zones_active", ConfigValue::Boolean(true)),
+                        ("zones", ConfigValue::Indexed(zones.iter().map(|z| s(z)).collect())),
+                    ])]),
+                ),
+            ])
+        };
+        let core = named(vec![
+            ("full_name", s("anomaly/fruit/fruit_anomaly")),
+            ("name", s("fruit_anomaly")),
+            ("energy_enabled", ConfigValue::Boolean(true)),
+            ("energy_decrease_speed", ConfigValue::Integer(25)),
+            ("max_hit", ConfigValue::Float(0.07)),
+            ("position", ConfigValue::Float3([22.9, 9.8, 113.8])),
+            ("states", ConfigValue::Indexed(vec![state(0, &["dummy"]), state(20, &["lvl1", "lvl1_fx"])])),
+        ]);
+        let native = named(vec![("client_objects", ConfigValue::Indexed(vec![core]))]);
+        let mut project = named(vec![("client_objects", ConfigValue::Indexed(vec![]))]);
+        let set: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+            r#"{"energy_enabled": false, "energy_decrease_speed": 0, "max_hit": 0, "position": [15.75, 2.3, 40.0],
+                "states": [{"active_time_sec": 195, "groups": [{"zones": ["a/dummy"]}]},
+                           {"energy_threshold": 1, "groups": [{"zones": ["a/fx"]}]}]}"#,
+        )
+        .unwrap();
+        let pack = FillPack {
+            name: "clone".into(),
+            map_id: 194,
+            template_project: "projects/level_02/day_2/client_project".into(),
+            template_sha256: String::new(),
+            groups: vec![],
+            collectors: vec![],
+            clones: vec![CloneFill { source: "anomaly/fruit/fruit_anomaly".into(), full_name: "logic/fill/track/stage_01".into(), set }],
+        };
+        apply(&mut project, &native, &pack).unwrap();
+        let o = &array(project.named("client_objects").unwrap()).unwrap()[0];
+        assert_eq!(string(o, "full_name"), Some("logic/fill/track/stage_01"));
+        assert_eq!(string(o, "name"), Some("stage_01"));
+        assert_eq!(o.named("energy_enabled"), Some(&ConfigValue::Boolean(false)));
+        assert_eq!(o.named("energy_decrease_speed"), Some(&ConfigValue::Integer(0)), "an integer stays an integer");
+        assert_eq!(o.named("max_hit"), Some(&ConfigValue::Float(0.0)), "a float stays a float");
+        assert_eq!(o.named("position"), Some(&ConfigValue::Float3([15.75, 2.3, 40.0])));
+        let states = array(o.named("states").unwrap()).unwrap();
+        assert_eq!(states.len(), 2);
+        assert_eq!(states[0].named("active_time_sec"), Some(&ConfigValue::Integer(195)));
+        assert_eq!(states[0].named("energy_threshold"), Some(&ConfigValue::Integer(0)), "untouched fields stay");
+        assert_eq!(states[1].named("energy_threshold"), Some(&ConfigValue::Integer(1)));
+        let group = &array(states[1].named("groups").unwrap()).unwrap()[0];
+        assert_eq!(group.named("keep_all_zones_active"), Some(&ConfigValue::Boolean(true)));
+        assert_eq!(array(group.named("zones").unwrap()).unwrap(), &[s("a/fx")], "arrays are replaced");
+        // A type change and a duplicate name are refused.
+        let mut bad = pack.clone();
+        bad.clones[0].set = serde_json::from_str(r#"{"energy_enabled": 3}"#).unwrap();
+        assert!(apply(&mut named(vec![("client_objects", ConfigValue::Indexed(vec![]))]), &native, &bad).is_err());
+        assert!(apply(&mut project, &native, &pack).is_err());
+    }
+
+    #[test]
+    fn track_anomaly_pack_is_a_closed_set_of_timed_native_clones() {
+        let track = pack(include_str!("../../ports/gameplay-fill/chemical-011e-track-anomaly.json"));
+        assert_eq!(track.map_id, 194);
+        assert_eq!(track.template_project, "projects/level_02/day_2/client_project");
+        assert!(track.groups.is_empty() && track.collectors.is_empty());
+        let names: BTreeSet<&str> = track.clones.iter().map(|c| c.full_name.as_str()).collect();
+        assert_eq!(names.len(), track.clones.len(), "unique names");
+        assert!(names.iter().all(|n| n.starts_with("logic/fill/track_anomaly/")));
+        let refs = |v: &serde_json::Value, out: &mut Vec<String>| {
+            fn walk(v: &serde_json::Value, key: &str, out: &mut Vec<String>) {
+                match v {
+                    serde_json::Value::Object(m) => m.iter().for_each(|(k, v)| walk(v, k, out)),
+                    serde_json::Value::Array(a) => a.iter().for_each(|v| walk(v, key, out)),
+                    serde_json::Value::String(s) if key == "zones" || key == "name" => out.push(s.clone()),
+                    _ => {}
+                }
+            }
+            walk(v, "", out)
+        };
+        let mut starts = Vec::new();
+        let mut controllers = 0;
+        for c in &track.clones {
+            let mut linked = Vec::new();
+            refs(&serde_json::Value::Object(c.set.clone()), &mut linked);
+            for l in &linked {
+                assert!(names.contains(l.as_str()), "{}: {l} is not in the pack", c.full_name);
+            }
+            if c.source == "anomaly/fruit/fruit_anomaly" {
+                controllers += 1;
+                assert_eq!(c.set["energy_enabled"], false, "players cannot move the timers");
+                assert_eq!(c.set["max_artefacts_count"], 0, "no artefact spawn without containers");
+                let states = c.set["states"].as_array().unwrap();
+                assert_eq!(states[0]["energy_threshold"], 0);
+                assert_eq!(states[0]["energy_on_exit"], 1);
+                if c.full_name.contains("/stage_") {
+                    assert_eq!(states.len(), 2);
+                    assert_eq!(states[1]["active_time_sec"], 0, "a fog stage stays on");
+                    starts.push(states[0]["active_time_sec"].as_i64().unwrap());
+                } else {
+                    // The damage chain: each timed state exits into the next threshold.
+                    for (j, st) in states.iter().enumerate() {
+                        assert_eq!(st["energy_threshold"], j as i64);
+                        let timed = st["active_time_sec"].as_i64().unwrap() > 0;
+                        assert_eq!(st["energy_on_exit"].as_i64().unwrap(), if timed { j as i64 + 1 } else { 0 });
+                    }
+                }
+            }
+        }
+        assert_eq!(controllers, starts.len() + 1);
+        assert!(starts.windows(2).all(|w| w[1] - w[0] == starts[1] - starts[0]), "evenly spaced stages");
     }
 
     #[test]
@@ -619,12 +846,12 @@ mod tests {
                 radius: 2.0,
                 to: Some(Placement {
                     position: [100.0, 6.5, 80.0],
-                    yaw: std::f32::consts::FRAC_PI_2,
-                }),
+                    yaw: std::f32::consts::FRAC_PI_2, pitch: 0.0, roll: 0.0 }),
                 team: Some(1),
                 rename: BTreeMap::from([("logic/vip/team1/".into(), "logic/fill/team2/".into())]),
             }],
             collectors: vec![],
+            clones: vec![],
         };
         let applied = apply(&mut project, &native, &pack).unwrap();
         assert_eq!(applied.notes.len(), 1);

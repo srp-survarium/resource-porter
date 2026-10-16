@@ -1,11 +1,11 @@
 {
-  "name": "chemical-011e ammo resupply (native 0.26 crate spots)",
+  "name": "chemical-011e ammo resupply (player-chosen base spots, beside the base chargers)",
   "map_id": 194,
   "template_project": "projects/level_04/day_2/client_project",
   "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
   "groups": [
     {
-      "name": "team 0 ammo crate at the native 0.26 team1 crate spot (zone, collision, ammo decal, container_closed crate; 194 floor +0.03 m, 33 m from the nearest team 0 spawn, as native keeps crates 35-52 m from spawns)",
+      "name": "team 0 ammo crate in the west passage (perehod_01) beside the team 0 charger, against the wall (native team1 resupply: zone, collision, ammo decal, container_closed)",
       "client_objects": [
         "logic/vip/team1/resupply/resupply_zone",
         "logic/vip/team1/resupply/resupply_collision",
@@ -23,10 +23,20 @@
       "team": 0,
       "rename": {
         "logic/vip/team1/": "logic/fill/team1/"
+      },
+      "to": {
+        "position": [
+          -34.974,
+          3.276,
+          50.705
+        ],
+        "yaw": 1.2395,
+        "pitch": 2.8273,
+        "roll": -2.8106
       }
     },
     {
-      "name": "team 1 ammo crate at the native 0.26 team2 crate spot (194 floor +0.03 m, 48.5 m from the nearest team 1 spawn)",
+      "name": "team 1 ammo crate in the east tunnel beside the team 1 charger, along the tunnel wall (native team2 resupply)",
       "client_objects": [
         "logic/vip/team2/resupply/resupply_zone",
         "logic/vip/team2/resupply/resupply_collision",
@@ -44,6 +54,16 @@
       "team": 1,
       "rename": {
         "logic/vip/team2/": "logic/fill/team2/"
+      },
+      "to": {
+        "position": [
+          64.717,
+          3.811,
+          63.952
+        ],
+        "yaw": 0.6744,
+        "pitch": -0.0252,
+        "roll": 0.0471
       }
     }
   ]

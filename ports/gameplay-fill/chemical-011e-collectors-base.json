@@ -1,5 +1,5 @@
 {
-  "name": "chemical-011e native chargers at the bases",
+  "name": "chemical-011e native chargers at the player-chosen base spots",
   "map_id": 194,
   "template_project": "projects/level_04/day_2/client_project",
   "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
@@ -14,11 +14,13 @@
       ],
       "to": {
         "position": [
-          -73.942,
-          5.611,
-          44.038
+          -33.038,
+          3.276,
+          51.284
         ],
-        "yaw": 0.144
+        "yaw": -1.1257,
+        "pitch": 0.2579,
+        "roll": 0.2729
       },
       "replaced_model": "item/quest/container"
     },
@@ -32,11 +34,13 @@
       ],
       "to": {
         "position": [
-          102.664,
-          6.549,
-          79.938
+          62.701,
+          3.985,
+          63.819
         ],
-        "yaw": 0.144
+        "yaw": 1.3642,
+        "pitch": -2.9743,
+        "roll": 3.0848
       },
       "replaced_model": "item/quest/container"
     }
