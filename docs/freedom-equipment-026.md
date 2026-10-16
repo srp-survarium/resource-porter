@@ -139,6 +139,16 @@ Recommended: a **new, separate item set** next to Duty. Duty stays unchanged.
 | --- | --- | --- | --- | --- | --- |
 | Freedom exoskeleton | 1807 | torso (2), category 3 | `gameplay/items/armour/torso/freedom_exo_026.options` | `freedom_exo_suit` | [4, 6] |
 | Freedom exoskeleton helmet | 1808 | helmet (0), category 1 | `gameplay/items/armour/helmet/freedom_exo_026.options` | `freedom_exo_helmet` | [5, 6] |
+| Freedom gloves | 1809 | gloves (5), category 6 | `gameplay/items/armour/gloves/freedom_exo_026.options` | `freedom_exo_gloves` | [8, 6] |
+| Freedom boots | 1811 | boots (6), category 7 | `gameplay/items/armour/boots/freedom_exo_026.options` | `freedom_exo_boots` | [9, 6] |
+
+Since v3 (owner, 2026-10-17) the gloves and boots are pieces of their own,
+on Pilgrim's (`edge_gloves_6`, `edge_boots_6`): 0.4 kg and 1.9 kg, 23 750
+each, drop weight 10, no modifications. The body (26.2 kg, 177 500) covers
+the back and legs only; the set stays 33 kg and 300 000. 1809 and 1811 are
+free in stock and patches 12 and 14 (1810 is the balaclava). Their icons are
+Duty's v7 gloves and boots thumbnails with the Freedom recolour (gain 1.5;
+the gloves' bare fingers excluded).
 
 Stock items end at 737. Duty owns and retires 1800–1806. The Bandit pack
 uses 1810–1814 (balaclava, jacket, jeans, hands, shoes). 1807 and 1808 are

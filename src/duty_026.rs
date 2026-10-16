@@ -13,7 +13,6 @@ use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    ops::RangeInclusive,
     path::Path,
 };
 
@@ -38,10 +37,11 @@ fn regions(cfg: &V) -> Result<BTreeSet<String>> {
     Ok(parts.iter().map(|part| part.name.clone()).collect())
 }
 
-/// Every region of the player's hit table is protected once: the helmet's
-/// by the helmet, all others (the native torso's, trousers', gloves' and
-/// boots') by the body, with every hit type.
-fn check_coverage(hit_targets: &V, body: &V, helmet: &V) -> Result<()> {
+/// Every region of the player's hit table is protected once across the
+/// set's pieces, with every hit type: the helmet brain and face, the gloves
+/// the arms, the boots the feet, the body everything else (the native
+/// torso's and trousers' regions).
+fn check_coverage(hit_targets: &V, pieces: &[&V]) -> Result<()> {
     let Some(V::Indexed(targets)) = hit_targets.named("hit_targets") else {
         bail!("hit targets missing");
     };
@@ -52,22 +52,14 @@ fn check_coverage(hit_targets: &V, body: &V, helmet: &V) -> Result<()> {
             _ => bail!("hit target without hit_param"),
         })
         .collect::<Result<_>>()?;
-    let (body_regions, helmet_regions) = (regions(body)?, regions(helmet)?);
-    ensure!(
-        body_regions.is_disjoint(&helmet_regions),
-        "body and helmet both protect {:?}",
-        body_regions
-            .intersection(&helmet_regions)
-            .collect::<Vec<_>>()
-    );
-    let covered: BTreeSet<String> = body_regions.union(&helmet_regions).cloned().collect();
-    ensure!(
-        covered == all,
-        "the set leaves {:?} unprotected and protects unknown {:?}",
-        all.difference(&covered).collect::<Vec<_>>(),
-        covered.difference(&all).collect::<Vec<_>>()
-    );
-    for cfg in [body, helmet] {
+    let mut covered = BTreeSet::new();
+    for cfg in pieces {
+        for region in regions(cfg)? {
+            ensure!(
+                covered.insert(region.clone()),
+                "two pieces of the set protect {region}"
+            );
+        }
         let Some(V::Named(parts)) = cfg.named("hit_params") else {
             unreachable!()
         };
@@ -92,6 +84,12 @@ fn check_coverage(hit_targets: &V, body: &V, helmet: &V) -> Result<()> {
             );
         }
     }
+    ensure!(
+        covered == all,
+        "the set leaves {:?} unprotected and protects unknown {:?}",
+        all.difference(&covered).collect::<Vec<_>>(),
+        covered.difference(&all).collect::<Vec<_>>()
+    );
     Ok(())
 }
 
@@ -412,7 +410,19 @@ fn split_components(
 /// level; 0.26g has no set id or set bonus. Each piece is worn in its
 /// category's own slot and, as Zubr's helmet covers the mask, covers the
 /// other slots its model replaces (`data.additional_model_slots`).
+/// What a set piece is: its model, protection and data follow from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Kind {
+    /// Torso, frame, back unit and legs, with the oxygen.
+    Body,
+    /// The combined helmet and mask.
+    Helmet,
+    Gloves,
+    Boots,
+}
+
 struct SetPiece {
+    kind: Kind,
     id: i32,
     /// The dictionary's internal name.
     name: &'static str,
@@ -428,31 +438,38 @@ struct SetPiece {
     cost: i32,
     icon: [i32; 2],
     modifications: &'static [i32],
+    /// Name and description string keys (texts in `Variant::strings`).
+    text: (&'static str, &'static str),
 }
 
-/// The body suit: torso, frame, back unit, legs, hands and boots. Worn in
-/// the torso slot (category 3), as the user expects of body armour. Its
+/// The body suit: torso, frame, back unit and legs. Worn in the torso slot
+/// (category 3), as the user expects of body armour; the gloves and boots
+/// are pieces of their own (owner, 2026-10-17). Its
 /// oxygen still works there: 0.26g's quick-bar keys act on the n-th usable
 /// item of quick slots 13..=18 and then armour slots 3, 0, 1, 2, 4, 5, 6
 /// (0x2FE7F0, table 0x925FD8; called from 0x2D8D88), not on the back slot
 /// alone as 0.100b's `player.cpp` did.
 const BODY: SetPiece = SetPiece {
+    kind: Kind::Body,
     id: 1805,
     name: "duty_exo_suit",
     label: "Duty exoskeleton",
     path: "gameplay/items/armour/torso/duty_exo_026.options",
     template: "gameplay/items/armour/torso/renesanse_torso_6.options",
     slot: 2,
-    covers: &["back", "pants", "gloves", "boots"],
-    weight: 30.0,
-    // Owner's balance (2026-10-15): 300 000 for the set, between "Zubr
-    // UM-4" (287 500 for five pieces) and "Pilgrim" (310 000 for six). The
-    // helmet takes the average of Zubr's (77 500) and Pilgrim's (72 500).
-    cost: 225_000,
+    covers: &["back", "pants"],
+    // Owner's balance (2026-10-15): 35 kg and 300 000 for the set, between
+    // "Zubr UM-4" (287 500 for five pieces) and "Pilgrim" (310 000 for six).
+    // The helmet takes the average of Zubr's (77 500) and Pilgrim's
+    // (72 500); the gloves and boots weigh and cost Zubr's; the body is the
+    // rest: 35 - 5 - 0.6 - 3 kg, 300 000 - 75 000 - 2 x 26 250.
+    weight: 26.4,
+    cost: 172_500,
     icon: [1, 6],
     // Zubr's ammo bag and pocket, Pilgrim's artefact slot, and no speed,
     // stamina or carry bonus, which no level 15 equipment has.
     modifications: &[1030, 1050, 1170, 1040],
+    text: ("st_duty_026_suit_name", "st_duty_026_suit_desc"),
 };
 
 /// The helmet with its mask: the original combined STK2 head, worn alone
@@ -460,6 +477,7 @@ const BODY: SetPiece = SetPiece {
 /// ID, path, name and icon of the v10 split helmet (1800); bundle v10 never
 /// shipped to players.
 const HELMET: SetPiece = SetPiece {
+    kind: Kind::Helmet,
     id: 1800,
     name: "duty_exo_helmet",
     label: "Duty exoskeleton helmet",
@@ -471,6 +489,43 @@ const HELMET: SetPiece = SetPiece {
     cost: 75_000,
     icon: [3, 6],
     modifications: &[],
+    text: ("st_duty_026_helmet_name", "st_duty_026_head_desc"),
+};
+
+/// The suit's gloves, a piece of their own as Zubr UM-4's are: the STK2
+/// hands, with their first-person model. Weight, price, drops and (no)
+/// modifications as Zubr's gloves; protection as the set's.
+const GLOVES: SetPiece = SetPiece {
+    kind: Kind::Gloves,
+    id: 1803,
+    name: "duty_exo_gloves",
+    label: "Duty gloves",
+    path: "gameplay/items/armour/gloves/duty_exo_026.options",
+    template: "gameplay/items/armour/gloves/renesanse_gloves_6.options",
+    slot: 5,
+    covers: &[],
+    weight: 0.6,
+    cost: 26_250,
+    icon: [6, 6],
+    modifications: &[],
+    text: ("st_duty_026_gloves_name", "st_duty_026_gloves_desc"),
+};
+
+/// The suit's boots, a piece of their own as Zubr UM-4's are.
+const BOOTS: SetPiece = SetPiece {
+    kind: Kind::Boots,
+    id: 1804,
+    name: "duty_exo_boots",
+    label: "Duty boots",
+    path: "gameplay/items/armour/boots/duty_exo_026.options",
+    template: "gameplay/items/armour/boots/renesanse_boots_6.options",
+    slot: 6,
+    covers: &[],
+    weight: 3.0,
+    cost: 26_250,
+    icon: [7, 6],
+    modifications: &[],
+    text: ("st_duty_026_boots_name", "st_duty_026_boots_desc"),
 };
 
 /// The Freedom repaint's body: Duty's suit as a Fringe Settlers item (the
@@ -485,9 +540,13 @@ const FREEDOM_BODY: SetPiece = SetPiece {
     label: "Freedom exoskeleton",
     path: "gameplay/items/armour/torso/freedom_exo_026.options",
     template: "gameplay/items/armour/torso/edge_torso_6.options",
-    weight: 28.5,
+    // The set's 33 kg and 300 000 less the helmet and Pilgrim's gloves and
+    // boots: 33 - 4.5 - 0.4 - 1.9 kg, 300 000 - 75 000 - 2 x 23 750.
+    weight: 26.2,
+    cost: 177_500,
     icon: [4, 6],
     modifications: &[1030, 1050, 1040, 1112, 1161],
+    text: ("st_freedom_026_suit_name", "st_freedom_026_suit_desc"),
     ..BODY
 };
 
@@ -501,7 +560,36 @@ const FREEDOM_HELMET: SetPiece = SetPiece {
     template: "gameplay/items/armour/helmet/edge_helmet_6.options",
     weight: 4.5,
     icon: [5, 6],
+    text: ("st_freedom_026_helmet_name", "st_freedom_026_head_desc"),
     ..HELMET
+};
+
+/// Freedom's gloves, on Pilgrim's.
+const FREEDOM_GLOVES: SetPiece = SetPiece {
+    id: 1809,
+    name: "freedom_exo_gloves",
+    label: "Freedom gloves",
+    path: "gameplay/items/armour/gloves/freedom_exo_026.options",
+    template: "gameplay/items/armour/gloves/edge_gloves_6.options",
+    weight: 0.4,
+    cost: 23_750,
+    icon: [8, 6],
+    text: ("st_freedom_026_gloves_name", "st_freedom_026_gloves_desc"),
+    ..GLOVES
+};
+
+/// Freedom's boots, on Pilgrim's. 1810 is the balaclava's.
+const FREEDOM_BOOTS: SetPiece = SetPiece {
+    id: 1811,
+    name: "freedom_exo_boots",
+    label: "Freedom boots",
+    path: "gameplay/items/armour/boots/freedom_exo_026.options",
+    template: "gameplay/items/armour/boots/edge_boots_6.options",
+    weight: 1.9,
+    cost: 23_750,
+    icon: [9, 6],
+    text: ("st_freedom_026_boots_name", "st_freedom_026_boots_desc"),
+    ..BOOTS
 };
 
 /// One exoskeleton set: its namespace, items and protection. Both sets are
@@ -513,15 +601,15 @@ pub struct Variant {
     /// The models', materials' and textures' namespace.
     ns: &'static str,
     asset_id: &'static str,
-    /// Body, then helmet.
-    set: [SetPiece; 2],
+    /// Body, helmet, gloves, boots.
+    set: [SetPiece; 4],
     /// The dictionary IDs this variant owns and may replace.
-    reusable: RangeInclusive<i32>,
+    reusable: &'static [i32],
     /// Duty only: its pre-split preview rows (1800..=1806) may be replaced.
     legacy_split: bool,
-    /// Suit name, suit description, helmet name, helmet description:
-    /// (string key, text in every client language).
-    strings: [(&'static str, Text); 4],
+    /// Every piece's name and description: (string key, text in every
+    /// client language).
+    strings: [(&'static str, Text); 8],
     /// The brass disc with the red star on the chest (`sign_s`).
     chest_disc: bool,
     /// Ballistic protection (ranged, slash, explosive): body, head.
@@ -534,8 +622,8 @@ pub const DUTY: Variant = Variant {
     key: "duty",
     ns: "ported/duty_026",
     asset_id: "duty-exoskeleton-026g",
-    set: [BODY, HELMET],
-    reusable: 1800..=1806,
+    set: [BODY, HELMET, GLOVES, BOOTS],
+    reusable: &[1800, 1801, 1802, 1803, 1804, 1805, 1806],
     legacy_split: true,
     // The factions as the localized S.T.A.L.K.E.R. games name them: Долг,
     // Обов'язок, Pflicht, Powinność.
@@ -580,6 +668,46 @@ pub const DUTY: Variant = Variant {
                 polish: "Hermetyczny hełm eksperymentalnego egzoszkieletu Powinności z wbudowanym respiratorem. Osłania całą głowę i twarz.",
             },
         ),
+        (
+            "st_duty_026_gloves_name",
+            Text {
+                english: "Duty gloves",
+                russian: "Перчатки \"Долга\"",
+                ukrainian: "Рукавиці \"Обов'язку\"",
+                german: "Pflicht-Handschuhe",
+                polish: "Rękawice Powinności",
+            },
+        ),
+        (
+            "st_duty_026_gloves_desc",
+            Text {
+                english: "Reinforced fingerless gloves that Duty fighters wear with their heavy armour.",
+                russian: "Усиленные беспалые перчатки, которые бойцы \"Долга\" носят с тяжёлой бронёй.",
+                ukrainian: "Посилені рукавиці без пальців, які бійці \"Обов'язку\" носять із важкою бронею.",
+                german: "Verstärkte fingerlose Handschuhe, die Kämpfer der Pflicht zu ihrer schweren Rüstung tragen.",
+                polish: "Wzmocnione rękawice bez palców, które bojownicy Powinności noszą do ciężkiego pancerza.",
+            },
+        ),
+        (
+            "st_duty_026_boots_name",
+            Text {
+                english: "Duty boots",
+                russian: "Ботинки \"Долга\"",
+                ukrainian: "Черевики \"Обов'язку\"",
+                german: "Pflicht-Stiefel",
+                polish: "Buty Powinności",
+            },
+        ),
+        (
+            "st_duty_026_boots_desc",
+            Text {
+                english: "Heavy armoured boots that Duty fighters wear with their heavy armour.",
+                russian: "Тяжёлые бронированные ботинки, которые бойцы \"Долга\" носят с тяжёлой бронёй.",
+                ukrainian: "Важкі броньовані черевики, які бійці \"Обов'язку\" носять із важкою бронею.",
+                german: "Schwere gepanzerte Stiefel, die Kämpfer der Pflicht zu ihrer schweren Rüstung tragen.",
+                polish: "Ciężkie opancerzone buty, które bojownicy Powinności noszą do ciężkiego pancerza.",
+            },
+        ),
     ],
     chest_disc: true,
     // Between Zubr 0.90/0.75 and Pilgrim 0.85/0.70; anomaly between Zubr
@@ -595,8 +723,8 @@ pub const FREEDOM: Variant = Variant {
     key: "freedom",
     ns: "ported/freedom_026",
     asset_id: "freedom-exoskeleton-026g",
-    set: [FREEDOM_BODY, FREEDOM_HELMET],
-    reusable: 1807..=1808,
+    set: [FREEDOM_BODY, FREEDOM_HELMET, FREEDOM_GLOVES, FREEDOM_BOOTS],
+    reusable: &[1807, 1808, 1809, 1811],
     legacy_split: false,
     // Свобода, Свобода, Freiheit, Swoboda.
     strings: [
@@ -638,6 +766,46 @@ pub const FREEDOM: Variant = Variant {
                 ukrainian: "Герметичний шолом екзоскелета \"Свободи\" з вбудованим респіратором. Закриває всю голову та обличчя.",
                 german: "Der versiegelte Helm des Freiheit-Exoskeletts, mit eingebautem Atemschutz. Bedeckt den ganzen Kopf und das Gesicht.",
                 polish: "Hermetyczny hełm egzoszkieletu Swobody z wbudowanym respiratorem. Osłania całą głowę i twarz.",
+            },
+        ),
+        (
+            "st_freedom_026_gloves_name",
+            Text {
+                english: "Freedom gloves",
+                russian: "Перчатки \"Свободы\"",
+                ukrainian: "Рукавиці \"Свободи\"",
+                german: "Freiheit-Handschuhe",
+                polish: "Rękawice Swobody",
+            },
+        ),
+        (
+            "st_freedom_026_gloves_desc",
+            Text {
+                english: "Reinforced fingerless gloves in Freedom colours, worn with heavy armour.",
+                russian: "Усиленные беспалые перчатки в цветах \"Свободы\", их носят с тяжёлой бронёй.",
+                ukrainian: "Посилені рукавиці без пальців у кольорах \"Свободи\", їх носять із важкою бронею.",
+                german: "Verstärkte fingerlose Handschuhe in den Farben der Freiheit, zu schwerer Rüstung getragen.",
+                polish: "Wzmocnione rękawice bez palców w barwach Swobody, noszone do ciężkiego pancerza.",
+            },
+        ),
+        (
+            "st_freedom_026_boots_name",
+            Text {
+                english: "Freedom boots",
+                russian: "Ботинки \"Свободы\"",
+                ukrainian: "Черевики \"Свободи\"",
+                german: "Freiheit-Stiefel",
+                polish: "Buty Swobody",
+            },
+        ),
+        (
+            "st_freedom_026_boots_desc",
+            Text {
+                english: "Heavy armoured boots in Freedom colours, worn with heavy armour.",
+                russian: "Тяжёлые бронированные ботинки в цветах \"Свободы\", их носят с тяжёлой бронёй.",
+                ukrainian: "Важкі броньовані черевики в кольорах \"Свободи\", їх носять із важкою бронею.",
+                german: "Schwere gepanzerte Stiefel in den Farben der Freiheit, zu schwerer Rüstung getragen.",
+                polish: "Ciężkie opancerzone buty w barwach Swobody, noszone do ciężkiego pancerza.",
             },
         ),
     ],
@@ -720,13 +888,20 @@ fn remove_field(value: &mut V, key: &str) {
     }
 }
 
-/// Zubr UM-4's hit regions with the set's armour: the helmet's regions
-/// (brain, face) for the helmet, every other region for the body, each
-/// region once.
-fn split_protection(variant: &Variant, natives: &[(String, V)]) -> Result<(V, V)> {
-    let mut head = BTreeMap::new();
-    let mut body = BTreeMap::new();
+/// Zubr UM-4's hit regions with the set's armour, split as its pieces split
+/// them: the helmet's (brain, face) for the helmet, the gloves' (arms) for
+/// the gloves, the boots' (feet) for the boots, and the torso's and
+/// trousers' for the body; each region once.
+fn split_protection(variant: &Variant, natives: &[(String, V)]) -> Result<BTreeMap<Kind, V>> {
+    let mut zones: BTreeMap<Kind, BTreeMap<String, V>> = BTreeMap::new();
     for (category, native) in natives {
+        let kind = match category.as_str() {
+            "helmet" => Kind::Helmet,
+            "gloves" => Kind::Gloves,
+            "boots" => Kind::Boots,
+            "torso" | "legs" => Kind::Body,
+            other => bail!("no set piece takes the native {other}'s regions"),
+        };
         let Some(V::Named(parts)) = native.named("hit_params") else {
             bail!("native hit parameters missing");
         };
@@ -738,7 +913,7 @@ fn split_protection(variant: &Variant, natives: &[(String, V)]) -> Result<(V, V)
             for hit in types {
                 let protection = if matches!(hit.name.as_str(), "slash" | "explosive" | "ranged") {
                     // Zubr 0.75/0.90 and Pilgrim 0.70/0.85 (head/body).
-                    if matches!(part.name.as_str(), "brain" | "face") {
+                    if kind == Kind::Helmet {
                         variant.ballistic.1
                     } else {
                         variant.ballistic.0
@@ -749,22 +924,30 @@ fn split_protection(variant: &Variant, natives: &[(String, V)]) -> Result<(V, V)
                 };
                 hit.value.set_path("armor", V::Float(protection))?;
             }
-            if category == "helmet" {
-                &mut head
-            } else {
-                &mut body
-            }
-            .insert(part.name.clone(), value);
+            ensure!(
+                zones.values().all(|other| !other.contains_key(&part.name)),
+                "native region {} is protected by two pieces",
+                part.name
+            );
+            zones
+                .entry(kind)
+                .or_default()
+                .insert(part.name.clone(), value);
         }
     }
-    body.retain(|name, _| !head.contains_key(name));
-    ensure!(
-        !head.is_empty() && !body.is_empty(),
-        "native hit regions missing"
-    );
-    let to_table =
-        |zones: BTreeMap<String, V>| table(zones.into_iter().map(|(k, v)| field(&k, v)).collect());
-    Ok((to_table(head), to_table(body)))
+    let mut out = BTreeMap::new();
+    for kind in [Kind::Body, Kind::Helmet, Kind::Gloves, Kind::Boots] {
+        let regions = zones.remove(&kind).unwrap_or_default();
+        ensure!(
+            !regions.is_empty(),
+            "native hit regions missing for {kind:?}"
+        );
+        out.insert(
+            kind,
+            table(regions.into_iter().map(|(k, v)| field(&k, v)).collect()),
+        );
+    }
+    Ok(out)
 }
 
 fn props(values: &[(i32, String)]) -> V {
@@ -792,22 +975,22 @@ fn set_items<'v>(
         "set templates missing"
     );
     let ns = variant.ns;
-    let (head_zones, body_zones) = split_protection(variant, &natives.protection)?;
+    let zones = split_protection(variant, &natives.protection)?;
     let mut out = vec![];
-    for (index, (piece, (row, template))) in variant.set.iter().zip(&natives.templates).enumerate()
-    {
-        let body = index == 0;
+    for (piece, (row, template)) in variant.set.iter().zip(&natives.templates) {
+        let body = piece.kind == Kind::Body;
         let mut row = row.clone();
         row.set_path("dict_id", V::Integer(piece.id))?;
         row.set_path("cfg_name", string(piece.path))?;
         row.set_path("name", string(piece.name))?;
         row.set_path("base_cost", V::Integer(piece.cost))?;
         let mut cfg = template.clone();
-        let (armor, protection) = if body {
-            (variant.ballistic.0, &body_zones)
+        let armor = if piece.kind == Kind::Helmet {
+            variant.ballistic.1
         } else {
-            (variant.ballistic.1, &head_zones)
+            variant.ballistic.0
         };
+        let protection = &zones[&piece.kind];
         let mut values = vec![
             ("weight", piece.weight),
             ("armor", armor),
@@ -823,13 +1006,13 @@ fn set_items<'v>(
             cfg.set_path(&format!("parameters.{key}"), V::Integer(15))?;
         }
         cfg.set_path("parameters.max_carried_weight_modifier", V::Integer(0))?;
-        // Drops (owner, 2026-10-16): the helmet as the native helmet of its
-        // tier (its template's weight, Zubr UM-4's and Pilgrim's 10); the
-        // body, which is a whole torso, trousers, gloves and boots in one
-        // item, half as often as the native torso it is made from
+        // Drops (owner, 2026-10-16/17): the helmet, gloves and boots as the
+        // native pieces of their tier (their templates' weight, Zubr UM-4's
+        // and Pilgrim's 10); the body, a torso and trousers in one item,
+        // half as often as the native torso it is made from
         // (`BODY_DROP_DIVISOR`). srp rolls a category, an item level, then an
-        // item of that category and level by weight: the body shares the
-        // level-15 torsos' roll.
+        // item of that category and level by weight: each piece shares its
+        // category's level-15 roll.
         let native = match template
             .named("parameters")
             .and_then(|p| p.named("drop_weight"))
@@ -864,18 +1047,10 @@ fn set_items<'v>(
         }
         let covers = V::Indexed(piece.covers.iter().map(|&s| string(s)).collect());
         let model = |name: &str, surface: &str| {
-            let mut fields = vec![
+            table(vec![
                 field("base_model", string(format!("{ns}/duty_03_{name}"))),
                 field("part_name", string(surface)),
-            ];
-            // The hands carry their first-person model as native gloves do.
-            if name == "hand" {
-                fields.extend([
-                    field("base_model_hud", string(format!("{ns}/duty_03_hand_hud"))),
-                    field("part_name_hud", string(surface)),
-                ]);
-            }
-            table(fields)
+            ])
         };
         let mut shown = vec![
             (6, format!("{}", (armor * 100.0f32).round())),
@@ -900,7 +1075,7 @@ fn set_items<'v>(
             // (`profile_skin_visual_cook::on_configs_loaded`, 0x205336) draws
             // a part's hud model instead of its `base_model` wherever the
             // table has one, which hid the suit behind the hand model. The
-            // hands carry it, as native gloves do.
+            // gloves carry it, as native gloves do.
             let visual = vec![
                 field("base_model", string(format!("{ns}/duty_03_torso_s1"))),
                 field("part_name", string("torso_s")),
@@ -912,8 +1087,6 @@ fn set_items<'v>(
                             ("torso_s1", "back_s"),
                             ("torso_s1", "sign_s"),
                             ("legs_s1", "legs_s"),
-                            ("hand", "torso_s"),
-                            ("boot", "legs_s"),
                         ]
                         .into_iter()
                         .filter(|(_, surface)| variant.chest_disc || *surface != "sign_s")
@@ -923,8 +1096,8 @@ fn set_items<'v>(
                 ),
             ];
             // The cook reads the torso from the table the gloves' `model_type`
-            // names (`data` while the body covers the gloves, as it does).
-            // Native torsos have all three sleeve tables; each is the suit.
+            // names (`data` without gloves). Native torsos have all three
+            // sleeve tables; each is the whole suit, whatever gloves are worn.
             for key in TORSO_TABLES {
                 cfg.set_path(key, table(visual.clone()))?;
             }
@@ -932,30 +1105,57 @@ fn set_items<'v>(
             data.push(field("additional_model_slots", covers));
             data
         } else {
-            vec![
-                field(
-                    "type",
-                    template
+            let native_type = template
+                .named("data")
+                .and_then(|v| v.named("type"))
+                .with_context(|| format!("native {} has no data.type", piece.template))?
+                .clone();
+            let mut data = vec![field("type", native_type)];
+            match piece.kind {
+                Kind::Helmet => data.extend([
+                    field("base_model", string(format!("{ns}/duty_03_head"))),
+                    field("part_name", string("helmet_s")),
+                    // The combined helmet and mask cover the whole head.
+                    field("remove_head_model", V::Boolean(true)),
+                ]),
+                // As native gloves: the model with its first-person hud
+                // pair, and the torso sleeves it is worn with (`data_full`,
+                // the long ones the STK2 hands were made for).
+                Kind::Gloves => data.extend([
+                    field("base_model", string(format!("{ns}/duty_03_hand"))),
+                    field("part_name", string("torso_s")),
+                    field("base_model_hud", string(format!("{ns}/duty_03_hand_hud"))),
+                    field("part_name_hud", string("torso_s")),
+                    field("model_type", string("data_full")),
+                ]),
+                // As native boots: the trousers they are worn with stay the
+                // template's (`data_long` for both tiers).
+                Kind::Boots => {
+                    let model_type = template
                         .named("data")
-                        .and_then(|v| v.named("type"))
-                        .context("native helmet type missing")?
-                        .clone(),
-                ),
-                field("base_model", string(format!("{ns}/duty_03_head"))),
-                field("part_name", string("helmet_s")),
-                // The combined helmet and mask cover the whole head.
-                field("remove_head_model", V::Boolean(true)),
-                field("additional_model_slots", covers),
-            ]
+                        .and_then(|v| v.named("model_type"))
+                        .with_context(|| format!("native {} has no model_type", piece.template))?
+                        .clone();
+                    data.extend([
+                        field("base_model", string(format!("{ns}/duty_03_boot"))),
+                        field("part_name", string("legs_s")),
+                        field("model_type", model_type),
+                    ]);
+                }
+                Kind::Body => unreachable!(),
+            }
+            data.push(field("additional_model_slots", covers));
+            data
         };
         cfg.set_path("data", table(data))?;
         cfg.set_path("ui_desc.props_list", props(&shown))?;
-        let [suit, suit_desc, helmet, helmet_desc] = variant.strings;
-        let (name, description) = if body {
-            (suit.0, suit_desc.0)
-        } else {
-            (helmet.0, helmet_desc.0)
-        };
+        let (name, description) = piece.text;
+        for key in [name, description] {
+            ensure!(
+                variant.strings.iter().any(|(k, _)| *k == key),
+                "{key} has no texts"
+            );
+        }
         cfg.set_path("ui_desc.text_descriptions.name", string(name))?;
         cfg.set_path("ui_desc.text_descriptions.description", string(description))?;
         if icons {
@@ -1288,7 +1488,7 @@ pub fn build_variant(
     }
     // Retire this variant's earlier rows (for Duty the split preview items
     // and the one-item suit in the back slot), never another's or a mod's.
-    for id in variant.reusable.clone() {
+    for &id in variant.reusable {
         if let Some(existing) = items
             .iter()
             .find(|v| v.named("dict_id") == Some(&V::Integer(id)))
@@ -1302,8 +1502,7 @@ pub fn build_variant(
     let pieces = set_items(variant, &natives, icons_swf.is_some())?;
     check_coverage(
         &parse_config(&mut target, HIT_TARGETS, "player hit targets")?.root,
-        &pieces[0].2,
-        &pieces[1].2,
+        &pieces.iter().map(|(_, _, cfg)| cfg).collect::<Vec<_>>(),
     )?;
     for (piece, row, _) in &pieces {
         ensure!(
@@ -1377,10 +1576,12 @@ pub fn build_variant(
     )?;
     crate::model_validation::validate_effective_overlay(db, &overlay)?;
     println!(
-        "Built the {} set, body {} and helmet {}: {} resources",
+        "Built the {} set, body {}, helmet {}, gloves {}, boots {}: {} resources",
         variant.key,
         variant.set[0].id,
         variant.set[1].id,
+        variant.set[2].id,
+        variant.set[3].id,
         files.len()
     );
     Ok(())
@@ -1480,6 +1681,15 @@ mod tests {
             templates: vec![
                 (row(3), native("arm_tors", &["chest"], model(4))),
                 (row(1), native("arm_hlmt", &["brain"], model(4))),
+                (row(6), native("arm_hand", &["left_hand"], model(4))),
+                (
+                    row(7),
+                    native("arm_boot", &["left_foot"], {
+                        let mut data = model(4);
+                        data.set_path("model_type", string("data_long")).unwrap();
+                        data
+                    }),
+                ),
             ],
         }
     }
@@ -1509,14 +1719,13 @@ mod tests {
             cfg.named("parameters").and_then(|p| p.named("type")),
             Some(&string("arm_tors"))
         );
-        // Back, legs, gloves and boots are linked cells; helmet and mask
-        // stay free for the set's helmet.
-        assert_eq!(piece.covered_slots().unwrap(), [3, 4, 5, 6]);
+        // The back unit and the legs are linked cells; the gloves and boots
+        // are pieces of their own (owner, 2026-10-17), and the helmet and
+        // mask stay free for the set's helmet.
+        assert_eq!(piece.covered_slots().unwrap(), [3, 4]);
         assert_eq!(
             data_of(cfg, "additional_model_slots"),
-            Some(&V::Indexed(
-                ["back", "pants", "gloves", "boots"].map(string).to_vec()
-            ))
+            Some(&V::Indexed(["back", "pants"].map(string).to_vec()))
         );
         // `data.type` 1 makes an oxygen tank of the item; 0.26g's quick bar
         // finds it in any armour slot.
@@ -1528,8 +1737,11 @@ mod tests {
         let Some(V::Indexed(models)) = data_of(cfg, "additional_models") else {
             panic!("no additional models")
         };
-        assert_eq!(models.len(), 6);
-        assert!(!format!("{models:?}").contains("duty_03_head"));
+        // Frame, back unit, chest disc, legs: no head, hands or boots.
+        assert_eq!(models.len(), 4);
+        for part in ["duty_03_head", "duty_03_hand", "duty_03_boot"] {
+            assert!(!format!("{models:?}").contains(part), "{part}");
+        }
         // The suit itself is drawn: a hud model in the torso's table would
         // take the place of its `base_model` (the user's invisible jacket).
         assert_eq!(data_of(cfg, "base_model_hud"), None);
@@ -1538,20 +1750,7 @@ mod tests {
             data_of(cfg, "base_model"),
             Some(&string("ported/duty_026/duty_03_torso_s1"))
         );
-        // The hands carry the first-person model, as native gloves do.
-        let hands: Vec<&V> = models
-            .iter()
-            .filter(|m| m.named("base_model_hud").is_some())
-            .collect();
-        assert_eq!(hands.len(), 1);
-        assert_eq!(
-            hands[0].named("base_model"),
-            Some(&string("ported/duty_026/duty_03_hand"))
-        );
-        assert_eq!(
-            hands[0].named("base_model_hud"),
-            Some(&string("ported/duty_026/duty_03_hand_hud"))
-        );
+        assert!(models.iter().all(|m| m.named("base_model_hud").is_none()));
         // Every sleeve table a gloves' `model_type` may pick is the suit,
         // with its frame; none names a native model.
         for key in TORSO_TABLES {
@@ -1599,35 +1798,110 @@ mod tests {
     }
 
     #[test]
+    fn the_gloves_and_boots_are_pieces_of_their_own_as_zubrs() {
+        for variant in [&DUTY, &FREEDOM] {
+            let ns = variant.ns;
+            let set = set_items(variant, &natives(), true).unwrap();
+            let (gloves, boots) = (&set[2], &set[3]);
+            assert_eq!(gloves.0.kind, Kind::Gloves);
+            assert_eq!(boots.0.kind, Kind::Boots);
+            // Their own slots and categories, covering nothing.
+            assert_eq!(gloves.0.slot, 5);
+            assert_eq!(boots.0.slot, 6);
+            assert_eq!(gloves.1.named("item_category"), Some(&V::Integer(6)));
+            assert_eq!(boots.1.named("item_category"), Some(&V::Integer(7)));
+            for (piece, _, cfg) in [gloves, boots] {
+                assert!(piece.covered_slots().unwrap().is_empty());
+                assert_eq!(
+                    data_of(cfg, "additional_model_slots"),
+                    Some(&V::Indexed(vec![]))
+                );
+                assert_eq!(data_of(cfg, "type"), Some(&V::Integer(4)));
+                // As native gloves and boots: no modifications, drop weight 10.
+                assert!(cfg.named("default_modifications").is_none());
+                assert_eq!(
+                    cfg.named("parameters").unwrap().named("drop_weight"),
+                    Some(&V::Integer(10))
+                );
+                assert!(!format!("{cfg:?}").contains("zubr"));
+            }
+            // The gloves give the first-person hands, as native gloves do,
+            // and the sleeves they are worn with.
+            assert_eq!(
+                data_of(&gloves.2, "base_model"),
+                Some(&string(format!("{ns}/duty_03_hand")))
+            );
+            assert_eq!(
+                data_of(&gloves.2, "base_model_hud"),
+                Some(&string(format!("{ns}/duty_03_hand_hud")))
+            );
+            assert_eq!(
+                data_of(&gloves.2, "part_name_hud"),
+                Some(&string("torso_s"))
+            );
+            assert_eq!(data_of(&gloves.2, "model_type"), Some(&string("data_full")));
+            assert_eq!(
+                data_of(&boots.2, "base_model"),
+                Some(&string(format!("{ns}/duty_03_boot")))
+            );
+            assert_eq!(data_of(&boots.2, "model_type"), Some(&string("data_long")));
+        }
+        let duty = set_items(&DUTY, &natives(), true).unwrap();
+        assert_eq!((duty[2].0.id, duty[3].0.id), (1803, 1804));
+        assert_eq!(
+            duty[2].2.named("ui_desc").and_then(|u| u.named("icon")),
+            Some(&V::Indexed(vec![V::Integer(6), V::Integer(6)]))
+        );
+        let freedom = set_items(&FREEDOM, &natives(), true).unwrap();
+        assert_eq!((freedom[2].0.id, freedom[3].0.id), (1809, 1811));
+        assert_eq!(
+            freedom[2].0.template,
+            "gameplay/items/armour/gloves/edge_gloves_6.options"
+        );
+        assert_eq!(
+            freedom[3].0.template,
+            "gameplay/items/armour/boots/edge_boots_6.options"
+        );
+    }
+
+    #[test]
     fn duty_set_splits_the_suit_without_overlap() {
         let set = set_items(&DUTY, &natives(), false).unwrap();
         let (body, head) = (&set[0], &set[1]);
-        // Worn together: neither covers the other's slots.
-        let body_slots: Vec<u8> = [vec![body.0.slot], body.0.covered_slots().unwrap()].concat();
-        let head_slots: Vec<u8> = [vec![head.0.slot], head.0.covered_slots().unwrap()].concat();
-        assert!(body_slots.iter().all(|slot| !head_slots.contains(slot)));
-        let mut all: Vec<u8> = [body_slots, head_slots].concat();
+        // Worn together: no piece covers another's slot, and the four fill
+        // the seven armour slots.
+        let mut all: Vec<u8> = set
+            .iter()
+            .flat_map(|(piece, _, _)| [vec![piece.slot], piece.covered_slots().unwrap()].concat())
+            .collect();
         all.sort_unstable();
         assert_eq!(all, [0, 1, 2, 3, 4, 5, 6]);
-        // Each region is protected by one piece.
+        // Each region is protected by one piece, as the native pieces split
+        // them.
         assert_eq!(zones(&head.2), ["brain", "face"]);
-        let body_zones = zones(&body.2);
-        assert_eq!(body_zones.len(), 7);
-        assert!(
-            body_zones
-                .iter()
-                .all(|zone| zone != "brain" && zone != "face")
+        assert_eq!(
+            zones(&body.2),
+            ["chest", "left_arm", "left_leg", "right_leg", "stomach"]
         );
-        // The one-item suit's totals: 35 kg and 300 000.
-        assert_eq!(body.0.weight + head.0.weight, 35.0);
+        assert_eq!(zones(&set[2].2), ["left_hand"]);
+        assert_eq!(zones(&set[3].2), ["left_foot"]);
+        // The set keeps the owner's totals: 35 kg and 300 000.
+        let weight: f32 = set.iter().map(|(piece, _, _)| piece.weight).sum();
+        assert!((weight - 35.0).abs() < 1e-4, "{weight}");
         let cost = |row: &V| match row.named("base_cost") {
             Some(V::Integer(cost)) => *cost,
             _ => panic!("no cost"),
         };
-        assert_eq!(cost(&body.1) + cost(&head.1), 300_000);
+        assert_eq!(
+            set.iter().map(|(_, row, _)| cost(row)).sum::<i32>(),
+            300_000
+        );
+        // The gloves and boots weigh and cost Zubr UM-4's.
+        assert_eq!((set[2].0.weight, cost(&set[2].1)), (0.6, 26_250));
+        assert_eq!((set[3].0.weight, cost(&set[3].1)), (3.0, 26_250));
         // The helmet drops as the native helmet it is made from (the
-        // fixture's 10, Zubr UM-4's and Pilgrim's); the body, a whole set in
-        // one item, half as often as the native torso (5 of 10).
+        // fixture's 10, Zubr UM-4's and Pilgrim's); the body, a torso and
+        // trousers in one item, half as often as the native torso (5 of 10).
         let drop = |cfg: &V| {
             cfg.named("parameters")
                 .unwrap()
@@ -1682,13 +1956,13 @@ mod tests {
             head.0.template,
             "gameplay/items/armour/helmet/edge_helmet_6.options"
         );
-        assert_eq!(body.0.covered_slots().unwrap(), [3, 4, 5, 6]);
+        assert_eq!(body.0.covered_slots().unwrap(), [3, 4]);
         assert_eq!(head.0.covered_slots().unwrap(), [1]);
         // The owner's decision: no chest disc, dropped rather than hidden.
         let Some(V::Indexed(models)) = data_of(&body.2, "additional_models") else {
             panic!("no additional models")
         };
-        assert_eq!(models.len(), 5);
+        assert_eq!(models.len(), 3);
         let text = format!("{models:?}");
         assert!(!text.contains("sign_s"));
         assert!(text.contains("ported/freedom_026/duty_03_torso_s1"));
@@ -1699,14 +1973,20 @@ mod tests {
         );
         // Oxygen stays.
         assert_eq!(data_of(&body.2, "type"), Some(&V::Integer(1)));
-        // Stats: 28.5 + 4.5 kg, 225 000 + 75 000, +3% speed and -4% stamina,
-        // and no pocket capacity (1170, which Duty keeps).
-        assert_eq!(body.0.weight + head.0.weight, 33.0);
+        // Stats: 33 kg and 300 000 for the set, the gloves and boots as
+        // Pilgrim's; +3% speed and -4% stamina, and no pocket capacity (1170,
+        // which Duty keeps).
+        let weight: f32 = set.iter().map(|(piece, _, _)| piece.weight).sum();
+        assert!((weight - 33.0).abs() < 1e-4, "{weight}");
         let cost = |row: &V| match row.named("base_cost") {
             Some(V::Integer(cost)) => *cost,
             _ => panic!("no cost"),
         };
-        assert_eq!((cost(&body.1), cost(&head.1)), (225_000, 75_000));
+        assert_eq!(
+            set.iter().map(|(_, row, _)| cost(row)).collect::<Vec<_>>(),
+            [177_500, 75_000, 23_750, 23_750]
+        );
+        assert_eq!((set[2].0.weight, set[3].0.weight), (0.4, 1.9));
         assert_eq!(
             body.2.named("default_modifications"),
             Some(&V::Indexed(
@@ -1754,6 +2034,17 @@ mod tests {
         assert!(check_reused_id(&FREEDOM, 1805, &row(BODY.path, BODY.name)).is_err());
         assert!(check_reused_id(&FREEDOM, 1800, &row(HELMET.path, HELMET.name)).is_err());
         assert!(check_reused_id(&DUTY, 1807, &row(FREEDOM_BODY.path, FREEDOM_BODY.name)).is_err());
+        // Each set's gloves and boots are its own.
+        check_reused_id(&DUTY, 1803, &row(GLOVES.path, GLOVES.name)).unwrap();
+        check_reused_id(&DUTY, 1804, &row(BOOTS.path, BOOTS.name)).unwrap();
+        check_reused_id(
+            &FREEDOM,
+            1809,
+            &row(FREEDOM_GLOVES.path, FREEDOM_GLOVES.name),
+        )
+        .unwrap();
+        check_reused_id(&FREEDOM, 1811, &row(FREEDOM_BOOTS.path, FREEDOM_BOOTS.name)).unwrap();
+        assert!(check_reused_id(&FREEDOM, 1803, &row(GLOVES.path, GLOVES.name)).is_err());
         // Duty's legacy split rows are Duty's only.
         let back = row(
             "gameplay/items/armour/back/duty_exo_026.options",
@@ -1837,23 +2128,42 @@ mod tests {
     }
 
     #[test]
-    fn each_body_protects_every_region_a_native_set_does_at_its_armour() {
-        // The user's report: the body takes the legs', gloves' and boots'
-        // slots, so it must protect the legs, arms and body as their native
-        // pieces would.
+    fn each_piece_protects_its_native_pieces_regions_at_the_sets_armour() {
+        // The set covers all twelve regions once: the body the native
+        // torso's and trousers', the gloves the arms, the boots the feet.
         for variant in [&DUTY, &FREEDOM] {
             let set = set_items(variant, &real_natives(), false).unwrap();
-            let (body, head) = (&set[0].2, &set[1].2);
-            check_coverage(&hit_targets(&all_regions()), body, head).unwrap();
-            let body_regions: Vec<String> = zones(body);
-            let mut expected: Vec<&str> = NATIVE_REGIONS[1..]
-                .iter()
-                .flat_map(|(_, r)| r.iter().copied())
-                .collect();
-            expected.sort_unstable();
-            assert_eq!(body_regions, expected, "{}", variant.key);
-            assert_eq!(zones(head), HEAD_REGIONS, "{}", variant.key);
-            for (cfg, ballistic) in [(body, variant.ballistic.0), (head, variant.ballistic.1)] {
+            let cfgs: Vec<&V> = set.iter().map(|(_, _, cfg)| cfg).collect();
+            check_coverage(&hit_targets(&all_regions()), &cfgs).unwrap();
+            let expect = |categories: &[&str]| {
+                let mut regions: Vec<&str> = NATIVE_REGIONS
+                    .iter()
+                    .filter(|(c, _)| categories.contains(c))
+                    .flat_map(|(_, r)| r.iter().copied())
+                    .collect();
+                regions.sort_unstable();
+                regions
+            };
+            assert_eq!(
+                zones(cfgs[0]),
+                expect(&["torso", "legs"]),
+                "{}",
+                variant.key
+            );
+            assert_eq!(zones(cfgs[1]), HEAD_REGIONS, "{}", variant.key);
+            assert_eq!(zones(cfgs[2]), ["left_arm", "right_arm"], "{}", variant.key);
+            assert_eq!(
+                zones(cfgs[3]),
+                ["left_foot", "right_foot"],
+                "{}",
+                variant.key
+            );
+            for (index, cfg) in cfgs.iter().enumerate() {
+                let ballistic = if index == 1 {
+                    variant.ballistic.1
+                } else {
+                    variant.ballistic.0
+                };
                 let Some(V::Named(parts)) = cfg.named("hit_params") else {
                     unreachable!()
                 };
@@ -1880,6 +2190,12 @@ mod tests {
                         assert_eq!(hit.value.named("absorption"), Some(&V::Float(0.1)));
                     }
                 }
+                let parameters = cfg.named("parameters").unwrap();
+                assert_eq!(parameters.named("armor"), Some(&V::Float(ballistic)));
+                assert_eq!(
+                    parameters.named("ano_armor"),
+                    Some(&V::Float(variant.anomaly))
+                );
             }
         }
     }
@@ -1887,14 +2203,17 @@ mod tests {
     #[test]
     fn a_region_left_unprotected_or_protected_twice_stops_the_build() {
         let set = set_items(&DUTY, &real_natives(), false).unwrap();
-        let (body, head) = (&set[0].2, &set[1].2);
+        let cfgs: Vec<&V> = set.iter().map(|(_, _, cfg)| cfg).collect();
         // A hit region no piece protects (say, a future neck target).
         let mut more = all_regions();
         more.push("neck");
-        assert!(check_coverage(&hit_targets(&more), body, head).is_err());
+        assert!(check_coverage(&hit_targets(&more), &cfgs).is_err());
+        // The set without its gloves leaves the arms unprotected.
+        let without = [cfgs[0], cfgs[1], cfgs[3]];
+        assert!(check_coverage(&hit_targets(&all_regions()), &without).is_err());
         // The helmet protecting a region the body also does.
-        let mut both = head.clone();
-        let front = body
+        let mut both = cfgs[1].clone();
+        let front = cfgs[0]
             .named("hit_params")
             .unwrap()
             .named("front")
@@ -1904,12 +2223,14 @@ mod tests {
             unreachable!()
         };
         parts.push(field("front", front));
-        assert!(check_coverage(&hit_targets(&all_regions()), body, &both).is_err());
+        let twice = [cfgs[0], &both, cfgs[2], cfgs[3]];
+        assert!(check_coverage(&hit_targets(&all_regions()), &twice).is_err());
         // A region without every hit type.
-        let mut thin = body.clone();
+        let mut thin = cfgs[0].clone();
         thin.set_path("hit_params.front.hit_types", table(vec![]))
             .unwrap();
-        assert!(check_coverage(&hit_targets(&all_regions()), &thin, head).is_err());
+        let thin_set = [&thin, cfgs[1], cfgs[2], cfgs[3]];
+        assert!(check_coverage(&hit_targets(&all_regions()), &thin_set).is_err());
     }
 
     /// The client's localizations with only a strings table, each given the
