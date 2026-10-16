@@ -1073,6 +1073,259 @@ pub(super) fn lift_along_normals(converted: &mut [u8], distance: f32) -> Result<
     }
     Ok(count)
 }
+/// Packed basis byte order inside each 4-byte vector: z, y, x, alpha.
+fn unpack_basis(bytes: &[u8]) -> [f32; 3] {
+    [bytes[2], bytes[1], bytes[0]].map(|b| b as f32 / 127.5 - 1.)
+}
+
+fn pack_basis(vector: [f32; 3], alpha: u8) -> [u8; 4] {
+    let byte = |v: f32| ((v + 1.) * 127.5).floor().clamp(0., 255.) as u8;
+    [byte(vector[2]), byte(vector[1]), byte(vector[0]), alpha]
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn cross3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn unit3(v: [f32; 3]) -> Option<[f32; 3]> {
+    let length = dot3(v, v).sqrt();
+    (length.is_finite() && length > 1e-6).then(|| v.map(|c| c / length))
+}
+
+/// A packed vector shorter than this cannot be told apart from quantised zero.
+const BASIS_MIN_LENGTH: f32 = 0.5;
+/// |cos| above which two basis vectors count as parallel (8.1 degrees apart).
+const BASIS_PARALLEL: f32 = 0.99;
+
+/// Count and stride of the vertex chunk of converted (0.26 layout) static
+/// geometry; the vertices start at byte 12.
+fn static_vertices(converted: &[u8]) -> Result<(usize, usize)> {
+    let u32_at = |offset: usize| -> Result<usize> {
+        Ok(u32::from_le_bytes(
+            converted
+                .get(offset..offset + 4)
+                .context("truncated static geometry")?
+                .try_into()
+                .unwrap(),
+        ) as usize)
+    };
+    ensure!(u32_at(0)? == 3, "expected a static vertex chunk");
+    let size = u32_at(4)?;
+    let count = u32_at(8)?;
+    ensure!(
+        count > 0 && size >= 4 && converted.len() >= 8 + size,
+        "truncated static vertex chunk"
+    );
+    let stride = (size - 4) / count;
+    ensure!(
+        matches!(stride, 28 | 32) && 4 + stride * count == size,
+        "unsupported static stride"
+    );
+    Ok((count, stride))
+}
+
+fn frame_of(v: &[u8]) -> [[f32; 3]; 3] {
+    [12, 16, 20].map(|o| unpack_basis(&v[o..o + 4]))
+}
+
+/// A frame 0.26's g-buffer cannot use: a vector too short to carry a
+/// direction, or two of the three vectors parallel.
+fn degenerate_frame([n, t, b]: [[f32; 3]; 3]) -> bool {
+    let short = |x: [f32; 3]| dot3(x, x).sqrt() < BASIS_MIN_LENGTH;
+    if short(n) || short(t) || short(b) {
+        return true;
+    }
+    let [n, t, b] = [n, t, b].map(|x| unit3(x).unwrap());
+    dot3(n, t).abs() > BASIS_PARALLEL
+        || dot3(n, b).abs() > BASIS_PARALLEL
+        || dot3(t, b).abs() > BASIS_PARALLEL
+}
+
+/// Rebuild the tangent frames 0.26's g-buffer cannot use (`degenerate_frame`).
+/// 0.26 interpolates the three packed vectors unnormalised and normalises
+/// T*nx + B*ny + N*nz per pixel (gbuffer_pass.ps `rsq`); a rank-deficient
+/// frame sends part of the normal map to a zero vector there, whose
+/// normalisation is NaN. The normal and the alpha bytes are kept. The
+/// handedness is the vertex's own sign of dot(cross(N, T), B) where it is
+/// still readable, else the model's majority sign. Returns the number of
+/// vertices rewritten.
+pub(super) fn repair_tangent_frames(converted: &mut [u8]) -> Result<usize> {
+    let (count, stride) = static_vertices(converted)?;
+    let vertices = 12..12 + count * stride;
+    let mut sign = 0i64;
+    for v in converted[vertices.clone()].chunks_exact(stride) {
+        let frame = frame_of(v);
+        if !degenerate_frame(frame) {
+            let [n, t, b] = frame;
+            sign += if dot3(cross3(n, t), b) < 0. { -1 } else { 1 };
+        }
+    }
+    let model_sign = if sign < 0 { -1. } else { 1. };
+    let mut repaired = 0;
+    for v in converted[vertices].chunks_exact_mut(stride) {
+        let frame = frame_of(v);
+        if !degenerate_frame(frame) {
+            continue;
+        }
+        let [n, t, b] = frame;
+        ensure!(
+            dot3(n, n).sqrt() >= BASIS_MIN_LENGTH,
+            "degenerate packed normal"
+        );
+        let n = unit3(n).unwrap();
+        let in_plane = |x: [f32; 3]| {
+            let d = dot3(n, x);
+            let p = [x[0] - n[0] * d, x[1] - n[1] * d, x[2] - n[2] * d];
+            if dot3(p, p).sqrt() > 0.2 { unit3(p) } else { None }
+        };
+        let own = unit3(cross3(n, t))
+            .zip(unit3(b))
+            .map(|(c, b)| dot3(c, b))
+            .filter(|d| d.abs() > 0.5);
+        let h = own.map_or(model_sign, f32::signum);
+        let tangent = match (in_plane(t), in_plane(b)) {
+            (Some(t), _) => t,
+            (None, Some(b)) => cross3(b, n).map(|c| c * h),
+            (None, None) => {
+                // Any direction in the surface plane: the least aligned axis.
+                let axis = if n[0].abs() <= n[1].abs() && n[0].abs() <= n[2].abs() {
+                    [1., 0., 0.]
+                } else if n[1].abs() <= n[2].abs() {
+                    [0., 1., 0.]
+                } else {
+                    [0., 0., 1.]
+                };
+                unit3(cross3(axis, n)).context("no tangent for packed normal")?
+            }
+        };
+        let binormal = cross3(n, tangent).map(|c| c * h);
+        let (t_alpha, b_alpha) = (v[19], v[23]);
+        v[16..20].copy_from_slice(&pack_basis(tangent, t_alpha));
+        v[20..24].copy_from_slice(&pack_basis(binormal, b_alpha));
+        repaired += 1;
+    }
+    Ok(repaired)
+}
+
+/// Per-vertex defects of converted static geometry that can reach 0.26's
+/// shaders as non-finite values.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct VertexDefects {
+    pub nonfinite_position: usize,
+    pub nonfinite_uv: usize,
+    pub degenerate_frame: usize,
+}
+
+impl VertexDefects {
+    pub fn is_clean(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// Count the vertex defects of converted (0.26 layout) static geometry:
+/// non-finite positions, half UVs that are Inf/NaN, and tangent frames the
+/// g-buffer cannot use.
+pub(crate) fn audit_static_vertices(converted: &[u8]) -> Result<VertexDefects> {
+    let (count, stride) = static_vertices(converted)?;
+    let mut defects = VertexDefects::default();
+    for v in converted[12..12 + count * stride].chunks_exact(stride) {
+        let position = [0, 4, 8].map(|o| f32::from_le_bytes(v[o..o + 4].try_into().unwrap()));
+        if position.iter().any(|p| !p.is_finite()) {
+            defects.nonfinite_position += 1;
+        }
+        // Half precision exponent 31 is Inf or NaN.
+        if [24, 26]
+            .iter()
+            .any(|&o| u16::from_le_bytes([v[o], v[o + 1]]) & 0x7c00 == 0x7c00)
+        {
+            defects.nonfinite_uv += 1;
+        }
+        if degenerate_frame(frame_of(v)) {
+            defects.degenerate_frame += 1;
+        }
+    }
+    Ok(defects)
+}
+
+/// Every float of a config that is NaN or infinite, by dotted path.
+pub(crate) fn nonfinite_values(value: &ConfigValue) -> Vec<String> {
+    fn walk(value: &ConfigValue, path: &str, out: &mut Vec<String>) {
+        let bad = |v: &[f32]| v.iter().any(|x| !x.is_finite());
+        match value {
+            ConfigValue::Float(v) if !v.is_finite() => out.push(path.to_owned()),
+            ConfigValue::Float2(v) if bad(v) => out.push(path.to_owned()),
+            ConfigValue::Float3(v) if bad(v) => out.push(path.to_owned()),
+            ConfigValue::Float4(v) if bad(v) => out.push(path.to_owned()),
+            ConfigValue::Named(fields) => {
+                for f in fields {
+                    let child = if path.is_empty() {
+                        f.name.clone()
+                    } else {
+                        format!("{path}.{}", f.name)
+                    };
+                    walk(&f.value, &child, out);
+                }
+            }
+            ConfigValue::Indexed(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    walk(item, &format!("{path}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(value, "", &mut out);
+    out
+}
+
+/// Environment values that 0.26 shaders divide by, or raise a possibly zero
+/// base to, where a bad value yields NaN rather than a clamp:
+/// - apply_ssao_and_hba.ps: saturate((y - low) / (high - low)), then
+///   exp(log(t) * power); power 0 at t = 0 is -inf * 0 = NaN.
+/// - atmospheric_scattering_on_geometry*.ps and atmosphere_clouds.ps:
+///   exp(log(max(dot, 0)) * mie_fog_sun_color_falloff), the same -inf * 0,
+///   and max(d - near, 1e-3) / far for both fogs.
+pub(crate) fn environment_hazards(properties: &ConfigValue) -> Vec<String> {
+    let get = |k: &str| match properties.named(k) {
+        Some(ConfigValue::Float(v)) => Some(*v),
+        Some(ConfigValue::Integer(v)) => Some(*v as f32),
+        _ => None,
+    };
+    let mut hazards = Vec::new();
+    if properties.named("use_height_based_ambient") == Some(&ConfigValue::Boolean(true)) {
+        match (
+            get("height_based_ambient_low_limit"),
+            get("height_based_ambient_high_limit"),
+        ) {
+            (Some(low), Some(high)) if high > low => {}
+            (low, high) => hazards.push(format!(
+                "height-based ambient band {low:?}..{high:?} is empty (divides by high - low)"
+            )),
+        }
+        if !get("height_based_ambient_power").is_some_and(|p| p > 0.) {
+            hazards.push("height_based_ambient_power must be > 0 (log(0) * 0 = NaN)".into());
+        }
+    }
+    if get("mie_fog_sun_color_falloff").is_some_and(|p| p <= 0.) {
+        hazards.push("mie_fog_sun_color_falloff must be > 0 (log(0) * 0 = NaN)".into());
+    }
+    for key in ["mie_fog_far_distance", "rayleigh_fog_far_distance"] {
+        if get(key).is_some_and(|d| d <= 0.) {
+            hazards.push(format!("{key} must be > 0 (the fog divides by it)"));
+        }
+    }
+    hazards
+}
+
 /// The runtime consumes float3 positions (0x58) and normals (0x59).
 /// 0x4d/0x4e are editor painting data; retain them without resampling.
 pub(super) fn vegetation_instances(bytes: &[u8]) -> Result<usize> {
@@ -1225,6 +1478,163 @@ fn rms_from_pcm(pcm: &[u8]) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One converted static vertex chunk (stride 28) plus an index chunk.
+    fn static_chunk(frames: &[([f32; 3], [f32; 3], [f32; 3])]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(u32::try_from(4 + frames.len() * 28).unwrap().to_le_bytes());
+        bytes.extend(u32::try_from(frames.len()).unwrap().to_le_bytes());
+        for (i, (n, t, b)) in frames.iter().enumerate() {
+            for p in [i as f32, 1.5, -2.25] {
+                bytes.extend(p.to_le_bytes());
+            }
+            bytes.extend(pack_basis(*n, 127));
+            bytes.extend(pack_basis(*t, 200));
+            bytes.extend(pack_basis(*b, 55));
+            bytes.extend(half(0.25).unwrap().to_le_bytes());
+            bytes.extend(half(-3.5).unwrap().to_le_bytes());
+        }
+        bytes.extend(4u32.to_le_bytes());
+        bytes.extend(10u32.to_le_bytes());
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend([0, 0, 1, 0, 2, 0]);
+        bytes
+    }
+
+    /// What 0.26's gbuffer_pass.ps does with a frame and a normal-map texel:
+    /// normalize(T*x + B*y + N*z).
+    fn shaded_normal(frame: [[f32; 3]; 3], texel: [f32; 3]) -> [f32; 3] {
+        let [n, t, b] = frame;
+        let v = [0, 1, 2].map(|i| t[i] * texel[0] + b[i] * texel[1] + n[i] * texel[2]);
+        let r = 1. / dot3(v, v).sqrt();
+        v.map(|c| c * r)
+    }
+
+    #[test]
+    fn degenerate_tangent_frames_are_rebuilt_and_keep_normal_alpha_and_handedness() {
+        let up = [0., 1., 0.];
+        let x = [1., 0., 0.];
+        let z = [0., 0., 1.];
+        let frames = [
+            (up, x, [0., 0., -1.]),   // good, right-handed (cross(N,T) = -Z)
+            (up, x, [0., 0., -1.]),   // good
+            (up, up, [0., 0., -1.]),  // tangent == normal
+            (up, [0., -1., 0.], z),   // tangent == -normal, binormal readable
+            (up, x, x),               // binormal == tangent
+            (up, [0.; 3], [0.; 3]),   // both quantised zero
+            (z, x, [0., 1., 0.]),     // good, other handedness, untouched
+        ];
+        let mut bytes = static_chunk(&frames);
+        let before = audit_static_vertices(&bytes).unwrap();
+        assert_eq!(before.degenerate_frame, 4);
+        // A quantised zero tangent decodes to (-1/255)*(1,1,1), not zero: a
+        // texel tilting along it shades as an arbitrary direction (here a
+        // normal pointing down), not as the tilted surface.
+        let v = &bytes[12 + 5 * 28..12 + 6 * 28];
+        assert!(shaded_normal(frame_of(v), [1., 0., 0.])[1] < 0.);
+        let original = bytes.clone();
+        assert_eq!(repair_tangent_frames(&mut bytes).unwrap(), 4);
+        assert!(audit_static_vertices(&bytes).unwrap().is_clean());
+        for (i, (a, b)) in original[12..12 + 7 * 28]
+            .chunks_exact(28)
+            .zip(bytes[12..12 + 7 * 28].chunks_exact(28))
+            .enumerate()
+        {
+            // Position, normal, alphas and UVs are untouched.
+            assert_eq!(a[..16], b[..16], "vertex {i}");
+            assert_eq!((a[19], a[23]), (b[19], b[23]), "vertex {i}");
+            assert_eq!(a[24..], b[24..], "vertex {i}");
+            if !degenerate_frame(frame_of(a)) {
+                assert_eq!(a, b, "good vertex {i} rewritten");
+            }
+            let frame = frame_of(b);
+            let [n, t, bn] = frame;
+            // The majority (right-handed here) sign, or the vertex's own.
+            assert!(dot3(cross3(n, t), bn).abs() > 0.9, "vertex {i} frame not orthonormal");
+            for texel in [[0., 0., 1.], [1., 0., 0.], [0., 1., 0.], [0.7, -0.7, 0.1], [-0.6, 0.3, 0.74]] {
+                assert!(shaded_normal(frame, texel).iter().all(|c| c.is_finite()), "vertex {i} {texel:?}");
+            }
+        }
+        // Handedness: vertex 3 keeps no readable sign of its own (its tangent
+        // is the normal) and takes the model's majority (dot(cross(N,T),B) > 0
+        // for the good vertices).
+        let majority = dot3(cross3(up, x), [0., 0., -1.]).signum();
+        let [n, t, b] = frame_of(&bytes[12 + 2 * 28..12 + 3 * 28]);
+        assert_eq!(dot3(cross3(n, t), b).signum(), majority);
+        // Idempotent.
+        let again = bytes.clone();
+        assert_eq!(repair_tangent_frames(&mut bytes).unwrap(), 0);
+        assert_eq!(again, bytes);
+    }
+
+    #[test]
+    fn vertex_audit_finds_nonfinite_positions_and_uvs() {
+        let up = [0., 1., 0.];
+        let mut bytes = static_chunk(&[(up, [1., 0., 0.], [0., 0., -1.]); 3]);
+        assert!(audit_static_vertices(&bytes).unwrap().is_clean());
+        bytes[12 + 4..12 + 8].copy_from_slice(&f32::NAN.to_le_bytes());
+        bytes[12 + 28 + 24..12 + 28 + 26].copy_from_slice(&0x7c00u16.to_le_bytes());
+        let defects = audit_static_vertices(&bytes).unwrap();
+        assert_eq!((defects.nonfinite_position, defects.nonfinite_uv), (1, 1));
+        // A packed normal too short to normalise cannot be repaired.
+        let mut zero = static_chunk(&[([0.; 3], [1., 0., 0.], [0., 0., 1.])]);
+        assert!(repair_tangent_frames(&mut zero).is_err());
+    }
+
+    #[test]
+    fn nonfinite_config_values_and_nan_prone_environments_are_reported() {
+        let named = |fields: Vec<(&str, ConfigValue)>| {
+            ConfigValue::Named(
+                fields
+                    .into_iter()
+                    .map(|(name, value)| NamedValue { name: name.into(), value })
+                    .collect(),
+            )
+        };
+        let material = |roughness: f32, color: [f32; 4]| {
+            named(vec![(
+                "effect",
+                named(vec![
+                    ("constant_roughness", named(vec![("value", ConfigValue::Float(roughness))])),
+                    ("layers", ConfigValue::Indexed(vec![named(vec![("color", ConfigValue::Float4(color))])])),
+                ]),
+            )])
+        };
+        assert!(nonfinite_values(&material(0.1, [1.; 4])).is_empty());
+        assert_eq!(
+            nonfinite_values(&material(f32::NAN, [1., f32::INFINITY, 1., 1.])),
+            ["effect.constant_roughness.value", "effect.layers[0].color"]
+        );
+        let mut env = ConfigValue::Named(vec![]);
+        for (k, v) in [
+            ("use_height_based_ambient", ConfigValue::Boolean(true)),
+            ("height_based_ambient_low_limit", ConfigValue::Float(-41.6)),
+            ("height_based_ambient_high_limit", ConfigValue::Float(-36.6)),
+            ("height_based_ambient_power", ConfigValue::Float(0.1)),
+            ("mie_fog_sun_color_falloff", ConfigValue::Integer(1)),
+            ("mie_fog_far_distance", ConfigValue::Integer(200)),
+            ("rayleigh_fog_far_distance", ConfigValue::Integer(200)),
+        ] {
+            env.set_path(k, v).unwrap();
+        }
+        assert!(environment_hazards(&env).is_empty());
+        for (k, v) in [
+            ("height_based_ambient_high_limit", ConfigValue::Float(-41.6)),
+            ("height_based_ambient_power", ConfigValue::Integer(0)),
+            ("mie_fog_sun_color_falloff", ConfigValue::Float(0.)),
+            ("rayleigh_fog_far_distance", ConfigValue::Integer(0)),
+        ] {
+            let mut bad = env.clone();
+            bad.set_path(k, v).unwrap();
+            assert_eq!(environment_hazards(&bad).len(), 1, "{k}");
+        }
+        // Height ambient off: its band is unused.
+        let mut off = env.clone();
+        off.set_path("use_height_based_ambient", ConfigValue::Boolean(false)).unwrap();
+        off.set_path("height_based_ambient_power", ConfigValue::Integer(0)).unwrap();
+        assert!(environment_hazards(&off).is_empty());
+    }
 
     #[test]
     fn chemical_duplicate_zone_is_repaired_once_and_guarded() {

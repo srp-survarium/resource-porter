@@ -95,6 +95,13 @@ pub struct Manifest {
     /// is pinned to the shipped shader catalogue the loads were observed with.
     #[serde(default)]
     pub runtime_proven_switches: BTreeMap<String, RuntimeProvenSwitches>,
+    /// Rebuild static tangent frames 0.26's g-buffer cannot use (a vector too
+    /// short to normalise, or two of the three parallel), and refuse emitted
+    /// geometry, material constants or environment values that are
+    /// non-finite or that a 0.26 shader would turn into NaN. Converted
+    /// X-Ray maps carry such frames from their source tangent bake.
+    #[serde(default)]
+    pub strict_finite: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1775,6 +1782,33 @@ fn is_config_resource(path: &str) -> bool {
     .any(|ext| path.ends_with(ext))
 }
 
+/// Refuse a config with a non-finite float, and an environment whose values a
+/// 0.26 shader would turn into NaN (`early::environment_hazards`).
+fn check_finite_config(path: &str, root: &ConfigValue) -> Result<()> {
+    let bad = early::nonfinite_values(root);
+    ensure!(
+        bad.is_empty(),
+        "{path}: non-finite values: {}",
+        bad.join(", ")
+    );
+    if let Some(objects) = root.named("client_objects") {
+        for object in array(objects)? {
+            if string(object, "game_object_type") != Some("environment") {
+                continue;
+            }
+            if let Some(properties) = object.named("properties") {
+                let hazards = early::environment_hazards(properties);
+                ensure!(
+                    hazards.is_empty(),
+                    "{path}: environment yields NaN in 0.26: {}",
+                    hazards.join("; ")
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A 4x4 single-mip DXT5 texture that is zero in every channel, followed by
 /// the archive's trailing sRGB byte (0: linear).
 fn null_texture_dds() -> Vec<u8> {
@@ -2350,6 +2384,13 @@ pub fn build(
             if m.wrapped_uv_surfaces.contains(path) {
                 compatibility_notes.push(format!("{path}: integer UV island offsets removed before half packing; repeating material sampling preserved"));
             }
+            if m.strict_finite {
+                let repaired = early::repair_tangent_frames(&mut bytes)
+                    .with_context(|| format!("repairing tangent frames of {path}"))?;
+                if repaired > 0 {
+                    compatibility_notes.push(format!("{path}: {repaired} degenerate tangent frames rebuilt orthonormal around the kept normal (a parallel or zero-length tangent/binormal can normalise to NaN in the 0.26 g-buffer)"));
+                }
+            }
             converted_geometry.insert(path.clone());
             if let Some((model, surface)) = path
                 .strip_suffix("/converted_model")
@@ -2514,7 +2555,18 @@ pub fn build(
             }
             rewrite(&mut c.root, &m.reference_replacements);
             rewrite_inner(&mut c.root, &substitutions, true, None);
+            if m.strict_finite {
+                check_finite_config(path, &c.root)?;
+            }
             bytes = c.to_bytes()?;
+        }
+        if m.strict_finite && m.source_build.early() && path.ends_with("/converted_model") {
+            let defects = early::audit_static_vertices(&bytes)
+                .with_context(|| format!("auditing vertices of {path}"))?;
+            ensure!(
+                defects.is_clean(),
+                "{path}: emitted vertices are unusable in 0.26: {defects:?}"
+            );
         }
         let dest = substitutions.get(path).context("missing output mapping")?;
         ensure!(
