@@ -129,9 +129,11 @@ Low settings reduce the cost. `r_geometry_quality 0` scales every LOD
 distance by 0.75, which also brings the near-tree cull (240 m) closer.
 `r_shadow_quality` and `r_shadow_last_lod` set the shadow cascades and the
 LOD that shadows use, and `r_decorations_quality` together with
-`r_grass_lod1/2_distance` set the grass. These are 0.26's own option names
-(checked in the 0.26g executable). Their effect was read from the engine
-source. Except for the static frame counts below, it is not measured.
+`r_grass_lod1/2_distance` set the grass. These are 0.26's own option names (checked in the 0.26g executable). Their
+effect was read from the engine source and has not been measured: the
+static frame-count run (`capture_dm_gallery.py --quality low|medium|high
+--frame-rate 0 --fps-seconds 6`) has not been done yet, because other
+clients were running.
 
 ## Ladders
 
