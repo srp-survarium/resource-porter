@@ -18,6 +18,9 @@
 #   SOC        Shadow of Chernobyl root (gamedata.db0..dbd)
 #   CS         S.T.A.L.K.E.R. Clear Sky install (resources/, levels/, mp/)
 #   OUT        work directory; every stage is skipped when its output exists
+#   FFDEC      JPEXS FFDec directory (lib/ffdec_lib.jar), for the HUD minimaps
+#   JAVA, JAVAC  JDK tools (default: java, javac on PATH)
+#   PYTHON     python3 with numpy, Pillow and scipy (minimap renderer)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -88,6 +91,11 @@ if [ ! -e "$OUT/resources.db" ]; then
   "$VP" build-survarium-maps-026 --manifest ports/soc-cs-dm-to-026g.json \
     --donor-db "$DONOR" --target-db "$TARGET026" --output "$B/soc-cs-dm-026g" \
     > "$OUT/logs/soc-cs-dm-026g.log"
+  # Each map's own minimap, rendered from its converted geometry, in hud.swf.
+  "${PYTHON:-python3}" tools/playable-map-pack/hud_minimaps.py --bundle "$B/soc-cs-dm-026g" \
+    --spec ports/soc-cs-dm-to-026g.json --target-db "$TARGET026" --ffdec "${FFDEC:?JPEXS FFDec directory}" \
+    --java "${JAVA:-java}" --javac "${JAVAC:-javac}" --vostok-port "$VP" --work "$OUT/hud-minimaps" \
+    > "$OUT/logs/hud-minimaps.log"
   "$VP" apply --base-db "$TARGET026" --bundle "$B/soc-cs-dm-026g" \
     --work-dir "$OUT/packing" --output-db "$OUT/resources.db" > "$OUT/logs/pack-026g.log"
   "$VP" verify --db "$OUT/resources.db" --bundle "$B/soc-cs-dm-026g"

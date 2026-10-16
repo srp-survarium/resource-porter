@@ -321,7 +321,8 @@ pub(super) fn project(
     }
     old.set_path("client_objects", ConfigValue::Indexed(client))?;
     old.set_path("server_objects", groups)?;
-    old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
+    // The HUD minimap key: the template level's, or the map's own.
+    old.set_path("project_name", ConfigValue::String(map.hud_key().to_owned()))?;
     Ok(old)
 }
 

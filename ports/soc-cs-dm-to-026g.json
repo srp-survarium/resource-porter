@@ -10,6 +10,8 @@
       "weather": "day",
       "mode": 4,
       "donor_project": "soc_mp_pool",
+      "hud_key": "soc_mp_pool",
+      "map_name": "Pool",
       "height_ambient": true,
       "skylight_probe": {},
       "deathmatch": {
@@ -395,6 +397,8 @@
       "weather": "day",
       "mode": 4,
       "donor_project": "cs_training_camp",
+      "hud_key": "cs_training_camp",
+      "map_name": "Training Camp",
       "height_ambient": true,
       "skylight_probe": {},
       "deathmatch": {
@@ -513,6 +517,8 @@
       "weather": "day",
       "mode": 4,
       "donor_project": "cs_mp_rembasa",
+      "hud_key": "cs_mp_rembasa",
+      "map_name": "Repair Depot",
       "height_ambient": true,
       "skylight_probe": {},
       "deathmatch": {
@@ -671,6 +677,8 @@
       "weather": "day",
       "mode": 4,
       "donor_project": "cs_mp_sport_center",
+      "hud_key": "cs_mp_sport_center",
+      "map_name": "Sports Center",
       "height_ambient": true,
       "skylight_probe": {},
       "deathmatch": {
@@ -930,6 +938,8 @@
       "weather": "day",
       "mode": 4,
       "donor_project": "cs_mp_firestation",
+      "hud_key": "cs_mp_firestation",
+      "map_name": "Fire Station",
       "height_ambient": true,
       "skylight_probe": {},
       "deathmatch": {
