@@ -1249,6 +1249,10 @@ Variants, in the test package `/mnt/hdd/Projects/moss-test-package`
   gameplay-fill-footsteps): early collectors keep their authored static
   model. 194 and 195 each gain their two `item/quest/container` render
   visuals; nothing else in those projects changes, and 196 is untouched.
+- Promoted to -next on 2026-10-16: db `4923aaa9fb2ffe69cae65abd5dc662d2fff1770116ced529026c5c9c837a6dcd`
+  (texture, shader and `play-maps` verifiers pass; presets unchanged, texture
+  quality 1). The previous db `2c286a7d` and manifest are backed up with
+  SHA256SUMS in `/mnt/hdd/Projects/lighting-build-20261015/next-backup-2c286a7d/`.
 
 ### Open item (parked by the user): stripes on low mips
 
