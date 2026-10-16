@@ -193,6 +193,18 @@ pub struct Map {
     /// skylight is what height-based ambient replaced.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub height_ambient: bool,
+    /// The map's own HUD minimap key, written as the project's
+    /// `project_name` (the key hud.swf's Minimap.setProps looks up). Only for
+    /// a converted `donor_project` map whose minimap
+    /// tools/playable-map-pack/hud_minimaps.py adds to hud.swf; without it
+    /// the map shows its template level's minimap.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hud_key: Option<String>,
+    /// Display name. Registered as `st_<hud_key>_name` in every
+    /// localization table and used as the mode's `ui.map_name`; without it
+    /// the map shows its template level's name. Requires `hud_key`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_name: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -392,6 +404,14 @@ impl Map {
             },
             self.mode_number()
         )
+    }
+    /// The project_name the HUD minimap lookup uses.
+    pub(crate) fn hud_key(&self) -> &str {
+        self.hud_key.as_deref().unwrap_or(&self.level)
+    }
+    /// The localization id of `map_name`.
+    fn map_name_id(&self) -> Option<String> {
+        self.map_name.as_ref().map(|_| format!("st_{}_name", self.hud_key()))
     }
     /// The project variant key environment probes are looked up by.
     fn variant(&self) -> String {
@@ -931,8 +951,8 @@ fn adapt_project(
     // falls back to level_09 for unknown names. Keep the authored key while
     // output_project()/mode.map_name relocate the actual project resources.
     ensure!(
-        string(&donor, "project_name") == Some(map.level.as_str()),
-        "source project has no matching retail HUD minimap key"
+        string(&donor, "project_name") == Some(map.hud_key()),
+        "source project has no matching HUD minimap key"
     );
     if let Some(ConfigValue::Indexed(visuals)) = donor.named_mut("render_visuals") {
         for visual in visuals {
@@ -1023,6 +1043,31 @@ fn validate_anomalies(project: &ConfigValue) -> Result<()> {
 }
 
 /// Team deathmatch: respawns for both teams and no battery objectives.
+/// HUD minimap keys hud.swf already knows (survarium.controls.Minimap).
+pub const NATIVE_HUD_KEYS: &[&str] = &[
+    "default", "level_01", "level_02", "level_03", "level_03_evn", "level_03_rain", "level_04",
+    "level_05", "level_06", "level_07", "level_08", "level_09", "test",
+];
+
+/// Add `strings.<id> = name` entries; an id the table already has is an
+/// error rather than an overwrite.
+pub fn add_map_names(table: &mut ConfigValue, names: &[(String, String)]) -> Result<()> {
+    let Some(ConfigValue::Named(strings)) = table.named_mut("strings") else {
+        bail!("localization table has no strings");
+    };
+    for (id, name) in names {
+        ensure!(
+            strings.iter().all(|s| s.name != *id),
+            "localization already defines {id}"
+        );
+        strings.push(NamedValue {
+            name: id.clone(),
+            value: ConfigValue::String(name.clone()),
+        });
+    }
+    Ok(())
+}
+
 fn validate_deathmatch(project: &ConfigValue) -> Result<()> {
     let groups = project
         .named("server_objects")
@@ -1981,6 +2026,7 @@ pub fn build(
     ensure!(!m.maps.is_empty(), "no maps requested");
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
+    let mut hud_keys = BTreeSet::new();
     for map in &m.maps {
         ensure!(
             matches!(
@@ -2011,6 +2057,24 @@ pub fn build(
                         .chars()
                         .all(|c| c.is_ascii_alphanumeric() || c == '_'),
                 "donor project {project} must be one early project directory name"
+            );
+        }
+        if let Some(key) = &map.hud_key {
+            ensure!(
+                map.donor_project.is_some()
+                    && !key.is_empty()
+                    && key.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                    && !NATIVE_HUD_KEYS.contains(&key.as_str()),
+                "map {}: hud_key {key} must be a new lowercase key of a donor_project map",
+                map.id
+            );
+            ensure!(hud_keys.insert(key.clone()), "duplicate hud_key {key}");
+        }
+        if let Some(name) = &map.map_name {
+            ensure!(
+                map.hud_key.is_some() && !name.trim().is_empty(),
+                "map {}: map_name needs a hud_key",
+                map.id
             );
         }
         ensure!(
@@ -2599,6 +2663,9 @@ pub fn build(
         };
         let mut mode = cfg(&mut target, &format!("gameplay/game_modes/{}", map.mode()))?;
         mode.set_path("mode.name", ConfigValue::String(name))?;
+        if let Some(id) = map.map_name_id() {
+            mode.set_path("mode.ui.map_name", ConfigValue::String(id))?;
+        }
         mode.set_path(
             "mode.match_making_params.map_name",
             ConfigValue::String(map.project_name(m.source_build)),
@@ -2637,6 +2704,35 @@ pub fn build(
         "0.26g+additive-map-registration",
         &mut files,
     )?;
+    let names: Vec<(String, String)> = m
+        .maps
+        .iter()
+        .filter_map(|map| Some((map.map_name_id()?, map.map_name.clone()?)))
+        .collect();
+    if !names.is_empty() {
+        let tables: Vec<String> = target
+            .paths_with_prefix("localization/")
+            .filter(|path| path.ends_with("/localization"))
+            .map(str::to_owned)
+            .collect();
+        ensure!(!tables.is_empty(), "the target has no localization tables");
+        for table in &tables {
+            let mut strings = cfg(&mut target, table)?;
+            add_map_names(&mut strings, &names).with_context(|| format!("adding map names to {table}"))?;
+            emit(
+                output,
+                table,
+                &BinaryConfig { root: strings }.to_bytes()?,
+                "0.26g+additive-map-names",
+                &mut files,
+            )?;
+        }
+        compatibility_notes.push(format!(
+            "{}: map names {}",
+            tables.join(", "),
+            names.iter().map(|(id, name)| format!("{id} = {name:?}")).collect::<Vec<_>>().join(", ")
+        ));
+    }
     if null_texture_used {
         let dds = format!("textures/{null_texture}.dds");
         ensure!(!target.contains(&dds), "null texture overwrites native resource {dds}");
@@ -3593,6 +3689,39 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn own_hud_key_and_map_name_leave_native_entries_alone() {
+        let mut map = dm_map();
+        assert_eq!(map.hud_key(), "level_03");
+        assert_eq!(map.map_name_id(), None);
+        map.hud_key = Some("cs_mp_sport_center".into());
+        map.map_name = Some("Sports Center".into());
+        assert_eq!(map.hud_key(), "cs_mp_sport_center");
+        assert_eq!(map.map_name_id().as_deref(), Some("st_cs_mp_sport_center_name"));
+        assert!(NATIVE_HUD_KEYS.contains(&"level_03") && !NATIVE_HUD_KEYS.contains(&map.hud_key()));
+        let native = || {
+            named(vec![(
+                "strings",
+                named(vec![("st_level_03_name", ConfigValue::String("Vostok Radar Station".into()))]),
+            )])
+        };
+        let mut table = native();
+        let names = vec![(map.map_name_id().unwrap(), "Sports Center".to_owned())];
+        add_map_names(&mut table, &names).unwrap();
+        assert_eq!(
+            table.named("strings").and_then(|s| s.named("st_level_03_name")),
+            native().named("strings").and_then(|s| s.named("st_level_03_name"))
+        );
+        assert_eq!(
+            string(table.named("strings").unwrap(), "st_cs_mp_sport_center_name"),
+            Some("Sports Center")
+        );
+        // Never overwrite an id the game already has.
+        assert!(add_map_names(&mut table, &names).is_err());
+        let clash = vec![("st_level_03_name".to_owned(), "x".to_owned())];
+        assert!(add_map_names(&mut native(), &clash).is_err());
     }
 
     #[test]

@@ -58,5 +58,52 @@ class SocDeathmatchTooling(unittest.TestCase):
             run = ((ramp['to'][0]-ramp['from'][0])**2+(ramp['to'][2]-ramp['from'][2])**2)**.5
             self.assertLessEqual(rise/run, 0.578, ramp['name'])  # 30 degrees
 
+    def test_minimap_projection_follows_the_hud_setprops_math(self):
+        mm = load('tools/playable-map-pack/render_minimap.py', 'render_minimap')
+        # survarium.controls.Minimap with _centerPlayer: the engine passes
+        # (x, -z); the bitmap pixel under the player is px - map_ox.
+        def hud(x, z, size, pos_x, pos_y, w, h):
+            cx, cy = w / (2 * size), h / (2 * size)
+            map_ox, map_oy = (pos_x - size) * cx, (-pos_y - size) * cy
+            return x * cx - map_ox, -z * cy - map_oy
+        # Native level_03 entry (size 100, posX 14, posY -42.196, 512 px):
+        # its centre is world (14, -42.196) and +z is up.
+        self.assertEqual(mm.world_to_pixel(14, -42.196, 100, 14, -42.196, 512, 512), (256.0, 256.0))
+        self.assertLess(mm.world_to_pixel(14, 0, 100, 14, -42.196, 512, 512)[1], 256)
+        for x, z in [(-58.6, -36.5), (-100.2, -60.7), (-17.0, -12.3)]:
+            for a, b in zip(mm.world_to_pixel(x, z, 73.143, -58.632, -36.539, 512, 512),
+                            hud(x, z, 73.143, -58.632, -36.539, 512, 512)):
+                self.assertAlmostEqual(a, b, places=6)
+        # The play area is centred and fits the tab map (1:1 into 460 px).
+        entry = mm.hud_entry((-100.26, -60.79, -17.01, -12.29))
+        self.assertEqual((entry['posX'], entry['posY']), (-58.635, -36.54))
+        for x, z in [(-100.26, -60.79), (-17.01, -12.29)]:
+            u, v = mm.world_to_pixel(x, z, entry['size'], entry['posX'], entry['posY'], 512, 512)
+            self.assertTrue(0 <= u <= 512 and 0 <= v <= 512)
+        big = mm.hud_entry((-114.67, -258.08, 109.58, 50.92))
+        self.assertLessEqual(308.997 * 512 / (2 * big['size']), mm.TAB_AREA + 1e-6)
+
+    def test_own_hud_keys_and_names_are_new_and_unique(self):
+        m = json.loads((ROOT/'ports/soc-cs-dm-to-026g.json').read_text())
+        native = {'default', 'test', 'level_03_evn', 'level_03_rain'} | {f'level_0{i}' for i in range(1, 10)}
+        keys = [x['hud_key'] for x in m['maps']]
+        self.assertEqual(keys, [x['donor_project'] for x in m['maps']])
+        self.assertFalse(set(keys) & native)
+        self.assertEqual(len(set(keys)), len(keys))
+        self.assertTrue(all(x['map_name'].strip() for x in m['maps']))
+        tags = load('tools/playable-map-pack/hud_minimaps/swf_tags.py', 'swf_tags')
+        import struct, zlib
+        def swf(*tags_):
+            body = b'\0' + b'\0\x18\x01\0'          # empty RECT, rate, 1 frame
+            for code, payload in tags_:
+                body += struct.pack('<HI', (code << 6) | 0x3f, len(payload)) + payload
+            body += b'\0\0'
+            return b'CWS\x0a' + struct.pack('<I', 8 + len(body)) + zlib.compress(body)
+        a = swf((9, b'bg'), (82, b'\0\0\0\0survarium/controls/Minimap\0x'), (76, b'old'))
+        b = swf((9, b'bg'), (35, b'img'), (82, b'\0\0\0\0survarium/controls/Minimap\0y'), (76, b'new'))
+        missing, added = tags.compare(a, b)
+        self.assertEqual(sorted(c for c, _ in missing), [76, 82])
+        self.assertEqual(sorted(c for c, _ in added), [35, 76, 82])
+
 if __name__ == '__main__':
     unittest.main()

@@ -41,7 +41,8 @@ All of it is opt-in per map and off for the existing 0.10b–0.11e maps:
 - **`donor_project`** imports a project that is not a retail
   `{level}{weather}` scene. `level` (here `level_03`) then only selects the
   native template project, the environment template and the game-mode
-  options. The HUD minimap key is the template level's.
+  options. The HUD minimap key is the template level's unless the map has
+  a `hud_key` (below).
 - **`mode: 4`** registers `{level}_{weather}_4.options`. The template is the
   `day_4` project, and the probe variant key is `day_4`. Each converted map
   gets its own mode file: `v010b_<project>_level_03_day_4.options`.
@@ -162,6 +163,72 @@ given by the shape matrix, and its landings were mapped. Reachability on a
 | fire station | clmbl#4/#5 | 23.2 → 30.7 high ledges (chain tops) | unreachable already; no spawns |
 | fire station | — | 37 m² structure above the west roof | unreachable without the ladder; 1 spawn dropped |
 
+## Minimaps and names
+
+Each map has its own HUD minimap, rendered from its converted geometry, and
+its own name. The spec gives every map a **`hud_key`** (its donor project,
+e.g. `cs_mp_sport_center`) and a **`map_name`** (e.g. "Sports Center").
+
+**How 0.26 places the minimap.** `flash_movies/hud.swf`,
+`survarium.controls.Minimap.setProps({map: project_name})` looks up
+`_minimapProps[key] = {size, posX, posY}` and the bitmap `_levels[key]`; an
+unknown key falls back to `level_09`. The bitmap (W × H px) covers 2·size
+metres around (posX, posY), and the engine passes the player as (x, −z):
+
+    u = (x − posX + size) · W / (2·size)      v = (posY − z + size) · H / (2·size)
+
+so +x is right and +z is up. This was checked by drawing native project
+objects over the native bitmaps: on level_03 (size 100, posX 14, posY
+−42.196, 512 px) and level_06 (size 100, posX 30, posY 109) the indoor
+furniture lands inside the drawn buildings, the trees outside and the
+respawns on the bases; with +z down nothing lines up. The tab map draws the
+bitmap 1:1 into a 460 px square framed by `getColorBoundsRect` on RGB, so
+outside the play area every channel is 0.
+
+**Style** (measured on the native level_03 bitmap, a premultiplied JPEG +
+zlib alpha `DefineBitsJPEG3`): open ground is a desaturated top-down photo at
+alpha 87, buildings and blocks are flat (27, 27, 27) at alpha 184 with a
+1 px light outline, and the play-area border is a light (110, 110, 107)
+line.
+
+**Renderer** (`tools/playable-map-pack/render_minimap.py`). The play area is
+what a walker reaches from the respawns over the converted collision,
+walker ramps included (0.25 m cells, 0.5 m steps on ≤45° faces, 1.7 m
+headroom), with its holes filled. Training Camp has no border (its meadow
+runs past any margin), so there the area is cut 45 m around the respawns.
+Each cell shows the highest render surface at most 1.2 m above its lowest
+reachable floor (interiors show their floor, not the roof; terrain uses the
+full colour map), covered floors are darker, and anything unreachable inside
+the area is dark. The scale is at most 3.5 px/m and the play area fits
+440 px:
+
+| Map | hud_key | size | posX | posY | px/m |
+| --- | --- | ---: | ---: | ---: | ---: |
+| pool-soc-dm | `soc_mp_pool` | 73.143 | 19.693 | −37.063 | 3.5 |
+| training-camp-cs-dm | `cs_training_camp` | 83.055 | 27.712 | 5.788 | 3.08 |
+| rembasa-cs-dm | `cs_mp_rembasa` | 179.782 | −2.549 | −103.581 | 1.42 |
+| sport-center-cs-dm | `cs_mp_sport_center` | 73.143 | −58.632 | −36.539 | 3.5 |
+| firestation-cs-dm | `cs_mp_firestation` | 73.143 | −8.37 | 14.843 | 3.5 |
+
+Rembasa is 224 × 309 m, so its minimap is zoomed out (natives: 2.1–2.8 px/m).
+
+**Wiring.** `build-survarium-maps-026` writes the `hud_key` as the
+project's `project_name`, sets the mode's `ui.map_name` to
+`st_<hud_key>_name`, and adds that string to all six
+`localization/*/localization` tables (an id that exists is an error).
+`tools/playable-map-pack/hud_minimaps.py` then renders the maps from the
+bundle and patches the retail hud.swf (refused unless it is the build 2777
+original, `710c9ca6…`) with `hud_minimaps/PatchHudMinimaps.java` (JPEXS
+FFDec): one `DefineBitsJPEG3` + `BitmapData` class per map,
+`SrpMinimaps.register(props, levels)` compiled into the Minimap ABC and
+called at the end of the Minimap constructor. Every native method body and
+every other SWF tag stays byte-identical (checked on save). The patched
+hud.swf goes into the bundle and its `files`, so `verify` checks it.
+
+Not done: the loading screen. It is `lobby_menu.swf`'s
+`_load_images[ui.loading_screen_id]` (`LobbyMenu.set_loading_level`); a new
+image needs a lobby_menu patch of the same kind.
+
 ## Checks
 
 - `verify_shader_variants.py --templates`: 751 materials proven against
@@ -177,7 +244,7 @@ given by the shape matrix, and its landings were mapped. Reachability on a
 - Reachability (X-Ray cform, 0.25 m grid, 0.45 m step) with the ramps:
   the pool's deck, basin and balcony form one area of 1,545 m², and the
   sports center's ground, basin and upper level one area of 6,474 m².
-- 314 porter tests and 8 script tests.
+- 314 porter tests and 10 script tests.
 
 ## Known issues
 
@@ -186,8 +253,8 @@ given by the shape matrix, and its landings were mapped. Reachability on a
   walk test, the 39.4° sports-center ramp most of all.
 - The respawn yaw is copied from X-Ray `level.game`. Whether players face
   the authored direction is not verified.
-- The minimap, loading screen and mode name come from the native
-  `level_03` (day, mode 4) template.
+- The loading screen comes from the native `level_03` (day, mode 4)
+  template (see [Minimaps and names](#minimaps-and-names)).
 - Team deathmatch has 100 tickets and runs 15 minutes. Both teams spawn at
   every point (the source's deathmatch points), and protection is 0.26's
   6 s.
@@ -205,7 +272,8 @@ given by the shape matrix, and its landings were mapped. Reachability on a
 
 ```sh
 TARGET010=/path/to/retail-0100b/resources.db TARGET026=/path/to/retail-026g/resources.db \
-OUT=/tmp/soc-dm VP=target/release/vostok-port nix develop -c bash scripts/build-soc-dm-026.sh
+OUT=/tmp/soc-dm VP=target/release/vostok-port FFDEC=/path/to/ffdec PYTHON=python3-with-numpy-pillow-scipy \
+  nix develop -c bash scripts/build-soc-dm-026.sh
 python3 tools/playable-map-pack/build_day_presets.py ... \
   --maps pool-soc-dm,training-camp-cs-dm,rembasa-cs-dm,sport-center-cs-dm,firestation-cs-dm --output PRESETS
 python3 tools/playable-map-pack/prepare_dm_package.py --base-package THREE_DAY_PACKAGE \
