@@ -159,7 +159,48 @@ pub struct SocAddonRecord {
     pub victory_item_containers: Vec<[f32; 3]>,
     skylight_multiplier: f32,
     skylight_power: f32,
+    pub deathmatch: bool,
+    pub native_foliage: NativeFoliageReport,
     files: Vec<BuiltFile>,
+}
+
+/// Foliage drawn through the target's own mechanisms instead of merged
+/// static batches: the meadow as vegetation layers (`.veg` instances the
+/// grass system culls and fades), conifers as LOD'd model instances near the
+/// playable area and a thinned, shadowless far forest of merged lowest-LOD
+/// tiles.
+#[derive(Clone, Debug, Serialize)]
+pub struct NativeFoliage {
+    /// Individual LOD'd trees, nearest the fence first.
+    pub near_tree_limit: usize,
+    /// Trees beyond the near belt kept for the far forest.
+    pub far_tree_limit: usize,
+    /// Far-forest tile edge in metres.
+    pub far_tile: f32,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct AddonOptions {
+    pub native_foliage: Option<NativeFoliage>,
+    /// Leave out the victory items, their base containers and the server
+    /// project changes: the map runs deathmatch only.
+    pub deathmatch: bool,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct NativeFoliageReport {
+    pub options: Option<NativeFoliage>,
+    pub vegetation_layers: Vec<(String, usize)>,
+    pub planned_trees: usize,
+    pub near_trees: usize,
+    pub far_trees: usize,
+    pub dropped_trees: usize,
+    pub far_tile_models: usize,
+    /// Triangles of one tree per LOD, averaged over the conifer models.
+    pub tree_triangles_per_lod: [usize; 3],
+    pub near_triangles_lod0: usize,
+    pub near_triangles_lod2: usize,
+    pub far_triangles: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -177,9 +218,18 @@ pub fn build_bundle(
     victory_item_count: usize,
     skylight_multiplier: f32,
     skylight_power: f32,
+    options: &AddonOptions,
 ) -> Result<SocAddonRecord> {
-    if grass_limit == 0 || conifer_limit == 0 || flower_limit == 0 || victory_item_count == 0 {
-        bail!("grass, conifer, flower and victory-item counts must be positive");
+    if grass_limit == 0 || conifer_limit == 0 || flower_limit == 0 {
+        bail!("grass, conifer and flower counts must be positive");
+    }
+    if victory_item_count == 0 && !options.deathmatch {
+        bail!("the victory-item count must be positive outside deathmatch");
+    }
+    if let Some(native) = &options.native_foliage {
+        if native.near_tree_limit == 0 || !(native.far_tile > 4.0) {
+            bail!("native foliage needs near trees and a far tile over 4 m");
+        }
     }
     if flower_radius <= 0.0 {
         bail!("flower island radius must be positive");
@@ -190,10 +240,16 @@ pub fn build_bundle(
 
     let mut source = SocSource::open(source_root)?;
     let level_data = crate::soc::build::decode_level(&mut source, level)?;
-    let victory_item_containers = authored_starting_bases(&mut source, level)?;
-    let victory_item_spawners =
-        authored_victory_item_spawners(&mut source, level, victory_item_count)?;
-    let grass_positions = terrain_grass_positions(&level_data, grass_limit)?;
+    let (victory_item_containers, victory_item_spawners) = if options.deathmatch {
+        (Vec::new(), Vec::new())
+    } else {
+        (
+            authored_starting_bases(&mut source, level)?,
+            authored_victory_item_spawners(&mut source, level, victory_item_count)?,
+        )
+    };
+    let grass_samples = terrain_grass_samples(&level_data, grass_limit)?;
+    let grass_positions: Vec<[f32; 3]> = grass_samples.iter().map(|s| s.0).collect();
     let conifer_positions =
         terrain_conifer_positions(&level_data, conifer_limit.div_ceil(CONIFER_CLUSTER_TREES))?;
 
@@ -220,7 +276,11 @@ pub fn build_bundle(
 
     let mut db = ResourceDb::open(base_db)?;
     let mut files = Vec::new();
-    let grass_batches = write_grass_batches(&mut db, &overlay, &grass_positions, &mut files)?;
+    let grass_batches = if options.native_foliage.is_some() {
+        Vec::new()
+    } else {
+        write_grass_batches(&mut db, &overlay, &grass_positions, &mut files)?
+    };
     let terrain = terrain_ground(&level_data)?;
     let collision = collision_ground(&level_data.cform);
     let (clusters, rim_trees, conifer_placement) = plan_conifers(
@@ -229,29 +289,51 @@ pub fn build_bundle(
         &conifer_positions,
         &conifer_model_floors(&mut db)?,
     );
-    let mut cluster_models = write_conifer_batches(
-        &mut db,
-        &overlay,
-        &CLUSTER_OFFSETS,
-        CONIFER_BATCH_PREFIX,
-        &mut files,
-    )?;
-    cluster_models.extend(write_conifer_batches(
-        &mut db,
-        &overlay,
-        &SMALL_CLUSTER_OFFSETS,
-        SMALL_CONIFER_BATCH_PREFIX,
-        &mut files,
-    )?);
-    let conifer_batches: Vec<ConiferBatch> = clusters
-        .into_iter()
-        .map(|cluster| ConiferBatch {
-            model: cluster_models[cluster.mesh].clone(),
-            position: cluster.position,
-            yaw: cluster.yaw,
-            scale: cluster.scale,
-        })
-        .collect();
+    let mut native_report = NativeFoliageReport {
+        options: options.native_foliage.clone(),
+        ..NativeFoliageReport::default()
+    };
+    let mut native_output = None;
+    let (conifer_batches, rim_trees) = if let Some(native) = &options.native_foliage {
+        let trees = expand_trees(&clusters, &rim_trees);
+        native_output = Some(write_native_foliage(
+            &mut db,
+            &overlay,
+            native,
+            &grass_samples,
+            &flower_positions,
+            &trees,
+            &mut native_report,
+            &mut files,
+        )?);
+        (Vec::new(), Vec::new())
+    } else {
+        let mut cluster_models = write_conifer_batches(
+            &mut db,
+            &overlay,
+            &CLUSTER_OFFSETS,
+            CONIFER_BATCH_PREFIX,
+            &mut files,
+        )?;
+        cluster_models.extend(write_conifer_batches(
+            &mut db,
+            &overlay,
+            &SMALL_CLUSTER_OFFSETS,
+            SMALL_CONIFER_BATCH_PREFIX,
+            &mut files,
+        )?);
+        let batches: Vec<ConiferBatch> = clusters
+            .into_iter()
+            .map(|cluster| ConiferBatch {
+                model: cluster_models[cluster.mesh].clone(),
+                position: cluster.position,
+                yaw: cluster.yaw,
+                scale: cluster.scale,
+            })
+            .collect();
+        (batches, rim_trees)
+    };
+    let flower_visuals: &[[f32; 3]] = if native_output.is_some() { &[] } else { &flower_positions };
     write_client_project(
         &mut db,
         &overlay,
@@ -260,18 +342,21 @@ pub fn build_bundle(
         &conifer_batches,
         &rim_trees,
         conifer_positions.len(),
-        &flower_positions,
+        flower_visuals,
         &victory_item_spawners,
         &victory_item_containers,
+        native_output.as_ref(),
         &mut files,
     )?;
-    write_server_project(
-        &mut db,
-        &overlay,
-        &victory_item_spawners,
-        &victory_item_containers,
-        &mut files,
-    )?;
+    if !options.deathmatch {
+        write_server_project(
+            &mut db,
+            &overlay,
+            &victory_item_spawners,
+            &victory_item_containers,
+            &mut files,
+        )?;
+    }
     write_post_process(
         &mut db,
         &overlay,
@@ -305,6 +390,8 @@ pub fn build_bundle(
         victory_item_containers,
         skylight_multiplier,
         skylight_power,
+        deathmatch: options.deathmatch,
+        native_foliage: native_report,
         files,
     };
     fs::write(
@@ -314,10 +401,11 @@ pub fn build_bundle(
     Ok(record)
 }
 
-fn terrain_grass_positions(
+/// Grass positions and the face normal under each.
+fn terrain_grass_samples(
     level: &crate::soc::build::DecodedLevel,
     limit: usize,
-) -> Result<Vec<[f32; 3]>> {
+) -> Result<Vec<([f32; 3], [f32; 3])>> {
     let (surfaces, _) =
         crate::soc::convert::surface::merge_visuals(&level.visuals, &level.buffers)?;
     let mut positions = Vec::new();
@@ -342,6 +430,7 @@ fn terrain_grass_positions(
             if !double_area.is_normal() || normal[1] / double_area < 0.45 {
                 continue;
             }
+            let unit = normal.map(|v| v / double_area);
 
             // Generate more points than the project can ultimately hold, then
             // evenly limit them below. This gives the meadow an approximately
@@ -369,7 +458,7 @@ fn terrain_grass_positions(
                 let keep =
                     hash_unit(triangle_seed.rotate_left(7) ^ sample.wrapping_mul(0x51ed_270b));
                 if keep < meadow_density(position) {
-                    positions.push(position);
+                    positions.push((position, unit));
                 }
             }
         }
@@ -1087,9 +1176,16 @@ fn write_client_project(
     flowers: &[[f32; 3]],
     victory_items: &[[f32; 3]],
     victory_item_containers: &[[f32; 3]],
+    native: Option<&NativeOutput>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
     let mut project = BinaryConfig::parse(&db.read(CLIENT_PROJECT)?)?;
+    // A base that already carries an earlier addon build (a carried-forward
+    // release) keeps only the map's own visuals, so the addon is idempotent.
+    let removed = strip_addon_visuals(&mut project.root)?;
+    if removed > 0 {
+        println!("stripped_previous_addon_visuals={removed}");
+    }
     let ConfigValue::Indexed(existing) = project
         .root
         .named("render_visuals")
@@ -1164,6 +1260,26 @@ fn write_client_project(
             1.15,
         )?);
     }
+    if let Some(native) = native {
+        for tree in &native.visuals {
+            visuals.push(fixed_visual_instance(
+                &prototype,
+                &tree.model,
+                tree.position,
+                tree.yaw,
+                tree.scale,
+            )?);
+        }
+        let ConfigValue::Indexed(objects) = project
+            .root
+            .named_mut("objects")
+            .context("client project has no objects")?
+        else {
+            bail!("client objects is not indexed");
+        };
+        objects.retain(|o| o.named("game_object_type") != Some(&ConfigValue::String("vegetation".into())));
+        objects.push(native.vegetation.clone());
+    }
     project
         .root
         .set_path("render_visuals", ConfigValue::Indexed(visuals))?;
@@ -1174,6 +1290,405 @@ fn write_client_project(
         "addon:meadow-client-project",
         files,
     )
+}
+
+/// Whether a client visual is one this addon generates.
+fn is_addon_visual(model: &str) -> bool {
+    model.starts_with("ported/cs/training_camp/addons/")
+        || CONIFER_MODELS.contains(&model)
+        || model == VICTORY_ITEM_MODEL
+        || model == VICTORY_ITEM_CONTAINER_MODEL
+}
+
+fn strip_addon_visuals(project: &mut ConfigValue) -> Result<usize> {
+    let ConfigValue::Indexed(visuals) = project
+        .named_mut("render_visuals")
+        .context("client project has no render_visuals")?
+    else {
+        bail!("client render_visuals is not indexed");
+    };
+    let before = visuals.len();
+    visuals.retain(|visual| {
+        !matches!(visual.named("lib_name"), Some(ConfigValue::String(model)) if is_addon_visual(model))
+    });
+    if visuals.is_empty() {
+        bail!("client project has no visuals of its own");
+    }
+    Ok(before - visuals.len())
+}
+
+/// One conifer in world space: model index into `CONIFER_MODELS`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Tree {
+    model: usize,
+    position: [f32; 3],
+    yaw: f32,
+    scale: f32,
+}
+
+/// Every tree the batched build would draw, at the transform its cluster
+/// mesh gives it: origin = cluster position + yaw-turned, cluster-scaled
+/// offset (with the cluster sink), scale = cluster scale x tree scale.
+fn expand_trees(clusters: &[PlacedCluster], singles: &[RimTree]) -> Vec<Tree> {
+    let mut trees = Vec::new();
+    for cluster in clusters {
+        let variant = cluster.mesh % CONIFER_MODELS.len();
+        let offsets: &[[f32; 2]] = if cluster.mesh < CONIFER_MODELS.len() {
+            &CLUSTER_OFFSETS
+        } else {
+            &SMALL_CLUSTER_OFFSETS
+        };
+        // Cluster yaw is 0 or a half turn (plan_conifers), which negates x and z.
+        let sign = if cluster.yaw == 0.0 { 1.0 } else { -1.0 };
+        for (index, offset) in offsets.iter().enumerate() {
+            trees.push(Tree {
+                model: cluster_tree_model(variant, index),
+                position: [
+                    cluster.position[0] + sign * cluster.scale * offset[0],
+                    cluster.position[1] - cluster.scale * CLUSTER_TREE_SINK,
+                    cluster.position[2] + sign * cluster.scale * offset[1],
+                ],
+                yaw: cluster.yaw,
+                scale: cluster.scale * cluster_tree_scale(variant, index),
+            });
+        }
+    }
+    for single in singles {
+        trees.push(Tree {
+            model: CONIFER_MODELS
+                .iter()
+                .position(|m| *m == single.model)
+                .expect("rim trees use the conifer models"),
+            position: single.position,
+            yaw: single.yaw,
+            scale: single.scale,
+        });
+    }
+    trees
+}
+
+/// Split planted trees into the individual near belt (closest to the fence
+/// first) and an evenly thinned far forest.
+fn select_trees(trees: &[Tree], native: &NativeFoliage) -> (Vec<Tree>, Vec<Tree>) {
+    let mut order: Vec<usize> = (0..trees.len()).collect();
+    order.sort_by(|a, b| {
+        distance_from_fence(trees[*a].position)
+            .total_cmp(&distance_from_fence(trees[*b].position))
+            .then(a.cmp(b))
+    });
+    let near_count = native.near_tree_limit.min(order.len());
+    let near: Vec<Tree> = order[..near_count].iter().map(|i| trees[*i]).collect();
+    let rest = &order[near_count..];
+    let mut far: Vec<(f32, Tree)> = rest
+        .iter()
+        .map(|i| (hash_unit((*i as u32).wrapping_mul(0x632b_e5ab) ^ 0x1b87_3593), trees[*i]))
+        .collect();
+    far.sort_by(|a, b| a.0.total_cmp(&b.0));
+    far.truncate(native.far_tree_limit);
+    let mut far: Vec<Tree> = far.into_iter().map(|(_, tree)| tree).collect();
+    far.sort_by(|a, b| {
+        a.position[0]
+            .total_cmp(&b.position[0])
+            .then(a.position[2].total_cmp(&b.position[2]))
+    });
+    (near, far)
+}
+
+struct NativeVisual {
+    model: String,
+    position: [f32; 3],
+    yaw: f32,
+    scale: f32,
+}
+
+struct NativeOutput {
+    visuals: Vec<NativeVisual>,
+    vegetation: ConfigValue,
+}
+
+const VEGETATION_TEMPLATE_PROJECT: &str = "projects/level_03/client_project";
+const VEGETATION_DIRECTORY: &str = "projects/cs_training_camp/vegetation";
+const FAR_FOREST_PREFIX: &str = "ported/cs/training_camp/addons/far_forest";
+const FAR_FOREST_MATERIAL: &str = "ported/cs/training_camp/addons/elka_far";
+/// Static meshes address vertices with 16-bit indices.
+const MAX_BATCH_VERTICES: usize = u16::MAX as usize;
+
+/// A `.veg` instance file: the editor paint mask (unused at run time, sized
+/// like the retail files: four bytes per square metre of the layer
+/// rectangle), then positions and normals as float3 arrays.
+fn encode_vegetation(samples: &[([f32; 3], [f32; 3])], size: [i32; 2]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mask = usize::try_from(size[0].max(0) * size[1].max(0)).unwrap() * 4;
+    out.extend_from_slice(&0x4d_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(mask).unwrap().to_le_bytes());
+    out.resize(out.len() + mask, 0);
+    for (chunk, index) in [(0x58_u32, 0), (0x59_u32, 1)] {
+        out.extend_from_slice(&chunk.to_le_bytes());
+        out.extend_from_slice(&u32::try_from(samples.len() * 12).unwrap().to_le_bytes());
+        for sample in samples {
+            let value = if index == 0 { sample.0 } else { sample.1 };
+            for v in value {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+    }
+    out
+}
+
+/// Layer rectangle covering every sample: `lt` corner and integer size.
+fn layer_rectangle(samples: &[([f32; 3], [f32; 3])]) -> ([f32; 2], [i32; 2]) {
+    let (mut min, mut max) = ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]);
+    for (p, _) in samples {
+        min = [min[0].min(p[0]), min[1].min(p[2])];
+        max = [max[0].max(p[0]), max[1].max(p[2])];
+    }
+    let lt = [min[0].floor(), min[1].floor()];
+    (lt, [(max[0] - lt[0]).ceil() as i32 + 1, (max[1] - lt[1]).ceil() as i32 + 1])
+}
+
+fn vegetation_layer(
+    template: &ConfigValue,
+    name: &str,
+    models: &[(&str, f32, f32)],
+    random_scale: f32,
+    samples: &[([f32; 3], [f32; 3])],
+) -> Result<ConfigValue> {
+    let mut layer = template.clone();
+    let (lt, size) = layer_rectangle(samples);
+    layer.set_path("name", ConfigValue::String(name.into()))?;
+    layer.set_path("filename", ConfigValue::String(format!("vegetation/{name}.veg")))?;
+    layer.set_path("lt_x", ConfigValue::Float(lt[0]))?;
+    layer.set_path("lt_z", ConfigValue::Float(lt[1]))?;
+    layer.set_path("size_x", ConfigValue::Integer(size[0]))?;
+    layer.set_path("size_z", ConfigValue::Integer(size[1]))?;
+    layer.set_path("random_scale", ConfigValue::Float(random_scale))?;
+    layer.set_path("random_dir", ConfigValue::Boolean(true))?;
+    layer.set_path("use_face_normal", ConfigValue::Boolean(true))?;
+    layer.set_path("visible", ConfigValue::Boolean(true))?;
+    layer.set_path(
+        "model_def",
+        ConfigValue::Indexed(
+            models
+                .iter()
+                .map(|(model, probability, scale)| {
+                    ConfigValue::Named(vec![
+                        crate::NamedValue { name: "name".into(), value: ConfigValue::String((*model).into()) },
+                        crate::NamedValue { name: "probability".into(), value: ConfigValue::Float(*probability) },
+                        crate::NamedValue { name: "scale".into(), value: ConfigValue::Float(*scale) },
+                    ])
+                })
+                .collect(),
+        ),
+    )?;
+    Ok(layer)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn write_native_foliage(
+    db: &mut ResourceDb,
+    overlay: &Path,
+    native: &NativeFoliage,
+    grass: &[([f32; 3], [f32; 3])],
+    flowers: &[[f32; 3]],
+    trees: &[Tree],
+    report: &mut NativeFoliageReport,
+    files: &mut Vec<BuiltFile>,
+) -> Result<NativeOutput> {
+    // Vegetation: the retail level_03 object and its green-grass layer as
+    // the schema; this map's own samples and the meadow's grass models.
+    let template_project = BinaryConfig::parse(&db.read(VEGETATION_TEMPLATE_PROJECT)?)?;
+    let vegetation_template = match template_project.root.named("objects") {
+        Some(ConfigValue::Indexed(objects)) => objects
+            .iter()
+            .find(|o| o.named("game_object_type") == Some(&ConfigValue::String("vegetation".into())))
+            .cloned(),
+        _ => None,
+    }
+    .context("retail level_03 has no vegetation object")?;
+    let layer_template = match vegetation_template.named("layers") {
+        Some(ConfigValue::Indexed(layers)) => layers
+            .iter()
+            .find(|l| l.named("name") == Some(&ConfigValue::String("_gra_green".into())))
+            .cloned(),
+        _ => None,
+    }
+    .context("retail level_03 vegetation has no _gra_green layer")?;
+    // The batched meadow drew each grass model equally often at 1.35 x
+    // (0.85..1.15); the flowers at 1.8 x the same spread.
+    let grass_models: Vec<(&str, f32, f32)> = GRASS_MODELS
+        .iter()
+        .map(|model| (*model, 0.5, 1.35))
+        .collect();
+    let flower_samples: Vec<([f32; 3], [f32; 3])> =
+        flowers.iter().map(|p| (*p, [0.0, 1.0, 0.0])).collect();
+    let mut layers = Vec::new();
+    for (name, models, samples) in [
+        ("meadow_grass", grass_models, grass.to_vec()),
+        ("meadow_flowers", vec![(FLOWER_MODEL, 0.5, 1.8)], flower_samples),
+    ] {
+        if samples.is_empty() {
+            continue;
+        }
+        let layer = vegetation_layer(&layer_template, name, &models, 0.15, &samples)?;
+        let size = match (layer.named("size_x"), layer.named("size_z")) {
+            (Some(ConfigValue::Integer(x)), Some(ConfigValue::Integer(z))) => [*x, *z],
+            _ => unreachable!(),
+        };
+        write_resource(
+            overlay,
+            &format!("{VEGETATION_DIRECTORY}/{name}.veg"),
+            &encode_vegetation(&samples, size),
+            "addon:native-vegetation-instances",
+            files,
+        )?;
+        report.vegetation_layers.push((name.into(), samples.len()));
+        layers.push(layer);
+    }
+    let mut vegetation = vegetation_template;
+    vegetation.set_path("position", ConfigValue::Float3([0.0; 3]))?;
+    vegetation.set_path("full_name", ConfigValue::String("flora_terrain/vegetation".into()))?;
+    vegetation.set_path("layers", ConfigValue::Indexed(layers))?;
+
+    // Trees.
+    const LODS: [&str; 3] = ["elka_0_sg", "elka_1_sg", "elka_2_sg"];
+    let mut meshes: Vec<[StaticMesh; 3]> = Vec::new();
+    for model in CONIFER_MODELS {
+        meshes.push(std::array::from_fn(|lod| {
+            parse_static_mesh(
+                &db.read(&format!("models/{model}.model/render/{}/converted_model", LODS[lod]))
+                    .expect("conifer LOD"),
+            )
+            .expect("conifer LOD mesh")
+        }));
+    }
+    for lod in 0..3 {
+        report.tree_triangles_per_lod[lod] =
+            meshes.iter().map(|m| m[lod].indices.len() / 3).sum::<usize>() / meshes.len();
+    }
+    let (near, far) = select_trees(trees, native);
+    report.planned_trees = trees.len();
+    report.near_trees = near.len();
+    report.far_trees = far.len();
+    report.dropped_trees = trees.len() - near.len() - far.len();
+    let mut visuals: Vec<NativeVisual> = near
+        .iter()
+        .map(|tree| NativeVisual {
+            model: CONIFER_MODELS[tree.model].into(),
+            position: tree.position,
+            yaw: tree.yaw,
+            scale: tree.scale,
+        })
+        .collect();
+    report.near_triangles_lod0 = near.iter().map(|t| meshes[t.model][0].indices.len() / 3).sum();
+    report.near_triangles_lod2 = near.iter().map(|t| meshes[t.model][2].indices.len() / 3).sum();
+
+    // Far forest: lowest-LOD trees merged per tile, without sun shadows.
+    let mut tiles: BTreeMap<(i32, i32), Vec<Tree>> = BTreeMap::new();
+    for tree in &far {
+        tiles
+            .entry((
+                (tree.position[0] / native.far_tile).floor() as i32,
+                (tree.position[2] / native.far_tile).floor() as i32,
+            ))
+            .or_default()
+            .push(*tree);
+    }
+    let mut far_index = 0;
+    for trees in tiles.values() {
+        let mut start = 0;
+        while start < trees.len() {
+            let origin = trees[start].position;
+            let mut mesh = StaticMesh::empty();
+            let mut end = start;
+            while end < trees.len()
+                && mesh.vertices.len() + meshes[trees[end].model][2].vertices.len() <= MAX_BATCH_VERTICES
+            {
+                let tree = &trees[end];
+                // Unturned: a half-turned copy would need its packed
+                // normals flipped; at this distance the variation is lost.
+                let translation = std::array::from_fn(|axis| tree.position[axis] - origin[axis]);
+                append_static_mesh(&mut mesh, &meshes[tree.model][2], translation, tree.scale)?;
+                end += 1;
+            }
+            let model = format!("{FAR_FOREST_PREFIX}_{far_index:03}");
+            report.far_triangles += mesh.indices.len() / 3;
+            write_far_forest_model(db, overlay, &model, &mesh, files)?;
+            visuals.push(NativeVisual { model, position: origin, yaw: 0.0, scale: 1.0 });
+            far_index += 1;
+            start = end;
+        }
+    }
+    report.far_tile_models = far_index;
+    if far_index > 0 {
+        let mut material = BinaryConfig::parse(&db.read("material_instances/flora/elka.material")?)?;
+        material
+            .root
+            .set_path("material.g_stage.is_cast_shadow.value", ConfigValue::Boolean(false))?;
+        write_config_resource(
+            overlay,
+            &format!("material_instances/{FAR_FOREST_MATERIAL}.material"),
+            &material,
+            "addon:far-forest-material-no-shadow",
+            files,
+        )?;
+    }
+    Ok(NativeOutput { visuals, vegetation })
+}
+
+/// One far-forest tile: a single LOD (always drawn) of merged lowest-LOD trees.
+fn write_far_forest_model(
+    db: &mut ResourceDb,
+    overlay: &Path,
+    model: &str,
+    mesh: &StaticMesh,
+    files: &mut Vec<BuiltFile>,
+) -> Result<()> {
+    const SURFACE: &str = "elka_2_sg";
+    let bounds = mesh_bounds(mesh)?;
+    let prefix = format!("models/{model}.model/");
+    let mut settings = BinaryConfig::parse(&db.read(&format!("{CONIFER_MODEL_TEMPLATE}settings"))?)?;
+    // Only LOD0 has surfaces, so the instance never switches or culls by
+    // distance (select_lod returns 0 when LOD1 is empty); the frustum still culls.
+    let level = |surfaces: Vec<ConfigValue>| {
+        ConfigValue::Named(vec![crate::NamedValue {
+            name: "surfaces".into(),
+            value: ConfigValue::Indexed(surfaces),
+        }])
+    };
+    settings.root.set_path(
+        "lod_hierrarchy",
+        ConfigValue::Named(vec![
+            crate::NamedValue { name: "LOD0".into(), value: level(vec![ConfigValue::String(SURFACE.into())]) },
+            crate::NamedValue { name: "LOD1".into(), value: level(Vec::new()) },
+            crate::NamedValue { name: "LOD2".into(), value: level(Vec::new()) },
+        ]),
+    )?;
+    settings.root.set_path(
+        "material_settings",
+        ConfigValue::Named(vec![crate::NamedValue {
+            name: SURFACE.into(),
+            value: ConfigValue::Named(vec![
+                crate::NamedValue {
+                    name: "material_name".into(),
+                    value: ConfigValue::String(FAR_FOREST_MATERIAL.into()),
+                },
+                crate::NamedValue { name: "used_in_portals".into(), value: ConfigValue::Boolean(false) },
+            ]),
+        }]),
+    )?;
+    settings.root.set_path("collision_enabled", ConfigValue::Boolean(false))?;
+    settings.root.set_path("walker_collision_enabled", ConfigValue::Boolean(false))?;
+    write_config_resource(overlay, &format!("{prefix}settings"), &settings, "addon:far-forest-settings", files)?;
+    let mut render = BinaryConfig::parse(&db.read(&format!("{CONIFER_MODEL_TEMPLATE}render/export_properties"))?)?;
+    set_bounds(&mut render, bounds)?;
+    write_config_resource(overlay, &format!("{prefix}render/export_properties"), &render, "addon:far-forest-render-bounds", files)?;
+    let mut properties = BinaryConfig::parse(&db.read(&format!("{CONIFER_MODEL_TEMPLATE}render/{SURFACE}/export_properties"))?)?;
+    properties.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(mesh.indices.len())?))?;
+    properties.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(mesh.indices.len() / 3)?))?;
+    properties.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(mesh.vertices.len())?))?;
+    set_surface_bounds(&mut properties, bounds)?;
+    write_config_resource(overlay, &format!("{prefix}render/{SURFACE}/export_properties"), &properties, "addon:far-forest-surface-bounds", files)?;
+    write_resource(overlay, &format!("{prefix}render/{SURFACE}/converted_model"), &encode_static_mesh(mesh)?, "addon:far-forest-geometry", files)
 }
 
 fn fixed_visual_instance(
@@ -1998,4 +2513,84 @@ mod tests {
             previous = density;
         }
     }
+
+    #[test]
+    fn expanded_cluster_trees_sit_where_the_cluster_mesh_drew_them() {
+        let clusters = [
+            PlacedCluster { mesh: 1, position: [100.0, 5.0, 50.0], yaw: 0.0, scale: 1.0 },
+            PlacedCluster { mesh: CONIFER_MODELS.len() + 2, position: [0.0, 1.0, 0.0], yaw: std::f32::consts::PI, scale: 0.9 },
+        ];
+        let rim = [RimTree { model: CONIFER_MODELS[3], position: [7.0, 2.0, 8.0], yaw: 1.0, scale: 0.6 }];
+        let trees = expand_trees(&clusters, &rim);
+        assert_eq!(trees.len(), CLUSTER_OFFSETS.len() + SMALL_CLUSTER_OFFSETS.len() + 1);
+        let first = trees[0];
+        assert_eq!(first.model, cluster_tree_model(1, 0));
+        assert_eq!(first.position, [100.0 + CLUSTER_OFFSETS[0][0], 5.0 - CLUSTER_TREE_SINK, 50.0 + CLUSTER_OFFSETS[0][1]]);
+        assert_eq!(first.scale, cluster_tree_scale(1, 0));
+        // A half-turned cluster negates the offsets; the sink scales with it.
+        let turned = trees[CLUSTER_OFFSETS.len()];
+        assert!((turned.position[0] + 0.9 * SMALL_CLUSTER_OFFSETS[0][0]).abs() < 1e-6);
+        assert!((turned.position[1] - (1.0 - 0.9 * CLUSTER_TREE_SINK)).abs() < 1e-6);
+        assert!((turned.position[2] + 0.9 * SMALL_CLUSTER_OFFSETS[0][1]).abs() < 1e-6);
+        assert_eq!(turned.model, cluster_tree_model(2, 0));
+        assert_eq!(*trees.last().unwrap(), Tree { model: 3, position: [7.0, 2.0, 8.0], yaw: 1.0, scale: 0.6 });
+    }
+
+    #[test]
+    fn near_belt_takes_the_trees_closest_to_the_fence_and_far_forest_is_capped() {
+        let trees: Vec<Tree> = (0..200)
+            .map(|i| Tree { model: i % 5, position: [FENCE_MAX[0] + i as f32, 0.0, 0.0], yaw: 0.0, scale: 1.0 })
+            .collect();
+        let native = NativeFoliage { near_tree_limit: 20, far_tree_limit: 50, far_tile: 50.0 };
+        let (near, far) = select_trees(&trees, &native);
+        assert_eq!(near.len(), 20);
+        assert_eq!(far.len(), 50);
+        let near_max = near.iter().map(|t| distance_from_fence(t.position)).fold(0.0, f32::max);
+        assert!(far.iter().all(|t| distance_from_fence(t.position) >= near_max));
+        assert_eq!(near[0].position[0], FENCE_MAX[0]);
+        // Deterministic.
+        assert_eq!(select_trees(&trees, &native).1, far);
+    }
+
+    #[test]
+    fn vegetation_file_carries_positions_normals_and_a_sized_paint_mask() {
+        let samples = [([1.0, 2.0, 3.0], [0.0, 1.0, 0.0]), ([4.0, 5.0, 6.0], [0.6, 0.8, 0.0])];
+        let (lt, size) = layer_rectangle(&samples);
+        assert_eq!((lt, size), ([1.0, 3.0], [4, 4]));
+        let bytes = encode_vegetation(&samples, size);
+        let mut chunks = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            let id = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+            let len = u32::from_le_bytes(bytes[at + 4..at + 8].try_into().unwrap()) as usize;
+            chunks.push((id, bytes[at + 8..at + 8 + len].to_vec()));
+            at += 8 + len;
+        }
+        assert_eq!(chunks.iter().map(|c| c.0).collect::<Vec<_>>(), [0x4d, 0x58, 0x59]);
+        assert_eq!(chunks[0].1.len(), 4 * 4 * 4);
+        let floats = |b: &[u8]| b.chunks_exact(4).map(|v| f32::from_le_bytes(v.try_into().unwrap())).collect::<Vec<_>>();
+        assert_eq!(floats(&chunks[1].1), [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(floats(&chunks[2].1), [0.0, 1.0, 0.0, 0.6, 0.8, 0.0]);
+    }
+
+    #[test]
+    fn rebuilding_over_an_earlier_addon_keeps_only_the_maps_own_visuals() {
+        let visual = |name: &str| {
+            ConfigValue::Named(vec![crate::NamedValue { name: "lib_name".into(), value: ConfigValue::String(name.into()) }])
+        };
+        let mut project = ConfigValue::Named(vec![crate::NamedValue {
+            name: "render_visuals".into(),
+            value: ConfigValue::Indexed(vec![
+                visual("ported/cs/training_camp/training_camp_000"),
+                visual("ported/cs/training_camp/addons/grass_batch_000"),
+                visual("flora/elka_green_03"),
+                visual(VICTORY_ITEM_MODEL),
+                visual("ported/cs/training_camp/training_camp_001"),
+            ]),
+        }]);
+        assert_eq!(strip_addon_visuals(&mut project).unwrap(), 3);
+        let ConfigValue::Indexed(left) = project.named("render_visuals").unwrap() else { panic!() };
+        assert_eq!(left.len(), 2);
+    }
 }
+

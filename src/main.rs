@@ -593,6 +593,21 @@ enum Command {
         skylight_multiplier: f32,
         #[arg(long, default_value_t = 0.18)]
         skylight_power: f32,
+        /// Emit the meadow as vegetation layers and the conifers as LOD'd
+        /// instances plus a thinned far forest, instead of merged batches.
+        #[arg(long)]
+        native_foliage: bool,
+        /// Individual LOD'd conifers kept nearest the fence (native foliage).
+        #[arg(long, default_value_t = 1200)]
+        near_tree_limit: usize,
+        /// Conifers kept beyond the near belt as merged lowest-LOD tiles.
+        #[arg(long, default_value_t = 3000)]
+        far_tree_limit: usize,
+        #[arg(long, default_value_t = 50.0)]
+        far_tile: f32,
+        /// Deathmatch only: no victory items, base containers or server changes.
+        #[arg(long)]
+        deathmatch: bool,
     },
     /// Summarise an installed F.E.A.R. archive set.
     LilithInventory {
@@ -1942,7 +1957,20 @@ fn main() -> Result<()> {
             victory_item_count,
             skylight_multiplier,
             skylight_power,
+            native_foliage,
+            near_tree_limit,
+            far_tree_limit,
+            far_tile,
+            deathmatch,
         } => {
+            let options = soc_addon::AddonOptions {
+                native_foliage: native_foliage.then_some(soc_addon::NativeFoliage {
+                    near_tree_limit,
+                    far_tree_limit,
+                    far_tile,
+                }),
+                deathmatch,
+            };
             let record = soc_addon::build_bundle(
                 &source_root,
                 &level,
@@ -1957,6 +1985,7 @@ fn main() -> Result<()> {
                 victory_item_count,
                 skylight_multiplier,
                 skylight_power,
+                &options,
             )?;
             println!("grass_instances={}", record.grass_instances);
             println!("grass_fade_instances={}", record.grass_fade_instances);
