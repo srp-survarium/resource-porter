@@ -1,0 +1,95 @@
+{
+  "capture": "capture_dm_gallery.py --map KEY --poses <this pose as a list> --window 1920x1080 --quality high --set r_motion_blur_quality=0 (UI off); the frame is saved as <hud_key>.jpg (quality 92) and lobby_loading.py crops, grades and embeds it",
+  "shots": {
+    "soc_mp_pool": {
+      "map": "pool-soc-dm",
+      "pose": {
+        "name": "pool-hall-1",
+        "position": [
+          22.847,
+          11.345,
+          -26.375
+        ],
+        "target": [
+          19.045,
+          6.571,
+          -40.565
+        ],
+        "fov": 67.67,
+        "aspect": 1.777778
+      }
+    },
+    "cs_training_camp": {
+      "map": "training-camp-cs-dm",
+      "pose": {
+        "name": "camp-overview-1",
+        "position": [
+          39.529,
+          18.438,
+          -53.956
+        ],
+        "target": [
+          24.0,
+          3.0,
+          4.0
+        ],
+        "fov": 67.67,
+        "aspect": 1.777778
+      }
+    },
+    "cs_mp_rembasa": {
+      "map": "rembasa-cs-dm",
+      "pose": {
+        "name": "depot-yard-1",
+        "position": [
+          26.997,
+          17.719,
+          -5.278
+        ],
+        "target": [
+          -4.391,
+          7.161,
+          3.132
+        ],
+        "fov": 67.67,
+        "aspect": 1.777778
+      }
+    },
+    "cs_mp_sport_center": {
+      "map": "sport-center-cs-dm",
+      "pose": {
+        "name": "pool-hall-1",
+        "position": [
+          -98.794,
+          8.0,
+          -31.5
+        ],
+        "target": [
+          -87.404,
+          3.727,
+          -38.076
+        ],
+        "fov": 67.67,
+        "aspect": 1.777778
+      }
+    },
+    "cs_mp_firestation": {
+      "map": "firestation-cs-dm",
+      "pose": {
+        "name": "fire-tower-1",
+        "position": [
+          -6.962,
+          10.223,
+          -18.0
+        ],
+        "target": [
+          45.0,
+          22.0,
+          12.0
+        ],
+        "fov": 67.67,
+        "aspect": 1.777778
+      }
+    }
+  }
+}
