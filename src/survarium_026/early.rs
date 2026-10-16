@@ -275,8 +275,12 @@ pub(super) fn project(
             ));
         }
     }
-    // Old collectors are already rendered as placed static models. Bind that
-    // original mesh and transform instead of inheriting a modern collector.
+    // Old collectors are rendered as placed static models. Bind that original
+    // mesh and transform as the collector's visual_geometry too, and keep the
+    // static model: visual_geometry alone draws nothing in 0.26 (native 0.26,
+    // 0.20e, 0.11e and 0.11a all place a static render visual at the
+    // collector's visual_geometry transform; a 194 build without it showed
+    // no collector in game).
     let mut collector_visuals = Vec::new();
     if let Some(ConfigValue::Indexed(collectors)) = groups.named_mut("victory_items_containers") {
         let visuals = array(old.named("render_visuals").context("old visuals")?)?;
@@ -299,9 +303,6 @@ pub(super) fn project(
             collector.set_path("visual_geometry", geometry)?;
             collector_visuals.push(visual.clone());
         }
-    }
-    if let Some(ConfigValue::Indexed(visuals)) = old.named_mut("render_visuals") {
-        visuals.retain(|v| !collector_visuals.contains(v));
     }
     old.set_path("client_objects", ConfigValue::Indexed(client))?;
     old.set_path("server_objects", groups)?;
@@ -1398,6 +1399,95 @@ mod tests {
         .unwrap();
         let client = array(project.named("client_objects").unwrap()).unwrap();
         assert_eq!(client, &[wire]);
+    }
+
+    #[test]
+    fn early_collector_keeps_its_static_model_and_binds_it() {
+        fn object(fields: &[(&str, ConfigValue)]) -> ConfigValue {
+            ConfigValue::Named(
+                fields
+                    .iter()
+                    .map(|(name, value)| NamedValue {
+                        name: (*name).into(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            )
+        }
+        let text = |s: &str| ConfigValue::String(s.into());
+        let zone = object(&[
+            ("game_object_type", text("collision_geometry")),
+            ("full_name", text("logic/team1/victory_container_collision")),
+            ("position", ConfigValue::Float3([10., 0., 5.])),
+        ]);
+        let mesh = object(&[
+            ("lib_name", text("resources/models/item/quest/container")),
+            ("position", ConfigValue::Float3([10.5, 0., 5.])),
+            ("rotation", ConfigValue::Float3([0.; 3])),
+            ("scale", ConfigValue::Float3([1.; 3])),
+        ]);
+        let collector = object(&[
+            ("team", ConfigValue::Integer(0)),
+            ("full_name", text("logic/team1/victory_items_container")),
+            (
+                "collision_geometries",
+                ConfigValue::Indexed(vec![object(&[(
+                    "name",
+                    text("logic/team1/victory_container_collision"),
+                )])]),
+            ),
+        ]);
+        let old = object(&[
+            ("objects", ConfigValue::Indexed(vec![zone])),
+            ("render_visuals", ConfigValue::Indexed(vec![mesh.clone()])),
+        ]);
+        let server = object(&[(
+            "objects",
+            object(&[(
+                "victory_items_containers",
+                ConfigValue::Indexed(vec![collector]),
+            )]),
+        )]);
+        let target = object(&[("client_objects", ConfigValue::Indexed(vec![]))]);
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("input");
+        fs::create_dir_all(root.join("unused")).unwrap();
+        fs::write(root.join("unused/file"), b"x").unwrap();
+        let db_path = temp.path().join("donor.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &db_path,
+        )
+        .unwrap();
+        let mut donor = ResourceDb::open(db_path).unwrap();
+        let map = Map {
+            id: 194,
+            level: "level_04".into(),
+            weather: "day".into(),
+            environment_look: Default::default(),
+            native_ambient_fill: false,
+        };
+        let project = project(
+            old,
+            &mut donor,
+            server,
+            &target,
+            &map,
+            SourceBuild::V011e,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        // The static model stays drawn ...
+        assert_eq!(
+            array(project.named("render_visuals").unwrap()).unwrap(),
+            &[mesh.clone()]
+        );
+        // ... and is also bound as the collector's visual geometry.
+        let groups = project.named("server_objects").unwrap();
+        let collectors = array(groups.named("victory_items_containers").unwrap()).unwrap();
+        let geometry = collectors[0].named("visual_geometry").unwrap();
+        assert_eq!(geometry.named("model_name"), mesh.named("lib_name"));
+        assert_eq!(geometry.named("position"), mesh.named("position"));
     }
 
     #[test]
