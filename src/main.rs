@@ -272,6 +272,23 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Bring a 0.69d map down to 0.26g (donor: a `.split` volume list).
+    #[command(name = "build-survarium-069d-map")]
+    BuildSurvarium069dMap {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        donor_db: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Print the fingerprint of a `.split` volume list.
+    SplitFingerprint {
+        #[arg(long)]
+        split: PathBuf,
+    },
     /// Give native 0.26g School an overcast environment and map-wide volume fog.
     BuildSurvarium026Fog {
         #[arg(long)]
@@ -1136,6 +1153,25 @@ fn main() -> Result<()> {
                 record.converted_materials.len()
             );
             println!("bundle={}", output.display());
+        }
+        Command::BuildSurvarium069dMap {
+            manifest,
+            donor_db,
+            target_db,
+            output,
+        } => {
+            let record = vostok_resource_porter::survarium_026::later::build(
+                &manifest, &donor_db, &target_db, &output,
+            )?;
+            println!(
+                "files={} materials={}",
+                record.files.len(),
+                record.converted_materials.len()
+            );
+            println!("bundle={}", output.display());
+        }
+        Command::SplitFingerprint { split } => {
+            println!("{}", vostok_resource_porter::archive::split_fingerprint(&split)?);
         }
         Command::BuildSurvarium026Fog { target_db, output } => {
             vostok_resource_porter::survarium_026::build_native_fog(&target_db, &output)?;

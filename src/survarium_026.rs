@@ -13,6 +13,7 @@ use std::{
 };
 
 mod early;
+pub mod later;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
@@ -29,6 +30,9 @@ pub enum SourceBuild {
     #[default]
     #[serde(rename = "0.21d")]
     V021d,
+    /// 0.69d0 (2022), split into 76 volumes; see `later`.
+    #[serde(rename = "0.69d")]
+    V069d,
 }
 
 impl SourceBuild {
@@ -39,6 +43,7 @@ impl SourceBuild {
             Self::V011e => "v011e",
             Self::V020e => "v020e",
             Self::V021d => "v021d",
+            Self::V069d => "v069d",
         }
     }
     fn label(self) -> &'static str {
@@ -48,6 +53,7 @@ impl SourceBuild {
             Self::V011e => "0.11e-884",
             Self::V020e => "0.20e-1916",
             Self::V021d => "0.21d-2010",
+            Self::V069d => "0.69d0",
         }
     }
     fn early(self) -> bool {
@@ -246,6 +252,17 @@ pub struct Record {
 }
 
 pub fn check_hash(path: &Path, expected: &str) -> Result<()> {
+    if path
+        .extension()
+        .is_some_and(|e| e == crate::archive::SPLIT_EXTENSION)
+    {
+        ensure!(
+            crate::archive::split_fingerprint(path)? == expected,
+            "split database fingerprint mismatch: {}",
+            path.display()
+        );
+        return Ok(());
+    }
     let mut file = fs::File::open(path)?;
     let mut hash = Sha256::new();
     let mut bytes = vec![0; 1024 * 1024];

@@ -216,7 +216,7 @@ fn select_path(db: &ResourceDb, path: &str) -> Option<PathSelection> {
     (!children.is_empty()).then_some(PathSelection::Directory(children))
 }
 
-pub(crate) fn resolve_candidates(
+pub fn resolve_candidates(
     reference: &str,
     donor: &ResourceDb,
     target: &ResourceDb,

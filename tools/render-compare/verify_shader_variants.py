@@ -16,9 +16,15 @@ and materials present only in the candidate (not provable this way).
 --evidence PORT_MANIFEST accepts that manifest's runtime_proven_switches
 (changes within the observed switches, same shader catalogue); they are
 listed as runtime_proven instead of missing.
+--templates PORT_MANIFEST proves materials new to the candidate against the
+native template each was built from (the manifest's `converted_materials`,
+donor name -> template, emitted at material_instances/ported/<build>/<name>):
+the template, read from the baseline, stands in as that material's baseline,
+and its mesh-type switches must match too (they select vertex inputs).
 Exit status is 1 when anything is missing or unprovable.
 """
 import hashlib
+import re
 import argparse
 import json
 from pathlib import Path
@@ -67,6 +73,7 @@ def main():
     parser.add_argument('candidate', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--evidence', type=Path, action='append', default=[])
+    parser.add_argument('--templates', type=Path, action='append', default=[])
     args = parser.parse_args()
     listing = lambda db: subprocess.check_output([str(args.porter), 'list', '--db', str(db)], text=True,
                                                   stderr=subprocess.DEVNULL).split()
@@ -84,6 +91,14 @@ def main():
             proven[path] = {NAME[k]: str(v) for k, v in entry['switches'].items() if k in NAME}
             if any('.' in k for k in entry['switches']):
                 report_stage_evidence.append(path)
+    stand_in = {}
+    for manifest in args.templates:
+        m = json.loads(manifest.read_text())
+        # "0.11e-884" -> v011e, "0.69d0" -> v069d (the namespace drops the patch digit).
+        build = 'v'+re.sub(r'(?<=[a-z])0$', '', m['donor_build'].split('-')[0].replace('.', ''))
+        for name, template in m['converted_materials'].items():
+            stand_in[f'material_instances/ported/{build}/{name}.material'] = f'material_instances/{template}.material'
+    report_templates = {'proven_by_template': 0, 'mesh_type_mismatch': []}
     families = {}
     for path in candidate_paths:
         parts = path.split('/')
@@ -103,11 +118,20 @@ def main():
             if not (path.startswith('material_instances/') and path.endswith('.material')):
                 continue
             new_bytes = read(args.candidate, path)
-            if path not in baseline_paths:
+            if path not in baseline_paths and stand_in.get(path) in baseline_paths:
+                old_bytes = read(args.baseline, stand_in[path])
+                o, n = config(old_bytes), config(new_bytes)
+                kinds = lambda m: {k: v.get('value') if isinstance(v, dict) else v
+                                   for k, v in (m.get('material', {}).get('g_stage') or {}).items() if k.startswith('with_')}
+                if kinds(o) != kinds(n):
+                    report_templates['mesh_type_mismatch'].append(path)
+                report_templates['proven_by_template'] += 1
+            elif path not in baseline_paths:
                 if '/ported/' in path:
                     report['unprovable_new_materials'].append(path)
                 continue
-            old_bytes = read(args.baseline, path)
+            else:
+                old_bytes = read(args.baseline, path)
             if old_bytes == new_bytes:
                 continue
             old, new = config(old_bytes), config(new_bytes)
@@ -135,11 +159,12 @@ def main():
             elif missing:
                 report['missing'][path] = sorted(set(missing))
     report['missing_shader_count'] = sum(len(v) for v in report['missing'].values())
+    report.update(report_templates)
     text = json.dumps(report, indent=2)+'\n'
     if args.output:
         args.output.write_text(text)
     print(json.dumps({k: (len(v) if isinstance(v, (list, dict)) else v) for k, v in report.items()}, indent=2))
-    bad = report['missing'] or report['new_shadow_casters'] or report['unprovable_new_materials']
+    bad = report['missing'] or report['new_shadow_casters'] or report['unprovable_new_materials'] or report_templates['mesh_type_mismatch']
     sys.exit(1 if bad else 0)
 
 
