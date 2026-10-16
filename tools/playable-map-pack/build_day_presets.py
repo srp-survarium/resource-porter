@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build per-donor hook presets for maps 194/195/196 in each named look.
+"""Build per-donor hook presets for maps 194/195/196 (and the X-Ray maps 197-201) in each named look.
 
 Looks (see docs/investigation/day-map-calibration-20261015.md):
   source                  0.11e LUT/geometry fog/clouds, 0.11e post tail,
@@ -12,6 +12,13 @@ sort, 0.11e cubic probe falloff over the source skylight, remains sun
 sentinel plus F0=1 local diffuse, encoded local lights, Radar cone opacity
 and the 0.20e ambient adapter. `--probe-specular` adds the opt-in source 0.11e
 probe specular producer (an A/B candidate, not part of either look).
+
+The X-Ray deathmatch maps (pool-soc-dm 197, training-camp-cs-dm 198,
+rembasa-cs-dm 199, sport-center-cs-dm 200, firestation-cs-dm 201) reach
+0.26 through 0.10b with no environment probes and keep 0.26 height ambient
+for their source skylight, so none of the 0.11e renderer replacements apply:
+their presets carry only the hook and the shared user.cfg, in every look.
+`--maps` restricts the build to some keys.
 
 Every input is pinned by SHA-256; shaders are compiled from committed
 sources with FXC (/WX /O3 ps_4_0). Nothing outside OUTPUT is written.
@@ -36,6 +43,10 @@ SSAO_011E = {  # donor 0.11e archive entries (quality 3 accumulation, upsample, 
 }
 SSAO_NOISE = ('textures/engine/ssao_rotate.dds', '0a1ee4b719ca93154d04b86b3f76f74d884c7a6a695ffaea95c896a7551938e7')
 SSAO_PARAMETERS = {'chemical-011e-day': '1.3,1.3', 'radar-011e-day': '1.5,1.5'}  # post_process level_04/03_day
+DAY_KEYS = ('chemical-011e-day', 'radar-011e-day', 'radar-020e-day')
+# Converted X-Ray maps: native 0.26 lighting, user.cfg shared with the day maps.
+NATIVE_KEYS = {key: 'radar-020e-day' for key in (
+    'pool-soc-dm', 'training-camp-cs-dm', 'rembasa-cs-dm', 'sport-center-cs-dm', 'firestation-cs-dm')}
 WEATHER = {'chemical-011e-day': 'LEGACY_WEATHER_CHEMICAL_DAY', 'radar-011e-day': 'LEGACY_WEATHER_DAY'}
 PINNED = {
     'cone/cone.dxbc': 'c6f5566ccfc47c9fbba5eb94e2385aef465b97c78797dde619f27b2aea75c896',
@@ -98,6 +109,8 @@ def main():
     parser.add_argument('--fxc', type=Path, required=True)
     parser.add_argument('--wineprefix', type=Path, required=True)
     parser.add_argument('--probe-specular', action='store_true')
+    parser.add_argument('--maps', default=','.join(DAY_KEYS + tuple(NATIVE_KEYS)),
+                        help='comma-separated preset keys to build')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():
@@ -125,11 +138,15 @@ def main():
     shutil.copyfile(args.hook, common/'camera_hook.dll')
     looks = ['source', 'legacy-010b-atmosphere']
     record = {'looks': {}, 'probe_specular': args.probe_specular}
+    keys = args.maps.split(',')
+    unknown = set(keys) - set(DAY_KEYS) - set(NATIVE_KEYS)
+    if unknown:
+        parser.error(f'unknown preset keys: {sorted(unknown)}')
     for look in looks:
-        for key in ('chemical-011e-day', 'radar-011e-day', 'radar-020e-day'):
+        for key in keys:
             directory = args.output/look/'presets'/key
             directory.mkdir(parents=True)
-            snapshot = args.snapshot/'presets'/key
+            snapshot = args.snapshot/'presets'/NATIVE_KEYS.get(key, key)
             shutil.copyfile(snapshot/'user.cfg', directory/'user.cfg')
             rel = lambda p: str(Path(p).relative_to(args.output/look)) if Path(p).is_relative_to(args.output/look) else None
             preset = {'environment': {}, 'assets': {}, 'hook': f'presets/{key}/camera_hook.dll',
@@ -146,7 +163,9 @@ def main():
                     shutil.copyfile(source, target)
                 preset['assets'][name] = f'presets/{key}/assets/{name}'
 
-            if key == 'radar-020e-day':
+            if key in NATIVE_KEYS:
+                pass
+            elif key == 'radar-020e-day':
                 preset['environment']['SRP_LEGACY_020E_AMBIENT'] = '1'
                 put('SRP_LEGACY_020E_AMBIENT_APPLY', common/'ambient-020e.ps')
             else:
@@ -198,7 +217,7 @@ def main():
                  for p in sorted((args.output/look).rglob('*')) if p.is_file()}
         (args.output/look/'manifest.json').write_text(json.dumps(files, indent=2)+'\n')
         record['looks'][look] = len(files)
-    shutil.rmtree(args.output/'.shaders')
+    shutil.rmtree(args.output/'.shaders', ignore_errors=True)  # none when only native keys are built
     record['inputs'] = {'hook': sha(args.hook), 'snapshot': str(args.snapshot), 'donor011e': str(args.donor011e)}
     (args.output/'build.json').write_text(json.dumps(record, indent=2)+'\n')
     print(json.dumps(record, indent=2))

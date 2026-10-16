@@ -16,6 +16,13 @@ import time
 import uuid
 
 PACKAGE = Path(__file__).resolve().parent
+# Whole-preset overrides of the recipe's user.cfg (0.26 option names).
+QUALITY_OPTIONS = ('r_texture_quality', 'r_shadow_quality', 'r_lighting_quality', 'r_shading_quality',
+                   'r_decorations_quality', 'r_post_process_quality', 'r_ambient_occlusion_quality',
+                   'r_particles_quality')
+QUALITY = {'low': dict({o: 0 for o in QUALITY_OPTIONS}, r_geometry_quality=0),
+           'medium': dict({o: 1 for o in QUALITY_OPTIONS}, r_geometry_quality=1),
+           'high': dict({o: 2 for o in QUALITY_OPTIONS}, r_geometry_quality=1)}
 
 
 def read(path):
@@ -103,7 +110,7 @@ def run(catalog, args):
     state = {'package': str(PACKAGE), 'pid': os.getpid(), 'start_ticks': start_ticks(os.getpid()),
              'token': args.token, 'map': item['key'], 'map_id': item['map_id'], 'status': 'preparing',
              'runtime': str(runtime), 'port': args.port, 'camera': 'actual character', 'ui': args.ui,
-             'client_count': args.clients}
+             'client_count': args.clients, 'quality': args.quality, 'frame_rate': args.frame_rate}
     atomic(state_path, state)
     server = None
     clients = []
@@ -113,7 +120,7 @@ def run(catalog, args):
     env = {k:v for k,v in os.environ.items() if not k.startswith(('SRP_LEGACY_', 'SRP_CAPTURE_', 'SRP_DIAGNOSTIC_'))}
     env.update(WINEPREFIX=str(prefix), DISPLAY=os.environ.get('DISPLAY', ':0'), WINEDEBUG='-all',
                WINEDLLOVERRIDES='mscoree,mshtml,qwave=;winemenubuilder.exe=d;d3d11,dxgi=n,b',
-               VK_ICD_FILENAMES='/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json', DXVK_FRAME_RATE='60')
+               VK_ICD_FILENAMES='/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json', DXVK_FRAME_RATE=str(args.frame_rate))
     env.pop('VK_DRIVER_FILES', None)
     env.pop('SRP_MATCH_SESSION', None)
     env.update(recipe['environment'])
@@ -168,8 +175,9 @@ def run(catalog, args):
                     archive.extractall(slot, filter='fully_trusted')
             config = prefix/'drive_c/users/sheep/Documents/Survarium/user.cfg'
             config.parent.mkdir(parents=True, exist_ok=True)
-            lines = [s for s in (PACKAGE/recipe['config']).read_text().splitlines() if s.split()[:1] != ['ui']]
-            config.write_text('\n'.join(lines)+f'\nui {args.ui}\n')
+            overrides = dict(QUALITY.get(args.quality, {}), ui=args.ui)
+            lines = [s for s in (PACKAGE/recipe['config']).read_text().splitlines() if s.split()[:1] not in [[k] for k in overrides]]
+            config.write_text('\n'.join(lines+[f'{k} {v}' for k, v in overrides.items()])+'\n')
             for control in slot.glob('camera.txt*'):
                 if control.is_file():
                     control.unlink()
@@ -235,6 +243,9 @@ def main():
     parser.add_argument('--port', type=int, default=catalog['default_port'])
     parser.add_argument('--ui', choices=['on', 'off'], default='on')
     parser.add_argument('--clients', type=int, choices=[1, 2], default=1)
+    parser.add_argument('--quality', choices=['preset', 'low', 'medium', 'high'], default='preset',
+                        help="graphics options: the recipe's user.cfg, or a whole low/medium/high preset")
+    parser.add_argument('--frame-rate', type=int, default=60, help='DXVK frame cap; 0 = uncapped')
     parser.add_argument('--check', action='store_true')
     parser.add_argument('--token', default='')
     args = parser.parse_args()
@@ -283,7 +294,8 @@ def main():
         supervisor_log = runtime.parent/(runtime.name+'-supervisor.log')
         with supervisor_log.open('w') as log:
             child = subprocess.Popen([sys.executable, str(PACKAGE/'launch.py'), '_run', args.map,
-                '--runtime', str(runtime), '--port', str(args.port), '--ui', args.ui, '--clients', str(args.clients), '--token', token],
+                '--runtime', str(runtime), '--port', str(args.port), '--ui', args.ui, '--clients', str(args.clients),
+                '--quality', args.quality, '--frame-rate', str(args.frame_rate), '--token', token],
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         deadline = time.monotonic()+10
         while time.monotonic()<deadline:
