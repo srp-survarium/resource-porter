@@ -835,6 +835,9 @@ enum PackCommand {
         /// The base the pack will be composed onto.
         #[arg(long)]
         base_db: PathBuf,
+        /// A `resources.db.patch_<n>` over it (repeatable), as players have it.
+        #[arg(long = "base-patch")]
+        base_patches: Vec<PathBuf>,
         /// The database the bundle was built on; drops inherited entries
         /// and carries reused files the base lacks.
         #[arg(long)]
@@ -2497,6 +2500,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
         }
         PackCommand::FromBundle {
             base_db,
+            base_patches,
             build_base_db,
             bundle,
             output,
@@ -2506,6 +2510,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             let manifest = content_pack::from_bundle::from_bundle(
                 &content_pack::from_bundle::FromBundleOptions {
                     base_db: &base_db,
+                    base_patches: &base_patches,
                     build_base_db: build_base_db.as_deref(),
                     bundle: &bundle,
                     output: &output,

@@ -49,7 +49,7 @@ line, then in each pack's listed order.
 | `config_append` | `path`, `array_path`, `values: [..]` | Appends to an indexed table. Appends from several packs accumulate in order. |
 | `dictionary_add` | `table`, `entries: [{..}]`, `id_field`? | Appends rows to an indexed table of `gameplay/db_static_dictionaries`. The id field defaults to `dict_id` for `items_dict` and `id` otherwise (`maps_dict`, `shop_bundles_dict`, …). An id already in the base is an error, unless the base row is identical (then it is a no-op). Two packs adding the same id is a conflict. |
 | `localization_add` | `strings: {key: text}`, `languages`? | Adds to `localization/<lang>/localization` `strings`. Without `languages` it applies to every language in the base. A key that exists with different text, in the base or in another pack, is a conflict. Identical text is a no-op. |
-| `atlas_icons_add` | `icons: [{row, col, source, premultiplied?}]`, `swf`?, `symbol`? | Draws 171x83 PNG icons into empty cells of the `LobbyMenu_EquipmentIcons` bitmap in `flash_movies/lobby_menu.swf`. Cells are 1-based `[row, col]` on a 171x91 grid, the same as an item's `ui_desc.icon`. The bitmap widens to new columns; existing cells never move. An occupied base cell, or two packs drawing the same cell, is a conflict. PNGs hold straight alpha unless `premultiplied: true`. |
+| `atlas_icons_add` | `icons: [{row, col, source, premultiplied?}]`, `swf`?, `symbol`? | Draws 171x83 PNG icons into empty cells of the `LobbyMenu_EquipmentIcons` bitmap in `flash_movies/lobby_menu.swf`. Cells are 1-based `[row, col]` on a 171x91 grid, the same as an item's `ui_desc.icon`. The bitmap widens to new columns; existing cells never move. An occupied base cell, or two packs drawing the same cell, is a conflict, unless the icon gives `replaces_sha256`: the SHA-256 of the base cell's pixels (an icon an earlier patch drew); the base cell must then be exactly that one. PNGs hold straight alpha unless `premultiplied: true`. |
 
 An edit of a file that another pack adds or replaces is allowed only when the
 editing pack `requires` that pack.
@@ -85,7 +85,7 @@ vostok-port pack patch   --base-db DB [--base-patch P …] --pack A [--pack B �
 vostok-port pack verify  --db DB [--patch P …] --pack A --pack B …
 vostok-port pack compose --base-db DB --pack A --pack B … --work-dir W \
                          --output-db OUT [--server-export DIR] [--force]
-vostok-port pack from-bundle --base-db DB [--build-base-db BUILT_ON] \
+vostok-port pack from-bundle --base-db DB [--base-patch P …] [--build-base-db BUILT_ON] \
                          --bundle BUNDLE --output PACK --id ID --version V
 ```
 
@@ -144,7 +144,9 @@ Changed shared files become entry- and field-level operations:
 * other binary configs become `config_set`/`config_append`, but only when
   applying them reproduces the bundle's file exactly;
 * changed atlas cells become `atlas_icons_add`, but only when the SWF is
-  otherwise unchanged;
+  otherwise unchanged (from the base, or from the build base when an
+  earlier patch changed the movie since); a cell an earlier patch drew that
+  the bundle's own item shows is redrawn with its `replaces_sha256`;
 * everything else becomes `replace_file` with the base hash.
 
 `equipment.json` becomes `server.items`, and the manifest's `maps` ids become
@@ -157,7 +159,15 @@ files reference it. Ownership evidence is an item's `cfg_name`, a map's
 `cfg_mode_name`, a string key used in a config, or the bundle's
 `ui_desc.icon` cells. Files that the bundle's configs reference, and that
 exist in the build base but not in the target base, are carried in as
-`add_file`. The Duty bundle needs this for its reused materials. The
+`add_file`. The Duty bundle needs this for its reused materials. A file
+the bundle ships exactly as its build base has it is not the bundle's, and
+is left as the target base has it.
+
+For a release, `--base-patch` lays the patches players have over
+`--base-db`, as `pack patch` does: a bundle built on the stock database then
+becomes a pack of what it changes over those patches (its released files
+`replace_file` against the released bytes, its released dictionary row a
+`config_set`, its released icon a redraw). The
 conversion records every dropped or carried item in `notes`.
 
 Removals cannot be expressed: a deleted dictionary row, a removed config key

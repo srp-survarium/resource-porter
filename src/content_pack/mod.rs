@@ -134,6 +134,12 @@ pub struct AtlasIcon {
     /// The PNG already holds premultiplied colour (as `from-bundle` writes).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub premultiplied: bool,
+    /// The cell an earlier patch drew that this icon redraws: the SHA-256 of
+    /// its pixels in the base (`atlas::Bitmap::cell`, premultiplied ARGB).
+    /// Without it an occupied base cell is a conflict; with it the base cell
+    /// must be exactly that one (drift check, as `replace_file`'s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaces_sha256: Option<String>,
 }
 
 /// Default id field of a dictionary table.
@@ -932,14 +938,30 @@ impl<'a> Plan<'a> {
             if current == pixels {
                 continue;
             }
-            if current.iter().any(|byte| *byte != 0) {
-                problems.push(format!(
-                    "{}: atlas cell [{}, {}] of {path} is already occupied in the base",
-                    pack.id(),
-                    icon.row,
-                    icon.col
-                ));
-                continue;
+            let occupied = current.iter().any(|byte| *byte != 0);
+            match (&icon.replaces_sha256, occupied) {
+                (None, false) => {}
+                (None, true) => {
+                    problems.push(format!(
+                        "{}: atlas cell [{}, {}] of {path} is already occupied in the base",
+                        pack.id(),
+                        icon.row,
+                        icon.col
+                    ));
+                    continue;
+                }
+                (Some(wanted), _) if *wanted == sha256_hex(&current) => {}
+                (Some(wanted), _) => {
+                    problems.push(format!(
+                        "{}: atlas cell [{}, {}] of {path} is not the icon it replaces: the base's {} is {}, the pack replaces {wanted}",
+                        pack.id(),
+                        icon.row,
+                        icon.col,
+                        if occupied { "icon" } else { "empty cell" },
+                        sha256_hex(&current)
+                    ));
+                    continue;
+                }
             }
             if let Err(error) = bitmap.put_cell(icon.row, icon.col, &pixels) {
                 problems.push(format!("{}: {path}: {error:#}", pack.id()));
