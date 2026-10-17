@@ -184,6 +184,7 @@ def main():
     ap.add_argument('--open-model', type=Path, required=True, help="the native surface's converted_model")
     ap.add_argument('--closed-model', type=Path, required=True, help="the pack's surface converted_model")
     ap.add_argument('--texture', type=Path, required=True, help='edge_assault_05_helmet.dds (or a PNG of it)')
+    ap.add_argument('--closed-texture', type=Path, help="the closed helmet's own diffuse (the pack's edge_assault_05_helmet_closed.dds)")
     ap.add_argument('--normal-map', type=Path, required=True, help='edge_assault_05_helmet_nmap.dds')
     ap.add_argument('--specular-map', type=Path, required=True, help='edge_assault_05_helmet_smap.dds')
     ap.add_argument('--lobby-swf', type=Path, required=True, help='the lobby movie players have now')
@@ -197,7 +198,8 @@ def main():
     texture = (rgba(a.texture)[:, :, :3], np.dstack([normals[:, :, 3] * 2 - 1, normals[:, :, 1] * 2 - 1]),
                rgba(a.specular_map)[:, :, 0])
     open_mesh = load_mesh(a.open_model, texture)
-    closed_mesh = load_mesh(a.closed_model, texture)
+    closed_texture = (rgba(a.closed_texture)[:, :, :3],) + texture[1:] if a.closed_texture else texture
+    closed_mesh = load_mesh(a.closed_model, closed_texture)
 
     # The native icon's camera: the best silhouette over yaw, pitch and
     # framing (the icon's own margins), searched coarse then fine.
@@ -223,8 +225,15 @@ def main():
     score, view, scale, center, yaw, pitch = best
     print(f'native camera: yaw {yaw}, pitch {pitch}, silhouette IoU {score:.3f}')
     # The closed visor reaches further down: keep both in the cell.
-    fit, _ = framing([open_mesh, closed_mesh], view, ICON, (2, 2))
+    fit, _ = framing([open_mesh, closed_mesh], view, ICON, (4, 4))
     scale = min(scale, fit)
+    # ... and move them back inside if the native icon's offset pushes one out.
+    pts = np.concatenate([open_mesh['p'], closed_mesh['p']]) @ view[0]
+    left, right = (pts[:, 0].min() - center[0]) * scale + ICON[0] / 2, (pts[:, 0].max() - center[0]) * scale + ICON[0] / 2
+    top, bottom = -(pts[:, 1].max() - center[1]) * scale + ICON[1] / 2, -(pts[:, 1].min() - center[1]) * scale + ICON[1] / 2
+    dx = max(0, 3 - left) - max(0, right - (ICON[0] - 3))
+    dy = max(0, 3 - top) - max(0, bottom - (ICON[1] - 3))
+    center = center - np.array([dx, -dy]) / scale
 
     big = (ICON[0] * SUPER, ICON[1] * SUPER)
     open_icon = shrink(render(open_mesh, view, scale * SUPER, center, big), ICON)

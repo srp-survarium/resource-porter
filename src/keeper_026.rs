@@ -6,9 +6,13 @@
 //! No build of the game has a closed pose: the model is the same from 0.26g
 //! to 0.28d (0.31a2 and 0.46c2 recompress it, and 0.31a2 gives
 //! `edge_helmet_5` another model). The visor is its own UV islands of the
-//! one surface, hinged on the two teardrop tabs of the shell's side band, so
-//! the closed pose is the visor and a copy of the tabs turned down about the
-//! tabs' screws.
+//! one surface, hinged on the two teardrop tabs of the shell's side band.
+//! Closed, the visor and the tabs turn down about the tabs' screws and the
+//! plate slides down and forward until its grille is on the native head's
+//! eyes (the arms lengthen); the tabs' old place is filled with the hinge
+//! disc's dark metal, a flap closes the gap between the plate and the brow,
+//! and the helmet has its own diffuse texture without the darkness the raised
+//! visor baked into the parts it covered (`scripts/keeper-closed-026-texture.py`).
 use crate::content_pack::{AtlasIcon, Operation, PackManifest, patch::base_layers, value};
 use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
@@ -22,7 +26,7 @@ use std::{
 };
 
 pub const PACK_ID: &str = "keeper-closed";
-pub const PACK_VERSION: &str = "1";
+pub const PACK_VERSION: &str = "2";
 /// Free in the stock dictionary and every Skhid patch and pack (1800-1811
 /// are the STK2 ports, 1815/1816 are planned for the STK2 stalker suit).
 pub const DICT_ID: i32 = 1820;
@@ -31,9 +35,27 @@ pub const ICON: (u32, u32) = (14, 6);
 pub const ITEM: &str = "gameplay/items/armour/helmet/edge_helmet_5_closed.options";
 pub const MODEL: &str = "models/character/human/edge/edge_assault_05_helmet_closed.skinned_model";
 /// How far the visor turns down from the native (raised) pose, about the
-/// tabs' screws: the plate stands over the eyes and nose, 6.8 mm clear of the
-/// native player head (`black_market_01_head_s`) at its closest.
-pub const CLOSED_DEGREES: f32 = 58.0;
+/// tabs' screws.
+pub const CLOSED_DEGREES: f32 = 82.0;
+/// How far the plate then slides forward (m): 8.8 mm clear of the native
+/// player head (`black_market_01_head_s`) at its closest. It slides down by
+/// as much as puts the grille's centre on the eyes' height.
+pub const SLIDE_FORWARD: f32 = 0.035;
+/// The slide takes the plate whole from this far from the screws, and the
+/// arms not at all to this near: between, they lengthen (m).
+const SLIDE_FULL: f32 = 0.08;
+const SLIDE_NONE: f32 = 0.045;
+/// The grille's centre on the texture (on the plate, island 22).
+const GRILLE_UV: [f32; 2] = [0.095, 0.5];
+/// The native player head's bind pose, for its eyes.
+const HEAD_BIND_POSE: &str =
+    "models/character/human/base/base_character_head.skinned_model/render/bind_pose";
+pub const TEXTURE: &str = "textures/character/human/edge_assault_05/edge_assault_05_helmet_closed";
+const NATIVE_TEXTURE: &str = "textures/character/human/edge_assault_05/edge_assault_05_helmet";
+pub const MATERIAL: &str =
+    "material_instances/characters/human/edge_assault_05/edge_assault_05_helmet_closed.material";
+const NATIVE_MATERIAL: &str =
+    "material_instances/characters/human/edge_assault_05/edge_assault_05_helmet.material";
 
 const NATIVE_ITEM: &str = "gameplay/items/armour/helmet/edge_helmet_5.options";
 const NATIVE_ITEM_SHA256: &str = "c91595a42cb40a16d6b2968bb4b1a637ec6f4d72fd7e1fe15f095ca1c7bdb655";
@@ -65,10 +87,10 @@ const VISOR_MIN_Y: f32 = 1.735;
 const VISOR_VERTICES: usize = 130;
 const VISOR_TRIANGLES: usize = 138;
 /// The teardrop tabs the visor's arms end in, on the right (+x) and left
-/// sides, vertex for mirrored vertex; the first of each is not special, the
-/// screw is [`SCREWS`]. They share their outline with the shell's hinge
-/// disc, so the turned tabs are a copy and the native ones stay as the
-/// fixed leaf of the hinge.
+/// sides, vertex for mirrored vertex: the outline (the first
+/// [`TAB_OUTLINE`]) and the inside; the screw is [`SCREWS`]. They share their
+/// outline with the shell's hinge disc, so the turned tabs are a copy; the
+/// native tabs' triangles become the fill of their old place.
 const RIGHT_TAB: [u16; 18] = [
     155, 153, 146, 148, 150, 152, 158, 160, 161, 173, 154, 168, 165, 163, 164, 166, 167, 169,
 ];
@@ -76,9 +98,24 @@ const LEFT_TAB: [u16; 18] = [
     481, 480, 473, 474, 476, 478, 484, 487, 485, 498, 479, 495, 490, 492, 491, 493, 494, 496,
 ];
 const SCREWS: [u16; 2] = [163, 492];
+const TAB_OUTLINE: usize = 10;
 const TAB_TRIANGLES: usize = 46;
 /// The turned copy of a tab sits this far outside the native one.
 const TAB_OFFSET: f32 = 0.001;
+/// The fill of a tab's old place: flat at this |x| inside its outline, drawn
+/// from the hinge disc's dark ring (this far from the screw on the texture),
+/// shrunk to this much of the tab's own texture layout.
+const FILL_X: f32 = 0.111;
+const FILL_DARK: [f32; 2] = [-0.02, 0.05];
+const FILL_SCALE: f32 = 0.15;
+/// The flap from the closed plate's top to the brow: columns at these x,
+/// their front (just inside the plate's top) and back (under the brow's
+/// lower edge) as (y, z) for |x| up to 0.075, 0.095 and beyond.
+const FLAP_X: [f32; 9] = [-0.103, -0.09, -0.06, -0.03, 0.0, 0.03, 0.06, 0.09, 0.103];
+const FLAP_FRONT: [[f32; 2]; 3] = [[1.7195, 0.1525], [1.7255, 0.1305], [1.7295, 0.1205]];
+const FLAP_BACK: [[f32; 2]; 3] = [[1.7485, 0.107], [1.745, 0.092], [1.7445, 0.088]];
+/// The flap's texels: the dome's lit middle (u0, v0, u1, v1), v0 at the back.
+const FLAP_UV: [f32; 4] = [0.40, 0.73, 0.57, 0.83];
 
 /// One text in the client's six localizations (`original` is the Russian).
 struct Text {
@@ -179,6 +216,36 @@ fn turn_vertex(vertex: &mut [u8], pivot: [f32; 2], angle: f32) {
     }
 }
 
+fn set_f32(vertex: &mut [u8], at: usize, value: f32) {
+    vertex[at..at + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// Packs a unit vector as the basis bytes (B, G, R = z, y, x), keeping A.
+fn pack_basis(packed: &mut [u8], v: [f32; 3]) {
+    let pack = |c: f32| ((c + 1.0) * 127.5).round().clamp(0.0, 255.0) as u8;
+    packed[0] = pack(v[2]);
+    packed[1] = pack(v[1]);
+    packed[2] = pack(v[0]);
+}
+
+fn unit(v: [f32; 3]) -> [f32; 3] {
+    let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    v.map(|c| c / l)
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// What [`close_visor`] did.
 #[derive(Debug)]
 pub struct Closed {
@@ -188,10 +255,16 @@ pub struct Closed {
     pub visor_vertices: usize,
     pub tab_triangles: usize,
     pub pivot: [f32; 2],
+    /// The plate's slide (y, z) after the turn.
+    pub slide: [f32; 2],
+    /// The grille's centre, closed.
+    pub grille: [f32; 3],
 }
 
-/// The native surface with the visor turned down by `degrees`.
-pub fn close_visor(native: &[u8], degrees: f32) -> Result<Closed> {
+/// The native surface with the visor closed: turned [`CLOSED_DEGREES`] about
+/// the tabs' screws, the plate slid [`SLIDE_FORWARD`] forward and down until
+/// the grille's centre is at `eye_y`.
+pub fn close_visor(native: &[u8], eye_y: f32) -> Result<Closed> {
     ensure!(u32_at(native, 0)? == 3, "no vertex chunk");
     let n = u32_at(native, 8)?;
     ensure!(
@@ -211,6 +284,10 @@ pub fn close_visor(native: &[u8], degrees: f32) -> Result<Closed> {
     let position = |i: usize| {
         let v = vertex(i);
         [f32_at(v, 0), f32_at(v, 4), f32_at(v, 8)]
+    };
+    let uv = |i: usize| {
+        let v = vertex(i);
+        [f32_at(v, 28), f32_at(v, 32)]
     };
     let triangles: Vec<[usize; 3]> = native[index_at + 12..]
         .chunks_exact(6)
@@ -264,6 +341,10 @@ pub fn close_visor(native: &[u8], degrees: f32) -> Result<Closed> {
             "tab vertices {r} and {l} are not mirrored"
         );
     }
+    ensure!(
+        RIGHT_TAB[13] == SCREWS[0] && LEFT_TAB[13] == SCREWS[1],
+        "the screws are not the tabs' 14th vertices"
+    );
     let [screw, _] = SCREWS.map(|s| position(s.into()));
     let pivot = [screw[1], screw[2]];
     let tab: BTreeSet<usize> = RIGHT_TAB
@@ -275,37 +356,150 @@ pub fn close_visor(native: &[u8], degrees: f32) -> Result<Closed> {
         tab.iter().all(|&v| !visor[v]),
         "a tab vertex is in the visor islands"
     );
-    let tab_triangles: Vec<[usize; 3]> = triangles
-        .iter()
-        .filter(|t| t.iter().all(|v| tab.contains(v)))
-        .copied()
-        .collect();
+    let is_tab_triangle = |t: &[usize; 3]| t.iter().all(|v| tab.contains(v));
+    let tab_triangles = triangles.iter().filter(|t| is_tab_triangle(t)).count();
     ensure!(
-        tab_triangles.len() == TAB_TRIANGLES,
-        "{} tab triangles",
-        tab_triangles.len()
+        tab_triangles == TAB_TRIANGLES,
+        "{tab_triangles} tab triangles"
     );
 
-    let angle = degrees.to_radians();
+    // The grille's centre, open: on the plate, where its texture is.
+    let grille_open = triangles
+        .iter()
+        .filter(|t| visor[t[0]])
+        .find_map(|t| {
+            let [a, b, c] = t.map(uv);
+            let (e1, e2) = ([b[0] - a[0], b[1] - a[1]], [c[0] - a[0], c[1] - a[1]]);
+            let det = e1[0] * e2[1] - e1[1] * e2[0];
+            if det.abs() < 1e-12 {
+                return None;
+            }
+            let q = [GRILLE_UV[0] - a[0], GRILLE_UV[1] - a[1]];
+            let s = (q[0] * e2[1] - q[1] * e2[0]) / det;
+            let r = (e1[0] * q[1] - e1[1] * q[0]) / det;
+            (s >= 0.0 && r >= 0.0 && s + r <= 1.0).then(|| {
+                let [pa, pb, pc] = t.map(position);
+                [0, 1, 2].map(|k| pa[k] + s * (pb[k] - pa[k]) + r * (pc[k] - pa[k]))
+            })
+        })
+        .context("no visor triangle has the grille's centre")?;
+    let angle = CLOSED_DEGREES.to_radians();
+    let turned_grille = turn(grille_open[1], grille_open[2], pivot, angle);
+    let slide = [eye_y - turned_grille.0, SLIDE_FORWARD];
+    let weight = |p: [f32; 3]| {
+        let r = ((p[1] - pivot[0]).powi(2) + (p[2] - pivot[1]).powi(2)).sqrt();
+        smoothstep((r - SLIDE_NONE) / (SLIDE_FULL - SLIDE_NONE))
+    };
+    let grille = [
+        grille_open[0],
+        turned_grille.0 + weight(grille_open) * slide[0],
+        turned_grille.1 + weight(grille_open) * slide[1],
+    ];
+
     let mut vertices: Vec<Vec<u8>> = (0..n).map(|i| vertex(i).to_vec()).collect();
     for (i, v) in vertices.iter_mut().enumerate() {
         if visor[i] {
+            let w = weight(position(i));
             turn_vertex(v, pivot, angle);
+            let (y, z) = (f32_at(v, 4), f32_at(v, 8));
+            set_f32(v, 4, y + w * slide[0]);
+            set_f32(v, 8, z + w * slide[1]);
         }
     }
+    // The tabs' old place: their triangles on copies of their vertices,
+    // flat inside the outline and in the disc's dark metal.
+    let mut fill = BTreeMap::new();
+    for side in [&RIGHT_TAB, &LEFT_TAB] {
+        let screw_uv = uv(side[13].into());
+        for (k, &v) in side.iter().enumerate() {
+            let v = usize::from(v);
+            let mut bytes = vertex(v).to_vec();
+            if k >= TAB_OUTLINE {
+                let x = f32_at(&bytes, 0);
+                set_f32(&mut bytes, 0, FILL_X * x.signum());
+            }
+            let own = uv(v);
+            for c in 0..2 {
+                set_f32(
+                    &mut bytes,
+                    28 + c * 4,
+                    screw_uv[c] + FILL_DARK[c] + FILL_SCALE * (own[c] - screw_uv[c]),
+                );
+            }
+            fill.insert(v, vertices.len());
+            vertices.push(bytes);
+        }
+    }
+    // The tabs, turned with the visor on the screws.
     let mut copy = BTreeMap::new();
     for &v in &tab {
         let mut bytes = vertex(v).to_vec();
         let x = f32_at(&bytes, 0);
-        bytes[0..4].copy_from_slice(&(x + TAB_OFFSET * x.signum()).to_le_bytes());
+        set_f32(&mut bytes, 0, x + TAB_OFFSET * x.signum());
         turn_vertex(&mut bytes, pivot, angle);
         copy.insert(v, vertices.len());
         vertices.push(bytes);
     }
+    // The flap, a strip of quads, wound as the native triangles (counter-
+    // clockwise about the normal), normal up and forward.
+    let template = vertex(0).to_vec();
+    let flap_start = vertices.len();
+    let row = |x: f32, rows: &[[f32; 2]; 3]| {
+        let a = x.abs();
+        let r = if a > 0.095 {
+            2
+        } else if a > 0.075 {
+            1
+        } else {
+            0
+        };
+        [x, rows[r][0], rows[r][1]]
+    };
+    let columns = FLAP_X.len();
+    for (front, v_at) in [(true, FLAP_UV[3]), (false, FLAP_UV[1])] {
+        for (i, &x) in FLAP_X.iter().enumerate() {
+            let p = row(x, if front { &FLAP_FRONT } else { &FLAP_BACK });
+            let (f, b) = (row(x, &FLAP_FRONT), row(x, &FLAP_BACK));
+            let along = unit([0.0, f[1] - b[1], f[2] - b[2]]);
+            let tangent = [1.0, 0.0, 0.0];
+            let normal = unit(cross(along, tangent));
+            let mut bytes = template.clone();
+            for k in 0..3 {
+                set_f32(&mut bytes, k * 4, p[k]);
+            }
+            pack_basis(&mut bytes[16..20], normal);
+            pack_basis(&mut bytes[20..24], tangent);
+            pack_basis(&mut bytes[24..28], along);
+            let u = FLAP_UV[0] + (FLAP_UV[2] - FLAP_UV[0]) * i as f32 / (columns - 1) as f32;
+            set_f32(&mut bytes, 28, u);
+            set_f32(&mut bytes, 32, v_at);
+            vertices.push(bytes);
+        }
+    }
+    let mut flap = Vec::new();
+    for i in 0..columns - 1 {
+        let (f0, f1) = (flap_start + i, flap_start + i + 1);
+        let (b0, b1) = (f0 + columns, f1 + columns);
+        flap.push([f0, f1, b0]);
+        flap.push([f1, b1, b0]);
+    }
+
     let all: Vec<[usize; 3]> = triangles
         .iter()
-        .copied()
-        .chain(tab_triangles.iter().map(|t| t.map(|v| copy[&v])))
+        .map(|t| {
+            if is_tab_triangle(t) {
+                t.map(|v| fill[&v])
+            } else {
+                *t
+            }
+        })
+        .chain(
+            triangles
+                .iter()
+                .filter(|t| is_tab_triangle(t))
+                .map(|t| t.map(|v| copy[&v])),
+        )
+        .chain(flap)
         .collect();
     let count = vertices.len();
     ensure!(count <= usize::from(u16::MAX), "too many vertices");
@@ -329,9 +523,24 @@ pub fn close_visor(native: &[u8], degrees: f32) -> Result<Closed> {
         vertices: count,
         indices: all.len() * 3,
         visor_vertices,
-        tab_triangles: tab_triangles.len(),
+        tab_triangles,
         pivot,
+        slide,
+        grille,
     })
+}
+
+/// The height of the native player head's eyes (the two eye bones).
+fn eye_height(bind_pose: &[u8]) -> Result<f32> {
+    let bones = crate::armor::bind_pose_origins(bind_pose, "native head bind pose")?;
+    let eye = |name: &str| {
+        bones
+            .iter()
+            .find(|(bone, _)| bone == name)
+            .map(|(_, at)| at[1])
+            .with_context(|| format!("no {name} bone"))
+    };
+    Ok((eye("LeftEye")? + eye("RightEye")?) / 2.0)
 }
 
 /// The closed helmet's item config: the native one with its own name, icon
@@ -395,10 +604,16 @@ fn add_file(files: &Path, path: &str, bytes: &[u8], operations: &mut Vec<Operati
     Ok(())
 }
 
-/// Writes the pack to `output` (`pack.json`, `files/`); its icon,
-/// `icons/r14c06.png`, is rendered from the pack's model by
-/// `scripts/render-keeper-closed-026-icon.py`.
-pub fn build(base_db: &Path, base_patches: &[PathBuf], output: &Path) -> Result<()> {
+/// Writes the pack to `output` (`pack.json`, `files/`). `diffuse` is the
+/// helmet's own diffuse texture (an image ImageMagick reads), made by
+/// `scripts/keeper-closed-026-texture.py`; the icon, `icons/r14c06.png`, is
+/// rendered from the pack's model by `scripts/render-keeper-closed-026-icon.py`.
+pub fn build(
+    base_db: &Path,
+    base_patches: &[PathBuf],
+    diffuse: &Path,
+    output: &Path,
+) -> Result<()> {
     ensure!(
         !output.join("pack.json").exists(),
         "{} already holds a pack",
@@ -415,8 +630,39 @@ pub fn build(base_db: &Path, base_patches: &[PathBuf], output: &Path) -> Result<
         "{NATIVE_ITEM} is not the stock config"
     );
     let mut operations = Vec::new();
+    let eye_y = eye_height(&db.read(HEAD_BIND_POSE)?)?;
 
-    // The model: the native files, the turned mesh and its counts.
+    // The texture and the material that names it.
+    let work = output.join("work");
+    fs::create_dir_all(&work)?;
+    let dds = work.join("diffuse.dds");
+    crate::armor::convert_texture(diffuse, &dds, crate::manifest::TextureCompression::Dxt1)?;
+    let texture = crate::duty_026::texture_dds(&fs::read(&dds)?, TEXTURE, true)?;
+    fs::remove_dir_all(&work)?;
+    add_file(output, &format!("{TEXTURE}.dds"), &texture, &mut operations)?;
+    add_file(
+        output,
+        &format!("{TEXTURE}.options"),
+        &db.read(&format!("{NATIVE_TEXTURE}.options"))?,
+        &mut operations,
+    )?;
+    let mut material = BinaryConfig::parse(&db.read(NATIVE_MATERIAL)?)?;
+    let diffuse_key = "material.g_stage.effect.texture_diffuse.value";
+    ensure!(
+        value::value_at(&material.root, diffuse_key)
+            == Some(&V::String(
+                NATIVE_TEXTURE.trim_start_matches("textures/").into()
+            )),
+        "{NATIVE_MATERIAL} draws another diffuse texture"
+    );
+    material.root.set_path(
+        diffuse_key,
+        V::String(TEXTURE.trim_start_matches("textures/").into()),
+    )?;
+    add_file(output, MATERIAL, &material.to_bytes()?, &mut operations)?;
+
+    // The model: the native files, the closed mesh and its counts, and the
+    // settings naming the helmet's own material.
     for file in MODEL_FILES {
         let bytes = db.read(&format!("{NATIVE_MODEL}/{file}"))?;
         let path = format!("{MODEL}/{file}");
@@ -426,12 +672,16 @@ pub fn build(base_db: &Path, base_patches: &[PathBuf], output: &Path) -> Result<
                     sha256_hex(&bytes) == NATIVE_SURFACE_SHA256,
                     "{NATIVE_MODEL}: not the stock surface"
                 );
-                let closed = close_visor(&bytes, CLOSED_DEGREES)?;
+                let closed = close_visor(&bytes, eye_y)?;
                 println!(
-                    "visor: {} vertices turned {CLOSED_DEGREES} degrees about y {:.4}, z {:.4}; {} tab triangles copied; {} vertices, {} indices",
+                    "visor: {} vertices turned {CLOSED_DEGREES} degrees about y {:.4}, z {:.4}, the plate slid y {:+.4}, z {:+.4}: grille centre at y {:.4} (eyes {eye_y:.4}), z {:.4}; {} tab triangles copied and filled; {} vertices, {} indices",
                     closed.visor_vertices,
                     closed.pivot[0],
                     closed.pivot[1],
+                    closed.slide[0],
+                    closed.slide[1],
+                    closed.grille[1],
+                    closed.grille[2],
                     closed.tab_triangles,
                     closed.vertices,
                     closed.indices
@@ -453,6 +703,22 @@ pub fn build(base_db: &Path, base_patches: &[PathBuf], output: &Path) -> Result<
                 closed.mesh
             }
             "render/edge_assault_05_helmet_s/export_properties" => continue,
+            "settings" => {
+                let mut settings = BinaryConfig::parse(&bytes)?;
+                let key = format!("material_settings.{SURFACE}.material_name");
+                let name = |path: &str| {
+                    path.trim_start_matches("material_instances/")
+                        .trim_end_matches(".material")
+                        .to_owned()
+                };
+                ensure!(
+                    value::value_at(&settings.root, &key)
+                        == Some(&V::String(name(NATIVE_MATERIAL))),
+                    "{NATIVE_MODEL}: the surface has another material"
+                );
+                settings.root.set_path(&key, V::String(name(MATERIAL)))?;
+                settings.to_bytes()?
+            }
             _ => bytes,
         };
         add_file(output, &path, &bytes, &mut operations)?;
@@ -544,7 +810,8 @@ pub fn build(base_db: &Path, base_patches: &[PathBuf], output: &Path) -> Result<
             "template": NATIVE_ITEM,
         }]})),
         notes: vec![
-            format!("{MODEL}: {NATIVE_MODEL} with the visor turned down {CLOSED_DEGREES} degrees about its hinge screws"),
+            format!("{MODEL}: {NATIVE_MODEL} with the visor turned down {CLOSED_DEGREES} degrees about its hinge screws and the plate slid until its grille is on the eyes; the tabs' old place filled, a flap to the brow"),
+            format!("{TEXTURE}: the native diffuse without the darkness the raised visor baked into what it covered"),
             format!("{ITEM}: {NATIVE_ITEM} with its own name, icon and model; the mask slot taken and the face protected as the head"),
             "price, seller and drop weight: the native helmet's (item level 14, the Fringe Settlers at rank 9)".into(),
         ],

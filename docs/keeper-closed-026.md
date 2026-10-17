@@ -17,16 +17,45 @@ The visor is six UV islands of that surface (130 vertices): the plate, its
 rim and underside and the two arms, all above the brow (y > 1.735) and in
 front (z > 0). Its arms end in the two teardrop tabs of the shell's side
 band, each on a screw (vertices 163 and 492, y 1.7235, z 0.0117): the hinge.
-The closed pose turns the visor down about the screws' axis, by 58 degrees.
-The tabs share their outline with the shell's hinge discs, so the tabs that
-turn are a copy, 1 mm outside the native ones, which stay as the fixed leaf
-of the hinge. The wedge under the raised plate (island 12) stays with the
-shell. Nothing else changes: the texture and the material are the native
-ones, and the model's other files are copied as they are.
 
-At 58 degrees the plate stands over the eyes and the nose, 6.8 mm clear of
-the native player head (`black_market_01_head_s`) at its closest (52: 16.7
-mm, 60: 3.3 mm). It does not reach the mouth and chin.
+## The closed pose (pack version 2)
+
+Version 1 only turned the visor 58 degrees about the screws. The owner saw
+three faults: the grille sat over the forehead, not the eyes; the front of
+the dome, which the raised visor covers, was near black (darkness baked
+into the texture); and the tabs' native copy left the raised arm's stem
+standing on the side. Version 2:
+
+* **The grille on the eyes.** The grille's centre is where its texels are on
+  the plate (UV 0.095, 0.5). A turn alone cannot put it on the native head's
+  eyes (the `LeftEye`/`RightEye` bones, y 1.6743): 86 degrees would, but the
+  plate's lower half then cuts the nose. So the visor turns 82 degrees and
+  the plate then slides 3.5 cm forward and as far down as puts the grille's
+  centre at the eyes' height (0.8 cm). The slide takes the plate whole from
+  8 cm from the screws and the arms not at all within 4.5 cm, so the arms
+  lengthen between and stay on the screws. The plate is 8.8 mm clear of the
+  native player head (`black_market_01_head_s`) at its closest.
+  `eye-line-sweep.png` in the gallery: 66 to 90 degrees, each with the slide
+  that puts the grille on the eyes at least 6 mm clear.
+* **The forehead.** Lowered, the plate's top is under the brow (the shell's
+  front edge, y 1.748): a flap of 16 triangles closes the gap from just
+  inside the plate's top to under the brow, in the dome's lit metal.
+* **The hinge.** The tabs turn with the visor (a copy, 1 mm outside); the
+  native tabs' triangles stay in place as the fill of their old footprint,
+  on copies of their vertices flat inside the outline and drawn from the
+  hinge disc's dark ring, so the shell around them keeps its texture and no
+  raised stem is left.
+* **The baked darkness.** The helmet has its own diffuse texture,
+  `textures/character/human/edge_assault_05/edge_assault_05_helmet_closed`
+  (DXT1, the native options), and its own material naming it.
+  `scripts/keeper-closed-026-texture.py` makes it from the native one: the
+  dome, the brow wedge, the visor's underside and the arms' inner faces are
+  lifted to the shell's lit level (lit metal cloned from the dome's middle
+  where they were dark, a gain elsewhere); every other texel is native.
+
+Nothing else changes: the normal, specular and fresnel maps are the native
+ones, and the model's other files are copied as they are but its settings,
+which name the new material.
 
 ## The item
 
@@ -49,16 +78,22 @@ show through it (the Keeper mask by 45 mm).
 ## Building
 
 ```
+python3 -I scripts/keeper-closed-026-texture.py \
+    --model <native edge_assault_05_helmet_s/converted_model> \
+    --texture …/edge_assault_05_helmet.dds --output work/diffuse.png
+# ImageMagick runs sandboxed in the working folder: run from a folder that
+# holds both the texture and the pack.
 cargo run --release --example build-keeper-closed-026 -- \
     --base-db RETAIL/resources.db --base-patch …patch_12 --base-patch …patch_14 \
-    --base-patch …patch_17 --output packs/keeper-closed-1
+    --base-patch …patch_17 --diffuse work/diffuse.png --output packs/keeper-closed-2
 python3 -I scripts/render-keeper-closed-026-icon.py \
     --open-model <native edge_assault_05_helmet_s/converted_model> \
-    --closed-model packs/keeper-closed-1/files/models/character/human/edge/edge_assault_05_helmet_closed.skinned_model/render/edge_assault_05_helmet_s/converted_model \
+    --closed-model packs/keeper-closed-2/files/models/character/human/edge/edge_assault_05_helmet_closed.skinned_model/render/edge_assault_05_helmet_s/converted_model \
     --texture …/edge_assault_05_helmet.dds --normal-map …_nmap.dds --specular-map …_smap.dds \
+    --closed-texture packs/keeper-closed-2/files/textures/character/human/edge_assault_05/edge_assault_05_helmet_closed.dds \
     --lobby-swf <flash_movies/lobby_menu.swf players have> \
-    --output packs/keeper-closed-1/icons/r14c06.png --work icon-work
-vostok-port pack check --pack packs/keeper-closed-1 --base-db … --base-patch …
+    --output packs/keeper-closed-2/icons/r14c06.png --work icon-work
+vostok-port pack check --pack packs/keeper-closed-2 --base-db … --base-patch …
 ```
 
 The icon script finds the camera of the native helmet's icon (`[15, 3]`) by

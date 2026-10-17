@@ -10,6 +10,9 @@ struct Args {
     /// The players' `resources.db.patch_<n>` over it.
     #[arg(long = "base-patch")]
     base_patches: Vec<PathBuf>,
+    /// The helmet's own diffuse texture (scripts/keeper-closed-026-texture.py).
+    #[arg(long)]
+    diffuse: PathBuf,
     /// The pack folder to write.
     #[arg(long)]
     output: PathBuf,
@@ -18,5 +21,5 @@ struct Args {
 fn main() -> anyhow::Result<()> {
     let a = Args::parse();
     std::fs::create_dir_all(&a.output)?;
-    vostok_resource_porter::keeper_026::build(&a.base_db, &a.base_patches, &a.output)
+    vostok_resource_porter::keeper_026::build(&a.base_db, &a.base_patches, &a.diffuse, &a.output)
 }
