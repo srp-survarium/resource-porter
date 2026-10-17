@@ -11,7 +11,7 @@
 #      fix/exo-oxygen-hud-icon e6e0fca, over -4's hud.swf and -5's lobby_menu.swf);
 # then a note and version 5, the diff against -4 (files and manifest), the pack check with the 0.21d pack over
 # stock + 12, 14, 17, 19, and SHA256SUMS.
-#   rev20_v011e_5.sh OUT_DIR FOG_PLAN|- SPAWN_PLAN|- [M021D_PACK]
+#   rev20_v011e_5.sh OUT_DIR FOG_PLAN|FOG_SCRIPT.sh|- SPAWN_PLAN|SPAWN_SCRIPT.sh|- [M021D_PACK]
 set -euo pipefail
 OUT=$1; FOG=$2; SPAWN=$3; M021D=${4:-/mnt/hdd/Projects/release-20/packs/maps-021d-5}
 HERE=$(cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -32,8 +32,11 @@ W=${WORK:-$OUT.work5}; mkdir -p "$W" "$OUT"; rm -rf "${OUT:?}/maps-v011e-5"
 cp -a --reflink=auto "$V4" "$OUT/maps-v011e-5"
 N=$OUT/maps-v011e-5
 echo "== 1. kit and loading"; (cd $HERE && $EDIT $N ports/rev20/maps-v011e-5-kit-and-loading.json $STOCK)
-if [ "$FOG" != - ]; then echo "== 2. fog ($FOG)"; (cd $HERE && $EDIT $N "$FOG" $STOCK); fi
-if [ "$SPAWN" != - ]; then echo "== 3. spawns ($SPAWN)"; (cd $HERE && $EDIT $N "$SPAWN" $STOCK); fi
+# FOG / SPAWN: an edit-built-pack plan (.json) or the worker's apply script (.sh: run with the pack dir).
+if [ "$FOG" != - ]; then echo "== 2. fog ($FOG)"
+  case "$FOG" in *.sh) (cd $HERE && bash "$FOG" "$N" $STOCK) ;; *) (cd $HERE && $EDIT $N "$FOG" $STOCK) ;; esac; fi
+if [ "$SPAWN" != - ]; then echo "== 3. spawns ($SPAWN)"
+  case "$SPAWN" in *.sh) (cd $HERE && bash "$SPAWN" "$N") ;; *) (cd $HERE && $EDIT $N "$SPAWN" $STOCK) ;; esac; fi
 echo "== 4. lighting"; (cd $HERE && $PROBES $N ports/survarium-011e-v011-release-to-026g.json)
 for d in day_2 day_4; do
   L=$($PACK_TOOL dump-config --leaves --file $N/files/projects/v011e_level_04/$d/client_project)
