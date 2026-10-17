@@ -448,5 +448,19 @@
     }
   },
   "native_finish": true,
-  "native_resources": true
+  "native_resources": true,
+  "finish_exceptions": {
+    "material_instances/props/electric/electrical_cabinet_01.material": {
+      "fresnel": 0.05,
+      "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
+    },
+    "material_instances/props/electric/electrical_cabinet_02.material": {
+      "fresnel": 0.05,
+      "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
+    },
+    "material_instances/props/electric/mech_cabinet_02.material": {
+      "fresnel": 0.05,
+      "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
+    }
+  }
 }

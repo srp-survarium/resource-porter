@@ -266,6 +266,73 @@ pub fn set_constant_finish(material: &mut ConfigValue, finish: ConstantFinish) -
     Ok(())
 }
 
+/// A reviewed exception to a material's finish, kept after the native finish
+/// or a constant finish: gloss and/or Fresnel reflectance as min = max =
+/// constant, so the template's maps and switches add nothing. `reason` says
+/// who chose it and why.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FinishException {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gloss: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresnel: Option<f32>,
+    pub reason: String,
+}
+
+pub fn apply_finish_exception(
+    material: &mut ConfigValue,
+    exception: &FinishException,
+) -> Result<()> {
+    ensure!(
+        exception.gloss.is_some() || exception.fresnel.is_some(),
+        "a finish exception sets gloss or Fresnel"
+    );
+    ensure!(
+        !exception.reason.trim().is_empty(),
+        "a finish exception needs its reason"
+    );
+    let Some(ConfigValue::Named(stages)) = material.named_mut("material") else {
+        bail!("not a material");
+    };
+    let mut set = false;
+    for stage in stages {
+        let Some(effect) = stage.value.named_mut("effect") else {
+            continue;
+        };
+        for (finish_value, names) in [
+            (
+                exception.gloss,
+                [
+                    "constant_roughness",
+                    "constant_roughness_min",
+                    "constant_roughness_max",
+                ],
+            ),
+            (
+                exception.fresnel,
+                [
+                    "constant_fresnel",
+                    "constant_fresnel_min",
+                    "constant_fresnel_max",
+                ],
+            ),
+        ] {
+            let Some(finish_value) = finish_value else {
+                continue;
+            };
+            for name in names {
+                if value(effect, name).is_some() {
+                    set_value(effect, name, ConfigValue::Float(finish_value));
+                    set = true;
+                }
+            }
+        }
+    }
+    ensure!(set, "material has no gloss or Fresnel values");
+    Ok(())
+}
+
 /// Whether a texture slot is one [`adopt_native_finish`] takes.
 pub fn is_finish_slot(slot: &str) -> bool {
     FINISH_MAPS.iter().any(|(_, texture, ..)| *texture == slot)
@@ -524,6 +591,40 @@ mod tests {
         adopt_native_finish(&mut converted, &native).unwrap();
         assert_eq!(get(&converted, "use_tfresnel"), B(false));
         assert_eq!(get(&converted, "constant_fresnel"), I(0));
+    }
+
+    /// The owner's choice of 2026-10-17: the electrical cabinets keep a
+    /// little reflectance (Fresnel 0.05) over the native finish (0, 0.03);
+    /// gloss and switches stay native.
+    #[test]
+    fn a_reviewed_exception_sets_fresnel_and_keeps_the_rest() {
+        let mut converted = material(vec![
+            ("use_tfresnel", B(false)),
+            ("constant_fresnel", I(0)),
+            ("constant_fresnel_min", I(0)),
+            ("constant_fresnel_max", F(0.8)),
+            ("constant_roughness", F(0.5)),
+        ]);
+        let exception = FinishException {
+            gloss: None,
+            fresnel: Some(0.05),
+            reason: "owner's choice".into(),
+        };
+        apply_finish_exception(&mut converted, &exception).unwrap();
+        for name in [
+            "constant_fresnel",
+            "constant_fresnel_min",
+            "constant_fresnel_max",
+        ] {
+            assert_eq!(get(&converted, name), F(0.05));
+        }
+        assert_eq!(get(&converted, "constant_roughness"), F(0.5));
+        assert_eq!(get(&converted, "use_tfresnel"), B(false));
+        let unexplained = FinishException {
+            reason: " ".into(),
+            ..exception
+        };
+        assert!(apply_finish_exception(&mut converted, &unexplained).is_err());
     }
 
     #[test]

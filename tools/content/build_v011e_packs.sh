@@ -17,7 +17,8 @@ V=${VOSTOK_PORT:-$HERE/../target/release/vostok-port}          # this branch: th
 PACK_TOOL=${PACK_TOOL:-/tmp/rev17-metal-fix/target/release/vostok-port}   # content packs (fix/021-maps-native-finish)
 B="/mnt/hdd/Projects/Survarium Builds/pdb-structure-inputs"
 STOCK=/home/sheep/Projects/survarium/srp/0.26g/game/resources.db
-PATCHES=(/home/sheep/skhid-patches/resources.db.patch_12 /home/sheep/skhid-patches/resources.db.patch_14 /mnt/hdd/Projects/release-17/resources.db.patch_17)
+SP=${SKHID_PATCHES:-/home/sheep/skhid-patches}
+PATCHES=($SP/resources.db.patch_12 $SP/resources.db.patch_14 /mnt/hdd/Projects/release-17/resources.db.patch_17)
 declare -A WANT=([resources.db]=c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c
   [resources.db.patch_12]=2b771e4b2040707434bb17aa27b1965aacba2ca355eb38634f504b61d6c8fab3
   [resources.db.patch_14]=60a69dcc6b661d09c3143fb74d6806f6f1ba6d465af3c29bfa669a58ce9a404c

@@ -103,3 +103,15 @@ texture names of 10 `export_properties` differ; no shader switch, model,
 project, gameplay fill, map id, name, loading picture or minimap changes.
 672 texture files are no longer imported: the pack is 857 MB instead of
 1,279 MB. `PACK_VERSION=2 tools/content/build_v011e_packs.sh OUT_DIR` builds it.
+
+`maps-v011e-3` adds two reviewed changes over `-2`:
+
+* `finish_exceptions` (`material_finish::FinishException`): the owner's choice
+  of 2026-10-17 between the native finish and a ported one (gallery
+  rev17-metal-fix, column v0.26-ported): `electrical_cabinet_01`,
+  `electrical_cabinet_02` and `mech_cabinet_02` keep Fresnel 0.05 (min = max =
+  constant) over the native 0 / 0.03, whose dark rooms hid them.
+* the team 1 ammo crate on Chemical Plant (194/206/207) at (66.8, 3.879, 62.9),
+  yaw 0.6727, pitch -0.0963, roll 0.0574 (`ports/gameplay-fill/chemical-011e-resupply.json`).
+
+`SKHID_PATCHES` selects the directory of the released patches 12 and 14.
