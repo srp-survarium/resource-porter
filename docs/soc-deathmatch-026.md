@@ -9,7 +9,7 @@ deathmatch (native mode 4: tickets, two teams, no batteries or chargers).
 | 197 | `pool-soc-dm` | SoC `testers_mp_pool` | wooden plank ramps and covers in place of the 7 ladders |
 | 198 | `training-camp-cs-dm` | CS `mp_training_camp` + summer meadow and forest | foliage through 0.26's own systems |
 | 199 | `rembasa-cs-dm` | CS `mp_rembasa` | 2 ladders to empty ledges, blocked |
-| 200 | `sport-center-cs-dm` | CS `mp_sport_center` | wooden plank ramps out of the basin and up to the galleries |
+| 200 | `sport-center-cs-dm` | CS `mp_sport_center` | wooden plank ramps out of the basin, up to the galleries and over the steep steel stairs; crates and planks up through the third-floor hatches |
 | 201 | `firestation-cs-dm` | CS `mp_firestation` | one hidden ramp to the west roof; the tower and the small roofs are blocked |
 
 IDs 152–193 and 194–196 are in use by the other imported maps. 197 is the
@@ -70,6 +70,18 @@ All of it is opt-in per map and off for the existing 0.10b–0.11e maps:
   cover it), chained end to end, slightly turned, shifted and stacked where
   they overlap. The slab stays the walking surface, and bullets pass the
   boards.
+- **`props`** places native 0.26g models (`model`, `position`, `yaw`) the
+  way native projects do: a render visual plus instances of the model's own
+  `collision` (cmask 16, cgroup 8) and `walker_collision` (cmask 4, cgroup
+  2). The sports center stacks `props/box/woodbox` crates (0.42 m high) as
+  steps up to a plank.
+- **`cuts`** removes an axis-aligned box (`centre`, `half`) from the
+  converted static geometry under a donor model directory (`models`): every
+  render surface and collision mesh there is clipped against the box (split
+  triangles keep their attributes and face materials; the surfaces'
+  `export_properties` vertex and index counts follow). The converted maps'
+  static models sit at the origin, so the box is in map coordinates. Each
+  cut must open both render and collision. Edges are left open.
 - **Generated materials** (`material_instances/ported/...`) have no path
   domain, so the importer cannot choose a template for them by itself.
   `xray_material_templates.py` matches each one to the v0.100b family
@@ -150,20 +162,49 @@ the X-Ray collision (the planner's reasoning is in each ramp's `reason`):
 
 | Map | Ladder | Ramp | Slope | Replaces |
 | --- | --- | --- | ---: | --- |
-| pool | clmbl#6 | `ladder6_planks`, pool bottom −2.55 → west deck 0.0 | 29.5° | `pool_exit_west`, 4 m away |
-| sports center | clmbl#4 | `ladder4_planks`, shallow end → rim 0.44 | 25.3° | `basin_exit_east`, 1.3 m away |
-| sports center | clmbl#7 | `ladder7_planks`, shallow end → rim 0.44 | 25.1° | `basin_exit_west`, 2.8 m away |
-| sports center | clmbl#5 | `ladder5_planks`, deep end −4.31 → rim | 33.0° | new |
-| sports center | clmbl#6 | `ladder6_planks`, deep end → rim | 32.9° | new |
 | fire station | clmbl#0 | `ladder0_planks`, 5.48 → 10.52 roof | 29.9° | new (the roof was reached by `roof_west_ramp`) |
 
-The basin ladders stand 0.36 m off the wall over a 0.21 m overflow gutter,
-so their planks end on the rim. Every other ladder keeps the treatment
-below: its top is covered, blocked or reached elsewhere, or there is no
-room for a ramp (the pool's 7.8 m shafts and hatches, the sports-center
-gallery and pad ladders under low joists, the fire-station tower chain,
-rembasa and Training Camp). `check_ladder_ramps.py` walks every ramp's foot,
-middle and top from the respawns (0.45 m between 0.25 m cells); all pass.
+Planks laid over the pool and basin ladders themselves looked wrong next to
+the original ladders, so those keep the ramps beside them (`pool_exit_west`,
+`basin_exit_west`, `basin_exit_east`).
+
+The sports-center ladders clmbl#0/#1 rise from a stair landing (7.68) to the
+third floor (11.61) through a 1.5 m hatch. Each is replaced by a route
+without a ladder: the ladder is cut out (`ladder_*_removed`), the hatch is
+widened over the whole landing (`hatch_*_opening`, x −20.96..−17.43 by
+1.86 m, the slab 11.1..11.8 with its kerb), four columns of native crates
+(1 to 4 `woodbox` high: tops 8.10, 8.52, 8.94, 9.36, 0.54 m treads) climb
+north along the east wall where the ladder stood, and a two-plank ramp runs
+west along the north wall from the top crate to the third floor
+(`hatch_*_plank`, 9.36 → 11.63, 34.9°, 2.41 m headroom at the least).
+
+Steep metal stairs. The X-Ray maps lay an invisible inclined plane
+(`materials\fake`) over steep steel stairs; 0.26g walks 50° at most, and
+those planes are 60°. Every inclined collision plane of 44–76° within 15 m
+of the spawns was traced on all five maps: only the sports center's four
+flights are stairs (the others are roofs, rubble, rock and terrain). Each
+gets a three-plank ramp (0.9 m, the stairs are 1.13 m wide) with its top at
+the landing and its foot run out along the floor:
+
+| Ramp | Stair (plane) | Rise | Slope |
+| --- | --- | --- | ---: |
+| `steel_stair_south` | x −82.68..−80.56, z −59.3, 61.3° | 0 → 4.16 | 30° |
+| `steel_stair_north` | x −82.68..−80.56, z −13.8, 61.3° | 0 → 4.16 | 30° |
+| `steel_stair_west_lower` | x −81.72..−84.23, z −15.16, 61.0° | 0 → 4.67 | 36° (its foot is under the 4.16 gallery) |
+| `steel_stair_west_upper` | x −87.65..−88.87, z −15.16, 59.7° | 4.67 → 6.99 | 30° |
+
+Every other ladder keeps the treatment below: its top is covered, blocked
+or reached elsewhere, or there is no room for a ramp (the pool's 7.8 m
+shafts and hatches, the sports-center gallery ladders under low joists, the
+fire-station tower chain, rembasa and Training Camp).
+`check_ladder_ramps.py` walks every ramp's foot, middle and top and every
+crate stack's top from the respawns (0.45 m between 0.25 m cells; with
+`--target-db` the crates' native collision counts). Each hatch route is
+also walked confined to 3 m around its plank, from the lowest crate: it
+must reach the landing below and the third floor past the plank (and does
+not without the plank). The 0.54 m crate treads alias on the 0.25 m grid,
+so with props a floor also counts when it is reachable on the grid shifted
+by half a cell. No static collision may remain inside a cut. All pass.
 
 
 0.26g has no ladder gameplay. In v0.100b, `player::use_ladder` is empty (see
@@ -183,7 +224,7 @@ given by the shape matrix, and its landings were mapped. Reachability on a
 | rembasa | clmbl#1 (42.1, 18.9) | 3.2 m to a 15 m² ledge | slab over the rungs; no spawns there |
 | sports center | clmbl#7/#6, #4/#5 | basin −1.24/−4.3 → rim 0.44 | plank ramps `basin_exit_west` and `basin_exit_east` (29°); the deep end walks up the basin slope |
 | sports center | clmbl#2/#3 | gallery 4.16 → tribune 9.2 (upper level, 2,684 m², 4 spawns) | plank ramp `stand_ramp`, **39.4°**: the tribune joists every 2.3 m leave no room for a shallower run |
-| sports center | clmbl#0/#1 | 7.68 pads → upper level | none; the upper level is reached by `stand_ramp` |
+| sports center | clmbl#0/#1 | stair landing 7.68 → third floor 11.61 | ladder cut out, hatch widened, crate stack and plank `hatch_south_plank` / `hatch_north_plank`, 34.9° |
 | fire station | clmbl#1 (and #0) | 6.66 → west roof 11.23 (678 m², 3 spawns) | hidden ramp `roof_west_ramp`, 34° |
 | fire station | clmbl#2 | 7.5 → 14.6 roof pocket (97 m²) | blocked (rung slab); 1 spawn dropped |
 | fire station | clmbl#3 | 5.4 → 11.2 | none needed: reachable on foot |

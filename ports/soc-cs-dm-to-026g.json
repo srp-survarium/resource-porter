@@ -349,19 +349,19 @@
       },
       "walker_ramps": [
         {
-          "name": "ladder6_planks",
+          "name": "pool_exit_west",
           "from": [
-            16.73,
-            -2.55,
-            -37.06
+            16.0,
+            -2.93,
+            -38.5
           ],
           "to": [
-            12.23,
+            16.0,
             0.0,
-            -37.06
+            -33.43
           ],
-          "width": 0.6,
-          "reason": "two planks laid over ladder clmbl#6 itself (pool bottom -2.55 to the west deck 0.0), 30 deg, 4.5 m into the basin; replaces pool_exit_west, which ran 4 m east of the ladder (the user found the original ladder unclimbable)",
+          "width": 1.0,
+          "reason": "replaces ladder clmbl#6 (pool bottom -2.93 to the deck 0.0 on the west wall): runs north along the west part of the basin to the north deck, 30 deg; the tunnel ring behind the hatch ladders clmbl#4/#5 opens into the pool",
           "planks": true
         },
         {
@@ -1287,68 +1287,36 @@
       },
       "walker_ramps": [
         {
-          "name": "ladder7_planks",
+          "name": "basin_exit_west",
           "from": [
-            -92.79,
+            -93.05,
             -1.24,
-            -45.18
+            -48.0
           ],
           "to": [
-            -96.37,
+            -96.05,
             0.44,
-            -45.18
+            -48.0
           ],
-          "width": 0.6,
-          "reason": "two planks over ladder clmbl#7 (basin shallow end -1.24 to the rim 0.44), 27 deg, ending on the rim past the overflow gutter; replaces basin_exit_west, 2.8 m south of the ladder",
-          "planks": true
+          "width": 1.0,
+          "planks": true,
+          "reason": "replaces ladders clmbl#7 (-95.8,-45.2) and #6 (deep end, via the basin slope): basin shallow floor -1.24 to the west rim 0.44, 29.2 deg"
         },
         {
-          "name": "ladder4_planks",
+          "name": "basin_exit_east",
           "from": [
-            -83.56,
+            -83.35,
             -1.24,
-            -45.18
+            -46.5
           ],
           "to": [
-            -80.0,
+            -80.35,
             0.44,
-            -45.18
+            -46.5
           ],
-          "width": 0.6,
-          "reason": "two planks over ladder clmbl#4 (basin shallow end to the rim), 27 deg, ending on the rim past the overflow gutter; replaces basin_exit_east, 1.3 m south of the ladder",
-          "planks": true
-        },
-        {
-          "name": "ladder5_planks",
-          "from": [
-            -87.31,
-            -4.31,
-            -24.95
-          ],
-          "to": [
-            -80.0,
-            0.44,
-            -24.95
-          ],
-          "width": 0.6,
-          "reason": "two planks over ladder clmbl#5 (deep end -4.31 to the rim 0.44), 33 deg, 6.75 m into the basin, ending on the rim past the gutter; its foot stays 1.7 m clear of ladder6_planks",
-          "planks": true
-        },
-        {
-          "name": "ladder6_planks",
-          "from": [
-            -89.04,
-            -4.31,
-            -24.95
-          ],
-          "to": [
-            -96.37,
-            0.44,
-            -24.95
-          ],
-          "width": 0.6,
-          "reason": "two planks over ladder clmbl#6 (deep end to the rim), 33 deg",
-          "planks": true
+          "width": 1.0,
+          "planks": true,
+          "reason": "replaces ladders clmbl#4 (-80.6,-45.2) and #5 (deep end, via the basin slope): basin shallow floor to the east rim 0.44, 29.2 deg; set at z -46.5 to clear the gravel heap at the wall"
         },
         {
           "name": "stand_ramp",
@@ -1365,6 +1333,386 @@
           "width": 0.8,
           "planks": true,
           "reason": "replaces ladders clmbl#2/#3 (gallery 4.16 to the tribune 9.2) and gives access to the whole upper level (2,684 m2, 4 spawns) that otherwise only ladders clmbl#0-#3 reach; 39.4 deg: tribune joists every 2.3 m (underside 9.2) leave no room for a 30 deg run, so this is the shallowest that clears them; 0.8 m wide, leaves 1.2 m and 2.0 m of gallery free on either side"
+        },
+        {
+          "name": "steel_stair_south",
+          "from": [
+            -87.45,
+            0.0,
+            -59.08
+          ],
+          "to": [
+            -80.25,
+            4.16,
+            -59.08
+          ],
+          "width": 0.9,
+          "planks": true,
+          "reason": "steep metal stair 0 to 4.16 (61.3 deg fake-material plane over the steel treads at x -82.68..-80.56, z -59.87..-58.74; over the 50 deg walk limit): 30 deg, foot run out 4.8 m along the hall floor; lane at z -59.08 clears the pillar at x -84.5..-83.9, z < -59.6"
+        },
+        {
+          "name": "steel_stair_north",
+          "from": [
+            -87.45,
+            0.0,
+            -14.0
+          ],
+          "to": [
+            -80.25,
+            4.16,
+            -14.0
+          ],
+          "width": 0.9,
+          "planks": true,
+          "reason": "mirror of steel_stair_south: steep metal stair 0 to 4.16 (61.3 deg, x -82.68..-80.56, z -14.35..-13.22): 30 deg, lane at z -14.0 clears the mirrored pillar"
+        },
+        {
+          "name": "steel_stair_west_lower",
+          "from": [
+            -77.95,
+            0.0,
+            -15.16
+          ],
+          "to": [
+            -84.45,
+            4.72,
+            -15.16
+          ],
+          "width": 0.9,
+          "planks": true,
+          "reason": "steep metal stair 0 to the 4.67 landing (61.0 deg, x -81.72..-84.23, z -15.72..-14.59): 36 deg, the gentlest whose foot (under the 4.16 gallery, underside 3.47) keeps 1.8 m headroom; top set 5 cm over the landing so the stair's top edge stays under the planks"
+        },
+        {
+          "name": "steel_stair_west_upper",
+          "from": [
+            -85.13,
+            4.67,
+            -15.16
+          ],
+          "to": [
+            -89.15,
+            6.99,
+            -15.16
+          ],
+          "width": 0.9,
+          "planks": true,
+          "reason": "second flight from the 4.67 landing to 6.99 (59.7 deg, x -87.65..-88.87): 30 deg, foot on the landing"
+        },
+        {
+          "name": "hatch_south_plank",
+          "from": [
+            -17.75,
+            9.36,
+            -49.43
+          ],
+          "to": [
+            -21.0,
+            11.63,
+            -49.43
+          ],
+          "width": 0.6,
+          "planks": true,
+          "reason": "replaces ladder clmbl#0 (stair landing 7.68 to the third floor 11.61): from the top of the four-column crate stack hatch_south_crate_* along the north wall up through the widened hatch hatch_south_opening, 34.9 deg, 2.41 m headroom"
+        },
+        {
+          "name": "hatch_north_plank",
+          "from": [
+            -17.75,
+            9.36,
+            -22.78
+          ],
+          "to": [
+            -21.0,
+            11.63,
+            -22.78
+          ],
+          "width": 0.6,
+          "planks": true,
+          "reason": "mirror of hatch_south_plank for ladder clmbl#1 through hatch_north_opening, 34.9 deg"
+        }
+      ],
+      "props": [
+        {
+          "name": "hatch_south_crate_10",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -51.0
+          ],
+          "yaw": -0.03,
+          "reason": "step 1 of 4 (top 8.10) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_20",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -50.46
+          ],
+          "yaw": -0.01,
+          "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_21",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.1,
+            -50.46
+          ],
+          "yaw": 0.01,
+          "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_30",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -49.92
+          ],
+          "yaw": 0.03,
+          "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_31",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.1,
+            -49.92
+          ],
+          "yaw": -0.02,
+          "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_32",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.52,
+            -49.92
+          ],
+          "yaw": 0.0,
+          "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_40",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -49.38
+          ],
+          "yaw": 0.02,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_41",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.1,
+            -49.38
+          ],
+          "yaw": -0.03,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_42",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.52,
+            -49.38
+          ],
+          "yaw": -0.01,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_south_crate_43",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.94,
+            -49.38
+          ],
+          "yaw": 0.01,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_10",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -21.21
+          ],
+          "yaw": -0.03,
+          "reason": "step 1 of 4 (top 8.10) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_20",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -21.75
+          ],
+          "yaw": -0.01,
+          "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_21",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.1,
+            -21.75
+          ],
+          "yaw": 0.01,
+          "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_30",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -22.29
+          ],
+          "yaw": 0.03,
+          "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_31",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.1,
+            -22.29
+          ],
+          "yaw": -0.02,
+          "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_32",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.52,
+            -22.29
+          ],
+          "yaw": 0.0,
+          "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_40",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            7.68,
+            -22.83
+          ],
+          "yaw": 0.02,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_41",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.1,
+            -22.83
+          ],
+          "yaw": -0.03,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_42",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.52,
+            -22.83
+          ],
+          "yaw": -0.01,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        },
+        {
+          "name": "hatch_north_crate_43",
+          "model": "props/box/woodbox",
+          "position": [
+            -17.84,
+            8.94,
+            -22.83
+          ],
+          "yaw": 0.01,
+          "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+        }
+      ],
+      "cuts": [
+        {
+          "name": "hatch_south_opening",
+          "models": "models/ported/cs/sport_center/",
+          "centre": [
+            -19.195,
+            11.45,
+            -50.03
+          ],
+          "half": [
+            1.765,
+            0.35,
+            0.93
+          ],
+          "reason": "ladder clmbl#0's 1.5 m hatch widened to the stair landing below (x -20.96..-17.43, z -50.96..-49.10, the slab 11.1..11.8 with its kerb) so hatch_south_plank keeps 1.8 m headroom"
+        },
+        {
+          "name": "hatch_north_opening",
+          "models": "models/ported/cs/sport_center/",
+          "centre": [
+            -19.195,
+            11.45,
+            -22.18
+          ],
+          "half": [
+            1.765,
+            0.35,
+            0.93
+          ],
+          "reason": "mirror of hatch_south_opening for ladder clmbl#1"
+        },
+        {
+          "name": "ladder_south_removed",
+          "models": "models/ported/cs/sport_center/",
+          "centre": [
+            -17.59,
+            9.655,
+            -50.075
+          ],
+          "half": [
+            0.17,
+            1.965,
+            0.575
+          ],
+          "reason": "ladder clmbl#0 (0.26g has no ladders) removed so the hatch_south_crate_* stack stands against the wall; stops 1 cm short of the wall plane x -17.41"
+        },
+        {
+          "name": "ladder_north_removed",
+          "models": "models/ported/cs/sport_center/",
+          "centre": [
+            -17.59,
+            9.655,
+            -22.135
+          ],
+          "half": [
+            0.17,
+            1.965,
+            0.575
+          ],
+          "reason": "mirror of ladder_south_removed for ladder clmbl#1"
         }
       ]
     },
