@@ -14,6 +14,7 @@
 pub mod atlas;
 pub mod from_bundle;
 pub mod patch;
+pub mod probes;
 pub mod value;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -134,6 +135,12 @@ pub struct AtlasIcon {
     /// The PNG already holds premultiplied colour (as `from-bundle` writes).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub premultiplied: bool,
+    /// The cell an earlier patch drew that this icon redraws: the SHA-256 of
+    /// its pixels in the base (`atlas::Bitmap::cell`, premultiplied ARGB).
+    /// Without it an occupied base cell is a conflict; with it the base cell
+    /// must be exactly that one (drift check, as `replace_file`'s).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replaces_sha256: Option<String>,
 }
 
 /// Default id field of a dictionary table.
@@ -848,8 +855,22 @@ impl<'a> Plan<'a> {
                 Err(error) => problems.push(format!("{error:#}")),
             }
         }
+        // One movie may hold several atlases (equipment, weapon and ammo
+        // icons of lobby_menu.swf): each symbol's edits go onto the movie
+        // as the previous symbol's left it, not onto the base again.
         for ((path, symbol), edits) in &self.atlas {
-            match self.apply_atlas_edits(base, path, symbol, edits) {
+            let start = match resolved.files.get(path) {
+                Some(content) if resolved.edited.contains(path) => content.bytes(),
+                _ => self.starting_bytes(base, path),
+            };
+            let start = match start {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    problems.push(format!("{error:#}"));
+                    continue;
+                }
+            };
+            match self.apply_atlas_edits(start, path, symbol, edits) {
                 Ok(Some(bytes)) => {
                     resolved.files.insert(path.clone(), Content::Bytes(bytes));
                     resolved.edited.insert(path.clone());
@@ -913,13 +934,12 @@ impl<'a> Plan<'a> {
 
     fn apply_atlas_edits(
         &self,
-        base: &mut ResourceDb,
+        start: Vec<u8>,
         path: &str,
         symbol: &str,
         edits: &[IconEdit<'a>],
     ) -> Result<Option<Vec<u8>>> {
-        let mut swf = atlas::Swf::parse(&self.starting_bytes(base, path)?)
-            .with_context(|| format!("parsing {path}"))?;
+        let mut swf = atlas::Swf::parse(&start).with_context(|| format!("parsing {path}"))?;
         let original = swf.bitmap(symbol)?;
         let mut bitmap = original.clone();
         let mut problems = Vec::new();
@@ -932,14 +952,30 @@ impl<'a> Plan<'a> {
             if current == pixels {
                 continue;
             }
-            if current.iter().any(|byte| *byte != 0) {
-                problems.push(format!(
-                    "{}: atlas cell [{}, {}] of {path} is already occupied in the base",
-                    pack.id(),
-                    icon.row,
-                    icon.col
-                ));
-                continue;
+            let occupied = current.iter().any(|byte| *byte != 0);
+            match (&icon.replaces_sha256, occupied) {
+                (None, false) => {}
+                (None, true) => {
+                    problems.push(format!(
+                        "{}: atlas cell [{}, {}] of {path} is already occupied in the base",
+                        pack.id(),
+                        icon.row,
+                        icon.col
+                    ));
+                    continue;
+                }
+                (Some(wanted), _) if *wanted == sha256_hex(&current) => {}
+                (Some(wanted), _) => {
+                    problems.push(format!(
+                        "{}: atlas cell [{}, {}] of {path} is not the icon it replaces: the base's {} is {}, the pack replaces {wanted}",
+                        pack.id(),
+                        icon.row,
+                        icon.col,
+                        if occupied { "icon" } else { "empty cell" },
+                        sha256_hex(&current)
+                    ));
+                    continue;
+                }
             }
             if let Err(error) = bitmap.put_cell(icon.row, icon.col, &pixels) {
                 problems.push(format!("{}: {path}: {error:#}", pack.id()));
@@ -1077,6 +1113,36 @@ pub fn base_languages(base: &ResourceDb) -> Vec<String> {
         .collect()
 }
 
+/// A project the packs write must not name an environment probe cubemap
+/// the game's files lack (with one missing, 0.26g renders NaNs:
+/// [`probes`]).
+pub(crate) fn refuse_missing_probes(
+    base: &ResourceDb,
+    files: &BTreeMap<String, Content>,
+) -> Result<()> {
+    let missing = probes::missing_in_files(base, files)?;
+    if !missing.is_empty() {
+        bail!(
+            "{} probe cubemap reference(s) do not resolve:\n  {}",
+            missing.len(),
+            missing
+                .iter()
+                .map(|m| format!(
+                    "{} client_objects[{}] {} {}: {} ({})",
+                    m.project,
+                    m.index,
+                    m.name,
+                    m.field,
+                    m.texture,
+                    m.missing.join(", ")
+                ))
+                .collect::<Vec<_>>()
+                .join("\n  ")
+        );
+    }
+    Ok(())
+}
+
 pub fn load_packs(dirs: &[PathBuf]) -> Result<Vec<Pack>> {
     dirs.iter().map(|dir| Pack::load(dir)).collect()
 }
@@ -1133,6 +1199,7 @@ pub fn check(
                 None
             };
             let resolved = plan.resolve(base, base_sha.as_deref())?;
+            refuse_missing_probes(base, &resolved.files)?;
             Ok(CheckReport {
                 notes: resolved.notes,
                 effective_files: resolved.files.len(),

@@ -29,6 +29,9 @@ use crate::binary_config::{BinaryConfig, ConfigValue};
 
 pub struct FromBundleOptions<'a> {
     pub base_db: &'a Path,
+    /// `resources.db.patch_<n>` files over `base_db`, as the game mounts
+    /// them: the pack is measured against what players have.
+    pub base_patches: &'a [PathBuf],
     pub build_base_db: Option<&'a Path>,
     pub bundle: &'a Path,
     pub output: &'a Path,
@@ -52,7 +55,10 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
     )?;
     let overlay = options.bundle.join("overlay");
     let bundle_files = collect_bundle_files(&overlay, &record)?;
-    let mut base = ResourceDb::open(options.base_db)?;
+    let mut base = ResourceDb::open_layers(&super::patch::base_layers(
+        options.base_db,
+        options.base_patches,
+    )?)?;
     let mut build_base = options.build_base_db.map(ResourceDb::open).transpose()?;
 
     // Strings of every config the bundle ships: ownership evidence and
@@ -88,6 +94,17 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
         }
         let base_bytes = base.read(path)?;
         if base_bytes == bytes {
+            continue;
+        }
+        // As the bundle's build base has it: not the bundle's change (a base
+        // the target's earlier patches since changed).
+        if path != DICTIONARY
+            && !path.starts_with("localization/")
+            && read_optional(build_base.as_mut(), path)?.is_some_and(|previous| previous == bytes)
+        {
+            builder
+                .notes
+                .push(format!("{path}: as the build base has it; not carried"));
             continue;
         }
         if path == DICTIONARY {
@@ -574,9 +591,16 @@ impl Builder {
                 .push(format!("{path}: not a parseable SWF; replaced whole"));
             return self.replace_file(&files_dir, path, base, bytes);
         };
-        if !target_swf
-            .same_except_bitmap(&base_swf, symbol)
-            .unwrap_or(false)
+        let previous_swf = previous.and_then(|bytes| atlas::Swf::parse(bytes).ok());
+        let same =
+            |a: &atlas::Swf, b: &atlas::Swf| a.same_except_bitmap(b, symbol).unwrap_or(false);
+        // A bundle built before the target base's own changes to the movie
+        // (an earlier patch's) differs from it beyond the atlas, but not from
+        // its build base: its icons are measured against that.
+        if !same(&target_swf, &base_swf)
+            && !previous_swf
+                .as_ref()
+                .is_some_and(|previous| same(&target_swf, previous))
         {
             self.notes.push(format!(
                 "{path}: changes beyond the icon atlas; replaced whole"
@@ -585,9 +609,7 @@ impl Builder {
         }
         let base_bitmap = base_swf.bitmap(symbol)?;
         let target_bitmap = target_swf.bitmap(symbol)?;
-        let previous_bitmap = previous
-            .and_then(|bytes| atlas::Swf::parse(bytes).ok())
-            .and_then(|swf| swf.bitmap(symbol).ok());
+        let previous_bitmap = previous_swf.and_then(|swf| swf.bitmap(symbol).ok());
         let mut icons = Vec::new();
         for (row, col) in target_bitmap.occupied_cells()? {
             let pixels = target_bitmap.cell(row, col)?;
@@ -595,18 +617,26 @@ impl Builder {
             if pixels == base_pixels {
                 continue;
             }
-            if base_pixels.iter().any(|byte| *byte != 0) {
-                self.notes.push(format!(
-                    "{path}: bundle redraws stock atlas cell [{row}, {col}]; replaced whole"
-                ));
-                return self.replace_file(&files_dir, path, base, bytes);
-            }
             let owned = match &previous_bitmap {
                 None => true,
                 Some(previous) => {
                     previous.cell(row, col)? != pixels || referenced.contains(&(row, col))
                 }
             };
+            let occupied = base_pixels.iter().any(|byte| *byte != 0);
+            // A cell an earlier patch drew, which this bundle's own item
+            // shows, is redrawn with that icon's hash; any other is the base's.
+            let stock = previous_bitmap
+                .as_ref()
+                .map(|previous| previous.cell(row, col))
+                .transpose()?
+                .is_none_or(|previous| previous == base_pixels);
+            if occupied && (stock || !referenced.contains(&(row, col))) {
+                self.notes.push(format!(
+                    "{path}: bundle redraws stock atlas cell [{row}, {col}]; replaced whole"
+                ));
+                return self.replace_file(&files_dir, path, base, bytes);
+            }
             if !owned {
                 self.notes.push(format!(
                     "{path}: dropped inherited atlas cell [{row}, {col}]"
@@ -622,6 +652,7 @@ impl Builder {
                 col,
                 source,
                 premultiplied: true,
+                replaces_sha256: occupied.then(|| sha256_hex(&base_pixels)),
             });
         }
         for (row, col) in base_bitmap.occupied_cells()? {

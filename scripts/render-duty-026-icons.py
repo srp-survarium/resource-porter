@@ -116,7 +116,11 @@ def main():
     ap.add_argument('--textures',type=Path,required=True)
     ap.add_argument('--lobby-swf',type=Path,required=True)
     ap.add_argument('--output',type=Path,required=True)
+    ap.add_argument('--icon',action='append',default=[],metavar='NAME=PNG',
+                    help='Use an earlier 171x83 RGBA thumbnail for body or helmet instead of rendering it')
+    ap.add_argument('--gallery',type=Path,help='Also render the body, the helmet and the set at full size here')
     args=ap.parse_args();args.output.mkdir(parents=True,exist_ok=True)
+    given=dict(i.split('=',1) for i in args.icon)
     prefix,tags=swf_tags(args.lobby_swf); tag_index,char_id,argb=atlas_tag(tags)
     h,w=argb.shape[:2];assert w==855 and h==2048,(w,h)
     # New sixth column preserves row count, hence every existing icon index.
@@ -124,8 +128,7 @@ def main():
     root=args.bundle/'overlay/models/ported/duty_026'
     textures=args.textures
     def m(part,surf,tex,select=None):return mesh(root,part,surf,textures/(tex+'.tga'),select)
-    specs=[('suit',[
-        m('head','helmet_s','dolg_exo_helmet'),
+    body=[
         m('torso_s1','torso_s','dolg_exo_torso'),
         m('torso_s1','sign_s','dol_sign'),
         m('torso_s1','exoskeleton_s','dold_exo_attach'),
@@ -133,36 +136,50 @@ def main():
         m('legs_s1','legs_s','dolg_exo_legs'),
         m('hand','torso_s','dolg_exo_torso'),
         m('boot','legs_s','dolg_exo_legs'),
-    ],15,6,(8,5))]
+    ]
+    helmet=[m('head','helmet_s','dolg_exo_helmet')]
+    # (name, meshes, yaw, pitch, Duty cell, native Zubr UM-4 cell compared).
+    # Row 2 of the sixth column is the Bandit balaclava's.
+    specs=[('body',body,15,6,(1,6),(8,5)),('helmet',helmet,25,5,(3,6),(6,5))]
+    assert set(given)<=set(s[0] for s in specs),given
     original=Image.fromarray(argb[:,:,[1,2,3,0]])
     comparison=Image.new('RGB',(760,len(specs)*180),(30,33,36));draw=ImageDraw.Draw(comparison)
-    for i,(name,meshes,yaw,pitch,(row,col)) in enumerate(specs):
-        if name=='boots':
-            # Bring the pair together for the OG thumbnail stance, without
-            # scaling or deforming either boot.
-            for geometry in meshes:
-                geometry[0][:,0]-=np.sign(geometry[0][:,0])*.065
-        rendered=render(meshes,yaw,pitch,roll=45 if name=='gloves' else 0)
-        rendered.save(args.output/(name+'-render.png'))
-        icon=rendered.resize((171,83),Image.Resampling.LANCZOS)
+    for i,(name,meshes,yaw,pitch,(row,col),(nrow,ncol)) in enumerate(specs):
+        assert col==6
+        if name in given:
+            icon=Image.open(given[name]).convert('RGBA');assert icon.size==(171,83),icon.size
+            shown=icon.resize((342,166),Image.Resampling.LANCZOS)
+            print(name,'icon from',given[name],flush=True)
+        else:
+            rendered=render(meshes,yaw,pitch)
+            rendered.save(args.output/(name+'-render.png'))
+            icon=rendered.resize((171,83),Image.Resampling.LANCZOS)
+            shown=rendered.resize((342,166),Image.Resampling.LANCZOS)
+            print(name,'camera',yaw,pitch,'triangles',sum(len(m[3]) for m in meshes),flush=True)
         icon.save(args.output/(name+'.png'))
+        y=(row-1)*91
         rgba=np.asarray(icon).copy();a=rgba[:,:,3:4].astype(np.uint16)
         premult=(rgba[:,:,:3].astype(np.uint16)*a+127)//255
-        expanded[i*91:i*91+83,w:,0]=rgba[:,:,3]
-        expanded[i*91:i*91+83,w:,1:]=premult.astype(np.uint8)
-        og=original.crop(((col-1)*171,(row-1)*91,col*171,(row-1)*91+83)).resize((342,166))
+        expanded[y:y+83,w:,0]=rgba[:,:,3]
+        expanded[y:y+83,w:,1:]=premult.astype(np.uint8)
+        og=original.crop(((ncol-1)*171,(nrow-1)*91,ncol*171,(nrow-1)*91+83)).resize((342,166))
         comparison.paste(og,(0,i*180),og)
-        shown=rendered.resize((342,166),Image.Resampling.LANCZOS)
         comparison.paste(shown,(370,i*180),shown)
-        draw.text((5,i*180+160),'Original / Duty '+name,fill='white')
-        print(name,'camera',yaw,pitch,'triangles',sum(len(m[3]) for m in meshes),flush=True)
+        draw.text((5,i*180+160),'Zubr UM-4 / Duty '+name,fill='white')
     comparison.save(args.output/'comparison.png')
+    if args.gallery:
+        args.gallery.mkdir(parents=True,exist_ok=True)
+        for name,meshes,size in [('body-without-helmet',body,(600,900)),('helmet',helmet,(600,600)),('full-set',body+helmet,(600,900))]:
+            image=render(meshes,15 if name!='helmet' else 25,6,size=size)
+            backdrop=Image.new('RGBA',image.size,(30,33,36,255));backdrop.alpha_composite(image)
+            backdrop.convert('RGB').save(args.gallery/(name+'.png'))
+            print('gallery',name,flush=True)
     tags[tag_index]=(36,struct.pack('<HBHH',char_id,5,w+171,h)+zlib.compress(expanded.tobytes(),9))
     chunks=[prefix[8:]]
     for kind,payload in tags:
         chunks.extend([struct.pack('<HI',(kind<<6)|63,len(payload)),payload])
-    body=b''.join(chunks)
-    swf=b'CWS'+prefix[3:4]+struct.pack('<I',8+len(body))+zlib.compress(body,9)
+    body_bytes=b''.join(chunks)
+    swf=b'CWS'+prefix[3:4]+struct.pack('<I',8+len(body_bytes))+zlib.compress(body_bytes,9)
     (args.output/'lobby_menu.swf').write_bytes(swf)
     # Re-read and check the entire native atlas is byte-for-byte untouched.
     _,checktags=swf_tags(args.output/'lobby_menu.swf')

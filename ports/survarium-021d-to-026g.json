@@ -35,17 +35,20 @@
     {
       "id": 166,
       "level": "level_03",
-      "weather": "day"
+      "weather": "day",
+      "native_lighting": true
     },
     {
       "id": 167,
       "level": "level_03",
-      "weather": "evening"
+      "weather": "evening",
+      "native_lighting": true
     },
     {
       "id": 168,
       "level": "level_03",
-      "weather": "rain"
+      "weather": "rain",
+      "native_lighting": true
     },
     {
       "id": 169,
@@ -80,17 +83,20 @@
     {
       "id": 175,
       "level": "level_06",
-      "weather": "day"
+      "weather": "day",
+      "native_lighting": true
     },
     {
       "id": 176,
       "level": "level_06",
-      "weather": "evening"
+      "weather": "evening",
+      "native_lighting": true
     },
     {
       "id": 177,
       "level": "level_06",
-      "weather": "rain"
+      "weather": "rain",
+      "native_lighting": true
     }
   ],
   "material_templates": {
@@ -108,5 +114,19 @@
   "missing_collision_resources": [
     "models/flora/poplar_04_sux.model/collision",
     "models/flora/poplar_06_sux.model/collision"
-  ]
+  ],
+  "material_finishes": {
+    "material_instances/vehicle/truck/uaz_459/wh_rubber.material": {
+      "gloss": 0.29,
+      "fresnel": 0.11
+    },
+    "material_instances/vehicle/truck/kamaz/wheel.material": {
+      "gloss": 0.11,
+      "fresnel": 0.013
+    },
+    "material_instances/tiled/metal/metal_column_05_destr_red.material": {
+      "gloss": 0.055,
+      "fresnel": 0.04
+    }
+  }
 }

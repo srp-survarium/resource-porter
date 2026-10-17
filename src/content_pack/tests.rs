@@ -411,6 +411,71 @@ fn atlas_icons_compose_and_reject_cell_collisions() {
 }
 
 #[test]
+fn icons_of_several_atlases_of_one_movie_all_stay() {
+    // lobby_menu.swf holds the equipment, weapon and ammo icon atlases; an
+    // equipment pack and a weapon pack (rifle and ammo icons) each draw into
+    // theirs. Every atlas keeps its icons: one is not drawn onto the base
+    // movie again after the other.
+    let fixture = Fixture::new();
+    let tree = fixture.temp.path().join("movie-tree");
+    let movie = atlas::tests::synthetic_swf_of(&[
+        (atlas::DEFAULT_SYMBOL, 342, 182),
+        ("LobbyMenu_WeaponIcons", 342, 182),
+        ("LobbyMenu_AmmoIcons", 342, 182),
+    ]);
+    let path = tree.join(atlas::DEFAULT_SWF);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, &movie).unwrap();
+    let base = fixture.temp.path().join("movie-base.db");
+    crate::archive::write_folder(&tree, &base).unwrap();
+    let scratch = fixture.temp.path().join("icons");
+    let (_, red) = icon_png(&scratch, "red.png", 200);
+    let (_, blue) = icon_png(&scratch, "blue.png", 100);
+    let (_, green) = icon_png(&scratch, "green.png", 50);
+    let draw = |symbol: Option<&str>, row: u32, col: u32, source: &str| {
+        let mut op = json!({"op": "atlas_icons_add", "icons": [{"row": row, "col": col, "source": source, "premultiplied": true}]});
+        if let Some(symbol) = symbol {
+            op["symbol"] = json!(symbol);
+        }
+        op
+    };
+    let equipment = fixture.pack(
+        "equipment",
+        json!([draw(None, 1, 2, "icons/e.png")]),
+        &[("icons/e.png", &red)],
+    );
+    let weapon = fixture.pack(
+        "weapon",
+        json!([
+            draw(Some("LobbyMenu_AmmoIcons"), 2, 1, "icons/a.png"),
+            draw(Some("LobbyMenu_WeaponIcons"), 1, 1, "icons/w.png"),
+        ]),
+        &[("icons/a.png", &blue), ("icons/w.png", &green)],
+    );
+    let output_db = fixture.temp.path().join("movie-out.db");
+    compose(&ComposeOptions {
+        base_db: &base,
+        packs: &[equipment.clone(), weapon.clone()],
+        work_dir: &fixture.temp.path().join("work-movie"),
+        output_db: &output_db,
+        server_export: None,
+        force: false,
+    })
+    .unwrap();
+    let swf = atlas::Swf::parse(
+        &ResourceDb::open(&output_db)
+            .unwrap()
+            .read(atlas::DEFAULT_SWF)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(swf.bitmap(atlas::DEFAULT_SYMBOL).unwrap().cell(1, 2).unwrap(), icon(200));
+    assert_eq!(swf.bitmap("LobbyMenu_AmmoIcons").unwrap().cell(2, 1).unwrap(), icon(100));
+    assert_eq!(swf.bitmap("LobbyMenu_WeaponIcons").unwrap().cell(1, 1).unwrap(), icon(50));
+    verify(&output_db, &[], &[equipment, weapon]).unwrap();
+}
+
+#[test]
 fn editing_another_packs_file_requires_a_dependency() {
     let fixture = Fixture::new();
     let new = "gameplay/items/new.options";
@@ -579,6 +644,7 @@ fn from_bundle_keeps_only_owned_shared_changes() {
     let output = fixture.temp.path().join("converted");
     let manifest = from_bundle(&FromBundleOptions {
         base_db: &fixture.base,
+        base_patches: &[],
         build_base_db: Some(&build_base),
         bundle: &bundle,
         output: &output,
@@ -902,4 +968,184 @@ fn a_patch_takes_the_live_files_and_draws_icons_on_the_live_lobby() {
         )))
         .contains("also replaced from outside")
     );
+}
+
+/// The release case: a bundle built on the stock database, converted over
+/// the patches players already have (an earlier release of the same item, a
+/// texture the server changed, the item's icon), then patched over them.
+#[test]
+fn a_bundle_built_on_stock_converts_over_an_earlier_release() {
+    let fixture = Fixture::new();
+    let live = fixture.pack(
+        "live",
+        json!([{"op": "replace_file", "path": TEXTURE,
+                "base_sha256": sha256_hex(b"stock texture")}]),
+        &[(&format!("files/{TEXTURE}"), b"live texture")],
+    );
+    let released_packs = [new_item_pack(&fixture), live];
+    let first = patch_options(&fixture, &[], &released_packs, &[], "first", 12);
+    patch::patch(&first).unwrap();
+    let earlier = [first.archive.unwrap().to_path_buf()];
+    let mut mounted = ResourceDb::open_layers(&earlier_layers(&fixture, &earlier)).unwrap();
+    let released = atlas::Swf::parse(&mounted.read(atlas::DEFAULT_SWF).unwrap())
+        .unwrap()
+        .bitmap(atlas::DEFAULT_SYMBOL)
+        .unwrap()
+        .cell(2, 3)
+        .unwrap();
+    assert_eq!(released, icon(200));
+
+    // The bundle: the stock files with the item's new revision.
+    let mut stock = ResourceDb::open(&fixture.base).unwrap();
+    let bundle = fixture.temp.path().join("bundle-stock");
+    let overlay = bundle.join("overlay");
+    let item = "gameplay/items/armour/torso/new.options";
+    let mut files = Vec::new();
+    let mut put = |path: &str, bytes: Vec<u8>| {
+        write(&overlay, path, &bytes);
+        files.push(json!({"path": path, "sha256": sha256_hex(&bytes), "size": bytes.len(), "source": "test"}));
+    };
+    put(
+        item,
+        config(json!({"table": {
+            "parameters": {"table": {"armor": 0.95, "weight": 33.0}},
+            "data": {"table": {"additional_model_slots": ["helmet", "mask"]}},
+            "ui_desc": {"table": {"icon": [2, 3]}},
+        }})),
+    );
+    put("misc/new/payload.bin", b"payload v2 ".repeat(4000));
+    put(
+        DICTIONARY,
+        dictionary(
+            json!([item_entry(3, ITEM), {"table": {"cfg_name": item, "dict_id": 1805, "is_stack": false, "base_cost": 9}}]),
+            json!([{"table": {"id": 61, "cfg_mode_name": "level_01_day_2.options"}}]),
+        ),
+    );
+    for language in ["english", "russian"] {
+        put(
+            &localization_path(language),
+            localization(json!({"st_stock": "Stock", "st_new": "New", "st_newer": "Newer"})),
+        );
+    }
+    // The stock texture, as the bundle's build base has it.
+    put(TEXTURE, stock.read(TEXTURE).unwrap());
+    let mut swf = atlas::Swf::parse(&stock.read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    let mut bitmap = swf.bitmap(atlas::DEFAULT_SYMBOL).unwrap();
+    bitmap.put_cell(2, 3, &icon(90)).unwrap();
+    swf.set_bitmap(atlas::DEFAULT_SYMBOL, &bitmap).unwrap();
+    put(atlas::DEFAULT_SWF, swf.to_bytes().unwrap());
+    write(
+        &bundle,
+        "port-manifest.json",
+        &serde_json::to_vec(&json!({"asset_id": "test", "files": files})).unwrap(),
+    );
+
+    let output = fixture.temp.path().join("converted-over");
+    let manifest = from_bundle(&FromBundleOptions {
+        base_db: &fixture.base,
+        base_patches: &earlier,
+        build_base_db: Some(&fixture.base),
+        bundle: &bundle,
+        output: &output,
+        id: "new-item",
+        version: "2",
+    })
+    .unwrap();
+    let operations = serde_json::to_value(&manifest.operations).unwrap();
+    let text = operations.to_string();
+    // The released files are replaced against the released bytes.
+    let payload = mounted.read("misc/new/payload.bin").unwrap();
+    assert!(text.contains(&sha256_hex(&payload)), "{text}");
+    assert!(!text.contains("add_file"), "{text}");
+    // The texture the server changed stays the server's.
+    assert!(!text.contains(TEXTURE), "{text}");
+    // The released icon is redrawn, named by its hash.
+    assert!(text.contains(&sha256_hex(&released)), "{text}");
+    assert!(
+        text.contains("st_newer") && !text.contains("st_stock"),
+        "{text}"
+    );
+
+    let second = patch_options(
+        &fixture,
+        &earlier,
+        std::slice::from_ref(&output),
+        &[],
+        "over",
+        15,
+    );
+    patch::patch(&second).unwrap();
+    let mut view = ResourceDb::open_layers(&earlier_layers(
+        &fixture,
+        &[earlier[0].clone(), second.archive.unwrap().to_path_buf()],
+    ))
+    .unwrap();
+    assert_eq!(view.read(TEXTURE).unwrap(), b"live texture");
+    assert_eq!(
+        view.read("misc/new/payload.bin").unwrap(),
+        b"payload v2 ".repeat(4000)
+    );
+    let dictionary = read_config(&mut view, DICTIONARY);
+    let ConfigValue::Indexed(items) = dictionary.named("items_dict").unwrap() else {
+        panic!()
+    };
+    let row = items
+        .iter()
+        .find(|row| row.named("dict_id") == Some(&ConfigValue::Integer(1805)))
+        .unwrap();
+    assert_eq!(row.named("base_cost"), Some(&ConfigValue::Integer(9)));
+    assert_eq!(items.len(), 2);
+    let cell = atlas::Swf::parse(&view.read(atlas::DEFAULT_SWF).unwrap())
+        .unwrap()
+        .bitmap(atlas::DEFAULT_SYMBOL)
+        .unwrap()
+        .cell(2, 3)
+        .unwrap();
+    assert_eq!(cell, icon(90));
+    let strings = read_config(&mut view, &localization_path("english"));
+    let strings = strings.named("strings").unwrap();
+    assert!(strings.named("st_new").is_some() && strings.named("st_newer").is_some());
+}
+
+#[test]
+fn an_icon_redraws_only_the_cell_it_names() {
+    let fixture = Fixture::new();
+    let scratch = fixture.temp.path().join("redraw-icons");
+    let (_, blue) = icon_png(&scratch, "blue.png", 100);
+    let redraw = |sha: String| {
+        json!([{"op": "atlas_icons_add", "icons": [{"row": 1, "col": 1, "source": "icons/i.png",
+                "premultiplied": true, "replaces_sha256": sha}]}])
+    };
+    // The base's cell [1, 1] holds icon(1).
+    let right = fixture.pack(
+        "right",
+        redraw(sha256_hex(&icon(1))),
+        &[("icons/i.png", &blue)],
+    );
+    fixture
+        .compose("redraw", std::slice::from_ref(&right))
+        .unwrap();
+    let swf =
+        atlas::Swf::parse(&fixture.output("redraw").read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    assert_eq!(
+        swf.bitmap(atlas::DEFAULT_SYMBOL)
+            .unwrap()
+            .cell(1, 1)
+            .unwrap(),
+        icon(100)
+    );
+    // Another icon there, or an empty cell, is drift.
+    let wrong = fixture.pack(
+        "wrong",
+        redraw(sha256_hex(&icon(2))),
+        &[("icons/i.png", &blue)],
+    );
+    assert!(error_text(fixture.check(&[wrong])).contains("not the icon it replaces"));
+    let empty = fixture.pack(
+        "empty",
+        json!([{"op": "atlas_icons_add", "icons": [{"row": 2, "col": 2, "source": "icons/i.png",
+                "premultiplied": true, "replaces_sha256": sha256_hex(&icon(1))}]}]),
+        &[("icons/i.png", &blue)],
+    );
+    assert!(error_text(fixture.check(&[empty])).contains("empty cell"));
 }
