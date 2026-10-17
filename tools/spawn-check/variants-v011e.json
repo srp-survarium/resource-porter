@@ -1,0 +1,6 @@
+[
+ {"label": "206", "name": "Chemical Plant v0.11 batteries", "project": "projects/v011e_level_04/day_2/client_project"},
+ {"label": "207", "name": "Chemical Plant v0.11 TDM", "project": "projects/v011e_level_04/day_4/client_project", "same_as": "206"},
+ {"label": "208", "name": "Vostok Radar v0.11 batteries", "project": "projects/v011e_level_03/day_2/client_project"},
+ {"label": "209", "name": "Vostok Radar v0.11 TDM", "project": "projects/v011e_level_03/day_4/client_project", "same_as": "208"}
+]

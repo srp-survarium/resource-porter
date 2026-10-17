@@ -15,7 +15,14 @@
 //!   those client objects, those victory containers' `visual_geometry` and those model instances;
 //!   with `to.from_rotation` (the main object's rotation now) the turn is the one that makes that
 //!   rotation level at `to.yaw`;
-//! - `{"op": "respawn_move", "full_name": N, "position": [x,y,z], "yaw": a}`;
+//! - `{"op": "respawn_move", "full_name": N, "position": [x,y,z], "yaw": a}`: with `"from": [x,y,z]`
+//!   the point must be there now (within 1 mm), or already at `position` (then nothing changes and it
+//!   says so); without `yaw` its rotation stays;
+//! - `{"op": "respawn_zone", "full_name": N, "kind": "ally_zones"|"enemy_zones", "from": Z, "to": Z2}`:
+//!   the point names zone Z2 where it named Z (Z2 must be a collision_geometry client object); already
+//!   naming Z2: nothing changes;
+//! - `{"op": "zone_move", "full_name": N, "from": [x,y,z], "position": [x,y,z]}`: a collision_geometry
+//!   client object (a respawn point's zone) moves, its rotation and meshes as they are; `from` as above;
 //! - `{"op": "respawn_add", "like": N, "full_name": N2, "position": [x,y,z], "yaw": a}`: a copy of
 //!   respawn point N (its team, zones and settings) with the next free point_id;
 //! - `{"op": "remove_client_prefix", "prefix": P}`: client objects whose full name starts with P go;
@@ -79,7 +86,18 @@ enum Op {
         #[serde(default)]
         instances: Vec<Instances>,
     },
-    RespawnMove { full_name: String, position: [f32; 3], yaw: f32 },
+    RespawnMove {
+        full_name: String,
+        position: [f32; 3],
+        #[serde(default)]
+        yaw: Option<f32>,
+        #[serde(default)]
+        from: Option<[f32; 3]>,
+        #[serde(default)]
+        why: Option<String>,
+    },
+    RespawnZone { full_name: String, kind: String, from: String, to: String, #[serde(default)] why: Option<String> },
+    ZoneMove { full_name: String, from: [f32; 3], position: [f32; 3], #[serde(default)] why: Option<String> },
     RespawnAdd { like: String, full_name: String, position: [f32; 3], yaw: f32 },
     RemoveClientPrefix { prefix: String },
     Fill { pack: String },
@@ -121,6 +139,10 @@ fn model_of(o: &ConfigValue) -> Option<String> {
 
 fn within(o: &ConfigValue, at: [f32; 3], r: f32) -> bool {
     f3(o, "position").is_some_and(|p| (0..3).map(|i| (p[i] - at[i]).powi(2)).sum::<f32>() <= r * r)
+}
+
+fn near(a: [f32; 3], b: [f32; 3]) -> bool {
+    (0..3).all(|i| (a[i] - b[i]).abs() <= 1e-3)
 }
 
 fn transpose(m: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
@@ -208,15 +230,63 @@ fn apply(root: &mut ConfigValue, op: &Op, stock: &mut vostok_resource_porter::ar
             }
             format!("moved {n} objects from {anchor:?} to {:?} (yaw {})", to.position, to.yaw)
         }
-        Op::RespawnMove { full_name, position, yaw } => {
+        Op::RespawnMove { full_name, position, yaw, from, why } => {
             let p = respawns(root)?
                 .iter_mut()
                 .find(|p| s(p, "full_name") == Some(full_name.as_str()))
                 .with_context(|| format!("no respawn point {full_name}"))?;
-            let was = f3(p, "position");
+            let was = f3(p, "position").context("respawn point without a position")?;
+            if let Some(from) = from {
+                if near(was, *position) && yaw.is_none() {
+                    return Ok(format!("respawn {full_name}: already at {position:?}"));
+                }
+                ensure!(near(was, *from), "respawn {full_name} is at {was:?}, not {from:?}: the pack is not the one this plan was made for");
+            }
             p.set_path("position", ConfigValue::Float3(*position))?;
-            p.set_path("rotation", ConfigValue::Float3([0.0, *yaw, 0.0]))?;
-            format!("respawn {full_name}: {was:?} -> {position:?} yaw {yaw}")
+            if let Some(yaw) = yaw {
+                p.set_path("rotation", ConfigValue::Float3([0.0, *yaw, 0.0]))?;
+            }
+            format!("respawn {full_name}: {was:?} -> {position:?}{}{}", yaw.map(|y| format!(" yaw {y}")).unwrap_or_default(),
+                why.as_deref().map(|w| format!(" ({w})")).unwrap_or_default())
+        }
+        Op::RespawnZone { full_name, kind, from, to, why } => {
+            ensure!(kind == "ally_zones" || kind == "enemy_zones", "zone kind {kind}");
+            ensure!(
+                items(root, "client_objects")?
+                    .iter()
+                    .any(|o| s(o, "full_name") == Some(to.as_str()) && s(o, "game_object_type") == Some("collision_geometry")),
+                "no collision_geometry {to}"
+            );
+            let p = respawns(root)?
+                .iter_mut()
+                .find(|p| s(p, "full_name") == Some(full_name.as_str()))
+                .with_context(|| format!("no respawn point {full_name}"))?;
+            let Some(ConfigValue::Indexed(zs)) = p.named_mut(kind).and_then(|k| k.named_mut("collision_geometries")) else {
+                bail!("respawn {full_name} has no {kind}")
+            };
+            if zs.iter().any(|z| s(z, "name") == Some(to.as_str())) && !zs.iter().any(|z| s(z, "name") == Some(from.as_str())) {
+                return Ok(format!("respawn {full_name}: {kind} already names {to}"));
+            }
+            let z = zs
+                .iter_mut()
+                .find(|z| s(z, "name") == Some(from.as_str()))
+                .with_context(|| format!("respawn {full_name}: {kind} does not name {from}: the pack is not the one this plan was made for"))?;
+            z.set_path("name", ConfigValue::String(to.clone()))?;
+            format!("respawn {full_name}: {kind} {from} -> {to}{}", why.as_deref().map(|w| format!(" ({w})")).unwrap_or_default())
+        }
+        Op::ZoneMove { full_name, from, position, why } => {
+            let o = items(root, "client_objects")?
+                .iter_mut()
+                .find(|o| s(o, "full_name") == Some(full_name.as_str()))
+                .with_context(|| format!("no client object {full_name}"))?;
+            ensure!(s(o, "game_object_type") == Some("collision_geometry"), "{full_name} is not a collision_geometry");
+            let was = f3(o, "position").context("zone without a position")?;
+            if near(was, *position) {
+                return Ok(format!("zone {full_name}: already at {position:?}"));
+            }
+            ensure!(near(was, *from), "zone {full_name} is at {was:?}, not {from:?}: the pack is not the one this plan was made for");
+            o.set_path("position", ConfigValue::Float3(*position))?;
+            format!("zone {full_name}: {was:?} -> {position:?}{}", why.as_deref().map(|w| format!(" ({w})")).unwrap_or_default())
         }
         Op::RespawnAdd { like, full_name, position, yaw } => {
             let points = respawns(root)?;
@@ -266,11 +336,16 @@ fn main() -> Result<()> {
     for (path, ops) in &plan.projects {
         let file = files.join(path);
         let mut project = BinaryConfig::parse(&std::fs::read(&file).with_context(|| file.display().to_string())?)?;
+        let before = project.clone();
         for op in ops {
             let note = apply(&mut project.root, op, &mut stock).with_context(|| path.clone())?;
             println!("{path}: {note}");
         }
-        std::fs::write(&file, project.to_bytes()?)?;
+        if project != before {
+            std::fs::write(&file, project.to_bytes()?)?;
+        } else {
+            println!("{path}: unchanged (every op already applied)");
+        }
     }
     for (path, leaves) in &plan.options {
         let file = files.join(path);
