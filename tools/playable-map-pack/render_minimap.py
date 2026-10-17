@@ -108,11 +108,16 @@ def box_triangles(p):
     return world[np.array(tris)]
 
 
-def collision_triangles(overlay, project):
+def collision_triangles(overlay, project, native=None):
+    """World collision triangles of the project's collision objects. Native
+    0.26g models (e.g. placed props) are read from `native`, a directory of
+    files extracted from the target database, when given."""
     out = []
     for o in project.get('collision_objects', []):
         path = o['lib_name'].removeprefix('resources/').split('#')[0]
         root = overlay / path
+        if native is not None and not root.exists():
+            root = native / path
         if (root / 'vertices').exists():
             vs = np.frombuffer(chunks((root / 'vertices').read_bytes())[25], dtype='<f4').reshape(-1, 3)
             ix = np.frombuffer(chunks((root / 'indices').read_bytes())[26], dtype='<u4').reshape(-1, 3)
@@ -271,11 +276,12 @@ def top(pixels, heights, n):
 
 # ------------------------------------------------------------ reachability
 
-def play_area(tris, spawns, bounds, step=None, all_floors=False):
+def play_area(tris, spawns, bounds, step=None, all_floors=False, slab_tops=False):
     """Per CELL: the lowest floor a walker reaches from the spawns (NaN
     where none) and whether something lies 1.7-12 m above that floor.
     With all_floors, also every reachable (cell index, height) and the grid
-    width."""
+    width. Floors closer than 0.2 m in a cell merge into the lowest, or with
+    slab_tops into the highest (the walked top of a thin slab)."""
     step = STEP if step is None else step
     x0, z0, x1, z1 = bounds
     ylo = min(s[1] for s in spawns) - 10; yhi = max(s[1] for s in spawns) + 20
@@ -331,7 +337,8 @@ def play_area(tris, spawns, bounds, step=None, all_floors=False):
     covered = np.zeros(len(p), bool); covered[q[cover]] = True
     fp, fh, fc = p[floor], hh[floor], covered[floor]
     # Merge floors closer than 0.2 m within a cell.
-    keep = np.r_[True, (fp[1:] != fp[:-1]) | (fh[1:] - fh[:-1] > 0.2)]
+    apart = (fp[1:] != fp[:-1]) | (fh[1:] - fh[:-1] > 0.2)
+    keep = np.r_[apart, True] if slab_tops else np.r_[True, apart]
     fp, fh, fc = fp[keep], fh[keep], fc[keep]
     # Graph: 4-neighbour cells, floors within STEP.
     edges = []

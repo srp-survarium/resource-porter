@@ -865,7 +865,7 @@ fn transfer_environment(
     Ok(())
 }
 
-fn half(value: f32) -> Result<u16> {
+pub(super) fn half(value: f32) -> Result<u16> {
     ensure!(
         value.is_finite() && value.abs() <= 65504.,
         "UV outside finite half range"

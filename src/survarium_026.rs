@@ -12,8 +12,10 @@ use std::{
     path::Path,
 };
 
+mod cuts;
 mod early;
 mod skylight;
+pub use cuts::Cut;
 pub use skylight::SkylightProbe;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
@@ -196,6 +198,14 @@ pub struct Map {
     /// blockers in front of ladders that lead nowhere reachable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub walker_boxes: Vec<WalkerBox>,
+    /// Native 0.26g props placed with their render visual, collision and
+    /// walker collision (e.g. crates stacked as steps up to a plank).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub props: Vec<Prop>,
+    /// Boxes cut out of the converted map's static render surfaces and
+    /// collision (e.g. a ceiling hatch widened for a plank route).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cuts: Vec<Cut>,
     /// Keep 0.26's height-based ambient. Early maps turn it off so the
     /// encoded-probe decode runs; a scene without environment probes (a
     /// converted X-Ray map) has no probe light to decode, and its source
@@ -271,6 +281,18 @@ pub struct WalkerBox {
     /// Cover the top face with planks running along the box's x axis.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub planks: bool,
+    pub reason: String,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Prop {
+    pub name: String,
+    /// Native model under `models/`, e.g. `props/box/woodbox`.
+    pub model: String,
+    pub position: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
     pub reason: String,
 }
 
@@ -1333,7 +1355,73 @@ fn emit_walker_ramps(
             visuals.push(visual);
         }
     }
+    emit_props(&map.props, target, project)?;
     Ok((count, planks.len()))
+}
+
+/// Place native props as the native projects do: one render visual plus a
+/// collision (cmask 16, cgroup 8) and a walker collision (cmask 4, cgroup 2)
+/// instance of the model's own primitives.
+fn emit_props(props: &[Prop], target: &mut ResourceDb, project: &mut ConfigValue) -> Result<()> {
+    if props.is_empty() {
+        return Ok(());
+    }
+    let mut collisions_added = Vec::new();
+    let mut visuals_added = Vec::new();
+    for prop in props {
+        ensure!(
+            prop.position.iter().all(|v| v.is_finite()) && prop.yaw.is_finite(),
+            "invalid prop {}",
+            prop.name
+        );
+        for part in ["settings", "collision/exported_primitives", "walker_collision/exported_primitives"] {
+            ensure!(
+                target.is_file(&format!("models/{}.model/{part}", prop.model)),
+                "prop {} model {} has no native {part}",
+                prop.name,
+                prop.model
+            );
+        }
+        let rotation = ConfigValue::Float3([0.0, prop.yaw, 0.0]);
+        for (part, cmask, cgroup) in [("collision", 16, 8), ("walker_collision", 4, 2)] {
+            collisions_added.push(ConfigValue::Named(vec![
+                NamedValue { name: "rotation".into(), value: rotation.clone() },
+                NamedValue { name: "position".into(), value: ConfigValue::Float3(prop.position) },
+                NamedValue { name: "cmask".into(), value: ConfigValue::Integer(cmask) },
+                NamedValue {
+                    name: "lib_name".into(),
+                    value: ConfigValue::String(format!("resources/models/{}.model/{part}", prop.model)),
+                },
+                NamedValue { name: "cgroup".into(), value: ConfigValue::Integer(cgroup) },
+                NamedValue { name: "scale".into(), value: ConfigValue::Float3([1.0; 3]) },
+            ]));
+        }
+        visuals_added.push(prop);
+    }
+    let ConfigValue::Indexed(collisions) = project
+        .named_mut("collision_objects")
+        .context("project has no collision_objects")?
+    else {
+        bail!("collision_objects is not indexed")
+    };
+    collisions.extend(collisions_added);
+    let ConfigValue::Indexed(visuals) = project
+        .named_mut("render_visuals")
+        .context("project has no render_visuals")?
+    else {
+        bail!("render_visuals is not indexed")
+    };
+    let prototype = visuals.first().context("project has no render visual")?.clone();
+    for prop in visuals_added {
+        let mut visual = prototype.clone();
+        visual.set_path("position", ConfigValue::Float3(prop.position))?;
+        visual.set_path("rotation", ConfigValue::Float3([0.0, prop.yaw, 0.0]))?;
+        visual.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
+        visual.set_path("lib_name", ConfigValue::String(prop.model.clone()))?;
+        visual.set_path("visual_name", ConfigValue::String(prop.model.clone()))?;
+        visuals.push(visual);
+    }
+    Ok(())
 }
 
 /// Replace audited donor collision with the target build's re-authored
@@ -2473,16 +2561,17 @@ pub fn build(
         );
     }
     for map in &m.maps {
-        if map.walker_ramps.is_empty() && map.walker_boxes.is_empty() {
+        if map.walker_ramps.is_empty() && map.walker_boxes.is_empty() && map.props.is_empty() {
             continue;
         }
         let donor_project = map.donor_project(m.source_build);
         let mut project = BinaryConfig::parse(&overrides[&donor_project])?;
         let added = emit_walker_ramps(map, m.source_build, &mut target, &mut project.root, output, &mut files)?;
         compatibility_notes.push(format!(
-            "{donor_project}: {} walker-only primitives and {} plank props stand in for ladders (0.26g has no ladder gameplay): {}",
+            "{donor_project}: {} walker-only primitives, {} plank props and {} native props stand in for ladders (0.26g has no ladder gameplay): {}",
             added.0,
             added.1,
+            map.props.len(),
             map.walker_ramps
                 .iter()
                 .map(|r| format!("ramp {}{} ({})", r.name, if r.planks { " with planks" } else { "" }, r.reason))
@@ -2492,6 +2581,8 @@ pub fn build(
                     if b.planks { " with planks" } else { "" },
                     b.reason
                 )))
+                .chain(map.props.iter().map(|p| format!("prop {} {} ({})", p.name, p.model, p.reason)))
+                .chain(map.cuts.iter().map(|c| format!("cut {} ({})", c.name, c.reason)))
                 .collect::<Vec<_>>()
                 .join("; ")
         ));
@@ -2543,6 +2634,14 @@ pub fn build(
         &mut files,
         &mut collision_repairs,
     )?;
+    let map_cuts: Vec<&Cut> = m.maps.iter().flat_map(|map| &map.cuts).collect();
+    for cut in &map_cuts {
+        cut.validate()?;
+    }
+    // Per cut: (render surfaces, collision meshes) it changed.
+    let mut cut_hits = vec![(0usize, 0usize); map_cuts.len()];
+    let mut cut_counts: BTreeMap<String, cuts::SurfaceCounts> = BTreeMap::new();
+    let mut cut_collision: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for path in &plan.donor_files {
         if successor_dirs
             .iter()
@@ -2589,6 +2688,51 @@ pub fn build(
                     compatibility_notes.push(format!("{path}: wall-overlay surface lifted {lift} m along its normals ({vertices} vertices; the authored moss sits up to 1.2 cm (LOD0) / 8.2 cm (LOD1) inside the wall and flickers in 0.26)"));
                 }
             }
+        }
+        let path_cuts: Vec<usize> = (0..map_cuts.len())
+            .filter(|&i| path.starts_with(&map_cuts[i].models))
+            .collect();
+        if !path_cuts.is_empty() && path.ends_with("/converted_model") {
+            let mut counts = None;
+            for &i in &path_cuts {
+                if let Some((cut, c)) = cuts::cut_static(&bytes, std::slice::from_ref(map_cuts[i]))
+                    .with_context(|| format!("cutting {} out of {path}", map_cuts[i].name))?
+                {
+                    bytes = cut;
+                    counts = Some(c);
+                    cut_hits[i].0 += 1;
+                }
+            }
+            if let Some(c) = counts {
+                let properties = path.trim_end_matches("converted_model").to_owned() + "export_properties";
+                ensure!(plan.donor_files.contains(&properties), "cut surface {path} has no export_properties");
+                cut_counts.insert(properties, c);
+            }
+        }
+        if let Some(dir) = path
+            .strip_suffix("/collision/vertices")
+            .or_else(|| path.strip_suffix("/collision/indices"))
+            .or_else(|| path.strip_suffix("/collision/face_data"))
+            .filter(|_| !path_cuts.is_empty())
+        {
+            let base = format!("{dir}/collision");
+            if !cut_collision.contains_key(path) {
+                let read = |donor: &mut ResourceDb, name: &str| donor.read(&format!("{base}/{name}"));
+                let (mut v, mut i, mut f) =
+                    (read(&mut donor, "vertices")?, read(&mut donor, "indices")?, read(&mut donor, "face_data")?);
+                for &k in &path_cuts {
+                    if let Some(cut) = cuts::cut_collision(&v, &i, &f, std::slice::from_ref(map_cuts[k]))
+                        .with_context(|| format!("cutting {} out of {base}", map_cuts[k].name))?
+                    {
+                        (v, i, f) = cut;
+                        cut_hits[k].1 += 1;
+                    }
+                }
+                cut_collision.insert(format!("{base}/vertices"), v);
+                cut_collision.insert(format!("{base}/indices"), i);
+                cut_collision.insert(format!("{base}/face_data"), f);
+            }
+            bytes = cut_collision[path].clone();
         }
         if let Some(stem) = path
             .strip_prefix("textures/")
@@ -2675,6 +2819,11 @@ pub fn build(
                 apply_primitive_overrides(&mut c.root, &bytes, overrides)
                     .with_context(|| format!("overriding primitives of {path}"))?;
                 collision_repairs.insert(path.clone(), overrides.reason.clone());
+            }
+            if let Some(&(vertices, indices)) = cut_counts.get(path) {
+                c.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                c.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                c.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
             }
             if path.ends_with(".particle") && adapt_particle(&mut c.root, &particle_defaults)? {
                 adapted_particles.insert(path.clone());
@@ -2923,6 +3072,17 @@ pub fn build(
             "{}: map names {}",
             tables.join(", "),
             names.iter().map(|(id, name)| format!("{id} = {name:?}")).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    for (cut, (surfaces, meshes)) in map_cuts.iter().zip(&cut_hits) {
+        ensure!(
+            *surfaces > 0 && *meshes > 0,
+            "cut {} changes {surfaces} render surfaces and {meshes} collision meshes; it must open both",
+            cut.name
+        );
+        compatibility_notes.push(format!(
+            "cut {}: box {:?} +- {:?} removed from {surfaces} static surfaces and {meshes} collision meshes under {} ({})",
+            cut.name, cut.centre, cut.half, cut.models, cut.reason
         ));
     }
     if dds_headers_fixed > 0 {
