@@ -3,6 +3,23 @@
   "donor_sha256": "3d37a996b9274e92af1c781b72c88929b37b4adee2ff87ce82a5c7eebbf10a57",
   "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
   "strict_finite": true,
+  "texture_grades": {
+    "textures/ported/cs/sport_center/grnd/grnd_dirt_dust_02.dds": {
+      "saturation": 0.55,
+      "contrast": 0.75,
+      "reason": "brick-and-stone rubble: its red bricks against grey stones were far more contrasty than the surrounding materials under 0.26 lighting (owner report, sports center)"
+    },
+    "textures/ported/cs/firestation/grnd/grnd_dirt_dust_02.dds": {
+      "saturation": 0.55,
+      "contrast": 0.75,
+      "reason": "brick-and-stone rubble: its red bricks against grey stones were far more contrasty than the surrounding materials under 0.26 lighting (owner report, sports center)"
+    },
+    "textures/ported/soc/mp_pool/ston/ston_musor_iov.dds": {
+      "saturation": 0.55,
+      "contrast": 0.75,
+      "reason": "brick-and-stone rubble: its red bricks against grey stones were far more contrasty than the surrounding materials under 0.26 lighting (owner report, sports center)"
+    }
+  },
   "maps": [
     {
       "id": 197,
@@ -14,6 +31,21 @@
       "map_name": "Pool",
       "loading_image": "assets/soc-dm-loading/soc_mp_pool.jpg",
       "height_ambient": true,
+      "campfires": {
+        "material": "material_instances/ported/soc/mp_pool/shader_0074.material",
+        "fires": [
+          [
+            9.65,
+            0.016,
+            -44.52
+          ],
+          [
+            9.62,
+            0.016,
+            -29.63
+          ]
+        ]
+      },
       "skylight_probe": {
         "gain": 0.8,
         "native_tint": true,
@@ -484,6 +516,31 @@
       "map_name": "Training Camp",
       "loading_image": "assets/soc-dm-loading/cs_training_camp.jpg",
       "height_ambient": true,
+      "campfires": {
+        "material": "material_instances/ported/cs/training_camp/shader_0004.material",
+        "fires": [
+          [
+            11.23,
+            -0.023,
+            24.72
+          ],
+          [
+            9.27,
+            -0.023,
+            -14.32
+          ],
+          [
+            45.93,
+            -0.023,
+            2.25
+          ],
+          [
+            18.5,
+            16.698,
+            6.0
+          ]
+        ]
+      },
       "skylight_probe": {
         "gain": 0.8,
         "native_tint": true,
@@ -923,6 +980,21 @@
       "map_name": "Sports Center",
       "loading_image": "assets/soc-dm-loading/cs_mp_sport_center.jpg",
       "height_ambient": true,
+      "campfires": {
+        "material": "material_instances/ported/cs/sport_center/shader_0004.material",
+        "fires": [
+          [
+            -32.81,
+            11.622,
+            -41.2
+          ],
+          [
+            -72.93,
+            10.231,
+            -44.21
+          ]
+        ]
+      },
       "skylight_probe": {
         "gain": 0.8,
         "native_tint": true,
@@ -1306,6 +1378,16 @@
       "map_name": "Fire Station",
       "loading_image": "assets/soc-dm-loading/cs_mp_firestation.jpg",
       "height_ambient": true,
+      "campfires": {
+        "material": "material_instances/ported/cs/firestation/shader_0010.material",
+        "fires": [
+          [
+            21.44,
+            -0.642,
+            26.01
+          ]
+        ]
+      },
       "skylight_probe": {
         "gain": 0.8,
         "native_tint": true,

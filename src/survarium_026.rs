@@ -14,6 +14,10 @@ use std::{
 
 mod early;
 mod skylight;
+mod campfire;
+mod grade;
+pub use campfire::Campfires;
+pub use grade::Grade;
 pub use skylight::SkylightProbe;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
@@ -104,6 +108,11 @@ pub struct Manifest {
     /// X-Ray maps carry such frames from their source tangent bake.
     #[serde(default)]
     pub strict_finite: bool,
+    /// Deterministic colour grades of donor DXT textures (donor path ->
+    /// saturation/contrast), for source textures far more contrasty than
+    /// their surroundings once 0.26 lights them.
+    #[serde(default)]
+    pub texture_grades: BTreeMap<String, Grade>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -207,6 +216,9 @@ pub struct Map {
     /// ambient is otherwise zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skylight_probe: Option<SkylightProbe>,
+    /// X-Ray campfires replaced by native 0.26 bonfires (see `campfire`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub campfires: Option<Campfires>,
     /// The map's own HUD minimap key, written as the project's
     /// `project_name` (the key hud.swf's Minimap.setProps looks up). Only for
     /// a converted `donor_project` map whose minimap
@@ -2498,6 +2510,25 @@ pub fn build(
         overrides.insert(donor_project, project.to_bytes()?);
     }
     for map in &m.maps {
+        let Some(fires) = &map.campfires else {
+            continue;
+        };
+        ensure!(m.source_build.early(), "campfires replace converted X-Ray campfires");
+        let donor_project = map.donor_project(m.source_build);
+        let mut project = BinaryConfig::parse(&overrides[&donor_project])?;
+        let note = campfire::emit(map, fires, &mut target, &mut project.root)
+            .with_context(|| format!("adding the campfires of {donor_project}"))?;
+        compatibility_notes.push(note);
+        overrides.insert(donor_project, project.to_bytes()?);
+    }
+    let hidden_campfire_materials: Vec<String> = m
+        .maps
+        .iter()
+        .filter_map(|map| map.campfires.as_ref())
+        .map(Campfires::settings_material)
+        .collect::<Result<_>>()?;
+    let mut hidden_campfire_surfaces = 0usize;
+    for map in &m.maps {
         let Some(settings) = &map.skylight_probe else {
             continue;
         };
@@ -2606,6 +2637,15 @@ pub fn build(
                 }
             }
         }
+        if let Some(grade) = m.texture_grades.get(path) {
+            bytes = grade::grade_dds(&bytes, grade)
+                .with_context(|| format!("grading {path}"))?
+                .with_context(|| format!("{path} is not a DXT1/DXT5 texture to grade"))?;
+            compatibility_notes.push(format!(
+                "{path}: graded (saturation {}, contrast {}): {}",
+                grade.saturation, grade.contrast, grade.reason
+            ));
+        }
         if path.starts_with("textures/") && path.ends_with(".dds") {
             if let Some((bc3, report)) = crate::dds_bc3::bc2_to_bc3(&bytes)
                 .with_context(|| format!("re-encoding BC2 texture {path}"))?
@@ -2680,6 +2720,9 @@ pub fn build(
                 adapted_particles.insert(path.clone());
             }
             if let Some(model) = path.strip_suffix(".model/settings") {
+                for material in &hidden_campfire_materials {
+                    hidden_campfire_surfaces += campfire::hide_surfaces(&mut c.root, material)?.len();
+                }
                 if m.source_build.early() && c.root.named("game_material_settings").is_some() {
                     let bindings = classify_early_game_materials(
                         path,
@@ -2924,6 +2967,13 @@ pub fn build(
             tables.join(", "),
             names.iter().map(|(id, name)| format!("{id} = {name:?}")).collect::<Vec<_>>().join(", ")
         ));
+    }
+    for path in m.texture_grades.keys() {
+        ensure!(plan.donor_files.contains(path), "texture grade names a texture the maps do not import: {path}");
+    }
+    if !hidden_campfire_materials.is_empty() {
+        ensure!(hidden_campfire_surfaces > 0, "no surface uses the campfire materials {hidden_campfire_materials:?}");
+        compatibility_notes.push(format!("{hidden_campfire_surfaces} X-Ray campfire log surfaces hidden (empty material)"));
     }
     if dds_headers_fixed > 0 {
         compatibility_notes.push(format!(
