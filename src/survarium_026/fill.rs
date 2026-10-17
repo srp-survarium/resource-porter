@@ -690,7 +690,9 @@ mod tests {
             let crate_at = g.to.expect("placed").position;
             let container = containers.collectors.iter().find(|c| Some(c.team) == g.team).expect("same-team container").to.position;
             let d = ((crate_at[0] - container[0]).powi(2) + (crate_at[2] - container[2]).powi(2)).sqrt();
-            assert!(d < 3.0, "team {:?} crate {d} m from its container", g.team);
+            // 4.2 m for team 1: the owner-approved placement of revision 18
+            // (66.8, 3.879, 62.9), along the tunnel wall.
+            assert!(d < 4.5, "team {:?} crate {d} m from its container", g.team);
         }
     }
 
