@@ -20,7 +20,13 @@
         "id": 207
       },
       "loading_screen_id": 29,
-      "hud_key": "v011e_level_04"
+      "hud_key": "v011e_level_04",
+      "probe_overrides": {
+        "environment_and_lights/probes/environment_probe(2)": {
+          "specular_multiplier": 1.0,
+          "reason": "Revision 20: 0.11e's specular 5 (native 0.26 probes and every other v0.11 probe are at most 1) made Bob's spawn hall floor wet and speckled under 0.26's probe specular"
+        }
+      }
     },
     {
       "id": 208,

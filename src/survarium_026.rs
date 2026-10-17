@@ -203,6 +203,10 @@ pub struct Map {
     /// content pack adds). Unset, the native level's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loading_screen_id: Option<i32>,
+    /// Reviewed changes to the map's environment probes, by `full_name`
+    /// ([`apply_probe_overrides`]).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub probe_overrides: BTreeMap<String, ProbeOverride>,
     /// The project root's `project_name`, the HUD's minimap key
     /// (`Minimap._levels` / `_minimapProps` in `hud.swf`). Unset, the level
     /// (`level_04`), which shows 0.26's minimap of the level.
@@ -726,6 +730,42 @@ fn adapt_objects(
 /// skylight, which 0.26g has not). Such a probe gets width `1 + 0.02 *
 /// radius`, which puts the inner radius just inside the outer one (as native
 /// globals have: level_04's 307.5 / 10.8). A valid interval is kept.
+/// A reviewed change to one environment probe of a map.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specular_multiplier: Option<f32>,
+    pub reason: String,
+}
+
+/// Applies a map's reviewed probe overrides; each must name exactly one
+/// probe of the project.
+pub fn apply_probe_overrides(
+    project: &mut ConfigValue,
+    overrides: &BTreeMap<String, ProbeOverride>,
+) -> Result<Vec<String>> {
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("project lacks client objects");
+    };
+    let mut notes = Vec::new();
+    for (name, change) in overrides {
+        ensure!(!change.reason.trim().is_empty(), "probe override {name} needs its reason");
+        let mut matched = objects.iter_mut().filter(|o| {
+            string(o, "game_object_type") == Some("environment_probe")
+                && string(o, "full_name") == Some(name.as_str())
+        });
+        let probe = matched.next().with_context(|| format!("no probe {name}"))?;
+        if let Some(value) = change.specular_multiplier {
+            let old = probe.named("specular_multiplier").cloned();
+            probe.set_path("specular_multiplier", ConfigValue::Float(value))?;
+            notes.push(format!("probe {name}: specular_multiplier {old:?} -> {value} ({})", change.reason));
+        }
+        ensure!(matched.next().is_none(), "probe override {name} names more than one probe");
+    }
+    Ok(notes)
+}
+
 pub fn open_reversed_sphere_probes(project: &mut ConfigValue) -> Result<Vec<String>> {
     let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
         bail!("project lacks client objects");
@@ -2090,6 +2130,11 @@ pub fn build_with_fill(
             &map.donor_project(m.source_build),
             &mut collision_repairs,
         )?;
+        for note in apply_probe_overrides(&mut project, &map.probe_overrides)
+            .with_context(|| format!("probe overrides of {}", map.level))?
+        {
+            compatibility_notes.push(format!("{}: {note}", map.donor_project(m.source_build)));
+        }
         if m.open_reversed_sphere_probes {
             for note in open_reversed_sphere_probes(&mut project)? {
                 compatibility_notes.push(format!("{}: {note}", map.donor_project(m.source_build)));
@@ -2761,6 +2806,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_probe_override_names_one_probe_and_says_why() {
+        let probe = |name: &str, spec: i32| {
+            ConfigValue::Named(vec![
+                NamedValue { name: "game_object_type".into(), value: ConfigValue::String("environment_probe".into()) },
+                NamedValue { name: "full_name".into(), value: ConfigValue::String(name.into()) },
+                NamedValue { name: "specular_multiplier".into(), value: ConfigValue::Integer(spec) },
+            ])
+        };
+        let mut project = ConfigValue::Named(vec![NamedValue {
+            name: "client_objects".into(),
+            value: ConfigValue::Indexed(vec![probe("p/a", 5), probe("p/b", 1)]),
+        }]);
+        let change = |reason: &str| ProbeOverride { specular_multiplier: Some(1.0), reason: reason.into() };
+        let notes = apply_probe_overrides(&mut project, &BTreeMap::from([("p/a".to_owned(), change("native range"))])).unwrap();
+        assert_eq!(notes.len(), 1);
+        let ConfigValue::Indexed(objects) = project.named("client_objects").unwrap() else { panic!() };
+        assert_eq!(objects[0].named("specular_multiplier"), Some(&ConfigValue::Float(1.0)));
+        assert_eq!(objects[1].named("specular_multiplier"), Some(&ConfigValue::Integer(1)));
+        assert!(apply_probe_overrides(&mut project, &BTreeMap::from([("p/c".to_owned(), change("x"))])).is_err());
+        assert!(apply_probe_overrides(&mut project, &BTreeMap::from([("p/a".to_owned(), change(" "))])).is_err());
+    }
+
+    #[test]
     fn a_reversed_sphere_probe_is_opened_and_a_valid_one_kept() {
         let probe = |radius: f32, width: f32, geometry: i32| {
             ConfigValue::Named(vec![
@@ -2903,6 +2971,7 @@ mod tests {
             name: None,
             deathmatch: None,
             loading_screen_id: None,
+            probe_overrides: BTreeMap::new(),
             hud_key: None,
         };
         let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
@@ -3580,6 +3649,7 @@ mod tests {
             name: None,
             deathmatch: None,
             loading_screen_id: None,
+            probe_overrides: BTreeMap::new(),
             hud_key: None,
         };
         let converted = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();

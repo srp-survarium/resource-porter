@@ -1390,6 +1390,7 @@ mod tests {
             name: None,
             deathmatch: None,
             loading_screen_id: None,
+            probe_overrides: BTreeMap::new(),
             hud_key: None,
         };
         let project = project(
@@ -1475,6 +1476,7 @@ mod tests {
             name: None,
             deathmatch: None,
             loading_screen_id: None,
+            probe_overrides: BTreeMap::new(),
             hud_key: None,
         };
         let project = project(
@@ -1991,6 +1993,7 @@ mod tests {
             name: None,
             deathmatch: None,
             loading_screen_id: None,
+            probe_overrides: BTreeMap::new(),
             hud_key: None,
         };
         assert_eq!(
@@ -2012,6 +2015,7 @@ mod tests {
             name: None,
             deathmatch: None,
             loading_screen_id: None,
+            probe_overrides: BTreeMap::new(),
             hud_key: None,
         };
         assert_eq!(
