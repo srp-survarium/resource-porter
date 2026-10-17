@@ -1,0 +1,49 @@
+{
+  "only_prefix": "logic/fill/track_anomaly/",
+  "projects": {
+    "projects/v011e_level_04/day_2/client_project": [
+      {
+        "op": "expect_client_prefix",
+        "prefix": "logic/fill/track_anomaly/",
+        "count": 75,
+        "sha256": "c1ab03bf2ba72e2940d039425d5b8792062963200024eb6dda859af1614b2166"
+      },
+      {
+        "op": "remove_client_prefix",
+        "prefix": "logic/fill/track_anomaly/"
+      },
+      {
+        "op": "fill",
+        "pack": "ports/gameplay-fill/chemical-011e-track-anomaly.json"
+      },
+      {
+        "op": "expect_client_prefix",
+        "prefix": "logic/fill/track_anomaly/",
+        "count": 135,
+        "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309"
+      }
+    ],
+    "projects/v011e_level_04/day_4/client_project": [
+      {
+        "op": "expect_client_prefix",
+        "prefix": "logic/fill/track_anomaly/",
+        "count": 75,
+        "sha256": "c1ab03bf2ba72e2940d039425d5b8792062963200024eb6dda859af1614b2166"
+      },
+      {
+        "op": "remove_client_prefix",
+        "prefix": "logic/fill/track_anomaly/"
+      },
+      {
+        "op": "fill",
+        "pack": "ports/gameplay-fill/chemical-011e-track-anomaly.json"
+      },
+      {
+        "op": "expect_client_prefix",
+        "prefix": "logic/fill/track_anomaly/",
+        "count": 135,
+        "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309"
+      }
+    ]
+  }
+}

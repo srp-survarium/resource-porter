@@ -20,8 +20,14 @@
 //!   respawn point N (its team, zones and settings) with the next free point_id;
 //! - `{"op": "remove_client_prefix", "prefix": P}`: client objects whose full name starts with P go;
 //! - `{"op": "fill", "pack": FILE}`: a gameplay-fill pack (`survarium_026::fill`), its native
-//!   template project read from STOCK_DB and checked against its hash.
-//! Every op must change something; a respawn yaw is written as rotation [0, yaw, 0].
+//!   template project read from STOCK_DB and checked against its hash;
+//! - `{"op": "expect_client_prefix", "prefix": P, "count": N, "sha256": H}`: the client objects whose
+//!   full name starts with P are exactly N, and H is the sha256 of them as one binary config array
+//!   (in project order) — a precondition before the edits, or the expected result after them.
+//! Every op must change something (an expect op checks only); a respawn yaw is written as rotation
+//! [0, yaw, 0]. With `"only_prefix": P` in the plan, each project outside the client objects under P
+//! must come out identical. Every file is edited in memory first and written only when all its
+//! plan's ops succeeded.
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -39,6 +45,9 @@ struct Plan {
     projects: BTreeMap<String, Vec<Op>>,
     #[serde(default)]
     options: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    /// The only client objects the project ops may change (full-name prefix).
+    #[serde(default)]
+    only_prefix: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -83,6 +92,24 @@ enum Op {
     RespawnAdd { like: String, full_name: String, position: [f32; 3], yaw: f32 },
     RemoveClientPrefix { prefix: String },
     Fill { pack: String },
+    ExpectClientPrefix { prefix: String, count: usize, sha256: String },
+}
+
+/// The project's client objects under `prefix` (project order) and the sha256 of them as one array.
+fn prefixed(root: &ConfigValue, prefix: &str) -> Result<(usize, String)> {
+    let ConfigValue::Indexed(all) = root.named("client_objects").context("no client_objects")? else {
+        bail!("client_objects is not an array")
+    };
+    let picked: Vec<ConfigValue> = all.iter().filter(|o| s(o, "full_name").is_some_and(|n| n.starts_with(prefix))).cloned().collect();
+    let bytes = BinaryConfig { root: ConfigValue::Indexed(picked.clone()) }.to_bytes()?;
+    Ok((picked.len(), format!("{:x}", Sha256::digest(&bytes))))
+}
+
+/// The project without the client objects under `prefix`.
+fn outside(root: &ConfigValue, prefix: &str) -> Result<ConfigValue> {
+    let mut copy = root.clone();
+    items(&mut copy, "client_objects")?.retain(|o| !s(o, "full_name").is_some_and(|n| n.starts_with(prefix)));
+    Ok(copy)
 }
 
 fn f3(o: &ConfigValue, key: &str) -> Option<[f32; 3]> {
@@ -254,6 +281,14 @@ fn apply(root: &mut ConfigValue, op: &Op, stock: &mut vostok_resource_porter::ar
             let applied = fill::apply(root, &native, &fill)?;
             format!("fill {}: {}", fill.name, applied.notes.join("; "))
         }
+        Op::ExpectClientPrefix { prefix, count, sha256 } => {
+            let (n, hash) = prefixed(root, prefix)?;
+            ensure!(
+                n == *count && hash == *sha256,
+                "client objects under {prefix}: {n} with sha256 {hash}, expected {count} with {sha256}"
+            );
+            format!("checked: {n} client objects under {prefix}, sha256 {hash}")
+        }
     })
 }
 
@@ -263,14 +298,27 @@ fn main() -> Result<()> {
     let files = Path::new(&args[0]).join("files");
     let plan: Plan = serde_json::from_reader(std::fs::File::open(&args[1])?)?;
     let mut stock = vostok_resource_porter::archive::ResourceDb::open(Path::new(&args[2]))?;
+    let mut edited = Vec::new();
     for (path, ops) in &plan.projects {
         let file = files.join(path);
         let mut project = BinaryConfig::parse(&std::fs::read(&file).with_context(|| file.display().to_string())?)?;
+        let before = match &plan.only_prefix {
+            Some(prefix) => Some(outside(&project.root, prefix)?),
+            None => None,
+        };
         for op in ops {
             let note = apply(&mut project.root, op, &mut stock).with_context(|| path.clone())?;
             println!("{path}: {note}");
         }
-        std::fs::write(&file, project.to_bytes()?)?;
+        if let (Some(prefix), Some(before)) = (&plan.only_prefix, before) {
+            ensure!(outside(&project.root, prefix)? == before, "{path}: something outside {prefix} changed");
+            println!("{path}: checked: nothing outside {prefix} changed");
+        }
+        edited.push((file, project.to_bytes()?));
+    }
+    for (file, bytes) in edited {
+        std::fs::write(&file, bytes)?;
+        println!("wrote {}", file.display());
     }
     for (path, leaves) in &plan.options {
         let file = files.join(path);

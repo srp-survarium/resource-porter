@@ -115,3 +115,41 @@ project, gameplay fill, map id, name, loading picture or minimap changes.
   yaw 0.6727, pitch -0.0963, roll 0.0574 (`ports/gameplay-fill/chemical-011e-resupply.json`).
 
 `SKHID_PATCHES` selects the directory of the released patches 12 and 14.
+
+## Growing track fog to the end of the tracks, capped damage (revision 20)
+
+The owner's requests of 2026-10-17 for Chemical Plant (194/206/207), made by
+`plan_track_anomaly.py` (parameters in its log) into
+`ports/gameplay-fill/chemical-011e-track-anomaly.json`:
+
+* The fog grows to the end of the tracks: the central factory wall at
+  z 131.9 (rails, dead end and buffer to z 131). 25 stages, z 10 ... 130,
+  from 150 s every 15 s, so the old stages keep their times (z 20 at 180 s)
+  and the fog is full at 510 s of the 900 s match.
+* The clear patch between the moss field's rust fog (clouds to z 7) and the
+  first track cloud (z 20) is closed by stages at z 10 and 15. Every
+  corridor point (x 9.9 ... 21.6, z 0 ... 131.9) is within the 5 m
+  rust_smoke radius of a cloud; neighbouring clouds are 5 m apart.
+* The damage hits only near the track bed. 26 segments (about 5 m, ends on
+  every step's end, 0.25 m overlap) of five lane boxes across the tracks
+  (x 9.9 / 11.4 / 14.4 / 17.1 / 20.1 / 21.6, 0.1 m overlap). Each box runs
+  from 0.3 m below the lowest to 2.2 m above the highest track bed under it
+  (terrain, moss and rail collision, sampled every 0.25 m), so a prone,
+  crouched or standing face anywhere on the bed is inside (the fruit cloud
+  zone filters "face") and wagon roofs (7.2 m), the loading-station
+  walkways and the old box's 7.58 m top are out. The segments are shared:
+  step j's one zone holds segments 1 ... n_j, so overlapping boxes hit
+  once per interval. The steps keep the times and the lag: 240 / 300 /
+  360 / 420 / 480 s (0.06 / 0.08 / 0.10 / 0.12 / 0.12) end 4.5 m behind the
+  newest cloud, and the last one (540 s, 0.12) reaches the wall, 30 s after
+  the last cloud. The damage starts at z 3, inside the native moss zone
+  (always on, 0.10), so there is no gap at the junction.
+* No spawn, container or crate of 206 or 207 is near: the nearest, the
+  team 1 container, is 39 m from the fog.
+
+`tools/day-map-objectives/apply_track_fog_rev20.sh PACK_DIR` applies it to
+a built maps-v011e pack (`track-fog-rev20.plan.json` through
+`examples/edit-built-pack.rs`: the -4 objects checked by count and hash,
+replaced, the result checked by hash, nothing else may change).
+`verify_track_fog.py` and `render_track_fog.py` are the offline checks and
+pictures.
