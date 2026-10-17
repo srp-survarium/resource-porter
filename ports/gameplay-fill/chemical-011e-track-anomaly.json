@@ -14,8 +14,8 @@
       "set": {
         "position": [
           15.75,
-          -17.679,
-          20.0
+          -17.589,
+          10.0
         ],
         "meshes": [
           {
@@ -45,8 +45,8 @@
       "set": {
         "position": [
           15.75,
-          2.321,
-          20.0
+          2.411,
+          10.0
         ],
         "collision_geometries": [
           {
@@ -61,8 +61,8 @@
       "set": {
         "position": [
           15.75,
-          2.321,
-          20.0
+          2.411,
+          10.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -75,7 +75,7 @@
           {
             "position": [
               -2.85,
-              0.874,
+              0.823,
               0
             ],
             "rotation": [
@@ -87,7 +87,7 @@
           {
             "position": [
               2.85,
-              0.825,
+              0.877,
               0
             ],
             "rotation": [
@@ -105,8 +105,8 @@
       "set": {
         "position": [
           15.75,
-          2.321,
-          20.0
+          2.411,
+          10.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -128,7 +128,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 180,
+            "active_time_sec": 150,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -178,8 +178,8 @@
       "set": {
         "position": [
           15.75,
-          -17.768,
-          25.0
+          -17.403,
+          15.0
         ],
         "meshes": [
           {
@@ -209,8 +209,8 @@
       "set": {
         "position": [
           15.75,
-          2.232,
-          25.0
+          2.597,
+          15.0
         ],
         "collision_geometries": [
           {
@@ -225,8 +225,8 @@
       "set": {
         "position": [
           15.75,
-          2.232,
-          25.0
+          2.597,
+          15.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -239,7 +239,7 @@
           {
             "position": [
               -2.85,
-              0.922,
+              0.527,
               0
             ],
             "rotation": [
@@ -251,7 +251,7 @@
           {
             "position": [
               2.85,
-              0.777,
+              1.173,
               0
             ],
             "rotation": [
@@ -269,8 +269,8 @@
       "set": {
         "position": [
           15.75,
-          2.232,
-          25.0
+          2.597,
+          15.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -292,7 +292,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 195,
+            "active_time_sec": 165,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -342,8 +342,8 @@
       "set": {
         "position": [
           15.75,
-          -17.384,
-          30.0
+          -17.679,
+          20.0
         ],
         "meshes": [
           {
@@ -373,8 +373,8 @@
       "set": {
         "position": [
           15.75,
-          2.616,
-          30.0
+          2.321,
+          20.0
         ],
         "collision_geometries": [
           {
@@ -389,8 +389,8 @@
       "set": {
         "position": [
           15.75,
-          2.616,
-          30.0
+          2.321,
+          20.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -403,7 +403,7 @@
           {
             "position": [
               -2.85,
-              1.334,
+              0.874,
               0
             ],
             "rotation": [
@@ -415,7 +415,7 @@
           {
             "position": [
               2.85,
-              0.365,
+              0.825,
               0
             ],
             "rotation": [
@@ -433,8 +433,8 @@
       "set": {
         "position": [
           15.75,
-          2.616,
-          30.0
+          2.321,
+          20.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -456,7 +456,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 210,
+            "active_time_sec": 180,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -506,8 +506,8 @@
       "set": {
         "position": [
           15.75,
-          -17.682,
-          35.0
+          -17.768,
+          25.0
         ],
         "meshes": [
           {
@@ -537,8 +537,8 @@
       "set": {
         "position": [
           15.75,
-          2.318,
-          35.0
+          2.232,
+          25.0
         ],
         "collision_geometries": [
           {
@@ -553,8 +553,8 @@
       "set": {
         "position": [
           15.75,
-          2.318,
-          35.0
+          2.232,
+          25.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -567,7 +567,7 @@
           {
             "position": [
               -2.85,
-              0.865,
+              0.922,
               0
             ],
             "rotation": [
@@ -579,7 +579,7 @@
           {
             "position": [
               2.85,
-              0.834,
+              0.777,
               0
             ],
             "rotation": [
@@ -597,8 +597,8 @@
       "set": {
         "position": [
           15.75,
-          2.318,
-          35.0
+          2.232,
+          25.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -620,7 +620,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 225,
+            "active_time_sec": 195,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -670,8 +670,8 @@
       "set": {
         "position": [
           15.75,
-          -17.915,
-          40.0
+          -17.384,
+          30.0
         ],
         "meshes": [
           {
@@ -701,8 +701,8 @@
       "set": {
         "position": [
           15.75,
-          2.085,
-          40.0
+          2.616,
+          30.0
         ],
         "collision_geometries": [
           {
@@ -717,8 +717,8 @@
       "set": {
         "position": [
           15.75,
-          2.085,
-          40.0
+          2.616,
+          30.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -731,7 +731,7 @@
           {
             "position": [
               -2.85,
-              0.683,
+              1.334,
               0
             ],
             "rotation": [
@@ -743,7 +743,7 @@
           {
             "position": [
               2.85,
-              1.018,
+              0.365,
               0
             ],
             "rotation": [
@@ -761,8 +761,8 @@
       "set": {
         "position": [
           15.75,
-          2.085,
-          40.0
+          2.616,
+          30.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -784,7 +784,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 240,
+            "active_time_sec": 210,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -834,8 +834,8 @@
       "set": {
         "position": [
           15.75,
-          -17.679,
-          45.0
+          -17.682,
+          35.0
         ],
         "meshes": [
           {
@@ -865,8 +865,8 @@
       "set": {
         "position": [
           15.75,
-          2.321,
-          45.0
+          2.318,
+          35.0
         ],
         "collision_geometries": [
           {
@@ -881,8 +881,8 @@
       "set": {
         "position": [
           15.75,
-          2.321,
-          45.0
+          2.318,
+          35.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -895,7 +895,7 @@
           {
             "position": [
               -2.85,
-              0.792,
+              0.865,
               0
             ],
             "rotation": [
@@ -907,7 +907,7 @@
           {
             "position": [
               2.85,
-              0.909,
+              0.834,
               0
             ],
             "rotation": [
@@ -925,8 +925,8 @@
       "set": {
         "position": [
           15.75,
-          2.321,
-          45.0
+          2.318,
+          35.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -948,7 +948,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 255,
+            "active_time_sec": 225,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -998,8 +998,8 @@
       "set": {
         "position": [
           15.75,
-          -17.661,
-          50.0
+          -17.915,
+          40.0
         ],
         "meshes": [
           {
@@ -1029,8 +1029,8 @@
       "set": {
         "position": [
           15.75,
-          2.339,
-          50.0
+          2.085,
+          40.0
         ],
         "collision_geometries": [
           {
@@ -1045,8 +1045,8 @@
       "set": {
         "position": [
           15.75,
-          2.339,
-          50.0
+          2.085,
+          40.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -1059,7 +1059,7 @@
           {
             "position": [
               -2.85,
-              0.798,
+              0.683,
               0
             ],
             "rotation": [
@@ -1071,7 +1071,7 @@
           {
             "position": [
               2.85,
-              0.902,
+              1.018,
               0
             ],
             "rotation": [
@@ -1089,8 +1089,8 @@
       "set": {
         "position": [
           15.75,
-          2.339,
-          50.0
+          2.085,
+          40.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -1112,7 +1112,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 270,
+            "active_time_sec": 240,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -1162,8 +1162,8 @@
       "set": {
         "position": [
           15.75,
-          -17.313,
-          55.0
+          -17.679,
+          45.0
         ],
         "meshes": [
           {
@@ -1193,8 +1193,8 @@
       "set": {
         "position": [
           15.75,
-          2.687,
-          55.0
+          2.321,
+          45.0
         ],
         "collision_geometries": [
           {
@@ -1209,8 +1209,8 @@
       "set": {
         "position": [
           15.75,
-          2.687,
-          55.0
+          2.321,
+          45.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -1223,7 +1223,7 @@
           {
             "position": [
               -2.85,
-              0.438,
+              0.792,
               0
             ],
             "rotation": [
@@ -1235,7 +1235,7 @@
           {
             "position": [
               2.85,
-              1.263,
+              0.909,
               0
             ],
             "rotation": [
@@ -1253,8 +1253,8 @@
       "set": {
         "position": [
           15.75,
-          2.687,
-          55.0
+          2.321,
+          45.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -1276,7 +1276,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 285,
+            "active_time_sec": 255,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -1326,8 +1326,8 @@
       "set": {
         "position": [
           15.75,
-          -17.359,
-          60.0
+          -17.661,
+          50.0
         ],
         "meshes": [
           {
@@ -1357,8 +1357,8 @@
       "set": {
         "position": [
           15.75,
-          2.641,
-          60.0
+          2.339,
+          50.0
         ],
         "collision_geometries": [
           {
@@ -1373,8 +1373,8 @@
       "set": {
         "position": [
           15.75,
-          2.641,
-          60.0
+          2.339,
+          50.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -1387,7 +1387,7 @@
           {
             "position": [
               -2.85,
-              0.391,
+              0.798,
               0
             ],
             "rotation": [
@@ -1399,7 +1399,7 @@
           {
             "position": [
               2.85,
-              1.309,
+              0.902,
               0
             ],
             "rotation": [
@@ -1417,8 +1417,8 @@
       "set": {
         "position": [
           15.75,
-          2.641,
-          60.0
+          2.339,
+          50.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -1440,7 +1440,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 300,
+            "active_time_sec": 270,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -1490,8 +1490,8 @@
       "set": {
         "position": [
           15.75,
-          -17.676,
-          65.0
+          -17.313,
+          55.0
         ],
         "meshes": [
           {
@@ -1521,8 +1521,8 @@
       "set": {
         "position": [
           15.75,
-          2.324,
-          65.0
+          2.687,
+          55.0
         ],
         "collision_geometries": [
           {
@@ -1537,8 +1537,8 @@
       "set": {
         "position": [
           15.75,
-          2.324,
-          65.0
+          2.687,
+          55.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -1551,7 +1551,7 @@
           {
             "position": [
               -2.85,
-              0.878,
+              0.438,
               0
             ],
             "rotation": [
@@ -1563,7 +1563,7 @@
           {
             "position": [
               2.85,
-              0.822,
+              1.263,
               0
             ],
             "rotation": [
@@ -1581,8 +1581,8 @@
       "set": {
         "position": [
           15.75,
-          2.324,
-          65.0
+          2.687,
+          55.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -1604,7 +1604,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 315,
+            "active_time_sec": 285,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -1654,8 +1654,8 @@
       "set": {
         "position": [
           15.75,
-          -17.325,
-          70.0
+          -17.359,
+          60.0
         ],
         "meshes": [
           {
@@ -1685,8 +1685,8 @@
       "set": {
         "position": [
           15.75,
-          2.675,
-          70.0
+          2.641,
+          60.0
         ],
         "collision_geometries": [
           {
@@ -1701,8 +1701,8 @@
       "set": {
         "position": [
           15.75,
-          2.675,
-          70.0
+          2.641,
+          60.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -1715,7 +1715,7 @@
           {
             "position": [
               -2.85,
-              1.275,
+              0.391,
               0
             ],
             "rotation": [
@@ -1727,7 +1727,7 @@
           {
             "position": [
               2.85,
-              0.425,
+              1.309,
               0
             ],
             "rotation": [
@@ -1745,8 +1745,8 @@
       "set": {
         "position": [
           15.75,
-          2.675,
-          70.0
+          2.641,
+          60.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -1768,7 +1768,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 330,
+            "active_time_sec": 300,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -1818,8 +1818,8 @@
       "set": {
         "position": [
           15.75,
-          -17.34,
-          75.0
+          -17.676,
+          65.0
         ],
         "meshes": [
           {
@@ -1849,8 +1849,8 @@
       "set": {
         "position": [
           15.75,
-          2.66,
-          75.0
+          2.324,
+          65.0
         ],
         "collision_geometries": [
           {
@@ -1865,8 +1865,8 @@
       "set": {
         "position": [
           15.75,
-          2.66,
-          75.0
+          2.324,
+          65.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -1879,7 +1879,7 @@
           {
             "position": [
               -2.85,
-              1.29,
+              0.878,
               0
             ],
             "rotation": [
@@ -1891,7 +1891,7 @@
           {
             "position": [
               2.85,
-              0.41,
+              0.822,
               0
             ],
             "rotation": [
@@ -1909,8 +1909,8 @@
       "set": {
         "position": [
           15.75,
-          2.66,
-          75.0
+          2.324,
+          65.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -1932,7 +1932,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 345,
+            "active_time_sec": 315,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -1982,8 +1982,8 @@
       "set": {
         "position": [
           15.75,
-          -17.236,
-          80.0
+          -17.325,
+          70.0
         ],
         "meshes": [
           {
@@ -2013,8 +2013,8 @@
       "set": {
         "position": [
           15.75,
-          2.764,
-          80.0
+          2.675,
+          70.0
         ],
         "collision_geometries": [
           {
@@ -2029,8 +2029,8 @@
       "set": {
         "position": [
           15.75,
-          2.764,
-          80.0
+          2.675,
+          70.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -2043,7 +2043,7 @@
           {
             "position": [
               -2.85,
-              1.186,
+              1.275,
               0
             ],
             "rotation": [
@@ -2055,7 +2055,7 @@
           {
             "position": [
               2.85,
-              0.513,
+              0.425,
               0
             ],
             "rotation": [
@@ -2073,8 +2073,8 @@
       "set": {
         "position": [
           15.75,
-          2.764,
-          80.0
+          2.675,
+          70.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -2096,7 +2096,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 360,
+            "active_time_sec": 330,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -2146,8 +2146,8 @@
       "set": {
         "position": [
           15.75,
-          -17.684,
-          85.0
+          -17.34,
+          75.0
         ],
         "meshes": [
           {
@@ -2177,8 +2177,8 @@
       "set": {
         "position": [
           15.75,
-          2.316,
-          85.0
+          2.66,
+          75.0
         ],
         "collision_geometries": [
           {
@@ -2193,8 +2193,8 @@
       "set": {
         "position": [
           15.75,
-          2.316,
-          85.0
+          2.66,
+          75.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -2207,7 +2207,7 @@
           {
             "position": [
               -2.85,
-              0.905,
+              1.29,
               0
             ],
             "rotation": [
@@ -2219,7 +2219,7 @@
           {
             "position": [
               2.85,
-              0.794,
+              0.41,
               0
             ],
             "rotation": [
@@ -2237,8 +2237,8 @@
       "set": {
         "position": [
           15.75,
-          2.316,
-          85.0
+          2.66,
+          75.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -2260,7 +2260,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 375,
+            "active_time_sec": 345,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -2310,8 +2310,8 @@
       "set": {
         "position": [
           15.75,
-          -17.659,
-          90.0
+          -17.236,
+          80.0
         ],
         "meshes": [
           {
@@ -2341,8 +2341,8 @@
       "set": {
         "position": [
           15.75,
-          2.341,
-          90.0
+          2.764,
+          80.0
         ],
         "collision_geometries": [
           {
@@ -2357,8 +2357,8 @@
       "set": {
         "position": [
           15.75,
-          2.341,
-          90.0
+          2.764,
+          80.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -2371,7 +2371,7 @@
           {
             "position": [
               -2.85,
-              0.895,
+              1.186,
               0
             ],
             "rotation": [
@@ -2383,7 +2383,7 @@
           {
             "position": [
               2.85,
-              0.805,
+              0.513,
               0
             ],
             "rotation": [
@@ -2401,8 +2401,8 @@
       "set": {
         "position": [
           15.75,
-          2.341,
-          90.0
+          2.764,
+          80.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -2424,7 +2424,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 390,
+            "active_time_sec": 360,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -2474,8 +2474,8 @@
       "set": {
         "position": [
           15.75,
-          -17.338,
-          95.0
+          -17.684,
+          85.0
         ],
         "meshes": [
           {
@@ -2505,8 +2505,8 @@
       "set": {
         "position": [
           15.75,
-          2.662,
-          95.0
+          2.316,
+          85.0
         ],
         "collision_geometries": [
           {
@@ -2521,8 +2521,8 @@
       "set": {
         "position": [
           15.75,
-          2.662,
-          95.0
+          2.316,
+          85.0
         ],
         "max_hit": 0,
         "idle_particle": "fx/level_3_anomaly/rust_smoke",
@@ -2535,7 +2535,7 @@
           {
             "position": [
               -2.85,
-              0.412,
+              0.905,
               0
             ],
             "rotation": [
@@ -2547,7 +2547,7 @@
           {
             "position": [
               2.85,
-              1.288,
+              0.794,
               0
             ],
             "rotation": [
@@ -2565,8 +2565,8 @@
       "set": {
         "position": [
           15.75,
-          2.662,
-          95.0
+          2.316,
+          85.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -2588,7 +2588,7 @@
           {
             "enabled": true,
             "energy_threshold": 0,
-            "active_time_sec": 405,
+            "active_time_sec": 375,
             "energy_on_exit": 1,
             "shoot_trigger": false,
             "zone_activity_trigger": false,
@@ -2634,12 +2634,1488 @@
     },
     {
       "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_17/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.659,
+          90.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_17/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.341,
+          90.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_17/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_17/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.341,
+          90.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_17/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.895,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.805,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_17/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.341,
+          90.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 390,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_17/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_17/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_18/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.338,
+          95.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_18/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.662,
+          95.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_18/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_18/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.662,
+          95.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_18/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.412,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.288,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_18/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.662,
+          95.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 405,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_18/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_18/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_19/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.328,
+          100.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_19/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.672,
+          100.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_19/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_19/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.672,
+          100.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_19/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.423,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.278,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_19/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.672,
+          100.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 420,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_19/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_19/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_20/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.689,
+          105.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_20/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.311,
+          105.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_20/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_20/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.311,
+          105.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_20/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.87,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.83,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_20/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.311,
+          105.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 435,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_20/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_20/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_21/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.302,
+          110.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_21/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.698,
+          110.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_21/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_21/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.698,
+          110.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_21/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.449,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.252,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_21/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.698,
+          110.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 450,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_21/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_21/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_22/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.319,
+          115.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_22/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.681,
+          115.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_22/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_22/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.681,
+          115.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_22/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.432,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.269,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_22/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.681,
+          115.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 465,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_22/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_22/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_23/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.392,
+          120.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_23/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.608,
+          120.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_23/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_23/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.608,
+          120.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_23/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.358,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              1.342,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_23/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.608,
+          120.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 480,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_23/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_23/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_24/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.545,
+          125.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_24/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.455,
+          125.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_24/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_24/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.455,
+          125.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_24/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.786,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.914,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_24/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.455,
+          125.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 495,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_24/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_24/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/stage_25/carrier_geometry",
+      "set": {
+        "position": [
+          15.75,
+          -17.31,
+          130.0
+        ],
+        "meshes": [
+          {
+            "type": 0,
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.1,
+              0.1,
+              0.1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_dummy",
+      "full_name": "logic/fill/track_anomaly/stage_25/idle_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.69,
+          130.0
+        ],
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_25/carrier_geometry"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx",
+      "full_name": "logic/fill/track_anomaly/stage_25/fog_zone",
+      "set": {
+        "position": [
+          15.75,
+          2.69,
+          130.0
+        ],
+        "max_hit": 0,
+        "idle_particle": "fx/level_3_anomaly/rust_smoke",
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/stage_25/carrier_geometry"
+          }
+        ],
+        "effect_zones": [
+          {
+            "position": [
+              -2.85,
+              0.808,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "position": [
+              2.85,
+              0.893,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_anomaly",
+      "full_name": "logic/fill/track_anomaly/stage_25/controller",
+      "set": {
+        "position": [
+          15.75,
+          2.69,
+          130.0
+        ],
+        "energy_enabled": false,
+        "energy_initial": 0,
+        "energy_maximum": 0,
+        "energy_decrease_speed": 0,
+        "energy_af_container_use": 0,
+        "energy_on_walk": 0,
+        "energy_on_run": 0,
+        "energy_on_sprint": 0,
+        "energy_on_jump": 0,
+        "energy_on_shoot": 0,
+        "energy_on_explosion": 0,
+        "energy_on_character_hit": 0,
+        "energy_on_character_kill": 0,
+        "artefacts_enabled": false,
+        "max_artefacts_count": 0,
+        "artefact_containers": [],
+        "states": [
+          {
+            "enabled": true,
+            "energy_threshold": 0,
+            "active_time_sec": 510,
+            "energy_on_exit": 1,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_25/idle_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 1,
+            "active_time_sec": 0,
+            "energy_on_exit": 0,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/stage_25/fog_zone"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
       "full_name": "logic/fill/track_anomaly/damage/carrier_geometry",
       "set": {
         "position": [
           15.75,
-          -16.92,
-          20.0
+          -17.462,
+          10.0
         ],
         "meshes": [
           {
@@ -2669,8 +4145,8 @@
       "set": {
         "position": [
           15.75,
-          3.08,
-          20.0
+          2.538100257306192,
+          10.0
         ],
         "collision_geometries": [
           {
@@ -2681,19 +4157,19 @@
     },
     {
       "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
-      "full_name": "logic/fill/track_anomaly/damage/zone_1_geometry",
+      "full_name": "logic/fill/track_anomaly/damage/segment_01",
       "set": {
         "position": [
           15.75,
-          5.08,
-          25.25
+          1.596,
+          4.25
         ],
         "meshes": [
           {
             "type": 1,
             "position": [
-              0,
-              0,
+              -5.05,
+              1.919,
               0
             ],
             "rotation": [
@@ -2702,9 +4178,2656 @@
               0
             ],
             "scale": [
-              5.85,
-              2.5,
-              10.25
+              0.8,
+              1.722,
+              1.25
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.949,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.746,
+              1.25
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.646,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.646,
+              1.25
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.905,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.583,
+              1.25
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              2.001,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.455,
+              1.25
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_02",
+      "set": {
+        "position": [
+          15.75,
+          1.588,
+          7.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.848,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.846,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.946,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.758,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.826,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.826,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.96,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.752,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.943,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.477,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_03",
+      "set": {
+        "position": [
+          15.75,
+          1.522,
+          12.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.451,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.451,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.714,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.436,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.664,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.639,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.962,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.688,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              2.027,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.749,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_04",
+      "set": {
+        "position": [
+          15.75,
+          1.505,
+          17.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.562,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.562,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.985,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.746,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.486,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.455,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.923,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.638,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              2.035,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.746,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_05",
+      "set": {
+        "position": [
+          15.75,
+          1.48,
+          22.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.575,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.567,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              2.044,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.712,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.475,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.476,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.781,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.439,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.662,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.379,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_06",
+      "set": {
+        "position": [
+          15.75,
+          1.466,
+          27.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.551,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.55,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.89,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.534,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.51,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.472,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.767,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.443,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.619,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.343,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_07",
+      "set": {
+        "position": [
+          15.75,
+          1.403,
+          32.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.701,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.686,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.887,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.575,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.534,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.534,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.828,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.44,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.684,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.35,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_08",
+      "set": {
+        "position": [
+          15.75,
+          1.39,
+          37.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.544,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.519,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.7,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.612,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.54,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.541,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.841,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.44,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.669,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.408,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_09",
+      "set": {
+        "position": [
+          15.75,
+          1.538,
+          42.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.478,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.471,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.679,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.652,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.566,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.566,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.769,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.496,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.723,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.493,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_10",
+      "set": {
+        "position": [
+          15.75,
+          1.416,
+          47.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.65,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.367,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.856,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.445,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.595,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.595,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.897,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.49,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.887,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.45,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_11",
+      "set": {
+        "position": [
+          15.75,
+          1.43,
+          52.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.541,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.463,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.854,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.49,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.574,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.575,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.806,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.436,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.646,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.489,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_12",
+      "set": {
+        "position": [
+          15.75,
+          1.344,
+          57.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.648,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.442,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.885,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.442,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.652,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.652,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.87,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.458,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.69,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.448,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_13",
+      "set": {
+        "position": [
+          15.75,
+          1.347,
+          62.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.676,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.431,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.913,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.474,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.605,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.605,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.851,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.474,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.729,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.361,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_14",
+      "set": {
+        "position": [
+          15.75,
+          1.52,
+          67.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.477,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.477,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.747,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.448,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.531,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.505,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.754,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.552,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.62,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.452,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_15",
+      "set": {
+        "position": [
+          15.75,
+          1.52,
+          72.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.493,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.493,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.734,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.418,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.559,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.461,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.736,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.472,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.551,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.41,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_16",
+      "set": {
+        "position": [
+          15.75,
+          1.556,
+          77.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.598,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.367,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.682,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.433,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.546,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.546,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.788,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.501,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.567,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.396,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_17",
+      "set": {
+        "position": [
+          15.75,
+          1.54,
+          82.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.595,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.386,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.778,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.495,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.594,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.594,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.875,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.594,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.653,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.466,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_18",
+      "set": {
+        "position": [
+          15.75,
+          1.536,
+          87.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.476,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.429,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.986,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.747,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.854,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.854,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.711,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.456,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.574,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.367,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_19",
+      "set": {
+        "position": [
+          15.75,
+          1.502,
+          92.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.476,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.476,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              2.029,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.738,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.91,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.831,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.71,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.46,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.538,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.388,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_20",
+      "set": {
+        "position": [
+          15.75,
+          1.502,
+          97.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.476,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.476,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.75,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.432,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.53,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.395,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.716,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.454,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.554,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.41,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_21",
+      "set": {
+        "position": [
+          15.75,
+          1.413,
+          102.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.592,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.468,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.97,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.565,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.623,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.623,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.856,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.402,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.619,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.396,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_22",
+      "set": {
+        "position": [
+          15.75,
+          1.37,
+          107.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.63,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.47,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.955,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.476,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.566,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.566,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.899,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.402,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.662,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.396,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_23",
+      "set": {
+        "position": [
+          15.75,
+          1.423,
+          112.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.731,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.655,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.905,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.495,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.511,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.511,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.811,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.423,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.638,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.414,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_24",
+      "set": {
+        "position": [
+          15.75,
+          1.498,
+          117.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.516,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.516,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.714,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.524,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.504,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.498,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.74,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.433,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.568,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.409,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_25",
+      "set": {
+        "position": [
+          15.75,
+          1.5,
+          122.75
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.458,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.458,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.901,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.727,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.531,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.495,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.762,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.474,
+              2.75
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.655,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.494,
+              2.75
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/segment_26",
+      "set": {
+        "position": [
+          15.75,
+          1.5,
+          128.45
+        ],
+        "meshes": [
+          {
+            "type": 1,
+            "position": [
+              -5.05,
+              1.571,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.571,
+              3.45
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              -2.85,
+              1.857,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.58,
+              3.45
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              0.0,
+              1.609,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.45,
+              1.559,
+              3.45
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              2.85,
+              1.96,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.6,
+              1.607,
+              3.45
+            ]
+          },
+          {
+            "type": 1,
+            "position": [
+              5.05,
+              1.742,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              0.8,
+              1.587,
+              3.45
             ]
           }
         ]
@@ -2716,44 +6839,31 @@
       "set": {
         "position": [
           15.75,
-          3.08,
-          25.25
+          2.538,
+          19.125
         ],
         "max_hit": 0.06,
         "collision_geometries": [
           {
-            "name": "logic/fill/track_anomaly/damage/zone_1_geometry"
-          }
-        ]
-      }
-    },
-    {
-      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
-      "full_name": "logic/fill/track_anomaly/damage/zone_2_geometry",
-      "set": {
-        "position": [
-          15.75,
-          5.08,
-          35.25
-        ],
-        "meshes": [
+            "name": "logic/fill/track_anomaly/damage/segment_01"
+          },
           {
-            "type": 1,
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              5.85,
-              2.5,
-              20.25
-            ]
+            "name": "logic/fill/track_anomaly/damage/segment_02"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_03"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_04"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_05"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_06"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_07"
           }
         ]
       }
@@ -2764,44 +6874,43 @@
       "set": {
         "position": [
           15.75,
-          3.08,
-          35.25
+          2.538,
+          29.125
         ],
         "max_hit": 0.08,
         "collision_geometries": [
           {
-            "name": "logic/fill/track_anomaly/damage/zone_2_geometry"
-          }
-        ]
-      }
-    },
-    {
-      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
-      "full_name": "logic/fill/track_anomaly/damage/zone_3_geometry",
-      "set": {
-        "position": [
-          15.75,
-          5.08,
-          45.25
-        ],
-        "meshes": [
+            "name": "logic/fill/track_anomaly/damage/segment_01"
+          },
           {
-            "type": 1,
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              5.85,
-              2.5,
-              30.25
-            ]
+            "name": "logic/fill/track_anomaly/damage/segment_02"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_03"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_04"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_05"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_06"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_07"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_08"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_09"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_10"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_11"
           }
         ]
       }
@@ -2812,44 +6921,55 @@
       "set": {
         "position": [
           15.75,
-          3.08,
-          45.25
+          2.538,
+          39.125
         ],
         "max_hit": 0.1,
         "collision_geometries": [
           {
-            "name": "logic/fill/track_anomaly/damage/zone_3_geometry"
-          }
-        ]
-      }
-    },
-    {
-      "source": "anomaly/fruit/fruit_toxic_cloud_collision_lvl1",
-      "full_name": "logic/fill/track_anomaly/damage/zone_4_geometry",
-      "set": {
-        "position": [
-          15.75,
-          5.08,
-          52.75
-        ],
-        "meshes": [
+            "name": "logic/fill/track_anomaly/damage/segment_01"
+          },
           {
-            "type": 1,
-            "position": [
-              0,
-              0,
-              0
-            ],
-            "rotation": [
-              0,
-              0,
-              0
-            ],
-            "scale": [
-              5.85,
-              2.5,
-              37.75
-            ]
+            "name": "logic/fill/track_anomaly/damage/segment_02"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_03"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_04"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_05"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_06"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_07"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_08"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_09"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_10"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_11"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_12"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_13"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_14"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_15"
           }
         ]
       }
@@ -2860,13 +6980,242 @@
       "set": {
         "position": [
           15.75,
-          3.08,
-          52.75
+          2.538,
+          49.125
         ],
         "max_hit": 0.12,
         "collision_geometries": [
           {
-            "name": "logic/fill/track_anomaly/damage/zone_4_geometry"
+            "name": "logic/fill/track_anomaly/damage/segment_01"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_02"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_03"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_04"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_05"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_06"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_07"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_08"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_09"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_10"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_11"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_12"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_13"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_14"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_15"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_16"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_17"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_18"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_19"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_5",
+      "set": {
+        "position": [
+          15.75,
+          2.538,
+          59.125
+        ],
+        "max_hit": 0.12,
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_01"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_02"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_03"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_04"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_05"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_06"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_07"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_08"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_09"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_10"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_11"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_12"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_13"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_14"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_15"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_16"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_17"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_18"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_19"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_20"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_21"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_22"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_23"
+          }
+        ]
+      }
+    },
+    {
+      "source": "anomaly/fruit/fruit_toxic_cloud_lvl1",
+      "full_name": "logic/fill/track_anomaly/damage/zone_6",
+      "set": {
+        "position": [
+          15.75,
+          2.538,
+          67.45
+        ],
+        "max_hit": 0.12,
+        "collision_geometries": [
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_01"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_02"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_03"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_04"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_05"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_06"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_07"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_08"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_09"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_10"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_11"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_12"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_13"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_14"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_15"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_16"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_17"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_18"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_19"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_20"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_21"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_22"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_23"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_24"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_25"
+          },
+          {
+            "name": "logic/fill/track_anomaly/damage/segment_26"
           }
         ]
       }
@@ -2877,8 +7226,8 @@
       "set": {
         "position": [
           15.75,
-          3.08,
-          20.0
+          2.538100257306192,
+          10.0
         ],
         "energy_enabled": false,
         "energy_initial": 0,
@@ -2988,6 +7337,50 @@
           {
             "enabled": true,
             "energy_threshold": 4,
+            "active_time_sec": 60,
+            "energy_on_exit": 5,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/zone_4"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 5,
+            "active_time_sec": 60,
+            "energy_on_exit": 6,
+            "shoot_trigger": false,
+            "zone_activity_trigger": false,
+            "groups": [
+              {
+                "zones": [
+                  "logic/fill/track_anomaly/damage/zone_5"
+                ],
+                "enabled": true,
+                "keep_all_zones_active": true,
+                "sequential_activation": false,
+                "min_active_time_sec": 0,
+                "max_active_time_sec": 0,
+                "recharge_time_sec": 20,
+                "max_charged_count": 255
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "energy_threshold": 6,
             "active_time_sec": 0,
             "energy_on_exit": 0,
             "shoot_trigger": false,
@@ -2995,7 +7388,7 @@
             "groups": [
               {
                 "zones": [
-                  "logic/fill/track_anomaly/damage/zone_4"
+                  "logic/fill/track_anomaly/damage/zone_6"
                 ],
                 "enabled": true,
                 "keep_all_zones_active": true,

@@ -23,14 +23,20 @@ Damage: one controller with a timed state chain, idle until the first step,
 then one face toxic zone per --damage step (time:max_hit). Step j's box
 covers both tracks from the first cloud back to --lag metres behind the
 newest cloud started by then; only one step is active at a time.
-With --damage-cap H the step is instead one box per stage segment (--spacing
-long, overlapping its neighbours by --overlap), each from --damage-depth below
-to H above that segment's own track-bed ground (the lowest of the ground under
-the tracks and between them at its ends and middle): a damage zone hits any
-body part inside it (0.10b damage_zone_core: a contact test against the
-character's bone collision), so players more than H above the bed (wagon
-roofs, bridges, walkways) are outside it. The step's state holds all its
-segments.
+With --damage-cap H the damage is instead capped near the ground. The track,
+from --damage-from-z to --end-z (the playable end), is cut into segments of
+--spacing (their ends fall on every step's end), each one collision_geometry
+whose meshes are one box per lane (--lanes, x edges across the tracks); each
+box runs from --damage-depth below the lowest to H above the highest track-bed
+ground under it (--bed-models: terrain, moss, rails; sampled every --grid m),
+so a standing player's face anywhere on the bed is inside it and players on
+wagon roofs, bridges and walkways are not. Neighbouring boxes overlap by
+--overlap (along) and --lane-overlap (across). A damage zone hits a body part
+in its filter inside any of its geometries (0.10b damage_zone_core: a contact
+test against the character's bone collision; the fruit cloud filters "face"),
+once per interval however many boxes hold it. Step j's zone holds the segments
+up to --lag behind the newest cloud started by then; the last step reaches
+--end-z. The geometries are shared by the steps; only one step is active.
 
 Timers count from the controllers' first tick (anomaly activation); the
 calibration run tells whether that is map load or match start.
@@ -38,11 +44,12 @@ Placement is checked: every cloud must have a rail of the 194 railroad
 collision within 1 m across and ground under it; clouds over a wagon are
 listed. Prints the object counts.
 """
-import argparse, collections, hashlib, json, math, sys
+import argparse, collections, hashlib, json, math, re, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'chemical-plant'))
 from audit_respawns import World, config
+from fast_world import FastWorld
 from audit_collision_region import collision_parts
 
 TEMPLATE = 'projects/level_02/day_2/client_project'
@@ -65,9 +72,16 @@ def args():
     ap.add_argument('--damage', default='240:0.06,300:0.08,360:0.10,420:0.12', help='time_sec:max_hit steps')
     ap.add_argument('--lag', type=float, default=4.5, help='damage ends this far behind the newest cloud')
     ap.add_argument('--zone-margin', type=float, default=3.0, help='damage box beyond the outer tracks')
-    ap.add_argument('--damage-cap', type=float, default=None, help='per-segment damage boxes up to this height above the local ground')
-    ap.add_argument('--damage-depth', type=float, default=0.3, help='how far below the local ground those boxes reach')
-    ap.add_argument('--overlap', type=float, default=0.25, help='each segment box reaches this far into its neighbours')
+    ap.add_argument('--damage-cap', type=float, default=None, help='capped damage boxes up to this height above the local track bed')
+    ap.add_argument('--damage-depth', type=float, default=0.3, help='how far below the local track bed those boxes reach')
+    ap.add_argument('--overlap', type=float, default=0.25, help='each segment box reaches this far into its neighbours along the track')
+    ap.add_argument('--lanes', default=None, help='x edges of the box lanes across the tracks (default: one lane, the tracks +- --zone-margin)')
+    ap.add_argument('--lane-overlap', type=float, default=0.1, help='each lane box reaches this far into its neighbours across')
+    ap.add_argument('--bed-models', default=r'/(terrain\d*|moss|railroad_0[12])\.model/', help='regex of the movement-collision models that make the track bed')
+    ap.add_argument('--grid', type=float, default=0.25, help='track-bed sampling step under each box')
+    ap.add_argument('--damage-from-z', type=float, default=None, help='capped damage starts here (default: first cloud - spacing)')
+    ap.add_argument('--end-z', type=float, default=None, help='the playable end of the track: the last capped step reaches it')
+    ap.add_argument('--segments-out', type=Path, default=None, help='write the capped segments, their boxes and track-bed heights (JSON)')
     ap.add_argument('--rails-from-z', type=float, default=None, help='clouds before this z bridge to another fog (no rail check; ground only)')
     ap.add_argument('--also-map-ids', default='', help='comma-separated further map ids the pack applies to')
     return ap.parse_args()
@@ -136,11 +150,57 @@ def main():
     clone(DUMMY, f'{p}/idle_zone', position=[cx, gy, stage_z[0]], collision_geometries=[dict(name=f'{p}/carrier_geometry')])
     half_x = (max(tracks) - min(tracks)) / 2 + a.zone_margin
     states, damage = [state(0, steps[0][0], 1, [f'{p}/idle_zone'])], []
+    segments, z1_of = [], {}
+    if a.damage_cap is not None:
+        assert a.end_z is not None, '--damage-cap needs --end-z'
+        bed_re = re.compile(a.bed_models)
+        bed = FastWorld(a.overlay, parts=[q for q in FastWorld(a.overlay, project).parts if bed_re.search('/' + q[0])])
+        def bed_ground(x, z):
+            f = bed.floor(x, 2.4, z, below=1.5, above=0.7)
+            return f[0] if f else None
+        zf = a.damage_from_z if a.damage_from_z is not None else stage_z[0] - a.spacing
+        for j, (t, _) in enumerate(steps, 1):
+            newest = max((z for z, s in zip(stage_z, stage_t) if s <= t), default=None)
+            assert newest is not None, f'damage step at {t} s precedes the first fog stage'
+            z1_of[j] = a.end_z if j == len(steps) else newest - a.lag - a.overlap  # its last box, overlap included, ends --lag behind
+            assert zf < z1_of[j] <= a.end_z, f'damage step {j} ends at {z1_of[j]}'
+        assert stage_z[-1] - a.lag < a.end_z <= stage_z[-1] + a.spacing, f'the last cloud (z {stage_z[-1]}) does not reach --end-z {a.end_z}'
+        assert max(s for s in stage_t if s <= steps[-1][0]) == stage_t[-1], 'the last step precedes the last cloud'
+        phase = z1_of[1] % a.spacing
+        cuts = sorted({zf, a.end_z, *z1_of.values(), *(phase + a.spacing * n for n in range(int(a.end_z / a.spacing) + 2) if zf < phase + a.spacing * n < a.end_z)})
+        ends = set(z1_of.values()) | {zf, a.end_z}
+        # Every step end is a cut; the --spacing grid through them fills in, a grid cut nearer than 2 m to a kept one dropped.
+        merged_cuts = sorted(ends)
+        for c in cuts:
+            if all(abs(c - k) >= 2.0 for k in merged_cuts): merged_cuts.append(c); merged_cuts.sort()
+        edges = [float(v) for v in a.lanes.split(',')] if a.lanes else [cx - half_x, cx + half_x]
+        assert edges == sorted(edges) and len(edges) >= 2
+        for k, (za, zb) in enumerate(zip(merged_cuts, merged_cuts[1:]), 1):
+            s0, s1 = za - a.overlap if za > zf else za, zb + a.overlap if zb < a.end_z else zb
+            boxes = []
+            for l, (xa, xb) in enumerate(zip(edges, edges[1:])):
+                x0, x1 = xa - (a.lane_overlap if l else 0), xb + (a.lane_overlap if l < len(edges) - 2 else 0)
+                hs, n = [], 0
+                for i in range(int(round((x1 - x0) / a.grid)) + 1):
+                    for m in range(int(round((s1 - s0) / a.grid)) + 1):
+                        n += 1
+                        h = bed_ground(min(x0 + i * a.grid, x1), min(s0 + m * a.grid, s1))
+                        if h is not None: hs.append(h)
+                assert len(hs) >= 0.9 * n, f'segment {k} lane {l + 1}: track bed under only {len(hs)} of {n} samples'
+                lo, hi = min(hs) - a.damage_depth, max(hs) + a.damage_cap
+                boxes.append(dict(x=[round(x0, 3), round(x1, 3)], y=[round(lo, 3), round(hi, 3)], bed=[round(min(hs), 3), round(max(hs), 3)]))
+            gy_k = round(min(b['y'][0] for b in boxes), 3)
+            cz = round((s0 + s1) / 2, 3)
+            clone(GEOMETRY, f'{p}/segment_{k:02d}', position=[cx, gy_k, cz],
+                  meshes=[dict(type=1, position=[round((b['x'][0] + b['x'][1]) / 2 - cx, 3), round((b['y'][0] + b['y'][1]) / 2 - gy_k, 3), 0],
+                               rotation=[0, 0, 0], scale=[round((b['x'][1] - b['x'][0]) / 2, 3), round((b['y'][1] - b['y'][0]) / 2, 3), round((s1 - s0) / 2, 3)])
+                          for b in boxes])
+            segments.append(dict(segment=k, z=[round(za, 3), round(zb, 3)], box_z=[round(s0, 3), round(s1, 3)], boxes=boxes))
     for j, (t, hit) in enumerate(steps, 1):
         newest = max((z for z, s in zip(stage_z, stage_t) if s <= t), default=None)
         assert newest is not None, f'damage step at {t} s precedes the first fog stage'
         z0, z1 = stage_z[0] - a.spacing, newest - a.lag
-        assert z1 > z0, f'damage step {j} would be empty'
+        assert a.damage_cap is not None or z1 > z0, f'damage step {j} would be empty'
         nxt = steps[j][0] - t if j < len(steps) else 0
         if a.damage_cap is None:
             clone(GEOMETRY, f'{p}/zone_{j}_geometry', position=[cx, round(gy + 2.0, 3), round((z0 + z1) / 2, 3)],
@@ -150,24 +210,12 @@ def main():
             states.append(state(j, nxt, j + 1 if nxt else 0, [f'{p}/zone_{j}']))
             damage.append(dict(step=j, at_sec=t, max_hit=hit, z=[round(z0, 2), round(z1, 2)], newest_cloud_z=newest))
             continue
-        zones, segs, za = [], [], z0
-        while za < z1 - 1e-6:
-            zb = min(za + a.spacing, z1)
-            g = min(ground(x, zz) for x in tracks + [cx] for zz in (za, (za + zb) / 2, zb))
-            lo, hi = g - a.damage_depth, g + a.damage_cap
-            s0, s1 = za - a.overlap if za > z0 else za, zb + a.overlap if zb < z1 else zb
-            k = len(segs) + 1
-            clone(GEOMETRY, f'{p}/zone_{j}_{k:02d}_geometry', position=[cx, round((lo + hi) / 2, 3), round((s0 + s1) / 2, 3)],
-                  meshes=[dict(type=1, position=[0, 0, 0], rotation=[0, 0, 0], scale=[round(half_x, 3), round((hi - lo) / 2, 3), round((s1 - s0) / 2, 3)])])
-            clone(DAMAGE, f'{p}/zone_{j}_{k:02d}', position=[cx, round(g, 3), round((s0 + s1) / 2, 3)], max_hit=hit,
-                  collision_geometries=[dict(name=f'{p}/zone_{j}_{k:02d}_geometry')])
-            zones.append(f'{p}/zone_{j}_{k:02d}'); segs.append(dict(z=[round(s0, 2), round(s1, 2)], ground=round(g, 2), y=[round(lo, 2), round(hi, 2)]))
-            za = zb
-        gaps = [round(b['z'][0] - c['z'][1], 2) for c, b in zip(segs, segs[1:]) if b['z'][0] > c['z'][1]]
-        assert not gaps, f'damage step {j}: gaps {gaps}'
+        zones = [f'{p}/zone_{j}']
+        clone(DAMAGE, zones[0], position=[cx, round(gy, 3), round((zf + z1_of[j]) / 2, 3)], max_hit=hit,
+              collision_geometries=[dict(name=f'{p}/segment_{k:02d}') for k, sg in enumerate(segments, 1) if sg['z'][1] <= z1_of[j] + 1e-6])
         states.append(state(j, nxt, j + 1 if nxt else 0, zones))
-        damage.append(dict(step=j, at_sec=t, max_hit=hit, z=[round(z0, 2), round(z1, 2)], newest_cloud_z=newest, segments=len(segs),
-                           ground=[min(q['ground'] for q in segs), max(q['ground'] for q in segs)]))
+        held = [sg for sg in segments if sg['z'][1] <= z1_of[j] + 1e-6]
+        damage.append(dict(step=j, at_sec=t, max_hit=hit, z=[held[0]['z'][0], held[-1]['z'][1]], newest_cloud_z=newest, segments=len(held)))
     clone(CORE, f'{p}/controller', position=[cx, gy, stage_z[0]], **quiet, states=states)
     pack = dict(name='chemical-011e growing track anomaly', map_id=194, template_project=TEMPLATE,
                 template_sha256=hashlib.sha256(level_02).hexdigest(), clones=clones)
@@ -176,10 +224,13 @@ def main():
         pack = {k: pack[k] for k in ('name', 'map_id', 'also_map_ids', 'template_project', 'template_sha256', 'clones')}
     a.output.write_text(json.dumps(pack, indent=2) + '\n')
     kinds = collections.Counter(native[c['source']]['game_object_type'] for c in clones)
-    print(json.dumps(dict(parameters={k: v for k, v in vars(a).items() if k not in ('level_02', 'overlay', 'output')},
+    print(json.dumps(dict(parameters={k: v for k, v in vars(a).items() if k not in ('level_02', 'overlay', 'output', 'segments_out')},
                           stages=[dict(stage=k + 1, at_sec=t, z=z) for k, (t, z) in enumerate(zip(stage_t, stage_z))][::5],
                           full_at_sec=stage_t[-1], damage=damage, objects=dict(kinds), clouds=a.stages * len(tracks),
                           wagons=report), indent=1))
+    if segments and a.segments_out:
+        a.segments_out.write_text(json.dumps(dict(segments=segments, stages=[dict(stage=k + 1, at_sec=t, z=z) for k, (t, z) in enumerate(zip(stage_t, stage_z))],
+                                                  steps=[dict(step=j, at_sec=t, max_hit=h, z1=z1_of[j]) for j, (t, h) in enumerate(steps, 1)]), indent=1) + '\n')
 
 if __name__ == '__main__':
     main()

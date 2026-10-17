@@ -815,6 +815,57 @@ mod tests {
     }
 
     #[test]
+    fn track_damage_is_capped_contiguous_segments_shared_by_the_steps() {
+        let track = pack(include_str!("../../ports/gameplay-fill/chemical-011e-track-anomaly.json"));
+        let by_name: BTreeMap<&str, &CloneFill> = track.clones.iter().map(|c| (c.full_name.as_str(), c)).collect();
+        let f = |v: &serde_json::Value| v.as_f64().unwrap() as f32;
+        // Segment geometries: boxes along the track, each lane box low over its own bed.
+        let mut segments: Vec<(&str, f32, f32)> = Vec::new();
+        for c in track.clones.iter().filter(|c| c.full_name.contains("/damage/segment_")) {
+            let at = c.set["position"].as_array().unwrap();
+            let meshes = c.set["meshes"].as_array().unwrap();
+            assert!(meshes.len() >= 2, "{}: lanes", c.full_name);
+            let mut lanes = Vec::new();
+            for m in meshes {
+                assert_eq!(m["type"], 1, "boxes");
+                assert!(m["rotation"].as_array().unwrap().iter().all(|r| f(r) == 0.0));
+                let (p, sc) = (m["position"].as_array().unwrap(), m["scale"].as_array().unwrap());
+                let height = 2.0 * f(&sc[1]);
+                assert!((2.5..=4.0).contains(&height), "{}: a box {height} m tall", c.full_name);
+                let top = f(&at[1]) + f(&p[1]) + f(&sc[1]);
+                assert!(top < 6.0, "{}: box top at {top}, wagon roofs stand at 7.2", c.full_name);
+                lanes.push((f(&at[0]) + f(&p[0]) - f(&sc[0]), f(&at[0]) + f(&p[0]) + f(&sc[0])));
+                assert_eq!(f(&p[2]), 0.0);
+            }
+            assert!(lanes.windows(2).all(|w| w[0].1 > w[1].0), "{}: lanes overlap", c.full_name);
+            let half = f(&meshes[0]["scale"][2]);
+            segments.push((c.full_name.as_str(), f(&at[2]) - half, f(&at[2]) + half));
+        }
+        assert!(segments.len() >= 20);
+        assert!(segments.windows(2).all(|w| w[0].2 > w[1].1 && w[0].1 < w[1].1), "segments run along the track and overlap");
+        // Each step's zone holds the segments from the first one on; the last step holds them all.
+        let controller = by_name["logic/fill/track_anomaly/damage/controller"];
+        let states = controller.set["states"].as_array().unwrap();
+        let mut held = 0;
+        for st in &states[1..] {
+            let zone = by_name[st["groups"][0]["zones"][0].as_str().unwrap()];
+            let names: Vec<&str> = zone.set["collision_geometries"].as_array().unwrap().iter().map(|g| g["name"].as_str().unwrap()).collect();
+            assert_eq!(names, segments[..names.len()].iter().map(|s| s.0).collect::<Vec<_>>(), "{}", zone.full_name);
+            assert!(names.len() > held, "{}: the damage grows", zone.full_name);
+            held = names.len();
+        }
+        assert_eq!(held, segments.len(), "the last step reaches the end of the track");
+        // The fog reaches past the last box: no damage without a cloud.
+        let last_cloud = track
+            .clones
+            .iter()
+            .filter(|c| c.full_name.ends_with("/fog_zone"))
+            .map(|c| f(&c.set["position"][2]))
+            .fold(f32::MIN, f32::max);
+        assert!(segments.last().unwrap().2 <= last_cloud + 5.0);
+    }
+
+    #[test]
     fn group_is_copied_moved_reteamed_and_renamed_once() {
         let zone = named(vec![
             ("full_name", s("logic/vip/team1/resupply/resupply_zone")),
