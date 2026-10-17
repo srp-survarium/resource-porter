@@ -159,6 +159,13 @@ pub struct Simplify {
     /// The same for LOD1 surfaces (drawn from the first LOD distance on).
     #[serde(default)]
     pub lod1_permissive: bool,
+    /// Keep every open edge of LOD0 and LOD-less surfaces in place
+    /// (meshoptimizer `LockBorder`): models
+    /// meet other models and the terrain along open edges (cave mouths,
+    /// walls on the ground), and a moved edge opens a crack the sky shows
+    /// through.
+    #[serde(default)]
+    pub lock_borders: bool,
     /// Target ratio for LOD0 and LOD-less surfaces (None: kept as authored).
     #[serde(default)]
     pub lod0_ratio: Option<f32>,
@@ -175,11 +182,17 @@ pub struct Simplify {
 
 impl Simplify {
     fn options(&self, lod: usize) -> meshopt::SimplifyOptions {
-        if (lod >= 2 && self.lod2_permissive) || (lod == 1 && self.lod1_permissive) {
+        let mut options = if (lod >= 2 && self.lod2_permissive) || (lod == 1 && self.lod1_permissive) {
             meshopt::SimplifyOptions::Permissive | meshopt::SimplifyOptions::Prune
         } else {
             meshopt::SimplifyOptions::None
+        };
+        // Near geometry only: far LODs (beyond the second distance) would
+        // keep most of their triangles at their seams.
+        if self.lock_borders && lod == 0 {
+            options |= meshopt::SimplifyOptions::LockBorder;
         }
+        options
     }
 }
 
@@ -217,6 +230,11 @@ pub struct MapSpec {
     /// donor's loading screen (filled by the UI bundle).
     #[serde(default)]
     pub loading_screen_id: Option<u8>,
+    /// Template probe (`full_name`) whose cubemap matte donor water (0.69d
+    /// smoothness below 0.5: cave puddles) reflects instead of the native
+    /// water's sky probe, with local reflections off.
+    #[serde(default)]
+    pub matte_water_probe: Option<String>,
 }
 
 fn value_of<'a>(effect: &'a ConfigValue, name: &str) -> Option<&'a ConfigValue> {
@@ -791,10 +809,35 @@ fn drop_top_mip(bytes: &[u8]) -> Result<Vec<u8>> {
     let set = |r: &mut Vec<u8>, o: usize, v: u32| r[o..o + 4].copy_from_slice(&v.to_le_bytes());
     set(&mut result, 12, height / 2);
     set(&mut result, 16, width / 2);
-    set(&mut result, 20, level(width / 2, height / 2) as u32);
     set(&mut result, 28, mips - 1);
     result.extend_from_slice(&bytes[128 + top..]);
+    // Native pitch: every byte after the header (mips + colour-space byte).
+    let after = u32::try_from(result.len() - 128)?;
+    set(&mut result, 20, after);
     Ok(result)
+}
+
+/// Retail 0.26 textures: flags 0xA100F and dwPitchOrLinearSize = every byte
+/// after the 128-byte header, which is the mip chain (all faces) plus one
+/// trailing colour-space byte. 0.26's streamer locates mips from that field
+/// and reads the tail one byte early otherwise (colour noise on distant mips).
+/// Checks the layout and writes the native flags and pitch.
+pub fn canonical_dds(bytes: &mut [u8]) -> Result<()> {
+    ensure!(bytes.len() > 128 && &bytes[..4] == b"DDS ", "not a DDS");
+    let (width, height, mips, fourcc) = dds_info(bytes)?;
+    let block = match &fourcc {
+        b"DXT1" => 8,
+        b"DXT3" | b"DXT5" => 16,
+        other => bail!("unsupported texture format {:?}", String::from_utf8_lossy(other)),
+    };
+    let caps2 = u32::from_le_bytes(bytes[112..116].try_into().unwrap());
+    let faces = if caps2 & 0xfe00 != 0 { 6 } else { 1 };
+    let chain: usize = (0..mips.max(1)).map(|m| (((width >> m).max(1).div_ceil(4)) * ((height >> m).max(1).div_ceil(4)) * block) as usize).sum();
+    let after = bytes.len() - 128;
+    ensure!(after == chain * faces + 1, "DDS layout: {after} bytes after the header, the mip chain needs {} plus the colour-space byte", chain * faces);
+    bytes[8..12].copy_from_slice(&0xA100Fu32.to_le_bytes());
+    bytes[20..24].copy_from_slice(&u32::try_from(after)?.to_le_bytes());
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -2440,6 +2483,23 @@ pub fn build(
         }
         let mut converted = convert_material(&root, *usage, &templates, m.roughness_scale, default_normal)
             .with_context(|| format!("converting {material}"))?;
+        if converted.category == Category::Water {
+            // 0.26's water reflects a fixed sky probe where its screen-space
+            // reflection finds nothing: in the caves it drew bright flat sheets.
+            let effect = root.named("material").and_then(|m| m.named("forward_water")).and_then(|s| s.named("effect"));
+            if let Some(ConfigValue::Float4(c)) = effect.and_then(|e| value_of(e, "scattering_color")) {
+                set_effect(&mut converted.root, "forward", "water_fog_color", ConfigValue::Float4(*c))?;
+                converted.notes.push("water fog colour: the 0.69d scattering colour".into());
+            }
+            let smoothness = effect.and_then(|e| number(e, "smoothness")).unwrap_or(1.0);
+            if let (true, Some(probe)) = (smoothness < 0.5, &spec.matte_water_probe) {
+                let native = templates_of(&template, "environment_probe").into_iter().find(|p| string(p, "full_name") == Some(probe.as_str())).with_context(|| format!("template has no probe {probe}"))?;
+                let cube = probe_texture(native).context("matte water probe texture")?;
+                set_effect(&mut converted.root, "forward", "texture_reflection", ConfigValue::String(cube.clone()))?;
+                set_effect(&mut converted.root, "forward", "use_local_reflections", ConfigValue::Boolean(false))?;
+                converted.notes.push(format!("matte 0.69d water (smoothness {smoothness}): reflects {cube} ({probe}), no local reflections"));
+            }
+        }
         let exists = |t: &str| donor.is_file(&format!("textures/{t}.dds")) || target.is_file(&format!("textures/{t}.dds"));
         let replaced = fill_missing_textures(&mut converted.root, &exists, &cube).with_context(|| format!("checking textures of {material}"))?;
         if !replaced.is_empty() {
@@ -2560,7 +2620,7 @@ pub fn build(
             // denser than 0.26's, whose maps load 25-54 MiB of static geometry.
             if let (Some(simplify), Some(ratio), false) = (m.simplify, m.simplify.and_then(|s| s.lod0_ratio), terrain) {
                 if surface_lod.get(path).copied().unwrap_or(0) == 0 && triangles(&bytes) >= simplify.lod0_min_triangles.unwrap_or(simplify.min_triangles) {
-                    if let Some(smaller) = simplify_mesh(&bytes, ratio, simplify.lod0_max_error.unwrap_or(simplify.max_error)).with_context(|| format!("simplifying {path}"))? {
+                    if let Some(smaller) = simplify_mesh_with(&bytes, ratio, simplify.lod0_max_error.unwrap_or(simplify.max_error), simplify.options(0)).with_context(|| format!("simplifying {path}"))? {
                         lod0_triangles.0 += triangles(&bytes);
                         lod0_triangles.1 += triangles(&smaller);
                         bytes = smaller;
@@ -2726,6 +2786,7 @@ pub fn build(
                     halved += 1;
                 }
             }
+            canonical_dds(&mut bytes).with_context(|| format!("{path}: native DDS header"))?;
         } else if super::is_config_resource(path) {
             // export_properties, exported_primitives and texture options are
             // schema-identical; re-encode in the 24-byte layout.
@@ -3660,6 +3721,26 @@ mod tests {
         assert_eq!(&half[12..16], &4u32.to_le_bytes());
         assert_eq!(&half[28..32], &1u32.to_le_bytes());
         assert_eq!(&half[128..], &[2, 2, 2, 2, 2, 2, 2, 2, 9]);
+        assert_eq!(&half[20..24], &9u32.to_le_bytes(), "pitch: every byte after the header");
+    }
+
+    #[test]
+    fn dds_headers_take_the_native_flags_and_pitch() {
+        let mut dds = vec![0u8; 128];
+        dds[..4].copy_from_slice(b"DDS ");
+        dds[8..12].copy_from_slice(&0xA1007u32.to_le_bytes());
+        dds[12..16].copy_from_slice(&8u32.to_le_bytes());
+        dds[16..20].copy_from_slice(&8u32.to_le_bytes());
+        dds[20..24].copy_from_slice(&32u32.to_le_bytes()); // top mip only
+        dds[28..32].copy_from_slice(&2u32.to_le_bytes());
+        dds[84..88].copy_from_slice(b"DXT1");
+        dds.extend([0u8; 40]);
+        dds.push(1);
+        canonical_dds(&mut dds).unwrap();
+        assert_eq!(&dds[8..12], &0xA100Fu32.to_le_bytes());
+        assert_eq!(&dds[20..24], &41u32.to_le_bytes());
+        dds.pop();
+        assert!(canonical_dds(&mut dds).is_err(), "a chain without the colour-space byte is refused");
     }
 
     #[test]
@@ -3802,7 +3883,7 @@ mod tests {
             output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: [0.0; 3],
             global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
             probe_classes: Vec::new(), ambient_lights: false,
-            donor_mode: "d".into(), loading_screen_id: None,
+            donor_mode: "d".into(), loading_screen_id: None, matte_water_probe: None,
         };
         let scene = convert_scene(&donor, &template, &spec, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();

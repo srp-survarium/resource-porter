@@ -183,6 +183,40 @@ Texture payload 651 MiB (level_03 638, level_07 720); particles 0. Draws are
 Duga's buildings use many more materials and polygons than 0.26's. A
 fixed-camera load renders the map without pool errors and starts the match.
 
+## After the first playtest
+
+The owner played the package: distant trees, the antenna lattice and rubble
+showed rainbow pixel noise, and dark cave mouths showed bright flat slivers.
+
+* **Texture headers.** Retail 0.26 textures have flags 0xA100F and
+  `dwPitchOrLinearSize` = every byte after the header (mips plus the
+  trailing colour-space byte); 0.26's streamer locates the mips from that
+  field (found and proven on branch `soc-mp-pool-026`). 0.69d's own files
+  follow it, but halving a texture above 1024 wrote the top mip's size
+  there: 349 of 792 textures, the anomalous-tree branches among them, read
+  their mip tail one byte early. `drop_top_mip` writes the native pitch,
+  every emitted DDS goes through `canonical_dds` (checks header + mip chain
+  + 1, writes the native flags and pitch), and `examples/dds_headers` checks
+  a database (792 of 792 now).
+* **Cave mouths.** The slivers were sky seen through cracks: LOD0
+  simplification moved open edges where cave meshes meet the terrain and
+  other models. LOD0 and LOD-less surfaces now keep their open edges
+  (`lock_borders`), and far LODs no longer collapse across UV seams
+  (`lod2_permissive` off; it smeared distant walls into streaks). The cave
+  water (0.69d `water_l11`, smoothness 0) was drawn with 0.26's water, which
+  reflects a sky probe where screen-space reflection finds nothing: matte
+  donor water now reflects the native indoor probe (`matte_water_probe`)
+  with local reflections off, and every water takes the 0.69d scattering
+  colour as its fog colour.
+* Duga has no light-shaft, darkening or portal materials: of its 325
+  materials 287 are g-stage, 18 decals, four add a forward glow
+  (stalactites, bonfire, lamp emitters; converted to g-stage templates) and
+  two are water. No template adds a render stage its source lacks.
+
+Budget after the fixes: 869 574 / 944 246 triangles, 2 332 / 2 359 draws,
+92.3 MiB geometry (79.2 MiB vertices of the 88 MB pool). Before/after
+fixed-camera shots: `validation/gallery/index.html` in the package.
+
 ## Ladders
 
 The 0.69d "ladders" (`generic/silo/*ladder*`, `props/ladder/*`) are stairs:

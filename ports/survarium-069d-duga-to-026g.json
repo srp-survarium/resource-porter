@@ -19,6 +19,7 @@
     "spawn_folder": "logic/modes/tdm/spawns/",
     "donor_mode": "gameplay/game_modes/level_11_day_tdm.options",
     "loading_screen_id": 24,
+    "matte_water_probe": "environment_and_lights/probes/indoor",
     "probe_classes": [
       {
         "prefix": "env_and_lights/probes/tunnels/outer",
@@ -95,8 +96,9 @@
     "min_triangles": 200,
     "max_error": 0.04,
     "lod2_max_error": 0.06,
-    "lod2_permissive": true,
-    "lod1_permissive": true,
+    "lod2_permissive": false,
+    "lod1_permissive": false,
+    "lock_borders": true,
     "lod0_ratio": 0.3,
     "lod0_max_error": 0.004,
     "lod0_min_triangles": 300,

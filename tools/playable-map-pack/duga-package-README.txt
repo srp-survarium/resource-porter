@@ -59,27 +59,30 @@ examples/geometry_bytes)
                     mean tris   worst tris   mean draws   worst draws   geometry
   level_03 day_4      634 026      680 149        1 081         1 105   46.6 MiB
   level_07 day_4      790 954      905 423        1 457         1 606   48.1 MiB
-  Duga (this)         663 831      741 901        2 330         2 357   81.2 MiB
-Vertex data 69.4 MiB of the client's 88 MB static vertex pool (level_07: 41.4).
+  Duga (this)         869 574      944 246        2 332         2 359   92.3 MiB
+Vertex data 79.2 MiB of the client's 88 MB static vertex pool (level_07: 41.4).
 Texture payload 651 MiB (level_03 638, level_07 720); particles 0 (10-11);
 vegetation instances 48 286 (level_03 90 879). See validation/.
 
-Runtime: a fixed-camera load (no input, UI off, one client) loads the map,
-starts the match and renders without errors; validation/runtime-*.jpg and
-runtime-client.log. Nobody has walked it yet.
+Runtime: played once by the owner. Fixed-camera loads (no input, UI off, one
+client) load the map, start the match and render without errors;
+validation/gallery/index.html compares them with the playtest build (distant
+texture noise from texture headers, sky cracks at cave mouths, cave water
+mirroring the sky: fixed).
 
 Known issues
 ------------
 * Draw calls are ~45% above level_07's worst spawn: Duga's buildings use many
   more materials than native ones and merging more would cost vertex memory.
   Imported models draw LOD0 out to 30 m (their LOD1 is not imported, to fit
-  the vertex pool); far LODs are simplified and may smear at UV seams.
+  the vertex pool); far LODs are simplified. Triangles are ~4% above
+  level_07's worst spawn; vertex data is 79 of the 88 MB pool.
 * 0.26 has no data-driven loading screens or minimaps: the package's
   lobby_menu.swf shows Duga in loading slot 24 (Level8_night, which no 0.26
   mode uses) and hud.swf shows Duga in the level_09 minimap slot (used by no
-  0.26 map; unknown HUD keys such as level_11 fall back to it). Neither was
-  seen in game yet (the check ran with the UI off).
-* Some trees (0.69d anomalous forest, foliage on native templates) look pale.
+  0.26 map; unknown HUD keys such as level_11 fall back to it).
+* The anomalous-forest trees look pale at a distance (their textures are
+  fine; the native foliage template shades them lighter).
 * One detector prop uses the native 0.26 material item/artefact_detector_glass,
   whose textures 0.26 does not ship (the client logs three missing textures).
 * 0.69d anomalies, artefacts, battle-royale/capture-point objects, ambient
