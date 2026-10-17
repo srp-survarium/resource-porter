@@ -5,9 +5,10 @@
 #   Vostok Radar Station (v0.11): 208 batteries, 209 Team Deathmatch (level 13)
 # with the gameplay fill, the 0.11e loading picture (loading_screen_id 29, lobby_menu.swf) and the
 # 0.11e minimaps (hud.swf keys v011e_level_04 / v011e_level_03).
-#   build_v011e_packs.sh OUT_DIR [CHECK_WITH_PACK ...]
+#   [PACK_VERSION=N] build_v011e_packs.sh OUT_DIR [CHECK_WITH_PACK ...]   (writes OUT_DIR/maps-v011e-N)
 set -euo pipefail
 OUT=$1; shift
+N=${PACK_VERSION:-1}; PK=maps-v011e-$N
 HERE=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 P=/nix/store/0if41r2dp11y0v833p5yrpgr8mdanqjk-python3-3.13.15-env/bin/python3
 export LD_LIBRARY_PATH=/nix/store/483x61iy35irm4wr2b7dwzihljhp6da2-zlib-1.3.2/lib
@@ -26,11 +27,11 @@ done
 G=$HERE/ports/gameplay-fill; W=${WORK:-$OUT.work}; mkdir -p $W $OUT
 FILLS=(); for p in chemical-011e-anomaly chemical-011e-rust-fog chemical-011e-track-anomaly chemical-011e-resupply chemical-011e-containers \
                    radar-011e-anomaly radar-011e-resupply radar-011e-containers; do FILLS+=(--gameplay-fill $G/$p.json); done
-rm -rf $W/bundle $OUT/maps-v011e-1
+rm -rf $W/bundle $OUT/$PK
 (cd $HERE && $V build-survarium-maps-026 --manifest ports/survarium-011e-v011-release-to-026g.json --donor-db "$B/011e/app/resources.db" \
   --server-donor-db "$B/011a/app/resources.db" --target-db $STOCK --output $W/bundle "${FILLS[@]}") | tail -1
 BP=(); for f in "${PATCHES[@]}"; do BP+=(--base-patch $f); done
-$PACK_TOOL pack from-bundle --base-db $STOCK "${BP[@]}" --build-base-db $STOCK --bundle $W/bundle --output $OUT/maps-v011e-1 --id maps-v011e --version 1 | tail -1
+$PACK_TOOL pack from-bundle --base-db $STOCK "${BP[@]}" --build-base-db $STOCK --bundle $W/bundle --output $OUT/$PK --id maps-v011e --version $N | tail -1
 # The two movies as players have them now (lobby_menu.swf: patch 17; hud.swf: patch 14), and 0.11e's.
 for s in lobby_menu hud; do
   for src in "${PATCHES[@]:2:1}" "${PATCHES[@]:1:1}" "${PATCHES[@]:0:1}" $STOCK; do
@@ -40,9 +41,9 @@ done
 for s in match_making hud; do $PACK_TOOL extract --db "$B/011e/app/resources.db" --path flash_movies/$s.swf --output $W/donor-$s.swf >/dev/null; done
 rm -rf $W/ui; $P $HERE/tools/content/v011e_ui_swf.py tags $W/donor-match_making.swf $W/donor-hud.swf $W/base-lobby_menu.swf $W/base-hud.swf $W/ui
 $P $HERE/tools/content/v011e_ui_swf.py code $W/ui
-mkdir -p $OUT/maps-v011e-1/files/flash_movies
-cp $W/ui/lobby_menu.swf $W/ui/hud.swf $OUT/maps-v011e-1/files/flash_movies/
-$P - $OUT/maps-v011e-1 $W <<'PY'
+mkdir -p $OUT/$PK/files/flash_movies
+cp $W/ui/lobby_menu.swf $W/ui/hud.swf $OUT/$PK/files/flash_movies/
+$P - $OUT/$PK $W <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 pack, work = Path(sys.argv[1]), Path(sys.argv[2])
@@ -56,6 +57,6 @@ p['notes'].append('flash_movies/lobby_menu.swf and hud.swf: tools/content/v011e_
                   'added the 0.11e loading picture (Level_v011e, loading_screen_id 29) and minimaps (v011e_level_04 / v011e_level_03); every other tag is byte-identical')
 (pack / 'pack.json').write_text(json.dumps(p, indent=2, ensure_ascii=False) + '\n')
 PY
-$PACK_TOOL pack check --pack $OUT/maps-v011e-1 "${@/#/--pack=}" --base-db $STOCK "${BP[@]}" | tail -3
-(cd $OUT && find maps-v011e-1 -type f | sort | xargs sha256sum > maps-v011e-1.files.sha256 && sha256sum maps-v011e-1/pack.json maps-v011e-1.files.sha256 > SHA256SUMS)
+$PACK_TOOL pack check --pack $OUT/$PK "${@/#/--pack=}" --base-db $STOCK "${BP[@]}" | tail -3
+(cd $OUT && find $PK -type f | sort | xargs sha256sum > $PK.files.sha256 && sha256sum $PK/pack.json $PK.files.sha256 > SHA256SUMS)
 cat $OUT/SHA256SUMS

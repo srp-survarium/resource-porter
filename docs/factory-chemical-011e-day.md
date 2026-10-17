@@ -71,3 +71,35 @@ Artifacts: `/tmp/011e-day-candidate/bundle`, `chemical-cpu-audit.json` and
 No full database or shared runtime resource was changed. Existing regression
 functions cover the pinned fallback rejection and large config serialization;
 no additional test functions were introduced.
+
+## Native finish and native textures (revision 18, `maps-v011e-2`)
+
+`ports/survarium-011e-v011-release-to-026g.json` sets `native_finish` and
+`native_resources`. 0.11e tuned its finish for its own renderer: constant
+Fresnel 1.0 on `props/electric/electrical_cabinet_02`, gloss 0.8 / Fresnel 0.7
+on `tiled/metal/metal_solanka` (gate, tower cabins), Fresnel 0.7 on
+`fuse_boxes1`, `electric_mechanism`, `oxygen_cylinder`, Fresnel 1.0 on
+`roof_ruberoid` and the remains. Under 0.26g's environment probes cabinets,
+booths and lockers reflected like mirrors.
+
+* `native_finish`: a donor material 0.26g ships under the same path keeps the
+  converter's template and switches (an early donor's), and takes the native
+  material's finish values and maps (`material_finish::adopt_native_finish_with`).
+  Where the template reads a map the native material does not, min = max = the
+  native constant; where it reads a constant the native material takes from a
+  map, the constant is the native value at the map's mean (its smallest mip,
+  `native_equivalence::texture_mean`). 323 of 333 materials have a namesake;
+  their effective gloss and Fresnel now equal native, except where a native
+  map's name is also a donor texture (one name is one texture; the donor's art
+  stays) or retail lacks the map: 12 materials, none mirror-like.
+* `native_resources`: a donor texture byte-identical to the native one, or
+  with the same full-resolution level, colour-space byte and `.options`
+  (`native_equivalence::texture_match`), is referenced, not imported: 190.
+  The native finish maps resolve to the target's textures (two dependency
+  scans).
+
+Against `maps-v011e-1`, only finish values and maps of 310 materials and the
+texture names of 10 `export_properties` differ; no shader switch, model,
+project, gameplay fill, map id, name, loading picture or minimap changes.
+672 texture files are no longer imported: the pack is 857 MB instead of
+1,279 MB. `PACK_VERSION=2 tools/content/build_v011e_packs.sh OUT_DIR` builds it.

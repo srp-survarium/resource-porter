@@ -446,5 +446,7 @@
         "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
       ]
     }
-  }
+  },
+  "native_finish": true,
+  "native_resources": true
 }

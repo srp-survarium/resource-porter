@@ -96,6 +96,19 @@ pub struct Manifest {
     /// is pinned to the shipped shader catalogue the loads were observed with.
     #[serde(default)]
     pub runtime_proven_switches: BTreeMap<String, RuntimeProvenSwitches>,
+    /// A donor material 0.26g ships under the same path is converted onto it
+    /// and takes its finish (`material_finish::adopt_native_finish`).
+    #[serde(default)]
+    pub native_finish: bool,
+    /// A donor texture equal to the target's of the same path
+    /// (`native_equivalence`), and a converted material equal to the
+    /// target's, are referenced as the target's own, not imported.
+    #[serde(default)]
+    pub native_resources: bool,
+    /// A reviewed constant finish for a donor material 0.26g has no material
+    /// of the same path for.
+    #[serde(default)]
+    pub material_finishes: BTreeMap<String, crate::material_finish::ConstantFinish>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -312,6 +325,17 @@ pub struct Record {
     pub converted_geometry: BTreeSet<String>,
     pub compatibility_notes: Vec<String>,
     pub vegetation_instances: BTreeMap<String, usize>,
+    /// Converted materials that took the finish of the 0.26g material of the
+    /// same path.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub native_finish_materials: BTreeSet<String>,
+    /// Donor textures referenced as the target's own, not imported.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub native_textures: BTreeMap<String, crate::native_equivalence::TextureMatch>,
+    /// Donor materials whose conversion is the target's material of the same
+    /// path, referenced as the target's own.
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub native_materials: BTreeSet<String>,
 }
 
 pub fn check_hash(path: &Path, expected: &str) -> Result<()> {
@@ -1426,6 +1450,143 @@ fn options_for_reencoded_bc2(options: &[u8], donor_dds: &[u8]) -> Result<Option<
     Ok(Some(config.to_bytes()?))
 }
 
+fn is_material(path: &str) -> bool {
+    path.starts_with("material_instances/") && path.ends_with(".material")
+}
+
+fn texture_options(dds: &str) -> String {
+    format!("{}.options", dds.strip_suffix(".dds").unwrap_or(dds))
+}
+
+struct ConvertedMaterial {
+    root: ConfigValue,
+    template_path: String,
+    switch_notes: Vec<String>,
+    /// The native maps it binds ([`crate::material_finish::adopt_native_finish`]).
+    native_maps: BTreeSet<String>,
+    native_finish: bool,
+}
+
+/// A donor material on its 0.26 template. With `native_finish`, a material
+/// 0.26g ships under the same path is converted onto it and takes its finish;
+/// one without takes the manifest's reviewed constant finish, if any. 0.11e
+/// and 0.21d tuned their finish for their own renderers (0.11e
+/// `electrical_cabinet_02`: constant Fresnel 1.0; `metal_solanka`: gloss
+/// 0.8, Fresnel 0.7), which 0.26g's probes show as a mirror.
+fn convert_material(
+    m: &Manifest,
+    catalog: &crate::material_conversion::MaterialCatalog,
+    donor: &ResourceDb,
+    target: &mut ResourceDb,
+    path: &str,
+    bytes: &[u8],
+) -> Result<ConvertedMaterial> {
+    let native = m.native_finish && target.is_file(path);
+    // The template stays the converter's own choice (an early donor's keeps
+    // its switches); only the finish values and maps become the native ones.
+    let explicit = m
+        .material_templates
+        .get(path)
+        .map(String::as_str)
+        .or_else(|| (!m.source_build.early() && target.is_file(path)).then_some(path));
+    let converted = catalog
+        .convert(path, bytes, explicit, donor, target)
+        .with_context(|| format!("converting {path}"))?;
+    let mut root = BinaryConfig::parse(&converted.bytes)?.root;
+    let mut native_maps = BTreeSet::new();
+    if native {
+        ensure!(
+            !m.material_finishes.contains_key(path),
+            "{path} has a native material; it takes the native finish"
+        );
+        let native_root = cfg(target, path)?;
+        let mut mean = |texture: &str| -> Option<f32> {
+            let name = crate::material_conversion::canonical_texture_reference(texture).ok()?;
+            let dds = target.read(&format!("textures/{name}.dds")).ok()?;
+            crate::native_equivalence::texture_mean(&dds)
+        };
+        native_maps =
+            crate::material_finish::adopt_native_finish_with(&mut root, &native_root, &mut mean)
+                .with_context(|| format!("native finish of {path}"))?;
+    } else if let Some(finish) = m.material_finishes.get(path) {
+        crate::material_finish::set_constant_finish(&mut root, *finish)
+            .with_context(|| format!("finish of {path}"))?;
+    }
+    Ok(ConvertedMaterial {
+        root,
+        template_path: converted.template_path,
+        switch_notes: converted.switch_notes,
+        native_maps,
+        native_finish: native,
+    })
+}
+
+/// The donor textures and converted materials that are the target's own
+/// (see [`crate::native_equivalence`]). A converted material is the
+/// target's when it is the same config and every texture it binds is the
+/// target's.
+fn native_equivalents(
+    donor: &mut ResourceDb,
+    target: &mut ResourceDb,
+    donor_files: &BTreeSet<String>,
+    materials: &BTreeMap<String, ConvertedMaterial>,
+    native_bound: &BTreeSet<String>,
+) -> Result<(
+    BTreeMap<String, crate::native_equivalence::TextureMatch>,
+    BTreeSet<String>,
+)> {
+    let mut textures = BTreeMap::new();
+    for path in donor_files
+        .iter()
+        .filter(|p| p.starts_with("textures/") && p.ends_with(".dds"))
+    {
+        if !target.is_file(path) {
+            continue;
+        }
+        let options = texture_options(path);
+        let donor_options = if donor.is_file(&options) {
+            Some(donor.read(&options)?)
+        } else {
+            None
+        };
+        let target_options = if target.is_file(&options) {
+            Some(target.read(&options)?)
+        } else {
+            None
+        };
+        if let Some(kind) = crate::native_equivalence::texture_match(
+            &donor.read(path)?,
+            donor_options.as_deref(),
+            &target.read(path)?,
+            target_options.as_deref(),
+        ) {
+            textures.insert(path.clone(), kind);
+        }
+    }
+    let mut native_materials = BTreeSet::new();
+    for (path, converted) in materials {
+        if !target.is_file(path) || cfg(target, path)? != converted.root {
+            continue;
+        }
+        let all_native = crate::material_finish::material_textures(&converted.root)
+            .iter()
+            .all(|texture| {
+                let Ok(name) = crate::material_conversion::canonical_texture_reference(texture)
+                else {
+                    return false;
+                };
+                let dds = format!("textures/{name}.dds");
+                native_bound.contains(&name)
+                    || textures.contains_key(&dds)
+                    || (!donor_files.contains(&dds) && target.is_file(&dds))
+            });
+        if all_native {
+            native_materials.insert(path.clone());
+        }
+    }
+    Ok((textures, native_materials))
+}
+
 fn is_config_resource(path: &str) -> bool {
     matches!(
         path.rsplit('/').next().unwrap_or(path),
@@ -1911,14 +2072,127 @@ pub fn build_with_fill(
                 .filter_map(|p| p.split_once(".model/").map(|(p, _)| format!("{p}.model"))),
         )
         .collect();
+    let mut forced = forced;
+    let mut catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
+    catalog.set_runtime_proven_switches(m.runtime_proven_switches.iter().map(|(material, entry)| {
+        (material.as_str(), entry.shader_catalog_sha256.as_str(), &entry.switches)
+    }))?;
+    let null_texture = format!("ported/{}/srp/null", m.source_build.prefix());
+    catalog.set_null_texture(Some(null_texture.clone()));
     eprintln!("Resolving map dependencies...");
-    let plan = crate::dependency::scan_with_forced_donor_and_overrides(
+    let first = crate::dependency::scan_with_forced_donor_and_overrides(
         &mut donor,
         &mut target,
         projects.clone(),
-        forced,
+        forced.clone(),
         &overrides,
     )?;
+    ensure!(
+        first.unresolved_references.is_empty(),
+        "unresolved dependencies: {:?}",
+        first.unresolved_references
+    );
+    // Convert the materials first: one that takes the native finish binds
+    // native maps, which must resolve to the target's textures.
+    let mut scan_overrides = overrides.clone();
+    let mut converted_roots = BTreeMap::new();
+    let mut native_bound = BTreeSet::new();
+    let mut donor_bound = BTreeSet::new();
+    let mut native_finish_materials = BTreeSet::new();
+    let share = m.native_finish || m.native_resources;
+    for path in first.donor_files.iter().filter(|p| share && is_material(p)) {
+        let bytes = match overrides.get(path) {
+            Some(bytes) => bytes.clone(),
+            None => donor.read(path)?,
+        };
+        let converted = convert_material(&m, &catalog, &donor, &mut target, path, &bytes)?;
+        // The native finish maps and the template's own textures the donor
+        // material does not bind are the target's, as the template has them,
+        // unless a donor slot binds the same name: one name is one texture,
+        // and the donor's art stays.
+        let donor_textures: BTreeSet<String> =
+            crate::material_finish::material_textures(&BinaryConfig::parse(&bytes)?.root)
+                .iter()
+                .filter_map(|name| crate::material_conversion::canonical_texture_reference(name).ok())
+                .collect();
+        for (slot, name) in crate::material_finish::material_texture_slots(&converted.root) {
+            let Ok(name) = crate::material_conversion::canonical_texture_reference(&name) else {
+                continue;
+            };
+            let native_slot = converted.native_finish
+                && crate::material_finish::is_finish_slot(&slot)
+                && converted.native_maps.contains(&name);
+            if !native_slot && donor_textures.contains(&name) {
+                donor_bound.insert(name);
+            } else if converted.native_finish {
+                native_bound.insert(name);
+            }
+        }
+        if converted.native_finish {
+            native_finish_materials.insert(path.clone());
+        }
+        scan_overrides.insert(
+            path.clone(),
+            BinaryConfig {
+                root: converted.root.clone(),
+            }
+            .to_bytes()?,
+        );
+        converted_roots.insert(path.clone(), converted);
+    }
+    // Retail can name a map it lacks: that one stays the donor's.
+    let native_bound: BTreeSet<String> = native_bound
+        .into_iter()
+        .filter(|name| {
+            !donor_bound.contains(name) && target.is_file(&format!("textures/{name}.dds"))
+        })
+        .collect();
+    for path in m.material_finishes.keys() {
+        ensure!(
+            converted_roots.contains_key(path),
+            "material_finishes names {path}, which the maps do not use"
+        );
+    }
+    let (native_textures, native_materials) = if m.native_resources {
+        native_equivalents(
+            &mut donor,
+            &mut target,
+            &first.donor_files,
+            &converted_roots,
+            &native_bound,
+        )?
+    } else {
+        (BTreeMap::new(), BTreeSet::new())
+    };
+    eprintln!(
+        "{} materials take the native finish; {} donor textures and {} converted materials are the target's own",
+        native_finish_materials.len(),
+        native_textures.len(),
+        native_materials.len()
+    );
+    for name in &native_bound {
+        for extension in [".dds", ".options"] {
+            forced.remove(&format!("textures/{name}{extension}"));
+        }
+    }
+    for path in native_textures.keys() {
+        forced.remove(path);
+        forced.remove(&texture_options(path));
+    }
+    for path in &native_materials {
+        forced.remove(path);
+    }
+    let plan = if share {
+        crate::dependency::scan_with_forced_donor_and_overrides(
+            &mut donor,
+            &mut target,
+            projects.clone(),
+            forced,
+            &scan_overrides,
+        )?
+    } else {
+        first
+    };
     ensure!(
         plan.unresolved_references.is_empty(),
         "unresolved dependencies: {:?}",
@@ -2011,12 +2285,6 @@ pub fn build_with_fill(
             }
         }
     }
-    let mut catalog = crate::material_conversion::MaterialCatalog::load(&mut target)?;
-    catalog.set_runtime_proven_switches(m.runtime_proven_switches.iter().map(|(material, entry)| {
-        (material.as_str(), entry.shader_catalog_sha256.as_str(), &entry.switches)
-    }))?;
-    let null_texture = format!("ported/{}/srp/null", m.source_build.prefix());
-    catalog.set_null_texture(Some(null_texture.clone()));
     let mut null_texture_used = false;
     let game_materials = crate::target_native_map::load_game_materials(&mut target)?;
     let material_names = BTreeMap::from([
@@ -2134,18 +2402,15 @@ pub fn build_with_fill(
             bytes = target.read("sounds/single/weather/wind/wind_day.raw_options")?;
             compatibility_notes.push(format!("{path}: original audio retained with native wind ambience attenuation; legacy SPL curve not reproduced"));
         }
-        if path.starts_with("material_instances/") && path.ends_with(".material") {
-            let explicit = m
-                .material_templates
-                .get(path)
-                .map(String::as_str)
-                .or_else(|| {
-                    (!m.source_build.early() && target.is_file(path)).then_some(path.as_str())
-                });
-            let converted = catalog
-                .convert(path, &bytes, explicit, &donor, &target)
-                .with_context(|| format!("converting {path}"))?;
-            bytes = converted.bytes;
+        if is_material(path) {
+            let converted = match converted_roots.remove(path) {
+                Some(converted) => converted,
+                None => convert_material(&m, &catalog, &donor, &mut target, path, &bytes)?,
+            };
+            bytes = BinaryConfig {
+                root: converted.root,
+            }
+            .to_bytes()?;
             for note in &converted.switch_notes {
                 null_texture_used |= note.contains("bound to the all-zero texture");
                 compatibility_notes.push(format!("{path}: {note}"));
@@ -2418,6 +2683,9 @@ pub fn build_with_fill(
         converted_geometry,
         compatibility_notes,
         vegetation_instances,
+        native_finish_materials,
+        native_textures,
+        native_materials,
     };
     serde_json::to_writer_pretty(
         fs::File::create(output.join("port-manifest.json"))?,
