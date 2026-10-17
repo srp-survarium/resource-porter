@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Skhid revision 20: maps-v011e-5, derived from maps-v011e-4 with only the reviewed changes, in this order:
-#   1. ports/rev20/maps-v011e-5-kit-and-loading.json (edit-built-pack): 208/209 team 0 (Bob's) battery
+# Skhid revision 20: maps-v011e-<VERSION> (VERSION=5 or 6; default 5), derived from maps-v011e-4 with only the reviewed changes, in this order:
+#   1. KIT_PLAN (default ports/rev20/maps-v011e-<VERSION>-kit-and-loading.json, edit-built-pack): 208/209 team 0 (Bob's) battery
 #      container and ammo crate to the middle of the team's spawn hall; 206/207 loading_screen_id 29 -> 5
 #      (Chemical gets the native Level4_day picture; Radar keeps 0.11e's, id 29);
 #   2. FOG_PLAN (edit-built-pack; the track fog worker's): 206/207's growing track anomaly;
@@ -28,10 +28,12 @@ BP=${BASE_PATCHES:-/mnt/hdd/Projects/release-20/base-patches}
 (cd $BP && sha256sum -c --quiet SHA256SUMS)
 [ -x $EDIT ] && [ -x $PROBES ] || { echo "build the examples edit-built-pack and open-reversed-sphere-probes first"; exit 1; }
 [ "$(sha256sum $V4/files/flash_movies/hud.swf | cut -c1-16)" = 3be3ba15ce912c5b ] || { echo "-4's hud.swf is not 3be3ba15"; exit 1; }
-W=${WORK:-$OUT.work5}; mkdir -p "$W" "$OUT"; rm -rf "${OUT:?}/maps-v011e-5"
-cp -a --reflink=auto "$V4" "$OUT/maps-v011e-5"
-N=$OUT/maps-v011e-5
-echo "== 1. kit and loading"; (cd $HERE && $EDIT $N ports/rev20/maps-v011e-5-kit-and-loading.json $STOCK)
+VERSION=${VERSION:-5}; KIT_PLAN=${KIT_PLAN:-ports/rev20/maps-v011e-$VERSION-kit-and-loading.json}
+NAME=maps-v011e-$VERSION
+W=${WORK:-$OUT.work$VERSION}; mkdir -p "$W" "$OUT"; rm -rf "${OUT:?}/$NAME"
+cp -a --reflink=auto "$V4" "$OUT/$NAME"
+N=$OUT/$NAME
+echo "== 1. kit and loading ($KIT_PLAN)"; (cd $HERE && $EDIT $N $KIT_PLAN $STOCK)
 # FOG / SPAWN: an edit-built-pack plan (.json) or the worker's apply script (.sh: run with the pack dir).
 if [ "$FOG" != - ]; then echo "== 2. fog ($FOG)"
   case "$FOG" in *.sh) (cd $HERE && bash "$FOG" "$N" $STOCK) ;; *) (cd $HERE && $EDIT $N "$FOG" $STOCK) ;; esac; fi
@@ -61,16 +63,17 @@ echo "== 5. exo oxygen HUD icon"
 cp $V4/files/flash_movies/hud.swf $W/hud-4.swf
 $P $EXO $W/hud-4.swf $N/files/flash_movies/lobby_menu.swf $W/hud-5.swf
 cp $W/hud-5.swf $N/files/flash_movies/hud.swf
-$P - "$N" "$V4" "$W" "$FOG" "$SPAWN" <<'PY'
+$P - "$N" "$V4" "$W" "$FOG" "$SPAWN" "$VERSION" "$HERE/$KIT_PLAN" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
-new, old, work, fog, spawn = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], sys.argv[5]
+new, old, work, fog, spawn, version = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]
+kit = json.loads(Path(sys.argv[7]).read_text())['projects']['projects/v011e_level_03/day_2/client_project']
 p = json.loads((new / 'pack.json').read_text()); assert p['version'] == '4'
-p['version'] = '5'
+p['version'] = version
 hud = [o for o in p['operations'] if o['op'] == 'replace_file' and o['path'] == 'flash_movies/hud.swf']
 assert len(hud) == 1    # the precondition stays the released patch-14 hud.swf
-p['notes'].append('maps-v011e-5: 208/209 team 0 battery container and ammo crate moved to the middle of the team\'s spawn hall '
-                  '(container (-42.15, 0.51, -74.15), crate (-42.15, 0.51, -72.35), both level at yaw pi/2; 209 the crate); '
+p['notes'].append(f'maps-v011e-{version}: 208/209 team 0 battery container and ammo crate moved to the team\'s spawn hall '
+                  f'(container {tuple(kit[0]["to"]["position"])}, crate {tuple(kit[1]["to"]["position"])}, both level at yaw pi/2; 209 the crate); '
                   '206/207 ui.loading_screen_id 5 (native Level4_day; 0.11e has no Chemical picture); '
                   + ('206/207 growing track fog rebuilt (track fog worker\'s plan); ' if fog != '-' else '')
                   + ('respawn point fixes of 206-209 (spawn worker\'s plan); ' if spawn != '-' else '')
@@ -85,10 +88,10 @@ po = json.loads((old / 'pack.json').read_text())
 manifest = [k for k in sorted(set(po) | set(p)) if po.get(k) != p.get(k)]
 ops = [i for i, (x, y) in enumerate(zip(po['operations'], p['operations'])) if x != y] + (['count'] if len(po['operations']) != len(p['operations']) else [])
 report = dict(old=str(old), new=str(new), files_changed=changed, manifest_keys_changed=manifest, operations_changed=ops)
-(new.parent / 'maps-v011e-5.diff.json').write_text(json.dumps(report, indent=1) + '\n'); print(json.dumps(report, indent=1))
+(new.parent / f'maps-v011e-{version}.diff.json').write_text(json.dumps(report, indent=1) + '\n'); print(json.dumps(report, indent=1))
 PY
 BASE=(); for n in 12 14 17 19; do BASE+=(--base-patch $BP/resources.db.patch_$n); done
 $PACK_TOOL pack check --pack "$M021D" --pack "$N" --base-db $STOCK "${BASE[@]}" | tail -3
-(cd "$OUT" && find maps-v011e-5 -type f -print0 | sort -z | xargs -0 sha256sum > maps-v011e-5.files.sha256 \
-  && sha256sum maps-v011e-5/pack.json maps-v011e-5.files.sha256 > SHA256SUMS.v011e-5)
-cat "$OUT/SHA256SUMS.v011e-5"
+(cd "$OUT" && find $NAME -type f -print0 | sort -z | xargs -0 sha256sum > $NAME.files.sha256 \
+  && sha256sum $NAME/pack.json $NAME.files.sha256 > SHA256SUMS.v011e-$VERSION)
+cat "$OUT/SHA256SUMS.v011e-$VERSION"
