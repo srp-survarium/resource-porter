@@ -35,6 +35,9 @@ pub struct Manifest {
     /// of (a material of the same path takes the native finish).
     #[serde(default)]
     pub material_finishes: BTreeMap<String, crate::material_finish::ConstantFinish>,
+    /// Reviewed exceptions kept over a material's native or constant finish.
+    #[serde(default)]
+    pub finish_exceptions: BTreeMap<String, crate::material_finish::FinishException>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -915,6 +918,10 @@ fn convert_material(
         crate::material_finish::set_constant_finish(&mut root, *finish)
             .with_context(|| format!("finish of {path}"))?;
     }
+    if let Some(exception) = m.finish_exceptions.get(path) {
+        crate::material_finish::apply_finish_exception(&mut root, exception)
+            .with_context(|| format!("finish exception of {path}"))?;
+    }
     Ok(ConvertedMaterial {
         root,
         template_path: converted.template_path,
@@ -1424,10 +1431,10 @@ pub fn build(
             !donor_bound.contains(name) && target.is_file(&format!("textures/{name}.dds"))
         })
         .collect();
-    for path in m.material_finishes.keys() {
+    for path in m.material_finishes.keys().chain(m.finish_exceptions.keys()) {
         ensure!(
             converted_roots.contains_key(path),
-            "material_finishes names {path}, which the maps do not use"
+            "the manifest's finish for {path} names a material the maps do not use"
         );
     }
     let (native_textures, native_materials) = native_equivalents(

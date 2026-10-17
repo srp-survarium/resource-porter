@@ -154,6 +154,13 @@ fixtures have been extended. This importer does not modify SRP.
   template without a gloss map), the KamAZ wheel (0.11 / 0.013, as
   `vehicle/truck/kamaz_wheel`) and `metal_column_05_destr_red` (0.055 / 0.04,
   as `metal_column_05`).
+* `finish_exceptions` keeps a reviewed finish over the native one. The owner
+  chose (2026-10-17, gallery rev17-metal-fix, column v0.26-ported) Fresnel 0.05
+  for `electrical_cabinet_01`, `electrical_cabinet_02` and `mech_cabinet_01`
+  (native 0 / 0.03, lost in their dark rooms): `maps-021d-4`, which is
+  `maps-021d-3` with those three materials. Its TDM variants 152/153 are added
+  last, as for `-3`, with `add-021d-deathmatch --variant level_03:day:152
+  --variant level_06:day:153 --version 4`.
 * A donor texture 0.26g has under the same path is referenced, not imported,
   when it is byte-identical, or has the same size, header, full-resolution
   level, colour-space byte and `.options` with only smaller mip levels
