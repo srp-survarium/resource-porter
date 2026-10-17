@@ -1854,3 +1854,72 @@ mod tests {
         }
     }
 }
+
+/// What [`strip_battery_objects`] took out of a project.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct StrippedBatteries {
+    pub containers: usize,
+    pub zones: usize,
+    pub container_models: usize,
+    pub server_objects: usize,
+}
+
+/// Makes a converted battery project a Team Deathmatch one: no battery
+/// containers (their server objects, the zones they name, the static model
+/// and collision at each container's `visual_geometry`), no battery spawners,
+/// spawn points or spawn boxes. Respawn points and everything else stay.
+pub fn strip_battery_objects(project: &mut ConfigValue) -> Result<StrippedBatteries> {
+    let mut out = StrippedBatteries::default();
+    let mut zones = BTreeSet::new();
+    let mut models = Vec::new();
+    if let Some(groups) = project.named_mut("server_objects") {
+        if let Some(ConfigValue::Indexed(containers)) = groups.named("victory_items_containers") {
+            for container in containers {
+                for zone in array(container.named("collision_geometries").unwrap_or(&ConfigValue::Indexed(Vec::new())))? {
+                    if let Some(name) = string(zone, "name") {
+                        zones.insert(name.to_owned());
+                    }
+                }
+                if let Some(visual) = container.named("visual_geometry") {
+                    if let (Some(model), Some(ConfigValue::Float3(at))) = (
+                        string(visual, "model_name").or_else(|| string(visual, "lib_name")),
+                        visual.named("position"),
+                    ) {
+                        models.push((model.to_owned(), *at));
+                    }
+                }
+            }
+            out.containers = containers.len();
+        }
+        if let ConfigValue::Named(fields) = groups {
+            let before = fields.len();
+            fields.retain(|f| {
+                !matches!(
+                    f.name.as_str(),
+                    "victory_items_containers" | "victory_item_spawners" | "victory_item_spawn_points" | "victory_item_spawn_boxes"
+                )
+            });
+            out.server_objects = before - fields.len();
+        }
+    }
+    if let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") {
+        let before = objects.len();
+        objects.retain(|o| !string(o, "full_name").is_some_and(|n| zones.contains(n)));
+        out.zones = before - objects.len();
+    }
+    let at = |o: &ConfigValue, model: &str, p: [f32; 3]| -> bool {
+        let lib = string(o, "lib_name").unwrap_or("").trim_start_matches("resources/models/");
+        let lib = lib.split(".model/").next().unwrap_or(lib);
+        lib == model
+            && matches!(o.named("position"), Some(ConfigValue::Float3(q))
+                if (0..3).map(|i| (q[i] - p[i]).powi(2)).sum::<f32>() < 0.01)
+    };
+    for key in ["render_visuals", "collision_objects"] {
+        if let Some(ConfigValue::Indexed(items)) = project.named_mut(key) {
+            let before = items.len();
+            items.retain(|o| !models.iter().any(|(m, p)| at(o, m, *p)));
+            out.container_models += before - items.len();
+        }
+    }
+    Ok(out)
+}

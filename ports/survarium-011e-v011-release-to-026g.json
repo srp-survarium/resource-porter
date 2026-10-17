@@ -1,0 +1,446 @@
+{
+  "source_build": "0.11e",
+  "donor_sha256": "694e1772a0595b6686cc9810afa438ed25b21360c591c0e26aa8e35dc03a4955",
+  "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "maps": [
+    {
+      "id": 206,
+      "level": "level_04",
+      "weather": "day",
+      "map_id": 12,
+      "name": {
+        "key": "st_level_12_name",
+        "english": "Chemical Plant (v0.11)",
+        "russian": "Химзавод (v0.11)",
+        "ukrainian": "Хімзавод (v0.11)",
+        "german": "Chemiebetrieb (v0.11)",
+        "polish": "Zakłady chemiczne (v0.11)"
+      },
+      "deathmatch": {
+        "id": 207
+      }
+    },
+    {
+      "id": 208,
+      "level": "level_03",
+      "weather": "day",
+      "map_id": 13,
+      "name": {
+        "key": "st_level_13_name",
+        "english": "Vostok Radar Station (v0.11)",
+        "russian": "РЛС \"Восток\" (v0.11)",
+        "ukrainian": "РЛС \"Восток\" (v0.11)",
+        "german": "RS Vostok (v0.11)",
+        "polish": "Stacja Radarowa \"Vostok\" (v0.11)"
+      },
+      "deathmatch": {
+        "id": 209
+      }
+    }
+  ],
+  "missing_collision_resources": [
+    "models/level/03/antenna_tree.model/walker_collision",
+    "models/props/electric/soviet_comp_02.model/collision"
+  ],
+  "material_templates": {
+    "material_instances/tiled/floor/pol.material": "material_instances/tiled/floor/floortrash02_pol_vc.material",
+    "material_instances/decals/decals_fire_bullet_damage.material": "material_instances/decals/decals_fire_bullet_damage.material",
+    "material_instances/decals/decals_leaking_01.material": "material_instances/decals/decals_leaking_01.material",
+    "material_instances/decals/decals_multiply_01.material": "material_instances/decals/decals_multiply_01.material",
+    "material_instances/decals/decals_multiply_02.material": "material_instances/decals/decals_multiply_02.material",
+    "material_instances/decals/decals_multiply_03.material": "material_instances/decals/decals_multiply_03.material",
+    "material_instances/decals/decals_multiply_04.material": "material_instances/decals/decals_multiply_04.material",
+    "material_instances/decals/decals_spot.material": "material_instances/decals/decals_spot.material",
+    "material_instances/fx/cone_volume_material.material": "material_instances/fx/cone_volume_material.material",
+    "material_instances/fx/pfx/ak47_front.material": "material_instances/fx/pfx/ak47_front.material",
+    "material_instances/water/water.material": "material_instances/water/water.material",
+    "material_instances/water/water_green.material": "material_instances/water/water_green.material",
+    "material_instances/water/water_green_shit.material": "material_instances/water/water_green_shit.material"
+  },
+  "wrapped_uv_surfaces": [
+    "models/level/04/moss2.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss2.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss3.model/render/anomaly_moss_base_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_lod_sg/converted_model",
+    "models/level/04/moss.model/render/anomaly_moss_base_sg/converted_model"
+  ],
+  "server_project_fallback": {
+    "source_build": "0.11a",
+    "donor_sha256": "f59650ee69e834f7757461c54affd93b6fbb767ab841d70468e85019b059c4f6",
+    "projects": {
+      "projects/level_03/server_project": "a8c6ca4f156b11dad06697d52d6768d0f4351a60545abf9db16dfa0ed98f7d11"
+    }
+  },
+  "collision_successors": {
+    "models/props/machines/factory_boiler.model/walker_collision": {
+      "donor_primitives_sha256": "6511fb6f2ead95ee9d0ddd5c577904c932d73f680dbcbb60a606eb71325a4282",
+      "target_primitives_sha256": "129597701a6cbf82412d475d6add678de0fa8d5b60fde8be0f2e9b32f1f91ab3",
+      "reason": "0.11e walker drums 11/12/14 lie on their side (radius 1.7, half-length 1.65) around four vertical tanks; their square footprint extends up to 0.7 m past the visible tanks and blocked a player (map 194 user report 2026-10-14). 0.21d and native 0.26 re-author the same boiler with vertical tanks; bullet collision extents of both builds match within 0.1 m."
+    }
+  },
+  "game_material_overrides": {
+    "models/flora/poplar_fug_01.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_03.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_04.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_06.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fug_07.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_01.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_02.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_03.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_06.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/flora/poplar_fuu_07.model/settings": {
+      "foliage_SG": "foliage_deciduous"
+    },
+    "models/level/03/anomaly_rust_tree_leaves.model/settings": {
+      "foliage_col_SG": "foliage_deciduous"
+    },
+    "models/level/03/officer_house_leaves.model/settings": {
+      "default": "foliage_deciduous"
+    },
+    "models/flora/sosna_dead_01.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_dead_02.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_02.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_03.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_04.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/sosna_green_05.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/elka_green_01.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/elka_green_04.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/flora/elka_green_05.model/settings": {
+      "foliage_SG": "foliage_coniferous"
+    },
+    "models/props/light/bonefire_01.model/settings": {
+      "coll_foliageSG": "foliage_coniferous"
+    },
+    "models/level/04/moss.model/settings": {
+      "default": "grass"
+    },
+    "models/test/mattest_cube01.model/settings": {
+      "default": "default"
+    },
+    "models/level/04/moss2.model/settings": {
+      "default": "grass"
+    },
+    "models/level/04/moss3.model/settings": {
+      "default": "grass"
+    },
+    "models/level/04/moss4.model/settings": {
+      "default": "grass"
+    }
+  },
+  "collision_primitive_overrides": {
+    "models/level/04/level_border.model/walker_collision": {
+      "donor_primitives_sha256": "5d580eb2f16ea472acdab772ca9a5e1fb8b913901f35a1d10f3ae5a1ef18aed5",
+      "reason": "0.11e north map-edge box (Z 131.88-135.40) blocked the passage X 43.4-48.1 6.3 m before the visible barbed-wire fence (fences_03, Z 138.14). It takes the 0.21d/0.26 placement in the fence line (Z 138.32-141.45); the two corner boxes are extended to that edge (east: 0.21d placement; west: 0.11e X extent kept). No other border box changes.",
+      "primitives": [
+        {
+          "index": 23,
+          "from": {
+            "position": [
+              22.565797805786133,
+              37.70851516723633,
+              133.6414794921875
+            ],
+            "rotation": [
+              1.5707963705062866,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              26.27474021911621,
+              1.7566604614257812,
+              37.615238189697266
+            ]
+          },
+          "to": {
+            "position": [
+              22.565797805786133,
+              37.70851516723633,
+              139.88571166992188
+            ],
+            "rotation": [
+              1.5707963705062866,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              26.274742126464844,
+              1.5669676065444946,
+              37.615238189697266
+            ]
+          }
+        },
+        {
+          "index": 24,
+          "from": {
+            "position": [
+              50.290443420410156,
+              44.32208251953125,
+              115.20536041259766
+            ],
+            "rotation": [
+              0.0,
+              -1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              19.80529022216797,
+              31.439979553222656,
+              1.7566547393798828
+            ]
+          },
+          "to": {
+            "position": [
+              50.290443420410156,
+              44.322086334228516,
+              118.25055694580078
+            ],
+            "rotation": [
+              0.0,
+              -1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              22.850488662719727,
+              31.439979553222656,
+              1.756655216217041
+            ]
+          }
+        },
+        {
+          "index": 22,
+          "from": {
+            "position": [
+              -2.056196451187134,
+              37.70851516723633,
+              126.70710754394531
+            ],
+            "rotation": [
+              0.0,
+              1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              9.414413452148438,
+              37.615238189697266,
+              1.7566553354263306
+            ]
+          },
+          "to": {
+            "position": [
+              -2.056196451187134,
+              37.70851516723633,
+              129.10694885253906
+            ],
+            "rotation": [
+              0.0,
+              1.5707963705062866,
+              0.0
+            ],
+            "scale": [
+              11.814249038696289,
+              37.615238189697266,
+              1.7566553354263306
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "runtime_proven_switches": {
+    "material_instances/characters/human/remains/skeleton.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "use_tspecular_intensity": 1
+      },
+      "evidence": [
+        "2026-10-14 user session on database 2b35a2ed (Chemical 0.11e): the skeleton/rag repair (bc6a9977/5908c03a, use_tspecular_intensity=1, zero-width roughness 0.5) loaded and played without a missing-shader error",
+        "Runtime-validated remains repair (docs/investigation/day-map-calibration-20261015.md, 'Material switches'); the static rule refuses it only because unrelated vertex-input variants lack the switch"
+      ]
+    },
+    "material_instances/characters/human/remains/rag.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "use_tspecular_intensity": 1
+      },
+      "evidence": [
+        "2026-10-14 user session on database 2b35a2ed (Chemical 0.11e): the skeleton/rag repair (bc6a9977/5908c03a, use_tspecular_intensity=1, zero-width roughness 0.5) loaded and played without a missing-shader error",
+        "Runtime-validated remains repair (docs/investigation/day-map-calibration-20261015.md, 'Material switches'); the static rule refuses it only because unrelated vertex-input variants lack the switch"
+      ]
+    },
+    "material_instances/decals/dirt_wall.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_bullets.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss_01.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss_02.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_moss_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_zavod_02.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/editor_decals_zavod_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_01.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_long.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_long_01.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/leaves_long_02.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    },
+    "material_instances/decals/parasite_03.material": {
+      "shader_catalog_sha256": "f84f6a631dfd828d8f636bed596278ad30bb3f7009167efbef88d80c3461de79",
+      "switches": {
+        "decals.use_nmap": 0
+      },
+      "evidence": [
+        "2026-10-15 static Chemical and Radar 0.11e loads (harness db bf7d304b with all 14 v011e decals patched to use_nmap=0, the source value): every capture succeeded, no missing-shader error (runs/decal-ev)",
+        "A/B at the control-room moss (upper-sit2): use_nmap=0 removes the source editor_dummy_nmap 'missing texture' lettering"
+      ]
+    }
+  }
+}

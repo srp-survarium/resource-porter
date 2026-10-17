@@ -1,6 +1,10 @@
 {
   "name": "chemical-011e growing track anomaly",
   "map_id": 194,
+  "also_map_ids": [
+    206,
+    207
+  ],
   "template_project": "projects/level_02/day_2/client_project",
   "template_sha256": "859e4ae54cfed4bfe25328689d27ae4a8e32dbf9da92f40a747c29ea26e05197",
   "clones": [

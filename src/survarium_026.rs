@@ -159,6 +159,52 @@ pub struct Map {
     /// to every look; only the choices listed on `EnvironmentLook` differ.
     #[serde(default, skip_serializing_if = "EnvironmentLook::is_source")]
     pub environment_look: EnvironmentLook,
+    /// `mode.match_making_params.map_id`: the number a server counts the map
+    /// by, whatever its weather and mode. Unset, the native level's, which
+    /// makes the import a weather of the native map to the server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_id: Option<u8>,
+    /// The map's own name (`mode.ui.map_name`) in the client's six languages.
+    /// Unset, the native level's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<MapName>,
+    /// A Team Deathmatch (mode 4) variant of the map under its own
+    /// `maps_dict` id: the converted project without battery containers,
+    /// spawners or stations, and the native `<level>_<weather>_4` mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deathmatch: Option<Deathmatch>,
+}
+
+/// A map name string: its localization key and its text in each language
+/// the 0.26g client ships (`original` is the Russian).
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct MapName {
+    pub key: String,
+    pub english: String,
+    pub russian: String,
+    pub ukrainian: String,
+    pub german: String,
+    pub polish: String,
+}
+impl MapName {
+    fn text(&self, language: &str) -> Result<&str> {
+        Ok(match language {
+            "english" => &self.english,
+            "original" | "russian" => &self.russian,
+            "ukrainian" => &self.ukrainian,
+            "german" => &self.german,
+            "polish" => &self.polish,
+            _ => bail!("no map name for the {language} localization"),
+        })
+    }
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Deathmatch {
+    /// Its `maps_dict` id.
+    pub id: u8,
 }
 
 /// Named environment looks. `source` follows the donor; the legacy look
@@ -208,6 +254,18 @@ impl Map {
     }
     fn output_project(&self, source: SourceBuild) -> String {
         format!("projects/{}/client_project", self.project_name(source))
+    }
+    /// The Team Deathmatch project's name: the battery project's with mode 4.
+    fn deathmatch_project_name(&self, source: SourceBuild) -> String {
+        let battery = self.project_name(source);
+        format!("{}_4", battery.strip_suffix("_2").expect("battery projects end in _2"))
+    }
+    fn deathmatch_output_project(&self, source: SourceBuild) -> String {
+        format!("projects/{}/client_project", self.deathmatch_project_name(source))
+    }
+    /// The native Team Deathmatch mode of the level and weather.
+    fn deathmatch_mode(&self) -> String {
+        self.mode().strip_suffix("_2.options").expect("battery mode") .to_owned() + "_4.options"
     }
     fn mode(&self) -> String {
         format!(
@@ -1378,6 +1436,31 @@ fn null_texture_dds() -> Vec<u8> {
     dds
 }
 
+/// Applies the gameplay-fill packs of map `id` to `project`.
+fn apply_fill_packs(
+    project: &mut ConfigValue,
+    fills: &[fill::FillPack],
+    id: u8,
+    target: &mut ResourceDb,
+    notes: &mut Vec<String>,
+    fill_models: &mut BTreeSet<String>,
+) -> Result<()> {
+    for pack in fills.iter().filter(|p| p.applies_to(id)) {
+        let bytes = target.read(&pack.template_project)?;
+        ensure!(
+            format!("{:x}", Sha256::digest(&bytes)) == pack.template_sha256,
+            "gameplay fill {}: native template project changed",
+            pack.name
+        );
+        let native = BinaryConfig::parse(&bytes)?.root;
+        let applied = fill::apply(project, &native, pack)
+            .with_context(|| format!("applying gameplay fill {}", pack.name))?;
+        notes.extend(applied.notes);
+        fill_models.extend(applied.native_models);
+    }
+    Ok(())
+}
+
 fn emit(
     output: &Path,
     path: &str,
@@ -1566,7 +1649,7 @@ pub fn build_with_fill(
         .collect::<Result<_>>()?;
     for pack in &fills {
         ensure!(
-            m.maps.iter().any(|map| map.id == pack.map_id),
+            m.maps.iter().any(|map| pack.applies_to(map.id) || map.deathmatch.as_ref().is_some_and(|dm| pack.applies_to(dm.id))),
             "gameplay fill {} names map {} which this manifest does not build",
             pack.name,
             pack.map_id
@@ -1602,6 +1685,31 @@ pub fn build_with_fill(
             ids.insert(map.id) && projects.insert(map.donor_project(m.source_build)),
             "duplicate map ID or project"
         );
+        if let Some(dm) = &map.deathmatch {
+            ensure!(m.source_build.early(), "a deathmatch variant needs an early donor");
+            ensure!(ids.insert(dm.id), "duplicate map ID {}", dm.id);
+        }
+    }
+    // Names: each key once, absent from every localization.
+    let mut localizations = BTreeMap::new();
+    if m.maps.iter().any(|map| map.name.is_some()) {
+        let mut keys = BTreeSet::new();
+        for map in &m.maps {
+            if let Some(name) = &map.name {
+                ensure!(keys.insert(name.key.clone()), "name key {} given twice", name.key);
+            }
+        }
+        let mut target = ResourceDb::open(target_path)?;
+        for language in crate::localization_026::LANGUAGES {
+            let root = cfg(&mut target, &format!("localization/{language}/localization"))?;
+            for key in &keys {
+                ensure!(
+                    crate::localization_026::string_of(&root, key)?.is_none(),
+                    "the {language} localization already has {key}"
+                );
+            }
+            localizations.insert(language.to_owned(), root);
+        }
     }
     let mut donor = ResourceDb::open(donor_path)?;
     let mut target = ResourceDb::open(target_path)?;
@@ -1661,6 +1769,8 @@ pub fn build_with_fill(
     let mut fill_models = BTreeSet::new();
     let mut collision_repairs = BTreeMap::new();
     let mut compatibility_notes = Vec::new();
+    // Team Deathmatch projects by output path, before relocation.
+    let mut deathmatch_projects: Vec<(String, ConfigValue)> = Vec::new();
     for map in &m.maps {
         let raw = cfg(&mut donor, &map.donor_project(m.source_build))?;
         let mut raw = if m.source_build.early() {
@@ -1727,19 +1837,19 @@ pub fn build_with_fill(
             &map.donor_project(m.source_build),
             &mut collision_repairs,
         )?;
-        for pack in fills.iter().filter(|p| p.map_id == map.id) {
-            let bytes = target.read(&pack.template_project)?;
-            ensure!(
-                format!("{:x}", Sha256::digest(&bytes)) == pack.template_sha256,
-                "gameplay fill {}: native template project changed",
-                pack.name
-            );
-            let native = BinaryConfig::parse(&bytes)?.root;
-            let applied = fill::apply(&mut project, &native, pack)
-                .with_context(|| format!("applying gameplay fill {}", pack.name))?;
-            compatibility_notes.extend(applied.notes);
-            fill_models.extend(applied.native_models);
+        if let Some(dm) = &map.deathmatch {
+            let mut deathmatch = project.clone();
+            let stripped = early::strip_battery_objects(&mut deathmatch)?;
+            ensure!(stripped.containers == 2, "a deathmatch variant of {} found {} battery containers", map.level, stripped.containers);
+            compatibility_notes.push(format!(
+                "{}: Team Deathmatch {}: {} battery containers, {} zones, {} container models and collisions, {} battery object groups removed",
+                map.deathmatch_output_project(m.source_build), dm.id, stripped.containers, stripped.zones, stripped.container_models, stripped.server_objects
+            ));
+            apply_fill_packs(&mut deathmatch, &fills, dm.id, &mut target, &mut compatibility_notes, &mut fill_models)?;
+            rewrite(&mut deathmatch, &m.reference_replacements);
+            deathmatch_projects.push((map.deathmatch_output_project(m.source_build), deathmatch));
         }
+        apply_fill_packs(&mut project, &fills, map.id, &mut target, &mut compatibility_notes, &mut fill_models)?;
         rewrite(&mut project, &m.reference_replacements);
         overrides.insert(
             map.donor_project(m.source_build),
@@ -2149,39 +2259,75 @@ pub fn build_with_fill(
             ));
         }
     }
-    for map in &m.maps {
-        let mode_name = format!("{}_{}", m.source_build.prefix(), map.mode());
-        let mut mode = cfg(&mut target, &format!("gameplay/game_modes/{}", map.mode()))?;
-        mode.set_path(
-            "mode.name",
-            ConfigValue::String(format!("{}_{}_2", m.source_build.prefix(), map.level)),
-        )?;
-        mode.set_path(
-            "mode.match_making_params.map_name",
-            ConfigValue::String(map.project_name(m.source_build)),
-        )?;
-        let path = format!("gameplay/game_modes/{mode_name}");
-        ensure!(!target.contains(&path), "mode already exists");
+    for (path, mut project) in deathmatch_projects {
+        rewrite_inner(&mut project, &substitutions, true, None);
+        ensure!(!target.contains(&path), "would overwrite native resource {path}");
         emit(
             output,
             &path,
-            &BinaryConfig { root: mode }.to_bytes()?,
-            "0.26g-mode-template",
+            &BinaryConfig { root: project }.to_bytes()?,
+            &format!("{}+0.26g-adapter+team-deathmatch", m.source_build.label()),
             &mut files,
         )?;
-        let ConfigValue::Indexed(entries) = dictionary.named_mut("maps_dict").unwrap() else {
-            unreachable!()
-        };
-        entries.push(ConfigValue::Named(vec![
-            NamedValue {
-                name: "id".into(),
-                value: ConfigValue::Integer(map.id.into()),
-            },
-            NamedValue {
-                name: "cfg_mode_name".into(),
-                value: ConfigValue::String(mode_name),
-            },
-        ]));
+    }
+    for map in &m.maps {
+        let prefix = m.source_build.prefix();
+        // The battery mode, and the Team Deathmatch one if the map has it.
+        let mut modes = vec![(map.id, map.mode(), format!("{prefix}_{}_2", map.level), map.project_name(m.source_build))];
+        if let Some(dm) = &map.deathmatch {
+            modes.push((dm.id, map.deathmatch_mode(), format!("{prefix}_{}_4", map.level), map.deathmatch_project_name(m.source_build)));
+        }
+        for (id, native_mode, name, project_name) in modes {
+            let mode_name = format!("{prefix}_{native_mode}");
+            let mut mode = cfg(&mut target, &format!("gameplay/game_modes/{native_mode}"))?;
+            mode.set_path("mode.name", ConfigValue::String(name))?;
+            mode.set_path("mode.match_making_params.map_name", ConfigValue::String(project_name))?;
+            if let Some(map_id) = map.map_id {
+                mode.set_path("mode.match_making_params.map_id", ConfigValue::Integer(map_id.into()))?;
+            }
+            if let Some(map_name) = &map.name {
+                mode.set_path("mode.ui.map_name", ConfigValue::String(map_name.key.clone()))?;
+            }
+            let path = format!("gameplay/game_modes/{mode_name}");
+            ensure!(!target.contains(&path), "mode already exists");
+            emit(
+                output,
+                &path,
+                &BinaryConfig { root: mode }.to_bytes()?,
+                "0.26g-mode-template",
+                &mut files,
+            )?;
+            let ConfigValue::Indexed(entries) = dictionary.named_mut("maps_dict").unwrap() else {
+                unreachable!()
+            };
+            entries.push(ConfigValue::Named(vec![
+                NamedValue {
+                    name: "id".into(),
+                    value: ConfigValue::Integer(id.into()),
+                },
+                NamedValue {
+                    name: "cfg_mode_name".into(),
+                    value: ConfigValue::String(mode_name),
+                },
+            ]));
+        }
+        if let Some(map_name) = &map.name {
+            for language in crate::localization_026::LANGUAGES {
+                let localization = localizations
+                    .get_mut(language)
+                    .with_context(|| format!("0.26 has no {language} localization"))?;
+                crate::localization_026::set_string(localization, &map_name.key, map_name.text(language)?)?;
+            }
+        }
+    }
+    for (language, root) in localizations {
+        emit(
+            output,
+            &format!("localization/{language}/localization"),
+            &BinaryConfig { root }.to_bytes()?,
+            "0.26g+map-names",
+            &mut files,
+        )?;
     }
     emit(
         output,

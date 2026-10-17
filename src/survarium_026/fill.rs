@@ -15,6 +15,10 @@ use crate::skeleton_animation::{basis_to_euler, euler_to_basis, multiply};
 pub struct FillPack {
     pub name: String,
     pub map_id: u8,
+    /// More maps the pack applies to (a release id of the same map, its
+    /// Team Deathmatch variant).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also_map_ids: Vec<u8>,
     pub template_project: String,
     pub template_sha256: String,
     #[serde(default)]
@@ -159,6 +163,13 @@ fn float3(o: &ConfigValue, key: &str) -> Option<[f32; 3]> {
     match o.named(key) {
         Some(ConfigValue::Float3(v)) => Some(*v),
         _ => None,
+    }
+}
+
+impl FillPack {
+    /// Whether the pack applies to map `id`.
+    pub fn applies_to(&self, id: u8) -> bool {
+        self.map_id == id || self.also_map_ids.contains(&id)
     }
 }
 
@@ -610,6 +621,7 @@ mod tests {
         let pack = FillPack {
             name: "chargers".into(),
             map_id: 194,
+            also_map_ids: vec![],
             template_project: "projects/level_04/day_2/client_project".into(),
             template_sha256: String::new(),
             groups: vec![],
@@ -717,6 +729,7 @@ mod tests {
         let pack = FillPack {
             name: "clone".into(),
             map_id: 194,
+            also_map_ids: vec![],
             template_project: "projects/level_02/day_2/client_project".into(),
             template_sha256: String::new(),
             groups: vec![],
@@ -835,6 +848,7 @@ mod tests {
         let pack = FillPack {
             name: "test".into(),
             map_id: 194,
+            also_map_ids: vec![],
             template_project: "projects/level_04/day_2/client_project".into(),
             template_sha256: String::new(),
             groups: vec![FillGroup {
