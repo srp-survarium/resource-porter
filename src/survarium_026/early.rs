@@ -262,6 +262,12 @@ pub(super) fn project(
         }
         client.push(object);
     }
+    if map.native_ambient_fill {
+        let added = native_ambient_fill(&mut client, target_objects);
+        notes.push(format!(
+            "{path}: optional native ambience: added {added} native object_sound emitters the original scene lacks"
+        ));
+    }
     if source == SourceBuild::V011a && map.level == "level_04" {
         if repair_chemical_collector_zone(&mut groups, objects)? {
             notes.push(format!(
@@ -302,6 +308,45 @@ pub(super) fn project(
     old.set_path("server_objects", groups)?;
     old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
     Ok(old)
+}
+
+/// Append the native project's ambient emitters whose sound the early scene
+/// does not already play. They reference shared native sounds. Returns the
+/// number added.
+pub(super) fn native_ambient_fill(client: &mut Vec<ConfigValue>, native: &[ConfigValue]) -> usize {
+    let is_sound = |o: &ConfigValue| string(o, "game_object_type") == Some("object_sound");
+    let stem = |o: &ConfigValue| {
+        string(o, "sound_name").map(|name| {
+            let name = name.replace('\\', "/");
+            match name
+                .strip_prefix("ported/")
+                .and_then(|rest| rest.split_once('/'))
+            {
+                Some((_, tail)) => tail.to_owned(),
+                None => name,
+            }
+        })
+    };
+    let present: BTreeSet<String> = client
+        .iter()
+        .filter(|o| is_sound(o))
+        .filter_map(stem)
+        .collect();
+    let names: BTreeSet<String> = client
+        .iter()
+        .filter_map(|o| string(o, "full_name").map(str::to_owned))
+        .collect();
+    let mut added = 0;
+    for object in native.iter().filter(|o| is_sound(o)) {
+        let Some(sound) = stem(object) else { continue };
+        let name = string(object, "full_name").unwrap_or("").to_owned();
+        if present.contains(&sound) || names.contains(&name) {
+            continue;
+        }
+        client.push(object.clone());
+        added += 1;
+    }
+    added
 }
 
 pub(super) fn validate_server_fallback(client: &ConfigValue, server: &ConfigValue) -> Result<()> {
@@ -872,15 +917,18 @@ pub(super) fn geometry(bytes: &[u8], rebase_wrapped_uv: bool) -> Result<Vec<u8>>
 /// surface they cover. On Chemical (0.11e level/04 `moss*.model`) the LOD1 moss
 /// sits up to 8.2 cm inside the wall (5th percentile; LOD0: 1.2 cm), and in
 /// 0.26 it flickers against the wall at a distance while the camera moves.
-/// These LOD≥1 surfaces are lifted along their normals.
+/// Their surfaces are lifted along their normals.
 pub(super) const WALL_OVERLAY_MATERIALS: &[&str] = &["anomaly/anomaly_moss"];
-/// Measured penetration rounded up (user-confirmed in game: LOD1 +10 cm).
-pub(super) const WALL_OVERLAY_LOD_LIFT: f32 = 0.10;
+/// LOD0 lift. User-chosen in game (variants +0/+5/+10 cm, 2026-10-16).
+pub(super) const WALL_OVERLAY_LOD0_LIFT: f32 = 0.05;
+/// LOD1+ lift: the measured penetration rounded up (10 cm) plus the same 5 cm.
+pub(super) const WALL_OVERLAY_LOD1_LIFT: f32 = 0.15;
 
-/// Surfaces of a model's LOD1+ levels that use a wall-overlay material.
-/// Material names may already be relocated (`ported/<build>/...`).
-pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeSet<String>> {
-    let mut result = BTreeSet::new();
+/// Lift per surface of a model that uses a wall-overlay material: LOD0
+/// surfaces get the LOD0 lift, LOD1+ surfaces the LOD1 lift. Material names
+/// may already be relocated (`ported/<build>/...`).
+pub(super) fn wall_overlay_lifts(settings: &ConfigValue) -> Result<BTreeMap<String, f32>> {
+    let mut result = BTreeMap::new();
     let Some(ConfigValue::Named(levels)) = settings.named("lod_hierrarchy") else {
         return Ok(result);
     };
@@ -890,9 +938,7 @@ pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeS
         let Some(Ok(lod)) = level.name.strip_prefix("LOD").map(str::parse::<u32>) else {
             continue;
         };
-        if lod == 0 {
-            continue;
-        }
+        let lift = if lod == 0 { WALL_OVERLAY_LOD0_LIFT } else { WALL_OVERLAY_LOD1_LIFT };
         let Some(surfaces) = level.value.named("surfaces") else {
             continue;
         };
@@ -912,7 +958,8 @@ pub(super) fn wall_overlay_lod_surfaces(settings: &ConfigValue) -> Result<BTreeS
                         .strip_suffix(overlay)
                         .is_some_and(|head| head.starts_with("ported/") && head.ends_with('/'))
             }) {
-                result.insert(surface.clone());
+                let entry = result.entry(surface.clone()).or_insert(lift);
+                *entry = entry.max(lift);
             }
         }
     }
@@ -1338,6 +1385,10 @@ mod tests {
             level: "level_03".into(),
             weather: "day".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
+            map_id: None,
+            name: None,
+            deathmatch: None,
         };
         let project = project(
             old,
@@ -1351,6 +1402,98 @@ mod tests {
         .unwrap();
         let client = array(project.named("client_objects").unwrap()).unwrap();
         assert_eq!(client, &[wire]);
+    }
+
+    #[test]
+    fn early_collector_keeps_its_static_model_and_binds_it() {
+        fn object(fields: &[(&str, ConfigValue)]) -> ConfigValue {
+            ConfigValue::Named(
+                fields
+                    .iter()
+                    .map(|(name, value)| NamedValue {
+                        name: (*name).into(),
+                        value: value.clone(),
+                    })
+                    .collect(),
+            )
+        }
+        let text = |s: &str| ConfigValue::String(s.into());
+        let zone = object(&[
+            ("game_object_type", text("collision_geometry")),
+            ("full_name", text("logic/team1/victory_container_collision")),
+            ("position", ConfigValue::Float3([10., 0., 5.])),
+        ]);
+        let mesh = object(&[
+            ("lib_name", text("resources/models/item/quest/container")),
+            ("position", ConfigValue::Float3([10.5, 0., 5.])),
+            ("rotation", ConfigValue::Float3([0.; 3])),
+            ("scale", ConfigValue::Float3([1.; 3])),
+        ]);
+        let collector = object(&[
+            ("team", ConfigValue::Integer(0)),
+            ("full_name", text("logic/team1/victory_items_container")),
+            (
+                "collision_geometries",
+                ConfigValue::Indexed(vec![object(&[(
+                    "name",
+                    text("logic/team1/victory_container_collision"),
+                )])]),
+            ),
+        ]);
+        let old = object(&[
+            ("objects", ConfigValue::Indexed(vec![zone])),
+            ("render_visuals", ConfigValue::Indexed(vec![mesh.clone()])),
+        ]);
+        let server = object(&[(
+            "objects",
+            object(&[(
+                "victory_items_containers",
+                ConfigValue::Indexed(vec![collector]),
+            )]),
+        )]);
+        let target = object(&[("client_objects", ConfigValue::Indexed(vec![]))]);
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("input");
+        fs::create_dir_all(root.join("unused")).unwrap();
+        fs::write(root.join("unused/file"), b"x").unwrap();
+        let db_path = temp.path().join("donor.db");
+        resources_db::pack::assemble_to_file(
+            &resources_db::pack::build_src_tree(&root).unwrap(),
+            &db_path,
+        )
+        .unwrap();
+        let mut donor = ResourceDb::open(db_path).unwrap();
+        let map = Map {
+            id: 194,
+            level: "level_04".into(),
+            weather: "day".into(),
+            environment_look: Default::default(),
+            native_ambient_fill: false,
+            map_id: None,
+            name: None,
+            deathmatch: None,
+        };
+        let project = project(
+            old,
+            &mut donor,
+            server,
+            &target,
+            &map,
+            SourceBuild::V011e,
+            &mut Vec::new(),
+        )
+        .unwrap();
+        // The static model stays drawn ...
+        assert_eq!(
+            array(project.named("render_visuals").unwrap()).unwrap(),
+            &[mesh.clone()]
+        );
+        // ... and is also bound as the collector's visual geometry.
+        let groups = project.named("server_objects").unwrap();
+        let collectors = array(groups.named("victory_items_containers").unwrap()).unwrap();
+        let geometry = collectors[0].named("visual_geometry").unwrap();
+        assert_eq!(geometry.named("model_name"), mesh.named("lib_name"));
+        assert_eq!(geometry.named("position"), mesh.named("position"));
     }
 
     #[test]
@@ -1594,6 +1737,51 @@ mod tests {
     }
 
     #[test]
+    fn native_ambient_fill_adds_only_missing_emitters() {
+        let sound = |full: &str, name: &str| {
+            ConfigValue::Named(vec![
+                NamedValue {
+                    name: "game_object_type".into(),
+                    value: ConfigValue::String("object_sound".into()),
+                },
+                NamedValue {
+                    name: "full_name".into(),
+                    value: ConfigValue::String(full.into()),
+                },
+                NamedValue {
+                    name: "sound_name".into(),
+                    value: ConfigValue::String(name.into()),
+                },
+            ])
+        };
+        let light = ConfigValue::Named(vec![NamedValue {
+            name: "game_object_type".into(),
+            value: ConfigValue::String("light".into()),
+        }]);
+        let mut client = vec![sound(
+            "sounds/scapes/industrial_scape",
+            "ported/v011e/scapes/industrial_space",
+        )];
+        let native = [
+            sound("sounds/scapes/industrial_scape", "scapes/industrial_space"),
+            sound("sounds/scapes/crowns", "scapes/creatures/crowns_linear_01"),
+            sound(
+                "sounds/day/cicadas_01",
+                "scapes/creatures/map_02_school_cicadas_all",
+            ),
+            light,
+        ];
+        assert_eq!(native_ambient_fill(&mut client, &native), 2);
+        assert_eq!(client.len(), 3);
+        assert_eq!(
+            string(&client[1], "sound_name"),
+            Some("scapes/creatures/crowns_linear_01")
+        );
+        // Idempotent: nothing left to add.
+        assert_eq!(native_ambient_fill(&mut client, &native), 0);
+    }
+
+    #[test]
     fn wall_overlay_lods_are_lifted_along_normals_and_nothing_else() {
         let named = |name: &str, value| NamedValue {
             name: name.into(),
@@ -1641,11 +1829,15 @@ mod tests {
             named("material_settings", group(materials.into())),
         ]);
         assert_eq!(
-            wall_overlay_lod_surfaces(&settings).unwrap(),
-            BTreeSet::from(["moss_far".to_owned(), "moss_lod".to_owned()])
+            wall_overlay_lifts(&settings).unwrap(),
+            BTreeMap::from([
+                ("moss_base".to_owned(), WALL_OVERLAY_LOD0_LIFT),
+                ("moss_far".to_owned(), WALL_OVERLAY_LOD1_LIFT),
+                ("moss_lod".to_owned(), WALL_OVERLAY_LOD1_LIFT),
+            ])
         );
         assert!(
-            wall_overlay_lod_surfaces(&ConfigValue::Named(vec![]))
+            wall_overlay_lifts(&ConfigValue::Named(vec![]))
                 .unwrap()
                 .is_empty()
         );
@@ -1790,6 +1982,10 @@ mod tests {
             level: "level_04".into(),
             weather: "day".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
+            map_id: None,
+            name: None,
+            deathmatch: None,
         };
         assert_eq!(
             chemical.output_project(SourceBuild::V011e),
@@ -1805,6 +2001,10 @@ mod tests {
             level: "level_03".into(),
             weather: "evening".into(),
             environment_look: Default::default(),
+            native_ambient_fill: false,
+            map_id: None,
+            name: None,
+            deathmatch: None,
         };
         assert_eq!(
             map.output_project(SourceBuild::V010b),
