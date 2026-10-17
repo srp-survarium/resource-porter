@@ -1184,6 +1184,14 @@ pub(crate) fn bind_pose_origins(bytes: &[u8], label: &str) -> Result<Vec<(String
         .collect())
 }
 
+/// Each bone of a bind pose and its frame, row by row.
+pub(crate) fn bind_pose_frames(bytes: &[u8], label: &str) -> Result<Vec<(String, Vec<f32>)>> {
+    Ok(parse_bind_pose(bytes, label)?
+        .into_iter()
+        .map(|bone| (bone.name, bone.frame.0.iter().flatten().copied().collect()))
+        .collect())
+}
+
 fn parse_bind_pose(bytes: &[u8], label: &str) -> Result<Vec<BindBone>> {
     let count = usize::from(read_u16(bytes, 0)?);
     let mut offset = 2_usize;

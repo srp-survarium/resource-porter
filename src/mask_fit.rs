@@ -17,9 +17,28 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 const CORNEA_AHEAD_OF_EYE_BONE: f64 = 0.0155;
 /// Gap kept between the native head surface and the fitted mask.
 const CLEARANCE: f64 = 0.004;
+/// For a mask made on the native rig (`Align::SameRig`): cloth this close to
+/// an opening (eye slit, mouth hole, the free edge of a wrap) is its rim.
+/// The native head may show through an opening, so a head vertex whose ray
+/// meets the cloth at its rim does not push the cloth out: pushing there
+/// shrinks the opening, the next vertex pokes through, and the rim balloons.
+/// The rim is still lifted off the skin under it (mask vertices inside the
+/// head are pushed out as everywhere).
+pub const RIM_ZONE: f64 = 0.012;
+/// For a mask made on the native rig: a vertex this deep inside the native
+/// head is part of the mask's inside (0.69d rolls the cloth of its eye and
+/// mouth holes inward, and closes some behind the face). The native head
+/// hides it; it stays where it is, and the measures ignore the triangles it
+/// is a corner of. Pushed out along a ray it would be thrown through the
+/// face.
+pub const INTERIOR_DEPTH: f64 = 0.006;
 /// More over the cheeks and jaw, where the face moves most under the cloth
 /// when the head turns.
 const FACE_EXTRA_CLEARANCE: f64 = 0.001;
+/// The same for a mask made on the native rig: 0.69d's wraps hang loose
+/// over the jaw (the keffiyeh's veil), and as the head turns their cloth
+/// swings in more than a fitted balaclava's.
+const SAME_RIG_FACE_EXTRA_CLEARANCE: f64 = 0.003;
 /// The cheeks and jaw: in front of the Head bone and this far below the eye
 /// bones, clear of the eye holes' rims.
 const BELOW_EYES: f64 = 0.02;
@@ -30,6 +49,8 @@ fn lower_face(p: [f64; 3], head_bone: [f64; 3], eyes_y: f64) -> bool {
 }
 /// Tighter gap on the neck so the hem stays under stock collars.
 const NECK_CLEARANCE: f64 = 0.003;
+/// Above this height over the Neck bone the neck tuck leaves the mask alone.
+const TUCK_START_ABOVE_NECK: f64 = 0.09;
 /// Below this height above the Neck bone the mask lies fully on the neck.
 const TUCK_FULL_ABOVE_NECK: f64 = 0.05;
 const CONVERGED: f64 = 0.0003;
@@ -295,6 +316,7 @@ fn pull_under_shells(
     neighbours: &[BTreeSet<usize>],
     triangles: &[[usize; 3]],
     movable: &[bool],
+    skip: &[bool],
     centre: [f64; 3],
     head: &Mesh,
     shells: &[Shell],
@@ -412,6 +434,7 @@ fn pull_under_shells(
             weld,
             triangles,
             movable,
+            skip,
             centre,
             head,
             &head_clear,
@@ -442,6 +465,7 @@ fn pull_under_shells(
             weld,
             triangles,
             movable,
+            skip,
             centre,
             head,
             &head_clear,
@@ -464,6 +488,7 @@ fn cover_head(
     weld: &[usize],
     triangles: &[[usize; 3]],
     movable: &[bool],
+    skip: &[bool],
     centre: [f64; 3],
     head: &Mesh,
     clearance: &[f64],
@@ -478,6 +503,9 @@ fn cover_head(
     for (&p, &clear) in head.positions.iter().zip(clearance) {
         let (dir, r) = ray(p);
         if let Some((t, tri, bary)) = farthest_hit(centre, dir, positions, triangles) {
+            if skip[tri] {
+                continue;
+            }
             let pen = r + clear - t;
             if pen > 0.0 {
                 for (corner, b) in triangles[tri].iter().zip(bary) {
@@ -514,6 +542,38 @@ pub fn fit_to_native_head_under(
     head: &[u8],
     bind_pose: &[u8],
     shells: &[Shell],
+) -> Result<MaskFit> {
+    fit_under(mask, head, bind_pose, shells, Align::EyeHoles)
+}
+
+/// How a mask is first placed on the native head.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    /// Moved rigidly so its eye holes sit over the native eyes: the donor
+    /// head stood elsewhere on its skeleton (STK2).
+    EyeHoles,
+    /// Left where it is: the donor was made on the native rig and bind pose
+    /// (the 0.69d masks), so only the clearance over the head is fitted.
+    SameRig,
+}
+
+/// As `fit_to_native_head_under`, for a mask made on the native rig: no
+/// rigid move, and no eye holes needed (a full hood, a strap harness).
+pub fn fit_same_rig_under(
+    mask: &mut Vec<u8>,
+    head: &[u8],
+    bind_pose: &[u8],
+    shells: &[Shell],
+) -> Result<MaskFit> {
+    fit_under(mask, head, bind_pose, shells, Align::SameRig)
+}
+
+fn fit_under(
+    mask: &mut Vec<u8>,
+    head: &[u8],
+    bind_pose: &[u8],
+    shells: &[Shell],
+    align: Align,
 ) -> Result<MaskFit> {
     let mesh = parse_mesh(mask, 48, "mask")?;
     let head = parse_mesh(head, 40, "native head")?;
@@ -554,62 +614,47 @@ pub fn fit_to_native_head_under(
         welded_positions[w] = mesh.positions[i];
     }
 
-    // Openings are loops of edges used by one triangle. The eye holes are the
-    // two highest; the neck opening is the lowest.
-    let mut rim: Vec<Vec<usize>> = vec![vec![]; welded_count];
-    for (&(a, b), &uses) in &edge_uses {
-        if uses == 1 {
-            rim[a].push(b);
-            rim[b].push(a);
-        }
-    }
-    let mut seen = vec![false; welded_count];
-    let mut openings = vec![];
-    for start in 0..welded_count {
-        if rim[start].is_empty() || seen[start] {
-            continue;
-        }
-        let (mut stack, mut sum, mut n) = (vec![start], [0.0; 3], 0.0);
-        seen[start] = true;
-        while let Some(v) = stack.pop() {
-            for k in 0..3 {
-                sum[k] += welded_positions[v][k];
-            }
-            n += 1.0;
-            for &u in &rim[v] {
-                if !seen[u] {
-                    seen[u] = true;
-                    stack.push(u);
-                }
-            }
-        }
-        openings.push(sum.map(|s| s / n));
-    }
-    openings.sort_by(|a, b| b[1].total_cmp(&a[1]));
-    let [first, second] = match openings.as_slice() {
-        [a, b, _, ..] => [*a, *b],
-        _ => bail!(
-            "mask has {} openings; expected two eye holes and a neck",
-            openings.len()
-        ),
-    };
-    ensure!(
-        first[0] * second[0] < 0.0,
-        "the two highest mask openings are not a left/right eye pair"
-    );
-    let holes = [0, 1, 2].map(|k| (first[k] + second[k]) / 2.0);
     let mut eyes = [0, 1, 2].map(|k| (left_eye[k] + right_eye[k]) / 2.0);
     eyes[2] += CORNEA_AHEAD_OF_EYE_BONE;
-
-    // Rigid move of the whole mask: shifting only the head-weighted part folds
-    // the jaw where its weights blend into the neck.
-    let offset = sub(eyes, holes);
+    let (offset, rim_zone) = match align {
+        Align::EyeHoles => (eye_hole_offset(&edge_uses, &welded_positions, eyes)?, 0.0),
+        Align::SameRig => ([0.0; 3], RIM_ZONE),
+    };
+    let interior = if align == Align::SameRig {
+        interior_vertices(
+            &mesh.positions,
+            &head,
+            INTERIOR_DEPTH,
+            neck[1] + TUCK_START_ABOVE_NECK,
+        )
+    } else {
+        vec![false; mesh.positions.len()]
+    };
+    let rim = rim_triangles(
+        &mesh.positions,
+        &mesh.triangles,
+        rim_zone,
+        &interior,
+        head_centre(&head, eyes[1]),
+    );
+    let inside_tri: Vec<bool> = mesh
+        .triangles
+        .iter()
+        .map(|t| t.iter().any(|&v| interior[v]))
+        .collect();
     let mut start: Vec<[f64; 3]> = mesh
         .positions
         .iter()
         .map(|p| [p[0] + offset[0], p[1] + offset[1], p[2] + offset[2]])
         .collect();
-    let tucked_vertices = tuck_into_neck(&mut start, &head, neck, head_bone);
+    let before_tuck = start.clone();
+    let tucked_vertices =
+        tuck_into_neck(&mut start, &head, neck, head_bone, align == Align::SameRig);
+    for (i, p) in start.iter_mut().enumerate() {
+        if interior[i] {
+            *p = before_tuck[i];
+        }
+    }
     let mut positions = start.clone();
 
     // Push outward along rays from inside the skull.
@@ -634,14 +679,23 @@ pub fn fit_to_native_head_under(
         (d.map(|v| v / r), r)
     };
     let face = |p: [f64; 3]| lower_face(p, head_bone, eyes[1]);
-    let clearance = |p: [f64; 3]| CLEARANCE + if face(p) { FACE_EXTRA_CLEARANCE } else { 0.0 };
+    let face_extra = match align {
+        Align::EyeHoles => FACE_EXTRA_CLEARANCE,
+        Align::SameRig => SAME_RIG_FACE_EXTRA_CLEARANCE,
+    };
+    let clearance = |p: [f64; 3]| CLEARANCE + if face(p) { face_extra } else { 0.0 };
     // The jaw and the lower cheeks reach below the skull; above the tucked
     // neck they too keep the cloth off.
     let covered: Vec<[f64; 3]> = head
         .positions
         .iter()
         .copied()
-        .filter(|&p| p[1] > skull_floor || (face(p) && p[1] >= neck[1] + TUCK_FULL_ABOVE_NECK))
+        .filter(|&p| {
+            let measured = p[1] >= neck[1] + TUCK_FULL_ABOVE_NECK;
+            // On the native rig, all the head the posed check measures: the
+            // nape between the tuck and the skull too.
+            p[1] > skull_floor || (measured && (face(p) || align == Align::SameRig))
+        })
         .collect();
     let mut converged = false;
     for _ in 0..30 {
@@ -649,7 +703,7 @@ pub fn fit_to_native_head_under(
         // Mask vertices inside the head. Rays from the skull run steeply down
         // through the neck and would drag the tucked part back down.
         for (i, &p) in positions.iter().enumerate() {
-            if p[1] < neck[1] + TUCK_FULL_ABOVE_NECK {
+            if p[1] < neck[1] + TUCK_FULL_ABOVE_NECK || interior[i] {
                 continue;
             }
             let (dir, r) = ray(p);
@@ -662,6 +716,9 @@ pub fn fit_to_native_head_under(
         for &p in &covered {
             let (dir, r) = ray(p);
             if let Some((t, tri, bary)) = farthest_hit(centre, dir, &positions, &mesh.triangles) {
+                if rim[tri] || inside_tri[tri] {
+                    continue;
+                }
                 let pen = r + clearance(p) - t;
                 if pen > 0.0 {
                     for (corner, b) in mesh.triangles[tri].iter().zip(bary) {
@@ -686,6 +743,9 @@ pub fn fit_to_native_head_under(
                 .collect();
         }
         for (i, p) in positions.iter_mut().enumerate() {
+            if interior[i] {
+                continue;
+            }
             let (dir, _) = ray(*p);
             let push = need[weld[i]];
             for k in 0..3 {
@@ -728,9 +788,34 @@ pub fn fit_to_native_head_under(
 
     // Helmets are worn over it: the cloth over the skull goes under each
     // helmet's outer skin. The tucked part is left to the collars.
+    let interior = if align == Align::SameRig {
+        interior_vertices(
+            &positions,
+            &head,
+            INTERIOR_DEPTH,
+            neck[1] + TUCK_START_ABOVE_NECK,
+        )
+    } else {
+        vec![false; positions.len()]
+    };
     let movable: Vec<bool> = positions
         .iter()
-        .map(|p| p[1] >= neck[1] + TUCK_FULL_ABOVE_NECK)
+        .zip(&interior)
+        .map(|(p, &inside)| p[1] >= neck[1] + TUCK_FULL_ABOVE_NECK && !inside)
+        .collect();
+    // Where the head may show through: an opening's rim, and the mask's
+    // inside.
+    let rim: Vec<bool> = mesh
+        .triangles
+        .iter()
+        .zip(rim_triangles(
+            &positions,
+            &mesh.triangles,
+            rim_zone,
+            &interior,
+            centre,
+        ))
+        .map(|(t, r)| r || t.iter().any(|&v| interior[v]))
         .collect();
     let before: Vec<(usize, f64)> = shells
         .iter()
@@ -745,6 +830,7 @@ pub fn fit_to_native_head_under(
             &neighbours,
             &mesh.triangles,
             &movable,
+            &rim,
             centre,
             &head,
             shells,
@@ -764,13 +850,17 @@ pub fn fit_to_native_head_under(
             }
         })
         .collect();
-    // The head must still not show through the cloth anywhere.
+    // The head must still not show through the cloth anywhere (but through
+    // an opening).
     for &p in &skull {
         if p[1] < neck[1] + TUCK_FULL_ABOVE_NECK {
             continue;
         }
         let (dir, r) = ray(p);
-        if let Some((t, _, _)) = farthest_hit(centre, dir, &positions, &mesh.triangles) {
+        if let Some((t, tri, _)) = farthest_hit(centre, dir, &positions, &mesh.triangles) {
+            if rim[tri] {
+                continue;
+            }
             ensure!(
                 t >= r + MIN_HEAD_CLEARANCE * 0.5,
                 "the head shows through the mask under a helmet at {p:?}"
@@ -795,17 +885,205 @@ pub fn fit_to_native_head_under(
     })
 }
 
+/// The rigid move that puts the mask's two highest openings, its eye holes,
+/// over the native eyes. Openings are loops of edges used by one triangle;
+/// the neck opening is the lowest.
+fn eye_hole_offset(
+    edge_uses: &BTreeMap<(usize, usize), usize>,
+    welded_positions: &[[f64; 3]],
+    eyes: [f64; 3],
+) -> Result<[f64; 3]> {
+    let welded_count = welded_positions.len();
+    let mut rim: Vec<Vec<usize>> = vec![vec![]; welded_count];
+    for (&(a, b), &uses) in edge_uses {
+        if uses == 1 {
+            rim[a].push(b);
+            rim[b].push(a);
+        }
+    }
+    let mut seen = vec![false; welded_count];
+    let mut openings = vec![];
+    for start in 0..welded_count {
+        if rim[start].is_empty() || seen[start] {
+            continue;
+        }
+        let (mut stack, mut sum, mut n) = (vec![start], [0.0; 3], 0.0);
+        seen[start] = true;
+        while let Some(v) = stack.pop() {
+            for k in 0..3 {
+                sum[k] += welded_positions[v][k];
+            }
+            n += 1.0;
+            for &u in &rim[v] {
+                if !seen[u] {
+                    seen[u] = true;
+                    stack.push(u);
+                }
+            }
+        }
+        openings.push(sum.map(|s| s / n));
+    }
+    openings.sort_by(|a, b| b[1].total_cmp(&a[1]));
+    let [first, second] = match openings.as_slice() {
+        [a, b, _, ..] => [*a, *b],
+        _ => bail!(
+            "mask has {} openings; expected two eye holes and a neck",
+            openings.len()
+        ),
+    };
+    ensure!(
+        first[0] * second[0] < 0.0,
+        "the two highest mask openings are not a left/right eye pair"
+    );
+    let holes = [0, 1, 2].map(|k| (first[k] + second[k]) / 2.0);
+    // Rigid move of the whole mask: shifting only the head-weighted part folds
+    // the jaw where its weights blend into the neck.
+    Ok(sub(eyes, holes))
+}
+
+/// Which points above `above` are more than `depth` inside `head`: behind
+/// the closest point of its surface, by that triangle's facing. Lower down,
+/// cloth inside the head is the donor's thinner neck, and the tuck puts it
+/// on the native one.
+pub(crate) fn interior_vertices(
+    points: &[[f64; 3]],
+    head: &Mesh,
+    depth: f64,
+    above: f64,
+) -> Vec<bool> {
+    points
+        .iter()
+        .map(|&p| {
+            if p[1] < above {
+                return false;
+            }
+            let mut best = (f64::INFINITY, [0.0; 3], [0.0; 3]);
+            for tri in &head.triangles {
+                let [a, b, c] = tri.map(|v| head.positions[v]);
+                let w = closest_on_triangle(p, a, b, c);
+                let q = [0, 1, 2].map(|k| w[0] * a[k] + w[1] * b[k] + w[2] * c[k]);
+                let d = sub(p, q);
+                let d = dot(d, d);
+                if d < best.0 {
+                    best = (d, q, cross(sub(b, a), sub(c, a)));
+                }
+            }
+            let (d, q, n) = best;
+            d.sqrt() > depth && dot(sub(p, q), n) < 0.0
+        })
+        .collect()
+}
+
+/// The point inside the skull the fit pushes and measures along rays from:
+/// the middle of the head's bounds, at the eyes' height.
+fn head_centre(head: &Mesh, eye_y: f64) -> [f64; 3] {
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for p in &head.positions {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    [(lo[0] + hi[0]) / 2.0, eye_y, (lo[2] + hi[2]) / 2.0]
+}
+
+/// Which triangles are within `zone` of an opening of the mesh: their
+/// centroid is that close to a vertex of an edge only one triangle uses
+/// (seam-split copies welded) that lies over no other cloth. A free edge
+/// over cloth (the end of a wrap's outer turn) opens onto that cloth, not
+/// onto the head, so only edges with nothing between them and `centre`
+/// (but the mask's inside, `interior`) count. All false for a zone of 0.
+pub(crate) fn rim_triangles(
+    positions: &[[f64; 3]],
+    triangles: &[[usize; 3]],
+    zone: f64,
+    interior: &[bool],
+    centre: [f64; 3],
+) -> Vec<bool> {
+    if zone <= 0.0 {
+        return vec![false; triangles.len()];
+    }
+    let mut welded = HashMap::new();
+    let weld: Vec<usize> = positions
+        .iter()
+        .map(|p| {
+            let key = p.map(|v| (v * 1e5).round() as i64);
+            let next = welded.len();
+            *welded.entry(key).or_insert(next)
+        })
+        .collect();
+    let mut uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    for tri in triangles {
+        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+            let (a, b) = (weld[a], weld[b]);
+            if a != b {
+                *uses.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+    }
+    let mut at = vec![[0.0; 3]; welded.len()];
+    for (i, &w) in weld.iter().enumerate() {
+        at[w] = positions[i];
+    }
+    let edge: BTreeSet<usize> = uses
+        .iter()
+        .filter(|&(_, &n)| n == 1)
+        .flat_map(|(&(a, b), _)| [a, b])
+        .collect();
+    // The cloth that can lie under an edge: not the mask's inside.
+    let outer: Vec<[usize; 3]> = triangles
+        .iter()
+        .copied()
+        .filter(|t| !t.iter().any(|&v| interior[v]))
+        .collect();
+    let opening: Vec<[f64; 3]> = edge
+        .into_iter()
+        .filter(|&w| {
+            let d = sub(at[w], centre);
+            let r = dot(d, d).sqrt();
+            if r < 1e-9 {
+                return false;
+            }
+            let dir = d.map(|v| v / r);
+            let others: Vec<[usize; 3]> = outer
+                .iter()
+                .copied()
+                .filter(|t| !t.iter().any(|&v| weld[v] == w))
+                .collect();
+            !ray_hits(centre, dir, positions, &others)
+                .iter()
+                .any(|&(t, _)| t < r - 0.001)
+        })
+        .map(|w| at[w])
+        .collect();
+    triangles
+        .iter()
+        .map(|tri| {
+            let c = [0, 1, 2].map(|k| tri.iter().map(|&v| positions[v][k]).sum::<f64>() / 3.0);
+            opening.iter().any(|&e| {
+                let d = sub(c, e);
+                dot(d, d) < zone * zone
+            })
+        })
+        .collect()
+}
+
 /// Pulls the part below the jaw onto the native neck and shortens it, so the
 /// hem ends inside every stock collar instead of draping over the chest like
 /// it did on the donor body. Heights are relative to the native Neck bone.
+///
+/// With `clear`, cloth already inside the neck there is put on it, however
+/// little the blend would move it: a mask made on the native rig hugged the
+/// donor's thinner neck, and the native one showed through its back.
 fn tuck_into_neck(
     positions: &mut [[f64; 3]],
     head: &Mesh,
     neck: [f64; 3],
     head_bone: [f64; 3],
+    clear: bool,
 ) -> usize {
     // Untouched above the jaw, fully on the neck below the chin.
-    let start = neck[1] + 0.09;
+    let start = neck[1] + TUCK_START_ABOVE_NECK;
     let full = neck[1] + TUCK_FULL_ABOVE_NECK;
     // The hem is squeezed from here down to just above where the native
     // throat ends, which every torso covers.
@@ -857,7 +1135,12 @@ fn tuck_into_neck(
                 Some(best.map_or(t, |b| b.max(t)))
             })
             .unwrap_or(r);
-        let radius = r + s * (target - r);
+        let mut radius = r + s * (target - r);
+        if clear {
+            // Two millimetres more, for the nape, which the head's tilt
+            // presses into the cloth.
+            radius = radius.max(target + 0.002);
+        }
         *p = [centre[0] + dir[0] * radius, y, centre[2] + dir[2] * radius];
         tucked += 1;
     }
@@ -1114,6 +1397,43 @@ pub struct WeightFollow {
 /// the cheeks and jaw lagged behind and the face showed through it. Worn
 /// over the head, the cloth now moves exactly as the skin under it does.
 pub fn follow_head_weights(mask: &mut [u8], head: &[u8]) -> Result<WeightFollow> {
+    follow_head_weights_from(mask, head, None)
+}
+
+/// As `follow_head_weights`, but each vertex takes the skin of the head
+/// under it on its ray from the head's centre (`head_centre`, at the eyes'
+/// height from `bind_pose`), where there is one, over the cheeks and jaw
+/// (`lower_face`; elsewhere the closest skin, as the nape needs). A loose
+/// wrap stands off the
+/// face: the closest skin to its veil was the neck's, so the jaw turned into
+/// it; the skin under it on the ray is the jaw's, which the fit and the
+/// posed measure both go by.
+pub fn follow_head_weights_along_rays(
+    mask: &mut [u8],
+    head: &[u8],
+    bind_pose: &[u8],
+) -> Result<WeightFollow> {
+    let bones = bone_origins(bind_pose)?;
+    let eye_y = ["LeftEye", "RightEye"]
+        .iter()
+        .map(|b| {
+            bones
+                .get(*b)
+                .map(|p| p[1])
+                .with_context(|| format!("no {b} bone"))
+        })
+        .sum::<Result<f64>>()?
+        / 2.0;
+    let centre = head_centre(&parse_mesh(head, 40, "native head")?, eye_y);
+    let head_bone = *bones.get("Head").context("no Head bone")?;
+    follow_head_weights_from(mask, head, Some((centre, head_bone, eye_y)))
+}
+
+fn follow_head_weights_from(
+    mask: &mut [u8],
+    head: &[u8],
+    rays: Option<([f64; 3], [f64; 3], f64)>,
+) -> Result<WeightFollow> {
     let cloth = parse_mesh(mask, 48, "mask")?;
     let head_mesh = parse_mesh(head, 40, "native head")?;
     let head_skins = skins(head, 40)?;
@@ -1126,7 +1446,29 @@ pub fn follow_head_weights(mask: &mut [u8], head: &[u8]) -> Result<WeightFollow>
     };
     for (i, &p) in cloth.positions.iter().enumerate() {
         let mut best = (f64::INFINITY, [0.0; 3], 0);
-        for (t, tri) in head_mesh.triangles.iter().enumerate() {
+        let under = rays
+            .filter(|&(_, head_bone, eye_y)| lower_face(p, head_bone, eye_y))
+            .and_then(|(c, _, _)| {
+                let d = sub(p, c);
+                let r = dot(d, d).sqrt();
+                (r > 1e-9)
+                    .then(|| {
+                        farthest_hit(
+                            c,
+                            d.map(|v| v / r),
+                            &head_mesh.positions,
+                            &head_mesh.triangles,
+                        )
+                    })
+                    .flatten()
+                    .map(|(t, tri, bary)| ((t - r).powi(2), bary, tri))
+            });
+        for (t, tri) in head_mesh
+            .triangles
+            .iter()
+            .enumerate()
+            .filter(|_| under.is_none())
+        {
             let [a, b, c] = tri.map(|v| head_mesh.positions[v]);
             let bary = closest_on_triangle(p, a, b, c);
             let q = [0, 1, 2].map(|k| bary[0] * a[k] + bary[1] * b[k] + bary[2] * c[k]);
@@ -1136,7 +1478,7 @@ pub fn follow_head_weights(mask: &mut [u8], head: &[u8]) -> Result<WeightFollow>
                 best = (d, bary, t);
             }
         }
-        let (distance, bary, t) = best;
+        let (distance, bary, t) = under.unwrap_or(best);
         ensure!(distance.is_finite(), "the native head has no triangles");
         let mut skin: BTreeMap<u8, f64> = BTreeMap::new();
         for (corner, b) in head_mesh.triangles[t].iter().zip(bary) {
@@ -1220,6 +1562,20 @@ pub fn posed_clearance(
     bind: &[Frame],
     pose: &[Frame],
 ) -> Result<PosedClearance> {
+    posed_clearance_rim(mask, head, bind_pose, bind, pose, 0.0)
+}
+
+/// As `posed_clearance`, but a ray that meets the cloth within `rim_zone`
+/// of an opening is not measured: the head may show through an opening
+/// (`RIM_ZONE`, for masks fitted with `Align::SameRig`).
+pub fn posed_clearance_rim(
+    mask: &[u8],
+    head: &[u8],
+    bind_pose: &[u8],
+    bind: &[Frame],
+    pose: &[Frame],
+    rim_zone: f64,
+) -> Result<PosedClearance> {
     let cloth = parse_mesh(mask, 48, "mask")?;
     let head_mesh = parse_mesh(head, 40, "native head")?;
     let bones = bone_origins(bind_pose)?;
@@ -1230,6 +1586,28 @@ pub fn posed_clearance(
             .with_context(|| format!("no {name} bone"))
     };
     let (neck, left_eye, right_eye) = (bone("Neck")?, bone("LeftEye")?, bone("RightEye")?);
+    let interior = if rim_zone > 0.0 {
+        interior_vertices(
+            &cloth.positions,
+            &head_mesh,
+            INTERIOR_DEPTH,
+            neck[1] + TUCK_START_ABOVE_NECK,
+        )
+    } else {
+        vec![false; cloth.positions.len()]
+    };
+    let rim: Vec<bool> = cloth
+        .triangles
+        .iter()
+        .zip(rim_triangles(
+            &cloth.positions,
+            &cloth.triangles,
+            rim_zone,
+            &interior,
+            head_centre(&head_mesh, (left_eye[1] + right_eye[1]) / 2.0),
+        ))
+        .map(|(t, r)| r || t.iter().any(|&v| interior[v]))
+        .collect();
     let head_index = crate::armor::bind_pose_origins(bind_pose, "native head bind pose")?
         .iter()
         .position(|(name, _)| name == "Head")
@@ -1264,10 +1642,13 @@ pub fn posed_clearance(
         let d = sub(p, posed_centre);
         let r = dot(d, d).sqrt();
         let dir = d.map(|v| v / r);
-        let Some((t, _, _)) = farthest_hit(posed_centre, dir, &posed_cloth, &cloth.triangles)
+        let Some((t, tri, _)) = farthest_hit(posed_centre, dir, &posed_cloth, &cloth.triangles)
         else {
             continue;
         };
+        if rim[tri] {
+            continue;
+        }
         let gap = t - r;
         result.through += usize::from(gap < 0.0);
         if lower_face(*bind_at, head_bone, left_eye[1]) && gap < result.face_min {
@@ -1346,6 +1727,7 @@ mod tests {
             &neighbours,
             &mask.triangles,
             &movable,
+            &vec![false; mask.triangles.len()],
             [0.0; 3],
             head,
             &shells,

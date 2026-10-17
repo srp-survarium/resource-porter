@@ -8,6 +8,7 @@ pub mod config_patch;
 pub mod content_pack;
 pub mod dependency;
 pub mod duty_026;
+pub mod face_items_069d;
 pub mod lilith;
 pub mod localization_026;
 pub mod manifest;
@@ -31,6 +32,7 @@ pub mod stk2_project;
 pub mod survarium_026;
 pub mod target_native_map;
 pub mod terrain_surface_patch;
+pub mod v069d_skinned;
 pub mod weapon;
 
 pub use archive::ResourceDb;

@@ -4,12 +4,12 @@
 //!
 //! ```text
 //! cargo run --release --example check-mask-poses -- --db RETAIL/resources.db \
-//!     (--mask-db resources.db.patch_N | --mask-file converted_model) [--follow]
+//!     (--mask-db resources.db.patch_N | --mask-file converted_model) [--follow] [--rim-zone M]
 //! ```
 use clap::Parser;
 use std::path::PathBuf;
 use vostok_resource_porter::ResourceDb;
-use vostok_resource_porter::bandit_026::{MASK_MODEL, pose_clearances};
+use vostok_resource_porter::bandit_026::{MASK_MODEL, pose_clearances_rim};
 
 #[derive(Parser)]
 struct Args {
@@ -25,6 +25,10 @@ struct Args {
     /// Give the mask the head's skin first (`mask_fit::follow_head_weights`).
     #[arg(long)]
     follow: bool,
+    /// Not measuring where the head shows through an opening, as for a mask
+    /// fitted on the native rig (`mask_fit::RIM_ZONE` is 0.012).
+    #[arg(long, default_value_t = 0.0)]
+    rim_zone: f64,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -46,7 +50,7 @@ fn main() -> anyhow::Result<()> {
         );
     }
     let mut worst = f64::INFINITY;
-    for (clip, c) in pose_clearances(&mut db, &mask, &head)? {
+    for (clip, c) in pose_clearances_rim(&mut db, &mask, &head, a.rim_zone)? {
         worst = worst.min(c.min);
         println!(
             "{clip}: least gap {:+.2} mm (cheeks and jaw {:+.2} mm at {:+.3} {:.3} {:+.3}), {} head vertices through, at x {:+.3} y {:.3} z {:+.3} ({})",
