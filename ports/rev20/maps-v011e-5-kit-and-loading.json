@@ -1,0 +1,128 @@
+{
+ "projects": {
+  "projects/v011e_level_03/day_2/client_project": [
+   {
+    "op": "move",
+    "anchor": [
+     -48.612,
+     0.512,
+     -73.253
+    ],
+    "to": {
+     "position": [
+      -42.15,
+      0.51,
+      -74.15
+     ],
+     "yaw": 1.570796,
+     "from_rotation": [
+      0.00040730636,
+      0.0040000877,
+      -0.00040730633
+     ]
+    },
+    "client_objects": [
+     "logic/team1/team_1_vic_collision"
+    ],
+    "container_visuals": [
+     "logic/team1/team_1_victory_items_container"
+    ],
+    "instances": [
+     {
+      "model": "item/storage_device/box_atlant12",
+      "near": [
+       -48.612,
+       0.9,
+       -73.253
+      ],
+      "radius": 0.6
+     }
+    ]
+   },
+   {
+    "op": "move",
+    "anchor": [
+     -50.242,
+     0.484,
+     -73.745
+    ],
+    "to": {
+     "position": [
+      -42.15,
+      0.51,
+      -72.35
+     ],
+     "yaw": 1.570796,
+     "from_rotation": [
+      -3.089,
+      -1.403,
+      -3.104
+     ]
+    },
+    "client_objects": [
+     "logic/fill/team1/resupply/resupply_zone",
+     "logic/fill/team1/resupply/resupply_collision",
+     "logic/fill/team1/resupply/ammo_decal"
+    ],
+    "instances": [
+     {
+      "model": "item/quest/container_closed",
+      "near": [
+       -50.242,
+       0.484,
+       -73.745
+      ],
+      "radius": 0.3
+     }
+    ]
+   }
+  ],
+  "projects/v011e_level_03/day_4/client_project": [
+   {
+    "op": "move",
+    "anchor": [
+     -50.242,
+     0.484,
+     -73.745
+    ],
+    "to": {
+     "position": [
+      -42.15,
+      0.51,
+      -72.35
+     ],
+     "yaw": 1.570796,
+     "from_rotation": [
+      -3.089,
+      -1.403,
+      -3.104
+     ]
+    },
+    "client_objects": [
+     "logic/fill/team1/resupply/resupply_zone",
+     "logic/fill/team1/resupply/resupply_collision",
+     "logic/fill/team1/resupply/ammo_decal"
+    ],
+    "instances": [
+     {
+      "model": "item/quest/container_closed",
+      "near": [
+       -50.242,
+       0.484,
+       -73.745
+      ],
+      "radius": 0.3
+     }
+    ]
+   }
+  ]
+ },
+ "options": {
+  "gameplay/game_modes/v011e_level_04_day_2.options": {
+   "mode.ui.loading_screen_id": 5
+  },
+  "gameplay/game_modes/v011e_level_04_day_4.options": {
+   "mode.ui.loading_screen_id": 5
+  }
+ }
+}
