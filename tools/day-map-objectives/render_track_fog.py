@@ -107,7 +107,7 @@ def panel(project, objs, stages, steps, t, title):
     act = [s for s in steps if s['at'] <= t]
     if act:
         for c, s in act[-1]['boxes']:
-            d.rectangle([sx(c[0] - s[0]), sz(c[2] + s[2]), sx(c[0] + s[0]), sz(c[2] - s[2])], outline=(220, 30, 30), width=1)
+            d.rectangle([sx(c[0] - s[0]), sz(c[2] + s[2]), sx(c[0] + s[0]), sz(c[2] - s[2])], outline=(220, 30, 30), width=2)
     for at, clouds in stages:
         for c in clouds:
             col = (30, 60, 200) if at <= t else (150, 150, 170)
