@@ -16,6 +16,10 @@ fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("{e}"))
         .with_context(|| format!("packing {dir}"))?;
     std::fs::write(out, &bytes)?;
-    println!("packed {} files into {out} ({} bytes)", files.len(), bytes.len());
+    println!(
+        "packed {} files into {out} ({} bytes)",
+        files.len(),
+        bytes.len()
+    );
     Ok(())
 }

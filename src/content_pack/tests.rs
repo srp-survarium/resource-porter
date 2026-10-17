@@ -1091,10 +1091,19 @@ fn an_icon_redraws_only_the_cell_it_names() {
 fn from_bundle_finds_the_weapon_icon_atlas() {
     let temp = TempDir::new().unwrap();
     let tree = temp.path().join("base-tree");
-    write(&tree, DICTIONARY, &dictionary(json!([item_entry(3, ITEM)]), json!([])));
-    write(&tree, &localization_path("english"), &localization(json!({"st_stock": "Stock"})));
+    write(
+        &tree,
+        DICTIONARY,
+        &dictionary(json!([item_entry(3, ITEM)]), json!([])),
+    );
+    write(
+        &tree,
+        &localization_path("english"),
+        &localization(json!({"st_stock": "Stock"})),
+    );
     let weapons = "LobbyMenu_WeaponIcons";
-    let base_swf = atlas::tests::synthetic_swf_with(&[(atlas::DEFAULT_SYMBOL, 342, 182), (weapons, 513, 728)]);
+    let base_swf =
+        atlas::tests::synthetic_swf_with(&[(atlas::DEFAULT_SYMBOL, 342, 182), (weapons, 513, 728)]);
     write(&tree, atlas::DEFAULT_SWF, &base_swf);
     let base = temp.path().join("base.db");
     crate::archive::write_folder(&tree, &base).unwrap();
@@ -1142,7 +1151,74 @@ fn from_bundle_finds_the_weapon_icon_atlas() {
         force: false,
     })
     .unwrap();
-    let movie = atlas::Swf::parse(&ResourceDb::open(&installed).unwrap().read(atlas::DEFAULT_SWF).unwrap()).unwrap();
+    let movie = atlas::Swf::parse(
+        &ResourceDb::open(&installed)
+            .unwrap()
+            .read(atlas::DEFAULT_SWF)
+            .unwrap(),
+    )
+    .unwrap();
     assert_eq!(movie.bitmap(weapons).unwrap().cell(7, 3).unwrap(), icon(77));
-    assert!(movie.same_except_bitmap(&atlas::Swf::parse(&base_swf).unwrap(), weapons).unwrap());
+    assert!(
+        movie
+            .same_except_bitmap(&atlas::Swf::parse(&base_swf).unwrap(), weapons)
+            .unwrap()
+    );
+}
+
+/// Two atlases of one movie, drawn by one pack: both cells land (each
+/// atlas used to start again from the base movie, the last one winning).
+#[test]
+fn icons_of_two_atlases_of_one_movie_all_land() {
+    let temp = TempDir::new().unwrap();
+    let tree = temp.path().join("base-tree");
+    write(
+        &tree,
+        DICTIONARY,
+        &dictionary(json!([item_entry(3, ITEM)]), json!([])),
+    );
+    write(
+        &tree,
+        &localization_path("english"),
+        &localization(json!({"st_stock": "Stock"})),
+    );
+    let (weapons, ammo) = ("LobbyMenu_WeaponIcons", "LobbyMenu_AmmoIcons");
+    let base_swf = atlas::tests::synthetic_swf_with(&[(ammo, 513, 1456), (weapons, 513, 728)]);
+    write(&tree, atlas::DEFAULT_SWF, &base_swf);
+    let base = temp.path().join("base.db");
+    crate::archive::write_folder(&tree, &base).unwrap();
+    let pack = temp.path().join("pack");
+    for (name, fill) in [("w.png", 60u8), ("a.png", 90)] {
+        let path = pack.join("icons").join(name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        atlas::write_icon_png(&path, &icon(fill)).unwrap();
+    }
+    write(
+        &pack,
+        MANIFEST_FILE,
+        &serde_json::to_vec(&json!({"format_version": 1, "id": "two", "version": "1", "target_build": "0.26g", "operations": [
+            {"op": "atlas_icons_add", "symbol": weapons, "icons": [{"row": 7, "col": 3, "source": "icons/w.png", "premultiplied": true}]},
+            {"op": "atlas_icons_add", "symbol": ammo, "icons": [{"row": 16, "col": 3, "source": "icons/a.png", "premultiplied": true}]},
+        ]}))
+        .unwrap(),
+    );
+    let installed = temp.path().join("out.db");
+    compose(&ComposeOptions {
+        base_db: &base,
+        packs: &[pack],
+        work_dir: &temp.path().join("work"),
+        output_db: &installed,
+        server_export: None,
+        force: false,
+    })
+    .unwrap();
+    let movie = atlas::Swf::parse(
+        &ResourceDb::open(&installed)
+            .unwrap()
+            .read(atlas::DEFAULT_SWF)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(movie.bitmap(weapons).unwrap().cell(7, 3).unwrap(), icon(60));
+    assert_eq!(movie.bitmap(ammo).unwrap().cell(16, 3).unwrap(), icon(90));
 }

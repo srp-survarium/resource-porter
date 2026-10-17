@@ -1,25 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Two assault rifles of Survarium 0.69d0 (2022) for v0.26g: the H&K 416A5
-//! (1820) and the MSBS Radon (1821). See `docs/weapons-069d-026.md`.
+//! Rifles of Survarium 0.31a2 (September 2015) for v0.26g: the H&K 416A5
+//! (763) with its 5.56x45 round (841), and the MSBS Radon (926) with its
+//! EOTech 552 sight (819). See `docs/weapons-031-026.md`.
 //!
-//! The 0.69d client carries the weapons' art (models, skeletons, bind poses,
-//! animations, attachment modules, materials, textures, sounds, names) but not
-//! their item configs, which its server sent. Each item config is therefore a
-//! native 0.26g rifle's (the AK-12's: the same states, sounds and shared
-//! user animations) with the ported clips, sounds and model in it, and
-//! provisional statistics.
+//! 0.31a2 keeps 0.26g's formats: 24-byte configs, 36-byte skinned vertices,
+//! the same clips, skeletons, materials, textures and sounds. So the art is
+//! copied, with three exceptions found by comparing files both builds ship:
+//! meshes carry a 4-byte statistics chunk (110) after 0.26g's two, materials
+//! name a few more effect keys (alpha cut-off, parallax), and `raw_options`
+//! a `pitch`. Those are dropped, so every file is in a native 0.26g layout.
 //!
-//! Everything the 0.69d art needs is converted, never substituted, except
-//! where 0.26g has no counterpart (listed in the doc): the 0.69d attachment
-//! system (modules placed at the weapon's locators by the server's config)
-//! becomes surfaces baked into the weapon at those locators, and the 0.69d
-//! per-location weapon reverbs (`sound_environment` layers, which no 0.26g map
-//! defines) become the native rifles' tails.
-pub mod convert;
-
+//! The item configs are not copied: 0.31 renumbered the weapon state types
+//! (reload 313, grenade 315, melee 320 against 0.26g's 303, 316, 321) and
+//! the item data types (+1: ammo 11, scopes 6), renamed two parameters and
+//! added others. Each config is a native 0.26g one of its kind with the
+//! donor's own states (clips and sounds), fire modes, recoil, model,
+//! particles, texts and lobby poses put in, and the balance below.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
@@ -28,53 +27,28 @@ use crate::localization_026::{LANGUAGES, Text, check_item_texts, set_string};
 use crate::manifest::BuiltFile;
 use crate::weapon::{parse_config, prepare_empty_output, record_file, write_generated_config};
 use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
-use convert::Skinned;
 
 const DICT: &str = "gameplay/db_static_dictionaries";
-/// The native rifle every item config starts from: its states are the ones
-/// the ported clips fill (show, hide, idle, fire, reload; melee and grenade
-/// stay the AK family's), and it shares `rifles.user_animations` (aiming,
-/// moving, sprinting, crouching) with every 0.26g rifle.
-const CONFIG_TEMPLATE: &str = "gameplay/items/weapons/wpn_ak_12.options";
-const SETTINGS_TEMPLATE: &str = "models/weapons/ak_12/ak_12.skinned_model/settings";
-const MATERIAL_TEMPLATE: &str = "material_instances/weapons/ak_12.material";
-/// A native rifle's clip: the bones every ported hands clip must drive.
-const NATIVE_HANDS_CLIP: &str =
-    "animations/single/weapons/ak_12/player/stand/3rd_view/on_site/hands_only/reload.bones_names";
-/// 5.45x39 7N10 and 7N22, the AK-74M's: 0.26g has no 5.56x45.
-pub const AMMO: [i32; 2] = [217, 331];
-const SOURCE: &str = "converted:0.69d0";
+const SOURCE: &str = "converted:0.31a2";
 
-/// 0.69d weapon rigs keep their meshes rotated half a turn about Y from the
-/// frame their bind pose and locators are written in (x and z negated).
-fn mesh_from_bind(p: [f32; 3]) -> [f32; 3] {
-    [-p[0], p[1], -p[2]]
-}
+/// A native config of each kind; its states' types and the parts not taken
+/// from the donor stay native.
+const RIFLE_TEMPLATE: &str = "gameplay/items/weapons/wpn_ak_12.options";
+const AMMO_TEMPLATE: &str = "gameplay/items/weapons/ammo/ammo_5.45x39_7n6m.options";
+const SCOPE_TEMPLATE: &str = "gameplay/items/scopes/scope_pso1.options";
+/// A native material of each base material the donors use.
+const MATERIAL_TEMPLATES: [(&str, &str); 2] = [
+    ("complex", "material_instances/weapons/ak_12.material"),
+    // The Giperon's reticle: the EOTech's glass and dot.
+    (
+        "forward_default",
+        "material_instances/weapons/1p_69_giperon_grid.material",
+    ),
+];
+const RAW_OPTIONS_TEMPLATE: &str =
+    "sounds/single/weapons/ak_12/layers/ak_12_shutter_01.raw_options";
 
-/// An attachment module baked into the weapon.
-#[derive(Clone, Copy, Debug)]
-pub struct Module {
-    /// `models/weapons/modules/<model>.model`.
-    pub model: &'static str,
-    /// The weapon locator the module sits at.
-    pub locator: &'static str,
-    /// The surface it becomes in the weapon.
-    pub surface: &'static str,
-    /// For a sight: the height of its aperture centre or post tip above
-    /// the socket, measured on the module's mesh from behind (the rear view
-    /// in the gallery). The aim locator goes on that line.
-    pub sight_height: Option<f32>,
-}
-
-/// One layer of a weapon's firing sound.
-#[derive(Clone, Copy, Debug)]
-pub struct Layer {
-    /// Sound name under `sounds/collections/` (resource type 258).
-    pub collection: &'static str,
-    pub start_offset: i32,
-}
-
-/// Provisional statistics (owner to confirm).
+/// Provisional balance (owner to confirm).
 #[derive(Clone, Copy, Debug)]
 pub struct Stats {
     pub faction: i32,
@@ -93,164 +67,149 @@ pub struct Stats {
     pub magazine: i32,
     pub min_damage_distance: i32,
     pub max_damage_distance: i32,
-    /// -1 automatic, 1 single, 3 burst.
-    pub fire_modes: &'static [i32],
+}
+
+/// One firing layer: a sound collection and its start offset (ms).
+#[derive(Clone, Copy, Debug)]
+pub struct Layer {
+    pub collection: &'static str,
+    pub start_offset: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Rifle {
     pub key: &'static str,
     pub dict_id: i32,
-    /// `items_dict` name.
-    pub name: &'static str,
-    /// The donor's folder name (models, animations, skeleton, textures).
-    pub donor: &'static str,
+    /// The donor's config (also this item's).
     pub config: &'static str,
-    /// The donor's skinned surfaces, drawn in this order; the magazine is
-    /// one (the donor's default magazine module is the same mesh, placed).
-    pub surfaces: &'static [&'static str],
-    pub modules: &'static [Module],
-    /// The module the muzzle locator moves to the end of.
-    pub muzzle_module: &'static str,
-    /// The locator `handguard_point` is copied from.
-    pub handguard: &'static str,
-    /// Sound collections of the reload state, by index.
-    pub reload_sounds: &'static [&'static str],
-    /// `sound_events` indices of the empty (`reload`) and tactical
-    /// (`reload_tactic`) clips; `None` keeps the donor's.
-    pub empty_events: Option<&'static [u8]>,
-    pub tactical_events: Option<&'static [u8]>,
-    pub fire_first: &'static [Layer],
-    pub fire_first_master: Option<i32>,
-    pub fire_third: &'static [Layer],
-    pub fire_third_master: Option<i32>,
-    /// Composite sound names (`sounds/composite/<name>`), first and third view.
-    pub composites: [&'static str; 2],
     pub stats: Stats,
-    pub texts: [(&'static str, Text); 2],
-    /// Cell [row, col] of the lobby's weapon atlas (`LobbyMenu_WeaponIcons`).
+    /// The ammunition it takes (`items_compatibility`; 0.31's `compatible_ammo`).
+    pub ammo: &'static [i32],
+    /// The first-person firing sound, rebuilt where the donor's nests 0.31's
+    /// per-location reverbs (`None`: the donor's names a native sound):
+    /// name, layers, master layer.
+    pub fire_composite: Option<(&'static str, &'static [Layer], i32)>,
+    /// Cell [row, col] of the lobby's weapon atlas, and the donor's icon.
     pub icon: [i32; 2],
-    /// Kill-feed icon: a native rifle's (the HUD atlas is not extended).
+    pub icon_png: &'static str,
+    /// A native kill-feed icon.
     pub combat_log_icon: i32,
+    /// Texts the donor lacks or gets wrong, by key, in every language.
+    pub texts: &'static [(&'static str, Text)],
 }
 
-/// The six clips 0.69d gives each rifle, each for the item and the hands.
-pub const CLIPS: [&str; 6] = ["show", "hide", "idle", "reload", "reload_tactic", "shoot"];
+#[derive(Clone, Copy, Debug)]
+pub struct Ammo {
+    pub dict_id: i32,
+    pub config: &'static str,
+    pub level: i32,
+    pub drop_weight: i32,
+    /// For a clip (an ammo's `base_cost` is a clip's).
+    pub base_cost: i32,
+    pub icon: [i32; 2],
+    pub icon_png: &'static str,
+    pub texts: &'static [(&'static str, Text)],
+}
 
+#[derive(Clone, Copy, Debug)]
+pub struct Scope {
+    pub dict_id: i32,
+    pub config: &'static str,
+}
+
+/// One port: the items that ship together.
+#[derive(Clone, Copy, Debug)]
+pub struct Port {
+    pub key: &'static str,
+    pub rifles: &'static [Rifle],
+    pub ammo: &'static [Ammo],
+    pub scopes: &'static [Scope],
+}
+
+/// 5.56x45 (0.31: no seller, level 0). A level-9 round, as the 9x19 7N31 of
+/// the PP-2000 (the Fringe Settlers' level-9 automatic): level 9, the drop
+/// weight of every 0.26g ammo (160), 70 a clip. Ballistics are the basic
+/// 5.45x39 7N6M's, the template, as 0.31's 5.56 were its basic round's.
+pub const AMMO_556: Ammo = Ammo {
+    dict_id: 841,
+    config: "gameplay/items/weapons/ammo/ammo_5.56x45.options",
+    level: 9,
+    drop_weight: 160,
+    base_cost: 70,
+    icon: [16, 3],
+    icon_png: "flash_movies/textures/ui_icons/items/ammo/ammo_1_4.png",
+    // 0.31 named it ("5.56x45") but wrote no description.
+    texts: &[(
+        "st_ammo_556x45_description",
+        Text {
+            english: "NATO intermediate cartridge with a lead-core bullet. The light bullet's high muzzle velocity gives a flat trajectory.",
+            russian: "Промежуточный патрон НАТО с пулей со свинцовым сердечником. Высокая начальная скорость лёгкой пули обеспечивает настильную траекторию.",
+            ukrainian: "Проміжний набій НАТО з кулею зі свинцевим осердям. Висока початкова швидкість легкої кулі забезпечує настильну траєкторію.",
+            german: "NATO-Mittelpatrone mit Bleikerngeschoss. Die hohe Mündungsgeschwindigkeit des leichten Geschosses sorgt für eine flache Flugbahn.",
+            polish: "Nabój pośredni NATO z pociskiem o rdzeniu ołowianym. Duża prędkość wylotowa lekkiego pocisku zapewnia płaski tor lotu.",
+        },
+    )],
+};
+
+/// The H&K 416A5, at the Fringe Settlers' level 9 (the owner's choice,
+/// 2026-10-17), balanced against their level-9 weapons and the level-10
+/// rifles (0.31: Black Market level 9, 0.32 damage where its AK-12 has 0.35).
 pub const HK416: Rifle = Rifle {
     key: "hk416",
-    dict_id: 1820,
-    name: "hk416_a5",
-    donor: "hk416_a5",
-    config: "gameplay/items/weapons/wpn_hk416_a5.options",
-    surfaces: &[
-        "hk416_receiver_s",
-        "hk416_handguard_s",
-        "hk416_grip_s",
-        "hk416_buttstock_s",
-        "hk416_barrel_s",
-        "hk416_magazine_s",
-    ],
-    modules: &[
-        Module {
-            model: "muzzlebrakes/hk416a5_i05x28_muzzlebrake",
-            locator: "muzzle_point",
-            surface: "hk416_muzzlebrake_s",
-            sight_height: None,
-        },
-        Module {
-            model: "ironsights/hk416_a5_rear_ironsight_on",
-            locator: "picatinny_ironsight_rear_point",
-            surface: "hk416_rear_sight_s",
-            sight_height: Some(0.0330),
-        },
-        Module {
-            model: "ironsights/hk416_a5_front_ironsight_on",
-            locator: "picatinny_ironsight_front_point",
-            surface: "hk416_front_sight_s",
-            sight_height: Some(0.0350),
-        },
-    ],
-    muzzle_module: "muzzlebrakes/hk416a5_i05x28_muzzlebrake",
-    handguard: "handguard_point",
-    // 0.69d's own list (`gameplay/game.options`, `weapons.hk416.states.reload`);
-    // the clips' cues index it as 0.69d did (empty: seven in order;
-    // tactical: 1..4).
-    reload_sounds: &RELOAD_SOUNDS,
-    empty_events: None,
-    tactical_events: None,
-    // The donor's own layers, then the AK-12's first-person tails in place
-    // of the 0.69d reverb layer.
-    fire_first: &[
-        Layer {
-            collection: "weapons/hk416/hk416_shutter",
-            start_offset: 60,
-        },
-        Layer {
-            collection: "weapons/hk416/hk416_loud",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_close_forest",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_main_layer",
-            start_offset: 0,
-        },
-    ],
-    fire_first_master: Some(1),
-    // The donor's (both native Vityaz collections), then the Vityaz's
-    // distance and forest tails in place of the 0.69d reverb layer.
-    fire_third: &[
-        Layer {
-            collection: "weapons/vityaz/vityaz_m_close",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/vityaz/vityaz_m_shutter",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/vityaz/vityaz_m_distant",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/vityaz/vityaz_m_close_forest",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/vityaz/vityaz_m_distant_forest",
-            start_offset: 0,
-        },
-    ],
-    fire_third_master: None,
-    composites: ["weapons/hk416", "weapons/hk416_m"],
-    // 0.69d: Black Market, level 4 (the AK-12 5), 850 rpm, 0.35 damage
-    // (the AK-12 0.39; 0.26g's AK-12 has 0.55), 3.5 kg, auto and single,
-    // reload 3 s (tactical 2.2 s), aim zoom 1.2.
+    dict_id: 763,
+    config: "gameplay/items/weapons/assault/hk416.options",
     stats: Stats {
         faction: 4,
-        level: 13,
-        drop_weight: 30,
-        base_cost: 82_000,
+        level: 9,
+        drop_weight: 70,
+        base_cost: 45_000,
         rounds_per_minute: 850,
-        bullet_damage: 0.5,
-        bullet_pierce: 0.35,
+        bullet_damage: 0.4,
+        bullet_pierce: 0.3,
         stopping_power: 0.15,
         weight: 3.5,
         reload_time: 3.0,
         aim_time: 0.3,
         aim_zoom_factor: 1.2,
-        base_dispersion: 0.18,
+        base_dispersion: 0.2,
         magazine: 30,
         min_damage_distance: 50,
         max_damage_distance: 20,
-        fire_modes: &[-1, 1],
     },
-    texts: [
+    ammo: &[841],
+    // 0.31's own layers (shutter at 60 ms, the report), then the AK-12's
+    // first-person tails in place of `weapons/environments/weapons_1st_view`.
+    fire_composite: Some((
+        "weapons/hk416",
+        &[
+            Layer {
+                collection: "weapons/hk416/hk416_shutter",
+                start_offset: 60,
+            },
+            Layer {
+                collection: "weapons/hk416/hk416_loud",
+                start_offset: 0,
+            },
+            Layer {
+                collection: "weapons/akm_n/akm_n_close_forest",
+                start_offset: 0,
+            },
+            Layer {
+                collection: "weapons/akm_n/akm_n_main_layer",
+                start_offset: 0,
+            },
+        ],
+        1,
+    )),
+    icon: [7, 3],
+    icon_png: "flash_movies/textures/ui_icons/items/weapons/weapon_4_12.png",
+    // The AK-74M's: the nearest class (a level-10 assault rifle of a
+    // small-calibre round); 0.26g draws no AR-15.
+    combat_log_icon: 31,
+    // 0.31's name has a Cyrillic "А" ("416А5"); there is no description.
+    texts: &[
         (
-            "st_hk416_026_name",
+            "st_hk416_name",
             Text {
                 english: "H&K 416A5",
                 russian: "H&K 416A5",
@@ -260,144 +219,35 @@ pub const HK416: Rifle = Rifle {
             },
         ),
         (
-            "st_hk416_026_description",
+            "st_hk416_description",
             Text {
-                english: "German assault rifle on the AR-15 pattern with a short-stroke gas piston, rebarrelled here for the 5.45x39 ammunition of the Zone. Supports single shot and automatic fire modes.",
-                russian: "Немецкая штурмовая винтовка по схеме AR-15 с газовым поршнем с коротким ходом, здесь переделанная под патрон 5.45×39. Поддерживает одиночный и автоматический режим стрельбы.",
-                ukrainian: "Німецька штурмова гвинтівка за схемою AR-15 з газовим поршнем із коротким ходом, тут перероблена під набій 5.45×39. Підтримує одиночний і автоматичний режим стрільби.",
-                german: "Deutsches Sturmgewehr nach AR-15-Muster mit Kurzhub-Gaskolben, hier auf die 5,45x39-Munition der Zone umgebaut. Einzel- und Dauerfeuer.",
-                polish: "Niemiecki karabin szturmowy w układzie AR-15 z tłokiem gazowym o krótkim skoku, tu przerobiony na amunicję 5,45x39. Ogień pojedynczy i ciągły.",
+                english: "German assault rifle on the AR-15 pattern with a short-stroke gas piston, chambered for 5.56x45 NATO. Supports single shot and automatic fire modes.",
+                russian: "Немецкая штурмовая винтовка по схеме AR-15 с газовым поршнем с коротким ходом под патрон 5.56×45 НАТО. Поддерживает одиночный и автоматический режим стрельбы.",
+                ukrainian: "Німецька штурмова гвинтівка за схемою AR-15 з газовим поршнем із коротким ходом під набій 5.56×45 НАТО. Підтримує одиночний і автоматичний режим стрільби.",
+                german: "Deutsches Sturmgewehr nach AR-15-Muster mit Kurzhub-Gaskolben, Kaliber 5,56x45 NATO. Einzel- und Dauerfeuer.",
+                polish: "Niemiecki karabin szturmowy w układzie AR-15 z tłokiem gazowym o krótkim skoku, na amunicję 5,56x45 NATO. Ogień pojedynczy i ciągły.",
             },
         ),
     ],
-    icon: [7, 3],
-    combat_log_icon: 49,
 };
 
+/// The MSBS Radon (to follow the H&K; provisional). 0.31: Scavengers level
+/// 8, 750 rpm, 0.32 damage, auto, single and bursts of three, with the
+/// EOTech 552 fixed on.
 pub const RADON: Rifle = Rifle {
     key: "radon",
-    dict_id: 1821,
-    name: "msbs_radon",
-    donor: "msbs_carbine",
-    config: "gameplay/items/weapons/wpn_msbs_radon.options",
-    surfaces: &[
-        "msbs_carbine_receiver_s",
-        "msbs_carbine_grip_s",
-        "msbs_carbine_body_s",
-        "msbs_carbine_mag_s",
-    ],
-    modules: &[
-        Module {
-            model: "muzzlebrakes/msbsradon_i05x28_muzzlebrake",
-            locator: "muzzle_point",
-            surface: "msbs_carbine_muzzlebrake_s",
-            sight_height: None,
-        },
-        // 0.69d's Radon came with no sights of its own; the Troy micro
-        // battle sights are the set its Summer 2021 skin has a variant of.
-        Module {
-            model: "ironsights/troy_micronattlesight_rear_ironsight_on",
-            locator: "picatinny_ironsight_rear_point",
-            surface: "msbs_carbine_rear_sight_s",
-            sight_height: Some(0.0340),
-        },
-        Module {
-            model: "ironsights/troy_micronattlesight_front_ironsight_on",
-            locator: "picatinny_ironsight_front_point",
-            surface: "msbs_carbine_front_sight_s",
-            sight_height: Some(0.0339),
-        },
-    ],
-    muzzle_module: "muzzlebrakes/msbsradon_i05x28_muzzlebrake",
-    handguard: "LeftHand_idle",
-    // 0.69d's Radon used the H&K's reload sounds, in the same list; its
-    // clips cue seven (empty) and five (tactical) of them in order.
-    reload_sounds: &RELOAD_SOUNDS,
-    empty_events: None,
-    tactical_events: None,
-    fire_first: &[
-        Layer {
-            collection: "weapons/akm_n/akmn_base",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akmn_layer",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akmn_loud",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akmn_shutter",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/ak_12/ak_12_shutter",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_close_forest",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_main_layer",
-            start_offset: 0,
-        },
-    ],
-    fire_first_master: Some(2),
-    fire_third: &[
-        Layer {
-            collection: "weapons/akm_n/akmn_loud_m",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akmn_base_m",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akmn_layer_m",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/ak_12/ak_12_shutter_m",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_m_distant",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_m_close_forest",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_m_distant_forest",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_most_distant",
-            start_offset: 0,
-        },
-        Layer {
-            collection: "weapons/akm_n/akm_n_most_distant_echo",
-            start_offset: 0,
-        },
-    ],
-    fire_third_master: None,
-    composites: ["weapons/msbs", "weapons/msbs_m"],
-    // 0.69d: Scavengers, level 4, 750 rpm, 0.38 damage, 4 kg, auto,
-    // single and three-round bursts, reload 3 s (tactical 2.2 s), aim zoom 1.2.
+    dict_id: 926,
+    config: "gameplay/items/weapons/assault/msbs_carbine.options",
     stats: Stats {
         faction: 4,
-        level: 13,
-        drop_weight: 30,
-        base_cost: 80_000,
+        level: 9,
+        drop_weight: 70,
+        base_cost: 43_000,
         rounds_per_minute: 750,
-        bullet_damage: 0.53,
+        bullet_damage: 0.42,
         bullet_pierce: 0.3,
         stopping_power: 0.15,
-        weight: 4.0,
+        weight: 3.7,
         reload_time: 3.0,
         aim_time: 0.3,
         aim_zoom_factor: 1.2,
@@ -405,54 +255,56 @@ pub const RADON: Rifle = Rifle {
         magazine: 30,
         min_damage_distance: 50,
         max_damage_distance: 20,
-        fire_modes: &[-1, 1, 3],
     },
-    texts: [
-        (
-            "st_msbs_radon_026_name",
-            Text {
-                english: "MSBS Radon",
-                russian: "MSBS Radon",
-                ukrainian: "MSBS Radon",
-                german: "MSBS Radon",
-                polish: "MSBS Radon",
-            },
-        ),
-        (
-            "st_msbs_radon_026_description",
-            Text {
-                english: "Polish modular assault rifle, adopted by the Polish army in 2017 as the Grot. Converted to fire 5.45x39 ammunition. Supports single shot, three-round burst and automatic fire modes.",
-                russian: "Польская модульная штурмовая винтовка, принятая на вооружение польской армии в 2017 году под названием Grot. Переделана под патрон 5.45×39. Поддерживает одиночный режим, очередь по три выстрела и автоматический режим стрельбы.",
-                ukrainian: "Польська модульна штурмова гвинтівка, прийнята на озброєння польської армії 2017 року під назвою Grot. Перероблена під набій 5.45×39. Підтримує одиночний режим, черги по три постріли й автоматичний режим стрільби.",
-                german: "Polnisches modulares Sturmgewehr, 2017 als Grot bei der polnischen Armee eingeführt. Auf 5,45x39-Munition umgebaut. Einzelfeuer, Dreischussfeuerstöße und Dauerfeuer.",
-                polish: "Polski modułowy karabin szturmowy, przyjęty na uzbrojenie Wojska Polskiego w 2017 roku jako Grot. Przerobiony na amunicję 5,45x39. Ogień pojedynczy, seriami po trzy strzały i ciągły.",
-            },
-        ),
-    ],
+    ammo: &[841],
+    fire_composite: None,
     icon: [8, 3],
+    icon_png: "flash_movies/textures/ui_icons/items/weapons/weapon_4_22.png",
     combat_log_icon: 31,
+    texts: &[(
+        "st_msbs_carbine_description",
+        Text {
+            english: "Polish modular assault rifle, adopted by the Polish army in 2017 as the Grot, chambered for 5.56x45 NATO. Supports single shot, three-round burst and automatic fire modes.",
+            russian: "Польская модульная штурмовая винтовка под патрон 5.56×45 НАТО, принятая на вооружение польской армии в 2017 году под названием Grot. Поддерживает одиночный режим, очередь по три выстрела и автоматический режим стрельбы.",
+            ukrainian: "Польська модульна штурмова гвинтівка під набій 5.56×45 НАТО, прийнята на озброєння польської армії 2017 року під назвою Grot. Підтримує одиночний режим, черги по три постріли й автоматичний режим стрільби.",
+            german: "Polnisches modulares Sturmgewehr im Kaliber 5,56x45 NATO, 2017 als Grot bei der polnischen Armee eingeführt. Einzelfeuer, Dreischussfeuerstöße und Dauerfeuer.",
+            polish: "Polski modułowy karabin szturmowy na amunicję 5,56x45 NATO, przyjęty na uzbrojenie Wojska Polskiego w 2017 roku jako Grot. Ogień pojedynczy, seriami po trzy strzały i ciągły.",
+        },
+    )],
 };
 
-pub const RIFLES: [&Rifle; 2] = [&HK416, &RADON];
+pub const EOTECH: Scope = Scope {
+    dict_id: 819,
+    config: "gameplay/items/scopes/eotech_552.options",
+};
 
-/// Both rifles' reload sounds in 0.69d, by index.
-pub const RELOAD_SOUNDS: [&str; 7] = [
-    "weapons/hk416/wear_line",
-    "weapons/hk416/mag_eject",
-    "weapons/hk416/mag_fall",
-    "weapons/hk416/mag_set_ready",
-    "weapons/hk416/mag_set",
-    "weapons/hk416/bolt_button",
-    "weapons/hk416/bolt_close",
+pub const PORTS: [Port; 2] = [
+    // The H&K's 0.31 model has its rear sight folded and no front sight: it
+    // aims through the EOTech (its aim locator is at the sight's window), as
+    // 0.31 fitted it. The Radon, after it, takes the same sight.
+    Port {
+        key: "hk416",
+        rifles: &[HK416],
+        ammo: &[AMMO_556],
+        scopes: &[EOTECH],
+    },
+    Port {
+        key: "radon",
+        rifles: &[RADON],
+        ammo: &[],
+        scopes: &[],
+    },
 ];
-/// The draw and holster sound 0.69d gives both (0.26g ships it).
-pub const SHOW_SOUNDS: [&str; 2] = [
-    "weapons/show_hide_aimed_states/show_state",
-    "weapons/show_hide_aimed_states/show_state_m",
-];
+
+pub fn port(key: &str) -> Result<&'static Port> {
+    PORTS
+        .iter()
+        .find(|p| p.key == key)
+        .with_context(|| format!("no port {key}; {:?}", PORTS.map(|p| p.key)))
+}
 
 // ---------------------------------------------------------------------------
-// Small helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
 fn field(name: &str, value: V) -> NamedValue {
@@ -464,16 +316,77 @@ fn field(name: &str, value: V) -> NamedValue {
 fn s(v: impl Into<String>) -> V {
     V::String(v.into())
 }
-
-struct Out<'a> {
-    overlay: &'a Path,
-    /// Scratch files of the texture encoder (outside the overlay).
-    work: &'a Path,
-    files: Vec<BuiltFile>,
-    written: BTreeSet<String>,
+fn string_of(v: Option<&V>) -> Option<&str> {
+    match v {
+        Some(V::String(s)) => Some(s),
+        _ => None,
+    }
+}
+pub(crate) fn get<'v>(root: &'v V, path: &str) -> Option<&'v V> {
+    path.split('.').try_fold(root, |v, part| match v {
+        V::Named(_) => v.named(part),
+        V::Indexed(items) => items.get(part.parse::<usize>().ok()?),
+        _ => None,
+    })
 }
 
-impl Out<'_> {
+/// `donor` on `template`'s keys: of each named table the template's keys,
+/// with the donor's values where it has them (recursively) and the
+/// template's otherwise. An indexed table is the donor's whole; an integer
+/// where the template has a float becomes a float.
+pub fn conform(donor: &V, template: &V) -> V {
+    match (donor, template) {
+        (V::Named(d), V::Named(t)) => V::Named(
+            t.iter()
+                .map(|tf| match d.iter().find(|df| df.name == tf.name) {
+                    Some(df) => field(&tf.name, conform(&df.value, &tf.value)),
+                    None => tf.clone(),
+                })
+                .collect(),
+        ),
+        (V::Integer(i), V::Float(_)) => V::Float(*i as f32),
+        (d, _) => d.clone(),
+    }
+}
+
+/// Removes chunk 110 (0.31's mesh statistics) after 0.26g's chunks 3 and 4.
+pub fn strip_mesh_statistics(b: &[u8]) -> Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(b.len());
+    let mut at = 0;
+    let mut ids = vec![];
+    while at < b.len() {
+        let head = b.get(at..at + 8).context("truncated chunk header")?;
+        let id = u32::from_le_bytes(head[..4].try_into()?);
+        let size = u32::from_le_bytes(head[4..].try_into()?) as usize;
+        let end = at + 8 + size;
+        ensure!(end <= b.len(), "truncated chunk {id}");
+        match id {
+            3 | 4 => out.extend_from_slice(&b[at..end]),
+            110 => ensure!(size == 4, "chunk 110 of {size} bytes"),
+            other => bail!("unknown mesh chunk {other}"),
+        }
+        ids.push(id);
+        at = end;
+    }
+    ensure!(ids.starts_with(&[3, 4]), "mesh chunks {ids:?}");
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Carrying files
+// ---------------------------------------------------------------------------
+
+struct Carry<'a> {
+    donor: &'a mut ResourceDb,
+    target: &'a mut ResourceDb,
+    overlay: &'a Path,
+    files: Vec<BuiltFile>,
+    written: BTreeSet<String>,
+    /// Paths the target has (not shipped), for the record.
+    reused: BTreeSet<String>,
+}
+
+impl Carry<'_> {
     fn raw(&mut self, path: &str, bytes: &[u8]) -> Result<()> {
         ensure!(self.written.insert(path.into()), "{path} written twice");
         let dest = crate::archive::safe_join(self.overlay, path)?;
@@ -492,636 +405,482 @@ impl Out<'_> {
             &mut self.files,
         )
     }
-    fn has(&self, path: &str) -> bool {
-        self.written.contains(path)
-    }
-}
-
-fn donor_config(donor: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
-    let bytes = donor
-        .read(path)
-        .with_context(|| format!("reading donor {path}"))?;
-    ensure!(
-        BinaryConfig::is_compact(&bytes),
-        "{path} is not a 0.69d (16-byte) config"
-    );
-    BinaryConfig::parse(&bytes).with_context(|| format!("parsing donor {path}"))
-}
-
-fn float3(v: Option<&V>) -> Result<[f32; 3]> {
-    match v {
-        Some(V::Float3(f)) => Ok(*f),
-        other => bail!("expected a float3, found {other:?}"),
-    }
-}
-fn string_of<'v>(v: Option<&'v V>) -> Result<&'v str> {
-    match v {
-        Some(V::String(s)) => Ok(s),
-        other => bail!("expected a string, found {other:?}"),
-    }
-}
-fn int_of(v: Option<&V>) -> Result<i32> {
-    match v {
-        Some(V::Integer(i)) => Ok(*i),
-        other => bail!("expected an integer, found {other:?}"),
-    }
-}
-
-/// A bind pose: per bone its name and translation (the rotation of every
-/// 0.69d weapon bone is the root's half turn, checked).
-fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
-    ensure!(b.len() >= 2, "bind pose shorter than its count");
-    let n = usize::from(u16::from_le_bytes([b[0], b[1]]));
-    let mut at = 2;
-    let mut out = vec![];
-    for _ in 0..n {
-        let end = b[at..]
-            .iter()
-            .position(|c| *c == 0)
-            .context("unterminated bone name")?;
-        let name = String::from_utf8(b[at..at + end].to_vec())?;
-        at += end + 1;
-        let f: Vec<f32> = b
-            .get(at..at + 36)
-            .context("truncated bind frame")?
-            .chunks_exact(4)
-            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
-            .collect();
-        at += 36;
-        let half_turn = (f[3].abs() - std::f32::consts::PI).abs() < 1e-3
-            && f[4].abs() < 1e-3
-            && (f[5].abs() - std::f32::consts::PI).abs() < 1e-3;
-        ensure!(half_turn, "bone {name} is not in the rig's half-turn frame");
-        ensure!(f[6..9].iter().all(|s| (s - 1.0).abs() < 1e-4), "bone {name} is scaled");
-        out.push((name, [f[0], f[1], f[2]]));
-    }
-    ensure!(at == b.len(), "bind pose has trailing bytes");
-    Ok(out)
-}
-
-/// `bones_names` of a clip.
-fn clip_bones(bytes: &[u8]) -> Result<Vec<String>> {
-    let config = BinaryConfig::parse(bytes)?;
-    match config.root.named("bones_names") {
-        Some(V::Indexed(names)) => names
-            .iter()
-            .map(|n| match n {
-                V::String(s) => Ok(s.clone()),
-                _ => bail!("bones_names holds a non-string"),
-            })
-            .collect(),
-        _ => bail!("no bones_names"),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Model
-// ---------------------------------------------------------------------------
-
-struct Locator {
-    name: String,
-    bone: String,
-    bone_idx: i32,
-    position: [f32; 3],
-    rotation: [f32; 3],
-}
-
-fn locators(properties: &V) -> Result<Vec<Locator>> {
-    let Some(V::Indexed(list)) = properties.named("locators") else {
-        bail!("the rig has no locators");
-    };
-    list.iter()
-        .map(|l| {
-            Ok(Locator {
-                name: string_of(l.named("name"))?.into(),
-                bone: string_of(l.named("bone_name"))?.into(),
-                bone_idx: int_of(l.named("bone_idx"))?,
-                position: float3(l.named("position"))?,
-                rotation: float3(l.named("rotation"))?,
-            })
-        })
-        .collect()
-}
-
-fn locator_value(l: &Locator) -> V {
-    // Native field order (the AK-12's).
-    V::Named(vec![
-        field("rotation", V::Float3(l.rotation)),
-        field("position", V::Float3(l.position)),
-        field("name", s(&l.name)),
-        field("bone_idx", V::Integer(l.bone_idx)),
-        field("bone_name", s(&l.bone)),
-    ])
-}
-
-/// Where a module's origin lands in mesh space: the socket bone's bind
-/// translation plus the locator's position, both in the bind frame.
-fn socket(loc: &Locator, bind: &[(String, [f32; 3])]) -> Result<[f32; 3]> {
-    ensure!(
-        loc.rotation.iter().all(|r| r.abs() < 1e-6),
-        "{} is rotated; only unrotated sockets are baked",
-        loc.name
-    );
-    let (_, t) = bind
-        .iter()
-        .find(|(n, _)| *n == loc.bone)
-        .with_context(|| format!("{} names an unknown bone {}", loc.name, loc.bone))?;
-    let p = mesh_from_bind(loc.position);
-    Ok([t[0] + p[0], t[1] + p[1], t[2] + p[2]])
-}
-
-/// The weapon's surfaces: the donor's skinned ones and the baked modules.
-struct Model {
-    surfaces: Vec<(String, Skinned, String)>,
-    locators: Vec<Locator>,
-}
-
-fn model_root(rifle: &Rifle) -> String {
-    format!(
-        "models/weapons/assault/{0}/{0}.skinned_model",
-        rifle.donor
-    )
-}
-
-fn build_model(rifle: &Rifle, donor: &mut ResourceDb, target: &mut ResourceDb, out: &mut Out) -> Result<Model> {
-    let root = model_root(rifle);
-    let bind_bytes = donor.read(&format!("{root}/render/bind_pose"))?;
-    let bind = bind_pose(&bind_bytes)?;
-    let skeleton_path = format!(
-        "animations/skeletons/weapons/{0}/{0}.skeleton",
-        rifle.donor
-    );
-    let skeleton = donor_config(donor, &skeleton_path)?;
-    // The bind pose names every skeleton bone, in a depth-first order.
-    let mut skeleton_bones = vec![];
-    collect_bones(&skeleton.root, &mut skeleton_bones);
-    ensure!(
-        skeleton_bones.first().map(String::as_str) == Some("object_movement"),
-        "the skeleton does not start at object_movement"
-    );
-    let bind_names: BTreeSet<&str> = bind.iter().map(|(n, _)| n.as_str()).collect();
-    let skel_names: BTreeSet<&str> = skeleton_bones[1..].iter().map(String::as_str).collect();
-    ensure!(bind_names == skel_names, "bind pose and skeleton disagree");
-
-    let settings = donor_config(donor, &format!("{root}/settings"))?;
-    let properties = donor_config(donor, &format!("{root}/render/export_properties"))?;
-    ensure!(
-        int_of(properties.root.named("type"))? == 40,
-        "the rig is not a type-40 skinned model"
-    );
-    let all = locators(&properties.root)?;
-    let find = |name: &str| {
-        all.iter()
-            .find(|l| l.name == name)
-            .with_context(|| format!("{} has no {name} locator", rifle.donor))
-    };
-
-    let mut model = Model {
-        surfaces: vec![],
-        locators: vec![],
-    };
-    for surface in rifle.surfaces {
-        // The magazine is no LOD0 surface of the rig (0.69d drew the magazine
-        // module in its place), so it is not in the settings; its material is
-        // the one of the same name.
-        let listed = settings
-            .root
-            .named("material_settings")
-            .and_then(|m| m.named(surface))
-            .and_then(|m| m.named("material_name"));
-        let material = match listed {
-            Some(_) => string_of(listed)?.to_owned(),
-            None => {
-                let name = format!(
-                    "weapons/assault/{}/{}",
-                    rifle.donor,
-                    surface.trim_end_matches("_s")
-                );
-                ensure!(
-                    donor.contains(&format!("material_instances/{name}.material")),
-                    "{surface} has no material"
-                );
-                name
-            }
-        };
-        let bytes = donor.read(&format!("{root}/render/{surface}/converted_model"))?;
-        let mesh = convert::skinned_069_to_026(&bytes, bind.len())?;
-        model.surfaces.push(((*surface).into(), mesh, material));
-    }
-    let mut sights = vec![];
-    for module in rifle.modules {
-        let path = format!("models/weapons/modules/{}.model", module.model);
-        let msettings = donor_config(donor, &format!("{path}/settings"))?;
-        let Some(V::Named(lod)) = msettings
-            .root
-            .named("lod_hierrarchy")
-            .and_then(|l| l.named("LOD0"))
-        else {
-            bail!("{path} has no LOD0");
-        };
-        let Some(V::Indexed(surfaces)) = lod.iter().find(|v| v.name == "surfaces").map(|v| &v.value)
-        else {
-            bail!("{path} LOD0 lists no surfaces");
-        };
-        ensure!(surfaces.len() == 1, "{path} has {} surfaces, not one", surfaces.len());
-        let V::String(surface) = &surfaces[0] else {
-            bail!("{path} surface is not a name");
-        };
-        let material = string_of(
-            msettings
-                .root
-                .named("material_settings")
-                .and_then(|m| m.named(surface))
-                .and_then(|m| m.named("material_name")),
-        )?
-        .to_owned();
-        let loc = find(module.locator)?;
-        let at = socket(loc, &bind)?;
-        let bone = bind
-            .iter()
-            .position(|(n, _)| *n == loc.bone)
-            .context("socket bone")? as u32;
-        let bytes = donor.read(&format!("{path}/render/{surface}/converted_model"))?;
-        let mesh = convert::static_069_to_skinned(&bytes, at, bone)?;
-        if let Some(h) = module.sight_height {
-            sights.push(at[1] + h);
-        }
-        if module.model == rifle.muzzle_module {
-            // The muzzle moves to the brake's far end, on the bore.
-            let (_, hi) = mesh.bounds();
-            let muzzle = find("muzzle_point")?;
-            let (_, t) = bind
-                .iter()
-                .find(|(n, _)| *n == muzzle.bone)
-                .context("muzzle bone")?;
-            let end = [at[0] - t[0], at[1] - t[1], hi[2] - t[2]];
-            model.locators.push(Locator {
-                name: "barrel_point".into(),
-                bone: muzzle.bone.clone(),
-                bone_idx: muzzle.bone_idx,
-                position: mesh_from_bind(end),
-                rotation: [0.0; 3],
-            });
-        }
-        model
-            .surfaces
-            .push((module.surface.into(), mesh, material));
-    }
-    ensure!(
-        model.locators.iter().any(|l| l.name == "barrel_point"),
-        "no muzzle module"
-    );
-    // The aim point stays where the rig puts it along the bore; it rises
-    // to the iron sights' line (aperture centre and post tip, which
-    // co-witness within 0.2 mm on both rifles).
-    let mut aim = find("aim")?.clone_locator();
-    ensure!(sights.len() == 2, "a rifle needs a rear and a front sight");
-    ensure!(
-        (sights[0] - sights[1]).abs() < 0.002,
-        "the sights do not co-witness: {sights:?}"
-    );
-    let line = (sights[0] + sights[1]) / 2.0;
-    let aim_bone = bind.iter().find(|(n, _)| *n == aim.bone).context("aim bone")?.1;
-    aim.position[1] = line - aim_bone[1];
-    model.locators.push(aim);
-    let scope = find("picatinny_scope_point")?;
-    model.locators.push(Locator {
-        name: "scope_point".into(),
-        ..scope.clone_locator()
-    });
-    let handguard = find(rifle.handguard)?;
-    model.locators.push(Locator {
-        name: "handguard_point".into(),
-        rotation: [0.0; 3],
-        ..handguard.clone_locator()
-    });
-    let hands: Vec<&Locator> = all.iter().filter(|l| l.name.ends_with("_idle")).collect();
-    ensure!(hands.len() == 32, "{} hand locators, not 32", hands.len());
-    model.locators.extend(hands.into_iter().map(Locator::clone_locator));
-
-    // Files.
-    let mut native_settings = parse_config(target, SETTINGS_TEMPLATE, "native rifle settings")?;
-    native_settings.root.set_path(
-        "lod_hierrarchy",
-        V::Named(vec![field(
-            "LOD0",
-            V::Named(vec![field(
-                "surfaces",
-                V::Indexed(model.surfaces.iter().map(|(n, _, _)| s(n)).collect()),
-            )]),
-        )]),
-    )?;
-    native_settings.root.set_path(
-        "material_settings",
-        V::Named(
-            model
-                .surfaces
-                .iter()
-                .map(|(n, _, m)| {
-                    field(
-                        n,
-                        V::Named(vec![
-                            field("material_name", s(m)),
-                            field("used_in_portals", V::Boolean(false)),
-                        ]),
-                    )
-                })
-                .collect(),
-        ),
-    )?;
-    out.config(&format!("{root}/settings"), native_settings.root)?;
-    out.config(&format!("{root}/skeleton"), donor_config(donor, &format!("{root}/skeleton"))?.root)?;
-    out.raw(&format!("{root}/render/bind_pose"), &bind_bytes)?;
-    out.config(&skeleton_path, skeleton.root)?;
-    let mut lo = [f32::INFINITY; 3];
-    let mut hi = [f32::NEG_INFINITY; 3];
-    for (name, mesh, _) in &model.surfaces {
-        let (a, b) = mesh.bounds();
-        // Boxes are written in the bind frame, as the rig's (and native) ones.
-        let (a, b) = (mesh_from_bind(a), mesh_from_bind(b));
-        let (a, b) = (
-            [a[0].min(b[0]), a[1], a[2].min(b[2])],
-            [a[0].max(b[0]), b[1], a[2].max(b[2])],
+    fn donor_config(&mut self, path: &str) -> Result<BinaryConfig> {
+        let bytes = self
+            .donor
+            .read(path)
+            .with_context(|| format!("reading donor {path}"))?;
+        ensure!(
+            !BinaryConfig::is_compact(&bytes),
+            "{path} is not a 0.26g-layout config"
         );
-        for k in 0..3 {
-            lo[k] = lo[k].min(a[k]);
-            hi[k] = hi[k].max(b[k]);
+        BinaryConfig::parse(&bytes).with_context(|| format!("parsing donor {path}"))
+    }
+
+    /// Ships `path` from the donor, in 0.26g's layout, unless the target has
+    /// it, and everything it names.
+    fn file(&mut self, path: &str) -> Result<()> {
+        if self.written.contains(path) {
+            return Ok(());
         }
-        let (src_mesh, a_box, b_box) = (name, a, b);
-        let props = V::Named(vec![
-            field("source", V::Named(vec![
-                field("indices", V::Integer(i32::try_from(mesh.indices.len())?)),
-                field("primitives", V::Integer(i32::try_from(mesh.indices.len() / 3)?)),
-                field("mesh_name", s(format!("|{}|0.69d0|{src_mesh}", rifle.donor))),
-                field("texture_name", s("")),
-                field("vertices", V::Integer(i32::try_from(mesh.vertices.len())?)),
-            ])),
-            field("type", V::Integer(44)),
-            field("version", V::Integer(0)),
-            field("bounding_box", V::Named(vec![
-                field("max", V::Float3(b_box)),
-                field("min", V::Float3(a_box)),
-            ])),
-        ]);
-        out.config(&format!("{root}/render/{name}/export_properties"), props)?;
-        out.raw(&format!("{root}/render/{name}/converted_model"), &mesh.to_bytes()?)?;
-    }
-    let props = V::Named(vec![
-        field(
-            "src_filename",
-            s(format!("Survarium 0.69d0: {root}")),
-        ),
-        field("type", V::Integer(40)),
-        field("version", V::Integer(0)),
-        field(
-            "locators",
-            V::Indexed(model.locators.iter().map(locator_value).collect()),
-        ),
-        field("bounding_box", V::Named(vec![
-            field("max", V::Float3(hi)),
-            field("min", V::Float3(lo)),
-        ])),
-    ]);
-    out.config(&format!("{root}/render/export_properties"), props)?;
-    Ok(model)
-}
-
-impl Locator {
-    fn clone_locator(&self) -> Locator {
-        Locator {
-            name: self.name.clone(),
-            bone: self.bone.clone(),
-            bone_idx: self.bone_idx,
-            position: self.position,
-            rotation: self.rotation,
+        if self.target.contains(path) {
+            self.reused.insert(path.into());
+            return Ok(());
         }
-    }
-}
-
-fn collect_bones(v: &V, out: &mut Vec<String>) {
-    if let V::Named(children) = v {
-        for c in children {
-            if c.name != "mask" {
-                out.push(c.name.clone());
-                collect_bones(&c.value, out);
-            }
+        ensure!(
+            self.donor.contains(path),
+            "{path} is in neither the target nor the donor"
+        );
+        if path.ends_with("/converted_model") {
+            let bytes = strip_mesh_statistics(&self.donor.read(path)?)?;
+            return self.raw(path, &bytes);
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Materials and textures
-// ---------------------------------------------------------------------------
-
-/// The donor map roles and the 0.26g ones they feed.
-const MAP_ROLES: [(&str, &str, Option<convert::ToneCurve>); 4] = [
-    ("t_albedo", "texture_diffuse", Some(convert::ALBEDO)),
-    ("t_normal", "texture_normal", None),
-    ("t_smoothness", "texture_roughness", Some(convert::SMOOTHNESS_TO_GLOSS)),
-    ("t_metalness", "texture_fresnel", Some(convert::METALNESS_TO_FRESNEL)),
-];
-
-fn build_material(
-    name: &str,
-    donor: &mut ResourceDb,
-    target: &mut ResourceDb,
-    out: &mut Out,
-) -> Result<()> {
-    let path = format!("material_instances/{name}.material");
-    if out.has(&path) {
-        return Ok(());
-    }
-    ensure!(!target.contains(&path), "{path} exists in the target");
-    let source = donor_config(donor, &path)?;
-    let effect = source
-        .root
-        .named("material")
-        .and_then(|m| m.named("g_stage"))
-        .and_then(|g| g.named("effect"))
-        .with_context(|| format!("{path} has no g_stage effect"))?;
-    let mut material = parse_config(target, MATERIAL_TEMPLATE, "native rifle material")?;
-    let mut names = BTreeMap::new();
-    for (role, native, _) in MAP_ROLES {
-        let texture = string_of(effect.named(role).and_then(|r| r.named("value")))
-            .with_context(|| format!("{path}: {role}"))?
-            .to_owned();
-        ensure!(!texture.is_empty(), "{path} binds no {role}");
-        material.root.set_path(
-            &format!("material.g_stage.effect.{native}.value"),
-            s(&texture),
-        )?;
-        names.insert(role, texture);
-    }
-    for (role, _, curve) in MAP_ROLES {
-        let texture = &names[role];
-        let dds = format!("textures/{texture}.dds");
-        if out.has(&dds) {
-            continue;
+        if [".dds", ".ogg", ".rms", ".b-spline", "/bind_pose"]
+            .iter()
+            .any(|e| path.ends_with(e))
+        {
+            let bytes = self.donor.read(path)?;
+            return self.raw(path, &bytes);
         }
-        ensure!(!target.contains(&dds), "{dds} exists in the target");
-        let bytes = donor.read(&dds)?;
-        let bytes = if role == "t_albedo" {
-            let metalness = donor.read(&format!("textures/{}.dds", names["t_metalness"]))?;
-            diffuse_dds(&bytes, &metalness, &dds, out.work)?
+        let config = self.donor_config(path)?;
+        let root = if path.ends_with(".material") {
+            let base = string_of(get(&config.root, "material.instance.base_material"))
+                .context("material without a base")?;
+            let (_, template) = MATERIAL_TEMPLATES
+                .iter()
+                .find(|(b, _)| *b == base)
+                .with_context(|| format!("{path}: no native template for base material {base}"))?;
+            let template = parse_config(self.target, template, "native material")?;
+            conform_material(&config.root, &template.root)?
+        } else if path.ends_with(".raw_options") {
+            let template = parse_config(self.target, RAW_OPTIONS_TEMPLATE, "native raw_options")?;
+            conform(&config.root, &template.root)
         } else {
-            match curve {
-                Some(curve) => convert::remap_dds(&bytes, curve)?,
-                None => bytes,
-            }
+            config.root
         };
-        out.raw(&dds, &bytes)?;
-        let options = donor_config(donor, &format!("textures/{texture}.options"))?;
-        out.config(&format!("textures/{texture}.options"), options.root)?;
+        self.follow(path, &root)?;
+        self.config(path, root)
     }
-    // The detail normal is the native weapons' (both builds name det/weap_nmap).
-    ensure!(
-        string_of(effect.named("t_normal_detail").and_then(|r| r.named("value")))? == "det/weap_nmap",
-        "{path} has another detail normal"
-    );
-    out.config(&path, material.root)
-}
 
-/// The 0.26g diffuse of a 0.69d albedo and metalness pair (see
-/// [`convert::diffuse_from_albedo`]), DXT1 with mips like a native weapon's.
-fn diffuse_dds(albedo: &[u8], metalness: &[u8], name: &str, work: &Path) -> Result<Vec<u8>> {
-    let (w, h, a) = convert::decode_dxt1(albedo)?;
-    let (mw, mh, m) = convert::decode_dxt1(metalness)?;
-    let px: Vec<[u8; 3]> = (0..w * h)
-        .map(|i| {
-            let (x, y) = (i % w, i / w);
-            let metal = m[(y * mh / h) * mw + x * mw / w][0];
-            convert::diffuse_from_albedo(a[i], metal)
-        })
-        .collect();
-    fs::create_dir_all(work)?;
-    let stem = name.replace('/', "_");
-    let tga = work.join(format!("{stem}.tga"));
-    let dds = work.join(format!("{stem}.dds"));
-    fs::write(&tga, convert::tga(w, h, &px)?)?;
-    crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt1)?;
-    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, true)?;
-    fs::remove_file(&tga)?;
-    fs::remove_file(&dds)?;
-    Ok(out)
-}
-
-// ---------------------------------------------------------------------------
-// Animations
-// ---------------------------------------------------------------------------
-
-fn clip_path(rifle: &Rifle, hands: bool, clip: &str) -> String {
-    let base = format!("animations/single/weapons/{}", rifle.donor);
-    if hands {
-        format!("{base}/player/stand/3rd_view/on_site/hands_only/{clip}")
-    } else {
-        format!("{base}/item/stand/3rd_view/{clip}")
+    /// Every file under `prefix` (a model folder), unless the target has it.
+    fn folder(&mut self, prefix: &str) -> Result<()> {
+        if self
+            .target
+            .paths_with_prefix(&format!("{prefix}/"))
+            .next()
+            .is_some()
+        {
+            self.reused.insert(prefix.into());
+            return Ok(());
+        }
+        let paths: Vec<String> = self
+            .donor
+            .paths_with_prefix(&format!("{prefix}/"))
+            .filter(|p| self.donor.is_file(p))
+            .map(str::to_owned)
+            .collect();
+        ensure!(!paths.is_empty(), "the donor has no {prefix}");
+        for p in paths {
+            self.file(&p)?;
+        }
+        Ok(())
     }
-}
 
-fn build_clips(rifle: &Rifle, donor: &mut ResourceDb, target: &mut ResourceDb, out: &mut Out) -> Result<()> {
-    let hands_rig = clip_bones(&target.read(NATIVE_HANDS_CLIP)?)?;
-    let bind = bind_pose(&donor.read(&format!("{}/render/bind_pose", model_root(rifle)))?)?;
-    let mut item_rig: Vec<String> = vec!["object_movement".into()];
-    item_rig.extend(bind.iter().map(|(n, _)| n.clone()));
-    for clip in CLIPS {
-        for hands in [false, true] {
-            let path = clip_path(rifle, hands, clip);
-            let names = donor_config(donor, &format!("{path}.bones_names"))?;
-            let bones = clip_bones(&names.to_bytes()?)?;
-            if hands {
-                ensure!(
-                    bones == hands_rig,
-                    "{path} drives other bones than 0.26g's player rig"
-                );
-            } else {
-                let set: BTreeSet<&String> = bones.iter().collect();
-                ensure!(
-                    set == item_rig.iter().collect(),
-                    "{path} drives other bones than the weapon's"
-                );
-            }
-            let mut bytes = convert::bspline_069_to_026(&donor.read(&format!("{path}.b-spline"))?)?;
-            ensure!(
-                convert::clip_header(&bytes)?.bones == bones.len(),
-                "{path}: curves and bones_names disagree"
-            );
-            if !hands {
-                let indices = match clip {
-                    "reload" => rifle.empty_events,
-                    "reload_tactic" => rifle.tactical_events,
-                    _ => None,
-                };
-                if let Some(indices) = indices {
-                    convert::set_sound_events(&mut bytes, indices)?;
+    fn clip(&mut self, name: &str) -> Result<()> {
+        let name = name.trim_start_matches("resources/");
+        self.file(&format!("{name}.b-spline"))?;
+        self.file(&format!("{name}.bones_names"))
+    }
+
+    fn sound(&mut self, kind: i32, name: &str) -> Result<()> {
+        match kind {
+            256 => {
+                for ext in ["high.ogg", "high.rms", "raw_options"] {
+                    self.file(&format!("sounds/single/{name}.{ext}"))?;
                 }
-                if clip.starts_with("reload") {
-                    for e in convert::events_026(&bytes)? {
-                        if e.name == "sound_events" {
-                            for d in e.domains {
-                                ensure!(
-                                    d == 0xff || usize::from(d) < rifle.reload_sounds.len(),
-                                    "{path} cues sound {d} of {}",
-                                    rifle.reload_sounds.len()
-                                );
+                Ok(())
+            }
+            257 => self.file(&format!("sounds/composite/{name}.composite_sound")),
+            258 => self.file(&format!("sounds/collections/{name}.sound_collection")),
+            other => bail!("unknown sound resource type {other} for {name}"),
+        }
+    }
+
+    /// The resources a carried config names.
+    fn follow(&mut self, path: &str, root: &V) -> Result<()> {
+        if path.ends_with(".material") {
+            let mut strings = vec![];
+            root.collect_strings(&mut strings);
+            let textures: Vec<String> = strings
+                .into_iter()
+                .filter(|t| t.contains('/'))
+                .map(str::to_owned)
+                .collect();
+            for t in textures {
+                let dds = format!("textures/{t}.dds");
+                if self.target.contains(&dds) || self.donor.contains(&dds) {
+                    self.file(&dds)?;
+                    self.file(&format!("textures/{t}.options"))?;
+                } else {
+                    ensure!(
+                        t.starts_with("editor/"),
+                        "{path} names {t}, which neither archive has"
+                    );
+                }
+            }
+        } else if path.ends_with("/settings") {
+            if let Some(V::Named(materials)) = root.named("material_settings") {
+                let names: Vec<String> = materials
+                    .iter()
+                    .filter_map(|m| string_of(m.value.named("material_name")).map(str::to_owned))
+                    .collect();
+                for name in names {
+                    self.file(&format!("material_instances/{name}.material"))?;
+                }
+            }
+        } else if path.ends_with("/skeleton") {
+            if let Some(skeleton) = string_of(root.named("skeleton")) {
+                let name = skeleton.trim_start_matches("resources/").to_owned();
+                self.file(&format!("{name}.skeleton"))?;
+            }
+        } else if path.ends_with(".composite_sound") || path.ends_with(".sound_collection") {
+            let items =
+                get(root, "composite_sound.sound_items").or(get(root, "collection.sound_items"));
+            if let Some(V::Indexed(items)) = items {
+                for item in items.clone() {
+                    let kind = match item.named("resource_type") {
+                        Some(V::Integer(k)) => *k,
+                        None => 256,
+                        other => bail!("{path}: resource type {other:?}"),
+                    };
+                    let name =
+                        string_of(item.named("filename")).context("sound item without a file")?;
+                    self.sound(kind, name)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The clips and sounds an item config names.
+    fn states(&mut self, cfg: &V) -> Result<()> {
+        let mut strings = vec![];
+        cfg.collect_strings(&mut strings);
+        let clips: Vec<String> = strings
+            .into_iter()
+            .filter(|c| c.starts_with("resources/animations/"))
+            .map(str::to_owned)
+            .collect();
+        for c in clips {
+            self.clip(&c)?;
+        }
+        let mut lists = vec![];
+        if let Some(states) = cfg.named("states") {
+            collect_sound_lists(states, &mut lists);
+        }
+        for (kind, name) in lists {
+            self.sound(kind, &name)?;
+        }
+        Ok(())
+    }
+}
+
+fn collect_sound_lists(v: &V, out: &mut Vec<(i32, String)>) {
+    if let V::Named(fields) = v {
+        for f in fields {
+            if f.name == "sounds" {
+                for view in ["first_view", "third_view"] {
+                    if let Some(V::Indexed(list)) = f.value.named(view) {
+                        for pair in list {
+                            if let V::Indexed(p) = pair
+                                && let [V::Integer(k), V::String(n)] = p.as_slice()
+                            {
+                                out.push((*k, n.clone()));
                             }
                         }
                     }
                 }
+            } else {
+                collect_sound_lists(&f.value, out);
             }
-            out.raw(&format!("{path}.b-spline"), &bytes)?;
-            out.config(&format!("{path}.bones_names"), names.root)?;
         }
     }
-    Ok(())
+}
+
+/// A 0.31 material on 0.26g's effect keys (0.31's extra ones dropped), for
+/// each stage it has (`g_stage`, `forward`); the native template has the
+/// same base material and stages.
+pub(crate) fn conform_material(donor: &V, template: &V) -> Result<V> {
+    let mut out = donor.clone();
+    let mut stages = 0;
+    for stage in ["g_stage", "forward", "lighting"] {
+        let Some(d) = get(donor, &format!("material.{stage}.effect")) else {
+            continue;
+        };
+        stages += 1;
+        let (V::Named(dk), Some(V::Named(tk))) =
+            (d, get(template, &format!("material.{stage}.effect")))
+        else {
+            bail!("the native template has no {stage} effect");
+        };
+        // Every texture the donor binds must survive.
+        for f in dk {
+            if f.name.starts_with("texture_")
+                && string_of(get(&f.value, "value")).is_some_and(|v| !v.is_empty())
+            {
+                ensure!(
+                    tk.iter().any(|k| k.name == f.name),
+                    "0.26g has no {stage} {}",
+                    f.name
+                );
+            }
+        }
+        let effect = V::Named(
+            dk.iter()
+                .filter(|f| tk.iter().any(|k| k.name == f.name))
+                .cloned()
+                .collect(),
+        );
+        out.set_path(&format!("material.{stage}.effect"), effect)?;
+    }
+    ensure!(stages > 0, "material without an effect stage");
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
-// Sounds
+// Item configs
 // ---------------------------------------------------------------------------
 
-/// Copies a sound collection and its sounds from the donor unless the target
-/// has it. Returns whether it was carried.
-fn carry_collection(name: &str, donor: &mut ResourceDb, target: &mut ResourceDb, out: &mut Out) -> Result<bool> {
-    let path = format!("sounds/collections/{name}.sound_collection");
-    if target.contains(&path) || out.has(&path) {
-        return Ok(false);
-    }
-    let config = donor_config(donor, &path)?;
-    let Some(V::Indexed(items)) = config
-        .root
-        .named("collection")
-        .and_then(|c| c.named("sound_items"))
-    else {
-        bail!("{path} lists no sounds");
+/// 0.31 renamed these 0.26g parameters (0.26g's own spelling included).
+pub const RENAMED: [(&str, &str); 2] = [
+    ("health_modifier", "pain_health_modifier"),
+    (
+        "stamina_regeneration_speed_modifier",
+        "stamina_regenation_speed_modifier",
+    ),
+];
+
+/// The donor's states that replace the template's; each keeps the
+/// template's `state_type` (0.31 renumbered them). Melee and grenade stay
+/// the template's: the donor's play `weapons/base/*`, a set 0.26g lacks.
+pub const DONOR_STATES: [&str; 5] = ["show", "hide", "idle", "fire", "reload"];
+
+pub(crate) fn card_props(st: &Stats) -> [(i32, String); 8] {
+    let fmt = |v: f32| {
+        let t = format!("{v:.2}");
+        t.trim_end_matches('0').trim_end_matches('.').to_owned()
     };
-    for item in items {
-        let file = string_of(item.named("filename"))?;
-        match item.named("resource_type") {
-            None | Some(V::Integer(256)) => {}
-            other => bail!("{path}: {file} is a {other:?}, not a single sound"),
+    // The 0.26g rifles' card: damage, pierce and stopping power x 100, aim
+    // time, dispersion, distance, rate of fire, weight.
+    [
+        (1, format!("{}", (st.bullet_damage * 100.0).round() as i32)),
+        (3, format!("{}", (st.bullet_pierce * 100.0).round() as i32)),
+        (133, fmt(st.aim_time)),
+        (
+            132,
+            format!("{}", (st.stopping_power * 100.0).round() as i32),
+        ),
+        (2, fmt(st.base_dispersion)),
+        (24, format!("{}", st.min_damage_distance)),
+        (4, format!("{}", st.rounds_per_minute)),
+        (15, fmt(st.weight)),
+    ]
+}
+
+/// Whether `v` names a clip of 0.31's shared `weapons/base/*` set, which
+/// 0.26g lacks; such parts stay the template's (0.26g's `weapons/ak/*`).
+fn plays_base(v: &V) -> bool {
+    let mut strings = vec![];
+    v.collect_strings(&mut strings);
+    strings
+        .iter()
+        .any(|s| s.contains("animations/single/weapons/base/"))
+}
+
+pub(crate) fn rifle_config(rifle: &Rifle, donor: &V, template: &V) -> Result<V> {
+    let mut donor = donor.clone();
+    if let Some(V::Named(params)) = donor.named_mut("parameters") {
+        for p in params.iter_mut() {
+            if let Some((_, new)) = RENAMED.iter().find(|(old, _)| *old == p.name) {
+                p.name = (*new).into();
+            }
         }
-        let single = format!("sounds/single/{file}");
-        if target.contains(&format!("{single}.high.ogg")) || out.has(&format!("{single}.high.ogg")) {
-            continue;
+    }
+    let mut cfg = template.clone();
+    let params = conform(
+        donor.named("parameters").context("no parameters")?,
+        template
+            .named("parameters")
+            .context("template parameters")?,
+    );
+    cfg.set_path("parameters", params)?;
+    for state in DONOR_STATES {
+        let theirs = get(&donor, &format!("states.{state}"))
+            .with_context(|| format!("the donor has no {state} state"))?;
+        ensure!(
+            !plays_base(theirs),
+            "the donor's {state} state plays weapons/base clips"
+        );
+        let ours = get(template, &format!("states.{state}")).context("template state")?;
+        let mut merged = conform(theirs, ours);
+        merged.set_path(
+            "state_type",
+            ours.named("state_type").context("state_type")?.clone(),
+        )?;
+        cfg.set_path(&format!("states.{state}"), merged)?;
+    }
+    for path in [
+        "recoil",
+        "recoil_animations",
+        "object",
+        "particles",
+        "dispersion",
+        "breath_vibration",
+        "user_animations",
+    ] {
+        if let Some(v) = donor.named(path).filter(|v| !plays_base(v)) {
+            let v = match template.named(path) {
+                Some(t) => conform(v, t),
+                None => v.clone(),
+            };
+            cfg.set_path(path, v)?;
         }
-        for ext in ["high.ogg", "high.rms"] {
-            out.raw(&format!("{single}.{ext}"), &donor.read(&format!("{single}.{ext}"))?)?;
+    }
+    for path in ["preview", "preview_item"] {
+        if let Some(v) =
+            get(&donor, &format!("user_animations_in_place.{path}")).filter(|v| !plays_base(v))
+        {
+            cfg.set_path(&format!("user_animations_in_place.{path}"), v.clone())?;
         }
-        out.config(
-            &format!("{single}.raw_options"),
-            donor_config(donor, &format!("{single}.raw_options"))?.root,
+    }
+    if let Some(addons) = donor.named("addons") {
+        cfg.set_path("addons", addons.clone())?;
+    }
+    // The kill-feed icon stays a native one: 0.26g's HUD has 52 (0..=51);
+    // 0.31's numbers go further (the H&K's is 63).
+    cfg.set_path("ui_desc.combat_log_icon", V::Integer(rifle.combat_log_icon))?;
+    for path in ["text_descriptions"] {
+        let v = get(&donor, &format!("ui_desc.{path}"))
+            .with_context(|| format!("ui_desc.{path}"))?
+            .clone();
+        cfg.set_path(&format!("ui_desc.{path}"), v)?;
+    }
+    let st = &rifle.stats;
+    for (key, value) in [
+        ("faction", V::Integer(st.faction)),
+        ("item_level", V::Integer(st.level)),
+        ("match_making_level", V::Integer(st.level)),
+        ("drop_weight", V::Integer(st.drop_weight)),
+        ("rounds_per_minute", V::Integer(st.rounds_per_minute)),
+        ("bullet_damage", V::Float(st.bullet_damage)),
+        ("bullet_pierce", V::Float(st.bullet_pierce)),
+        ("stopping_power", V::Float(st.stopping_power)),
+        ("weight", V::Float(st.weight)),
+        ("reload_time", V::Float(st.reload_time)),
+        ("aim_time", V::Float(st.aim_time)),
+        ("aim_zoom_factor", V::Float(st.aim_zoom_factor)),
+        ("base_dispersion", V::Float(st.base_dispersion)),
+        ("magazine_capacity", V::Integer(st.magazine)),
+        ("min_damage_distance", V::Integer(st.min_damage_distance)),
+        ("max_damage_distance", V::Integer(st.max_damage_distance)),
+    ] {
+        ensure!(
+            get(&cfg, &format!("parameters.{key}")).is_some(),
+            "no parameters.{key}"
+        );
+        cfg.set_path(&format!("parameters.{key}"), value)?;
+    }
+    cfg.set_path("dispersion.base_dispersion", V::Float(st.base_dispersion))?;
+    if let Some((name, _, _)) = rifle.fire_composite {
+        cfg.set_path(
+            "states.fire.sounds.first_view",
+            V::Indexed(vec![V::Indexed(vec![V::Integer(257), s(name)])]),
         )?;
     }
-    out.config(&path, config.root)?;
-    Ok(true)
+    cfg.set_path(
+        "ui_desc.icon",
+        V::Indexed(rifle.icon.iter().map(|v| V::Integer(*v)).collect()),
+    )?;
+    cfg.set_path(
+        "ui_desc.props_list",
+        V::Indexed(
+            card_props(st)
+                .into_iter()
+                .map(|(id, value)| {
+                    V::Named(vec![
+                        field("prop_value", s(value)),
+                        field("prop_id", V::Integer(id)),
+                    ])
+                })
+                .collect(),
+        ),
+    )?;
+    Ok(cfg)
 }
 
-fn composite(layers: &[Layer], master: Option<i32>) -> V {
+pub(crate) fn ammo_config(ammo: &Ammo, donor: &V, template: &V) -> Result<V> {
+    let mut cfg = template.clone();
+    for (key, value) in [
+        ("item_level", V::Integer(ammo.level)),
+        ("match_making_level", V::Integer(ammo.level)),
+        ("drop_weight", V::Integer(ammo.drop_weight)),
+        (
+            "clip_size",
+            get(donor, "parameters.clip_size")
+                .context("clip_size")?
+                .clone(),
+        ),
+        (
+            "clip_weight",
+            get(donor, "parameters.clip_weight")
+                .context("clip_weight")?
+                .clone(),
+        ),
+    ] {
+        ensure!(
+            get(&cfg, &format!("parameters.{key}")).is_some(),
+            "no parameters.{key}"
+        );
+        cfg.set_path(&format!("parameters.{key}"), value)?;
+    }
+    for path in ["ammo_indicator_name", "text_descriptions"] {
+        let v = get(donor, &format!("ui_desc.{path}"))
+            .with_context(|| format!("ui_desc.{path}"))?
+            .clone();
+        cfg.set_path(&format!("ui_desc.{path}"), v)?;
+    }
+    cfg.set_path(
+        "ui_desc.icon",
+        V::Indexed(ammo.icon.iter().map(|v| V::Integer(*v)).collect()),
+    )?;
+    Ok(cfg)
+}
+
+pub(crate) fn scope_config(donor: &V, template: &V) -> Result<V> {
+    let mut cfg = conform(donor, template);
+    // 0.31's item data types are 0.26g's + 1 (scopes 6, 0.26g's 5).
+    cfg.set_path(
+        "data.type",
+        get(template, "data.type").context("data.type")?.clone(),
+    )?;
+    // A holographic sight: no magnification (0.31 names no fov factor).
+    if get(donor, "data.fov_factor").is_none() {
+        cfg.set_path("data.fov_factor", V::Float(1.0))?;
+    }
+    // The weapon stays drawn when aiming through it: no nearer near plane
+    // (the PSO-1 template's 0.6 is for a sight that hides the weapon).
+    if get(donor, "data.near_plane_factor").is_none() {
+        cfg.set_path("data.near_plane_factor", V::Float(1.0))?;
+    }
+    Ok(cfg)
+}
+
+pub(crate) fn composite(layers: &[Layer], master: i32) -> V {
     V::Named(vec![field(
         "composite_sound",
         V::Named(vec![
-            field("use_master_layer_index", V::Boolean(master.is_some())),
-            field("master_layer_index", V::Integer(master.unwrap_or(0))),
+            field("use_master_layer_index", V::Boolean(true)),
+            field("master_layer_index", V::Integer(master)),
             field(
                 "sound_items",
                 V::Indexed(
@@ -1145,363 +904,334 @@ fn composite(layers: &[Layer], master: Option<i32>) -> V {
     )])
 }
 
-fn build_sounds(rifle: &Rifle, donor: &mut ResourceDb, target: &mut ResourceDb, out: &mut Out, carried: &mut BTreeSet<String>) -> Result<()> {
-    let mut names: Vec<&str> = rifle.reload_sounds.to_vec();
-    names.extend(rifle.fire_first.iter().map(|l| l.collection));
-    names.extend(rifle.fire_third.iter().map(|l| l.collection));
-    for name in names {
-        if carry_collection(name, donor, target, out)? {
-            carried.insert(name.into());
-        }
-        let path = format!("sounds/collections/{name}.sound_collection");
-        ensure!(target.contains(&path) || out.has(&path), "{path} is missing");
-    }
-    for (name, layers, master) in [
-        (rifle.composites[0], rifle.fire_first, rifle.fire_first_master),
-        (rifle.composites[1], rifle.fire_third, rifle.fire_third_master),
-    ] {
-        let path = format!("sounds/composite/{name}.composite_sound");
-        ensure!(!target.contains(&path), "{path} exists in the target");
-        out.config(&path, composite(layers, master))?;
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
-// Item config
+// Dictionary, icons
 // ---------------------------------------------------------------------------
 
-fn res(path: &str) -> V {
-    s(format!("resources/{path}"))
-}
-
-fn sound_list(names: &[&str]) -> V {
-    V::Indexed(
-        names
-            .iter()
-            .map(|n| V::Indexed(vec![V::Integer(258), s(*n)]))
-            .collect(),
-    )
-}
-
-fn item_config(rifle: &Rifle, target: &mut ResourceDb, model: &str, icons: bool) -> Result<V> {
-    let mut cfg = parse_config(target, CONFIG_TEMPLATE, "native rifle config")?.root;
-    let st = &rifle.stats;
-    for (key, value) in [
-        ("faction", V::Integer(st.faction)),
-        ("item_level", V::Integer(st.level)),
-        ("match_making_level", V::Integer(st.level)),
-        ("drop_weight", V::Integer(st.drop_weight)),
-        ("rounds_per_minute", V::Integer(st.rounds_per_minute)),
-        ("bullet_damage", V::Float(st.bullet_damage)),
-        ("bullet_pierce", V::Float(st.bullet_pierce)),
-        ("stopping_power", V::Float(st.stopping_power)),
-        ("weight", V::Float(st.weight)),
-        ("reload_time", V::Float(st.reload_time)),
-        ("aim_time", V::Float(st.aim_time)),
-        ("aim_zoom_factor", V::Float(st.aim_zoom_factor)),
-        ("base_dispersion", V::Float(st.base_dispersion)),
-        ("magazine_capacity", V::Integer(st.magazine)),
-        ("min_damage_distance", V::Integer(st.min_damage_distance)),
-        ("max_damage_distance", V::Integer(st.max_damage_distance)),
-        (
-            "fire_queue_types",
-            V::Indexed(st.fire_modes.iter().map(|m| V::Integer(*m)).collect()),
-        ),
-    ] {
-        ensure!(
-            cfg.named("parameters").and_then(|p| p.named(key)).is_some(),
-            "the template has no parameters.{key}"
-        );
-        cfg.set_path(&format!("parameters.{key}"), value)?;
-    }
-    cfg.set_path("dispersion.base_dispersion", V::Float(st.base_dispersion))?;
-    let hands = |clip: &str| res(&clip_path(rifle, true, clip));
-    let item = |clip: &str| res(&clip_path(rifle, false, clip));
-    for (state, clip, slots) in [
-        ("show", "show", 4),
-        ("hide", "hide", 4),
-        ("idle", "idle", 8),
-        ("fire", "shoot", 8),
-    ] {
-        cfg.set_path(
-            &format!("states.{state}.user_animations"),
-            V::Indexed((0..slots).map(|_| hands(clip)).collect()),
-        )?;
-        cfg.set_path(&format!("states.{state}.animations"), V::Indexed(vec![item(clip)]))?;
-    }
-    // Eight reload slots in chambered/empty pairs and two item clips, as the
-    // native rifles with an empty reload (Kiparis, TT-33) list them.
-    cfg.set_path(
-        "states.reload.user_animations",
-        V::Indexed(
-            (0..8)
-                .map(|i| hands(if i % 2 == 0 { "reload_tactic" } else { "reload" }))
-                .collect(),
-        ),
-    )?;
-    cfg.set_path(
-        "states.reload.animations",
-        V::Indexed(vec![item("reload_tactic"), item("reload")]),
-    )?;
-    for view in ["first_view", "third_view"] {
-        cfg.set_path(
-            &format!("states.reload.sounds.{view}"),
-            sound_list(rifle.reload_sounds),
-        )?;
-    }
-    cfg.set_path(
-        "states.reload.sounds.simultaneous_sounds_queue_size",
-        V::Integer(i32::try_from(rifle.reload_sounds.len())?),
-    )?;
-    for state in ["show", "hide"] {
-        for (view, sound) in ["first_view", "third_view"].into_iter().zip(SHOW_SOUNDS) {
-            cfg.set_path(&format!("states.{state}.sounds.{view}"), sound_list(&[sound]))?;
-        }
-    }
-    cfg.set_path(
-        "states.fire.sounds.first_view",
-        V::Indexed(vec![V::Indexed(vec![V::Integer(257), s(rifle.composites[0])])]),
-    )?;
-    cfg.set_path(
-        "states.fire.sounds.third_view",
-        V::Indexed(vec![V::Indexed(vec![V::Integer(257), s(rifle.composites[1])])]),
-    )?;
-    cfg.set_path("user_animations_in_place.preview_item", item("idle"))?;
-    cfg.set_path("object.model", s(model))?;
-    cfg.set_path("object.skeleton", s(format!("weapons/{0}/{0}", rifle.donor)))?;
-    cfg.set_path("ui_desc.text_descriptions.name", s(rifle.texts[0].0))?;
-    cfg.set_path("ui_desc.text_descriptions.description", s(rifle.texts[1].0))?;
-    cfg.set_path("ui_desc.combat_log_icon", V::Integer(rifle.combat_log_icon))?;
-    if icons {
-        cfg.set_path(
-            "ui_desc.icon",
-            V::Indexed(rifle.icon.iter().map(|v| V::Integer(*v)).collect()),
-        )?;
-    }
-    // The card: the AK-12's eight properties, with these values.
-    let fmt = |v: f32| {
-        let t = format!("{v:.2}");
-        t.trim_end_matches('0').trim_end_matches('.').to_owned()
-    };
-    let props = [
-        (1, format!("{}", (st.bullet_damage * 100.0).round() as i32)),
-        (3, format!("{}", (st.bullet_pierce * 100.0).round() as i32)),
-        (133, fmt(st.aim_time)),
-        (132, format!("{}", st.max_damage_distance)),
-        (2, fmt(st.base_dispersion)),
-        (24, format!("{}", st.min_damage_distance)),
-        (4, format!("{}", st.rounds_per_minute)),
-        (15, fmt(st.weight)),
-    ];
-    let Some(V::Indexed(template_props)) = cfg.named("ui_desc").and_then(|u| u.named("props_list")) else {
-        bail!("the template card has no props_list");
-    };
-    let ids: Vec<i32> = template_props
-        .iter()
-        .map(|p| int_of(p.named("prop_id")))
-        .collect::<Result<_>>()?;
-    ensure!(
-        ids == props.iter().map(|p| p.0).collect::<Vec<_>>(),
-        "the template card lists {ids:?}"
-    );
-    cfg.set_path(
-        "ui_desc.props_list",
-        V::Indexed(
-            props
-                .iter()
-                .map(|(id, value)| {
-                    V::Named(vec![
-                        field("prop_value", s(value)),
-                        field("prop_id", V::Integer(*id)),
-                    ])
-                })
-                .collect(),
-        ),
-    )?;
-    Ok(cfg)
-}
-
-// ---------------------------------------------------------------------------
-// Build
-// ---------------------------------------------------------------------------
-
-fn dictionary_rows(dictionary: &mut V, rifles: &[&Rifle]) -> Result<Vec<String>> {
-    let V::Indexed(items) = dictionary.named_mut("items_dict").context("items_dict")? else {
+pub(crate) fn dictionary(dict: &mut V, donor_dict: &V, port: &Port) -> Result<Vec<String>> {
+    let V::Indexed(items) = dict.named_mut("items_dict").context("items_dict")? else {
         bail!("items_dict is not indexed");
     };
-    let template = items
-        .iter()
-        .find(|v| v.named("cfg_name") == Some(&s(CONFIG_TEMPLATE)))
-        .context("no AK-12 row")?
-        .clone();
-    for ammo in AMMO {
-        let row = items
+    let V::Indexed(donor_items) = donor_dict.named("items_dict").context("donor items_dict")?
+    else {
+        bail!("the donor's items_dict is not indexed");
+    };
+    let native = |cfg: &str| -> Result<V> {
+        Ok(items
             .iter()
-            .find(|v| v.named("dict_id") == Some(&V::Integer(ammo)))
-            .with_context(|| format!("ammo {ammo} is not in the dictionary"))?;
+            .find(|v| string_of(v.named("cfg_name")) == Some(cfg))
+            .with_context(|| format!("no native row for {cfg}"))?
+            .clone())
+    };
+    let rows: Vec<(i32, &str, V, i32)> = port
+        .rifles
+        .iter()
+        .map(|r| {
+            Ok((
+                r.dict_id,
+                r.config,
+                native(RIFLE_TEMPLATE)?,
+                r.stats.base_cost,
+            ))
+        })
+        .chain(
+            port.ammo
+                .iter()
+                .map(|a| Ok((a.dict_id, a.config, native(AMMO_TEMPLATE)?, a.base_cost))),
+        )
+        .chain(
+            port.scopes
+                .iter()
+                .map(|sc| Ok((sc.dict_id, sc.config, native(SCOPE_TEMPLATE)?, 0))),
+        )
+        .collect::<Result<_>>()?;
+    for (id, cfg, mut row, cost) in rows {
+        let theirs = donor_items
+            .iter()
+            .find(|v| v.named("dict_id") == Some(&V::Integer(id)))
+            .with_context(|| format!("the donor has no item {id}"))?;
         ensure!(
-            string_of(row.named("name"))?.starts_with("ammo_5.45x39"),
-            "item {ammo} is not 5.45x39"
+            string_of(theirs.named("cfg_name")) == Some(cfg),
+            "donor item {id} is not {cfg}"
         );
-    }
-    for rifle in rifles {
+        let name = string_of(theirs.named("name"))
+            .context("donor row without a name")?
+            .to_owned();
         ensure!(
             !items
                 .iter()
-                .any(|v| v.named("dict_id") == Some(&V::Integer(rifle.dict_id))),
-            "id {} is taken",
-            rifle.dict_id
+                .any(|v| v.named("dict_id") == Some(&V::Integer(id))
+                    || string_of(v.named("cfg_name")) == Some(cfg)
+                    || string_of(v.named("name")) == Some(name.as_str())),
+            "item {id} ({name}) is taken"
         );
         ensure!(
-            !items.iter().any(|v| v.named("cfg_name") == Some(&s(rifle.config))
-                || v.named("name") == Some(&s(rifle.name))),
-            "{} is taken",
-            rifle.name
+            theirs.named("item_category") == row.named("item_category"),
+            "{name}: another category than its template's"
         );
-        let mut row = template.clone();
-        row.set_path("cfg_name", s(rifle.config))?;
-        row.set_path("name", s(rifle.name))?;
-        row.set_path("dict_id", V::Integer(rifle.dict_id))?;
-        row.set_path("base_cost", V::Integer(rifle.stats.base_cost))?;
-        row.set_path("is_premium", V::Boolean(false))?;
+        row.set_path("cfg_name", s(cfg))?;
+        row.set_path("name", s(&name))?;
+        row.set_path("dict_id", V::Integer(id))?;
+        row.set_path("base_cost", V::Integer(cost))?;
         items.push(row);
     }
-    let V::Named(compat) = dictionary
+    let V::Named(compat) = dict
         .named_mut("items_compatibility")
         .context("items_compatibility")?
     else {
         bail!("items_compatibility is not a table");
     };
-    let next = compat
+    let mut next = compat
         .iter()
         .filter_map(|c| c.name.strip_prefix("compatibility_")?.parse::<u32>().ok())
         .max()
         .context("no compatibility rows")?
         + 1;
     let mut added = vec![];
-    for (k, (rifle, ammo)) in rifles
-        .iter()
-        .flat_map(|r| AMMO.iter().map(move |a| (r, *a)))
-        .enumerate()
-    {
-        let name = format!("compatibility_{}", next + k as u32);
-        compat.push(field(
-            &name,
-            V::Named(vec![
-                field("second_item", V::Integer(ammo)),
-                field("first_item", V::Integer(rifle.dict_id)),
-            ]),
-        ));
-        added.push(name);
+    for rifle in port.rifles {
+        for ammo in rifle.ammo {
+            let name = format!("compatibility_{next}");
+            next += 1;
+            compat.push(field(
+                &name,
+                V::Named(vec![
+                    field("second_item", V::Integer(*ammo)),
+                    field("first_item", V::Integer(rifle.dict_id)),
+                ]),
+            ));
+            added.push(name);
+        }
     }
     Ok(added)
 }
 
-/// Builds the bundle (`overlay/`, `port-manifest.json`, `equipment.json`)
-/// over `target` (the stock archive with the patches players have) from
-/// `donor`, an archive of the 0.69d0 files the rifles use.
-pub fn build(
-    donor_db: &Path,
-    target_layers: &[std::path::PathBuf],
-    icons_swf: Option<&Path>,
-    output: &Path,
-) -> Result<()> {
+/// A donor icon PNG centred in a 171x83 lobby cell (RGBA PNG).
+pub(crate) fn cell_png(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    // Palette and grey icons as RGB(A).
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf)?;
+    ensure!(info.bit_depth == png::BitDepth::Eight, "icon is not 8-bit");
+    let channels = match info.color_type {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        other => bail!("icon colour type {other:?} after expansion"),
+    };
+    let (w, h) = (info.width as usize, info.height as usize);
+    ensure!(w <= 171 && h <= 83, "icon is {w}x{h}, larger than a cell");
+    let (x0, y0) = ((171 - w) / 2, (83 - h) / 2);
+    let mut cell = vec![0u8; 171 * 83 * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let p = &buf[(y * w + x) * channels..(y * w + x + 1) * channels];
+            let at = ((y0 + y) * 171 + x0 + x) * 4;
+            cell[at..at + 3].copy_from_slice(&p[..3]);
+            cell[at + 3] = if channels == 4 { p[3] } else { 255 };
+        }
+    }
+    let mut out = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut out, 171, 83);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header()?.write_image_data(&cell)?;
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
+/// Builds `port`'s bundle (`overlay/`, `port-manifest.json`,
+/// `equipment.json`, and `icons/` with `icons.json` for the pack's
+/// `atlas_icons_add`) over `target_layers` (stock and the players' patches)
+/// from `donor_db`, an archive of the 0.31a2 files with its dictionary,
+/// localizations and icons.
+pub fn build(port: &Port, donor_db: &Path, target_layers: &[PathBuf], output: &Path) -> Result<()> {
     prepare_empty_output(output)?;
     let overlay = output.join("overlay");
     fs::create_dir_all(&overlay)?;
     let mut target = ResourceDb::open_layers(target_layers)?;
     let mut donor = ResourceDb::open(donor_db)?;
-    let work = output.join("work");
-    let mut out = Out {
+    let mut carry = Carry {
+        donor: &mut donor,
+        target: &mut target,
         overlay: &overlay,
-        work: &work,
         files: vec![],
         written: BTreeSet::new(),
+        reused: BTreeSet::new(),
     };
-    let mut carried = BTreeSet::new();
-    let mut registration = vec![];
     let mut configs = vec![];
-    for rifle in RIFLES {
-        ensure!(!target.contains(rifle.config), "{} exists", rifle.config);
-        let model = build_model(rifle, &mut donor, &mut target, &mut out)?;
-        let materials: BTreeSet<String> = model.surfaces.iter().map(|(_, _, m)| m.clone()).collect();
-        for material in &materials {
-            build_material(material, &mut donor, &mut target, &mut out)?;
-        }
-        build_clips(rifle, &mut donor, &mut target, &mut out)?;
-        build_sounds(rifle, &mut donor, &mut target, &mut out, &mut carried)?;
-        let model_name = model_root(rifle)
-            .trim_start_matches("models/")
-            .trim_end_matches(".skinned_model")
+    for rifle in port.rifles {
+        ensure!(
+            !carry.target.contains(rifle.config),
+            "{} exists",
+            rifle.config
+        );
+        let donor_cfg = carry.donor_config(rifle.config)?.root;
+        let template = parse_config(carry.target, RIFLE_TEMPLATE, "native rifle")?.root;
+        let cfg = rifle_config(rifle, &donor_cfg, &template)?;
+        let model = string_of(get(&cfg, "object.model"))
+            .context("object.model")?
             .to_owned();
-        let cfg = item_config(rifle, &mut target, &model_name, icons_swf.is_some())?;
-        out.config(rifle.config, cfg.clone())?;
-        configs.push(cfg);
-        registration.push(json!({
-            "dict_id": rifle.dict_id,
-            "name": rifle.name,
-            "config": rifle.config,
-            "faction": rifle.stats.faction,
-            "item_level": rifle.stats.level,
-            "ammo": AMMO,
-            "surfaces": model.surfaces.iter().map(|(n, m, _)| json!({"name": n, "vertices": m.vertices.len()})).collect::<Vec<_>>(),
-        }));
+        carry.folder(&format!("models/{model}.skinned_model"))?;
+        let skeleton = string_of(get(&cfg, "object.skeleton"))
+            .context("object.skeleton")?
+            .to_owned();
+        carry.file(&format!("animations/skeletons/{skeleton}.skeleton"))?;
+        if let Some((name, layers, master)) = rifle.fire_composite {
+            for l in layers {
+                carry.sound(258, l.collection)?;
+            }
+            let path = format!("sounds/composite/{name}.composite_sound");
+            ensure!(!carry.target.contains(&path), "{path} exists");
+            carry.config(&path, composite(layers, master))?;
+        }
+        carry.states(&cfg)?;
+        if let Some(V::Integer(scope)) = get(&cfg, "addons.rifle_scope_dict_id") {
+            let shipped = port.scopes.iter().any(|sc| sc.dict_id == *scope)
+                || PORTS
+                    .iter()
+                    .flat_map(|p| p.scopes)
+                    .any(|sc| sc.dict_id == *scope && carry.target.contains(sc.config));
+            ensure!(
+                shipped,
+                "{}: scope {scope} is neither in the port nor in the target",
+                rifle.key
+            );
+        }
+        configs.push((rifle.config.to_owned(), cfg));
     }
-    let mut dictionary = parse_config(&mut target, DICT, "0.26g dictionary")?;
-    let compat = dictionary_rows(&mut dictionary.root, &RIFLES)?;
-    out.config(DICT, dictionary.root)?;
+    for ammo in port.ammo {
+        let donor_cfg = carry.donor_config(ammo.config)?.root;
+        let template = parse_config(carry.target, AMMO_TEMPLATE, "native ammo")?.root;
+        configs.push((
+            ammo.config.to_owned(),
+            ammo_config(ammo, &donor_cfg, &template)?,
+        ));
+    }
+    for scope in port.scopes {
+        let donor_cfg = carry.donor_config(scope.config)?.root;
+        let template = parse_config(carry.target, SCOPE_TEMPLATE, "native scope")?.root;
+        let cfg = scope_config(&donor_cfg, &template)?;
+        for key in ["data.idle_model", "data.aimed_model"] {
+            let m = string_of(get(&cfg, key)).context(key)?.to_owned();
+            carry.folder(&format!("models/{m}.model"))?;
+        }
+        configs.push((scope.config.to_owned(), cfg));
+    }
+    let mut texts = BTreeSet::new();
+    let scope_configs: Vec<&str> = port.scopes.iter().map(|sc| sc.config).collect();
+    for (path, cfg) in &configs {
+        if scope_configs.contains(&path.as_str()) {
+            // Scopes are no inventory items; 0.26g's own name no texts
+            // (st_leupold_*), and the EOTech's are those.
+            ensure!(!carry.target.contains(path), "{path} exists");
+            carry.config(path, cfg.clone())?;
+            continue;
+        }
+        for key in [
+            "ui_desc.text_descriptions.name",
+            "ui_desc.text_descriptions.description",
+            "ui_desc.ammo_indicator_name",
+        ] {
+            if let Some(t) = string_of(get(cfg, key)) {
+                texts.insert(t.to_owned());
+            }
+        }
+        ensure!(!carry.target.contains(path), "{path} exists");
+        carry.config(path, cfg.clone())?;
+    }
+    let donor_dict = carry.donor_config(DICT)?.root;
+    let mut dict = parse_config(carry.target, DICT, "0.26g dictionary")?;
+    let compat = dictionary(&mut dict.root, &donor_dict, port)?;
+    carry.config(DICT, dict.root)?;
+    // Texts: the donor's own in every language; a key 0.26g has keeps its text.
     let mut localizations = vec![];
+    let mut carried_texts = BTreeMap::new();
     for lang in LANGUAGES {
         let path = format!("localization/{lang}/localization");
-        let mut loc = parse_config(&mut target, &path, "localization")?;
-        for rifle in RIFLES {
-            for (key, text) in &rifle.texts {
-                set_string(&mut loc.root, key, text.get(lang)?)?;
+        let mut loc = parse_config(carry.target, &path, "localization")?;
+        let theirs = carry.donor_config(&path)?.root;
+        let own: Vec<(&str, Text)> = port
+            .rifles
+            .iter()
+            .flat_map(|r| r.texts.iter())
+            .chain(port.ammo.iter().flat_map(|a| a.texts.iter()))
+            .copied()
+            .collect();
+        for key in &texts {
+            if crate::localization_026::string_of(&loc.root, key)?.is_some() {
+                ensure!(!own.iter().any(|(k, _)| k == key), "{key} is 0.26g's own");
+                continue;
             }
+            let text = match own.iter().find(|(k, _)| k == key) {
+                Some((_, text)) => text.get(lang)?.to_owned(),
+                None => crate::localization_026::string_of(&theirs, key)?
+                    .with_context(|| format!("the donor's {lang} localization has no {key}"))?,
+            };
+            set_string(&mut loc.root, key, &text)?;
+            carried_texts.insert(format!("{lang}:{key}"), text);
         }
         localizations.push((lang, loc.root));
     }
     let views: Vec<(&str, &V)> = localizations.iter().map(|(l, r)| (*l, r)).collect();
-    for cfg in &configs {
-        check_item_texts(cfg, &views)?;
+    for (path, cfg) in &configs {
+        if !scope_configs.contains(&path.as_str()) {
+            check_item_texts(cfg, &views)?;
+        }
     }
     for (lang, root) in localizations {
-        out.config(&format!("localization/{lang}/localization"), root)?;
+        carry.config(&format!("localization/{lang}/localization"), root)?;
     }
-    if let Some(path) = icons_swf {
-        out.raw("flash_movies/lobby_menu.swf", &fs::read(path)?)?;
+    let icons_dir = output.join("icons");
+    fs::create_dir_all(&icons_dir)?;
+    let mut icons = vec![];
+    let cells = port
+        .rifles
+        .iter()
+        .map(|r| ("LobbyMenu_WeaponIcons", r.icon, r.icon_png))
+        .chain(
+            port.ammo
+                .iter()
+                .map(|a| ("LobbyMenu_AmmoIcons", a.icon, a.icon_png)),
+        );
+    for (symbol, cell, png) in cells {
+        let name = format!("{symbol}-r{:02}c{:02}.png", cell[0], cell[1]);
+        fs::write(icons_dir.join(&name), cell_png(&carry.donor.read(png)?)?)?;
+        icons.push(json!({"symbol": symbol, "row": cell[0], "col": cell[1], "source": format!("icons/{name}"), "donor": png}));
     }
-    if work.exists() {
-        fs::remove_dir(&work).context("the encoder left files behind")?;
-    }
-    // Every reference the new files make resolves.
-    check_references(&mut target, &out)?;
-    let mut files = out.files;
+    fs::write(
+        icons_dir.join("icons.json"),
+        serde_json::to_vec_pretty(&icons)?,
+    )?;
+    let Carry {
+        mut files, reused, ..
+    } = carry;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     fs::write(
         output.join("port-manifest.json"),
         serde_json::to_vec_pretty(&json!({
             "format_version": 1,
-            "asset_id": "weapons-hk416-radon",
+            "asset_id": format!("weapons-{}", port.key),
             "files": files,
             "donor_db": donor_db,
             "target": target_layers,
-            "items": registration,
+            "items": configs.iter().map(|(p, _)| p).collect::<Vec<_>>(),
             "compatibility": compat,
-            "carried_sound_collections": carried,
-            "limitations": [
-                "Provisional statistics (owner to confirm)",
-                "Attachment modules are baked into the model; 0.26g rifles have none",
-                "0.69d per-location reverbs replaced by native rifle tails",
-                "Kill-feed icon is a native rifle's",
-            ],
+            "icons": icons,
+            "reused_from_target": reused,
+            "texts": carried_texts,
         }))?,
     )?;
     fs::write(
         output.join("equipment.json"),
         serde_json::to_vec_pretty(
-            &RIFLES
+            &port
+                .rifles
                 .iter()
                 .map(|r| json!({"dict_id": r.dict_id}))
                 .collect::<Vec<_>>(),
@@ -1509,71 +1239,11 @@ pub fn build(
     )?;
     crate::model_validation::validate_overlay_on(&mut target, &overlay)?;
     println!(
-        "Built {}: {} files",
-        RIFLES.map(|r| r.name).join(", "),
-        files.len()
+        "Built {}: {} files, {} reused from the target",
+        port.key,
+        files.len(),
+        reused.len()
     );
-    Ok(())
-}
-
-/// Every resource path the new configs name exists in the target or the
-/// overlay: models, skeletons, clips, materials, textures, sounds.
-fn check_references(target: &mut ResourceDb, out: &Out) -> Result<()> {
-    // What the native templates name is native (built-ins such as
-    // `editor/default_bump` included).
-    let mut native = BTreeSet::new();
-    for template in [CONFIG_TEMPLATE, SETTINGS_TEMPLATE, MATERIAL_TEMPLATE] {
-        let config = parse_config(target, template, "native template")?;
-        let mut strings = vec![];
-        config.root.collect_strings(&mut strings);
-        native.extend(strings.into_iter().map(str::to_owned));
-    }
-    let exists = |p: &str, target: &ResourceDb| target.contains(p) || out.has(p);
-    for path in out.written.clone() {
-        let bytes = fs::read(crate::archive::safe_join(out.overlay, &path)?)?;
-        let Ok(config) = BinaryConfig::parse(&bytes) else {
-            continue;
-        };
-        if path.starts_with("localization/") || path == DICT {
-            continue;
-        }
-        let mut strings = vec![];
-        config.root.collect_strings(&mut strings);
-        for s in strings {
-            if native.contains(s) {
-                continue;
-            }
-            let candidates: Vec<String> = if let Some(r) = s.strip_prefix("resources/animations/single/") {
-                vec![format!("animations/single/{r}.b-spline")]
-            } else if path.ends_with(".material") && s.contains('/') && !s.contains(':') {
-                vec![format!("textures/{s}.dds")]
-            } else if path.ends_with("/settings") && s.contains('/') {
-                vec![
-                    format!("material_instances/{s}.material"),
-                    format!("animations/skeletons/{s}.skeleton"),
-                    format!("{s}.skeleton"),
-                ]
-            } else if path.ends_with(".composite_sound") && s.contains('/') {
-                vec![format!("sounds/collections/{s}.sound_collection")]
-            } else if path.ends_with(".sound_collection") && s.contains('/') {
-                vec![format!("sounds/single/{s}.high.ogg")]
-            } else if path.starts_with("gameplay/items/weapons/") && s.starts_with("weapons/") {
-                vec![
-                    format!("sounds/collections/{s}.sound_collection"),
-                    format!("sounds/composite/{s}.composite_sound"),
-                    format!("sounds/single/{s}.high.ogg"),
-                    format!("animations/skeletons/{s}.skeleton"),
-                    format!("models/{s}.skinned_model/settings"),
-                ]
-            } else {
-                continue;
-            };
-            ensure!(
-                candidates.iter().any(|c| exists(c, target)),
-                "{path} names {s}, which resolves to none of {candidates:?}"
-            );
-        }
-    }
     Ok(())
 }
 

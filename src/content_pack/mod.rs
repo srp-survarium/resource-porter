@@ -854,14 +854,34 @@ impl<'a> Plan<'a> {
                 Err(error) => problems.push(format!("{error:#}")),
             }
         }
-        for ((path, symbol), edits) in &self.atlas {
-            match self.apply_atlas_edits(base, path, symbol, edits) {
-                Ok(Some(bytes)) => {
-                    resolved.files.insert(path.clone(), Content::Bytes(bytes));
-                    resolved.edited.insert(path.clone());
+        // Every atlas of a movie is drawn into one copy of it (the lobby
+        // keeps its equipment, weapon and ammo icons in one movie).
+        let movies: BTreeSet<&String> = self.atlas.keys().map(|(path, _)| path).collect();
+        for path in movies {
+            let mut swf = match self.starting_bytes(base, path).and_then(|bytes| {
+                atlas::Swf::parse(&bytes).with_context(|| format!("parsing {path}"))
+            }) {
+                Ok(swf) => swf,
+                Err(error) => {
+                    problems.push(format!("{error:#}"));
+                    continue;
                 }
-                Ok(None) => {}
-                Err(error) => problems.push(format!("{error:#}")),
+            };
+            let mut changed = false;
+            for ((_, symbol), edits) in self.atlas.iter().filter(|((p, _), _)| p == path) {
+                match self.apply_atlas_edits(&mut swf, path, symbol, edits) {
+                    Ok(drawn) => changed |= drawn,
+                    Err(error) => problems.push(format!("{error:#}")),
+                }
+            }
+            if changed {
+                match swf.to_bytes() {
+                    Ok(bytes) => {
+                        resolved.files.insert(path.clone(), Content::Bytes(bytes));
+                        resolved.edited.insert(path.clone());
+                    }
+                    Err(error) => problems.push(format!("{error:#}")),
+                }
             }
         }
         for (path, bytes) in &self.replacements {
@@ -917,15 +937,14 @@ impl<'a> Plan<'a> {
         Ok((Some(config.to_bytes()?), notes))
     }
 
+    /// Draws `edits` into `symbol`'s bitmap of `swf`; whether it changed.
     fn apply_atlas_edits(
         &self,
-        base: &mut ResourceDb,
+        swf: &mut atlas::Swf,
         path: &str,
         symbol: &str,
         edits: &[IconEdit<'a>],
-    ) -> Result<Option<Vec<u8>>> {
-        let mut swf = atlas::Swf::parse(&self.starting_bytes(base, path)?)
-            .with_context(|| format!("parsing {path}"))?;
+    ) -> Result<bool> {
         let original = swf.bitmap(symbol)?;
         let mut bitmap = original.clone();
         let mut problems = Vec::new();
@@ -971,10 +990,10 @@ impl<'a> Plan<'a> {
             bail!("{}", problems.join("\n  "));
         }
         if bitmap == original {
-            return Ok(None);
+            return Ok(false);
         }
         swf.set_bitmap(symbol, &bitmap)?;
-        Ok(Some(swf.to_bytes()?))
+        Ok(true)
     }
 }
 

@@ -161,6 +161,45 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
         builder.carry_dependencies(&mut base, build_base, &bundle_files, roots, &files_dir)?;
     }
 
+    // Icons a bundle names directly (`icons/icons.json`: symbol, row, col,
+    // source PNG with straight alpha) rather than in a whole movie: one
+    // `atlas_icons_add` per atlas.
+    let named_icons = options.bundle.join("icons").join("icons.json");
+    if named_icons.is_file() {
+        let list: Vec<Json> =
+            serde_json::from_slice(&fs::read(&named_icons)?).context("reading icons/icons.json")?;
+        let mut by_symbol: BTreeMap<String, Vec<AtlasIcon>> = BTreeMap::new();
+        for icon in list {
+            let symbol = icon["symbol"]
+                .as_str()
+                .context("icon without a symbol")?
+                .to_owned();
+            let source = icon["source"].as_str().context("icon without a source")?;
+            let row = icon["row"].as_u64().context("icon without a row")? as u32;
+            let col = icon["col"].as_u64().context("icon without a col")? as u32;
+            let bytes = fs::read(options.bundle.join(source))
+                .with_context(|| format!("reading {source}"))?;
+            atlas::read_icon_png(&options.bundle.join(source), false)
+                .with_context(|| format!("{source} is not a lobby icon"))?;
+            let name = format!("icons/{}", source.rsplit('/').next().unwrap());
+            write_file(&options.output.join(&name), &bytes)?;
+            by_symbol.entry(symbol).or_default().push(AtlasIcon {
+                row,
+                col,
+                source: name,
+                premultiplied: false,
+                replaces_sha256: None,
+            });
+        }
+        for (symbol, icons) in by_symbol {
+            builder.edits.push(Operation::AtlasIconsAdd {
+                swf: None,
+                symbol: (symbol != atlas::DEFAULT_SYMBOL).then_some(symbol),
+                icons,
+            });
+        }
+    }
+
     let mut server = Map::new();
     let equipment = options.bundle.join("equipment.json");
     if equipment.is_file() {
@@ -595,10 +634,12 @@ impl Builder {
         let changed: Vec<&str> = atlas::ICON_SYMBOLS
             .iter()
             .copied()
-            .filter(|symbol| match (base_swf.bitmap(symbol), target_swf.bitmap(symbol)) {
-                (Ok(a), Ok(b)) => a != b,
-                _ => false,
-            })
+            .filter(
+                |symbol| match (base_swf.bitmap(symbol), target_swf.bitmap(symbol)) {
+                    (Ok(a), Ok(b)) => a != b,
+                    _ => false,
+                },
+            )
             .collect();
         let symbol = match changed.as_slice() {
             [] => atlas::DEFAULT_SYMBOL,
