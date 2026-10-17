@@ -74,9 +74,9 @@ place(DATABASE, 'resources.db')
 for name in ['port-manifest.json', 'scene-summary.json']:
     place(BUNDLE/name, Path('bundle')/name)
 if VALIDATION:
-    for path in sorted(VALIDATION.iterdir()):
+    for path in sorted(VALIDATION.rglob('*')):
         if path.is_file():
-            place(path, Path('validation')/path.name)
+            place(path, Path('validation')/path.relative_to(VALIDATION))
 
 base_maps = json.loads((BASE/'maps.json').read_text())
 catalog = {
