@@ -60,7 +60,7 @@ def main():
     ap.add_argument('--runtime', type=Path, required=True); ap.add_argument('--port', type=int, required=True)
     ap.add_argument('--output', type=Path, required=True); ap.add_argument('--load-timeout', type=int, default=420)
     a = ap.parse_args()
-    if subprocess.run(['pgrep', '-f', 'survarium-capture.exe'], capture_output=True).returncode == 0:
+    if subprocess.run(['/mnt/hdd/Projects/rev18-v011-maps/porter/tools/content/clients_running.sh']).returncode == 0:
         raise SystemExit('another Survarium client is running; refusing to render')
     a.output.mkdir(parents=True, exist_ok=True)
     play = [str(a.package/'play-maps')]
