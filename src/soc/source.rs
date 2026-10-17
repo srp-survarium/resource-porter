@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 
 use super::codec::archive::SocArchiveSet;
 
@@ -356,7 +356,12 @@ fn chain_bytes(info: DdsInfo, levels: u32) -> Result<usize> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NormalPacking {
     /// X-Ray `_bump`: `deffer_impl` reads `tex.wzyx`, so X is alpha, Y blue
-    /// and Z green.
+    /// and Z green. Its Y also points the other way: against the +V binormal
+    /// the converted vertices carry (as native v0.100b and 0.26 vertices do),
+    /// every X-Ray bump's Y runs opposite to every native normal map's, so the
+    /// relief along V is lit upside down. Horizontal grooves (stair risers,
+    /// plank joints) then read as ridges whose shading slides against the
+    /// geometry as the camera moves.
     XRayBump,
     /// Plain RGB: X red, Y green, Z blue (F.E.A.R. `_n`).
     Rgb,
@@ -406,9 +411,44 @@ pub fn repack_normal_dds(bytes: &[u8], packing: NormalPacking, label: &str) -> R
             String::from_utf8_lossy(&result.stderr).trim()
         );
     }
-    let repacked = fs::read(&output)?;
+    let mut repacked = fs::read(&output)?;
     let _ = fs::remove_file(&output);
+    if packing == NormalPacking::XRayBump {
+        negate_dxt5_green(&mut repacked).with_context(|| format!("flipping the Y of {label}"))?;
+    }
     Ok(repacked)
+}
+
+/// Negate the green channel (DXT5nm Y) of every block of a DXT5 chain,
+/// losslessly: 6-bit green g becomes 63 - g, whose 8-bit expansion is exactly
+/// 255 minus that of g, and the colour palette interpolates linearly between
+/// the endpoints. A block whose endpoint order flips is swapped and its
+/// indices remapped, so it keeps its order.
+pub fn negate_dxt5_green(bytes: &mut [u8]) -> Result<()> {
+    let info = parse_dds(bytes, "normal map")?;
+    ensure!(&info.four_cc == b"DXT5", "expected a DXT5 normal map, found {:?}", info.four_cc);
+    let end = 128 + chain_bytes(info, info.mip_levels.max(1))?;
+    ensure!(bytes.len() >= end, "DDS is shorter than its mip chain");
+    for block in bytes[128..end].chunks_exact_mut(16) {
+        let colour = &mut block[8..16];
+        let flip = |c: u16| (c & !0x07e0) | ((63 - ((c >> 5) & 63)) << 5);
+        let (c0, c1) = (u16::from_le_bytes([colour[0], colour[1]]), u16::from_le_bytes([colour[2], colour[3]]));
+        let (mut n0, mut n1) = (flip(c0), flip(c1));
+        let mut indices = u32::from_le_bytes(colour[4..8].try_into().unwrap());
+        if (c0 > c1) != (n0 > n1) && n0 != n1 {
+            std::mem::swap(&mut n0, &mut n1);
+            let mut remapped = 0_u32;
+            for texel in 0..16 {
+                let index = (indices >> (2 * texel)) & 3;
+                remapped |= [1, 0, 3, 2][index as usize] << (2 * texel);
+            }
+            indices = remapped;
+        }
+        colour[0..2].copy_from_slice(&n0.to_le_bytes());
+        colour[2..4].copy_from_slice(&n1.to_le_bytes());
+        colour[4..8].copy_from_slice(&indices.to_le_bytes());
+    }
+    Ok(())
 }
 
 pub fn canonicalize_dds(bytes: &[u8], info: DdsInfo, srgb: bool) -> Result<Vec<u8>> {
@@ -500,6 +540,62 @@ mod tests {
         bytes[28..32].copy_from_slice(&mips.to_le_bytes());
         bytes[84..88].copy_from_slice(four_cc);
         bytes
+    }
+
+    #[test]
+    fn negating_dxt5_green_flips_y_exactly_and_keeps_the_rest() {
+        let expand = |g: u16| ((g << 2) | (g >> 4)) as i32;
+        let decode = |block: &[u8], texel: usize| {
+            let c0 = u16::from_le_bytes([block[8], block[9]]);
+            let c1 = u16::from_le_bytes([block[10], block[11]]);
+            let (g0, g1) = (expand((c0 >> 5) & 63), expand((c1 >> 5) & 63));
+            let (r0, r1) = (expand5((c0 >> 11) & 31), expand5((c1 >> 11) & 31));
+            let index = (u32::from_le_bytes(block[12..16].try_into().unwrap()) >> (2 * texel)) & 3;
+            let mix = |a: i32, b: i32| match index {
+                0 => a * 3,
+                1 => b * 3,
+                2 => 2 * a + b,
+                _ => a + 2 * b,
+            };
+            (mix(r0, r1), mix(g0, g1))
+        };
+        fn expand5(r: u16) -> i32 {
+            ((r << 3) | (r >> 2)) as i32
+        }
+        // Two blocks: one whose endpoint order survives the flip (red decides)
+        // and one whose order flips (equal red, green decides).
+        let mut texture = dds(8, 4, 1, b"DXT5");
+        let alpha = [200_u8, 40, 0x24, 0x49, 0x92, 0x24, 0x49, 0x92];
+        for (c0, c1) in [
+            ((20_u16 << 11) | (50 << 5) | 4, (3_u16 << 11) | (10 << 5) | 30),
+            ((5_u16 << 11) | (50 << 5) | 4, (5_u16 << 11) | (10 << 5) | 30),
+        ] {
+            texture.extend(alpha);
+            texture.extend(c0.to_le_bytes());
+            texture.extend(c1.to_le_bytes());
+            texture.extend(0xe4e4_e4e4_u32.to_le_bytes());
+        }
+        texture.push(0);
+        let before = texture.clone();
+        negate_dxt5_green(&mut texture).unwrap();
+        assert_eq!(texture[..136], before[..136], "header and X untouched");
+        assert_eq!(texture[144..152], before[144..152], "X untouched");
+        assert_eq!(texture.last(), Some(&0));
+        for block in [128, 144] {
+            let (b, a) = (&before[block..block + 16], &texture[block..block + 16]);
+            assert!(u16::from_le_bytes([a[8], a[9]]) > u16::from_le_bytes([a[10], a[11]]), "order kept");
+            for texel in 0..16 {
+                let ((red_before, green_before), (red_after, green_after)) =
+                    (decode(b, texel), decode(a, texel));
+                assert_eq!(red_after, red_before, "block {block} texel {texel}");
+                assert_eq!(green_after, 3 * 255 - green_before, "block {block} texel {texel}");
+            }
+        }
+        negate_dxt5_green(&mut texture).unwrap();
+        assert_eq!(texture, before, "an involution");
+        let mut dxt1 = dds(4, 4, 1, b"DXT1");
+        dxt1.extend([0; 8]);
+        assert!(negate_dxt5_green(&mut dxt1).is_err());
     }
 
     #[test]
