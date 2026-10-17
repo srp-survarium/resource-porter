@@ -1,0 +1,70 @@
+{
+  "name": "vostok-021d TDM ammo resupply (one crate per team in its spawn area; native level_04 resupply set)",
+  "map_id": 152,
+  "template_project": "projects/level_04/day_2/client_project",
+  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "groups": [
+    {
+      "name": "team 0 ammo crate at the team 0 spawn centroid, the middle of the east spawn room, 3.6 m from the nearest spawn point (native team1 resupply)",
+      "client_objects": [
+        "logic/vip/team1/resupply/resupply_zone",
+        "logic/vip/team1/resupply/resupply_collision",
+        "logic/vip/team1/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        -38.216,
+        1.937,
+        28.819
+      ],
+      "radius": 1.5,
+      "team": 0,
+      "rename": {
+        "logic/vip/team1/": "logic/fill/team1/"
+      },
+      "to": {
+        "position": [
+          -37.13,
+          0.875,
+          -99.54
+        ],
+        "yaw": -1.5421,
+        "pitch": -0.0334,
+        "roll": -0.0364
+      }
+    },
+    {
+      "name": "team 1 ammo crate at the team 1 spawn centroid, against the room's south wall, 1.8 m from the nearest spawn point (native team2 resupply)",
+      "client_objects": [
+        "logic/vip/team2/resupply/resupply_zone",
+        "logic/vip/team2/resupply/resupply_collision",
+        "logic/vip/team2/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        64.691,
+        3.601,
+        46.992
+      ],
+      "radius": 1.5,
+      "team": 1,
+      "rename": {
+        "logic/vip/team2/": "logic/fill/team2/"
+      },
+      "to": {
+        "position": [
+          78.09,
+          0.91,
+          5.27
+        ],
+        "yaw": 0.614,
+        "pitch": 0.0107,
+        "roll": -0.0086
+      }
+    }
+  ]
+}

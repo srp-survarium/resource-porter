@@ -1,0 +1,14 @@
+{
+ "vostok-021d-resupply": {"name": "vostok-021d ammo resupply (one crate per team beside its battery container; native level_04 resupply set)", "map_id": 166, "crates": [
+  {"team": 0, "position": [-23.572, 0.51, -71.9], "yaw": 1.5708, "why": "team 0 ammo crate 2.6 m north of the team 0 container in the hangar aisle, in line with it (long axis along the aisle), so both lanes beside it stay as wide as beside the container; clear of the pillar to its north-east (native team1 resupply: zone, collision, ammo decal, container_closed)"},
+  {"team": 1, "position": [38.021, 0.445, 4.993], "yaw": 3.1416, "why": "team 1 ammo crate 2.4 m north of the team 1 container in the open yard, long axis east-west (native team2 resupply)"}]},
+ "vostok-021d-tdm-resupply": {"name": "vostok-021d TDM ammo resupply (one crate per team in its spawn area; native level_04 resupply set)", "map_id": 152, "crates": [
+  {"team": 0, "position": [-37.13, 0.875, -99.54], "yaw": 0.0, "why": "team 0 ammo crate at the team 0 spawn centroid, the middle of the east spawn room, 3.6 m from the nearest spawn point (native team1 resupply)"},
+  {"team": 1, "position": [78.09, 0.91, 5.27], "yaw": 0.0, "why": "team 1 ammo crate at the team 1 spawn centroid, against the room's south wall, 1.8 m from the nearest spawn point (native team2 resupply)"}]},
+ "mamayev-021d-resupply": {"name": "mamayev-021d ammo resupply (one crate per team beside its battery container; native level_04 resupply set)", "map_id": 175, "crates": [
+  {"team": 0, "position": [-10.78, 22.026, 91.071], "yaw": 2.0944, "slope_x": 0.0715, "slope_z": 0.0157, "why": "team 0 ammo crate 3.2 m north-east of the team 0 container on the open slope, tilted to the ground (native team1 resupply)"},
+  {"team": 1, "position": [84.288, 22.987, 101.833], "yaw": 2.0944, "slope_x": 0.033, "slope_z": -0.1288, "why": "team 1 ammo crate 2.4 m north-east of the team 1 container on the open slope, tilted to the ground (native team2 resupply)"}]},
+ "mamayev-021d-tdm-resupply": {"name": "mamayev-021d TDM ammo resupply (one crate per team in its spawn area; native level_04 resupply set)", "map_id": 153, "crates": [
+  {"team": 0, "position": [-47.24, 17.786, 70.55], "yaw": 0.0, "slope_x": -0.0563, "slope_z": -0.0127, "why": "team 0 ammo crate at the north end of the team 0 spawn trench (the area is two packed rows of points), 1.4 m from the nearest point, tilted to the ground (native team1 resupply)"},
+  {"team": 1, "position": [107.64, 22.876, 133.88], "yaw": 0.0, "slope_x": -0.0428, "slope_z": -0.0336, "why": "team 1 ammo crate at the team 1 spawn centroid, 1.8 m from the nearest point, tilted to the ground (native team2 resupply)"}]}
+}

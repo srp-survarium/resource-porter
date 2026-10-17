@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "projects/v021d_level_03/day_2/client_project": [{"op": "fill", "pack": "ports/gameplay-fill/vostok-021d-resupply.json"}],
+    "projects/v021d_level_03/day_4/client_project": [{"op": "fill", "pack": "ports/gameplay-fill/vostok-021d-tdm-resupply.json"}],
+    "projects/v021d_level_06/day_2/client_project": [{"op": "fill", "pack": "ports/gameplay-fill/mamayev-021d-resupply.json"}],
+    "projects/v021d_level_06/day_4/client_project": [{"op": "fill", "pack": "ports/gameplay-fill/mamayev-021d-tdm-resupply.json"}]
+  }
+}

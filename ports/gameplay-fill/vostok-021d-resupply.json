@@ -1,0 +1,70 @@
+{
+  "name": "vostok-021d ammo resupply (one crate per team beside its battery container; native level_04 resupply set)",
+  "map_id": 166,
+  "template_project": "projects/level_04/day_2/client_project",
+  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "groups": [
+    {
+      "name": "team 0 ammo crate 2.6 m north of the team 0 container in the hangar aisle, in line with it (long axis along the aisle), so both lanes beside it stay as wide as beside the container; clear of the pillar to its north-east (native team1 resupply: zone, collision, ammo decal, container_closed)",
+      "client_objects": [
+        "logic/vip/team1/resupply/resupply_zone",
+        "logic/vip/team1/resupply/resupply_collision",
+        "logic/vip/team1/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        -38.216,
+        1.937,
+        28.819
+      ],
+      "radius": 1.5,
+      "team": 0,
+      "rename": {
+        "logic/vip/team1/": "logic/fill/team1/"
+      },
+      "to": {
+        "position": [
+          -23.572,
+          0.51,
+          -71.9
+        ],
+        "yaw": 0.0286,
+        "pitch": 0.003,
+        "roll": -0.001
+      }
+    },
+    {
+      "name": "team 1 ammo crate 2.4 m north of the team 1 container in the open yard, long axis east-west (native team2 resupply)",
+      "client_objects": [
+        "logic/vip/team2/resupply/resupply_zone",
+        "logic/vip/team2/resupply/resupply_collision",
+        "logic/vip/team2/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        64.691,
+        3.601,
+        46.992
+      ],
+      "radius": 1.5,
+      "team": 1,
+      "rename": {
+        "logic/vip/team2/": "logic/fill/team2/"
+      },
+      "to": {
+        "position": [
+          38.021,
+          0.445,
+          4.993
+        ],
+        "yaw": -0.614,
+        "pitch": -3.1309,
+        "roll": -3.133
+      }
+    }
+  ]
+}
