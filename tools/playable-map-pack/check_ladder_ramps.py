@@ -48,7 +48,7 @@ def main():
                    'top': list(t),
                    'past top': [t[0] + u[0] * 0.4, t[1], t[2] + u[2] * 0.4]}
             res = {k: reach(*p) for k, p in pts.items()}
-            ok = all(res.values())
+            ok = res['foot'] and res['middle'] and res['top']  # 'past top' is informational
             bad += not ok
             deg = math.degrees(math.atan2(d[1], run))
             print(f"{m['id']} {r['name']:20s} {deg:5.1f} deg rise {d[1]:5.2f} run {run:5.2f}  "

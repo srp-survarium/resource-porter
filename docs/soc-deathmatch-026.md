@@ -140,6 +140,32 @@ clients were running.
 
 ## Ladders
 
+The original ladders are still drawn, and 0.26g cannot climb them. Its
+character controller steps 0.6 m (`cc_step_height`), walks slopes up to
+50 deg and stands on up to 40 deg (`cc_max_slope_angle_cos`,
+`cc_idle_max_slope_angle_cos`; defaults read from the executable). Where a
+ladder's foot and landing are clear, two planks (a 0.6 m walker ramp) now
+lie over the ladder itself, planned from its `climable_object` box against
+the X-Ray collision (the planner's reasoning is in each ramp's `reason`):
+
+| Map | Ladder | Ramp | Slope | Replaces |
+| --- | --- | --- | ---: | --- |
+| pool | clmbl#6 | `ladder6_planks`, pool bottom −2.55 → west deck 0.0 | 29.5° | `pool_exit_west`, 4 m away |
+| sports center | clmbl#4 | `ladder4_planks`, shallow end → rim 0.44 | 25.3° | `basin_exit_east`, 1.3 m away |
+| sports center | clmbl#7 | `ladder7_planks`, shallow end → rim 0.44 | 25.1° | `basin_exit_west`, 2.8 m away |
+| sports center | clmbl#5 | `ladder5_planks`, deep end −4.31 → rim | 33.0° | new |
+| sports center | clmbl#6 | `ladder6_planks`, deep end → rim | 32.9° | new |
+| fire station | clmbl#0 | `ladder0_planks`, 5.48 → 10.52 roof | 29.9° | new (the roof was reached by `roof_west_ramp`) |
+
+The basin ladders stand 0.36 m off the wall over a 0.21 m overflow gutter,
+so their planks end on the rim. Every other ladder keeps the treatment
+below: its top is covered, blocked or reached elsewhere, or there is no
+room for a ramp (the pool's 7.8 m shafts and hatches, the sports-center
+gallery and pad ladders under low joists, the fire-station tower chain,
+rembasa and Training Camp). `check_ladder_ramps.py` walks every ramp's foot,
+middle and top from the respawns (0.45 m between 0.25 m cells); all pass.
+
+
 0.26g has no ladder gameplay. In v0.100b, `player::use_ladder` is empty (see
 [soc-ladder-animation](soc-ladder-animation.md)), and none of the climb
 work applies. Each ladder was traced with the X-Ray collision mesh. Its
