@@ -1922,6 +1922,45 @@ fn emit(
     Ok(())
 }
 
+/// Remove from a converted material every render stage (`common.stages.<name>`
+/// and its `<name>` section) that the source material lacks. A generated X-Ray
+/// glow or light ray is cloned from the v0.100b tracer, which is forward only;
+/// its 0.26 namesake adds a distortion stage (fx/pfx/distort_09), and that pass
+/// refracts the wall behind every light-ray box into banded, cut-out contours.
+/// Dropping a pass requests no new shader variant. Returns the dropped names.
+fn drop_template_only_stages(converted: &mut Vec<u8>, source: &[u8]) -> Result<Vec<String>> {
+    let stages = |c: &ConfigValue| -> Vec<String> {
+        match c.named("material").and_then(|m| m.named("common")).and_then(|m| m.named("stages")) {
+            Some(ConfigValue::Named(fields)) => fields.iter().map(|f| f.name.clone()).collect(),
+            _ => Vec::new(),
+        }
+    };
+    let source = BinaryConfig::parse(source)?.root;
+    let mut config = BinaryConfig::parse(converted)?;
+    let keep = stages(&source);
+    if keep.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dropped: Vec<String> = stages(&config.root).into_iter().filter(|s| !keep.contains(s)).collect();
+    if dropped.is_empty() {
+        return Ok(dropped);
+    }
+    let Some(ConfigValue::Named(material)) = config.root.named_mut("material") else {
+        bail!("converted material has no material section");
+    };
+    material.retain(|f| !dropped.contains(&f.name));
+    let Some(ConfigValue::Named(common)) = material.iter_mut().find(|f| f.name == "common").map(|f| &mut f.value) else {
+        bail!("converted material has no common section");
+    };
+    let Some(ConfigValue::Named(stage_list)) = common.iter_mut().find(|f| f.name == "stages").map(|f| &mut f.value) else {
+        bail!("converted material has no stage list");
+    };
+    stage_list.retain(|f| !dropped.contains(&f.name));
+    ensure!(!stage_list.is_empty(), "dropping template-only stages left no stage");
+    *converted = config.to_bytes()?;
+    Ok(dropped)
+}
+
 /// Native School geometry with School's overcast lighting and Rudnya's fog class.
 pub fn build_native_fog(target_path: &Path, output: &Path) -> Result<()> {
     const HASH: &str = "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c";
@@ -2605,10 +2644,21 @@ pub fn build(
                 .or_else(|| {
                     (!m.source_build.early() && target.is_file(path)).then_some(path.as_str())
                 });
+            let source_bytes = bytes.clone();
             let converted = catalog
                 .convert(path, &bytes, explicit, &donor, &target)
                 .with_context(|| format!("converting {path}"))?;
             bytes = converted.bytes;
+            if m.source_build.early() && path.starts_with("material_instances/ported/") {
+                let dropped = drop_template_only_stages(&mut bytes, &source_bytes)
+                    .with_context(|| format!("matching the render stages of {path}"))?;
+                if !dropped.is_empty() {
+                    compatibility_notes.push(format!(
+                        "{path}: render stages the source material does not have dropped ({}): the 0.26 template's distortion pass bends the scene behind X-Ray light rays and glows into banded contours",
+                        dropped.join(", ")
+                    ));
+                }
+            }
             for note in &converted.switch_notes {
                 null_texture_used |= note.contains("bound to the all-zero texture");
                 compatibility_notes.push(format!("{path}: {note}"));
@@ -2984,6 +3034,23 @@ mod tests {
                 .collect(),
         )
     }
+    #[test]
+    fn template_only_stages_are_dropped() {
+        let named = |fields: Vec<(&str, ConfigValue)>| {
+            ConfigValue::Named(fields.into_iter().map(|(n, v)| NamedValue { name: n.into(), value: v }).collect())
+        };
+        let material = |stages: &[&str]| {
+            let mut sections: Vec<(&str, ConfigValue)> = stages.iter().map(|s| (*s, named(vec![]))).collect();
+            sections.push(("common", named(vec![("stages", named(stages.iter().map(|s| (*s, ConfigValue::Integer(1))).collect()))])));
+            BinaryConfig { root: named(vec![("material", named(sections))]) }.to_bytes().unwrap()
+        };
+        let source = material(&["forward"]);
+        let mut converted = material(&["distortion", "forward"]);
+        assert_eq!(drop_template_only_stages(&mut converted, &source).unwrap(), vec!["distortion".to_string()]);
+        assert_eq!(converted, material(&["forward"]));
+        assert!(drop_template_only_stages(&mut converted, &source).unwrap().is_empty());
+    }
+
     #[test]
     fn imported_project_retains_hud_key_without_losing_resource_namespace() {
         let occluder = named(vec![
