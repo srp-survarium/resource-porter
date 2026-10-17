@@ -1,47 +1,133 @@
 # Duty exoskeleton for v0.26g
 
-The current v13 build is **one complete inventory item**, dictionary ID 1805.
-The user chose a single suit after reviewing separate helmet/mask prototypes.
-The original combined head geometry is restored, with no positional adjustment,
-and the native head is hidden. The split preview items are retired.
+The v19 build is a **set of four items**, like the native level 15
+exoskeleton sets (Zubr UM-4, Pilgrim): 0.26g has no set ID or set bonus,
+so a set is separate items of one faction and level. The gloves and boots
+are not part of the exoskeleton (owner, 2026-10-17): they are pieces of
+their own, as Zubr UM-4's are.
 
-The item uses the native Zubr `data.additional_models` and
-`data.additional_model_slots` mechanism to cover every armor slot. Its real
-slot is **back (3)**; helmet, mask, torso, trousers, gloves and boots show the
-same item as disabled linked cells. This choice preserves native oxygen
-activation: `player.cpp` calls `inventory.action(back_slot, true)`. There is
-one inventory instance, one weight contribution and one set of bonuses.
-Remove the suit through its active back slot.
+| Item | ID | Slot | Covers (linked cells) | Model | Icon |
+| --- | --- | --- | --- | --- | --- |
+| Duty exoskeleton | 1805 | torso (2), category 3 | back, legs | torso, frame, back unit, legs | [1, 6] |
+| Duty exoskeleton helmet | 1800 | helmet (0), category 1 | mask | the original combined helmet and mask | [3, 6] |
+| Duty gloves | 1803 | gloves (5), category 6 | — | the hands, with their first-person model | [6, 6] |
+| Duty boots | 1804 | boots (6), category 7 | — | the boots | [7, 6] |
+
+The gloves carry `base_model_hud`/`part_name_hud` as native gloves do: the
+cook draws the first-person hands from the gloves slot. They name
+`model_type` `data_full` (the long sleeves the STK2 hands were made for);
+the boots keep their template's `data_long`. 1803 and 1804 are inside
+Duty's range (1800–1806, the old split's gloves and boots ids) and free in
+stock and patches 12 and 14.
+
+Profile slots are helmet 0, mask 1, torso 2, back 3, legs 4, gloves 5 and
+boots 6. Each piece lists its covered slots in `data.additional_model_slots`,
+the mechanism Zubr's and Pilgrim's helmets use for the mask. The client maps
+those names through the table at 0xA79870 (`back` is 3). srp reads the same
+list (`item_params::covered_slots`): equipping a piece takes off what it
+covers; equipping a covered slot's item takes the piece off. The two pieces
+cover disjoint slots, so they are worn together.
+
+Up to v15 the suit was one item in the **back** slot (category 4, cloned from
+`ren_back_1`) covering the other six slots. Players saw it as a backpack.
+The reason was oxygen: 0.100b's `player.cpp` activates oxygen with
+`inventory.action(back_slot, true)`. 0.26g does not. Its quick-bar keys
+(`0x4000 << n`, n = 0..5) act on the n-th usable item found by 0x2FE7F0.
+That function walks quick slots 13 to 18, then armour slots 3, 0, 1, 2, 4, 5
+and 6 (table 0x925FD8; caller 0x2D8D88). The body keeps native oxygen data
+(`data.type = 1`, an `oxygen_tank`; `amount_time_sec = 30`; `influences`
+from `scavenger_oxygen_1`), so its oxygen is found in the torso slot.
+Armour (`hit_params`) and weight are read per worn item, not per slot.
+Oxygen in a toxic area has not been playtested. `data.type` only chooses
+the usable object `items_cook` makes of the item (1 an `oxygen_tank`, 4
+none); the skin cook below never reads it.
+
+### How the client draws the body (v17)
+
+0.26g's `profile_skin_visual_cook::on_configs_loaded` (0x204560) walks the
+slots in the order of 0xA79870: gloves, torso, boots, pants, helmet, mask,
+back. A slot another worn item covers is skipped whole (0x204a35). For the
+torso it reads the table the gloves' `data.model_type` names
+(`data_full`, `data_long` or `data_short`, the sleeve variants), `data` while
+no gloves were read (0x20470b), and for the pants the boots' likewise.
+Wherever a part's table has `base_model_hud` and `part_name_hud`, the cook
+draws that model in place of `base_model` (0x205336), as it does for every
+native gloves item; additional models follow the same rule (0x205546).
+
+Up to v16 the body's `data` carried the hands' `base_model_hud`, left from
+the one-item suit (whose base model went to the head part through
+`remove_head_model`, 0x2051cb, so it was never replaced). In the torso slot
+the hud hands took the suit's place: the user saw the helmet, the frame,
+the back unit, the legs, boots and gloves, but no jacket or sleeves. Since
+v17 the hud pair is on the hands' additional model, as on native gloves,
+and the body has all three sleeve tables, each the whole suit, for a gloves
+item whose `model_type` picks one (the body covers the gloves, so the cook
+reads `data`).
+
+The helmet is the v10 split helmet: same ID, config path, internal name and
+name string, and the original combined head surface (byte-identical to
+v10/v13), with `remove_head_model`. Unlike v10, it also covers the mask
+slot. Zubr's `additional_models` balaclava head is not used: the Duty head
+covers the face. The body does not hide the native head.
+
+Accounts saved with the v15 suit in the back slot lose it from that slot at
+load (srp `Account::repair`: the item no longer fits slot 3). It stays in
+the inventory and is re-equipped in the torso slot.
 
 ## Statistics
 
-| Property | Value |
-| --- | --- |
-| Weight | 27 kg |
-| Body armor | 80 |
-| Head/face armor | 65 |
-| Isolation | 70 |
-| Carry capacity | +35 kg; 65 kg total before skills |
-| Movement speed | +5% |
-| Energy costs | -5% |
-| Item pockets | +2; 3 total before skills |
-| Ammo bags | +1; 4 total before skills |
-| Pocket capacity | +1 |
-| Artifact slots | +1 |
-| Oxygen | 30 seconds |
+| Property | Body | Helmet | Gloves | Boots | Set |
+| --- | --- | --- | --- | --- | --- |
+| Weight | 26.4 kg | 5 kg | 0.6 kg | 3 kg | 35 kg |
+| Armour (ballistic) | 87 (front, back, forearms, hips) | 72 (brain, face) | 87 (arms) | 87 (feet) | |
+| Isolation | 70 | 70 | 70 | 70 | |
+| Price | 172 500 | 75 000 | 26 250 | 26 250 | 300 000 |
+| Drop weight | 10 | 10 | 10 | 10 | |
+| Oxygen | 30 seconds | | | | |
+| Default modifiers | 1030, 1050, 1170, 1040 | none | none | none | |
 
-Default modifiers are 1031, 1050, 1170, 1040, 1114 and 1165. Modifier 1165 is
-an additive default-only -5% energy variant cloned from native 1162; its drop
-weight is zero. The armor and isolation values are written to the union of
-12 native hit regions, once per region. All previous standalone part bonuses
-are aggregated once, including the trousers' ammo bag. Purchase cost is the
-sum of the six earlier pieces' costs.
+The gloves and boots weigh and cost what Zubr UM-4's do, drop as theirs
+(10), and have no modifications, as theirs; the body is the rest of the
+owner's set totals.
 
-The oxygen config retains native `data.type = 1`, `amount_time_sec = 30` and
-`influences` from `scavenger_oxygen_1`, alongside the displayed capacity.
-Oxygen depletion in a toxic area and multiplayer combat balance have not yet
-been playtested. Camouflage and decals remain disabled: imported textures
-have no customization masks.
+The set keeps the v15 suit's totals: weight, price, armour per region,
+isolation, modifiers and oxygen. The split follows the native sets. The
+helmet costs the average of the Zubr and Pilgrim helmets (77 500 and
+72 500). Its weight is between their 6 and 5 kg. The modifiers add a pocket,
+an ammo bag, pocket capacity and an artefact slot. They sit on the body, as
+native torso modifiers do. Each of the player's 12 hit regions
+(`base_character_full` `hit_targets`) is protected once, on one piece, with
+all seven hit types, as the native pieces split them: the helmet brain and
+face, the gloves both arms, the boots both feet, and the body the native
+torso's and trousers' regions (front, back, both forearms and hips), all at
+the set's armour. The build stops if a region is left out or protected
+twice (`check_coverage`). Every piece has Renaissance faction, item and
+matchmaking level 15. Since v18 all drop from matches (owner, 2026-10-16).
+Every piece drops as the native piece of its tier it is made from: its
+template's `drop_weight`, Zubr UM-4's and Pilgrim's 10. The body, which no
+longer covers the gloves and boots, drops as the native torso (owner,
+2026-10-17; before the split it had half). srp's roll (`v026g::drops`) takes
+a category group, a category of it evenly, an item level from the match
+level's row, then an item of that category and level by weight, so each
+piece shares its category's level-15 roll with Zubr's and Pilgrim's piece:
+each of the four level-15 torsos (or helmets, gloves, boots) gets 10/40 of
+it (a native one had 10/20 before these sets). In a generic match drop that
+is 0.10 (armour) x 1/7 (the category) x the row's level-15 share (10 % at
+match level 15, 50 % at 20) x 1/4: 0.036 % to 0.18 % per match for each
+piece, native or not. 0.26g has no way for
+a player to throw an item away; "droppable" is the match drop.
+Camouflage and decals remain disabled: imported textures have no
+customization masks.
+
+## Icons and gallery
+
+The lobby atlas gains a sixth column. The body is cell [1, 6], the Bandit
+balaclava [2, 6] and the helmet [3, 6]. Both icons reuse earlier renders
+(`--icon`). The body uses `.work/duty-026/thumbnails-v7/torso.png`, the
+torso without legs, frame or back unit. The helmet uses
+`thumbnails-v7/helmet.png` of the combined head. Bundle v10 used these
+icons. `--gallery DIR` also renders `body-without-helmet.png`, `helmet.png`
+and `full-set.png`.
 
 ## Inputs and conversion
 
@@ -68,24 +154,30 @@ cleanup; the retained v10 baseline replaces it for this update.
 * v0.26g DDS headers require both `DDSD_PITCH` and `DDSD_LINEARSIZE`; the size
   includes the trailing color-space byte. Head/legs use their own textures,
   boots use the leg atlas, and hands use the torso atlas.
-* Approved matte materials retain specular multiplier 0.025, Fresnel 0.008
-  and roughness 0.98. Identical installed materials are reused by updates.
+* Materials keep the native template's shader permutation with a constant
+  finish (`outfit_026::Finish`): `constant_roughness` is gloss in 0.26g (the
+  G-buffer stores one minus it as smoothness), so the suit, legs and patch
+  take stock cloth's 0.1 (Fresnel 0.03) and the helmet and frame stock
+  exo armour's 0.12 (Fresnel 0.12), specular colour 1. The earlier 0.98
+  (with Fresnel 0.008, specular 0.025) was a mirror: on high and ultra
+  lighting quality it showed a sheen with sliding glints. Identical
+  installed materials are reused by updates.
 * Existing Duty IDs may be replaced only when their config path and internal
-  name match. The builder removes old split-item dictionary entries 1800–1806
-  and installs the complete suit at 1805. Existing matching modifier/localized
-  strings are reusable; conflicting definitions fail closed.
-* The complete-suit thumbnail uses the actual textured geometry. It occupies
-  row 1, column 6 of the native Flash atlas. Every original atlas pixel and
-  every other SWF tag is preserved.
+  name match an earlier Duty row (`check_reused_id`): a split preview item
+  1800–1806, the v13–v15 back-slot suit, or a piece of this set. The builder
+  removes those rows and installs the body at 1805 and the helmet at 1800.
+  Existing matching modifier/localized strings are reusable; conflicting
+  definitions fail closed.
+* Every original atlas pixel and every other SWF tag is preserved.
 
 ## Rebuild
 
-ImageMagick must be on PATH. The renderer also needs NumPy and Pillow.
+The renderer needs NumPy and Pillow.
 Use new output directories rather than overwriting a running client's database.
 
 ```sh
-cargo build --locked --example build-duty-026
-target/debug/examples/build-duty-026 \
+cargo build --release --locked --example build-duty-026
+target/release/examples/build-duty-026 \
   --source-root "$HOME/Downloads/___surva_char" \
   --texture-dir .work/duty-026-inputs/resources/sources/textures/character/human/dolg \
   --target-db .work/duty-026/resources-v10-base.db \
@@ -94,57 +186,47 @@ python3 scripts/render-duty-026-icons.py \
   --bundle .work/duty-026/new-geometry \
   --textures .work/duty-026-inputs/resources/sources/textures/character/human/dolg \
   --lobby-swf .work/duty-026/lobby-mod.swf \
+  --icon body=.work/duty-026/thumbnails-v7/torso.png \
+  --icon helmet=.work/duty-026/thumbnails-v7/helmet.png \
+  --gallery .work/duty-026/new-gallery \
   --output .work/duty-026/new-thumbnails
 # Repeat the builder with a new output and:
 # --icons-swf .work/duty-026/new-thumbnails/lobby_menu.swf
-vostok-port apply \
-  --base-db .work/duty-026/resources-v10-base.db \
-  --bundle .work/duty-026/bundle-v13 \
-  --output-db .work/duty-026/new-resources.db
-vostok-port verify --db .work/duty-026/new-resources.db \
-  --bundle .work/duty-026/bundle-v13
+vostok-port pack from-bundle \
+  --base-db <0.26g>/game/resources.db \
+  --build-base-db .work/duty-026/resources-v10-base.db \
+  --bundle <bundle> --output <pack> --id duty-exo --version <n>
 ```
 
-The v13 update bundle has 72 resources. A fresh retail-targeted build also
-emits the five materials; map retention depends on the chosen baseline.
+The bundle has 72 resources. The pack has 69 `add_file` operations,
+including the five materials it carries from the build base, plus two atlas
+icons, two dictionary rows and four strings. It composes over the stock
+database (with the Bandit pack), not over an earlier patch holding 1805.
 
 ## Local server
 
 ```sh
 python3 scripts/prepare-duty-026-lobby.py \
   --srp-root ../skhid-srp/srp-026g \
-  --bundle .work/duty-026/bundle-v13 \
+  --bundle <bundle> \
   --output .work/duty-026/new-lobby-server
-cargo build --offline --manifest-path .work/duty-026/new-lobby-server/Cargo.toml \
-  -p srp --bin srp
 ```
 
-The staged server embeds the dictionary, item parameters and modifiers. New
-local accounts receive one equipped suit, stock armor, three artifacts, all
-120 native decals, and 5,000 gold. Decals are for compatible stock armor.
-`SRP_DB=off` makes preview accounts ephemeral; bind every service to localhost.
-Keep `SRP_TUTORIAL=on`: the account constructor marks the tutorial skipped so
-native Equipment controls remain enabled.
-
-The server enforces linked slots: equipping the suit clears the six covered
-armor slots; equipping a standalone armor piece removes the suit. The generated
-`duty_compound_suit_moves_as_one_item` test checks replacement through each
-covered slot, re-equipping, complete removal and unchanged aggregate weight.
-The direct-match staging script also equips only item 1805 and clears other
-armor slots. Upstream server checkouts are untouched.
+Both staging scripts predate srp's data-driven equipment and need review
+against current srp. srp itself needs no Duty-specific code: the shop,
+slots and covered slots come from the dictionary row (`item_category`,
+`base_cost`) and the item configs (`faction`, `item_level`,
+`data.additional_model_slots`). The direct-match staging script equips
+1805 in the torso slot and 1800 in the helmet slot.
 
 ## Validation
 
-All 72 emitted resources passed packed verification; four focused porter tests
-and the staged server's compound-suit relocation test pass.
-Database SHA-256:
-`7ee132d65d2f8258ad5c9a0dc7b76abb03d338276f93801a1d9759cc66069ce5`.
-The active client database is `.work/duty-026/resources.db`.
+Builder tests: `duty_body_is_torso_armour_and_keeps_its_oxygen`,
+`duty_helmet_covers_the_mask_like_zubrs`,
+`duty_set_splits_the_suit_without_overlap` and
+`only_earlier_duty_rows_are_replaced`. The set has not yet been seen in
+the lobby or a match. Check there that the back, legs, gloves, boots and
+mask cells are locked, and that oxygen is on the quick bar.
 
-Native lobby renders the whole suit and shows the same item in all seven armor
-cells, with weight 28.30 / 65 kg including starter pistol/ammunition. The head
-uses its complete original mask/helmet appearance and no exposed base face.
-
-Removing the suit through Gear clears all seven cells, restores the native
-base outfit, and reduces weight to 1.30 / 30 kg. Screenshots:
+Earlier, v13 (one item in the back slot) was checked in the native lobby:
 `.work/duty-026/duty-v13-equipped.png` and `duty-v13-removed.png`.

@@ -9,6 +9,7 @@ pub mod content_pack;
 pub mod dependency;
 pub mod duty_026;
 pub mod lilith;
+pub mod localization_026;
 pub mod manifest;
 pub mod map_compare;
 pub mod map_port;
