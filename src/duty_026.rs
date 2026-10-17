@@ -20,9 +20,6 @@ const BASE: &str = "models/character/human/base/base_character_boot.skinned_mode
 const DICT: &str = "gameplay/db_static_dictionaries";
 const MATERIAL: &str =
     "material_instances/characters/human/renesanse_tank/renesanse_tank_torso.material";
-/// A body drops this many times less often than the native torso it is
-/// made from: it is a whole set in one item.
-const BODY_DROP_DIVISOR: i32 = 2;
 /// A torso's sleeve variants, which a gloves item's `data.model_type` picks.
 const TORSO_TABLES: [&str; 3] = ["data_full", "data_long", "data_short"];
 /// The player's hit volumes; their `hit_param`s are every region a hit lands on.
@@ -1006,28 +1003,18 @@ fn set_items<'v>(
             cfg.set_path(&format!("parameters.{key}"), V::Integer(15))?;
         }
         cfg.set_path("parameters.max_carried_weight_modifier", V::Integer(0))?;
-        // Drops (owner, 2026-10-16/17): the helmet, gloves and boots as the
-        // native pieces of their tier (their templates' weight, Zubr UM-4's
-        // and Pilgrim's 10); the body, a torso and trousers in one item,
-        // half as often as the native torso it is made from
-        // (`BODY_DROP_DIVISOR`). srp rolls a category, an item level, then an
-        // item of that category and level by weight: each piece shares its
-        // category's level-15 roll.
-        let native = match template
+        // Drops (owner, 2026-10-17): every piece as the native piece of its
+        // tier it is made from (its template's weight, Zubr UM-4's and
+        // Pilgrim's 10; the body no longer covers the gloves and boots, so it
+        // drops as the native torso). srp rolls a category, an item level,
+        // then an item of that category and level by weight: each piece
+        // shares its category's level-15 roll.
+        let drop_weight = match template
             .named("parameters")
             .and_then(|p| p.named("drop_weight"))
         {
             Some(V::Integer(weight)) if *weight > 0 => *weight,
             other => bail!("native {} drops with weight {other:?}", piece.template),
-        };
-        let drop_weight = if body {
-            ensure!(
-                native % BODY_DROP_DIVISOR == 0,
-                "native torso weight {native} does not halve"
-            );
-            native / BODY_DROP_DIVISOR
-        } else {
-            native
         };
         cfg.set_path("parameters.drop_weight", V::Integer(drop_weight))?;
         // Imported textures have no customization masks.
@@ -1899,17 +1886,17 @@ mod tests {
         // The gloves and boots weigh and cost Zubr UM-4's.
         assert_eq!((set[2].0.weight, cost(&set[2].1)), (0.6, 26_250));
         assert_eq!((set[3].0.weight, cost(&set[3].1)), (3.0, 26_250));
-        // The helmet drops as the native helmet it is made from (the
-        // fixture's 10, Zubr UM-4's and Pilgrim's); the body, a torso and
-        // trousers in one item, half as often as the native torso (5 of 10).
+        // Every piece drops as the native piece it is made from (the
+        // fixture's 10, Zubr UM-4's and Pilgrim's), the body as the torso.
         let drop = |cfg: &V| {
             cfg.named("parameters")
                 .unwrap()
                 .named("drop_weight")
                 .cloned()
         };
-        assert_eq!(drop(&body.2), Some(V::Integer(5)));
-        assert_eq!(drop(&head.2), Some(V::Integer(10)));
+        for (_, _, cfg) in &set {
+            assert_eq!(drop(cfg), Some(V::Integer(10)));
+        }
         for (_, _, cfg) in &set {
             let p = cfg.named("parameters").unwrap();
             assert_eq!(p.named("item_level"), Some(&V::Integer(15)));
@@ -1999,7 +1986,7 @@ mod tests {
         assert_eq!(param(&head.2, "armor"), Some(V::Float(0.70)));
         assert_eq!(param(&body.2, "ano_armor"), Some(V::Float(0.80)));
         assert_eq!(param(&head.2, "ano_armor"), Some(V::Float(0.80)));
-        assert_eq!(param(&body.2, "drop_weight"), Some(V::Integer(5)));
+        assert_eq!(param(&body.2, "drop_weight"), Some(V::Integer(10)));
         assert_eq!(param(&head.2, "drop_weight"), Some(V::Integer(10)));
         assert_eq!(param(&body.2, "item_level"), Some(V::Integer(15)));
         assert_eq!(
@@ -2279,20 +2266,25 @@ mod tests {
     }
 
     #[test]
-    fn a_piece_whose_native_tier_never_drops_or_does_not_halve_is_refused() {
+    fn each_piece_drops_as_its_native_template_which_must_drop() {
         let mut natives = natives();
         natives.templates[1]
             .1
             .set_path("parameters.drop_weight", V::Integer(0))
             .unwrap();
         assert!(set_items(&DUTY, &natives, false).is_err());
-        // A native torso of an odd weight: the body's half is not whole.
-        let mut odd = super::tests::natives();
-        odd.templates[0]
+        // The body takes its torso template's weight whatever it is: no
+        // halving any more (owner, 2026-10-17).
+        let mut torso = super::tests::natives();
+        torso.templates[0]
             .1
             .set_path("parameters.drop_weight", V::Integer(7))
             .unwrap();
-        assert!(set_items(&DUTY, &odd, false).is_err());
+        let set = set_items(&DUTY, &torso, false).unwrap();
+        assert_eq!(
+            set[0].2.named("parameters").unwrap().named("drop_weight"),
+            Some(&V::Integer(7))
+        );
     }
 
     #[test]
