@@ -8,6 +8,7 @@ pub mod config_patch;
 pub mod content_pack;
 pub mod dependency;
 pub mod duty_026;
+pub mod keeper_026;
 pub mod lilith;
 pub mod manifest;
 pub mod map_compare;
