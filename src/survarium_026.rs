@@ -109,6 +109,11 @@ pub struct Manifest {
     /// of the same path for.
     #[serde(default)]
     pub material_finishes: BTreeMap<String, crate::material_finish::ConstantFinish>,
+    /// A spherical environment probe whose falloff interval 0.26g reads as
+    /// reversed (inner radius past the outer one) is given a width that opens
+    /// it ([`open_reversed_sphere_probes`]).
+    #[serde(default)]
+    pub open_reversed_sphere_probes: bool,
     /// Reviewed exceptions kept over a material's native or constant finish.
     #[serde(default)]
     pub finish_exceptions: BTreeMap<String, crate::material_finish::FinishException>,
@@ -709,6 +714,51 @@ fn adapt_objects(
         }
     }
     Ok(())
+}
+
+/// 0.26g's sphere probe shader weighs a pixel by its distance between an
+/// inner radius `radius - probe_side_width - 0.05` and an outer one
+/// `0.98 * radius` (`environment_probe_lighting`, see
+/// docs/investigation/chemical-011e-probe-falloff-20261014.md). 0.11e
+/// Chemical's global probe (radius 340.901, width 0.5) has inner 340.35 past
+/// outer 334.08: it lights nothing, and every surface outside a box probe has
+/// no probe diffuse at all, black in the shade (0.11e filled it from its own
+/// skylight, which 0.26g has not). Such a probe gets width `1 + 0.02 *
+/// radius`, which puts the inner radius just inside the outer one (as native
+/// globals have: level_04's 307.5 / 10.8). A valid interval is kept.
+pub fn open_reversed_sphere_probes(project: &mut ConfigValue) -> Result<Vec<String>> {
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("project lacks client objects");
+    };
+    let number = |object: &ConfigValue, key: &str| match object.named(key) {
+        Some(ConfigValue::Float(v)) => Some(f64::from(*v)),
+        Some(ConfigValue::Integer(v)) => Some(f64::from(*v)),
+        _ => None,
+    };
+    let mut notes = Vec::new();
+    for object in objects {
+        if string(object, "game_object_type") != Some("environment_probe")
+            || number(object, "geometry") != Some(0.0)
+        {
+            continue;
+        }
+        let (Some(radius), Some(width)) = (number(object, "radius"), number(object, "probe_side_width"))
+        else {
+            continue;
+        };
+        if radius - width - 0.05 < 0.98 * radius {
+            continue;
+        }
+        let opened = 1.0 + 0.02 * radius;
+        object.set_path("probe_side_width", ConfigValue::Float(opened as f32))?;
+        notes.push(format!(
+            "sphere probe {} (radius {radius}): width {width} -> {opened:.3}, its 0.26 falloff interval was reversed (inner {:.2} > outer {:.2})",
+            string(object, "full_name").unwrap_or("?"),
+            radius - width - 0.05,
+            0.98 * radius
+        ));
+    }
+    Ok(notes)
 }
 
 fn preserve_020_cloud_lighting(project: &mut ConfigValue) -> Result<usize> {
@@ -2040,6 +2090,11 @@ pub fn build_with_fill(
             &map.donor_project(m.source_build),
             &mut collision_repairs,
         )?;
+        if m.open_reversed_sphere_probes {
+            for note in open_reversed_sphere_probes(&mut project)? {
+                compatibility_notes.push(format!("{}: {note}", map.donor_project(m.source_build)));
+            }
+        }
         if let Some(dm) = &map.deathmatch {
             let mut deathmatch = project.clone();
             let stripped = early::strip_battery_objects(&mut deathmatch)?;
@@ -2704,6 +2759,35 @@ pub fn build_with_fill(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_reversed_sphere_probe_is_opened_and_a_valid_one_kept() {
+        let probe = |radius: f32, width: f32, geometry: i32| {
+            ConfigValue::Named(vec![
+                NamedValue { name: "game_object_type".into(), value: ConfigValue::String("environment_probe".into()) },
+                NamedValue { name: "geometry".into(), value: ConfigValue::Integer(geometry) },
+                NamedValue { name: "radius".into(), value: ConfigValue::Float(radius) },
+                NamedValue { name: "probe_side_width".into(), value: ConfigValue::Float(width) },
+            ])
+        };
+        let mut project = ConfigValue::Named(vec![NamedValue {
+            name: "client_objects".into(),
+            value: ConfigValue::Indexed(vec![
+                probe(340.901, 0.5, 0),  // 0.11e Chemical's global
+                probe(300.0, 17.7, 0),   // 0.11e Radar's global
+                probe(12.5, 0.5, 1),     // a box
+            ]),
+        }]);
+        let notes = open_reversed_sphere_probes(&mut project).unwrap();
+        assert_eq!(notes.len(), 1);
+        let ConfigValue::Indexed(objects) = project.named("client_objects").unwrap() else { panic!() };
+        let width = |o: &ConfigValue| match o.named("probe_side_width") { Some(ConfigValue::Float(v)) => *v, _ => panic!() };
+        let opened = width(&objects[0]);
+        assert!((opened - (1.0 + 0.02 * 340.901)).abs() < 1e-4);
+        assert!(340.901 - opened - 0.05 < 0.98 * 340.901);
+        assert_eq!(width(&objects[1]), 17.7);
+        assert_eq!(width(&objects[2]), 0.5);
+    }
     #[test]
     fn shared_particle_and_texture_names_do_not_follow_a_material_alias() {
         let paths = BTreeSet::from(["material_instances/fx/lights/oil_lamp.material".into()]);
