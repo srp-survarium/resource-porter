@@ -69,7 +69,12 @@ description, and the clone keeps 0.26's mode description.
 `ports/survarium-021d-two-maps-to-026g.json`: 166 (level_03) and 175
 (level_06), day only, native 0.26 lighting, map numbers 10 and 11, named
 `st_level_10_name` / `st_level_11_name` ("RLS Vostok (v0.21)", "Mamayev
-Kurgan (v0.21)", each language's own name with "(v0.21)"). Built as a bundle,
+Kurgan (v0.21)", each language's own name with "(v0.21)"). Revision 19
+(maps-021d-5, the owner's rule "same as original + version in ()"): 0.21d
+names no level in any language (no level strings in its localizations,
+movies or executable), so each name is the native 0.26 name of the same
+level in that language plus " (v0.21)"; English 166 becomes "Vostok Radar
+Station (v0.21)", the other strings already were. Built as a bundle,
 converted to a content pack against the stock archive with the released
 patches 12 and 14 (`pack from-bundle --base-patch`), and composed with the
 equipment packs into `resources.db.patch_17`:

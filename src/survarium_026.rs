@@ -2289,7 +2289,7 @@ mod tests {
                 assert!(!place.is_empty() && !place.contains("0.21"), "{text}");
             }
         }
-        assert_eq!(m.maps[0].name.as_ref().unwrap().english, "RLS Vostok (v0.21)");
+        assert_eq!(m.maps[0].name.as_ref().unwrap().english, "Vostok Radar Station (v0.21)");
         assert_eq!(m.maps[1].name.as_ref().unwrap().english, "Mamayev Kurgan (v0.21)");
     }
 
