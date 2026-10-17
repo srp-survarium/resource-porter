@@ -1,0 +1,6 @@
+[
+ {"label": "166", "name": "RLS Vostok v0.21 batteries", "project": "projects/v021d_level_03/day_2/client_project"},
+ {"label": "152", "name": "RLS Vostok v0.21 TDM", "project": "projects/v021d_level_03/day_4/client_project", "same_as": "166"},
+ {"label": "175", "name": "Mamayev Kurgan v0.21 batteries", "project": "projects/v021d_level_06/day_2/client_project"},
+ {"label": "153", "name": "Mamayev Kurgan v0.21 TDM", "project": "projects/v021d_level_06/day_4/client_project", "same_as": "175"}
+]

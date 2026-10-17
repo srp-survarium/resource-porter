@@ -1,0 +1,208 @@
+{
+ "projects": {
+  "projects/v011e_level_04/day_2/client_project": [
+   {
+    "op": "respawn_zone",
+    "full_name": "logic/team1/safe_respawn/respawn_point(9)",
+    "kind": "ally_zones",
+    "from": "logic/team1/respawn_collision(9)",
+    "to": "logic/team1/safe_respawn/respawn_collision(9)",
+    "why": "logic/team1/respawn_collision(9) holds another place; logic/team1/safe_respawn/respawn_collision(9), named by no point, holds this one"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/safe_respawn/respawn_point(10)",
+    "from": [
+     110.891,
+     12.68,
+     71.193
+    ],
+    "position": [
+     111.032,
+     12.7,
+     71.142
+    ],
+    "why": "ported/v011e/level/04/new_factory_indoor.model/walker_collision primitive 139 (cylinder): 0.12 m deep at 0.74 m -> moved 0.15 m"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_collision(10)",
+    "from": [
+     111.107,
+     12.803,
+     71.287
+    ],
+    "position": [
+     111.248,
+     12.823,
+     71.236
+    ],
+    "why": "the ally zone of logic/team2/safe_respawn/respawn_point(10) moves with it"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/respawn_point(7)",
+    "from": [
+     106.581,
+     6.595,
+     90.002
+    ],
+    "position": [
+     106.581,
+     6.605,
+     89.952
+    ],
+    "why": "ported/v011e/props/barrel/barrel_chemical_group_05.model/walker_collision primitive 2 (box): 0.02 m deep at 0.65 m -> moved 0.05 m"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/respawn_collision(7)",
+    "from": [
+     106.623,
+     6.654,
+     89.935
+    ],
+    "position": [
+     106.623,
+     6.664,
+     89.885
+    ],
+    "why": "the ally zone of logic/team2/respawn_point(7) moves with it"
+   }
+  ],
+  "projects/v011e_level_04/day_4/client_project": [
+   {
+    "op": "respawn_zone",
+    "full_name": "logic/team1/safe_respawn/respawn_point(9)",
+    "kind": "ally_zones",
+    "from": "logic/team1/respawn_collision(9)",
+    "to": "logic/team1/safe_respawn/respawn_collision(9)",
+    "why": "logic/team1/respawn_collision(9) holds another place; logic/team1/safe_respawn/respawn_collision(9), named by no point, holds this one"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/safe_respawn/respawn_point(10)",
+    "from": [
+     110.891,
+     12.68,
+     71.193
+    ],
+    "position": [
+     111.032,
+     12.7,
+     71.142
+    ],
+    "why": "ported/v011e/level/04/new_factory_indoor.model/walker_collision primitive 139 (cylinder): 0.12 m deep at 0.74 m -> moved 0.15 m"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_collision(10)",
+    "from": [
+     111.107,
+     12.803,
+     71.287
+    ],
+    "position": [
+     111.248,
+     12.823,
+     71.236
+    ],
+    "why": "the ally zone of logic/team2/safe_respawn/respawn_point(10) moves with it"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/respawn_point(7)",
+    "from": [
+     106.581,
+     6.595,
+     90.002
+    ],
+    "position": [
+     106.581,
+     6.605,
+     89.952
+    ],
+    "why": "ported/v011e/props/barrel/barrel_chemical_group_05.model/walker_collision primitive 2 (box): 0.02 m deep at 0.65 m -> moved 0.05 m"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/respawn_collision(7)",
+    "from": [
+     106.623,
+     6.654,
+     89.935
+    ],
+    "position": [
+     106.623,
+     6.664,
+     89.885
+    ],
+    "why": "the ally zone of logic/team2/respawn_point(7) moves with it"
+   }
+  ],
+  "projects/v011e_level_03/day_2/client_project": [
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/respawn_point(9)",
+    "from": [
+     40.447,
+     0.464,
+     16.112
+    ],
+    "position": [
+     40.397,
+     0.474,
+     16.112
+    ],
+    "why": "item/quest/container_closed.model/collision primitive 0 (box): 0.03 m deep at 0.65 m -> moved 0.05 m"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/respawn_colision(8)",
+    "from": [
+     40.424,
+     0.464,
+     16.128
+    ],
+    "position": [
+     40.374,
+     0.474,
+     16.128
+    ],
+    "why": "the ally zone of logic/team2/respawn_point(9) moves with it"
+   }
+  ],
+  "projects/v011e_level_03/day_4/client_project": [
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/respawn_point(9)",
+    "from": [
+     40.447,
+     0.464,
+     16.112
+    ],
+    "position": [
+     40.397,
+     0.474,
+     16.112
+    ],
+    "why": "item/quest/container_closed.model/collision primitive 0 (box): 0.03 m deep at 0.65 m -> moved 0.05 m"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/respawn_colision(8)",
+    "from": [
+     40.424,
+     0.464,
+     16.128
+    ],
+    "position": [
+     40.374,
+     0.474,
+     16.128
+    ],
+    "why": "the ally zone of logic/team2/respawn_point(9) moves with it"
+   }
+  ]
+ }
+}

@@ -1,0 +1,282 @@
+{
+ "projects": {
+  "projects/v021d_level_03/day_2/client_project": [
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(10)",
+    "from": [
+     77.564,
+     1.013,
+     17.729
+    ],
+    "position": [
+     77.231,
+     0.928,
+     17.182
+    ],
+    "why": "centred on logic/team2/safe_respawn/respawn_point(11) (it held another place)"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/safe_respawn/respawn_point(8)",
+    "from": [
+     83.357,
+     1.135,
+     -14.763
+    ],
+    "position": [
+     83.357,
+     1.375,
+     -14.763
+    ],
+    "why": "0.22 m below its surface (ported/v021d/level/03/terrain_all.model/collision) -> on its surface (+0.24 m)"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(7)",
+    "from": [
+     83.308,
+     1.347,
+     -14.86
+    ],
+    "position": [
+     83.308,
+     1.587,
+     -14.86
+    ],
+    "why": "the ally zone of logic/team2/safe_respawn/respawn_point(8) moves with it"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(2)",
+    "from": [
+     78.942,
+     0.939,
+     11.417
+    ],
+    "position": [
+     80.471,
+     0.943,
+     10.055
+    ],
+    "why": "centred on logic/team2/safe_respawn/respawn_point(3) (it held another place)"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/safe_respawn/respawn_point(4)",
+    "from": [
+     82.666,
+     1.08,
+     -12.634
+    ],
+    "position": [
+     82.666,
+     1.227,
+     -12.634
+    ],
+    "why": "0.13 m below its surface (ported/v021d/level/03/terrain_all.model/collision) -> on its surface (+0.15 m)"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(3)",
+    "from": [
+     82.382,
+     1.076,
+     -13.915
+    ],
+    "position": [
+     82.382,
+     1.223,
+     -13.915
+    ],
+    "why": "the ally zone of logic/team2/safe_respawn/respawn_point(4) moves with it"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team1/safe_reswapn/respawn_colision",
+    "from": [
+     -41.922,
+     0.843,
+     -110.937
+    ],
+    "position": [
+     -24.185,
+     0.623,
+     -92.308
+    ],
+    "why": "centred on logic/team1/safe_reswapn/respawn_point(5) (it held another place)"
+   }
+  ],
+  "projects/v021d_level_03/day_4/client_project": [
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(10)",
+    "from": [
+     77.564,
+     1.013,
+     17.729
+    ],
+    "position": [
+     77.231,
+     0.928,
+     17.182
+    ],
+    "why": "centred on logic/team2/safe_respawn/respawn_point(11) (it held another place)"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/safe_respawn/respawn_point(8)",
+    "from": [
+     83.357,
+     1.135,
+     -14.763
+    ],
+    "position": [
+     83.357,
+     1.375,
+     -14.763
+    ],
+    "why": "0.22 m below its surface (ported/v021d/level/03/terrain_all.model/collision) -> on its surface (+0.24 m)"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(7)",
+    "from": [
+     83.308,
+     1.347,
+     -14.86
+    ],
+    "position": [
+     83.308,
+     1.587,
+     -14.86
+    ],
+    "why": "the ally zone of logic/team2/safe_respawn/respawn_point(8) moves with it"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(2)",
+    "from": [
+     78.942,
+     0.939,
+     11.417
+    ],
+    "position": [
+     80.471,
+     0.943,
+     10.055
+    ],
+    "why": "centred on logic/team2/safe_respawn/respawn_point(3) (it held another place)"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team2/safe_respawn/respawn_point(4)",
+    "from": [
+     82.666,
+     1.08,
+     -12.634
+    ],
+    "position": [
+     82.666,
+     1.227,
+     -12.634
+    ],
+    "why": "0.13 m below its surface (ported/v021d/level/03/terrain_all.model/collision) -> on its surface (+0.15 m)"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team2/safe_respawn/respawn_colision(3)",
+    "from": [
+     82.382,
+     1.076,
+     -13.915
+    ],
+    "position": [
+     82.382,
+     1.223,
+     -13.915
+    ],
+    "why": "the ally zone of logic/team2/safe_respawn/respawn_point(4) moves with it"
+   },
+   {
+    "op": "zone_move",
+    "full_name": "logic/team1/safe_reswapn/respawn_colision",
+    "from": [
+     -41.922,
+     0.843,
+     -110.937
+    ],
+    "position": [
+     -24.185,
+     0.623,
+     -92.308
+    ],
+    "why": "centred on logic/team1/safe_reswapn/respawn_point(5) (it held another place)"
+   }
+  ],
+  "projects/v021d_level_06/day_2/client_project": [
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team_2/respawn/respawn_point(2)",
+    "from": [
+     105.486,
+     22.794,
+     130.246
+    ],
+    "position": [
+     105.512,
+     22.869,
+     130.394
+    ],
+    "why": "ported/v021d/level/06/base_a.model/walker_collision primitive 456 (cylinder): 0.13 m deep at 1.15 m; ported/v021d/level/06/base_a.model/walker_collision primitive 455 (cylinder): 0.11 m deep at 1.16 m; ported/v021d/level/06/base_a.model/walker_collision primitive 457 (cylinder): 0.11 m deep at 1.16 m -> moved 0.15 m"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team_2/respawn/respawn_point(1)",
+    "from": [
+     103.86,
+     22.939,
+     130.643
+    ],
+    "position": [
+     104.001,
+     22.938,
+     130.694
+    ],
+    "why": "ported/v021d/level/06/base_a.model/walker_collision primitive 811 (box): 0.11 m deep at 0.65 m -> moved 0.15 m"
+   }
+  ],
+  "projects/v021d_level_06/day_4/client_project": [
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team_2/respawn/respawn_point(2)",
+    "from": [
+     105.486,
+     22.794,
+     130.246
+    ],
+    "position": [
+     105.512,
+     22.869,
+     130.394
+    ],
+    "why": "ported/v021d/level/06/base_a.model/walker_collision primitive 456 (cylinder): 0.13 m deep at 1.15 m; ported/v021d/level/06/base_a.model/walker_collision primitive 455 (cylinder): 0.11 m deep at 1.16 m; ported/v021d/level/06/base_a.model/walker_collision primitive 457 (cylinder): 0.11 m deep at 1.16 m -> moved 0.15 m"
+   },
+   {
+    "op": "respawn_move",
+    "full_name": "logic/team_2/respawn/respawn_point(1)",
+    "from": [
+     103.86,
+     22.939,
+     130.643
+    ],
+    "position": [
+     104.001,
+     22.938,
+     130.694
+    ],
+    "why": "ported/v021d/level/06/base_a.model/walker_collision primitive 811 (box): 0.11 m deep at 0.65 m -> moved 0.15 m"
+   }
+  ]
+ }
+}
