@@ -84,6 +84,12 @@ pub struct Manifest {
     /// a translation draw that one, moved (memory for repeated structures).
     #[serde(default)]
     pub dedup_translated_copies: bool,
+    /// Imported models draw LOD0 where they would draw LOD1, and LOD1
+    /// geometry is not imported: it is a third of the static geometry, which
+    /// 0.26 keeps in an 88 MB vertex pool ("No enough memory in vertices
+    /// pool" beyond it).
+    #[serde(default)]
+    pub lod1_shares_lod0: bool,
     /// Terrain render meshes (`decimate_terrain`) simplified with their open
     /// borders locked, so neighbouring tiles stay sealed whatever each one
     /// sheds; collision is unchanged. Without it grid tiles keep every second
@@ -2164,6 +2170,9 @@ pub fn build(
     let mut material_usage: BTreeMap<String, Usage> = BTreeMap::new();
     let mut surface_strides: BTreeMap<String, usize> = BTreeMap::new();
     let mut surface_lod: BTreeMap<String, usize> = BTreeMap::new();
+    let mut lod1_only: BTreeSet<String> = BTreeSet::new();
+    // Surface directory -> (stride, vertices, indices) of the mesh as emitted.
+    let mut emitted_meshes: BTreeMap<String, (usize, usize, usize)> = BTreeMap::new();
     // Model root -> LOD0 surfaces that get generated LOD1/LOD2 copies.
     let mut generate_lods: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for model in &donor_models {
@@ -2201,6 +2210,19 @@ pub fn build(
         let lods = surface_lods(&settings);
         for (surface, lod) in &lods {
             surface_lod.insert(format!("{root}render/{surface}/converted_model"), *lod);
+        }
+        // Surfaces listed only in LOD1 (some models also list one in LOD2).
+        let listed = |lod: &str| -> BTreeSet<String> {
+            match settings.named("lod_hierrarchy").and_then(|h| h.named(lod)).and_then(|l| l.named("surfaces")) {
+                Some(ConfigValue::Indexed(v)) => v.iter().filter_map(|x| match x { ConfigValue::String(s) => Some(s.clone()), _ => None }).collect(),
+                _ => BTreeSet::new(),
+            }
+        };
+        let (l0, l2) = (listed("LOD0"), listed("LOD2"));
+        for surface in listed("LOD1") {
+            if !l0.contains(&surface) && !l2.contains(&surface) {
+                lod1_only.insert(format!("{root}render/{surface}/converted_model"));
+            }
         }
         if let Some(simplify) = m.simplify {
             let has_lod1 = lods.values().any(|l| *l > 0);
@@ -2486,6 +2508,12 @@ pub fn build(
     let mut lods_generated = 0usize;
     eprintln!("Emitting {} donor files...", donor_files.len());
     for path in &donor_files {
+        if m.lod1_shares_lod0 {
+            let surface_file = path.rsplit_once('/').map(|(dir, _)| format!("{dir}/converted_model"));
+            if surface_file.is_some_and(|f| lod1_only.contains(&f)) {
+                continue;
+            }
+        }
         let mut bytes = donor.read(path)?;
         let dest = if let Some(rest) = path.strip_prefix(&format!("{donor_level_dir}/")) {
             format!("{output_level_dir}/{rest}")
@@ -2553,19 +2581,34 @@ pub fn build(
             if let (Some(simplify), Some((model_root, surface))) = (m.simplify, path.strip_suffix("/converted_model").and_then(|p| p.split_once("/render/"))) {
                 if generate_lods.get(model_root).is_some_and(|l| l.iter().any(|x| x == surface)) {
                     for (level, ratio) in [(1, simplify.lod1_ratio), (2, simplify.lod2_ratio)] {
+                        if level == 1 && m.lod1_shares_lod0 {
+                            continue;
+                        }
                         let error = if level == 1 { simplify.max_error } else { simplify.lod2_max_error.unwrap_or(simplify.max_error) };
                         let lod = simplify_mesh_with(&bytes, ratio, error, simplify.options(level))?.unwrap_or_else(|| bytes.clone());
                         let name = format!("srp_lod{level}_{surface}");
                         let gen_dest = relocate(&format!("{model_root}/render/{name}/converted_model"));
                         emit(output, &gen_dest, &lod, "0.69d LOD0 simplified by meshoptimizer", &mut files)?;
                         let properties = donor.read(&format!("{model_root}/render/{surface}/export_properties"))?;
-                        let properties = BinaryConfig::parse(&properties)?.to_bytes()?;
+                        let mut properties = BinaryConfig::parse(&properties)?;
+                        if properties.root.named("source").is_some() {
+                            let u = |o: usize| u32::from_le_bytes(lod[o..o + 4].try_into().unwrap()) as usize;
+                            let (vertices, indices) = (u(8), u(8 + u(4) + 8));
+                            properties.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                            properties.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                            properties.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
+                        }
+                        let properties = properties.to_bytes()?;
                         emit(output, &relocate(&format!("{model_root}/render/{name}/export_properties")), &properties, source, &mut files)?;
                         generated.entry(model_root.to_owned()).or_insert_with(Vec::new).push((level, surface.to_owned(), name));
                     }
                 }
             }
             converted_geometry.insert(path.clone());
+            if let Some(s) = stride(&bytes) {
+                let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
+                emitted_meshes.insert(path.trim_end_matches("/converted_model").to_owned(), (s, u(8), u(8 + u(4) + 8)));
+            }
         } else if path.ends_with(".model/settings") {
             let mut c = BinaryConfig::parse(&bytes)?.root;
             let model_root = path.trim_end_matches("/settings");
@@ -2630,6 +2673,18 @@ pub fn build(
             if !actual.is_empty() && super::repair_settings(&mut c, &actual, &BTreeMap::new()).with_context(|| format!("repairing {path}"))? {
                 repaired_model_settings.insert(path.clone());
             }
+            if m.lod1_shares_lod0 {
+                let list = |c: &ConfigValue, lod: &str| -> Vec<ConfigValue> {
+                    c.named("lod_hierrarchy").and_then(|h| h.named(lod)).and_then(|l| l.named("surfaces")).and_then(|s| array(s).ok()).map(<[ConfigValue]>::to_vec).unwrap_or_default()
+                };
+                let (lod0, lod1, lod2) = (list(&c, "LOD0"), list(&c, "LOD1"), list(&c, "LOD2"));
+                if !lod0.is_empty() && (!lod1.is_empty() || !lod2.is_empty()) {
+                    c.set_path("lod_hierrarchy.LOD1", named(vec![("surfaces", ConfigValue::Indexed(lod0.clone()))]))?;
+                    if let Some(ConfigValue::Named(entries)) = c.named_mut("material_settings") {
+                        entries.retain(|e| !lod1.contains(&ConfigValue::String(e.name.clone())) || lod0.contains(&ConfigValue::String(e.name.clone())) || lod2.contains(&ConfigValue::String(e.name.clone())));
+                    }
+                }
+            }
             let has_lod1 = c
                 .named("lod_hierrarchy")
                 .and_then(|h| h.named("LOD1"))
@@ -2674,7 +2729,26 @@ pub fn build(
         } else if super::is_config_resource(path) {
             // export_properties, exported_primitives and texture options are
             // schema-identical; re-encode in the 24-byte layout.
-            let c = BinaryConfig::parse(&bytes).with_context(|| format!("decoding {path}"))?;
+            let mut c = BinaryConfig::parse(&bytes).with_context(|| format!("decoding {path}"))?;
+            // A surface's properties follow its mesh as emitted: 0.26 reads the
+            // vertex layout from `type` (2: with vertex colour, 32 bytes) and
+            // the counts from `source` (blended terrain gains a colour, and
+            // simplified meshes shrink).
+            if let Some(&(s, vertices, indices)) = path.strip_suffix("/export_properties").and_then(|d| emitted_meshes.get(d)) {
+                if let Some(ConfigValue::Integer(t)) = c.root.named("type") {
+                    let t = match (s, *t) {
+                        (32, _) => 2,
+                        (_, 2) => 0,
+                        (_, t) => t,
+                    };
+                    c.root.set_path("type", ConfigValue::Integer(t))?;
+                }
+                if c.root.named("source").is_some() {
+                    c.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                    c.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                    c.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
+                }
+            }
             bytes = c.to_bytes()?;
         }
         ensure!(!target.contains(&dest), "would overwrite native resource {dest}");
@@ -3086,15 +3160,26 @@ pub fn build(
                 ensure!(distances == Some(imported_distances), "mixed cluster {cx},{cz} has non-imported LOD distances");
             }
             let lods = distances.is_some();
+            // Members whose LOD1 is their LOD0 (or LOD-less ones) let the cluster share it too.
+            let share1 = members.iter().all(|&i| {
+                let p = prepared[&model_of_reference(string(&visuals[i], "lib_name").unwrap_or(""))].as_ref().unwrap();
+                p.lods[1].is_empty() || p.lods[1] == p.lods[0]
+            });
             let merged = merge_cluster(&offered, lods).with_context(|| format!("clustering cell {cx},{cz}"))?;
             let (settings, member_root, member_native) = first.unwrap();
             let name = if group.is_empty() { format!("srp_cluster/cell_{cx}_{cz}") } else { format!("srp_cluster/{group}_{cx}_{cz}") };
             let dest = format!("models/ported/v069d/{name}.model");
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
-            let mut hierarchy = Vec::new();
+            let mut hierarchy: Vec<NamedValue> = Vec::new();
             let mut material_settings = Vec::new();
             for (level, surfaces) in merged.iter().enumerate() {
                 let mut names = Vec::new();
+                if level == 1 && share1 {
+                    names = hierarchy[0].value.named("surfaces").and_then(|s| array(s).ok()).map(<[ConfigValue]>::to_vec).unwrap_or_default();
+                    draws_after[level] += names.len();
+                    hierarchy.push(NamedValue { name: "LOD1".into(), value: named(vec![("surfaces", ConfigValue::Indexed(names))]) });
+                    continue;
+                }
                 for (k, (material, mesh, a, b)) in surfaces.iter().enumerate() {
                     let surface = format!("lod{level}_{k}");
                     for j in 0..3 {
