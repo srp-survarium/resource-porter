@@ -6,6 +6,7 @@ pub mod binary_config;
 pub mod collision_check;
 pub mod config_patch;
 pub mod content_pack;
+pub mod deathmatch_021d;
 pub mod dependency;
 pub mod duty_026;
 pub mod lilith;

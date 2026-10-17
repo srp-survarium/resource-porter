@@ -268,6 +268,25 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Add Team Deathmatch (mode 4) variants of a 0.21 maps pack's battery
+    /// maps to the pack, in place: the battery project without the battery
+    /// game (as 0.26g's own TDM projects are), the native TDM options with
+    /// the port's substitutions, their maps_dict ids.
+    #[command(name = "add-021d-deathmatch")]
+    Add021dDeathmatch {
+        /// The pack folder (pack.json, files/), changed in place.
+        #[arg(long)]
+        pack: PathBuf,
+        /// The stock 0.26g resources.db (the native TDM projects and options).
+        #[arg(long)]
+        target_db: PathBuf,
+        /// `<level>:<weather>:<maps_dict id>` (repeatable), e.g. level_03:day:152.
+        #[arg(long = "variant", required = true)]
+        variants: Vec<vostok_resource_porter::deathmatch_021d::Variant>,
+        /// The pack's new version.
+        #[arg(long)]
+        version: String,
+    },
     /// Give native 0.26g School an overcast environment and map-wide volume fog.
     BuildSurvarium026Fog {
         #[arg(long)]
@@ -1229,6 +1248,32 @@ fn main() -> Result<()> {
                 record.converted_materials.len()
             );
             println!("bundle={}", output.display());
+        }
+        Command::Add021dDeathmatch {
+            pack,
+            target_db,
+            variants,
+            version,
+        } => {
+            for s in vostok_resource_porter::deathmatch_021d::add(
+                &pack, &target_db, &variants, &version,
+            )? {
+                println!(
+                    "map {}: {} ({} respawn points), {}; removed server groups {:?}, {} visuals, {} collision objects, {} effect zones, zones {:?}",
+                    s.id,
+                    s.project,
+                    s.respawn_points,
+                    s.options,
+                    s.removed_server_groups,
+                    s.removed_visuals,
+                    s.removed_collision_objects,
+                    s.removed_effect_zones,
+                    s.removed_zones
+                );
+                for change in &s.options_changes {
+                    println!("  options {change}");
+                }
+            }
         }
         Command::BuildSurvarium026Fog { target_db, output } => {
             vostok_resource_porter::survarium_026::build_native_fog(&target_db, &output)?;
