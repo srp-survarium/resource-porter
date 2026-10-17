@@ -44,32 +44,44 @@ Checklist (what to look at in game)
     volumes; say if interiors are too bright/dark.
 [ ] Materials: albedo/normal/smoothness from 0.69d on native templates.
     Metals look dielectric (no metalness in 0.26). Glass is cut out.
-[ ] LOD: imported models switch at 12/30 m; merged clusters (props, trees,
-    repeated buildings) switch later by their size, so nothing next to you
-    should look coarse. Far LODs are simplified (seams may smear at > 30 m).
-    Look for popping, holes or missing/misplaced props (a cluster error).
+[ ] LOD: imported models draw LOD0 to 30 m, then a simplified far LOD;
+    merged clusters (small props, trees) switch later by their size, so
+    nothing next to you should look coarse. Look for popping, holes or
+    missing/misplaced props (a cluster error), and whether the Duga antenna
+    sections (one model drawn eight times) line up.
 [ ] Resupply zones (5 places, each usable by both teams).
 [ ] Collision: invisible walls only where 0.69d had them (map border).
 [ ] Frame rate compared with level_03 / level_07 (numbers below).
 
-Performance (static, 42 spawns, omnidirectional upper bound; examples/view_budget)
+Performance (static, 42 spawns, omnidirectional upper bound; examples/view_budget,
+examples/geometry_bytes)
 ------------------------------------------------------------------------------
-                    mean tris   worst tris   mean draws   worst draws
-  level_03 day_4      634 026      680 149        1 081         1 105
-  level_07 day_4      790 954      905 423        1 457         1 606
-  Duga (this)         814 014      965 991        1 717         1 724
+                    mean tris   worst tris   mean draws   worst draws   geometry
+  level_03 day_4      634 026      680 149        1 081         1 105   46.6 MiB
+  level_07 day_4      790 954      905 423        1 457         1 606   48.1 MiB
+  Duga (this)         663 831      741 901        2 330         2 357   81.2 MiB
+Vertex data 69.4 MiB of the client's 88 MB static vertex pool (level_07: 41.4).
 Texture payload 651 MiB (level_03 638, level_07 720); particles 0 (10-11);
 vegetation instances 48 286 (level_03 90 879). See validation/.
 
+Runtime: a fixed-camera load (no input, UI off, one client) loads the map,
+starts the match and renders without errors; validation/runtime-*.jpg and
+runtime-client.log. Nobody has walked it yet.
+
 Known issues
 ------------
-* Draw calls are ~7% above level_07's worst spawn: Duga's buildings use many
-  more materials than native ones. Triangles are within ~7% of level_07.
+* Draw calls are ~45% above level_07's worst spawn: Duga's buildings use many
+  more materials than native ones and merging more would cost vertex memory.
+  Imported models draw LOD0 out to 30 m (their LOD1 is not imported, to fit
+  the vertex pool); far LODs are simplified and may smear at UV seams.
 * 0.26 has no data-driven loading screens or minimaps: the package's
   lobby_menu.swf shows Duga in loading slot 24 (Level8_night, which no 0.26
   mode uses) and hud.swf shows Duga in the level_09 minimap slot (used by no
-  0.26 map; unknown HUD keys such as level_11 fall back to it).
+  0.26 map; unknown HUD keys such as level_11 fall back to it). Neither was
+  seen in game yet (the check ran with the UI off).
+* Some trees (0.69d anomalous forest, foliage on native templates) look pale.
+* One detector prop uses the native 0.26 material item/artefact_detector_glass,
+  whose textures 0.26 does not ship (the client logs three missing textures).
 * 0.69d anomalies, artefacts, battle-royale/capture-point objects, ambient
   lights, sound environments and particles are not ported. Ambience is
   native (wind, insects, dogs).
-* Runtime status: see the report that came with this package.

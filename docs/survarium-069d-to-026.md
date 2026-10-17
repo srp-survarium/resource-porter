@@ -129,8 +129,10 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
   size 148, posX -4, posY -2, rewritten in place (same code length, a
   double constant used only there).
 * **Performance**. Static geometry is the hard budget: 0.26 maps load
-  25-54 MiB of render geometry (`examples/geometry_bytes`; the client logs a
-  108 MB geometry pool), the raw port 310 MiB. In order:
+  25-54 MiB of render geometry (`examples/geometry_bytes`), and the client's
+  static vertex pool holds 88 MB (95 MiB of vertices logged "No enough memory
+  in vertices pool" 1 669 times and left holes); the raw port had 310 MiB.
+  In order:
   - LOD0 and LOD-less imported surfaces are simplified (meshoptimizer,
     error <= 0.4% of the mesh extent, target 30%): 3.86 M -> ~1.8 M
     triangles. Authored LOD1/LOD2 are simplified further (error 4%/6%; both
@@ -156,7 +158,14 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
     by the distance to its bounding-box centre (`select_lod`), so each
     cluster switches later by its centre-to-member reach: no member is drawn
     coarser than it would be alone. Collision instances are unchanged.
-  - Imported models with LODs switch by distance 12/30 m.
+  - Imported models draw LOD0 where they drew LOD1, and LOD1 geometry is
+    not imported (`lod1_shares_lod0`; clusters share it too): it was a third
+    of the geometry. They switch to the far LOD at 30 m.
+  - Every surface's `export_properties` follows its mesh as emitted: `type`
+    2 for 32-byte (vertex colour) vertices, `source` counts. Blended terrain
+    gains a colour and kept type 0: 0.26 read it with the 28-byte layout and
+    drew exploded terrain over the map (`examples/vertex_sanity` checks
+    both).
 
 Static budget at the 42 spawns (`examples/view_budget`, omnidirectional) and
 render geometry (`examples/geometry_bytes`):
@@ -167,11 +176,12 @@ render geometry (`examples/geometry_bytes`):
 | level_07 day_4 | 790 954 | 905 423 | 1 457 | 1 606 | 48.1 MiB |
 | Duga, first build (b9) | 988 080 | 1 034 572 | 1 936 | 1 945 | |
 | Duga, clusters without memory cap | 814 014 | 965 991 | 1 717 | 1 724 | 310.5 MiB |
-| Duga | 554 957 | 583 814 | 2 245 | 2 257 | 110.8 MiB |
+| Duga | 663 831 | 741 901 | 2 330 | 2 357 | 81.2 MiB (69.4 vertex) |
 
 Texture payload 651 MiB (level_03 638, level_07 720); particles 0. Draws are
-~40% above level_07's worst spawn and geometry about twice a native map's:
-Duga's buildings use many more materials and polygons than 0.26's.
+~45% above level_07's worst spawn and geometry 1.7 times a native map's:
+Duga's buildings use many more materials and polygons than 0.26's. A
+fixed-camera load renders the map without pool errors and starts the match.
 
 ## Ladders
 
