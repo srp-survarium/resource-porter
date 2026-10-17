@@ -44,7 +44,7 @@ line, then in each pack's listed order.
 | op | fields | rules |
 | --- | --- | --- |
 | `add_file` | `path`, `source`? | The path must not exist in the base or be added by another pack. `source` defaults to `files/<path>`. |
-| `replace_file` | `path`, `source`?, `base_sha256` | The base file must hash to `base_sha256` (drift check). It conflicts with any other add or replace of the same path. |
+| `replace_file` | `path`, `source`?, `base_sha256` | The base file must hash to `base_sha256` (drift check). It conflicts with any other add or replace of the same path, unless the pack `requires` the pack that adds or replaces it: it then replaces that pack's file, whose bytes `base_sha256` names (a layered replace; the lower pack's own precondition still holds against the base). |
 | `config_set` | `path`, `values: {"dotted.path": value}` | Sets fields of a binary config. A numeric segment indexes an array. A missing final named key is created. Two packs may set a field, or a parent/child of it, only to the same value. |
 | `config_append` | `path`, `array_path`, `values: [..]` | Appends to an indexed table. Appends from several packs accumulate in order. |
 | `dictionary_add` | `table`, `entries: [{..}]`, `id_field`? | Appends rows to an indexed table of `gameplay/db_static_dictionaries`. The id field defaults to `dict_id` for `items_dict` and `id` otherwise (`maps_dict`, `shop_bundles_dict`, …). An id already in the base is an error, unless the base row is identical (then it is a no-op). Two packs adding the same id is a conflict. |
@@ -53,6 +53,11 @@ line, then in each pack's listed order.
 
 An edit of a file that another pack adds or replaces is allowed only when the
 editing pack `requires` that pack.
+
+A layered replace is for a file no field-level operation reaches (a movie's
+code): `pack verify` checks the top layer's bytes, and a lower layer's
+`replace_file` counts as carried when a later pack of the set replaces over
+exactly its bytes.
 
 ### Config values
 

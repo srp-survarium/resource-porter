@@ -85,7 +85,8 @@ pub enum Operation {
         source: Option<String>,
     },
     /// Replace an existing resource whose current content must hash to
-    /// `base_sha256`.
+    /// `base_sha256`: the base's file, or the file of a pack this one
+    /// requires that adds or replaces it whole (a layered replace).
     ReplaceFile {
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -429,6 +430,19 @@ struct WholeFile {
     kind: WholeKind,
     source: PathBuf,
     base_sha256: Option<String>,
+    /// The file this one replaces when it is a pack's `replace_file` over
+    /// the file of a pack it requires (a layered replace): its
+    /// `base_sha256` names that file, not the base's.
+    under: Option<Box<WholeFile>>,
+}
+
+impl WholeFile {
+    /// How the file reaches the base: the lowest layer's kind.
+    fn base_kind(&self) -> WholeKind {
+        self.under
+            .as_ref()
+            .map_or(self.kind, |under| under.base_kind())
+    }
 }
 
 #[derive(Debug)]
@@ -587,16 +601,26 @@ impl<'a> Plan<'a> {
                 let Ok(source) = pack.file_source(path, source) else {
                     return;
                 };
+                let mut under = None;
                 if let Some(existing) = self.whole.get(path) {
-                    if existing.pack != index {
-                        let message = format!(
-                            "{} and {} both add or replace {path}",
-                            self.pack_id(existing.pack),
-                            pack.id()
-                        );
-                        self.conflict(message);
+                    // A pack may replace a file that a pack it requires
+                    // adds or replaces; its base_sha256 then names that
+                    // pack's bytes.
+                    let layered = kind == WholeKind::Replace
+                        && existing.pack != index
+                        && self.trusted_by(index).contains(&existing.pack);
+                    if !layered {
+                        if existing.pack != index {
+                            let message = format!(
+                                "{} and {} both add or replace {path}",
+                                self.pack_id(existing.pack),
+                                pack.id()
+                            );
+                            self.conflict(message);
+                        }
+                        return;
                     }
-                    return;
+                    under = self.whole.remove(path).map(Box::new);
                 }
                 self.whole.insert(
                     path.clone(),
@@ -605,6 +629,7 @@ impl<'a> Plan<'a> {
                         kind,
                         source,
                         base_sha256,
+                        under,
                     },
                 );
             }
@@ -815,34 +840,52 @@ impl<'a> Plan<'a> {
                 ));
             }
         }
-        for (path, whole) in &self.whole {
-            let pack = self.packs[whole.pack].id();
-            match whole.kind {
-                WholeKind::Add => {
-                    if base.contains(path) {
-                        problems.push(format!(
-                            "{pack}: add_file {path} already exists in the base"
-                        ));
-                    }
-                }
-                WholeKind::Replace => {
-                    if !base.is_file(path) {
-                        problems.push(format!("{pack}: replace_file {path} is not in the base"));
-                    } else {
-                        let actual = sha256_hex(&base.read(path)?);
+        for (path, top) in &self.whole {
+            let mut layer = Some(top);
+            while let Some(whole) = layer {
+                let pack = self.packs[whole.pack].id();
+                match (&whole.under, whole.kind) {
+                    (Some(under), _) => {
+                        let actual = sha256_hex(
+                            &fs::read(&under.source)
+                                .with_context(|| format!("reading {}", under.source.display()))?,
+                        );
                         if Some(&actual) != whole.base_sha256.as_ref() {
                             problems.push(format!(
-                                "{pack}: drift: base {path} is {actual}, pack expects {}",
+                                "{pack}: drift: {}'s {path} is {actual}, pack expects {}",
+                                self.packs[under.pack].id(),
                                 whole.base_sha256.as_deref().unwrap_or("?")
                             ));
                         }
                     }
+                    (None, WholeKind::Add) => {
+                        if base.contains(path) {
+                            problems.push(format!(
+                                "{pack}: add_file {path} already exists in the base"
+                            ));
+                        }
+                    }
+                    (None, WholeKind::Replace) => {
+                        if !base.is_file(path) {
+                            problems
+                                .push(format!("{pack}: replace_file {path} is not in the base"));
+                        } else {
+                            let actual = sha256_hex(&base.read(path)?);
+                            if Some(&actual) != whole.base_sha256.as_ref() {
+                                problems.push(format!(
+                                    "{pack}: drift: base {path} is {actual}, pack expects {}",
+                                    whole.base_sha256.as_deref().unwrap_or("?")
+                                ));
+                            }
+                        }
+                    }
                 }
+                layer = whole.under.as_deref();
             }
             resolved
                 .files
-                .insert(path.clone(), Content::Source(whole.source.clone()));
-            resolved.kinds.insert(path.clone(), whole.kind);
+                .insert(path.clone(), Content::Source(top.source.clone()));
+            resolved.kinds.insert(path.clone(), top.base_kind());
         }
         for (path, edits) in &self.edits {
             match self.apply_config_edits(base, path, edits) {
@@ -1495,6 +1538,51 @@ fn export_server(
     Ok(())
 }
 
+/// The (pack id, path) whole files of `packs` that a later pack of the set
+/// replaces over (a layered replace: it requires the pack, and its
+/// `base_sha256` is that pack's file).
+fn replaced_over(packs: &[Pack]) -> Result<BTreeSet<(String, String)>> {
+    let mut output = BTreeSet::new();
+    for (index, pack) in packs.iter().enumerate() {
+        let mut trusted = BTreeSet::new();
+        let mut pending = vec![pack.id().to_owned()];
+        while let Some(current) = pending.pop() {
+            if let Some(found) = packs.iter().find(|other| other.id() == current) {
+                for required in &found.manifest.requires {
+                    if trusted.insert(required.clone()) {
+                        pending.push(required.clone());
+                    }
+                }
+            }
+        }
+        for operation in &pack.manifest.operations {
+            let Operation::ReplaceFile {
+                path, base_sha256, ..
+            } = operation
+            else {
+                continue;
+            };
+            for lower in packs[..index]
+                .iter()
+                .filter(|lower| trusted.contains(lower.id()))
+            {
+                for lower_operation in &lower.manifest.operations {
+                    if let Operation::AddFile { path: p, source }
+                    | Operation::ReplaceFile {
+                        path: p, source, ..
+                    } = lower_operation
+                        && p == path
+                        && sha256_hex(&fs::read(lower.file_source(p, source)?)?) == *base_sha256
+                    {
+                        output.insert((lower.id().to_owned(), path.clone()));
+                    }
+                }
+            }
+        }
+    }
+    Ok(output)
+}
+
 /// `pack verify`: confirm a database carries every operation of the packs.
 /// `patches` (`resources.db.patch_<n>`) are laid over it as the game mounts
 /// them.
@@ -1507,6 +1595,7 @@ pub fn verify(db_path: &Path, patches: &[PathBuf], dirs: &[PathBuf]) -> Result<u
 /// outside the archive) are not checked.
 pub fn verify_in(db: &mut ResourceDb, dirs: &[PathBuf], skipped: &[String]) -> Result<usize> {
     let packs = load_packs(dirs)?;
+    let covered = replaced_over(&packs)?;
     let languages = base_languages(db);
     let mut configs = BTreeMap::<String, BinaryConfig>::new();
     let mut problems = Vec::new();
@@ -1525,7 +1614,11 @@ pub fn verify_in(db: &mut ResourceDb, dirs: &[PathBuf], skipped: &[String]) -> R
                     Operation::AddFile { path, source }
                     | Operation::ReplaceFile { path, source, .. } => {
                         let expected = sha256_hex(&fs::read(pack.file_source(path, source)?)?);
-                        if sha256_hex(&db.read(path)?) != expected {
+                        if covered.contains(&(pack.id().to_owned(), path.clone())) {
+                            // A later pack of the set replaces this file over
+                            // it (its base_sha256 is this file); that pack's
+                            // operation checks the database.
+                        } else if sha256_hex(&db.read(path)?) != expected {
                             bail!("{path} differs from the pack's file");
                         }
                     }

@@ -236,6 +236,97 @@ fn replace_file_detects_drift() {
 }
 
 #[test]
+fn a_pack_replaces_over_the_file_of_a_pack_it_requires() {
+    let fixture = Fixture::new();
+    let lower = fixture.pack(
+        "lower",
+        json!([{"op": "replace_file", "path": TEXTURE, "base_sha256": sha256_hex(b"stock texture")}]),
+        &[(&format!("files/{TEXTURE}"), b"lower texture")],
+    );
+    let over = |id: &str, base: &[u8], requires: Json| {
+        fixture.pack_with(
+            id,
+            json!([{"op": "replace_file", "path": TEXTURE, "base_sha256": sha256_hex(base)}]),
+            &[(&format!("files/{TEXTURE}"), b"upper texture")],
+            json!({"requires": requires}),
+        )
+    };
+    // Without `requires` the two replaces conflict, as before.
+    let stranger = over("stranger", b"lower texture", json!([]));
+    assert!(
+        error_text(check(&[lower.clone(), stranger], None, &[]))
+            .contains("both add or replace misc/stock/body.bin")
+    );
+    // A pack that requires the lower one names the lower pack's bytes...
+    let stale = over("stale", b"stock texture", json!(["lower"]));
+    assert!(
+        error_text(fixture.check(&[lower.clone(), stale]))
+            .contains("drift: lower's misc/stock/body.bin")
+    );
+    // ...and its file wins; the base's own drift check still holds below it.
+    let upper = over("upper", b"lower texture", json!(["lower"]));
+    fixture.check(&[lower.clone(), upper.clone()]).unwrap();
+    let record = fixture
+        .compose("layered", &[lower.clone(), upper.clone()])
+        .unwrap();
+    assert_eq!(record.replaced_files, vec![TEXTURE.to_owned()]);
+    assert_eq!(
+        fixture.output("layered").read(TEXTURE).unwrap(),
+        b"upper texture"
+    );
+    let output_db = fixture.temp.path().join("layered.db");
+    verify(&output_db, &[], &[lower.clone(), upper.clone()]).unwrap();
+    // The lower pack alone is not what that database holds.
+    assert!(
+        error_text(verify(&output_db, &[], std::slice::from_ref(&lower)))
+            .contains("differs from the pack's file")
+    );
+    let drifted_base = fixture.pack(
+        "lower-drifted",
+        json!([{"op": "replace_file", "path": TEXTURE, "base_sha256": sha256_hex(b"older texture")}]),
+        &[(&format!("files/{TEXTURE}"), b"lower texture")],
+    );
+    let upper_of_drifted = over(
+        "upper-of-drifted",
+        b"lower texture",
+        json!(["lower-drifted"]),
+    );
+    assert!(
+        error_text(fixture.check(&[drifted_base, upper_of_drifted]))
+            .contains("drift: base misc/stock/body.bin")
+    );
+}
+
+#[test]
+fn a_pack_replaces_over_a_file_a_required_pack_adds() {
+    let fixture = Fixture::new();
+    let new = "misc/ported/new.bin";
+    let adder = fixture.pack(
+        "adder",
+        json!([{"op": "add_file", "path": new}]),
+        &[(&format!("files/{new}"), b"added")],
+    );
+    let upper = fixture.pack_with(
+        "upper",
+        json!([{"op": "replace_file", "path": new, "base_sha256": sha256_hex(b"added")}]),
+        &[(&format!("files/{new}"), b"replaced")],
+        json!({"requires": ["adder"]}),
+    );
+    let record = fixture
+        .compose("over-add", &[adder.clone(), upper.clone()])
+        .unwrap();
+    assert_eq!(record.added_files, vec![new.to_owned()]);
+    assert!(record.replaced_files.is_empty());
+    assert_eq!(fixture.output("over-add").read(new).unwrap(), b"replaced");
+    verify(
+        &fixture.temp.path().join("over-add.db"),
+        &[],
+        &[adder, upper],
+    )
+    .unwrap();
+}
+
+#[test]
 fn config_set_edits_fields_and_conflicts_on_different_values() {
     let fixture = Fixture::new();
     let set = |value: Json| json!([{"op": "config_set", "path": ITEM, "values": {"parameters.armor": value}}]);
