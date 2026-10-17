@@ -271,9 +271,12 @@ def top(pixels, heights, n):
 
 # ------------------------------------------------------------ reachability
 
-def play_area(tris, spawns, bounds):
+def play_area(tris, spawns, bounds, step=None, all_floors=False):
     """Per CELL: the lowest floor a walker reaches from the spawns (NaN
-    where none) and whether something lies 1.7-12 m above that floor."""
+    where none) and whether something lies 1.7-12 m above that floor.
+    With all_floors, also every reachable (cell index, height) and the grid
+    width."""
+    step = STEP if step is None else step
     x0, z0, x1, z1 = bounds
     ylo = min(s[1] for s in spawns) - 10; yhi = max(s[1] for s in spawns) + 20
     w, h = int(math.ceil((x1 - x0) / CELL)), int(math.ceil((z1 - z0) / CELL))
@@ -342,7 +345,7 @@ def play_area(tris, spawns, bounds):
         for k in range(int(span.max()) if len(span) else 0):
             ok = span > k
             j = lo[ok] + k
-            close = np.abs(fh[j] - fh[src[ok]]) <= STEP
+            close = np.abs(fh[j] - fh[src[ok]]) <= step
             edges.append(np.stack([src[ok][close], j[close]]))
     e = np.concatenate(edges, 1)
     graph = coo_matrix((np.ones(e.shape[1]), (e[0], e[1])), shape=(len(fp), len(fp)))
@@ -360,6 +363,8 @@ def play_area(tris, spawns, bounds):
     last = np.r_[True, rp[1:] != rp[:-1]]          # lowest reachable floor
     floor_h = np.full(w * h, np.nan); covered_ = np.zeros(w * h, bool)
     floor_h[rp[last]] = rh[last]; covered_[rp[last]] = rc[last]
+    if all_floors:
+        return floor_h.reshape(h, w), covered_.reshape(h, w), (rp, rh, w)
     return floor_h.reshape(h, w), covered_.reshape(h, w)
 
 
