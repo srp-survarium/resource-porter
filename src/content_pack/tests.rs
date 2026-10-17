@@ -411,6 +411,71 @@ fn atlas_icons_compose_and_reject_cell_collisions() {
 }
 
 #[test]
+fn icons_of_several_atlases_of_one_movie_all_stay() {
+    // lobby_menu.swf holds the equipment, weapon and ammo icon atlases; an
+    // equipment pack and a weapon pack (rifle and ammo icons) each draw into
+    // theirs. Every atlas keeps its icons: one is not drawn onto the base
+    // movie again after the other.
+    let fixture = Fixture::new();
+    let tree = fixture.temp.path().join("movie-tree");
+    let movie = atlas::tests::synthetic_swf_of(&[
+        (atlas::DEFAULT_SYMBOL, 342, 182),
+        ("LobbyMenu_WeaponIcons", 342, 182),
+        ("LobbyMenu_AmmoIcons", 342, 182),
+    ]);
+    let path = tree.join(atlas::DEFAULT_SWF);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, &movie).unwrap();
+    let base = fixture.temp.path().join("movie-base.db");
+    crate::archive::write_folder(&tree, &base).unwrap();
+    let scratch = fixture.temp.path().join("icons");
+    let (_, red) = icon_png(&scratch, "red.png", 200);
+    let (_, blue) = icon_png(&scratch, "blue.png", 100);
+    let (_, green) = icon_png(&scratch, "green.png", 50);
+    let draw = |symbol: Option<&str>, row: u32, col: u32, source: &str| {
+        let mut op = json!({"op": "atlas_icons_add", "icons": [{"row": row, "col": col, "source": source, "premultiplied": true}]});
+        if let Some(symbol) = symbol {
+            op["symbol"] = json!(symbol);
+        }
+        op
+    };
+    let equipment = fixture.pack(
+        "equipment",
+        json!([draw(None, 1, 2, "icons/e.png")]),
+        &[("icons/e.png", &red)],
+    );
+    let weapon = fixture.pack(
+        "weapon",
+        json!([
+            draw(Some("LobbyMenu_AmmoIcons"), 2, 1, "icons/a.png"),
+            draw(Some("LobbyMenu_WeaponIcons"), 1, 1, "icons/w.png"),
+        ]),
+        &[("icons/a.png", &blue), ("icons/w.png", &green)],
+    );
+    let output_db = fixture.temp.path().join("movie-out.db");
+    compose(&ComposeOptions {
+        base_db: &base,
+        packs: &[equipment.clone(), weapon.clone()],
+        work_dir: &fixture.temp.path().join("work-movie"),
+        output_db: &output_db,
+        server_export: None,
+        force: false,
+    })
+    .unwrap();
+    let swf = atlas::Swf::parse(
+        &ResourceDb::open(&output_db)
+            .unwrap()
+            .read(atlas::DEFAULT_SWF)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(swf.bitmap(atlas::DEFAULT_SYMBOL).unwrap().cell(1, 2).unwrap(), icon(200));
+    assert_eq!(swf.bitmap("LobbyMenu_AmmoIcons").unwrap().cell(2, 1).unwrap(), icon(100));
+    assert_eq!(swf.bitmap("LobbyMenu_WeaponIcons").unwrap().cell(1, 1).unwrap(), icon(50));
+    verify(&output_db, &[], &[equipment, weapon]).unwrap();
+}
+
+#[test]
 fn editing_another_packs_file_requires_a_dependency() {
     let fixture = Fixture::new();
     let new = "gameplay/items/new.options";

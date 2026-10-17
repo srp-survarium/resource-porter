@@ -855,8 +855,22 @@ impl<'a> Plan<'a> {
                 Err(error) => problems.push(format!("{error:#}")),
             }
         }
+        // One movie may hold several atlases (equipment, weapon and ammo
+        // icons of lobby_menu.swf): each symbol's edits go onto the movie
+        // as the previous symbol's left it, not onto the base again.
         for ((path, symbol), edits) in &self.atlas {
-            match self.apply_atlas_edits(base, path, symbol, edits) {
+            let start = match resolved.files.get(path) {
+                Some(content) if resolved.edited.contains(path) => content.bytes(),
+                _ => self.starting_bytes(base, path),
+            };
+            let start = match start {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    problems.push(format!("{error:#}"));
+                    continue;
+                }
+            };
+            match self.apply_atlas_edits(start, path, symbol, edits) {
                 Ok(Some(bytes)) => {
                     resolved.files.insert(path.clone(), Content::Bytes(bytes));
                     resolved.edited.insert(path.clone());
@@ -920,13 +934,12 @@ impl<'a> Plan<'a> {
 
     fn apply_atlas_edits(
         &self,
-        base: &mut ResourceDb,
+        start: Vec<u8>,
         path: &str,
         symbol: &str,
         edits: &[IconEdit<'a>],
     ) -> Result<Option<Vec<u8>>> {
-        let mut swf = atlas::Swf::parse(&self.starting_bytes(base, path)?)
-            .with_context(|| format!("parsing {path}"))?;
+        let mut swf = atlas::Swf::parse(&start).with_context(|| format!("parsing {path}"))?;
         let original = swf.bitmap(symbol)?;
         let mut bitmap = original.clone();
         let mut problems = Vec::new();

@@ -375,22 +375,38 @@ pub(crate) mod tests {
 
     /// A tiny CWS movie with a SymbolClass export and a lossless bitmap.
     pub fn synthetic_swf(width: u16, height: u16) -> Vec<u8> {
+        synthetic_swf_of(&[(DEFAULT_SYMBOL, width, height)])
+    }
+
+    /// A movie of one empty bitmap per `(symbol, width, height)`, as
+    /// lobby_menu.swf holds its equipment, weapon and ammo icon atlases.
+    pub fn synthetic_swf_of(atlases: &[(&str, u16, u16)]) -> Vec<u8> {
         let mut body = vec![0x08, 0x00, 0x00, 0x18, 0x01, 0x00];
-        let mut bitmap = vec![7, 0, 5];
-        bitmap.extend_from_slice(&width.to_le_bytes());
-        bitmap.extend_from_slice(&height.to_le_bytes());
-        let mut encoder = ZlibEncoder::new(bitmap, Compression::best());
-        encoder
-            .write_all(&vec![0; usize::from(width) * usize::from(height) * 4])
-            .unwrap();
-        let bitmap = encoder.finish().unwrap();
-        body.extend_from_slice(&((36_u16 << 6) | 0x3f).to_le_bytes());
-        body.extend_from_slice(&(bitmap.len() as u32).to_le_bytes());
-        body.extend_from_slice(&bitmap);
-        let mut symbols = vec![1, 0, 7, 0];
-        symbols.extend_from_slice(DEFAULT_SYMBOL.as_bytes());
-        symbols.push(0);
-        body.extend_from_slice(&((76_u16 << 6) | symbols.len() as u16).to_le_bytes());
+        let mut symbols = (atlases.len() as u16).to_le_bytes().to_vec();
+        for (index, (name, width, height)) in atlases.iter().enumerate() {
+            let id = 7 + index as u16;
+            let mut bitmap = id.to_le_bytes().to_vec();
+            bitmap.push(5);
+            bitmap.extend_from_slice(&width.to_le_bytes());
+            bitmap.extend_from_slice(&height.to_le_bytes());
+            let mut encoder = ZlibEncoder::new(bitmap, Compression::best());
+            encoder
+                .write_all(&vec![0; usize::from(*width) * usize::from(*height) * 4])
+                .unwrap();
+            let bitmap = encoder.finish().unwrap();
+            body.extend_from_slice(&((36_u16 << 6) | 0x3f).to_le_bytes());
+            body.extend_from_slice(&(bitmap.len() as u32).to_le_bytes());
+            body.extend_from_slice(&bitmap);
+            symbols.extend_from_slice(&id.to_le_bytes());
+            symbols.extend_from_slice(name.as_bytes());
+            symbols.push(0);
+        }
+        if symbols.len() < 0x3f {
+            body.extend_from_slice(&((76_u16 << 6) | symbols.len() as u16).to_le_bytes());
+        } else {
+            body.extend_from_slice(&((76_u16 << 6) | 0x3f).to_le_bytes());
+            body.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
+        }
         body.extend_from_slice(&symbols);
         body.extend_from_slice(&[0, 0]);
         let mut swf = Swf {
