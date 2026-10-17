@@ -306,7 +306,7 @@ pub(super) fn project(
     }
     old.set_path("client_objects", ConfigValue::Indexed(client))?;
     old.set_path("server_objects", groups)?;
-    old.set_path("project_name", ConfigValue::String(map.level.clone()))?;
+    old.set_path("project_name", ConfigValue::String(map.hud_key.clone().unwrap_or_else(|| map.level.clone())))?;
     Ok(old)
 }
 
@@ -1389,6 +1389,8 @@ mod tests {
             map_id: None,
             name: None,
             deathmatch: None,
+            loading_screen_id: None,
+            hud_key: None,
         };
         let project = project(
             old,
@@ -1472,6 +1474,8 @@ mod tests {
             map_id: None,
             name: None,
             deathmatch: None,
+            loading_screen_id: None,
+            hud_key: None,
         };
         let project = project(
             old,
@@ -1986,6 +1990,8 @@ mod tests {
             map_id: None,
             name: None,
             deathmatch: None,
+            loading_screen_id: None,
+            hud_key: None,
         };
         assert_eq!(
             chemical.output_project(SourceBuild::V011e),
@@ -2005,6 +2011,8 @@ mod tests {
             map_id: None,
             name: None,
             deathmatch: None,
+            loading_screen_id: None,
+            hud_key: None,
         };
         assert_eq!(
             map.output_project(SourceBuild::V010b),

@@ -11,12 +11,30 @@ at the kit's middle 0.8 m above the floor. Stops the session, converts the
 BMPs to PNG (ImageMagick) and writes index.html. KIT_JSON is the output of
 place_base_kit.py.
 """
-import argparse, json, math, subprocess, time
+import argparse, json, math, struct, subprocess, time, zlib
 from pathlib import Path
 
 def read(path):
     try: return json.loads(path.read_text())
     except (FileNotFoundError, json.JSONDecodeError): return None
+
+def bmp_to_png(bmp, png):
+    """A 24/32-bit uncompressed BMP (the hook's captures) as an RGB PNG."""
+    d = bmp.read_bytes()
+    offset, = struct.unpack_from('<I', d, 10)
+    width, height, _, bits = struct.unpack_from('<iiHH', d, 18)
+    step = bits // 8; stride = (width * step + 3) & ~3
+    rows = []
+    for y in range(abs(height)):
+        src = d[offset + (abs(height) - 1 - y if height > 0 else y) * stride:][:width * step]
+        row = bytearray(width * 3)
+        row[0::3] = src[2::step]; row[1::3] = src[1::step]; row[2::3] = src[0::step]
+        rows.append(b'\0' + bytes(row))
+    def chunk(kind, data):
+        return struct.pack('>I', len(data)) + kind + data + struct.pack('>I', zlib.crc32(kind + data) & 0xffffffff)
+    png.write_bytes(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, abs(height), 8, 2, 0, 0, 0))
+                    + chunk(b'IDAT', zlib.compress(b''.join(rows), 6)) + chunk(b'IEND', b''))
+
 
 def poses(kit):
     u, n = kit['wall_direction'], kit['room_normal']
@@ -25,10 +43,14 @@ def poses(kit):
     room = kit['walkway_left'] + 0.6                      # free distance in front of the kit
     front = max(1.6, min(3.2, room - 0.4))
     out = []
-    for name, (du, dn, dist) in {'front': (0.0, 1.0, front), 'along_wall_a': (1.0, 0.35, 4.0), 'along_wall_b': (-1.0, 0.35, 4.0)}.items():
+    views = {'front': (0.0, 1.0, front, 0.9, 0.0), 'along_wall_a': (1.0, 0.35, 4.0, 0.9, 0.0), 'along_wall_b': (-1.0, 0.35, 4.0, 0.9, 0.0),
+             # Floor level, close: the eye 0.3 m above the floor, aimed at the kit's base, to show contact.
+             'floor_contact': (0.25, 1.0, min(1.8, room - 0.3), -0.5, -0.6)}
+    for name, (du, dn, dist, up, aim) in views.items():
         d = [u[0]*du + n[0]*dn, u[1]*du + n[1]*dn]; l = math.hypot(*d); d = [d[0]/l, d[1]/l]
-        eye = [c[0] + d[0]*dist, c[1] + 0.9, c[2] + d[1]*dist]
-        f = [c[0]-eye[0], c[1]-eye[1], c[2]-eye[2]]; fl = math.sqrt(sum(v*v for v in f))
+        eye = [c[0] + d[0]*dist, c[1] + up, c[2] + d[1]*dist]
+        target = [c[0], c[1] + aim, c[2]]
+        f = [target[0]-eye[0], target[1]-eye[1], target[2]-eye[2]]; fl = math.sqrt(sum(v*v for v in f))
         out.append((f"{kit['label']}_{name}", eye, [v/fl for v in f]))
     return out
 
@@ -82,7 +104,7 @@ def main():
     rows = []
     for shot in shots:
         bmp = a.output/(shot['name'] + '.bmp'); png = bmp.with_suffix('.png')
-        subprocess.run(['magick', str(bmp), str(png)], check=True); bmp.unlink()
+        bmp_to_png(bmp, png); bmp.unlink()
         rows.append(f"<figure><img src='{png.name}' width='640'><figcaption>{shot['name']}: eye {shot['eye']}, forward {shot['forward']}</figcaption></figure>")
     (a.output/'index.html').write_text("<!doctype html><meta charset='utf-8'><title>194 base kits</title>"
         "<style>body{font:14px sans-serif;background:#111;color:#ddd}figure{display:inline-block;margin:8px}</style>"

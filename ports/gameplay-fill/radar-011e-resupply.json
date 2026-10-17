@@ -1,0 +1,54 @@
+{
+  "name": "radar-011e ammo resupply (native 0.26 crate spots)",
+  "map_id": 195,
+  "also_map_ids": [
+    208,
+    209
+  ],
+  "template_project": "projects/level_03/day_2/client_project",
+  "template_sha256": "87c89c0f18a3ea3691026c6b42b42291b1c590e1e953d54fc2044108de9e9fee",
+  "groups": [
+    {
+      "name": "team 0 ammo crate at the native 0.26 team1 crate spot, 1.7 m from the old team 0 container (zone, collision, ammo decal, container_closed; 195 floor +0.02 m)",
+      "client_objects": [
+        "logic/vip/team1/resupply/resupply_zone",
+        "logic/vip/team1/resupply/resupply_collision",
+        "logic/vip/team1/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        -50.242,
+        0.484,
+        -73.745
+      ],
+      "radius": 1.5,
+      "team": 0,
+      "rename": {
+        "logic/vip/team1/": "logic/fill/team1/"
+      }
+    },
+    {
+      "name": "team 1 ammo crate at the native 0.26 team2 crate spot, 8.2 m from the old team 1 container (195 floor +0.04 m)",
+      "client_objects": [
+        "logic/vip/team2/resupply/resupply_zone",
+        "logic/vip/team2/resupply/resupply_collision",
+        "logic/vip/team2/resupply/ammo_decal"
+      ],
+      "models": [
+        "item/quest/container_closed"
+      ],
+      "anchor": [
+        41.558,
+        0.409,
+        15.49
+      ],
+      "radius": 1.5,
+      "team": 1,
+      "rename": {
+        "logic/vip/team2/": "logic/fill/team2/"
+      }
+    }
+  ]
+}

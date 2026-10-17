@@ -18,7 +18,9 @@
       },
       "deathmatch": {
         "id": 207
-      }
+      },
+      "loading_screen_id": 29,
+      "hud_key": "v011e_level_04"
     },
     {
       "id": 208,
@@ -35,7 +37,9 @@
       },
       "deathmatch": {
         "id": 209
-      }
+      },
+      "loading_screen_id": 29,
+      "hud_key": "v011e_level_03"
     }
   ],
   "missing_collision_resources": [

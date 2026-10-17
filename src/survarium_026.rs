@@ -177,6 +177,16 @@ pub struct Map {
     /// spawners or stations, and the native `<level>_<weather>_4` mode.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deathmatch: Option<Deathmatch>,
+    /// `mode.ui.loading_screen_id` of every mode of the map: an index into
+    /// `lobby_menu.swf`'s `LobbyMenu._load_images` (29 is the 0.11e picture a
+    /// content pack adds). Unset, the native level's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loading_screen_id: Option<i32>,
+    /// The project root's `project_name`, the HUD's minimap key
+    /// (`Minimap._levels` / `_minimapProps` in `hud.swf`). Unset, the level
+    /// (`level_04`), which shows 0.26's minimap of the level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hud_key: Option<String>,
 }
 
 /// A map name string: its localization key and its text in each language
@@ -766,8 +776,9 @@ fn adapt_project(
     // This is the HUD minimap key, not the resource directory. The retail HUD
     // falls back to level_09 for unknown names. Keep the authored key while
     // output_project()/mode.map_name relocate the actual project resources.
+    // A manifest `hud_key` names a key that a content pack adds to the HUD.
     ensure!(
-        string(&donor, "project_name") == Some(map.level.as_str()),
+        string(&donor, "project_name") == Some(map.hud_key.as_deref().unwrap_or(map.level.as_str())),
         "source project has no matching retail HUD minimap key"
     );
     if let Some(ConfigValue::Indexed(visuals)) = donor.named_mut("render_visuals") {
@@ -2327,6 +2338,9 @@ pub fn build_with_fill(
             if let Some(map_name) = &map.name {
                 mode.set_path("mode.ui.map_name", ConfigValue::String(map_name.key.clone()))?;
             }
+            if let Some(id) = map.loading_screen_id {
+                mode.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(id))?;
+            }
             let path = format!("gameplay/game_modes/{mode_name}");
             ensure!(!target.contains(&path), "mode already exists");
             emit(
@@ -2529,6 +2543,8 @@ mod tests {
             map_id: None,
             name: None,
             deathmatch: None,
+            loading_screen_id: None,
+            hud_key: None,
         };
         let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
@@ -3204,6 +3220,8 @@ mod tests {
             map_id: None,
             name: None,
             deathmatch: None,
+            loading_screen_id: None,
+            hud_key: None,
         };
         let converted = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         let visual = &array(converted.named("render_visuals").unwrap()).unwrap()[0];
