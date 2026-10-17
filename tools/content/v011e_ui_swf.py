@@ -12,7 +12,8 @@ are hud.swf's `minimap_zavod` (Chemical Plant, level_04) and `minimap_base`
 14.23, posY -42.196). 0.26g redrew both minimaps and has no 0.11e picture.
 
 `tags` adds to the 0.26g movies, before the class that uses them, for each
-picture: the donor's JPEG3 tag under a new character id, a bitmap class (a
+picture: the donor's JPEG3 tag under a new character id (the loading picture
+re-encoded first, see below), a bitmap class (a
 copy of a 0.26g bitmap class's DoABC2 tag renamed to a name of the same
 length, so no ABC offset moves; its default width/height constants patched
 to the picture's, same u30 length) and a SymbolClass entry binding them:
@@ -20,6 +21,16 @@ to the picture's, same u30 length) and a SymbolClass entry binding them:
 - hud.swf: `minimap_zv11e` (from `minimap_zavod`) and `minimap_bv11`
   (from `minimap_base`), before `survarium/controls/Minimap`.
 Nothing else in the movies changes.
+
+The loading picture: 0.11e stretched its 1280x720 picture over the whole
+stage (LevelBack.width/height = stage size). 0.26g's LobbyGameLoad draws a
+loading bitmap unscaled at 1920 wide (scale max(stage width / 1920, band /
+height)) in the band between its overlays; a native picture is 1920x798.
+So `Level_v011e` gets the 0.11e picture as 0.11e showed it at 1920x1080
+(scaled 1.5x, Lanczos), cropped to its middle 1920x798, JPEG quality 92
+(Pillow, which `tags` needs on PYTHONPATH), with `Level9_rain`'s 1920x798
+defaults unchanged. Shipped unscaled it would sit 1280 wide between 320 px
+black bars.
 
 `code` then edits the two classes in OUT_DIR's movies (abc_patch.py:
 constants appended, one method body each, nothing else touched):
@@ -118,14 +129,34 @@ def bitmap_class(tags, template, name, size_from, size_to):
     return [82, payload]
 
 
+def cover(body, size):
+    """A DefineBitsJPEG3 body (after the id) as a JPEG3 body of `size`: scaled to cover it and centre-cropped,
+    its alpha channel scaled and cropped with it."""
+    import io
+    from PIL import Image
+    n, = struct.unpack_from('<I', body, 2)
+    img = Image.open(io.BytesIO(body[6:6 + n])).convert('RGB')
+    alpha = Image.frombytes('L', img.size, zlib.decompress(body[6 + n:]))
+    w, h = size
+    scale = max(w / img.width, h / img.height)
+    sw, sh = round(img.width * scale), round(img.height * scale)
+    x, y = (sw - w) // 2, (sh - h) // 2
+    img, alpha = (i.resize((sw, sh), Image.LANCZOS).crop((x, y, x + w, y + h)) for i in (img, alpha))
+    out = io.BytesIO(); img.save(out, 'JPEG', quality=92)
+    jpeg = out.getvalue()
+    return body[:2] + struct.pack('<I', len(jpeg)) + jpeg + zlib.compress(alpha.tobytes(), 9)
+
+
 def add_pictures(target, donor, pictures, before):
-    """pictures: (donor character id, class name, template class, template size, picture size)."""
+    """pictures: (donor character id, class name, template class, template size, picture size[, cover size])."""
     version, head, tags = read(target)
     _, _, dtags = read(donor)
     nid = max_id(tags) + 1
     new = []
-    for cid, name, template, size_from, size_to in pictures:
+    for cid, name, template, size_from, size_to, *fit in pictures:
         code, body = image_tag(dtags, cid)
+        if fit:
+            body = cover(body, fit[0])
         new.append([code, struct.pack('<H', nid) + body[2:]])
         new.append(bitmap_class(tags, template, name, size_from, size_to))
         new.append([76, struct.pack('<HH', 1, nid) + name.encode() + b'\0'])
@@ -139,7 +170,7 @@ def tags_command(match_making, donor_hud, lobby, hud, out_dir):
     out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
     mm_symbol = 82                     # LevelBack (symbol 84) draws shape 83 filled with bitmap 82
     write(out / 'lobby_menu.swf', *add_pictures(lobby, match_making,
-          [(mm_symbol, 'Level_v011e', 'Level9_rain', (1920, 798), (1280, 720))], 'LobbyMenu'))
+          [(mm_symbol, 'Level_v011e', 'Level9_rain', (), (), (1920, 798))], 'LobbyMenu'))
     donor = symbols(read(donor_hud)[2])
     write(out / 'hud.swf', *add_pictures(hud, donor_hud,
           [(donor['minimap_zavod'], 'minimap_zv11e', 'minimap_zavod', (458,), (512,)),

@@ -11,6 +11,7 @@ OUT=$1; shift
 N=${PACK_VERSION:-1}; PK=maps-v011e-$N
 HERE=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 P=/nix/store/0if41r2dp11y0v833p5yrpgr8mdanqjk-python3-3.13.15-env/bin/python3
+export PYTHONPATH=/nix/store/017x90g6glr0vrs1dws38wasaayhh0ba-python3.13-pillow-12.3.0/lib/python3.13/site-packages   # Pillow 12.3.0: the loading picture's JPEG
 export LD_LIBRARY_PATH=/nix/store/483x61iy35irm4wr2b7dwzihljhp6da2-zlib-1.3.2/lib
 V=${VOSTOK_PORT:-$HERE/../target/release/vostok-port}          # this branch: the 0.11e builder
 PACK_TOOL=${PACK_TOOL:-/tmp/rev17-metal-fix/target/release/vostok-port}   # content packs (fix/021-maps-native-finish)
