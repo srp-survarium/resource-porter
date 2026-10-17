@@ -79,8 +79,16 @@ vostok-port build-survarium021-maps --manifest ports/survarium-021d-two-maps-to-
   --donor-db "$DONOR_021_DB" --target-db "$TARGET_026_DB" --output maps-bundle
 vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch resources.db.patch_12 \
   --base-patch resources.db.patch_14 --build-base-db "$TARGET_026_DB" \
-  --bundle maps-bundle --output packs/maps-021d-1 --id maps-021d --version 1
+  --bundle maps-bundle --output packs/maps-021d-2 --id maps-021d --version 2
 ```
+
+`maps-021d-2` adds the native finish and the shared native textures and
+materials (see Compatibility decisions): 6,705 files, 414 MB, where
+`maps-021d-1` had 8,290 files, 1,299 MB. Against version 1, a file changed only
+in its finish values or in a reference to a texture or material that is now
+the native one (the T-80's `export_properties` name it with backslashes);
+the decal `editor_decals_moss_01` reads its template's
+`decal/moss_3_spec` smoothness map as the native texture.
 
 Both projects keep 0.21d's respawn points (22 and 20, half each team's) and
 collectors (container 0 is team 1's).
@@ -122,6 +130,42 @@ fixtures have been extended. This importer does not modify SRP.
   parameters are transferred; shader feature switches remain from the template.
   Two reviewed alternatives retain vertex-colour support that the same-named
   0.26 materials lost. A visual match to 0.21 is not guaranteed.
+* A material 0.26 ships under the same path takes 0.26's finish: gloss
+  (`*_roughness`, which 0.26g reads as gloss), Fresnel reflectance, specular
+  colour and their maps (`material_finish::adopt_native_finish`); its colour,
+  normal and other maps stay the donor's. 0.26 re-tuned these for its lighting
+  and re-authored many finish maps: 0.21d's tiled metals have
+  `constant_fresnel` 0.7, a polished-metal reflectance, where 0.26g has 0.04
+  to 0.1 (`tiled/metal/metal_column`, `metal_radio_2`, `metal_03`, `rabica`,
+  `metal_rust_03`, `props/electric/electric_mechanism`,
+  `props/furniture/furniture_workbench`), and gloss maps about three times
+  brighter (`metal_column_02_spec` averages 0.18 against 0.06,
+  `metal_column_smap` 0.13 against 0.03, `metal_radio_02_spec` 0.12 against
+  0.04). Under 0.26g's environment probes (since the native-lighting fix) the
+  metal of RLS Vostok and Mamayev Kurgan shone like polished steel. 448 of
+  their 457 materials have a native counterpart; their effective gloss and
+  Fresnel now equal the native material's (two native materials name a map
+  0.26g lacks, and keep the donor's). Where the template reads a finish map
+  the native material does not (`metal_column_05` on its vertex-colour
+  template), min = max = the native constant. The nine without one keep their
+  conversion, except three reviewed constant finishes (`material_finishes`)
+  from their 0.26g successors: the UAZ tyre (`uaz_459/wh_rubber`, gloss 0.29,
+  Fresnel 0.11, as `vehicle/truck/uaz/wh_rubber`; it was gloss 0.5 on a
+  template without a gloss map), the KamAZ wheel (0.11 / 0.013, as
+  `vehicle/truck/kamaz_wheel`) and `metal_column_05_destr_red` (0.055 / 0.04,
+  as `metal_column_05`).
+* A donor texture 0.26g has under the same path is referenced, not imported,
+  when it is byte-identical, or has the same size, header, full-resolution
+  level, colour-space byte and `.options` with only smaller mip levels
+  regenerated (`native_equivalence`). For RLS Vostok and Mamayev Kurgan: 408
+  identical and 178 re-mipped of 803 (773 MB). 42 re-flagged from sRGB to
+  linear, 10 with other `.options` and 130 re-encoded or re-authored stay the
+  donor's. A converted material that equals the native material and binds
+  only native textures is referenced too (159). The native finish maps and a
+  template's own leftover textures resolve to the target's, unless a donor
+  slot binds the same name (one name is one texture). Identical model
+  directories are not shared: only 137 (8.9 MB) are, and sharing them would
+  need their materials checked too.
 * Scene objects receive missing fields from the matching 0.26 map/weather.
   `render_visuals[].visual_name` is the model resource path, copied from
   `lib_name` before relocation. Newly introduced object groups start empty. Template placements and objective

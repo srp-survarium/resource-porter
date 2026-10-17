@@ -48,5 +48,19 @@
   "missing_collision_resources": [
     "models/flora/poplar_04_sux.model/collision",
     "models/flora/poplar_06_sux.model/collision"
-  ]
+  ],
+  "material_finishes": {
+    "material_instances/vehicle/truck/uaz_459/wh_rubber.material": {
+      "gloss": 0.29,
+      "fresnel": 0.11
+    },
+    "material_instances/vehicle/truck/kamaz/wheel.material": {
+      "gloss": 0.11,
+      "fresnel": 0.013
+    },
+    "material_instances/tiled/metal/metal_column_05_destr_red.material": {
+      "gloss": 0.055,
+      "fresnel": 0.04
+    }
+  }
 }
