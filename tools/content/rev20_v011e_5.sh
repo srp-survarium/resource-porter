@@ -73,8 +73,11 @@ p = json.loads((new / 'pack.json').read_text()); assert p['version'] == sys.argv
 p['version'] = version
 hud = [o for o in p['operations'] if o['op'] == 'replace_file' and o['path'] == 'flash_movies/hud.swf']
 assert len(hud) == 1    # the precondition stays the released patch-14 hud.swf
-p['notes'].append(f'maps-v011e-{version}: 208/209 team 0 battery container and ammo crate moved to the team\'s spawn hall '
-                  f'(container {tuple(kit[0]["to"]["position"])}, crate {tuple(kit[1]["to"]["position"])}, both level at yaw pi/2; 209 the crate); '
+moves = '; '.join(f'{(o.get("container_visuals") or o.get("client_objects") or [o["instances"][0]["model"]])[0].split("/")[-2]} '
+                  f'{tuple(o["anchor"])} -> {tuple(o["to"]["position"])}' for o in kit if o['op'] == 'move')
+removed = '; '.join(f'{o["model"].split("/")[-1]} at {tuple(o["near"])}' for o in kit if o['op'] == 'remove_instances')
+p['notes'].append(f'maps-v011e-{version}: 208/209 base kits (208; 209 the crates): {moves}'
+                  + (f'; props removed (render and collision instances): {removed}' if removed else '') + '; '
                   '206/207 ui.loading_screen_id 5 (native Level4_day; 0.11e has no Chemical picture); '
                   + ('206/207 growing track fog rebuilt (track fog worker\'s plan); ' if fog != '-' else '')
                   + ('respawn point fixes of 206-209 (spawn worker\'s plan); ' if spawn != '-' else '')

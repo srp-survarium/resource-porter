@@ -40,6 +40,36 @@
     ]
    },
    {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/box/woodbox_big1",
+    "near": [
+     -50.443,
+     0.512,
+     -73.03
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -51.274,
+     0.685,
+     -74.329
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -50.125,
+     0.512,
+     -74.67
+    ],
+    "radius": 0.05
+   },
+   {
     "op": "move",
     "anchor": [
      -50.242,
@@ -48,16 +78,11 @@
     ],
     "to": {
      "position": [
-      -32.725,
-      0.51,
-      -68.5
+      -50.242,
+      0.504,
+      -73.745
      ],
-     "yaw": 1.570796,
-     "from_rotation": [
-      -3.089,
-      -1.403,
-      -3.104
-     ]
+     "yaw": 0.0
     },
     "client_objects": [
      "logic/fill/team1/resupply/resupply_zone",
@@ -72,7 +97,7 @@
        0.484,
        -73.745
       ],
-      "radius": 0.3
+      "radius": 0.05
      }
     ]
    },
@@ -89,12 +114,7 @@
       0.449,
       15.49
      ],
-     "yaw": 0.034,
-     "from_rotation": [
-      -0.001,
-      0.034,
-      0.0
-     ]
+     "yaw": 0.0
     },
     "client_objects": [
      "logic/fill/team2/resupply/resupply_zone",
@@ -109,13 +129,43 @@
        0.409,
        15.49
       ],
-      "radius": 0.3
+      "radius": 0.05
      }
     ]
    }
   ],
   "projects/v011e_level_03/day_4/client_project": [
    {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/box/woodbox_big1",
+    "near": [
+     -50.443,
+     0.512,
+     -73.03
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -51.274,
+     0.685,
+     -74.329
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -50.125,
+     0.512,
+     -74.67
+    ],
+    "radius": 0.05
+   },
+   {
     "op": "move",
     "anchor": [
      -50.242,
@@ -124,16 +174,11 @@
     ],
     "to": {
      "position": [
-      -32.725,
-      0.51,
-      -68.5
+      -50.242,
+      0.504,
+      -73.745
      ],
-     "yaw": 1.570796,
-     "from_rotation": [
-      -3.089,
-      -1.403,
-      -3.104
-     ]
+     "yaw": 0.0
     },
     "client_objects": [
      "logic/fill/team1/resupply/resupply_zone",
@@ -148,7 +193,7 @@
        0.484,
        -73.745
       ],
-      "radius": 0.3
+      "radius": 0.05
      }
     ]
    },
@@ -165,12 +210,7 @@
       0.449,
       15.49
      ],
-     "yaw": 0.034,
-     "from_rotation": [
-      -0.001,
-      0.034,
-      0.0
-     ]
+     "yaw": 0.0
     },
     "client_objects": [
      "logic/fill/team2/resupply/resupply_zone",
@@ -185,7 +225,7 @@
        0.409,
        15.49
       ],
-      "radius": 0.3
+      "radius": 0.05
      }
     ]
    }
