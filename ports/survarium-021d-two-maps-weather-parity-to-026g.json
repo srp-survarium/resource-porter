@@ -73,6 +73,7 @@
       "id": 177,
       "level": "level_06",
       "weather": "rain",
+      "legacy_tonemap_021": true,
       "native_lighting": false,
       "map_id": 11,
       "name": {

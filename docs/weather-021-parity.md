@@ -819,3 +819,47 @@ The next investigation stays in resources/shaders (original probe specular or
 material shading), preserving the accepted atmosphere and the unmodified
 executable renderer. Slight evening differences are acceptable per the user;
 no more executable ray-stage work is planned.
+
+## Original tone curve for Mamayev rain
+
+Probe-only trial28 was rejected: close09 improved 12.253 to 11.506, but east
+worsened 3.846 to 4.380 and southwest 3.519 to 3.877. A runtime trace instead
+exposed a tone-curve mismatch: adapted luminance is only 0.01924 in close09,
+below native 0.26's 0.05 floor. Original 0.21's curve has no such floor. The
+previous evening tone-map rejection occurred around luminance 0.49, where that
+floor was inactive, so it did not answer this dark-scene case.
+
+`legacy_tonemap_021` replaces only the 23 native tone-curve instructions with
+24 pinned original instructions on selected weather markers. It preserves
+native bloom, texture slots, color grading, gamma and vignette. A separate
+static-global binding supplies the existing fog marker; no executable renderer
+patch is needed. The original body is used exactly, including its luminance
+clamp range and exponential conversion. Unselected maps retain every native
+tone-curve instruction.
+
+Diagnostic29 improved close09 to 8.214 and all four regression views. Guarded
+trial31 gave 8.160 and confirmed shader `f98904e99752908444970c03132df9aa` in
+the live trace. Mamayev evening fallback was 13.230 versus the accepted 13.257.
+The first guard's metadata returned reflection success but invalid binding
+names: trial30 was never rendered. The corrected builder preserves the retail
+binding-name pool before the buffer table, and all ten bindings were checked.
+
+All 18 Mamayev rain comparisons improve. Six close views average 8.088 versus
+10.268; twelve panoramas average 4.404 versus 4.682. Close09's smoothed error
+falls from 11.052 to 5.228. Three ranked contact pages were reviewed. Four
+previously validated diagnostic29 frames were reused after byte-exact body
+checks and guarded runtime validation; the remaining 14 frames use trial31.
+Small surface and particle differences remain. The parity manifest enables
+this option only for Mamayev rain (177), pending separate Vostok validation.
+
+The full parity19 build contains 7,013 resources and 299 materials. All 7,009
+prior files are unchanged, and four added postprocess programs are byte-identical
+to rendered trial31. Every overlay file hash was checked, and all 7,013 resources
+were verified in the rendered archive; that same archive is retained as
+`parity-19-resources.db` (SHA-256
+`baffa45d64d7e9ee189b79281d50c99d2ce65f04014e3bdbb96b7fb92707fa9a`).
+There was no need to rebuild an identical archive from stock. All 345 ordinary
+tests and eight retail shader tests pass. Tests cover both native blob headers,
+the rendered bytecode, original buffer/resource metadata, fallback instructions,
+multiple map markers, checksums and malformed inputs. Baseline assets remain
+unchanged.

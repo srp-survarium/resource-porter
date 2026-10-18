@@ -84,6 +84,9 @@ pub struct Map {
     /// Original direct-sun diffuse/specular block; native foliage retained.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_sun_lighting_021: bool,
+    /// Original tone curve; native grading and unmarked maps remain intact.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_tonemap_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1387,6 +1390,7 @@ pub fn build(
         ensure!(!map.legacy_water_fog_021 || map.legacy_fog_021, "original water fog requires legacy_fog_021");
         ensure!(!map.legacy_rain_albedo_021 || (map.legacy_fog_021 && map.weather == "rain"), "original rain albedo requires rain weather and legacy_fog_021");
         ensure!(!map.legacy_sun_lighting_021 || map.legacy_fog_021, "original sun lighting requires legacy_fog_021");
+        ensure!(!map.legacy_tonemap_021 || map.legacy_fog_021, "original tone curve requires legacy_fog_021");
         ensure!(!map.legacy_god_rays_falloff_021 || map.legacy_fog_021, "original god-rays falloff requires legacy_fog_021");
         ensure!(!map.legacy_ambient_occlusion_021 || map.legacy_fog_021, "original ambient occlusion requires legacy_fog_021");
         ensure!(
@@ -1530,6 +1534,7 @@ pub fn build(
     let mut ao_markers = Vec::new();
     let mut god_rays_markers = Vec::new();
     let mut sun_lighting_markers = Vec::new();
+    let mut tonemap_markers = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1632,6 +1637,24 @@ pub fn build(
                 &donor.read(&path)?, &target.read(&path)?, quality, &god_rays_markers)?;
             god_rays_shaders.push((path, shader));
         }
+    }
+    for map in &m.maps {
+        if map.legacy_tonemap_021 {
+            tonemap_markers.push(-32021.0 - f32::from(map.id));
+        }
+    }
+    let mut tonemap_shaders = Vec::new();
+    if !tonemap_markers.is_empty() {
+        let source = donor.read(crate::weather_fog_021::TONEMAP_SOURCE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::TONEMAP_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 12, "unexpected native tone-map variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_tonemap(&source, &target.read(&path)?, &tonemap_markers)? {
+                tonemap_shaders.push((path, shader));
+            }
+        }
+        ensure!(tonemap_shaders.len() == 4, "unexpected compatible tone-map variant count");
     }
     let mut composition_shaders = Vec::new();
     if !rain_albedo_markers.is_empty() || !sun_lighting_markers.is_empty() {
@@ -1956,6 +1979,9 @@ pub fn build(
     }
     for (path, shader) in composition_shaders {
         emit(output, &path, &shader, "0.21d-selected-weather-composition+native-unmarked-fallback", &mut files)?;
+    }
+    for (path, shader) in tonemap_shaders {
+        emit(output, &path, &shader, "0.21d-tone-curve+native-grading-and-unmarked-fallback", &mut files)?;
     }
     for (path, shader) in god_rays_shaders {
         emit(output, &path, &shader, "0.21d-god-rays-falloff+native-sampling-and-unmarked-fallback", &mut files)?;
@@ -2505,6 +2531,7 @@ mod tests {
             legacy_ambient_occlusion_021: false,
             legacy_god_rays_falloff_021: false,
             legacy_sun_lighting_021: false,
+            legacy_tonemap_021: false,
             map_id: None,
             name: None,
         };
@@ -2761,6 +2788,7 @@ mod tests {
             legacy_ambient_occlusion_021: false,
             legacy_god_rays_falloff_021: false,
             legacy_sun_lighting_021: false,
+            legacy_tonemap_021: false,
             map_id: None,
             name: None,
         };

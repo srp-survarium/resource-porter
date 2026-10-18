@@ -3,6 +3,8 @@
 //! Retail bytecode is read from the user's databases, never shipped here.
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
+mod tone_map;
+pub use tone_map::{TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap};
 
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
 pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";
