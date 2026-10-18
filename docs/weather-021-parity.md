@@ -1,6 +1,12 @@
 # RLS Vostok and Mamayev weather parity
 
-Work in progress: the baseline converts and loads, but is not visually matched.
+The parity conversion is implemented and validated for both maps in evening
+and rain. Parity20 contains 7,013 resources and 299 converted materials. All
+four variants have 18 reviewed fixed-camera comparisons, including elevated
+panoramas and close views. Slight evening differences remain within the user's
+accepted scope; foliage motion, particles and small surface differences remain.
+No executable renderer patch is retained. The original baseline transformation
+is preserved separately; the sections below record the investigation.
 
 `ports/survarium-021d-two-maps-weather-to-026g.json` preserves the first
 evening/rain conversion separately from the released day manifest. Both use
@@ -863,3 +869,35 @@ tests and eight retail shader tests pass. Tests cover both native blob headers,
 the rendered bytecode, original buffer/resource metadata, fallback instructions,
 multiple map markers, checksums and malformed inputs. Baseline assets remain
 unchanged.
+
+## Vostok rain tone curve and final parity20
+
+The same dark-scene mismatch applies to Vostok rain: adapted luminance in
+close03 is 0.02437, below the native curve's 0.05 floor. All four initial
+comparisons improved. Diagnostic32 extends the map guard to IDs 168 and 177;
+its reflection metadata and all non-code shader chunks are byte-identical to
+validated diagnostic31. The live trace confirms shader
+`fad93cd504b1bdd080ef786053fee4b1`. Guarded close03 improves from 9.341 to
+5.719, and its 16-pixel-smoothed error falls from 7.414 to 2.839.
+
+All 18 Vostok rain views improve. Eight close views average 6.054 versus 8.476;
+ten panoramas average 3.855 versus 4.440. Three ranked pages were reviewed.
+Three validated diagnostic29 regression frames were reused after exact shader
+body and runtime checks; the other 15 use the two-map guard. A final Mamayev
+close09 check gives 8.174 versus the accepted single-map guard's 8.160, retaining
+the previous improvement. The existing evening comparisons remain applicable:
+their native tone branch is preserved, with prior evening fallback validation.
+
+Parity20 enables `legacy_tonemap_021` for both rain maps only. All 7,013 full
+bundle file hashes were checked: 7,009 match parity19 and four postprocess
+programs exactly match rendered diagnostic32. The complete bundle verifies
+against the rendered archive, retained as `parity-20-resources.db` (SHA-256
+`4628237bbd954843cc3bdf62fcb1fa5a6c65cbb0da74956e4637ec31f31767c0`).
+The retail test now also checks byte-exact two-map output for all four variants.
+No additional original screenshots were captured. The capture executable still
+has its pre-experiment hash `5eb0fc97b983ecc5d98282444076c7dc8180798429c58c4ac35849cb110c993a`.
+
+Use `ports/survarium-021d-two-maps-weather-parity-to-026g.json` for this result.
+The baseline manifest, baseline branch, original reference images and diagnostic
+evidence remain preserved. This completes the requested porter conversion and
+visual comparison work; deployment into a release is separate.

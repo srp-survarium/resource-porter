@@ -255,12 +255,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires WEATHER_SHADER_AUDIT with pinned retail blobs and diagnostic31"]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with pinned retail blobs and diagnostics31/32"]
     fn retail_tone_map_matches_guarded_diagnostic_and_preserves_fallback() {
         let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
         let source =
             std::fs::read(root.join("original-1b4161539682733eee7ac7cb4c1d4d2a.blob")).unwrap();
         let expected = std::fs::read(root.join("trial31-guarded-tonemap.dxbc")).unwrap();
+        let expected_two_maps = std::fs::read(root.join("trial32-guarded-tonemap.dxbc")).unwrap();
         for i in 0..4 {
             let target = std::fs::read(root.join(format!("trial25-native-{i}.blob"))).unwrap();
             let (offset, native) =
@@ -270,6 +271,10 @@ mod tests {
                 .unwrap();
             assert_eq!(&result[..offset], &target[..offset]);
             assert_eq!(&result[offset..], expected);
+            let both = build_tonemap(&source, &target, &[-32189., -32198.])
+                .unwrap()
+                .unwrap();
+            assert_eq!(&both[offset..], expected_two_maps);
             let original_chunks = chunks(native).unwrap();
             let new_chunks = chunks(&result[offset..]).unwrap();
             for (tag, data) in &original_chunks {
