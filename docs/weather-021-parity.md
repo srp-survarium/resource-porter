@@ -605,3 +605,36 @@ validated diagnostic. Archive SHA-256:
 `44609b89e28117eba309e37f64091975b35673cdea68a3748ef0970d7ec83ee6`.
 Mamayev evening validation and the remaining surface/foliage and broad
 visual audit are still outstanding.
+
+The same falloff option is now validated for Mamayev evening. Its first
+sun-facing southwest view improves from MAE 6.133 to 2.970. The runtime audit
+confirms the corrected two-map shader `459a95be5d74a8827915d8afcbc474f0`,
+marker -32197, and the fixed camera. The other three regression views remain
+visually similar: close03 9.293 (previously 9.157), close06 11.808 (11.749),
+and east 5.168 (4.952). The four quality variants are the only changed files;
+7,005 other files remain identical. Full build/apply/verify pass; archive
+SHA-256:
+`e8b981343dbe7a44ab1da8c2944ad7f1c71cb6f223b7f12eb82e692bf753ea38`.
+The parity manifest now enables original radial falloff on both evening
+maps. The existing multiple-marker shader tests cover this marker pair.
+
+A broader Mamayev evening audit then checked all 18 usable saved reference
+views: 12 elevated panoramas and six closer gameplay-area views. The first
+four frames were reused, so this required only 14 additional target frames
+and no original captures. Sky, clouds, haze and sun-facing glow align
+closely. Wide-view errors range from 2.970 to 9.159; the largest wide error
+includes moving smoke. Close-view errors range from 9.293 to 13.627, with
+close09 the largest. Nearby grass and foliage remain noticeably different,
+so the broad audit does not establish finished parity. Some bright flecks
+also remain, although several white gaps are present in the originals too.
+
+Static investigation found another concrete difference in the sun-enabled
+original composition (`ec9315c36c9ae2477109a5de7cc57ded`). Its diffuse term
+uses Fresnel from the view/halfway angle; native composition uses the
+light/normal angle. Native already computes the former for specular, so an
+isolated diffuse-angle comparison can retain all other shading operations.
+The original sun-disabled composition used in the earlier rain investigation
+is a separate permutation; all four unique original permutations lack the
+native rain attenuation. Original/native sun specular and foliage scattering
+also differ, but should be tested separately. Close09 is the next fixed view
+for the diffuse-angle experiment. Other maps' broad audits remain pending.
