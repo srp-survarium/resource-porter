@@ -11,6 +11,9 @@ pub const SCATTERING_PATH: &str = "shaders/sm_4_0/make_mie_rayleigh_texture.ps/_
 pub const PARTICLE_PREFIX: &str = "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/";
 pub const PARTICLE_SOURCE: &str = "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/00__1_____________0___27___0____0_0________________0_0_____________";
 pub const PARTICLE_TEMPLATE: &str = "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/0___1____________0___27___0____0_0_________________0_0_____________";
+pub const WATER_PREFIX: &str = "shaders/sm_4_0/forward_water.ps/";
+pub const WATER_SOURCE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1___________0____1________0_0________________0_0_____________";
+pub const WATER_TEMPLATE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1__________0____1________0_0_________________0_0_____________";
 
 pub struct ScatteringProfile {
     pub marker: f32,
@@ -274,15 +277,52 @@ pub fn build_particle(
     template: &[u8],
     profiles: &[Profile],
 ) -> Result<Option<Vec<u8>>> {
-    ensure!(!profiles.is_empty(), "no original particle fog profiles");
-    let (_, original) = pinned_code(
-        source,
-        "955ddb23052e167e2842e990ff7698f3ed8ee05dd06ebda01096c21bb893e529",
-    )?;
-    let (_, reference) = pinned_code(
-        template,
-        "28ab00cfa95506fefed79f14bc8474df332e804d6ffc6be11846c4f42fd72a5f",
-    )?;
+    build_forward_fog(source, target, template, profiles, ForwardFog::Particle)
+}
+
+/// Replace only the terminal water fog block. Native waves, reflections,
+/// lighting, material bindings and unmarked behavior remain intact.
+pub fn build_water(
+    source: &[u8],
+    target: &[u8],
+    template: &[u8],
+    profiles: &[Profile],
+) -> Result<Option<Vec<u8>>> {
+    build_forward_fog(source, target, template, profiles, ForwardFog::Water)
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ForwardFog {
+    Particle,
+    Water,
+}
+
+fn build_forward_fog(
+    source: &[u8],
+    target: &[u8],
+    template: &[u8],
+    profiles: &[Profile],
+    kind: ForwardFog,
+) -> Result<Option<Vec<u8>>> {
+    ensure!(!profiles.is_empty(), "no original forward fog profiles");
+    let (source_hash, native_hash, source_range, native_range, scratch_count) = match kind {
+        ForwardFog::Particle => (
+            "955ddb23052e167e2842e990ff7698f3ed8ee05dd06ebda01096c21bb893e529",
+            "28ab00cfa95506fefed79f14bc8474df332e804d6ffc6be11846c4f42fd72a5f",
+            169..214,
+            37..90,
+            4,
+        ),
+        ForwardFog::Water => (
+            "077372cb8294764877c1da9ae92e47a2a3a74fdb2f09b18a3476772e374459db",
+            "e39fd1ff7ee8acd49bbb4a3af603d82fb69d38ab96aac9e722f548f54e180b92",
+            306..354,
+            319..375,
+            3,
+        ),
+    };
+    let (_, original) = pinned_code(source, source_hash)?;
+    let (_, reference) = pinned_code(template, native_hash)?;
     let program = |code: &[u8]| -> Result<Vec<Vec<u32>>> {
         let entries = chunks(code)?;
         instructions(&words(
@@ -295,16 +335,29 @@ pub fn build_particle(
     };
     let source_ops = program(original)?;
     let template_ops = program(reference)?;
-    let source_fog = &source_ops[169..214];
-    let native_fog = &template_ops[37..90];
-    ensure!(
-        source_fog[0]
-            == [
-                0x09000000, 0x00100072, 2, 0x00101246, 0, 0x80208246, 0x41, 2, 20
-            ]
-            && source_fog[44] == [0x05002036, 0x00102082, 7, 0x0010003a, 0],
-        "original particle fog boundary changed"
-    );
+    let source_fog = &source_ops[source_range];
+    let native_fog = &template_ops[native_range];
+    if kind == ForwardFog::Particle {
+        ensure!(
+            source_fog[0]
+                == [
+                    0x09000000, 0x00100072, 2, 0x00101246, 0, 0x80208246, 0x41, 2, 20
+                ]
+                && source_fog[44] == [0x05002036, 0x00102082, 7, 0x0010003a, 0],
+            "original particle fog boundary changed"
+        );
+    } else {
+        ensure!(
+            source_fog[0] == native_fog[0]
+                && source_fog[0]
+                    == [
+                        0x09000000, 0x00100072, 1, 0x00101246, 4, 0x80208246, 0x41, 1, 20
+                    ]
+                && source_ops[354..] == [vec![0x0100003e]]
+                && template_ops[375..] == [vec![0x0100003e]],
+            "original water fog boundary changed"
+        );
+    }
     let offset = 4 + u32_at(target, 0)? as usize * 264;
     let native = target.get(offset..).context("truncated particle shader")?;
     ensure!(
@@ -329,18 +382,24 @@ pub fn build_particle(
     ensure!(matches.len() == 1, "ambiguous particle fog block");
     let start = matches[0];
     let end = start + native_fog.len();
-    ensure!(
-        native_ops.get(end..end + 7) == Some(&template_ops[90..97]),
-        "particle fog live-register boundary changed"
-    );
+    match kind {
+        ForwardFog::Particle => ensure!(
+            native_ops.get(end..end + 7) == Some(&template_ops[90..97]),
+            "particle fog live-register boundary changed"
+        ),
+        ForwardFog::Water => ensure!(
+            native_ops[end..] == [vec![0x0100003e]],
+            "water fog must end at the return instruction"
+        ),
+    }
     let ti = native_ops
         .iter()
         .position(|ins| ins[0] & 2047 == 104)
         .context("missing particle temporaries")?;
     let base = native_ops[ti][1];
     ensure!(base <= 64, "unexpected particle temporaries");
-    native_ops[ti][1] = base + 5;
-    let profile_register = base + 4;
+    native_ops[ti][1] = base + scratch_count + 1;
+    let profile_register = base + scratch_count;
     let mut body = Vec::new();
     let mut remaps = [0; 3];
     for ins in source_fog {
@@ -357,11 +416,11 @@ pub fn build_particle(
             } else {
                 None
             };
-            let kind = (token >> 12) & 255;
+            let operand_kind = (token >> 12) & 255;
             let dimensions = ((token >> 20) & 3) as usize;
             let mut indices = ins[at..at + dimensions].to_vec();
             at += dimensions;
-            if kind == 4 {
+            if operand_kind == 4 {
                 ensure!(dimensions == 0 && !extended, "unexpected particle literal");
                 let count = if token & 3 == 2 { 4 } else { 1 };
                 fixed.push(token);
@@ -369,21 +428,26 @@ pub fn build_particle(
                 at += count;
                 continue;
             }
-            match kind {
+            match operand_kind {
                 0 => {
                     ensure!(
-                        dimensions == 1 && indices[0] < 4,
+                        dimensions == 1 && indices[0] < scratch_count,
                         "unexpected original particle temporary"
                     );
                     indices[0] += base;
                 }
                 1 => {
-                    ensure!(indices == [0], "unexpected original particle position");
-                    indices[0] = 6;
+                    if kind == ForwardFog::Particle {
+                        ensure!(indices == [0], "unexpected original particle position");
+                        indices[0] = 6;
+                    } else {
+                        ensure!(indices == [4], "unexpected original water position");
+                    }
                 }
                 8 => {
                     ensure!(
-                        dimensions == 2 && indices[0] == 2,
+                        dimensions == 2
+                            && indices[0] == if kind == ForwardFog::Particle { 2 } else { 1 },
                         "unexpected particle constant buffer"
                     );
                     indices[0] = 1;
@@ -452,6 +516,11 @@ pub fn build_particle(
             profile.color[2].to_bits(),
             f32::INFINITY.to_bits(),
         ]);
+        if kind == ForwardFog::Water {
+            // The original terminal block consumes the water color in r0.xyz.
+            // Copy it to scratch, so the native branch retains its live inputs.
+            updated.extend([0x05000036, 0x00100072, base, 0x00100246, 0]);
+        }
         updated.extend(body.iter().flatten());
         updated.push(0x01000012); // else: next marked profile, then native fallback
     }
@@ -1026,6 +1095,83 @@ mod tests {
         );
         assert!(instructions(&[0, 3, 53]).is_err());
         assert!(instructions(&[0, 4, 53, 8]).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_water_fog_preserves_material_and_native_fallback() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let source =
+            std::fs::read(root.join("original-e4f112a3322ff4772e0fa9404d5a7f9f.blob")).unwrap();
+        let template =
+            std::fs::read(root.join("native-915734a684b44d6d7f5bb3a2e8945e50.blob")).unwrap();
+        let profiles = [
+            Profile {
+                marker: -32189.0,
+                color: [0.841f32.powf(2.2); 3],
+            },
+            Profile {
+                marker: -32198.0,
+                color: [0.875f32.powf(2.2); 3],
+            },
+        ];
+        let directory = root.join("native-water-pixels/overlay").join(WATER_PREFIX);
+        let mut patched = 0;
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let target = std::fs::read(entry.unwrap().path()).unwrap();
+            let Some(result) = build_water(&source, &target, &template, &profiles).unwrap() else {
+                continue;
+            };
+            patched += 1;
+            let offset = 4 + u32_at(&target, 0).unwrap() as usize * 264;
+            assert_eq!(&result[..offset], &target[..offset]);
+            assert_eq!(
+                checksum(&result[offset..]).unwrap(),
+                result[offset + 4..offset + 20]
+            );
+            let old = chunks(&target[offset..]).unwrap();
+            let new = chunks(&result[offset..]).unwrap();
+            for ((tag, a), (new_tag, b)) in old.iter().zip(&new) {
+                assert_eq!(tag, new_tag);
+                if tag != b"SHDR" {
+                    assert_eq!(a, b);
+                    continue;
+                }
+                let old = instructions(&words(a).unwrap()).unwrap();
+                let new = instructions(&words(b).unwrap()).unwrap();
+                let start = old.len() - 57;
+                for (a, b) in old[..start].iter().zip(&new) {
+                    if a[0] & 2047 == 104 {
+                        assert_eq!(b[1], a[1] + 4);
+                    } else {
+                        assert_eq!(a, b);
+                    }
+                }
+                // All native lighting precedes the guard. Its complete fog
+                // survives once as the fallback, followed only by endif/ret.
+                assert_eq!(
+                    new.windows(56)
+                        .filter(|w| *w == &old[start..start + 56])
+                        .count(),
+                    1
+                );
+                assert!(new.ends_with(&[vec![0x01000015], vec![0x01000015], vec![0x0100003e]]));
+            }
+        }
+        assert_eq!(patched, 8);
+        assert!(build_water(&source, &template, &template, &[]).is_err());
+        assert!(
+            build_water(
+                &source,
+                &template,
+                &template,
+                &[profiles[0].clone(), profiles[0].clone()]
+            )
+            .is_err()
+        );
+        let mut corrupt = source.clone();
+        corrupt[8] ^= 1;
+        assert!(build_water(&corrupt, &template, &template, &profiles).is_err());
     }
 
     #[test]

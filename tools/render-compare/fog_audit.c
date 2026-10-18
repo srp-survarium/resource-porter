@@ -184,6 +184,18 @@ static void fog_observe(ID3D11DeviceContext *context) {
     int matches=size>=400;
     for (unsigned i=0;matches && i<3;++i)
         matches=isfinite(values[80+i]) && fabsf(values[80+i]-camera.position[i])<.01f;
+    int matrix_match=0;
+    if (!matches && size>=400) {
+        // Non-atmosphere shaders can leave eye_position unused/stale while
+        // uploading the inverse view matrix. Validate both translation and
+        // forward direction before accepting that draw for this camera.
+        matrix_match=1;
+        for (unsigned i=0;matrix_match && i<3;++i)
+            matrix_match=isfinite(values[47+4*i]) && isfinite(values[46+4*i]) &&
+                fabsf(values[47+4*i]-camera.position[i])<.01f &&
+                fabsf(values[46+4*i]-camera.forward[i])<.001f;
+        matches=matrix_match;
+    }
     if (!matches) { free(data);return; }
     char path[MAX_PATH+40];snprintf(path,sizeof(path),"%s.fog-cb1.bin",camera.output);
     FILE *file=fopen(path,"wb");
@@ -194,6 +206,7 @@ static void fog_observe(ID3D11DeviceContext *context) {
     if (!file || !saved) { if (file) fclose(file);free(data);error("cannot write fog audit");return; }
     fprintf(file,"{\"request\":%u,\"build\":\"%s\",\"shader_digest\":\"",camera.id,build);
     for (unsigned i=0;i<16;++i) fprintf(file,"%02x",fog_digests[kind-1][i]);
+    fprintf(file,"\",\"camera_match\":\"%s",matrix_match?"inverse_view_matrix":"eye_position");
     fprintf(file,"\",\"buffer_bytes\":%u,\"frame_stage\":\"%s\",\"eye\":",size,vertex_frame?"vertex":"pixel");fog_vector(file,values+80,3);
     fputs(",\"sun_color\":",file);fog_vector(file,values+96,3);
     fputs(",\"to_sun_direction\":",file);fog_vector(file,values+88,3);

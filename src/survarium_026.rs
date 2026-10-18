@@ -69,6 +69,9 @@ pub struct Map {
     /// Original fog interpolation for the checked batched particle variants.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_particle_fog_021: bool,
+    /// Original fog in the checked forward-water pixel variants.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_water_fog_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1369,6 +1372,7 @@ pub fn build(
     for map in &m.maps {
         ensure!(!map.legacy_scattering_021 || map.legacy_sky_021,"original scattering requires legacy_sky_021");
         ensure!(!map.legacy_particle_fog_021 || map.legacy_fog_021, "original particle fog requires legacy_fog_021");
+        ensure!(!map.legacy_water_fog_021 || map.legacy_fog_021, "original water fog requires legacy_fog_021");
         ensure!(
             !map.legacy_sky_021 || map.legacy_fog_021,
             "original sky requires legacy_fog_021"
@@ -1505,6 +1509,7 @@ pub fn build(
     let mut cloud_markers = Vec::new();
     let mut scattering_profiles = Vec::new();
     let mut particle_fog_profiles = Vec::new();
+    let mut water_fog_profiles = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1519,6 +1524,9 @@ pub fn build(
         .with_context(|| format!("adapting {}", map.donor_project()))?;
         if map.legacy_fog_021 {
             let profile = mark_legacy_fog(&mut project, map)?;
+            if map.legacy_water_fog_021 {
+                water_fog_profiles.push(profile.clone());
+            }
             if map.legacy_particle_fog_021 {
                 particle_fog_profiles.push(profile.clone());
             }
@@ -1593,6 +1601,21 @@ pub fn build(
             }
         }
         ensure!(particle_fog_shaders.len() == 24, "unexpected compatible particle fog variant count");
+    }
+    let mut water_fog_shaders = Vec::new();
+    if !water_fog_profiles.is_empty() {
+        let source = donor.read(crate::weather_fog_021::WATER_SOURCE)?;
+        let template = target.read(crate::weather_fog_021::WATER_TEMPLATE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::WATER_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 120, "unexpected native water variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_water(
+                &source, &target.read(&path)?, &template, &water_fog_profiles)? {
+                water_fog_shaders.push((path,shader));
+            }
+        }
+        ensure!(water_fog_shaders.len() == 8, "unexpected compatible water fog variant count");
     }
     let scattering_shader = if scattering_profiles.is_empty() {None} else {
         Some(crate::weather_fog_021::build_scattering(
@@ -1865,6 +1888,9 @@ pub fn build(
     }
     for (path, shader) in particle_fog_shaders {
         emit(output, &path, &shader, "0.21d-particle-fog+native-geometry-lighting-and-fallback", &mut files)?;
+    }
+    for (path, shader) in water_fog_shaders {
+        emit(output, &path, &shader, "0.21d-water-fog+native-waves-reflections-lighting-and-fallback", &mut files)?;
     }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -2402,6 +2428,7 @@ mod tests {
             legacy_clouds_021: false,
             legacy_scattering_021: false,
             legacy_particle_fog_021: false,
+            legacy_water_fog_021: false,
             map_id: None,
             name: None,
         };
@@ -2653,6 +2680,7 @@ mod tests {
             legacy_clouds_021: false,
             legacy_scattering_021: false,
             legacy_particle_fog_021: false,
+            legacy_water_fog_021: false,
             map_id: None,
             name: None,
         };

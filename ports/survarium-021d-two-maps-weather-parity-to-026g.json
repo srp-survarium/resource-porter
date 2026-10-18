@@ -35,7 +35,13 @@
         "ukrainian": "РЛС \"Восток\" (v0.21)",
         "german": "RS Vostok (v0.21)",
         "polish": "Stacja Radarowa \"Vostok\" (v0.21)"
-      }
+      },
+      "legacy_fog_021": true,
+      "legacy_sky_021": true,
+      "legacy_clouds_021": true,
+      "legacy_scattering_021": true,
+      "legacy_particle_fog_021": true,
+      "legacy_water_fog_021": true
     },
     {
       "id": 176,

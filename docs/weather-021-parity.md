@@ -343,3 +343,46 @@ dimensions recorded. `--audit-after-draw` selects the output immediately after
 the draw. Startup lookup constants are recorded separately in JSONL, since
 those draws precede the settled camera. These options copy GPU resources for
 observation and do not substitute shaders, uniforms or render state.
+
+## Vostok rain and forward water
+
+The five atmosphere options restore Vostok rain's sky: first east-quarter
+error falls from 51.67 to 9.31 overall and from 162.00 to 3.01 in the sky.
+That intermediate candidate is rejected because foreground water renders
+bright blue-white. A read-only draw trace identifies `forward_water.ps`,
+before particles, as the pass introducing these patches. Its observed native
+digest is `915734a684b44d6d7f5bb3a2e8945e50`; the original matching draw is
+`e4f112a3322ff4772e0fa9404d5a7f9f` (both draw the same 63 vertices).
+
+The water shader embeds the same changed atmospheric equations as particle
+vertices: native lookup sampling replaces authored Rayleigh color, height and
+far-distance arithmetic differ, and the original combined fog color carries
+a 0.2 multiplier. A guarded transplant of only the original terminal fog
+block restores the orange-brown surfaces. First-view error becomes 7.18
+overall, 2.61 in the sky. The diagnostic four-view check scores 7.60
+(east-quarter), 6.86 (south-quarter), 22.51 (close03), 17.55 (close06).
+Close rain surfaces remain visibly darker than the originals.
+
+`legacy_water_fog_021` requires `legacy_fog_021`. It converts eight exactly
+matching variants in the 120-variant native water family. Original and native
+templates are fingerprinted; the entire native terminal block must match
+and end at the return instruction. The adapter preserves native waves,
+reflections, lighting, resource bindings and all unmarked behavior. It shares
+the checked operand remapper with particle fog, with separate scratch space
+and the proper input/constant-buffer bindings for each stage. No retail
+bytecode is distributed in source. Retail tests check metadata, all preceding
+material instructions, multi-profile branching and the complete native
+fallback, plus rejection of altered templates and duplicate profile markers.
+
+Validation: 344 ordinary tests pass; all three retail shader tests pass when
+invoked explicitly. The full four-map porter bundle contains 7,000 files.
+Build, apply and verify pass. Its database is byte-identical to the diagnostic
+archive used for the four-view check, with SHA-256
+`34fbff6b41084837111d1cf17b0d8ba2a61dbfaf653a4111fa63fd3e19f4d561`.
+The parity manifest retains all six options for Vostok rain. Close wet-surface
+shading and stronger native evening flares remain; parity is incomplete.
+
+The original 0.21 screenshots are fixed references, captured once. Reuse the
+saved shader constants, draw traces and raw targets as well; further visual
+iteration uses 0.26 captures only. Extra original diagnostic runs must not
+become routine recaptures of the reference set.
