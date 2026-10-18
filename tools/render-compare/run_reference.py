@@ -17,6 +17,25 @@ def win(path):
     return 'Z:'+str(path).replace('/', '\\')
 
 
+def database_identity(root):
+    path = (root/'client/resources.db').resolve(strict=True)
+    stat = path.stat()
+    identity = {'path': str(path), 'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
+                'ctime_ns': stat.st_ctime_ns, 'inode': stat.st_ino}
+    cache = root/'capture-database-identity.json'
+    if cache.exists():
+        cached = json.loads(cache.read_text())
+        if all(cached.get(key) == value for key, value in identity.items()):
+            return cached
+    with path.open('rb') as stream:
+        identity['sha256'] = hashlib.file_digest(stream, 'sha256').hexdigest()
+    after = path.stat()
+    if (after.st_size, after.st_mtime_ns, after.st_ctime_ns) != (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns):
+        raise RuntimeError('database changed while hashing')
+    cache.write_text(json.dumps(identity, indent=2)+'\n')
+    return identity
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('root', type=Path); ap.add_argument('--poses', type=Path, required=True)
@@ -36,6 +55,7 @@ def main():
     if a.build == '026g' and a.map != expected_map:
         ap.error('map ID does not match the requested project/weather')
     r = a.root.resolve(); prefix = r/'wineprefix'
+    database = database_identity(r)
     poses = json.loads(a.poses.read_text())
     assert all(p.get('buffers') is False for p in poses) and len({p['name'] for p in poses}) == len(poses)
     frames = []
@@ -163,6 +183,7 @@ def main():
                      for p in a.output.rglob('*') if p.is_file() and p.suffix in ('.bmp', '.json', '.cfg')}
         (a.output/'capture-manifest.json').write_text(json.dumps({
             'build': a.build, 'project': a.project, 'ui_command': 'ui off',
+            'database': database,
             'expected_frames': len(frames), 'captured_frames': len(list((a.output/'poses').glob('*.bmp'))),
             'skipped': skipped, 'artifacts': artifacts,
             'runtime_sha256': {name: hashlib.sha256((r/'client/binaries/x86'/name).read_bytes()).hexdigest()

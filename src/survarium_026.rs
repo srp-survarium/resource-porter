@@ -49,6 +49,10 @@ pub struct Map {
     /// re-baked and re-tuned for 0.26's lighting.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_lighting: bool,
+    /// Explicit per-weather environment adjustments, applied after filling the
+    /// target schema. Only existing properties with compatible types may change.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub environment_overrides: BTreeMap<String, serde_json::Value>,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -413,8 +417,50 @@ fn adapt_project(
             }
         }
     }
+    apply_environment_overrides(&mut donor, &map.environment_overrides)?;
     validate_gameplay(&donor)?;
     Ok(donor)
+}
+
+fn apply_environment_overrides(
+    project: &mut ConfigValue,
+    overrides: &BTreeMap<String, serde_json::Value>,
+) -> Result<()> {
+    if overrides.is_empty() {
+        return Ok(());
+    }
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("environment overrides require client objects");
+    };
+    let mut environments = objects.iter_mut()
+        .filter(|o| string(o, "game_object_type") == Some("environment"));
+    let environment = environments.next().context("environment overrides require an environment")?;
+    ensure!(environments.next().is_none(), "ambiguous environment overrides: multiple environments");
+    let properties = environment.named_mut("properties").context("environment properties missing")?;
+    // Validate every edit first; an invalid key/type must not partly apply a profile.
+    let mut edits = Vec::new();
+    for (name, value) in overrides {
+        ensure!(!name.contains('.'), "environment override must be a direct property: {name}");
+        let old = properties.named(name).with_context(|| format!("unknown environment property {name}"))?;
+        let new = crate::content_pack::value::to_config(value, Some(old))?;
+        let numeric = |v: &ConfigValue| matches!(v, ConfigValue::Float(_) | ConfigValue::Integer(_));
+        ensure!(std::mem::discriminant(old) == std::mem::discriminant(&new)
+                || (numeric(old) && numeric(&new)), "environment property type changed: {name}");
+        let finite = match &new {
+            ConfigValue::Float(v) => v.is_finite(),
+            ConfigValue::Float2(v) => v.iter().all(|v| v.is_finite()),
+            ConfigValue::Float3(v) => v.iter().all(|v| v.is_finite()),
+            ConfigValue::Float4(v) => v.iter().all(|v| v.is_finite()),
+            ConfigValue::Named(_) | ConfigValue::Indexed(_) => false,
+            _ => true,
+        };
+        ensure!(finite, "environment override must be a finite scalar/vector: {name}");
+        edits.push((name, new));
+    }
+    for (name, value) in edits {
+        properties.set_path(name, value)?;
+    }
+    Ok(())
 }
 
 /// All authored interaction-zone references must still resolve after upgrading.
@@ -1858,6 +1904,40 @@ mod tests {
         )
     }
     #[test]
+    fn environment_overrides_are_scoped_typed_and_atomic() {
+        let mut project = named(vec![("client_objects", ConfigValue::Indexed(vec![
+            named(vec![
+                ("game_object_type", ConfigValue::String("environment".into())),
+                ("properties", named(vec![
+                    ("mie_fog_base_height", ConfigValue::Integer(75)),
+                    ("use_sky_clouds_lighting", ConfigValue::Boolean(true)),
+                    ("sun_color", ConfigValue::Float4([1., 0.8, 0.6, 1.])),
+                ])),
+            ]),
+            named(vec![("game_object_type", ConfigValue::String("light".into())),
+                       ("intensity", ConfigValue::Float(2.))]),
+        ]))]);
+        let original = project.clone();
+        let overrides = BTreeMap::from([
+            ("mie_fog_base_height".into(), serde_json::json!(0)),
+            ("use_sky_clouds_lighting".into(), serde_json::json!(false)),
+        ]);
+        apply_environment_overrides(&mut project, &overrides).unwrap();
+        let objects = array(project.named("client_objects").unwrap()).unwrap();
+        assert_eq!(objects[0].named("properties").unwrap().named("mie_fog_base_height"), Some(&ConfigValue::Integer(0)));
+        assert_eq!(objects[1], array(original.named("client_objects").unwrap()).unwrap()[1]);
+        for bad in [serde_json::json!({"mie_fog_base_height": 0, "typo": 1}),
+                    serde_json::json!({"mie_fog_base_height": 0, "sun_color": [1, 2]}),
+                    serde_json::json!({"mie_fog_base_height": 1e300}),
+                    serde_json::json!({"use_sky_clouds_lighting": 1})] {
+            let mut candidate = original.clone();
+            assert!(apply_environment_overrides(&mut candidate, &serde_json::from_value(bad).unwrap()).is_err());
+            assert_eq!(candidate, original);
+        }
+        apply_environment_overrides(&mut project, &BTreeMap::new()).unwrap();
+    }
+
+    #[test]
     fn imported_project_retains_hud_key_without_losing_resource_namespace() {
         let collectors = (0..2)
             .map(|team| {
@@ -1886,6 +1966,7 @@ mod tests {
             level: "level_02".into(),
             weather: "rain".into(),
             native_lighting: false,
+            environment_overrides: BTreeMap::new(),
             map_id: None,
             name: None,
         };
@@ -2131,6 +2212,7 @@ mod tests {
             level: "level_03".into(),
             weather: "day".into(),
             native_lighting: false,
+            environment_overrides: BTreeMap::new(),
             map_id: None,
             name: None,
         };

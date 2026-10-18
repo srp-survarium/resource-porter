@@ -55,3 +55,29 @@ preserve, not an original reference. Original 0.21 captures remain the parity
 target. Local evidence is retained under `private/map-weather-20261018` in the
 companion skhid-srp workspace, including the baseline database, build/apply/
 verification logs, camera poses and capture manifests.
+
+## Parity iteration 1: fog height
+
+The separate `survarium-021d-two-maps-weather-parity-to-026g.json` tracks accepted
+parity adjustments without changing the preserved baseline manifest. So far it
+changes only Mamayev evening's `mie_fog_base_height` from the inherited 75 to 0.
+The manifest's `environment_overrides` can edit existing environment properties
+only, with compatible scalar/vector types; unknown keys and invalid types fail.
+
+Disassembly of the retail `atmospheric_scattering_on_geometry_temporary.ps`
+shows original 0.21's height factor `exp(-eye.y * falloff)`, while 0.26 uses
+`min(exp(-(eye.y - base_height) * falloff), 1)`. The old shader has no base-height
+offset. The first correction therefore removes a target-only inherited offset.
+
+On `mamayev-close-03`, this removes the pale band and reduces raw display-RGB
+mean absolute error from 39.05 to 19.12 out of 255. This is a diagnostic trend,
+not parity acceptance: particles, clouds and vegetation are unsynchronized,
+and sky/distant-terrain differences remain. Original 0.21's fog also differs
+in its distance function, Rayleigh color source and final RGB scale; resetting
+height does not make the shader equations identical.
+
+`compare.py REFERENCE.json CANDIDATE.json --output DIRECTORY` verifies both
+capture hashes and matching camera parameters before producing an original-left/
+candidate-right image, an absolute-difference image and numeric diagnostics.
+Optional named region rectangles support separate foreground/horizon checks.
+New captures record the resource database hash as well as runtime/image hashes.
