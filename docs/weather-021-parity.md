@@ -45,6 +45,11 @@ Evening and rain are in scope; night is not. The original reference sets are
 complete and frozen: do not launch 0.21 or capture more original frames.
 Continue comparisons by capturing only the 0.26 port at those saved poses.
 
+The user accepts slight evening differences and prefers no executable renderer
+patches. Keep the accepted resource/shader conversion and prioritize the rain
+audits. Do not pursue executable renderer changes to remove the remaining
+evening differences.
+
 ## First observation
 
 Mamayev evening `mamayev-close-03` has a clear view over paths, rocks, foliage
@@ -764,3 +769,53 @@ ray application/order, using the southwest view first. This must preserve
 world lighting rather than globally halving ray intensity to compensate for
 the double sky contribution. Both rain maps' broad audits and remaining close
 material/foliage differences are still unfinished.
+
+### Withdrawn duplicate-ray engine experiment
+
+Native `stage_atmosphere::execute` (VA 0x1a4200) calls the ray routine at
+0x1a5520 for both sky (stage type 0) and geometry (type 1). Diagnostic26
+skipped the sky-stage call in an isolated capture executable. Vostok southwest
+error fell from 9.594 to 5.858; sky and both forest regions improved. Four
+regression views gave close03 8.212, close06 5.028, east-quarter 7.202 and
+south-quarter 4.518. The last is slightly worse than the accepted 4.225.
+
+Diagnostic27 guarded the skip by the existing Vostok marker -32188 at
+scene+0x280. The selected-map trace confirmed one ray application and southwest
+error 5.742. Mamayev retained both native applications, with error 2.636 versus
+2.616 in the accepted capture. These are diagnostics, **not accepted changes**.
+The user then clarified that slight evening differences are acceptable and
+expressed a preference against patching the game renderer. Both experiments
+are withdrawn. The unfinished porter implementation is archived only as local
+evidence, removed from the source tree. The broad experimental run was stopped
+after two captured frames. The original capture executable was restored and
+hash-checked (`5eb0fc97b983ecc5d98282444076c7dc8180798429c58c4ac35849cb110c993a`).
+Parity17 remains the accepted resource/shader conversion, with no executable
+renderer correction. Remaining work prioritizes rain validation rather than
+exact evening pixel parity.
+
+### Resource-only rain broad audits
+
+Both rain variants now have broad checks against 18 frozen original views,
+using accepted parity17 and the restored capture executable. No original game
+was launched. Mamayev's first run captured 15 views; three timed out when
+rendering stopped advancing. Only those three were retried, with all original
+and successful target frames reused through explicit provenance links. Vostok
+captured all 18 in one run. Its two obstructed panorama candidates (southeast,
+west-quarter) are excluded consistently with the evening audit.
+
+All six ranked contact-sheet pages were reviewed. Wide sky, haze, clouds and
+geometry closely align. Mean whole-image error is 4.682 for Mamayev's 12
+panoramas and 4.440 for Vostok's ten. Close means are 10.268 across six Mamayev
+views and 8.476 across eight Vostok views. These are display-RGB MAEs out of
+255, not a percentage or an acceptance threshold.
+
+Near ground/grass and some roofs remain darker and more contrasty. Mamayev
+close09 is a useful fixed next view: its 12.253 error remains 11.052 after
+16-pixel smoothing, so this is not just unsynchronized wind. Vostok close03
+is 9.341 raw and 7.414 smoothed. Small blue-white fire particles and differing
+anomaly animation phases are also visible. Some distant floating geometry and
+holes already occur in the original views and are not new port regressions.
+The next investigation stays in resources/shaders (original probe specular or
+material shading), preserving the accepted atmosphere and the unmodified
+executable renderer. Slight evening differences are acceptable per the user;
+no more executable ray-stage work is planned.
