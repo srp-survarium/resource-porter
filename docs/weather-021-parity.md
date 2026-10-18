@@ -257,6 +257,37 @@ before/after error is 2.43 overall and 0.55 in the sky, with the visible changes
 confined to animated rain, smoke and vegetation. The parity manifest now retains
 all four atmosphere options for Mamayev evening; rain conversion is next.
 
+## Mamayev rain investigation
+
+Applying the four atmosphere options to rain restores its overcast sky (the
+baseline rendered it black), reducing the first close view's sky error from
+174.76 to 7.48. The lookup textures match the original within small floating
+point differences. This candidate is **not accepted**: persistent bright blue
+smoke and darker ground remain; a repeated capture reproduces both.
+
+`run_reference.py --trace-after-audit` adds small read-only target snapshots
+after each subsequent draw in the audited frame. It requires the three audit
+options, records pixel/vertex DXBC identities, stops at the screenshot frame
+boundary, and caps recording at 1,024 draws. These snapshots use every eighth
+pixel and are diagnostic thumbnails, not parity references. The capture
+manifest hashes the trace and its raw targets. `cargo run --release --example
+shader-digests -- resources.db` maps those identities back to retail resources.
+
+This trace identifies `offscreen_particle_lighting.ps` as the source of the
+blue smoke. Its relevant original/native pixel programs differ only in
+constant-buffer layout. The vertex shader supplies their fog interpolation:
+0.26 samples the sky lookup, while 0.21 uses the authored Rayleigh color and
+multiplies combined fog color by 0.2. Restoring rain's authored sky lookup gain
+therefore exposes another missing atmosphere conversion in particle vertices.
+The geometry fog pass precedes this effect and contains no blue smoke.
+
+The captured original vertex digest is `9b11960c94a13675b92cbebf3d4dc919`;
+the corresponding native digest is `2a73464d45e748c014a63b25f5eaa660`.
+A separate diagnostic trial transplants only the original vertex fog block
+under Mamayev rain's existing marker, retaining native particle geometry,
+lighting, declarations and unmarked behavior. Its first-frame validation is
+pending; no rain compatibility change is enabled in the accepted manifest.
+
 For diagnosis, `--audit-render-target` reads the selected draw's color target
 and its first two supported uncompressed pixel textures, with formats and
 dimensions recorded. `--audit-after-draw` selects the output immediately after

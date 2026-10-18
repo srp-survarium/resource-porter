@@ -7,6 +7,9 @@ static unsigned char fog_digests[10][16] = {
 };
 static unsigned fog_digest_count = 2;
 static unsigned fog_audited_id;
+static const GUID trace_shader_guid = {0x7d90aa12,0x2263,0x429f,{0xb0,0x24,0x88,0x64,0x2e,0x10,0x9a,0x13}};
+static int fog_trace_draws;
+static unsigned trace_request,trace_count;
 static int fog_audit_render_target;
 static int fog_audit_after_draw;
 static const unsigned char fog_lut_digests[2][16] = {
@@ -14,13 +17,23 @@ static const unsigned char fog_lut_digests[2][16] = {
     {0x18,0x28,0x29,0x05,0xd7,0x75,0xeb,0xa6,0xbb,0x7b,0x12,0xe0,0x57,0x71,0x0d,0xfe}
 };
 static HRESULT (STDMETHODCALLTYPE *fog_original_create)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11PixelShader **);
+static HRESULT (STDMETHODCALLTYPE *trace_original_create_vs)(ID3D11Device *,const void *,SIZE_T,ID3D11ClassLinkage *,ID3D11VertexShader **);
 static void (STDMETHODCALLTYPE *fog_original_draw)(ID3D11DeviceContext *,UINT,UINT);
 static void (STDMETHODCALLTYPE *fog_original_draw_indexed)(ID3D11DeviceContext *,UINT,UINT,INT);
+
+static HRESULT STDMETHODCALLTYPE trace_create_vs(ID3D11Device *device,const void *code,SIZE_T size,
+                                                ID3D11ClassLinkage *linkage,ID3D11VertexShader **shader) {
+    HRESULT result=trace_original_create_vs(device,code,size,linkage,shader);
+    if (SUCCEEDED(result) && shader && *shader && size>=20 && !memcmp(code,"DXBC",4))
+        ID3D11VertexShader_SetPrivateData(*shader,&trace_shader_guid,16,(const char *)code+4);
+    return result;
+}
 
 static HRESULT STDMETHODCALLTYPE fog_create(ID3D11Device *device,const void *code,SIZE_T size,
                                            ID3D11ClassLinkage *linkage,ID3D11PixelShader **shader) {
     HRESULT result=fog_original_create(device,code,size,linkage,shader);
     if (SUCCEEDED(result) && shader && *shader && size>=20 && !memcmp(code,"DXBC",4)) {
+        if (fog_trace_draws) ID3D11PixelShader_SetPrivateData(*shader,&trace_shader_guid,16,(const char *)code+4);
         for (unsigned i=(fog_digest_count>2?2:0);i<fog_digest_count;++i) if (!memcmp((const char *)code+4,fog_digests[i],16)) {
             unsigned kind=i+1;
             ID3D11PixelShader_SetPrivateData(*shader,&fog_audit_guid,sizeof(kind),&kind);
@@ -106,13 +119,18 @@ static void fog_save_texture(ID3D11DeviceContext *context,ID3D11Resource *resour
     if (FAILED(ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped))) goto done;
     char path[MAX_PATH+40];snprintf(path,sizeof(path),"%s.%s.bin",camera->output,suffix);
     FILE *file=fopen(path,"wb");int saved=file!=NULL;
+    unsigned step=!strncmp(suffix,"trace-",6)?8:1;
     if (file) {
-        for (UINT y=0;y<desc.Height;++y)
-            if (fwrite((char *)mapped.pData+y*mapped.RowPitch,stride,desc.Width,file)!=desc.Width) saved=0;
+        for (UINT y=0;y<desc.Height;y+=step) {
+            if (step==1) {
+                if (fwrite((char *)mapped.pData+y*mapped.RowPitch,stride,desc.Width,file)!=desc.Width) saved=0;
+            } else for (UINT x=0;x<desc.Width;x+=step)
+                if (fwrite((char *)mapped.pData+y*mapped.RowPitch+x*stride,stride,1,file)!=1) saved=0;
+        }
         fclose(file);
     }
     ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
-    if (saved) fprintf(json,",\"%s\":{\"width\":%u,\"height\":%u,\"dxgi_format\":%u,\"bytes_per_pixel\":%u}",name,desc.Width,desc.Height,(unsigned)desc.Format,stride);
+    if (saved) fprintf(json,",\"%s\":{\"width\":%u,\"height\":%u,\"dxgi_format\":%u,\"bytes_per_pixel\":%u}",name,(desc.Width+step-1)/step,(desc.Height+step-1)/step,(unsigned)desc.Format,stride);
 done:
     if (staging) ID3D11Texture2D_Release(staging);
     if (texture) ID3D11Texture2D_Release(texture);
@@ -207,17 +225,55 @@ static void fog_observe(ID3D11DeviceContext *context) {
     EnterCriticalSection(&lock);fog_audited_id=camera.id;LeaveCriticalSection(&lock);
 }
 
+// Small readbacks after the selected draw locate later effects without
+// substituting any render state. Stop at the screenshot's frame boundary.
+static void fog_trace(ID3D11DeviceContext *context,UINT vertices) {
+    if (!fog_trace_draws || ID3D11DeviceContext_GetType(context)!=D3D11_DEVICE_CONTEXT_IMMEDIATE) return;
+    Camera camera;int ready;
+    EnterCriticalSection(&lock);
+    ready=applied.enabled && applied_id==fog_audited_id && applied_id!=captured_id;
+    camera=applied;LeaveCriticalSection(&lock);
+    if (!ready) return;
+    if (trace_request!=camera.id) { trace_request=camera.id;trace_count=0; }
+    if (trace_count>=1024) return;
+    ID3D11PixelShader *shader=NULL;unsigned char digest[16]={0};UINT size=16;
+    ID3D11DeviceContext_PSGetShader(context,&shader,NULL,NULL);
+    if (shader) { ID3D11PixelShader_GetPrivateData(shader,&trace_shader_guid,&size,digest);ID3D11PixelShader_Release(shader); }
+    char path[MAX_PATH+40],suffix[32];snprintf(path,sizeof(path),"%s.trace.jsonl",camera.output);
+    FILE *file=fopen(path,"ab");if (!file) return;
+    snprintf(suffix,sizeof(suffix),"trace-%04u",trace_count);
+    fprintf(file,"{\"draw\":%u,\"vertices\":%u,\"present\":%u,\"shader_digest\":\"",trace_count++,vertices,present_calls);
+    for (unsigned i=0;i<16;++i) fprintf(file,"%02x",digest[i]);
+    fputs("\"",file);
+    ID3D11VertexShader *vs=NULL;memset(digest,0,16);size=16;
+    ID3D11DeviceContext_VSGetShader(context,&vs,NULL,NULL);
+    if (vs) { ID3D11VertexShader_GetPrivateData(vs,&trace_shader_guid,&size,digest);ID3D11VertexShader_Release(vs); }
+    fputs(",\"vertex_shader_digest\":\"",file);
+    for (unsigned i=0;i<16;++i) fprintf(file,"%02x",digest[i]);
+    fputs("\"",file);
+    ID3D11RenderTargetView *view=NULL;ID3D11Resource *resource=NULL;
+    ID3D11DeviceContext_OMGetRenderTargets(context,1,&view,NULL);
+    if (view) {
+        ID3D11RenderTargetView_GetResource(view,&resource);
+        fog_save_texture(context,resource,&camera,file,"target",suffix);
+        ID3D11Resource_Release(resource);ID3D11RenderTargetView_Release(view);
+    }
+    fputs("}\n",file);fclose(file);
+}
+
 static void STDMETHODCALLTYPE fog_draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     fog_observe_lookup(context);
     if (!fog_audit_after_draw) fog_observe(context);
     fog_original_draw(context,count,start);
     if (fog_audit_after_draw) fog_observe(context);
+    fog_trace(context,count);
 }
 static void STDMETHODCALLTYPE fog_draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
     fog_observe_lookup(context);
     if (!fog_audit_after_draw) fog_observe(context);
     fog_original_draw_indexed(context,count,start,base);
     if (fog_audit_after_draw) fog_observe(context);
+    fog_trace(context,count);
 }
 static int fog_patch(void **table,unsigned slot,void *replacement) {
     DWORD protection,ignored;
@@ -230,6 +286,7 @@ static int install_fog_audit(ID3D11Device *device,ID3D11DeviceContext *context) 
     if (GetEnvironmentVariableA("SRP_CAPTURE_AUDIT_FOG",option,sizeof(option))!=1 || option[0]!='1') return 1;
     fog_audit_render_target=GetEnvironmentVariableA("SRP_CAPTURE_AUDIT_RT",option,sizeof(option))==1 && option[0]=='1';
     fog_audit_after_draw=GetEnvironmentVariableA("SRP_CAPTURE_AUDIT_AFTER",option,sizeof(option))==1 && option[0]=='1';
+    fog_trace_draws=GetEnvironmentVariableA("SRP_CAPTURE_TRACE_DRAWS",option,sizeof(option))==1 && option[0]=='1';
     if (strcmp(build,"021d") && strcmp(build,"026g")) { error("fog audit requires 021d or 026g");return 0; }
     char digest[264];DWORD length=GetEnvironmentVariableA("SRP_CAPTURE_FOG_DIGEST",digest,sizeof(digest));
     if (length) {
@@ -253,6 +310,10 @@ static int install_fog_audit(ID3D11Device *device,ID3D11DeviceContext *context) 
     }
     void **dev=*(void ***)device,**ctx=*(void ***)context;
     fog_original_create=(void *)dev[15];fog_original_draw=(void *)ctx[13];fog_original_draw_indexed=(void *)ctx[12];
+    if (fog_trace_draws) {
+        trace_original_create_vs=(void *)dev[12];
+        if (!fog_patch(dev,12,(void *)trace_create_vs)) { error("cannot install vertex shader observer");return 0; }
+    }
     if (!fog_patch(dev,15,(void *)fog_create) || !fog_patch(ctx,13,(void *)fog_draw) ||
         !fog_patch(ctx,12,(void *)fog_draw_indexed)) { error("cannot install fog observer");return 0; }
     return 1;

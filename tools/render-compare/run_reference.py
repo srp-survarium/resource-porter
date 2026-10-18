@@ -45,6 +45,7 @@ def main():
     ap.add_argument('--audit-fog', action='store_true', help='record the active retail fog shader constants without replacing shaders')
     ap.add_argument('--audit-render-target', action='store_true', help='also read the floating-point color target before the audited draw')
     ap.add_argument('--audit-after-draw', action='store_true', help='observe immediately after the selected draw instead of before it')
+    ap.add_argument('--trace-after-audit', action='store_true', help='record small render-target snapshots after subsequent draws in the audited frame')
     ap.add_argument('--fog-digest', help='observe only these DXBC digests (one or up to eight comma-separated hashes)')
     ap.add_argument('--xdotool', required=True, type=Path)
     ap.add_argument('--project', required=True, choices=['level_03/evening','level_03/rain','level_06/evening','level_06/rain'])
@@ -54,6 +55,8 @@ def main():
     a = ap.parse_args()
     if (a.audit_render_target or a.audit_after_draw) and not a.audit_fog:
         ap.error('--audit-render-target and --audit-after-draw require --audit-fog')
+    if a.trace_after_audit and not (a.audit_fog and a.audit_render_target and a.audit_after_draw):
+        ap.error('--trace-after-audit requires --audit-fog, --audit-render-target and --audit-after-draw')
     digests = a.fog_digest.split(',') if a.fog_digest else []
     if digests and (not a.audit_fog or len(digests) > 8 or any(len(d) != 32 or any(c not in '0123456789abcdef' for c in d) for d in digests)):
         ap.error('--fog-digest requires --audit-fog and up to eight 32-character lowercase hexadecimal digests')
@@ -99,6 +102,8 @@ def main():
             env['SRP_CAPTURE_AUDIT_RT'] = '1'
         if a.audit_after_draw:
             env['SRP_CAPTURE_AUDIT_AFTER'] = '1'
+        if a.trace_after_audit:
+            env['SRP_CAPTURE_TRACE_DRAWS'] = '1'
         if a.fog_digest:
             env['SRP_CAPTURE_FOG_DIGEST'] = a.fog_digest
     processes, logs = [], []
@@ -209,12 +214,16 @@ def main():
                            if a.audit_render_target and not Path(str(p)+('.post-draw.bin' if a.audit_after_draw else '.pre-draw.bin')).exists()]
         wrong_fog = [p.name for p in (a.output/'poses').glob('*.fog.json')
                      if a.fog_digest and json.loads(p.read_text())['shader_digest'] not in digests]
+        missing_traces = [p.name for p in (a.output/'poses').glob('*.bmp')
+                          if a.trace_after_audit and not Path(str(p)+'.trace.jsonl').exists()]
         (a.output/'capture-manifest.json').write_text(json.dumps({
             'build': a.build, 'project': a.project, 'ui_command': 'ui off',
             'database': database,
             'audit_fog': a.audit_fog, 'audit_render_target': a.audit_render_target, 'missing_fog_audits': missing_fog,
             'missing_render_targets': missing_targets,
             'audit_after_draw': a.audit_after_draw,
+            'trace_after_audit': a.trace_after_audit,
+            'missing_draw_traces': missing_traces,
             'requested_fog_digest': a.fog_digest, 'wrong_fog_audits': wrong_fog,
             'expected_frames': len(frames), 'captured_frames': len(list((a.output/'poses').glob('*.bmp'))),
             'skipped': skipped, 'artifacts': artifacts,
@@ -227,6 +236,8 @@ def main():
             raise RuntimeError('requested pre-draw targets were not captured: '+', '.join(missing_targets))
         if wrong_fog:
             raise RuntimeError('requested experimental fog shader was not active: '+', '.join(wrong_fog))
+        if missing_traces:
+            raise RuntimeError('requested draw traces were not captured: '+', '.join(missing_traces))
     finally:
         subprocess.run([str(a.wine.parent/'wineserver'), '-k'], env=env, timeout=15, check=False)
         subprocess.run([str(a.wine.parent/'wineserver'), '-w'], env=env, timeout=30, check=False)
