@@ -43,12 +43,15 @@ def main():
     ap.add_argument('--wine', type=Path, required=True); ap.add_argument('--viewport', type=Path, required=True)
     ap.add_argument('--texture-quality', default='2')
     ap.add_argument('--audit-fog', action='store_true', help='record the active retail fog shader constants without replacing shaders')
+    ap.add_argument('--fog-digest', help='also audit an experimental fog shader by its 32-character DXBC digest')
     ap.add_argument('--xdotool', required=True, type=Path)
     ap.add_argument('--project', required=True, choices=['level_03/evening','level_03/rain','level_06/evening','level_06/rain'])
     ap.add_argument('--build', choices=['021d', '026g'], default='021d')
     ap.add_argument('--server', type=Path, help='0.26 match-server executable')
     ap.add_argument('--map', type=int, choices=[167,168,176,177])
     a = ap.parse_args()
+    if a.fog_digest and (not a.audit_fog or len(a.fog_digest) != 32 or any(c not in '0123456789abcdef' for c in a.fog_digest)):
+        ap.error('--fog-digest requires --audit-fog and 32 lowercase hexadecimal characters')
     if a.build == '026g' and (a.server is None or a.map is None):
         ap.error('0.26 requires --server and --map')
     expected_map = {'level_03/evening':167, 'level_03/rain':168,
@@ -87,6 +90,8 @@ def main():
     env.pop('VK_DRIVER_FILES', None)
     if a.audit_fog:
         env['SRP_CAPTURE_AUDIT_FOG'] = '1'
+        if a.fog_digest:
+            env['SRP_CAPTURE_FOG_DIGEST'] = a.fog_digest
     processes, logs = [], []
     try:
         cfg.write_text('\n'.join(lines+[f'r_texture_quality {a.texture_quality}', 'ui off'])+'\n', encoding='cp1251')
@@ -186,10 +191,13 @@ def main():
                      for p in a.output.rglob('*') if p.is_file() and p.suffix in ('.bmp', '.json', '.cfg', '.bin')}
         missing_fog = [p.name for p in (a.output/'poses').glob('*.bmp')
                        if a.audit_fog and not Path(str(p)+'.fog.json').exists()]
+        wrong_fog = [p.name for p in (a.output/'poses').glob('*.fog.json')
+                     if a.fog_digest and json.loads(p.read_text())['shader_digest'] != a.fog_digest]
         (a.output/'capture-manifest.json').write_text(json.dumps({
             'build': a.build, 'project': a.project, 'ui_command': 'ui off',
             'database': database,
             'audit_fog': a.audit_fog, 'missing_fog_audits': missing_fog,
+            'requested_fog_digest': a.fog_digest, 'wrong_fog_audits': wrong_fog,
             'expected_frames': len(frames), 'captured_frames': len(list((a.output/'poses').glob('*.bmp'))),
             'skipped': skipped, 'artifacts': artifacts,
             'runtime_sha256': {name: hashlib.sha256((r/'client/binaries/x86'/name).read_bytes()).hexdigest()
@@ -197,6 +205,8 @@ def main():
         }, indent=2)+'\n')
         if missing_fog:
             raise RuntimeError('requested fog audits were not captured: '+', '.join(missing_fog))
+        if wrong_fog:
+            raise RuntimeError('requested experimental fog shader was not active: '+', '.join(wrong_fog))
     finally:
         subprocess.run([str(a.wine.parent/'wineserver'), '-k'], env=env, timeout=15, check=False)
         subprocess.run([str(a.wine.parent/'wineserver'), '-w'], env=env, timeout=30, check=False)

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Add retail 0.21d maps to 0.26g without replacing its maps or shaders.
+//! Add retail 0.21d maps to 0.26g, with opt-in legacy fog compatibility.
 use crate::manifest::BuiltFile;
 use crate::{BinaryConfig, ConfigValue, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
@@ -53,6 +53,10 @@ pub struct Map {
     /// target schema. Only existing properties with compatible types may change.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_overrides: BTreeMap<String, serde_json::Value>,
+    /// Use the pinned original fog arithmetic for this map. The shared shader
+    /// retains its native path for unmarked maps. Experimental visual parity.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_fog_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -461,6 +465,28 @@ fn apply_environment_overrides(
         properties.set_path(name, value)?;
     }
     Ok(())
+}
+
+fn mark_legacy_fog(project: &mut ConfigValue, map: &Map) -> Result<crate::weather_fog_021::Profile> {
+    ensure!(!map.native_lighting, "legacy fog requires donor lighting");
+    ensure!(!map.environment_overrides.keys().any(|k| k.starts_with("mie_fog_") || k.starts_with("rayleigh_fog_")),
+            "legacy fog cannot be combined with fog property overrides");
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("legacy fog requires client objects");
+    };
+    let mut environments = objects.iter_mut().filter(|o| string(o, "game_object_type") == Some("environment"));
+    let environment = environments.next().context("legacy fog requires an environment")?;
+    ensure!(environments.next().is_none(), "legacy fog requires one environment");
+    let properties = environment.named_mut("properties").context("missing environment properties")?;
+    let Some(ConfigValue::Float4(color)) = properties.named("rayleigh_fog_color") else {
+        bail!("original Rayleigh color is missing");
+    };
+    let color = [color[0].powf(2.2), color[1].powf(2.2), color[2].powf(2.2)];
+    ensure!(color.iter().all(|v| v.is_finite() && *v >= 0.0), "invalid original Rayleigh color");
+    let marker = -32021.0 - f32::from(map.id);
+    ensure!(properties.named("mie_fog_base_height").is_some(), "missing native fog marker field");
+    properties.set_path("mie_fog_base_height", ConfigValue::Float(marker))?;
+    Ok(crate::weather_fog_021::Profile { marker, color })
 }
 
 /// All authored interaction-zone references must still resolve after upgrading.
@@ -1353,6 +1379,7 @@ pub fn build(
     }
     let mut overrides = BTreeMap::new();
     let mut collision_repairs = BTreeMap::new();
+    let mut fog_profiles = Vec::new();
     for map in &m.maps {
         let mut project = adapt_project(
             cfg(&mut donor, &map.donor_project())?,
@@ -1361,6 +1388,9 @@ pub fn build(
             &templates,
         )
         .with_context(|| format!("adapting {}", map.donor_project()))?;
+        if map.legacy_fog_021 {
+            fog_profiles.push(mark_legacy_fog(&mut project, map)?);
+        }
         if map.native_lighting {
             let native = &target_projects[&map.target_project()];
             let offset = layout_offset(&project, native)
@@ -1386,6 +1416,17 @@ pub fn build(
             BinaryConfig { root: project }.to_bytes()?,
         );
     }
+    // Validate both retail shader fingerprints and assemble the compatibility
+    // branch before writing any output. With no opt-in, emit no shader change.
+    let fog_shader = if fog_profiles.is_empty() {
+        None
+    } else {
+        Some(crate::weather_fog_021::build(
+            &donor.read(crate::weather_fog_021::PATH)?,
+            &target.read(crate::weather_fog_021::PATH)?,
+            &fog_profiles,
+        )?)
+    };
     let forced: BTreeSet<String> = donor
         .paths()
         .filter(|p| {
@@ -1597,6 +1638,10 @@ pub fn build(
     let mut adapted_particles = BTreeSet::new();
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
+    if let Some(shader) = fog_shader {
+        emit(output, crate::weather_fog_021::PATH, &shader,
+             "0.21d-fog-equations+unchanged-0.26g-fallback", &mut files)?;
+    }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
     for path in &plan.donor_files {
@@ -1938,6 +1983,34 @@ mod tests {
     }
 
     #[test]
+    fn legacy_fog_preserves_authored_colors_and_rejects_conflicting_overrides() {
+        let mut map: Map = serde_json::from_value(serde_json::json!({
+            "id": 176, "level": "level_06", "weather": "evening", "legacy_fog_021": true
+        })).unwrap();
+        let original = named(vec![("client_objects", ConfigValue::Indexed(vec![named(vec![
+            ("game_object_type", ConfigValue::String("environment".into())),
+            ("properties", named(vec![
+                ("rayleigh_fog_color", ConfigValue::Float4([1.583, 1.2, 0.9, 1.0])),
+                ("mie_fog_color", ConfigValue::Float4([0.3, 0.5, 0.7, 1.0])),
+                ("mie_fog_base_height", ConfigValue::Float(75.0)),
+            ])),
+        ])]))]);
+        let mut changed = original.clone();
+        let profile = mark_legacy_fog(&mut changed, &map).unwrap();
+        assert_eq!(profile.marker, -32197.0);
+        assert_eq!(profile.color, [1.583f32.powf(2.2), 1.2f32.powf(2.2), 0.9f32.powf(2.2)]);
+        let ConfigValue::Indexed(objects) = changed.named_mut("client_objects").unwrap() else { panic!() };
+        objects[0].named_mut("properties").unwrap().set_path("mie_fog_base_height", ConfigValue::Float(75.0)).unwrap();
+        assert_eq!(changed, original); // The marker is the only environment edit.
+        map.environment_overrides.insert("mie_fog_color".into(), serde_json::json!([1, 1, 1, 1]));
+        assert!(mark_legacy_fog(&mut changed, &map).is_err());
+        assert_eq!(changed, original);
+        map.environment_overrides.clear(); map.native_lighting = true;
+        assert!(mark_legacy_fog(&mut changed, &map).is_err());
+        assert_eq!(changed, original);
+    }
+
+    #[test]
     fn imported_project_retains_hud_key_without_losing_resource_namespace() {
         let collectors = (0..2)
             .map(|team| {
@@ -1967,6 +2040,7 @@ mod tests {
             weather: "rain".into(),
             native_lighting: false,
             environment_overrides: BTreeMap::new(),
+            legacy_fog_021: false,
             map_id: None,
             name: None,
         };
@@ -2213,6 +2287,7 @@ mod tests {
             weather: "day".into(),
             native_lighting: false,
             environment_overrides: BTreeMap::new(),
+            legacy_fog_021: false,
             map_id: None,
             name: None,
         };

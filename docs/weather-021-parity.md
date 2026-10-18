@@ -106,6 +106,35 @@ and skips the `mie_fog_height_falloff` member at offset `0x15c`.
 At the current positive-height camera, the original draw contributes no Mie
 fog. Treating the authored value as the observed renderer value would be wrong.
 
-The accepted conversion remains iteration 1. A separate experiment will test
-the original Rayleigh calculation before accepting any shader compatibility
-change. Other maps, weather and camera elevations still need verification.
+The accepted four-map manifest remains iteration 1. Shader compatibility is
+being checked separately before enabling it there. Other maps, weather and
+camera elevations still need verification.
+
+## Opt-in original fog arithmetic
+
+`legacy_fog_021: true` enables a guarded original-fog branch for an individual
+map. It requires donor lighting and rejects simultaneous `mie_fog_*` or
+`rayleigh_fog_*` overrides. The default and preserved baseline emit no shader
+change. Retail shader bytes come from the user's pinned databases.
+
+The porter verifies both retail fog resources, retains the native camera/depth
+input convention, and transplants the original fog instructions. Three binding
+changes supply the original authored Rayleigh RGB, the observed infinite height
+multiplier, and the Mie far distance at its new location. Original RGB is derived
+with the original `pow(color, 2.2)` conversion. The map receives a unique marker
+in the target-only base-height field; all its authored colors remain intact.
+Unmarked maps execute the unchanged native instruction body. Native reflection,
+input/output signatures and resource metadata are retained, and the DXBC
+checksum is rebuilt. Input hashes and instruction-match counts fail closed.
+
+Trial 03 tested Rayleigh alone and restored the missing distant haze. Trial 04
+uses the complete original arithmetic through the porter and reproduces that
+result. The live draw audit confirms the generated shader and expected map
+marker, with the original sun and fog constants intact. Whole-image MAE is
+19.09/255 versus iteration 1's 19.12; this small overall difference is not an
+acceptance claim. The sky remains substantially darker/oranger than the original.
+All captures still use the same frozen `mamayev-close-03` reference.
+
+For a generated shader, add `--audit-fog --fog-digest DXBC_DIGEST` to capture.
+The observer then selects only that shader, and the runner verifies its identity.
+This option observes constants only; it never substitutes rendering data.
