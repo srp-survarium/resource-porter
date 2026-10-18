@@ -701,3 +701,66 @@ views. Nearby foliage remains darker/more contrasty than the original, and
 some existing bright geometry gaps remain. The first broad-capture launch
 timed out before scene readiness and produced no images; its clean retry
 completed all 13 frames. No original client was launched.
+
+### Vostok sun-lighting rejection and broad audit
+
+A full parity18 candidate enabled original direct-sun lighting for Vostok
+evening as well. Build/apply/verify passed; only four composition programs
+changed. Removing the added Vostok guard recovers every accepted instruction
+and all metadata exactly. The live close03 audit confirmed marker -32188 and
+shader `7d3af14e94501a6a81266fa099a409db`.
+
+Close03 improves from 8.186 to 7.591, including the roof region (4.891 to
+4.312). The other views do not support enabling it: close06 5.023 to 5.030,
+east-quarter 7.187 to 7.583, south-quarter 4.225 to 4.390. Smoothing preserves
+the panorama regressions. A fresh accepted-build east-quarter control gives
+7.328, still better than the candidate. Parity18 is **not retained**; the
+production manifest and current runtime remain parity17. Candidate manifest,
+full overlay, four comparisons and raw audit are preserved for further work.
+
+The accepted Vostok evening build now has a broad audit against 18 frozen
+originals: eight close views and ten panoramas. Three valid target frames were
+reused; 15 new target frames include the control. Close00 is obscured by grass,
+southeast has a large white void in the original, and west-quarter is obstructed;
+these three original candidates are excluded. All three contact-sheet pages
+were inspected. Geometry, sky/cloud placement and distant haze generally align;
+nearby foliage, some material shading and sun-facing glow still differ. Blue
+anomaly effects occur at different animation phases in some frames.
+
+Close07 has the highest raw error (14.764), but smoothing by 16 pixels reduces
+it to 2.742. Southwest is a more useful next fixed view: its 9.449 raw error
+remains 8.950 after the same smoothing. The original glow is whiter and the
+port yellower. This persistent difference takes priority over chasing
+unsynchronized leaf positions.
+
+A target trace beginning at the active sky shader reveals two applications of
+`god_rays_apply.ps`, with identical ray-generator output. In the sky pixels,
+the first application adds mean linear RGB (0.552, 0.213, 0.016); the second
+adds (0.547, 0.212, 0.016). Composition and fog leave those sky pixels unchanged
+between applications. No separate sun/moon billboard shader appears from sky
+through presentation. The initial billboard-specific audit produced no record;
+the subsequent sky trace succeeded. This identifies a concrete pipeline
+difference to investigate, not yet a validated correction.
+
+Static original/native postprocess comparison also finds changed tone mapping
+and bloom handling. Original tone mapping clamps luminance to 0–0.9 and uses
+3 with an explicit conversion from exp to exp2; native clamps 0.05–2 and uses
+4.5 without that conversion. Original bloom combines three scales with weights
+0.5/0.3/0.2 and packs its output; active native bloom interpolates among six
+scales and returns unpacked RGB. Original complex postprocess adds a ray
+texture after bloom, whereas native applies rays earlier. Trial25 isolates the
+24 original tone-map instructions in place of the 23 native ones, preserving
+all other instructions and bindings. It is an unconditional local diagnostic,
+not a production option; map guards and porter integration are required if
+visual validation supports it.
+
+Trial25 was rendered and rejected. The trace confirms the substituted program
+`05f372b23306cfec84d8496725432c7b` at draw 152. Southwest error rises from the
+fresh native control's 9.594 to 10.677; sky 11.397 to 13.095, left forest
+8.454 to 9.226, right forest 7.811 to 8.483. Restoring tone-map arithmetic in
+isolation does not fix the pipeline/input mismatch. The accepted parity17
+archive is restored. The next investigation is a faithful correction of the
+ray application/order, using the southwest view first. This must preserve
+world lighting rather than globally halving ray intensity to compensate for
+the double sky contribution. Both rain maps' broad audits and remaining close
+material/foliage differences are still unfinished.
