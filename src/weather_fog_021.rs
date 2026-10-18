@@ -1036,10 +1036,16 @@ mod tests {
             std::fs::read(root.join("original-9b11960c94a13675b92cbebf3d4dc919.blob")).unwrap();
         let template =
             std::fs::read(root.join("native-2a73464d45e748c014a63b25f5eaa660.blob")).unwrap();
-        let profiles = [Profile {
-            marker: -32198.0,
-            color: [0.875f32.powf(2.2); 3],
-        }];
+        let profiles = [
+            Profile {
+                marker: -32188.0,
+                color: [0.969f32.powf(2.2), 1.238f32.powf(2.2), 1.583f32.powf(2.2)],
+            },
+            Profile {
+                marker: -32198.0,
+                color: [0.875f32.powf(2.2); 3],
+            },
+        ];
         let directory = root
             .join("native-particle-vertices/overlay")
             .join(PARTICLE_PREFIX);

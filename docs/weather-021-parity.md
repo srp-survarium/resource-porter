@@ -315,6 +315,28 @@ options. Vostok evening and rain remain on the preserved conversion pending
 their individual comparisons. Validation: 344 ordinary tests passed, plus both
 retail shader integration tests invoked explicitly.
 
+## Vostok evening
+
+The first view is `vostok-east-quarter`, a closer elevated view containing the
+dish, surrounding gameplay structures, forest and sky. Its original 0.21
+capture is frozen. The preserved conversion scores 26.01 whole-frame error
+and 47.63 in the sky region. Enabling the five checked atmosphere options
+reduces these to 7.31 and 5.29. The read-back sky lookup differences are at
+floating-point rounding scale (mean absolute errors below 0.000001).
+
+The subsequent regression retains the improvement: east-quarter 7.76,
+south-quarter 7.43, close03 9.35 and close06 6.46. The close views include the
+concrete bridge and metal walkways inside the playable area. Remaining
+differences include foliage/material shading, moving shadows and stronger
+native sun flares. These frames support retaining the atmosphere conversion,
+not declaring complete visual parity.
+
+The accepted manifest enables the five options for Vostok evening. Its
+6,992-file database is
+`8366f29194eb5dc698c27594ab7b33f4747599eeb174dd58b496b0c45e6884a8`;
+build, apply and verify pass. Vostok rain's individual comparison and the final
+cross-map regression are next.
+
 For diagnosis, `--audit-render-target` reads the selected draw's color target
 and its first two supported uncompressed pixel textures, with formats and
 dimensions recorded. `--audit-after-draw` selects the output immediately after
