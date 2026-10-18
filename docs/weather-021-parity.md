@@ -384,8 +384,7 @@ shading and stronger native evening flares remain; parity is incomplete.
 
 The original 0.21 screenshots are fixed references, captured once. Reuse the
 saved shader constants, draw traces and raw targets as well; further visual
-iteration uses 0.26 captures only. Extra original diagnostic runs must not
-become routine recaptures of the reference set.
+iteration uses 0.26 captures only. Do not launch new 0.21 captures.
 
 ## Remaining rain shading investigation
 
@@ -430,3 +429,47 @@ Against the fixed originals, four target-only checks score 15.22 (close03),
 to the prior atmosphere correction. The parity manifest enables the original
 water equations for Mamayev rain too. Some small bright specks and the dark
 foreground persist; water fog does not account for those differences.
+
+## Rain diffuse attenuation
+
+The fixed post-fog raw targets locate the main close-ground mismatch before
+post-processing: the native foreground's linear RGB is about 45% of the
+original, while the sky is about 99%. A probe-specular diagnostic restores
+the original sampling equations and inlines the original screen-space BRDF
+factor. That changes close03 error only to 14.06 (foreground 23.28), so it is
+not retained. In particular, original `t_probe_brdf` is a separately computed
+screen-space factor; it must not be confused with native AO or the native
+two-dimensional BRDF lookup.
+
+The active native `composition.ps` has an additional terminal `use_rain`
+block absent in original composition. It attenuates accumulated diffuse
+lighting using the rain shadow map and material parameters. Ordinary
+rain-exposed surfaces receive a 0.5 multiplier. The saved source composition
+has neither this block nor its rain-shadow resources. A target-only audit
+confirms `use_rain = 1` in the dark Mamayev view.
+
+`legacy_rain_albedo_021` bypasses that extra attenuation for marked maps.
+It requires rain weather and `legacy_fog_021` for the existing map marker.
+The source and native templates are fingerprinted. Only four byte-identical
+native composition permutations out of 64 are changed. Two instructions per
+marker gate the existing rain condition; all sun lighting, material math,
+the full native rain block, and every unmarked map remain intact. The native
+reflection metadata marks only the existing map-marker constant as used.
+
+The first view improves from 15.14 to 9.35 overall, and from 24.32 to 13.36
+on the foreground. Four-view errors improve from 15.22 to 9.19 (close03),
+16.49 to 9.88 (close06), 6.96 to 4.13 (east), and 6.49 to 3.84 (southwest).
+The parity manifest enables this option for Mamayev rain. Remaining close
+material/foliage differences and occasional bright specks are still visible.
+Vostok rain has not yet been validated with this option.
+
+Validation: 344 ordinary tests pass; all four retail shader tests pass when
+invoked explicitly. The new retail check verifies exact equality with the
+audited diagnostic shader, metadata and checksum, multiple markers, invalid
+input rejection, and recovery of every native instruction after removing
+only the profile guards and extra scratch register.
+
+The complete four-map bundle contains 7,004 files. Its compiled composition
+programs exactly match the rendered diagnostic; each variant retains its
+own native asset header. The full stock-base archive SHA-256 is
+`894e5ff966880bb927a1756c320f8bb8e44430fa66b5e9b26dff485f8bded0ce`.

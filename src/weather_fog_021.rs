@@ -14,6 +14,147 @@ pub const PARTICLE_TEMPLATE: &str = "shaders/sm_4_0/vertex_base_offscreen_partic
 pub const WATER_PREFIX: &str = "shaders/sm_4_0/forward_water.ps/";
 pub const WATER_SOURCE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1___________0____1________0_0________________0_0_____________";
 pub const WATER_TEMPLATE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1__________0____1________0_0_________________0_0_____________";
+pub const COMPOSITION_PREFIX: &str = "shaders/sm_4_0/composition.ps/";
+pub const COMPOSITION_SOURCE: &str = "shaders/sm_4_0/composition.ps/_0_300_____________________________________________________________";
+pub const COMPOSITION_TEMPLATE: &str = "shaders/sm_4_0/composition.ps/___3010______0_____________________________________________________";
+
+/// 0.26 introduced a rain-shadow-dependent diffuse attenuation in composition.
+/// The pinned 0.21 composition has no such step. Bypass only that final block
+/// for marked rain maps, retaining native sun lighting and every other operation.
+/// Other composition permutations are deliberately left alone.
+pub fn build_rain_albedo(
+    source: &[u8],
+    target: &[u8],
+    template: &[u8],
+    markers: &[f32],
+) -> Result<Option<Vec<u8>>> {
+    ensure!(!markers.is_empty(), "no original rain albedo markers");
+    let mut seen = std::collections::BTreeSet::new();
+    for marker in markers {
+        ensure!(
+            marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
+            "invalid or duplicate rain albedo marker"
+        );
+    }
+    pinned_code(
+        source,
+        "443f4ebc74b8184323c5f8620add0e339ebba088a6f50b3f85b65be437d4c1da",
+    )?;
+    let (_, native) = pinned_code(
+        template,
+        "6b56586d43003c4e076b93ed94401aadf0229d295475e6712b3bedd2eb873c6e",
+    )?;
+    let offset = 4 + u32_at(target, 0)? as usize * 264;
+    let code = target
+        .get(offset..)
+        .context("truncated composition header")?;
+    if code != native {
+        return Ok(None);
+    }
+    let mut entries = chunks(code)?;
+    let si = entries
+        .iter()
+        .position(|(tag, _)| tag == b"SHDR")
+        .context("missing composition program")?;
+    let original_words = words(&entries[si].1)?;
+    let mut ops = instructions(&original_words)?;
+    let temps = ops
+        .iter()
+        .position(|ins| ins[0] & 2047 == 104)
+        .context("missing composition temporaries")?;
+    ensure!(
+        ops[temps] == [0x02000068, 9],
+        "unexpected composition temporaries"
+    );
+    // lt r0.w, 0.5, use_rain; if_nz r0.w
+    let condition = [
+        0x08000031,
+        0x00100082,
+        0,
+        0x00004001,
+        0.5f32.to_bits(),
+        0x0020800a,
+        0,
+        30,
+    ];
+    let starts: Vec<_> = ops
+        .iter()
+        .enumerate()
+        .filter(|(_, op)| op.as_slice() == condition)
+        .map(|(i, _)| i)
+        .collect();
+    ensure!(
+        starts == [160] && ops[161] == [0x0304001f, 0x0010003a, 0],
+        "rain attenuation condition changed"
+    );
+    ensure!(
+        ops[ops.len() - 4] == [0x01000015] && ops.last().unwrap() == &[0x0100003e],
+        "rain attenuation is not the terminal composition block"
+    );
+    let mut guard = Vec::new();
+    for marker in markers {
+        guard.push(vec![
+            0x08000039,
+            0x00100012,
+            9,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+        ]);
+        guard.push(vec![
+            0x07000001, 0x00100082, 0, 0x0010003a, 0, 0x0010000a, 9,
+        ]);
+    }
+    ops[temps][1] = 10;
+    ops.splice(161..161, guard);
+    let mut updated = original_words[..2].to_vec();
+    updated.extend(ops.iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[si].1 = bytes(&updated);
+    let ri = entries
+        .iter()
+        .position(|(tag, _)| tag == b"RDEF")
+        .context("missing composition reflection")?;
+    let r = &mut entries[ri].1;
+    let name = |data: &[u8], at: usize| -> Result<String> {
+        let tail = data
+            .get(at..)
+            .context("missing composition reflection string")?;
+        let end = tail
+            .iter()
+            .position(|b| *b == 0)
+            .context("unterminated composition reflection string")?;
+        Ok(std::str::from_utf8(&tail[..end])?.to_owned())
+    };
+    let mut marked = 0;
+    for i in 0..u32_at(r, 0)? as usize {
+        let cb = u32_at(r, 4)? as usize + 24 * i;
+        if name(r, u32_at(r, cb)? as usize)? != "static_globals" {
+            continue;
+        }
+        for j in 0..u32_at(r, cb + 4)? as usize {
+            let var = u32_at(r, cb + 8)? as usize + 24 * j;
+            if name(r, u32_at(r, var)? as usize)? != "atmosphere_parameters3" {
+                continue;
+            }
+            ensure!(
+                u32_at(r, var + 4)? == 288
+                    && u32_at(r, var + 8)? == 16
+                    && u32_at(r, var + 12)? == 0,
+                "composition marker layout changed"
+            );
+            r[var + 12..var + 16].copy_from_slice(&2u32.to_le_bytes());
+            marked += 1;
+        }
+    }
+    ensure!(marked == 1, "missing composition marker");
+    let mut result = target[..offset].to_vec();
+    result.extend(assemble(code, &entries)?);
+    Ok(Some(result))
+}
 
 pub struct ScatteringProfile {
     pub marker: f32,
@@ -1087,6 +1228,92 @@ fn checksum(code: &[u8]) -> Result<[u8; 16]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_rain_albedo_preserves_native_composition_and_fallback() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let source =
+            std::fs::read(root.join("original-9b8cf18c143307ad19ccea92c7c24600.blob")).unwrap();
+        let native =
+            std::fs::read(root.join("native-de3e7a631834e15db4ae347359867c30.blob")).unwrap();
+        let single = build_rain_albedo(&source, &native, &native, &[-32198.0])
+            .unwrap()
+            .unwrap();
+        let offset = 4 + u32_at(&native, 0).unwrap() as usize * 264;
+        // The production output must equal the separately rendered diagnostic.
+        assert_eq!(
+            single[offset..],
+            std::fs::read(root.join("trial17-composition.dxbc")).unwrap()
+        );
+        let result = build_rain_albedo(&source, &native, &native, &[-32198.0, -32189.0])
+            .unwrap()
+            .unwrap();
+        assert_eq!(&result[..offset], &native[..offset]);
+        assert_eq!(
+            checksum(&result[offset..]).unwrap(),
+            result[offset + 4..offset + 20]
+        );
+        let old = chunks(&native[offset..]).unwrap();
+        let new = chunks(&result[offset..]).unwrap();
+        for ((tag, a), (new_tag, b)) in old.iter().zip(&new) {
+            assert_eq!(tag, new_tag);
+            if tag == b"SHDR" {
+                let original = instructions(&words(a).unwrap()).unwrap();
+                let mut changed = instructions(&words(b).unwrap()).unwrap();
+                let guards: Vec<_> = changed.drain(161..165).collect();
+                for (pair, marker) in guards.chunks_exact(2).zip([-32198.0f32, -32189.0]) {
+                    assert_eq!(
+                        pair[0],
+                        [
+                            0x08000039,
+                            0x00100012,
+                            9,
+                            0x0020803a,
+                            1,
+                            18,
+                            0x00004001,
+                            marker.to_bits()
+                        ]
+                    );
+                    assert_eq!(
+                        pair[1],
+                        [0x07000001, 0x00100082, 0, 0x0010003a, 0, 0x0010000a, 9]
+                    );
+                }
+                let temps = changed.iter_mut().find(|ins| ins[0] & 2047 == 104).unwrap();
+                assert_eq!(temps[1], 10);
+                temps[1] = 9;
+                // Removing only the profile guards and scratch declaration
+                // recovers every original instruction, including rain fallback.
+                assert_eq!(changed, original);
+            } else if tag == b"RDEF" {
+                let differences: Vec<_> = a.iter().zip(b).filter(|(x, y)| x != y).collect();
+                assert_eq!(differences.len(), 1);
+                assert_eq!(differences[0], (&0, &2));
+            } else {
+                assert_eq!(a, b);
+            }
+        }
+        for markers in [
+            &[][..],
+            &[-32198.0, -32198.0][..],
+            &[f32::NAN][..],
+            &[177.0][..],
+        ] {
+            assert!(build_rain_albedo(&source, &native, &native, markers).is_err());
+        }
+        let mut corrupt = source.clone();
+        corrupt[8] ^= 1;
+        assert!(build_rain_albedo(&corrupt, &native, &native, &[-32198.0]).is_err());
+        let mut other = native.clone();
+        other[offset + 4] ^= 1;
+        assert!(
+            build_rain_albedo(&source, &other, &native, &[-32198.0])
+                .unwrap()
+                .is_none()
+        );
+        assert!(build_rain_albedo(&source, &native, &other, &[-32198.0]).is_err());
+    }
     #[test]
     fn custom_data_instruction_lengths_are_checked() {
         assert_eq!(
