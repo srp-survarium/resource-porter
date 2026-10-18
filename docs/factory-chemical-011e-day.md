@@ -277,3 +277,14 @@ B (18.6, 72), (18.6, 79), (15.75, 86), (12.9, 93). Everything stays under
 counts the artefact event for quests and the explorer award); fixed-camera
 captures showed no artefact object at these spots nor at the native moss
 spots, so whether artefacts spawn on these maps is still to be shown by hand.
+
+**Taller fog.** The owner: "the fog should be higher, because people down
+there are visible". The four emitters of a stage now stand 1.0 and 2.2 m over
+the bed in a checkerboard (lanes 1 and 3 low, 2 and 4 high; swapped on every
+other stage; `--fog-rows-alt`, an emitter `X@LIFT`), so the opaque fog reaches
+from the ground to about 3.5 m with the same 100 emitters and the same particle.
+In game, with human-sized test boxes (0.5 x 1.8 x 0.35 m, placed only in the
+test build) on the bed: hidden at full growth from the walkway, the hopper roof
+and at eye level 10 m away along the bed (headless 38.9 / 38.1 / 38.5 fps).
+A taller emission domain (rust_smoke's cylinder height 2) was tried and left
+thinner patches. Damage, timing and the artefact spots are unchanged.

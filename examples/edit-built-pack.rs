@@ -28,6 +28,8 @@
 //! - `{"op": "remove_client_prefix", "prefix": P}`: client objects whose full name starts with P go;
 //! - `{"op": "fill", "pack": FILE}`: a gameplay-fill pack (`survarium_026::fill`), its native
 //!   template project read from STOCK_DB and checked against its hash;
+//! - `{"op": "add_render_visual", "lib_name": M, "position": [x,y,z], "yaw": a, "scale": [x,y,z]}`: a static model
+//!   (a copy of the first render visual with these fields), e.g. a stand-in figure for test builds;
 //! - `{"op": "expect_client_prefix", "prefix": P, "count": N, "sha256": H}`: the client objects whose
 //!   full name starts with P are exactly N, and H is the sha256 of them as one binary config array
 //!   (in project order) — a precondition before the edits, or the expected result after them;
@@ -135,6 +137,9 @@ enum Op {
     RespawnAdd { like: String, full_name: String, position: [f32; 3], yaw: f32 },
     RemoveClientPrefix { prefix: String },
     Fill { pack: String },
+    /// A static render visual (a copy of the project's first one with these fields), e.g. a
+    /// human-sized model standing in a test build.
+    AddRenderVisual { lib_name: String, position: [f32; 3], #[serde(default)] yaw: f32, #[serde(default)] scale: Option<[f32; 3]> },
     ExpectClientPrefix {
         prefix: String,
         count: usize,
@@ -401,6 +406,17 @@ fn apply(root: &mut ConfigValue, op: &Op, stock: &mut vostok_resource_porter::ar
             let native = BinaryConfig::parse(&bytes)?.root;
             let applied = fill::apply(root, &native, &fill)?;
             format!("fill {}: {}", fill.name, applied.notes.join("; "))
+        }
+        Op::AddRenderVisual { lib_name, position, yaw, scale } => {
+            let visuals = items(root, "render_visuals")?;
+            let mut v = visuals.first().context("no render visual to copy")?.clone();
+            v.set_path("lib_name", ConfigValue::String(lib_name.clone()))?;
+            v.set_path("visual_name", ConfigValue::String(lib_name.clone()))?;
+            v.set_path("position", ConfigValue::Float3(*position))?;
+            v.set_path("rotation", ConfigValue::Float3([0.0, *yaw, 0.0]))?;
+            v.set_path("scale", ConfigValue::Float3(scale.unwrap_or([1.0; 3])))?;
+            visuals.push(v);
+            format!("render visual {lib_name} at {position:?}")
         }
         Op::ExpectClientPrefix { prefix, count, sha256, or } => {
             let (n, hash) = prefixed(root, prefix)?;
