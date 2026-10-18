@@ -461,7 +461,6 @@ on the foreground. Four-view errors improve from 15.22 to 9.19 (close03),
 16.49 to 9.88 (close06), 6.96 to 4.13 (east), and 6.49 to 3.84 (southwest).
 The parity manifest enables this option for Mamayev rain. Remaining close
 material/foliage differences and occasional bright specks are still visible.
-Vostok rain has not yet been validated with this option.
 
 Validation: 344 ordinary tests pass; all four retail shader tests pass when
 invoked explicitly. The new retail check verifies exact equality with the
@@ -473,3 +472,12 @@ The complete four-map bundle contains 7,004 files. Its compiled composition
 programs exactly match the rendered diagnostic; each variant retains its
 own native asset header. The full stock-base archive SHA-256 is
 `894e5ff966880bb927a1756c320f8bb8e44430fa66b5e9b26dff485f8bded0ce`.
+
+Vostok rain is now validated with the same option. The close concrete view
+improves from 22.51 to 10.51; the second close view from 17.55 to 6.09.
+East-quarter improves from 7.60 to 5.47 and south-quarter from 6.86 to 5.17.
+The first close frame was reused for the four-view comparison. All originals
+remain fixed. The parity manifest enables the option on both rain maps.
+The full 7,004-file bundle builds, applies and verifies; archive SHA-256 is
+`56550a8c2f0aefde97e2f208a294fc479905707faf6a3d85800ff79668b490e3`.
+Only the four composition variants differ from the prior accepted bundle.
