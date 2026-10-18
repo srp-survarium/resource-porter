@@ -20,7 +20,8 @@
       "legacy_sky_021": true,
       "legacy_clouds_021": true,
       "legacy_scattering_021": true,
-      "legacy_particle_fog_021": true
+      "legacy_particle_fog_021": true,
+      "legacy_ambient_occlusion_021": true
     },
     {
       "id": 168,
@@ -42,7 +43,8 @@
       "legacy_scattering_021": true,
       "legacy_particle_fog_021": true,
       "legacy_water_fog_021": true,
-      "legacy_rain_albedo_021": true
+      "legacy_rain_albedo_021": true,
+      "legacy_ambient_occlusion_021": true
     },
     {
       "id": 176,
@@ -61,7 +63,8 @@
       "legacy_fog_021": true,
       "legacy_sky_021": true,
       "legacy_clouds_021": true,
-      "legacy_scattering_021": true
+      "legacy_scattering_021": true,
+      "legacy_ambient_occlusion_021": true
     },
     {
       "id": 177,

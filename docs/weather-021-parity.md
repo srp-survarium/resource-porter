@@ -530,3 +530,34 @@ This correction is retained for Mamayev rain. Archive SHA-256:
 `a1e9a0a8386783062167b5e75c7d6688f98ecbcd9a966961f053e8bbac7cd3a4`.
 Vostok and evening AO validation, evening flares, and the broad four-weather
 visual audit remain outstanding; visual parity is not yet established.
+
+The same original AO option is now validated on the other three weather
+maps, one close view first, then the remaining three views. Each first frame
+is reused in its regression comparison. No original captures were made.
+
+| Map/weather | Close03, before → after | Close06 | East | South/southwest |
+| --- | --- | --- | --- | --- |
+| Vostok rain | 10.51 → 9.23 | 6.09 → 3.66 | 5.47 → 5.52 | 5.17 → 5.19 |
+| Mamayev evening | 9.92 → 9.16 | 12.29 → 11.75 | 5.29 → 4.95 | 6.51 → 6.13 |
+| Vostok evening | 9.35 → 7.92 | 6.46 → 4.77 | 7.76 → 6.99 | 7.43 → 7.19 |
+
+Both Vostok rain close views improve; its wide views remain essentially
+stable. All evening views improve. The parity manifest retains original AO
+on all four maps. Only the shared AO shader changes from the preceding
+7,005-file bundle; the other 7,004 files are identical. Full build, apply and
+verify pass. The archive SHA-256 is
+`2fd62e556a0028da2c6900247e00cae7db1cfd0e67953d69a339c69a46671b31`.
+The rain trace confirms the four-marker shader
+`0eaab3f3cfd481f4389dacd6f9f5bf97`; evening audits confirm the expected
+map markers and fixed camera positions.
+
+The remaining sun-facing warm glow has now been localized in Vostok's
+south-quarter trace. It visibly appears in the post-fog `god_rays_apply.ps`
+draw, before water, particles and bloom. In one right-forest region, linear
+red rises from 0.109 to 0.260 at that draw. `lens_flares.ps` does not execute
+in any of the three traced evening regression views, consistent with the
+authored `use_dynamic_lens_flare = false`. The separate lens-flare programs
+do differ between versions, but changing those would not address this
+observed glow. Original god-rays generation and its postprocess application
+are the next comparison; surface shading and the broad visual audit remain
+unfinished.
