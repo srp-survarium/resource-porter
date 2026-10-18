@@ -1,0 +1,396 @@
+{
+ "projects": {
+  "projects/v011e_level_03/day_2/client_project": [
+   {
+    "op": "move",
+    "anchor": [
+     -48.612,
+     0.512,
+     -73.253
+    ],
+    "to": {
+     "position": [
+      -21.351,
+      0.51,
+      -73.463
+     ],
+     "yaw": 3.1456,
+     "from_rotation": [
+      0.00040730636,
+      0.0040000877,
+      -0.00040730633
+     ]
+    },
+    "client_objects": [
+     "logic/team1/team_1_vic_collision"
+    ],
+    "container_visuals": [
+     "logic/team1/team_1_victory_items_container"
+    ],
+    "instances": [
+     {
+      "model": "item/storage_device/box_atlant12",
+      "near": [
+       -48.612,
+       0.9,
+       -73.253
+      ],
+      "radius": 0.6
+     }
+    ]
+   },
+   {
+    "op": "move",
+    "anchor": [
+     49.747,
+     0.488,
+     14.641
+    ],
+    "to": {
+     "position": [
+      38.21,
+      0.47,
+      5.017
+     ],
+     "yaw": -1.545,
+     "from_rotation": [
+      -3.1411853,
+      -0.004,
+      -3.1411853
+     ]
+    },
+    "client_objects": [
+     "logic/team2/team_2_vic_collision"
+    ],
+    "container_visuals": [
+     "logic/team2/team_2_victory_items_container"
+    ],
+    "instances": [
+     {
+      "model": "item/storage_device/box_atlant12",
+      "near": [
+       49.747,
+       0.87,
+       14.641
+      ],
+      "radius": 0.6
+     }
+    ]
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/box/woodbox_big1",
+    "near": [
+     -50.443,
+     0.512,
+     -73.03
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -51.274,
+     0.685,
+     -74.329
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -50.125,
+     0.512,
+     -74.67
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "move",
+    "anchor": [
+     -50.242,
+     0.484,
+     -73.745
+    ],
+    "to": {
+     "position": [
+      -50.242,
+      0.504,
+      -73.745
+     ],
+     "yaw": 0.0
+    },
+    "client_objects": [
+     "logic/fill/team1/resupply/resupply_zone",
+     "logic/fill/team1/resupply/resupply_collision",
+     "logic/fill/team1/resupply/ammo_decal"
+    ],
+    "instances": [
+     {
+      "model": "item/quest/container_closed",
+      "near": [
+       -50.242,
+       0.484,
+       -73.745
+      ],
+      "radius": 0.05
+     }
+    ]
+   },
+   {
+    "op": "move",
+    "anchor": [
+     41.558,
+     0.409,
+     15.49
+    ],
+    "to": {
+     "position": [
+      41.558,
+      0.449,
+      15.49
+     ],
+     "yaw": 0.0
+    },
+    "client_objects": [
+     "logic/fill/team2/resupply/resupply_zone",
+     "logic/fill/team2/resupply/resupply_collision",
+     "logic/fill/team2/resupply/ammo_decal"
+    ],
+    "instances": [
+     {
+      "model": "item/quest/container_closed",
+      "near": [
+       41.558,
+       0.409,
+       15.49
+      ],
+      "radius": 0.05
+     }
+    ]
+   },
+   {
+    "op": "move",
+    "anchor": [
+     -10.239,
+     5.461,
+     -73.326
+    ],
+    "to": {
+     "position": [
+      -10.239,
+      5.19,
+      -73.326
+     ]
+    },
+    "instances": [
+     {
+      "model": "ported/v011e/editor/cone",
+      "near": [
+       -10.239,
+       5.461,
+       -73.326
+      ],
+      "radius": 0.05
+     }
+    ]
+   },
+   {
+    "op": "add_collision_object",
+    "lib_name": "resources/models/level/03/antenna_tree.model/walker_collision",
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "cgroup": 2,
+    "cmask": 4,
+    "why": "spot 4: the antenna tree's trunk has no movement collision past (-28.31, 15.11, -4.47), where antenna_tree2's ends (0.11e ships an empty walker folder for it); native 0.26's own walker mesh for the same tree (identical render vertices)"
+   },
+   {
+    "op": "add_render_visual",
+    "lib_name": "props/cover/plywood_08",
+    "position": [
+     25.7521,
+     0.398,
+     -13.635
+    ],
+    "yaw": 1.5737,
+    "scale": [
+     12.425,
+     0.009,
+     1.0
+    ]
+   }
+  ],
+  "projects/v011e_level_03/day_4/client_project": [
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/box/woodbox_big1",
+    "near": [
+     -50.443,
+     0.512,
+     -73.03
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -51.274,
+     0.685,
+     -74.329
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "remove_instances",
+    "model": "ported/v011e/props/barrel/plastic_can",
+    "near": [
+     -50.125,
+     0.512,
+     -74.67
+    ],
+    "radius": 0.05
+   },
+   {
+    "op": "move",
+    "anchor": [
+     -50.242,
+     0.484,
+     -73.745
+    ],
+    "to": {
+     "position": [
+      -50.242,
+      0.504,
+      -73.745
+     ],
+     "yaw": 0.0
+    },
+    "client_objects": [
+     "logic/fill/team1/resupply/resupply_zone",
+     "logic/fill/team1/resupply/resupply_collision",
+     "logic/fill/team1/resupply/ammo_decal"
+    ],
+    "instances": [
+     {
+      "model": "item/quest/container_closed",
+      "near": [
+       -50.242,
+       0.484,
+       -73.745
+      ],
+      "radius": 0.05
+     }
+    ]
+   },
+   {
+    "op": "move",
+    "anchor": [
+     41.558,
+     0.409,
+     15.49
+    ],
+    "to": {
+     "position": [
+      41.558,
+      0.449,
+      15.49
+     ],
+     "yaw": 0.0
+    },
+    "client_objects": [
+     "logic/fill/team2/resupply/resupply_zone",
+     "logic/fill/team2/resupply/resupply_collision",
+     "logic/fill/team2/resupply/ammo_decal"
+    ],
+    "instances": [
+     {
+      "model": "item/quest/container_closed",
+      "near": [
+       41.558,
+       0.409,
+       15.49
+      ],
+      "radius": 0.05
+     }
+    ]
+   },
+   {
+    "op": "move",
+    "anchor": [
+     -10.239,
+     5.461,
+     -73.326
+    ],
+    "to": {
+     "position": [
+      -10.239,
+      5.19,
+      -73.326
+     ]
+    },
+    "instances": [
+     {
+      "model": "ported/v011e/editor/cone",
+      "near": [
+       -10.239,
+       5.461,
+       -73.326
+      ],
+      "radius": 0.05
+     }
+    ]
+   },
+   {
+    "op": "add_collision_object",
+    "lib_name": "resources/models/level/03/antenna_tree.model/walker_collision",
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotation": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "cgroup": 2,
+    "cmask": 4,
+    "why": "spot 4: the antenna tree's trunk has no movement collision past (-28.31, 15.11, -4.47), where antenna_tree2's ends (0.11e ships an empty walker folder for it); native 0.26's own walker mesh for the same tree (identical render vertices)"
+   },
+   {
+    "op": "add_render_visual",
+    "lib_name": "props/cover/plywood_08",
+    "position": [
+     25.7521,
+     0.398,
+     -13.635
+    ],
+    "yaw": 1.5737,
+    "scale": [
+     12.425,
+     0.009,
+     1.0
+    ]
+   }
+  ]
+ },
+ "options": {
+  "gameplay/game_modes/v011e_level_04_day_2.options": {
+   "mode.ui.loading_screen_id": 5
+  },
+  "gameplay/game_modes/v011e_level_04_day_4.options": {
+   "mode.ui.loading_screen_id": 5
+  }
+ }
+}

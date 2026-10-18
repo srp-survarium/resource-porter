@@ -30,6 +30,9 @@
 //!   template project read from STOCK_DB and checked against its hash;
 //! - `{"op": "add_render_visual", "lib_name": M, "position": [x,y,z], "yaw": a, "scale": [x,y,z]}`: a static model
 //!   (a copy of the first render visual with these fields), e.g. a stand-in figure for test builds;
+//! - `{"op": "add_collision_object", "lib_name": C, "position": [x,y,z], "rotation": [x,y,z], "cgroup": g,
+//!   "cmask": m}`: one collision object (a copy of the first one with these fields, scale 1); the
+//!   same lib_name, transform and groups must not be there already;
 //! - `{"op": "expect_client_prefix", "prefix": P, "count": N, "sha256": H}`: the client objects whose
 //!   full name starts with P are exactly N, and H is the sha256 of them as one binary config array
 //!   (in project order) — a precondition before the edits, or the expected result after them;
@@ -140,6 +143,8 @@ enum Op {
     /// A static render visual (a copy of the project's first one with these fields), e.g. a
     /// human-sized model standing in a test build.
     AddRenderVisual { lib_name: String, position: [f32; 3], #[serde(default)] yaw: f32, #[serde(default)] scale: Option<[f32; 3]> },
+    /// One hand-placed collision object, e.g. a walker shape a model was ported without.
+    AddCollisionObject { lib_name: String, position: [f32; 3], rotation: [f32; 3], cgroup: i32, cmask: i32, #[serde(default)] why: Option<String> },
     ExpectClientPrefix {
         prefix: String,
         count: usize,
@@ -417,6 +422,26 @@ fn apply(root: &mut ConfigValue, op: &Op, stock: &mut vostok_resource_porter::ar
             v.set_path("scale", ConfigValue::Float3(scale.unwrap_or([1.0; 3])))?;
             visuals.push(v);
             format!("render visual {lib_name} at {position:?}")
+        }
+        Op::AddCollisionObject { lib_name, position, rotation, cgroup, cmask, why } => {
+            let objects = items(root, "collision_objects")?;
+            let same = |o: &ConfigValue| {
+                s(o, "lib_name") == Some(lib_name.as_str())
+                    && f3(o, "position") == Some(*position)
+                    && f3(o, "rotation") == Some(*rotation)
+                    && matches!(o.named("cgroup"), Some(ConfigValue::Integer(g)) if g == cgroup)
+                    && matches!(o.named("cmask"), Some(ConfigValue::Integer(m)) if m == cmask)
+            };
+            ensure!(!objects.iter().any(same), "collision object {lib_name} at {position:?} is there already");
+            let mut o = objects.first().context("no collision object to copy")?.clone();
+            o.set_path("lib_name", ConfigValue::String(lib_name.clone()))?;
+            o.set_path("position", ConfigValue::Float3(*position))?;
+            o.set_path("rotation", ConfigValue::Float3(*rotation))?;
+            o.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
+            o.set_path("cgroup", ConfigValue::Integer(*cgroup))?;
+            o.set_path("cmask", ConfigValue::Integer(*cmask))?;
+            objects.push(o);
+            format!("collision object {lib_name} at {position:?} (cgroup {cgroup}, cmask {cmask}){}", why.as_ref().map(|w| format!(": {w}")).unwrap_or_default())
         }
         Op::ExpectClientPrefix { prefix, count, sha256, or } => {
             let (n, hash) = prefixed(root, prefix)?;
