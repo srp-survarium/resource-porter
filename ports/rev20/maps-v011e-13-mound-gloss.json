@@ -1,0 +1,21 @@
+{
+ "add_files": [
+  {
+   "path": "material_instances/ported/v011e/terrain/03_base_final_lod_mound.material",
+   "from_db": "material_instances/terrain/03_base_final_lod.material",
+   "from_sha256": "d077c936458e181d05ad844829828c428ccee8cbe806aabde944c8b4c97920cd",
+   "set": {
+    "material.g_stage.effect.texture_diffuse.value": "ported/v011e/terrain/03_base_lod",
+    "material.g_stage.effect.texture_diffuse_power.value": "ported/v011e/srp/null",
+    "material.g_stage.effect.normal_waves_texture.value": "",
+    "material.g_stage.effect.constant_roughness.value": 0.03
+   },
+   "sha256": "6490d5246fdd6a37dd6d6fe6732a81beafc888cb3c2161e4f0bf1ff48bf8cde7"
+  }
+ ],
+ "options": {
+  "models/ported/v011e/level/03/terrain_p_07.model/settings": {
+   "material_settings.l3terr_lod_1.material_name": "ported/v011e/terrain/03_base_final_lod_mound"
+  }
+ }
+}
