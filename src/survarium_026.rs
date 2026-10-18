@@ -60,6 +60,9 @@ pub struct Map {
     /// Original sky arithmetic for this map, sharing the legacy fog marker.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_sky_021: bool,
+    /// Original cloud shading, source defaults and rotation convention.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_clouds_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -490,6 +493,67 @@ fn mark_legacy_fog(project: &mut ConfigValue, map: &Map) -> Result<crate::weathe
     ensure!(properties.named("mie_fog_base_height").is_some(), "missing native fog marker field");
     properties.set_path("mie_fog_base_height", ConfigValue::Float(marker))?;
     Ok(crate::weather_fog_021::Profile { marker, color })
+}
+
+fn prepare_legacy_clouds(project: &mut ConfigValue, map: &Map) -> Result<()> {
+    ensure!(
+        ![
+            "sky_clouds_rotation",
+            "stratosphere_rotation",
+            "sky_clouds_fog_color",
+            "sky_clouds_sunlight",
+            "use_sky_clouds_lighting"
+        ]
+        .iter()
+        .any(|k| map.environment_overrides.contains_key(*k)),
+        "original cloud conversion conflicts with cloud overrides"
+    );
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("original clouds require client objects");
+    };
+    let mut environments = objects
+        .iter_mut()
+        .filter(|o| string(o, "game_object_type") == Some("environment"));
+    let environment = environments
+        .next()
+        .context("original clouds require an environment")?;
+    ensure!(
+        environments.next().is_none(),
+        "original clouds require one environment"
+    );
+    let properties = environment
+        .named_mut("properties")
+        .context("missing cloud environment properties")?;
+    let mut edits = Vec::new();
+    for key in ["sky_clouds_rotation", "stratosphere_rotation"] {
+        let angle = match properties.named(key) {
+            Some(ConfigValue::Float(v)) => *v,
+            Some(ConfigValue::Integer(v)) => *v as f32,
+            _ => bail!("missing original cloud angle {key}"),
+        };
+        ensure!(angle.is_finite(), "nonfinite original cloud angle");
+        // Original uploads (cos,sin), native uploads (sin,cos).
+        edits.push((key, ConfigValue::Float((90.0 - angle).rem_euclid(360.0))));
+    }
+    // Read the donor before schema filling: an omitted original fog color
+    // means white, as observed in the retail draw, not the native map's black.
+    if properties.named("sky_clouds_fog_color").is_none() {
+        edits.push(("sky_clouds_fog_color", ConfigValue::Float4([1.0; 4])));
+    }
+    if properties.named("use_sky_clouds_lighting").is_none() {
+        edits.push(("use_sky_clouds_lighting", ConfigValue::Boolean(false)));
+    }
+    // 0.26 additionally multiplies the uploaded tint by this new property.
+    // The original uploads gamma-corrected color * authored multiplier only.
+    ensure!(
+        properties.named("sky_clouds_sunlight").is_none(),
+        "unexpected original cloud sunlight field"
+    );
+    edits.push(("sky_clouds_sunlight", ConfigValue::Float(1.0)));
+    for (key, value) in edits {
+        properties.set_path(key, value)?;
+    }
+    Ok(())
 }
 
 /// All authored interaction-zone references must still resolve after upgrading.
@@ -1259,7 +1323,14 @@ pub fn build(
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
     for map in &m.maps {
-        ensure!(!map.legacy_sky_021 || map.legacy_fog_021, "original sky requires legacy_fog_021");
+        ensure!(
+            !map.legacy_sky_021 || map.legacy_fog_021,
+            "original sky requires legacy_fog_021"
+        );
+        ensure!(
+            !map.legacy_clouds_021 || map.legacy_fog_021,
+            "original clouds require legacy_fog_021"
+        );
         ensure!(
             matches!(
                 map.level.as_str(),
@@ -1385,9 +1456,14 @@ pub fn build(
     let mut collision_repairs = BTreeMap::new();
     let mut fog_profiles = Vec::new();
     let mut sky_markers = Vec::new();
+    let mut cloud_markers = Vec::new();
     for map in &m.maps {
+        let mut source = cfg(&mut donor, &map.donor_project())?;
+        if map.legacy_clouds_021 {
+            prepare_legacy_clouds(&mut source, map)?;
+        }
         let mut project = adapt_project(
-            cfg(&mut donor, &map.donor_project())?,
+            source,
             &target_projects[&map.target_project()],
             map,
             &templates,
@@ -1395,7 +1471,12 @@ pub fn build(
         .with_context(|| format!("adapting {}", map.donor_project()))?;
         if map.legacy_fog_021 {
             let profile = mark_legacy_fog(&mut project, map)?;
-            if map.legacy_sky_021 { sky_markers.push(profile.marker); }
+            if map.legacy_sky_021 {
+                sky_markers.push(profile.marker);
+            }
+            if map.legacy_clouds_021 {
+                cloud_markers.push(profile.marker);
+            }
             fog_profiles.push(profile);
         }
         if map.native_lighting {
@@ -1443,6 +1524,32 @@ pub fn build(
             &sky_markers,
         )?)
     };
+    let mut cloud_shaders = Vec::new();
+    if !cloud_markers.is_empty() {
+        let paths: Vec<_> = target
+            .paths_with_prefix(crate::weather_fog_021::CLOUD_PREFIX)
+            .filter(|p| target.is_file(p))
+            .map(str::to_owned)
+            .collect();
+        ensure!(paths.len() == 8, "unexpected native cloud variant count");
+        for path in paths {
+            let variant = path
+                .strip_prefix(crate::weather_fog_021::CLOUD_PREFIX)
+                .unwrap();
+            ensure!(
+                variant.len() == 67 && matches!(variant.as_bytes()[31], b'0' | b'1'),
+                "unexpected cloud variant key"
+            );
+            let lit = variant.as_bytes()[31] == b'1';
+            let shader = crate::weather_fog_021::build_cloud(
+                &donor.read(&crate::weather_fog_021::cloud_source_path(lit))?,
+                &target.read(&path)?,
+                &cloud_markers,
+                lit,
+            )?;
+            cloud_shaders.push((path, shader));
+        }
+    }
     let forced: BTreeSet<String> = donor
         .paths()
         .filter(|p| {
@@ -1659,8 +1766,22 @@ pub fn build(
              "0.21d-fog-equations+unchanged-0.26g-fallback", &mut files)?;
     }
     if let Some(shader) = sky_shader {
-        emit(output, crate::weather_fog_021::SKY_PATH, &shader,
-             "0.21d-sky-equations+unchanged-0.26g-fallback", &mut files)?;
+        emit(
+            output,
+            crate::weather_fog_021::SKY_PATH,
+            &shader,
+            "0.21d-sky-equations+unchanged-0.26g-fallback",
+            &mut files,
+        )?;
+    }
+    for (path, shader) in cloud_shaders {
+        emit(
+            output,
+            &path,
+            &shader,
+            "0.21d-cloud-equations+unchanged-0.26g-fallback",
+            &mut files,
+        )?;
     }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -2003,6 +2124,101 @@ mod tests {
     }
 
     #[test]
+    fn original_cloud_defaults_angles_and_authored_values() {
+        let map: Map = serde_json::from_value(serde_json::json!({
+            "id": 176, "level": "level_06", "weather": "evening", "legacy_fog_021": true,
+            "legacy_clouds_021": true
+        }))
+        .unwrap();
+        let original = named(vec![(
+            "client_objects",
+            ConfigValue::Indexed(vec![named(vec![
+                (
+                    "game_object_type",
+                    ConfigValue::String("environment".into()),
+                ),
+                (
+                    "properties",
+                    named(vec![
+                        ("sky_clouds_rotation", ConfigValue::Float(316.74)),
+                        ("stratosphere_rotation", ConfigValue::Integer(0)),
+                        ("sky_clouds_rotation_speed", ConfigValue::Float(0.1)),
+                        ("stratosphere_rotation_speed", ConfigValue::Integer(0)),
+                    ]),
+                ),
+            ])]),
+        )]);
+        for color in [None, Some(ConfigValue::Float4([0.265, 0.265, 0.265, 1.0]))] {
+            let lighting = color.is_some();
+            let mut project = original.clone();
+            let ConfigValue::Indexed(objects) = project.named_mut("client_objects").unwrap() else {
+                panic!()
+            };
+            if let Some(ref color) = color {
+                objects[0]
+                    .named_mut("properties")
+                    .unwrap()
+                    .set_path("sky_clouds_fog_color", color.clone())
+                    .unwrap();
+                objects[0]
+                    .named_mut("properties")
+                    .unwrap()
+                    .set_path("use_sky_clouds_lighting", ConfigValue::Boolean(true))
+                    .unwrap();
+            }
+            prepare_legacy_clouds(&mut project, &map).unwrap();
+            let props = array(project.named("client_objects").unwrap()).unwrap()[0]
+                .named("properties")
+                .unwrap();
+            assert_eq!(
+                props.named("sky_clouds_fog_color"),
+                Some(&color.unwrap_or(ConfigValue::Float4([1.0; 4])))
+            );
+            assert_eq!(
+                props.named("sky_clouds_rotation_speed"),
+                Some(&ConfigValue::Float(0.1))
+            );
+            assert_eq!(
+                props.named("stratosphere_rotation_speed"),
+                Some(&ConfigValue::Integer(0))
+            );
+            assert_eq!(
+                props.named("sky_clouds_sunlight"),
+                Some(&ConfigValue::Float(1.0))
+            );
+            assert_eq!(
+                props.named("use_sky_clouds_lighting"),
+                Some(&ConfigValue::Boolean(lighting))
+            );
+            for (key, old) in [
+                ("sky_clouds_rotation", 316.74f32),
+                ("stratosphere_rotation", 0.0),
+            ] {
+                let Some(ConfigValue::Float(new)) = props.named(key) else {
+                    panic!()
+                };
+                assert!((new.to_radians().sin() - old.to_radians().cos()).abs() < 1e-6);
+                assert!((new.to_radians().cos() - old.to_radians().sin()).abs() < 1e-6);
+            }
+        }
+        let mut invalid = original.clone();
+        let ConfigValue::Indexed(objects) = invalid.named_mut("client_objects").unwrap() else {
+            panic!()
+        };
+        objects[0]
+            .named_mut("properties")
+            .unwrap()
+            .set_path(
+                "stratosphere_rotation",
+                ConfigValue::String("invalid".into()),
+            )
+            .unwrap();
+        let untouched = invalid.clone();
+        assert!(prepare_legacy_clouds(&mut invalid, &map).is_err());
+        assert_eq!(invalid, untouched);
+    }
+
+    #[test]
     fn legacy_fog_preserves_authored_colors_and_rejects_conflicting_overrides() {
         let mut map: Map = serde_json::from_value(serde_json::json!({
             "id": 176, "level": "level_06", "weather": "evening", "legacy_fog_021": true
@@ -2062,6 +2278,7 @@ mod tests {
             environment_overrides: BTreeMap::new(),
             legacy_fog_021: false,
             legacy_sky_021: false,
+            legacy_clouds_021: false,
             map_id: None,
             name: None,
         };
@@ -2310,6 +2527,7 @@ mod tests {
             environment_overrides: BTreeMap::new(),
             legacy_fog_021: false,
             legacy_sky_021: false,
+            legacy_clouds_021: false,
             map_id: None,
             name: None,
         };

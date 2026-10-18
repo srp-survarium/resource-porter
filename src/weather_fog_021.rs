@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Opt-in retail 0.21 fog and sky equations inside pinned native 0.26 shaders.
+//! Opt-in retail 0.21 atmosphere equations inside pinned native 0.26 shaders.
 //! Retail bytecode is read from the user's databases, never shipped here.
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
 pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";
+pub const CLOUD_PREFIX: &str = "shaders/sm_4_0/atmosphere_clouds.ps/";
 
 pub struct Profile {
     pub marker: f32,
@@ -250,6 +251,176 @@ fn assemble(native: &[u8], entries: &[([u8; 4], Vec<u8>)]) -> Result<Vec<u8>> {
     Ok(result)
 }
 
+pub fn cloud_source_path(lit: bool) -> String {
+    format!("{CLOUD_PREFIX}_____0{}{}", u8::from(lit), "_".repeat(60))
+}
+
+/// Restore the original cloud fog blend and lighting, retaining native code
+/// for unmarked maps. Texture/sampler slots and the sun row moved in 0.26.
+pub fn build_cloud(source: &[u8], target: &[u8], markers: &[f32], lit: bool) -> Result<Vec<u8>> {
+    ensure!(!markers.is_empty(), "no original cloud markers");
+    let (_, source) = pinned_code(
+        source,
+        if lit {
+            "4a1f1f60555082e2760943b27e88ce7f224598445f554ba2dfac9624f1456495"
+        } else {
+            "ef59da23ce56c9bfc9478c07357467ce433433f55e2fc76f79f3d1b220ea41dd"
+        },
+    )?;
+    let hash = format!("{:x}", Sha256::digest(target));
+    ensure!(
+        if lit {
+            matches!(
+                hash.as_str(),
+                "549764f07751703b0758d04a28d6a39df2a0f2fb3d70e21c80b746315dae4db4"
+                    | "b645b48c5abb456cf5794892b75a9b1939cf4b2f2cd93dacf0b1a697dd5a2683"
+            )
+        } else {
+            hash == "3610a53b1836c147bb2f7c82807cc6daba16d0017315e0af111f1a3625c08dac"
+        },
+        "unsupported native cloud variant"
+    );
+    let (offset, native) = pinned_code(target, &hash)?;
+    let original = chunks(source)?;
+    let mut entries = chunks(native)?;
+    let chunk = |items: &[([u8; 4], Vec<u8>)], tag: &[u8; 4]| -> Result<usize> {
+        items
+            .iter()
+            .position(|(t, _)| t == tag)
+            .context("missing cloud chunk")
+    };
+    let index = chunk(&entries, b"SHDR")?;
+    let native_words = words(&entries[index].1)?;
+    let mut native_ops = instructions(&native_words)?;
+    let source_ops = instructions(&words(&original[chunk(&original, b"SHDR")?].1)?)?;
+    let temps = |ops: &[Vec<u32>]| -> Result<usize> {
+        ops.iter()
+            .position(|ins| ins[0] & 2047 == 104)
+            .context("cloud temporary declaration missing")
+    };
+    let nt = temps(&native_ops)?;
+    let st = temps(&source_ops)?;
+    let scratch = native_ops[nt][1];
+    ensure!(
+        source_ops[st][1] <= scratch,
+        "original cloud needs more temporaries"
+    );
+    // All source interpolants must already be supplied by the native vertex
+    // shader/signature. No guessed varying or normal reconstruction.
+    for ins in &source_ops[..st] {
+        if matches!(ins[0] & 2047, 98..=100) {
+            ensure!(
+                native_ops[..nt].contains(ins),
+                "original cloud interpolant is absent from native variant"
+            );
+        }
+    }
+    let reflection = chunk(&entries, b"RDEF")?;
+    let rdef = &mut entries[reflection].1;
+    let string = |data: &[u8], at: usize| -> Result<String> {
+        let tail = data.get(at..).context("missing cloud reflection string")?;
+        let len = tail
+            .iter()
+            .position(|b| *b == 0)
+            .context("unterminated cloud reflection string")?;
+        Ok(std::str::from_utf8(&tail[..len])?.to_owned())
+    };
+    let mut sampler = None;
+    let mut texture = None;
+    let resource_count = u32_at(rdef, 8)? as usize;
+    let resources = u32_at(rdef, 12)? as usize;
+    for i in 0..resource_count {
+        let at = resources + i * 32;
+        match string(rdef, u32_at(rdef, at)? as usize)?.as_str() {
+            "s_linear" => sampler = Some(u32_at(rdef, at + 20)?),
+            "sky_clouds_texture" => texture = Some(u32_at(rdef, at + 20)?),
+            _ => (),
+        }
+    }
+    let sampler = sampler.context("native cloud sampler missing")?;
+    ensure!(texture == Some(1), "native cloud texture slot changed");
+    let mut changed = 0;
+    let count = u32_at(rdef, 0)? as usize;
+    let buffers = u32_at(rdef, 4)? as usize;
+    for i in 0..count {
+        let at = buffers + i * 24;
+        if string(rdef, u32_at(rdef, at)? as usize)? != "$Globals" {
+            continue;
+        }
+        let count = u32_at(rdef, at + 4)? as usize;
+        let variables = u32_at(rdef, at + 8)? as usize;
+        for j in 0..count {
+            let at = variables + j * 24;
+            if string(rdef, u32_at(rdef, at)? as usize)? == "sky_clouds_parameters1" {
+                ensure!(
+                    u32_at(rdef, at + 4)? == 16
+                        && u32_at(rdef, at + 8)? == 16
+                        && u32_at(rdef, at + 12)? == 0,
+                    "cloud fog row layout changed"
+                );
+                rdef[at + 12..at + 16].copy_from_slice(&2u32.to_le_bytes());
+                changed += 1;
+            }
+        }
+    }
+    ensure!(changed == 1, "cloud fog binding missing");
+    let mut body = source_ops[st + 1..].to_vec();
+    let (mut textures, mut samplers, mut sun_rows) = (0, 0, 0);
+    for ins in &mut body {
+        for i in 1..ins.len() {
+            if i + 1 < ins.len() && ins[i] == 0x00107e46 && ins[i + 1] == 0 {
+                ins[i + 1] = 1;
+                textures += 1;
+            }
+            if i + 1 < ins.len() && ins[i] == 0x00106000 && ins[i + 1] == 0 {
+                ins[i + 1] = sampler;
+                samplers += 1;
+            }
+            if i + 2 < ins.len() && ins[i] & 0xfffff000 == 0x00208000 && ins[i + 1..i + 3] == [0, 3]
+            {
+                ins[i + 2] = 4;
+                sun_rows += 1;
+            }
+        }
+    }
+    ensure!(
+        textures == 3 && samplers == 3 && sun_rows == usize::from(lit),
+        "original cloud binding remap mismatch"
+    );
+    native_ops[nt][1] += 1;
+    let mut updated = native_words[..2].to_vec();
+    updated.extend(native_ops[..nt + 1].iter().flatten());
+    let mut seen = std::collections::BTreeSet::new();
+    for marker in markers {
+        ensure!(
+            marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
+            "invalid cloud marker"
+        );
+        updated.extend([
+            0x08000018,
+            0x00100082,
+            scratch,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010003a,
+            scratch,
+        ]);
+        updated.extend(body.iter().flatten());
+        updated.push(0x01000015);
+    }
+    updated.extend(native_ops[nt + 1..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[index].1 = bytes(&updated);
+    let mut blob = target[..offset].to_vec();
+    blob.extend(assemble(native, &entries)?);
+    Ok(blob)
+}
+
 /// The original sky has the same varying/texture ABI as 0.26. Preserve its
 /// complete arithmetic and select it only for maps already using legacy fog.
 pub fn build_sky(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
@@ -432,6 +603,66 @@ fn checksum(code: &[u8]) -> Result<[u8; 16]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_shader_adapters_preserve_native_fallbacks() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let read = |name: &str| std::fs::read(root.join(format!("{name}.blob"))).unwrap();
+        let profile = Profile {
+            marker: -32197.0,
+            color: [1.583f32.powf(2.2); 3],
+        };
+        let fog = build(
+            &read("original-atmospheric_scattering_on_geometry_temporary.ps"),
+            &read("target-atmospheric_scattering_on_geometry_temporary.ps"),
+            &[profile],
+        )
+        .unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(fog)),
+            "7e810b1fdc6917591dee28f05b0adb8ec7179bf6f2cfba64b5ab3d42e2c7bbfd"
+        );
+        let sky = build_sky(
+            &read("original-atmosphere.ps"),
+            &read("target-atmosphere.ps"),
+            &[-32197.0],
+        )
+        .unwrap();
+        assert_eq!(
+            format!("{:x}", Sha256::digest(sky)),
+            "d3f3051d8765127b71f2f21a9727f6866f88a685c88c4faf71aeaac65cddaf68"
+        );
+        for variant in ["000", "010", "110"] {
+            let lit = variant != "000";
+            let native = read(&format!("native-cloud-{variant}"));
+            let source = read(if lit {
+                "original-cloud-01"
+            } else {
+                "original-cloud-00"
+            });
+            let result = build_cloud(&source, &native, &[-32197.0, -32188.0], lit).unwrap();
+            let offset = 4 + u32_at(&native, 0).unwrap() as usize * 264;
+            let old = chunks(&native[offset..]).unwrap();
+            let new = chunks(&result[offset..]).unwrap();
+            for ((ot, ob), (nt, nb)) in old.iter().zip(&new) {
+                assert_eq!(ot, nt);
+                if ot == b"SHDR" {
+                    let a = instructions(&words(ob).unwrap()).unwrap();
+                    let b = instructions(&words(nb).unwrap()).unwrap();
+                    let body = a.iter().position(|ins| ins[0] & 2047 == 104).unwrap() + 1;
+                    let len = a.len() - body;
+                    assert_eq!(&a[body..], &b[b.len() - len..]);
+                } else if ot != b"RDEF" {
+                    assert_eq!(ob, nb);
+                }
+            }
+            assert!(build_cloud(&source, &native, &[-32197.0, -32197.0], lit).is_err());
+            let mut corrupted = native.clone();
+            corrupted[offset + 60] ^= 1;
+            assert!(build_cloud(&source, &corrupted, &[-32197.0], lit).is_err());
+        }
+    }
+
     #[test]
     fn checksum_padding_boundaries() {
         // Independent Python implementation, also checked against retail DXBC.

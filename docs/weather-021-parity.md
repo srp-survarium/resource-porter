@@ -169,3 +169,33 @@ audits. Their raw RGB errors are 13.62, 11.40, 15.37 and 14.41 respectively.
 The wide views expose remaining cloud placement and color differences, and
 unsynchronized smoke/vegetation still affect these measurements. These four
 checks support retaining the improvement, not calling Mamayev evening finished.
+
+## Experimental original clouds
+
+`legacy_clouds_021` requires the fog marker and restores the original cloud
+pixel instructions in all eight native variants. Texture/sampler slots and
+the lit variant's sun constant are remapped to their native bindings. The
+original fog-power row is marked used in reflection, so the engine supplies
+it. Unmarked maps retain their native instruction body.
+
+The converter reads the donor before filling target properties. Missing cloud
+fog color defaults to white and missing cloud lighting to false, matching the
+observed original Mamayev draw. It neutralizes the target-only sunlight tint
+multiplier and converts both layer rotations from the original `(cos, sin)`
+upload convention to native `(sin, cos)`. Authored rotation speeds remain.
+
+Trial 07 builds, applies and verifies. Its settled cloud audit matches the
+original tint `[2.00530, 1.44464, 1.04453]`, fog power/up-limit `[2, 0.25]`,
+white fog color and static-layer rotation/radius. However, close-03 raw RGB
+error is 14.53 versus the accepted build's 13.62, and sky error is 29.18.
+The option is experimental and remains disabled in the four-map parity
+manifest. Correcting individual inputs is not sufficient for visual acceptance.
+
+The read-only draw audit accepts a comma-separated set of candidate shader
+digests and also records vertex constants and render-target blending. This
+helps distinguish native shader variants and diagnose compositing differences.
+
+All 342 ordinary porter tests pass; the separately invoked retail integration
+test verifies fog/sky output hashes and unchanged native cloud instruction
+bodies/signatures for all three distinct cloud programs. Retail inputs remain
+local and are not included with the tests.
