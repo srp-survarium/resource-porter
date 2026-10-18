@@ -470,6 +470,7 @@
     }
   },
   "open_reversed_sphere_probes": true,
+  "probe_diffuse_gain": 1.25,
   "reviewed_native_textures": {
     "tiled/metal/metal_rust_02_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~10 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
     "tiled/metal/metal_column_06_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~3.9 times stronger and, under 0.26's lighting, blotched rusted metal and walls",

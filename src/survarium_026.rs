@@ -122,6 +122,12 @@ pub struct Manifest {
     /// Reviewed exceptions kept over a material's native or constant finish.
     #[serde(default)]
     pub finish_exceptions: BTreeMap<String, crate::material_finish::FinishException>,
+    /// Scale on the irradiance of the diffuse cubes derived for an early
+    /// build's probes (`probe_irradiance`), measured in game so the maps keep
+    /// the overall brightness their probes had before the cubes were
+    /// irradiance. 1 when absent.
+    #[serde(default)]
+    pub probe_diffuse_gain: Option<f32>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -2639,7 +2645,7 @@ pub fn build_with_fill(
             && !path.ends_with("_diffuse.dds")
         {
             Some(
-                early::diffuse_probe(&bytes)
+                early::diffuse_probe(&bytes, m.probe_diffuse_gain.unwrap_or(1.0))
                     .with_context(|| format!("deriving diffuse probe {path}"))?,
             )
         } else {
@@ -2680,7 +2686,7 @@ pub fn build_with_fill(
                 output,
                 &diffuse_path,
                 &diffuse,
-                "early-probe-coarse-mips",
+                "early-probe-irradiance",
                 &mut files,
             )?;
             let options_path = path.trim_end_matches(".dds").to_owned() + ".options";
@@ -2693,7 +2699,7 @@ pub fn build_with_fill(
                 &mut files,
             )?;
             compatibility_notes.push(format!(
-                "{diffuse_path}: source HDR bytes retained; source 16x16 mip tail approximates diffuse irradiance"
+                "{diffuse_path}: cosine-weighted irradiance of the source probe's radiance, gain {}", m.probe_diffuse_gain.unwrap_or(1.0)
             ));
         }
     }

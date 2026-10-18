@@ -136,3 +136,49 @@ Chemical's team-0 hall floor and boilers, Radar's hangar floor.
   `door_gate`), and four colour maps that 0.26 gave the alpha heights its blend
   reads (`floor_trash`, `trash`, `brick_02`, `briks_trash_02`). They are
   referenced as the native textures.
+
+### Probe diffuse cubes are irradiance (revision 20, second pass)
+
+The matte and native-blend changes above did not remove the look the owner
+reported: Radar's hangar rubble and Chemical's team-0 hall floor still read
+as crumpled foil, and the hall's tanks were blotched. At the hangar the
+geometry, vertex colours, UVs, basis, materials and textures are the native
+level_03 ones (only `ported/v011e` colour maps differ, and swapping in the
+native ones changed nothing). In game, at the same pose:
+
+| hangar 1 rubble | floor lum | relief (high-pass std) / lum |
+| --- | --- | --- |
+| maps-v011e-7 | 0.114 | 0.40 |
+| floor gloss 0, specular colour 0 | 0.114 | 0.40 |
+| native colour maps | 0.111 | 0.40 |
+| floor normal maps flat | 0.112 | 0.30 |
+| native level_03 probes (diagnostic) | 0.099 | 0.22 |
+| native level_03 (map 73) | 0.110 | 0.27 |
+
+So the relief came from the probes' diffuse term. 0.26 reads
+`<probe>_diffuse.dds` along the pixel normal and expects irradiance: in
+native cubes the brightest texel of a face is 1.1-1.3x the face mean. Early
+builds have no diffuse cube and the converter used the source probe's 16x16
+mip tail, where windows and sky stay at 3.5-7.8x the face mean (all 54 v0.11
+probes). Under the early multipliers (6-25) each bump of a normal-mapped
+floor caught a different hot spot.
+
+`probe_irradiance::diffuse_cube` now builds the cube as the cosine-weighted
+average of the source radiance over the hemisphere of each texel (peaks
+1.09-1.47x). A uniform environment comes back unchanged, so each probe keeps
+its colour and mean (face means within 0.005); multipliers, sun, ambient and
+the probe fixes above are untouched. Spreading the hot spots dims the frames
+by 10-22% (floors under the hangar's roof holes no longer catch the sky
+alone), so the release manifest sets `probe_diffuse_gain` 1.25, measured to
+give back the frame brightness at the owner's spots:
+
+| pose | frame lum before / gain 1 / gain 1.25 / native | relief / lum before / 1.25 / native |
+| --- | --- | --- |
+| hangar 1 rubble | 0.120 / 0.107 / 0.130 / 0.148 | 0.40 / 0.22 / 0.27 |
+| hangar 1 floor | 0.162 / 0.129 / 0.153 / 0.233 | 0.30 / 0.14 / 0.14 |
+| Chemical hall floor | 0.096 / 0.076 / 0.096 / 0.149 | 0.44 / 0.15 / 0.17 |
+| Chemical hall, down | 0.086 / 0.067 / 0.086 / 0.146 | 0.49 / 0.20 / 0.21 |
+
+A seven-pose sweep of other rooms of both maps reads the same or smoother
+(relief / lum 0.12-0.20) and 7-38% brighter than before: under native
+except hangar 0 (frame 0.172, native 0.148).

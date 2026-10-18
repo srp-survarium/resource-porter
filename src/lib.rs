@@ -18,6 +18,7 @@ pub mod maya_binary;
 pub mod model_relocation;
 pub mod model_validation;
 pub mod native_equivalence;
+pub mod probe_irradiance;
 pub mod resource_copy_patch;
 pub mod sdk;
 pub mod skeleton_animation;

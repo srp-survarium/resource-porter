@@ -1039,57 +1039,12 @@ pub(super) fn vegetation_instances(bytes: &[u8]) -> Result<usize> {
     Ok(positions.len() / 12)
 }
 
-/// 0.26 asks for an additional diffuse cube. Preserve the source probe's
-/// coarse mip tail instead of borrowing lighting baked in another map.
-/// This is a blurred-cube approximation, not an irradiance convolution.
-pub(super) fn diffuse_probe(bytes: &[u8]) -> Result<Vec<u8>> {
-    ensure!(
-        bytes.len() >= 129 && &bytes[..4] == b"DDS ",
-        "invalid probe DDS"
-    );
-    let get = |o| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
-    let size = get(12);
-    ensure!(
-        size == get(16) && size.is_power_of_two() && (16..=4096).contains(&size),
-        "unsupported probe size"
-    );
-    ensure!(
-        get(112) & 0xfe00 == 0xfe00,
-        "probe is not a six-face cubemap"
-    );
-    let block = match &bytes[84..88] {
-        b"DXT1" => 8,
-        b"DXT5" => 16,
-        _ => bail!("unsupported probe compression"),
-    };
-    let mips = get(28);
-    ensure!(
-        mips == size.ilog2() as usize - 1,
-        "probe mip chain must end at 4x4"
-    );
-    let mut total = 0;
-    let mut skip = 0;
-    for mip in 0..mips {
-        let dim = size >> mip;
-        let n = (dim / 4).pow(2) * block;
-        total += n;
-        if dim > 16 {
-            skip += n;
-        }
-    }
-    ensure!(
-        bytes.len() == 128 + total * 6 + 1,
-        "probe cube length mismatch"
-    );
-    let mut result = bytes[..128].to_vec();
-    for (o, n) in [(12, 16), (16, 16), (20, (total - skip) * 6), (28, 3)] {
-        result[o..o + 4].copy_from_slice(&(n as u32).to_le_bytes());
-    }
-    for face in 0..6 {
-        result.extend(&bytes[128 + face * total + skip..128 + (face + 1) * total]);
-    }
-    result.push(bytes[bytes.len() - 1]);
-    Ok(result)
+/// 0.26 asks for an additional diffuse cube. It is built from the source
+/// probe's own radiance (see `probe_irradiance`), never borrowed from
+/// lighting baked in another map.
+pub(super) fn diffuse_probe(bytes: &[u8], gain: f32) -> Result<Vec<u8>> {
+    ensure!(gain > 0.0 && gain <= 4.0, "probe diffuse gain {gain} out of range");
+    crate::probe_irradiance::diffuse_cube_scaled(bytes, gain)
 }
 
 /// Native RMS cache: sample period, duration in milliseconds, count, floats.
@@ -1954,31 +1909,6 @@ mod tests {
             ]
             .concat()
         );
-    }
-
-    #[test]
-    fn diffuse_cube_keeps_each_original_face_and_color_space() {
-        let mut bytes = vec![0u8; 128];
-        bytes[..4].copy_from_slice(b"DDS ");
-        for (o, n) in [(12, 32u32), (16, 32), (28, 4), (112, 0xfe00)] {
-            bytes[o..o + 4].copy_from_slice(&n.to_le_bytes());
-        }
-        bytes[84..88].copy_from_slice(b"DXT1");
-        for face in 0..6 {
-            bytes.extend(vec![face; 680]);
-        }
-        bytes.push(1);
-        let result = diffuse_probe(&bytes).unwrap();
-        assert_eq!(result.len(), 128 + 6 * 168 + 1);
-        for face in 0..6 {
-            assert!(
-                result[128 + face * 168..128 + (face + 1) * 168]
-                    .iter()
-                    .all(|v| *v == face as u8)
-            );
-        }
-        assert_eq!(result.last(), Some(&1));
-        assert!(diffuse_probe(&bytes[..bytes.len() - 1]).is_err());
     }
 
     #[test]

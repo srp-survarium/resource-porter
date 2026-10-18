@@ -269,7 +269,7 @@ Sun direction, intensity and colour are verified correct.
   as each box probe's radius would make it converter data.
 - **`cubemap_resolution_index`:** inherited as 2. The Radar global probe
   should be 3.
-- **`diffuse_probe()`:** a mip tail, not irradiance.
+- **`diffuse_probe()`:** a mip tail, not irradiance (**fixed** in revision 20: `probe_irradiance`).
 
 ### 12. Ambient sounds used native 0.26 options (R, **fixed** `2722518`)
 
