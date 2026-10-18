@@ -30,7 +30,8 @@
 //!   template project read from STOCK_DB and checked against its hash;
 //! - `{"op": "expect_client_prefix", "prefix": P, "count": N, "sha256": H}`: the client objects whose
 //!   full name starts with P are exactly N, and H is the sha256 of them as one binary config array
-//!   (in project order) — a precondition before the edits, or the expected result after them.
+//!   (in project order) — a precondition before the edits, or the expected result after them;
+//!   `"or": [{"count", "sha256", "note"}, ...]` accepts further states.
 //! Every op must change something (an expect op checks only); a respawn yaw is written as rotation
 //! [0, yaw, 0]. With `"only_prefix": P` in the plan, each project outside the client objects under P
 //! must come out identical. Every file is edited in memory first and written only when all its
@@ -110,7 +111,24 @@ enum Op {
     RespawnAdd { like: String, full_name: String, position: [f32; 3], yaw: f32 },
     RemoveClientPrefix { prefix: String },
     Fill { pack: String },
-    ExpectClientPrefix { prefix: String, count: usize, sha256: String },
+    ExpectClientPrefix {
+        prefix: String,
+        count: usize,
+        sha256: String,
+        /// Further accepted states (e.g. an earlier revision of the same edit).
+        #[serde(default)]
+        or: Vec<Expected>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Expected {
+    count: usize,
+    sha256: String,
+    /// What this state is, for the record.
+    #[serde(default)]
+    note: String,
 }
 
 /// The project's client objects under `prefix` (project order) and the sha256 of them as one array.
@@ -351,13 +369,17 @@ fn apply(root: &mut ConfigValue, op: &Op, stock: &mut vostok_resource_porter::ar
             let applied = fill::apply(root, &native, &fill)?;
             format!("fill {}: {}", fill.name, applied.notes.join("; "))
         }
-        Op::ExpectClientPrefix { prefix, count, sha256 } => {
+        Op::ExpectClientPrefix { prefix, count, sha256, or } => {
             let (n, hash) = prefixed(root, prefix)?;
-            ensure!(
-                n == *count && hash == *sha256,
-                "client objects under {prefix}: {n} with sha256 {hash}, expected {count} with {sha256}"
-            );
-            format!("checked: {n} client objects under {prefix}, sha256 {hash}")
+            if n == *count && hash == *sha256 {
+                return Ok(format!("checked: {n} client objects under {prefix}, sha256 {hash}"));
+            }
+            if let Some(e) = or.iter().find(|e| e.count == n && e.sha256 == hash) {
+                return Ok(format!("checked: {n} client objects under {prefix}, sha256 {hash} ({})", e.note));
+            }
+            let mut accepted = vec![format!("{count} with {sha256}")];
+            accepted.extend(or.iter().map(|e| format!("{} with {} ({})", e.count, e.sha256, e.note)));
+            bail!("client objects under {prefix}: {n} with sha256 {hash}, expected {}", accepted.join(" or "))
         }
     })
 }

@@ -69,6 +69,7 @@ def args():
     ap.add_argument('--spacing', type=float, default=5.0, help='metres between stages along the tracks')
     ap.add_argument('--tracks', default='12.9,18.6', help='x of the track centre lines')
     ap.add_argument('--cloud-height', type=float, default=0.85, help='cloud above the ground (level_03 median)')
+    ap.add_argument('--fog-rows', default=None, help="rows of emitters per stage, 'DZ:LIFT:X/X/..;..' (default: one per track at --cloud-height)")
     ap.add_argument('--damage', default='240:0.06,300:0.08,360:0.10,420:0.12', help='time_sec:max_hit steps')
     ap.add_argument('--lag', type=float, default=4.5, help='damage ends this far behind the newest cloud')
     ap.add_argument('--zone-margin', type=float, default=3.0, help='damage box beyond the outer tracks')
@@ -95,7 +96,7 @@ def main():
     native = {o['full_name']: o for o in config(level_02)['client_objects'] if 'full_name' in o}
     for name in (CORE, DUMMY, FOG, DAMAGE, GEOMETRY): assert name in native, name
     project = config((a.overlay/'projects/v011e_level_04/day_2/client_project').read_bytes())
-    world = World(a.overlay, project)
+    world = FastWorld(a.overlay, project)
     rails = []
     for o in project['collision_objects']:
         if 'props/railroad/railroad' in o['lib_name'] and 'traffic' not in o['lib_name']:
@@ -123,6 +124,20 @@ def main():
                     shoot_trigger=False, zone_activity_trigger=False, groups=[group(zones)])
     cx = sum(tracks) / len(tracks)
     stage_z, stage_t, report = [], [], []
+    # --fog-rows: per stage, rows of rust_smoke emitters across the track bed ('DZ:LIFT:X/X/...;...'), each
+    # LIFT above the ground under it, moved sideways (up to 2.5 m) out of wagons and other collision.
+    fog_rows = None if a.fog_rows is None else [(float(dz), float(h), [float(x) for x in xs.split('/')])
+                                                 for dz, h, xs in (r.split(':') for r in a.fog_rows.split(';'))]
+    emitters, shifted = [0], [0]
+    def clear_spot(x, z, lift):
+        for dx in (0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5, 2.0, -2.0, 2.5, -2.5):
+            f = world.floor(x + dx, 2.4, z, below=1.5, above=0.7)
+            if not f: continue
+            y = f[0] + lift
+            # Nothing solid from just above the bed to 1.5 m over the emitter (a wagon's underframe, a pipe).
+            if world.floor(x + dx, y + 1.5, z, below=y + 1.5 - (f[0] + 0.3), above=0.0) is None:
+                return (round(x + dx, 3), round(y, 3), round(z, 3))
+        return None
     for k in range(1, a.stages + 1):
         z = a.first_z + a.spacing * (k - 1); t = a.start + a.interval * (k - 1)
         stage_z.append(z); stage_t.append(t)
@@ -138,10 +153,27 @@ def main():
               meshes=[dict(type=0, position=[0, 0, 0], rotation=[0, 0, 0], scale=[0.1, 0.1, 0.1])])
         carrier = [dict(name=f'{p}/carrier_geometry')]
         clone(DUMMY, f'{p}/idle_zone', position=[cx, gy, z], collision_geometries=carrier)
-        clone(FOG, f'{p}/fog_zone', position=[cx, gy, z], max_hit=0, idle_particle=PARTICLE, collision_geometries=carrier,
-              effect_zones=[dict(position=[round(x - cx, 3), round(h + a.cloud_height - gy, 3), 0], rotation=[0, 0, 0]) for x, h in zip(tracks, heights)])
+        fogs = []
+        if fog_rows is None:
+            clone(FOG, f'{p}/fog_zone', position=[cx, gy, z], max_hit=0, idle_particle=PARTICLE, collision_geometries=carrier,
+                  effect_zones=[dict(position=[round(x - cx, 3), round(h + a.cloud_height - gy, 3), 0], rotation=[0, 0, 0]) for x, h in zip(tracks, heights)])
+            fogs.append(f'{p}/fog_zone')
+        else:
+            for r, (dz, lift, xs) in enumerate(fog_rows):
+                zr = z + dz if a.end_z is None else min(z + dz, a.end_z - 1.0)
+                spots = []
+                for x in xs:
+                    spot = clear_spot(x, zr, lift)
+                    if spot is None: report.append(f'stage {k:02d} row {r + 1}: no clear spot near ({x}, {zr})'); continue
+                    if spot[0] != x: shifted[0] += 1
+                    spots.append(spot)
+                assert 0 < len(spots) <= 6, f'stage {k} row {r + 1}: {len(spots)} emitters (native zones carry up to 6)'
+                name = f'{p}/fog_zone' if r == 0 else f'{p}/fog_zone_{r + 1}'
+                clone(FOG, name, position=[cx, gy, z], max_hit=0, idle_particle=PARTICLE, collision_geometries=carrier,
+                      effect_zones=[dict(position=[round(x - cx, 3), round(y - gy, 3), round(zz - z, 3)], rotation=[0, 0, 0]) for x, y, zz in spots])
+                fogs.append(name); emitters[0] += len(spots)
         clone(CORE, f'{p}/controller', position=[cx, gy, z], **quiet,
-              states=[state(0, t, 1, [f'{p}/idle_zone']), state(1, 0, 0, [f'{p}/fog_zone'])])
+              states=[state(0, t, 1, [f'{p}/idle_zone']), state(1, 0, 0, fogs)])
     # Damage: one controller, a timed chain idle -> step 1 -> ... -> last step.
     p = f'{ROOT}/damage'
     gy = ground(cx, stage_z[0])
@@ -154,7 +186,7 @@ def main():
     if a.damage_cap is not None:
         assert a.end_z is not None, '--damage-cap needs --end-z'
         bed_re = re.compile(a.bed_models)
-        bed = FastWorld(a.overlay, parts=[q for q in FastWorld(a.overlay, project).parts if bed_re.search('/' + q[0])])
+        bed = FastWorld(a.overlay, parts=[q for q in world.parts if bed_re.search('/' + q[0])])
         def bed_ground(x, z):
             f = bed.floor(x, 2.4, z, below=1.5, above=0.7)
             return f[0] if f else None
@@ -227,7 +259,7 @@ def main():
     print(json.dumps(dict(parameters={k: v for k, v in vars(a).items() if k not in ('level_02', 'overlay', 'output', 'segments_out')},
                           stages=[dict(stage=k + 1, at_sec=t, z=z) for k, (t, z) in enumerate(zip(stage_t, stage_z))][::5],
                           full_at_sec=stage_t[-1], damage=damage, objects=dict(kinds), clouds=a.stages * len(tracks),
-                          wagons=report), indent=1))
+                          wagons=report, fog_emitters=emitters[0] or a.stages * len(tracks), fog_emitters_moved_aside=shifted[0]), indent=1))
     if segments and a.segments_out:
         a.segments_out.write_text(json.dumps(dict(segments=segments, stages=[dict(stage=k + 1, at_sec=t, z=z) for k, (t, z) in enumerate(zip(stage_t, stage_z))],
                                                   steps=[dict(step=j, at_sec=t, max_hit=h, z1=z1_of[j]) for j, (t, h) in enumerate(steps, 1)]), indent=1) + '\n')

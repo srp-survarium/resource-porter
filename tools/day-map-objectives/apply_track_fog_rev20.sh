@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Revision 20: replace the growing track fog of Chemical Plant (v0.11), maps 206/207, in a built
 # maps-v011e pack, in place. Only the client objects under logic/fill/track_anomaly/ of
-# projects/v011e_level_04/{day_2,day_4}/client_project change: the old set (maps-v011e-4's, checked
-# by count and hash) goes, ports/gameplay-fill/chemical-011e-track-anomaly.json comes in (checked by
-# hash before and after). Anything else outside those objects changing fails the run; nothing is
+# projects/v011e_level_04/{day_2,day_4}/client_project change: the old set (maps-v011e-4's, or the
+# first revision 20 fog of maps-v011e-5/-6; checked by count and hash) goes,
+# ports/gameplay-fill/chemical-011e-track-anomaly.json comes in (checked by hash before and after). Anything else outside those objects changing fails the run; nothing is
 # written unless every check passes. It refuses to run twice on the same pack.
 #
 # Usage: tools/day-map-objectives/apply_track_fog_rev20.sh PACK_DIR [STOCK_RESOURCES_DB]
@@ -18,7 +18,7 @@ pack=$(realpath -e "$1") || die "no pack directory $1"
 stock=$(realpath -e "${2:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}") || die "no stock resources.db"
 plan="$repo/tools/day-map-objectives/track-fog-rev20.plan.json"
 fill="$repo/ports/gameplay-fill/chemical-011e-track-anomaly.json"
-fill_sha256=b3cf4638f4b66fafca29795db2e1ca11d9ef1890358edc74030cfa56e5c13119
+fill_sha256=a7e0a9c367bbd61a94a4a3ed848eb698df89232336e1f459f37a02eb7253ba44
 [ -f "$pack/pack.json" ] && [ -d "$pack/files" ] || die "$pack is not a built pack (pack.json, files/)"
 id=$(jq -r .id "$pack/pack.json") || die "unreadable $pack/pack.json"
 [ "$id" = maps-v011e ] || die "$pack is pack '$id', not maps-v011e"

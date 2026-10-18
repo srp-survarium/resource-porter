@@ -6,7 +6,14 @@
         "op": "expect_client_prefix",
         "prefix": "logic/fill/track_anomaly/",
         "count": 75,
-        "sha256": "c1ab03bf2ba72e2940d039425d5b8792062963200024eb6dda859af1614b2166"
+        "sha256": "c1ab03bf2ba72e2940d039425d5b8792062963200024eb6dda859af1614b2166",
+        "or": [
+          {
+            "count": 135,
+            "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309",
+            "note": "the first revision 20 track fog (thin)"
+          }
+        ]
       },
       {
         "op": "remove_client_prefix",
@@ -19,8 +26,8 @@
       {
         "op": "expect_client_prefix",
         "prefix": "logic/fill/track_anomaly/",
-        "count": 135,
-        "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309"
+        "count": 160,
+        "sha256": "92e4637d307c4db0c945cdfa4adacc91d79c5f17c728202a039833ae29f024bf"
       }
     ],
     "projects/v011e_level_04/day_4/client_project": [
@@ -28,7 +35,14 @@
         "op": "expect_client_prefix",
         "prefix": "logic/fill/track_anomaly/",
         "count": 75,
-        "sha256": "c1ab03bf2ba72e2940d039425d5b8792062963200024eb6dda859af1614b2166"
+        "sha256": "c1ab03bf2ba72e2940d039425d5b8792062963200024eb6dda859af1614b2166",
+        "or": [
+          {
+            "count": 135,
+            "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309",
+            "note": "the first revision 20 track fog (thin)"
+          }
+        ]
       },
       {
         "op": "remove_client_prefix",
@@ -41,8 +55,8 @@
       {
         "op": "expect_client_prefix",
         "prefix": "logic/fill/track_anomaly/",
-        "count": 135,
-        "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309"
+        "count": 160,
+        "sha256": "92e4637d307c4db0c945cdfa4adacc91d79c5f17c728202a039833ae29f024bf"
       }
     ]
   }

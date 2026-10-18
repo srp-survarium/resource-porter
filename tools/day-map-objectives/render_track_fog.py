@@ -28,8 +28,8 @@ def track(objs):
     stages, steps = [], []
     for n, o in objs.items():
         if n.startswith(ROOT) and n.endswith('/controller') and '/stage_' in n:
-            fog = objs[o['states'][1]['groups'][0]['zones'][0]]
-            stages.append((o['states'][0]['active_time_sec'], [[fog['position'][i] + e['position'][i] for i in range(3)] for e in fog['effect_zones']]))
+            stages.append((o['states'][0]['active_time_sec'], [[objs[zn]['position'][i] + e['position'][i] for i in range(3)]
+                                                               for zn in o['states'][1]['groups'][0]['zones'] for e in objs[zn]['effect_zones']]))
     ctl = objs[ROOT + 'damage/controller']; t = 0
     for k, st in enumerate(ctl['states']):
         if k:
