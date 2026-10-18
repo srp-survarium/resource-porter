@@ -1,5 +1,39 @@
 {
   "only_prefix": "logic/fill/track_anomaly/",
+  "add_files": [
+    {
+      "path": "particles/fx/ported/v011e/track_fog.particle",
+      "from_db": "particles/fx/level_3_anomaly/rust_smoke.particle",
+      "from_sha256": "7dc5fb22acf80d6cce869eface66cccb8e30a6bddfe63280c0f34932f61d7203",
+      "set": {
+        "LOD 0.children.badd4497-733c-4570-94b5-c328e3a25197.children.fbe8cba1-81ee-4a07-9f91-b979e8086688.properties.ColorLifeMatrix.source.data.row0.element1.color": [
+          1.0,
+          1.0,
+          1.0,
+          0.762843
+        ],
+        "LOD 0.children.badd4497-733c-4570-94b5-c328e3a25197.children.fbe8cba1-81ee-4a07-9f91-b979e8086688.properties.ColorLifeMatrix.source.data.row1.element1.color": [
+          1.0,
+          1.0,
+          1.0,
+          0.527797
+        ],
+        "data_sources.color_matrix.color_matrix0.source.data.row0.element1.color": [
+          1.0,
+          1.0,
+          1.0,
+          0.762843
+        ],
+        "data_sources.color_matrix.color_matrix0.source.data.row1.element1.color": [
+          1.0,
+          1.0,
+          1.0,
+          0.527797
+        ]
+      },
+      "sha256": "1880110e5057d05c9f724e36c5375db90df76d94fcf475390f8847ddc59f8b4d"
+    }
+  ],
   "projects": {
     "projects/v011e_level_04/day_2/client_project": [
       {
@@ -12,6 +46,11 @@
             "count": 135,
             "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309",
             "note": "the first revision 20 track fog (thin)"
+          },
+          {
+            "count": 160,
+            "sha256": "92e4637d307c4db0c945cdfa4adacc91d79c5f17c728202a039833ae29f024bf",
+            "note": "the second revision 20 track fog (8 rust_smoke per stage)"
           }
         ]
       },
@@ -26,8 +65,8 @@
       {
         "op": "expect_client_prefix",
         "prefix": "logic/fill/track_anomaly/",
-        "count": 160,
-        "sha256": "92e4637d307c4db0c945cdfa4adacc91d79c5f17c728202a039833ae29f024bf"
+        "count": 135,
+        "sha256": "1835e395e7a1aa3c7123029205a71f70f135415dc17a336440a47c3f79e41689"
       }
     ],
     "projects/v011e_level_04/day_4/client_project": [
@@ -41,6 +80,11 @@
             "count": 135,
             "sha256": "98dbe3ddbe140fc7f643239ed47623ff0086585ffebe494f9c139a9c2969e309",
             "note": "the first revision 20 track fog (thin)"
+          },
+          {
+            "count": 160,
+            "sha256": "92e4637d307c4db0c945cdfa4adacc91d79c5f17c728202a039833ae29f024bf",
+            "note": "the second revision 20 track fog (8 rust_smoke per stage)"
           }
         ]
       },
@@ -55,8 +99,8 @@
       {
         "op": "expect_client_prefix",
         "prefix": "logic/fill/track_anomaly/",
-        "count": 160,
-        "sha256": "92e4637d307c4db0c945cdfa4adacc91d79c5f17c728202a039833ae29f024bf"
+        "count": 135,
+        "sha256": "1835e395e7a1aa3c7123029205a71f70f135415dc17a336440a47c3f79e41689"
       }
     ]
   }

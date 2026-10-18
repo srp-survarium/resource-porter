@@ -57,7 +57,7 @@ for n, o in track.items():
         clouds = []
         for zn in st[1]['groups'][0]['zones']:
             fog = objs[zn]
-            assert fog['idle_particle'] == 'fx/level_3_anomaly/rust_smoke' and fog['max_hit'] == 0 and len(fog['effect_zones']) <= 6
+            assert fog['idle_particle'] in ('fx/level_3_anomaly/rust_smoke', 'fx/ported/v011e/track_fog') and fog['max_hit'] == 0 and len(fog['effect_zones']) <= 6
             clouds += [[fog['position'][i] + e['position'][i] for i in range(3)] for e in fog['effect_zones']]
         stages.append(dict(name=n.split('/')[-2], at=st[0]['active_time_sec'], clouds=clouds))
 stages.sort(key=lambda s: s['at'])

@@ -2,9 +2,11 @@
 # Revision 20: replace the growing track fog of Chemical Plant (v0.11), maps 206/207, in a built
 # maps-v011e pack, in place. Only the client objects under logic/fill/track_anomaly/ of
 # projects/v011e_level_04/{day_2,day_4}/client_project change: the old set (maps-v011e-4's, or the
-# first revision 20 fog of maps-v011e-5/-6; checked by count and hash) goes,
-# ports/gameplay-fill/chemical-011e-track-anomaly.json comes in (checked by hash before and after). Anything else outside those objects changing fails the run; nothing is
-# written unless every check passes. It refuses to run twice on the same pack.
+# first or second revision 20 fog; checked by count and hash) goes,
+# ports/gameplay-fill/chemical-011e-track-anomaly.json comes in (checked by hash before and after).
+# The plan's add_files (the fog's particle, derived from native rust_smoke) are written under files/
+# and get an add_file operation in pack.json (kept in path order). Anything else changing fails the
+# run; nothing is written unless every check passes. It refuses to run twice on the same pack.
 #
 # Usage: tools/day-map-objectives/apply_track_fog_rev20.sh PACK_DIR [STOCK_RESOURCES_DB]
 #   PACK_DIR: a built pack directory (pack.json, files/), e.g. maps-v011e-5 before its spawn edits.
@@ -18,7 +20,7 @@ pack=$(realpath -e "$1") || die "no pack directory $1"
 stock=$(realpath -e "${2:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}") || die "no stock resources.db"
 plan="$repo/tools/day-map-objectives/track-fog-rev20.plan.json"
 fill="$repo/ports/gameplay-fill/chemical-011e-track-anomaly.json"
-fill_sha256=a7e0a9c367bbd61a94a4a3ed848eb698df89232336e1f459f37a02eb7253ba44
+fill_sha256=2730b1dc4f2638259ba4e6ddda6cbc2fa4fa676624e458d064ad27a90de594f4
 [ -f "$pack/pack.json" ] && [ -d "$pack/files" ] || die "$pack is not a built pack (pack.json, files/)"
 id=$(jq -r .id "$pack/pack.json") || die "unreadable $pack/pack.json"
 [ "$id" = maps-v011e ] || die "$pack is pack '$id', not maps-v011e"
@@ -29,6 +31,15 @@ for d in day_2 day_4; do
     || die "pack.json does not carry projects/v011e_level_04/$d/client_project exactly once"
 done
 echo "$fill_sha256  $fill" | sha256sum -c --quiet - || die "$fill is not the reviewed track pack"
+added=$(jq -r '.add_files[]?.path' "$plan")
+newpack=$(mktemp); trap 'rm -f "$newpack"' EXIT
+cp "$pack/pack.json" "$newpack"
+for p in $added; do
+  [ ! -e "$pack/files/$p" ] || die "$pack/files/$p already exists"
+  jq -e --arg p "$p" '[.operations[] | select(.path == $p)] | length == 0' "$newpack" >/dev/null || die "pack.json already names $p"
+  jq --arg p "$p" '.operations |= ([(map(select(.op == "add_file")) + [{op: "add_file", path: $p}] | sort_by(.path))[], (map(select(.op != "add_file")))[]])' "$newpack" > "$newpack.next"
+  mv "$newpack.next" "$newpack"
+done
 cd "$repo"
 build=(cargo build --quiet --release --locked --example edit-built-pack)
 if command -v cc >/dev/null; then "${build[@]}"; else nix develop "$repo" --command "${build[@]}"; fi || die "cannot build edit-built-pack"
@@ -36,7 +47,9 @@ exe="${CARGO_TARGET_DIR:-$repo/target}/release/examples/edit-built-pack"
 echo "pack: $pack (version $(jq -r .version "$pack/pack.json"))"
 for d in day_2 day_4; do sha256sum "$pack/files/projects/v011e_level_04/$d/client_project"; done | sed 's/^/before: /'
 "$exe" "$pack" "$plan" "$stock" || die "edit failed; the pack is unchanged"
+[ -z "$added" ] || { cp "$newpack" "$pack/pack.json"; for p in $added; do echo "pack.json: add_file $p"; done; }
 for d in day_2 day_4; do sha256sum "$pack/files/projects/v011e_level_04/$d/client_project"; done | sed 's/^/after:  /'
+for p in $added; do sha256sum "$pack/files/$p" | sed 's/^/added:  /'; done
 jq -r '
   [.clones[] | select(.full_name | test("/stage_[0-9]+/controller$"))] as $s
   | [.clones[] | select(.full_name | test("/stage_[0-9]+/fog_zone$")) | .set.position[2]] as $z
