@@ -146,7 +146,8 @@ static void fog_save_render_target(ID3D11DeviceContext *context,const Camera *ca
         fog_save_texture(context,resource,camera,json,fog_audit_after_draw?"post_draw_target":"pre_draw_target",fog_audit_after_draw?"post-draw":"pre-draw");
         ID3D11Resource_Release(resource);ID3D11RenderTargetView_Release(view);
     }
-    for (UINT slot=0;slot<2;++slot) {
+    /* Composition binds normals, albedo and material parameters at t0..t2. */
+    for (UINT slot=0;slot<3;++slot) {
         ID3D11ShaderResourceView *srv=NULL;
         ID3D11DeviceContext_PSGetShaderResources(context,slot,1,&srv);
         if (!srv) continue;

@@ -81,6 +81,9 @@ pub struct Map {
     /// Original radial sun-ray falloff, retaining native mask and application.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_god_rays_falloff_021: bool,
+    /// Original direct-sun diffuse/specular block; native foliage retained.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_sun_lighting_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1383,6 +1386,7 @@ pub fn build(
         ensure!(!map.legacy_particle_fog_021 || map.legacy_fog_021, "original particle fog requires legacy_fog_021");
         ensure!(!map.legacy_water_fog_021 || map.legacy_fog_021, "original water fog requires legacy_fog_021");
         ensure!(!map.legacy_rain_albedo_021 || (map.legacy_fog_021 && map.weather == "rain"), "original rain albedo requires rain weather and legacy_fog_021");
+        ensure!(!map.legacy_sun_lighting_021 || map.legacy_fog_021, "original sun lighting requires legacy_fog_021");
         ensure!(!map.legacy_god_rays_falloff_021 || map.legacy_fog_021, "original god-rays falloff requires legacy_fog_021");
         ensure!(!map.legacy_ambient_occlusion_021 || map.legacy_fog_021, "original ambient occlusion requires legacy_fog_021");
         ensure!(
@@ -1525,6 +1529,7 @@ pub fn build(
     let mut rain_albedo_markers = Vec::new();
     let mut ao_markers = Vec::new();
     let mut god_rays_markers = Vec::new();
+    let mut sun_lighting_markers = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1541,6 +1546,9 @@ pub fn build(
             let profile = mark_legacy_fog(&mut project, map)?;
             if map.legacy_rain_albedo_021 {
                 rain_albedo_markers.push(profile.marker);
+            }
+            if map.legacy_sun_lighting_021 {
+                sun_lighting_markers.push(profile.marker);
             }
             if map.legacy_god_rays_falloff_021 {
                 god_rays_markers.push(profile.marker);
@@ -1625,20 +1633,21 @@ pub fn build(
             god_rays_shaders.push((path, shader));
         }
     }
-    let mut rain_albedo_shaders = Vec::new();
-    if !rain_albedo_markers.is_empty() {
+    let mut composition_shaders = Vec::new();
+    if !rain_albedo_markers.is_empty() || !sun_lighting_markers.is_empty() {
+        let sun_source = donor.read(crate::weather_fog_021::SUN_COMPOSITION_SOURCE)?;
         let source = donor.read(crate::weather_fog_021::COMPOSITION_SOURCE)?;
         let template = target.read(crate::weather_fog_021::COMPOSITION_TEMPLATE)?;
         let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::COMPOSITION_PREFIX)
             .filter(|p| target.is_file(p)).map(str::to_owned).collect();
         ensure!(paths.len() == 64, "unexpected native composition variant count");
         for path in paths {
-            if let Some(shader) = crate::weather_fog_021::build_rain_albedo(
-                &source, &target.read(&path)?, &template, &rain_albedo_markers)? {
-                rain_albedo_shaders.push((path, shader));
+            if let Some(shader) = crate::weather_fog_021::build_composition(
+                &source, &sun_source, &target.read(&path)?, &template, &rain_albedo_markers, &sun_lighting_markers)? {
+                composition_shaders.push((path, shader));
             }
         }
-        ensure!(rain_albedo_shaders.len() == 4, "unexpected compatible rain composition variant count");
+        ensure!(composition_shaders.len() == 4, "unexpected compatible weather composition variant count");
     }
     let mut particle_fog_shaders = Vec::new();
     if !particle_fog_profiles.is_empty() {
@@ -1945,8 +1954,8 @@ pub fn build(
     for (path, shader) in water_fog_shaders {
         emit(output, &path, &shader, "0.21d-water-fog+native-waves-reflections-lighting-and-fallback", &mut files)?;
     }
-    for (path, shader) in rain_albedo_shaders {
-        emit(output, &path, &shader, "0.21d-rain-diffuse+native-composition-and-unmarked-fallback", &mut files)?;
+    for (path, shader) in composition_shaders {
+        emit(output, &path, &shader, "0.21d-selected-weather-composition+native-unmarked-fallback", &mut files)?;
     }
     for (path, shader) in god_rays_shaders {
         emit(output, &path, &shader, "0.21d-god-rays-falloff+native-sampling-and-unmarked-fallback", &mut files)?;
@@ -2495,6 +2504,7 @@ mod tests {
             legacy_rain_albedo_021: false,
             legacy_ambient_occlusion_021: false,
             legacy_god_rays_falloff_021: false,
+            legacy_sun_lighting_021: false,
             map_id: None,
             name: None,
         };
@@ -2750,6 +2760,7 @@ mod tests {
             legacy_rain_albedo_021: false,
             legacy_ambient_occlusion_021: false,
             legacy_god_rays_falloff_021: false,
+            legacy_sun_lighting_021: false,
             map_id: None,
             name: None,
         };

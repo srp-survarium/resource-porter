@@ -16,6 +16,7 @@ pub const WATER_SOURCE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1_________
 pub const WATER_TEMPLATE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1__________0____1________0_0_________________0_0_____________";
 pub const COMPOSITION_PREFIX: &str = "shaders/sm_4_0/composition.ps/";
 pub const COMPOSITION_SOURCE: &str = "shaders/sm_4_0/composition.ps/_0_300_____________________________________________________________";
+pub const SUN_COMPOSITION_SOURCE: &str = "shaders/sm_4_0/composition.ps/_0_301_____________________________________________________________";
 pub const COMPOSITION_TEMPLATE: &str = "shaders/sm_4_0/composition.ps/___3010______0_____________________________________________________";
 pub const AO_SOURCE: &str = "shaders/sm_4_0/ssao_accumulation.ps/___________________________________________________________________";
 pub const AO_PATH: &str = "shaders/sm_4_0/ssao_hemisphere_optimized.ps/___________________________________________________________________";
@@ -453,6 +454,154 @@ pub fn build_rain_albedo(
     }
     ensure!(marked == 1, "missing composition marker");
     let mut result = target[..offset].to_vec();
+    result.extend(assemble(code, &entries)?);
+    Ok(Some(result))
+}
+
+/// Compose independently selected original sun and rain behavior. Sun lighting
+/// copies the pinned source diffuse/specular block. Native material roughness is
+/// restored because that source block uses its register as scratch. All later
+/// foliage, accumulation and rain operations remain native or already adapted.
+pub fn build_composition(
+    rain_source: &[u8],
+    sun_source: &[u8],
+    target: &[u8],
+    template: &[u8],
+    rain_markers: &[f32],
+    sun_markers: &[f32],
+) -> Result<Option<Vec<u8>>> {
+    if sun_markers.is_empty() {
+        return build_rain_albedo(rain_source, target, template, rain_markers);
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for marker in sun_markers {
+        ensure!(
+            marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
+            "invalid or duplicate sun-lighting marker"
+        );
+    }
+    let (_, original) = pinned_code(
+        sun_source,
+        "ed41a9f9abdce9439d8eecb0b4c562b34c618f5bf4aea004fd161929e2a064ec",
+    )?;
+    let (_, native) = pinned_code(
+        template,
+        "6b56586d43003c4e076b93ed94401aadf0229d295475e6712b3bedd2eb873c6e",
+    )?;
+    let offset = 4 + u32_at(target, 0)? as usize * 264;
+    if target
+        .get(offset..)
+        .context("truncated sun composition header")?
+        != native
+    {
+        return Ok(None);
+    }
+    let converted = if rain_markers.is_empty() {
+        target.to_vec()
+    } else {
+        build_rain_albedo(rain_source, target, template, rain_markers)?
+            .context("compatible rain program rejected")?
+    };
+    let source_chunks = chunks(original)?;
+    let source_ops = instructions(&words(
+        &source_chunks
+            .iter()
+            .find(|(t, _)| t == b"SHDR")
+            .context("missing original sun program")?
+            .1,
+    )?)?;
+    let code = &converted[offset..];
+    let mut entries = chunks(code)?;
+    let si = entries
+        .iter()
+        .position(|(t, _)| t == b"SHDR")
+        .context("missing native sun program")?;
+    let original_words = words(&entries[si].1)?;
+    let ops = instructions(&original_words)?;
+    let temps = ops
+        .iter()
+        .position(|ins| ins[0] & 2047 == 104)
+        .context("missing sun temporaries")?;
+    let scratch = if rain_markers.is_empty() { 9 } else { 10 };
+    ensure!(
+        ops[temps] == [0x02000068, scratch],
+        "sun temporary layout changed"
+    );
+    let body = source_ops
+        .get(40..100)
+        .context("truncated original sun block")?;
+    ensure!(
+        body[0] == [0x07000031, 0x00100082, 0, 0x00004001, 0, 0x0010000a, 4]
+            && ops[43] == body[0]
+            && ops[44] == body[1]
+            && ops[102..106] == body[56..60],
+        "sun block boundary changed"
+    );
+    let mut prefix = ops[..43].to_vec();
+    prefix[temps][1] = scratch + 1;
+    let mut updated = original_words[..2].to_vec();
+    updated.extend(prefix.iter().flatten());
+    for marker in sun_markers {
+        updated.extend([
+            0x08000018,
+            0x00100012,
+            scratch,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010000a,
+            scratch,
+        ]);
+        updated.extend([0x05000036, 0x00100022, scratch, 0x0010001a, 3]);
+        updated.extend(body.iter().flatten());
+        updated.extend([0x05000036, 0x00100022, 3, 0x0010001a, scratch]);
+        updated.push(0x01000012);
+    }
+    updated.extend(ops[43..106].iter().flatten());
+    updated.extend(std::iter::repeat_n(0x01000015, sun_markers.len()));
+    updated.extend(ops[106..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[si].1 = bytes(&updated);
+    let r = &mut entries
+        .iter_mut()
+        .find(|(t, _)| t == b"RDEF")
+        .context("missing sun reflection")?
+        .1;
+    fn name(r: &[u8], at: usize) -> Result<&str> {
+        let tail = r.get(at..).context("missing sun reflection name")?;
+        let end = tail
+            .iter()
+            .position(|b| *b == 0)
+            .context("unterminated sun reflection name")?;
+        Ok(std::str::from_utf8(&tail[..end])?)
+    }
+    let mut marked = 0;
+    for i in 0..u32_at(r, 0)? as usize {
+        let cb = u32_at(r, 4)? as usize + 24 * i;
+        if name(r, u32_at(r, cb)? as usize)? != "static_globals" {
+            continue;
+        }
+        for j in 0..u32_at(r, cb + 4)? as usize {
+            let var = u32_at(r, cb + 8)? as usize + 24 * j;
+            if name(r, u32_at(r, var)? as usize)? != "atmosphere_parameters3" {
+                continue;
+            }
+            ensure!(
+                u32_at(r, var + 4)? == 288
+                    && u32_at(r, var + 8)? == 16
+                    && u32_at(r, var + 12)? == if rain_markers.is_empty() { 0 } else { 2 },
+                "sun marker layout changed"
+            );
+            r[var + 12..var + 16].copy_from_slice(&2u32.to_le_bytes());
+            marked += 1;
+        }
+    }
+    ensure!(marked == 1, "missing sun map marker");
+    let mut result = converted[..offset].to_vec();
     result.extend(assemble(code, &entries)?);
     Ok(Some(result))
 }
@@ -1840,6 +1989,127 @@ mod tests {
                 .is_none()
         );
         assert!(build_rain_albedo(&source, &native, &other, &[-32198.0]).is_err());
+    }
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_direct_sun_matches_rendered_program_and_preserves_fallback() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let rain =
+            std::fs::read(root.join("original-9b8cf18c143307ad19ccea92c7c24600.blob")).unwrap();
+        let sun =
+            std::fs::read(root.join("original-ec9315c36c9ae2477109a5de7cc57ded.blob")).unwrap();
+        let native =
+            std::fs::read(root.join("native-de3e7a631834e15db4ae347359867c30.blob")).unwrap();
+        let offset = 4 + u32_at(&native, 0).unwrap() as usize * 264;
+        let so = 4 + u32_at(&sun, 0).unwrap() as usize * 264;
+        let decode = |blob: &[u8]| {
+            let entries = chunks(blob).unwrap();
+            instructions(&words(&entries.iter().find(|(t, _)| t == b"SHDR").unwrap().1).unwrap())
+                .unwrap()
+        };
+        let original_sun = decode(&sun[so..]);
+        let result = build_composition(
+            &rain,
+            &sun,
+            &native,
+            &native,
+            &[-32189.0, -32198.0],
+            &[-32197.0],
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            result[offset..],
+            std::fs::read(root.join("trial24-direct-sun.dxbc")).unwrap()
+        );
+        for rain_markers in [&[][..], &[-32189.0, -32198.0][..]] {
+            let base = if rain_markers.is_empty() {
+                native.clone()
+            } else {
+                build_rain_albedo(&rain, &native, &native, rain_markers)
+                    .unwrap()
+                    .unwrap()
+            };
+            for markers in [&[-32197.0][..], &[-32197.0, -32188.0][..]] {
+                let result =
+                    build_composition(&rain, &sun, &native, &native, rain_markers, markers)
+                        .unwrap()
+                        .unwrap();
+                assert_eq!(&result[..offset], &native[..offset]);
+                assert_eq!(
+                    checksum(&result[offset..]).unwrap(),
+                    result[offset + 4..offset + 20]
+                );
+                let mut ops = decode(&result[offset..]);
+                let scratch = if rain_markers.is_empty() { 9 } else { 10 };
+                let mut at = 43;
+                for marker in markers {
+                    assert_eq!(
+                        ops[at],
+                        [
+                            0x08000018,
+                            0x00100012,
+                            scratch,
+                            0x0020803a,
+                            1,
+                            18,
+                            0x00004001,
+                            marker.to_bits()
+                        ]
+                    );
+                    assert_eq!(ops[at + 1], [0x0304001f, 0x0010000a, scratch]);
+                    assert_eq!(
+                        ops[at + 2],
+                        [0x05000036, 0x00100022, scratch, 0x0010001a, 3]
+                    );
+                    assert_eq!(ops[at + 3..at + 63], original_sun[40..100]);
+                    assert_eq!(
+                        ops[at + 63],
+                        [0x05000036, 0x00100022, 3, 0x0010001a, scratch]
+                    );
+                    assert_eq!(ops[at + 64], [0x01000012]);
+                    at += 65;
+                }
+                assert_eq!(
+                    ops[at + 63..at + 63 + markers.len()],
+                    vec![vec![0x01000015]; markers.len()]
+                );
+                ops.drain(at + 63..at + 63 + markers.len());
+                ops.drain(43..at);
+                let temps = ops.iter_mut().find(|ins| ins[0] & 2047 == 104).unwrap();
+                assert_eq!(temps[1], scratch + 1);
+                temps[1] = scratch;
+                assert_eq!(ops, decode(&base[offset..]));
+                for ((tag, a), (new_tag, b)) in chunks(&base[offset..])
+                    .unwrap()
+                    .iter()
+                    .zip(chunks(&result[offset..]).unwrap())
+                {
+                    assert_eq!(*tag, new_tag);
+                    if tag == b"RDEF" && rain_markers.is_empty() {
+                        let differences: Vec<_> =
+                            a.iter().zip(&b).filter(|(x, y)| x != y).collect();
+                        assert_eq!(differences, vec![(&0, &2)]);
+                    } else if tag != b"SHDR" {
+                        assert_eq!(*a, b);
+                    }
+                }
+            }
+        }
+        for markers in [&[-32197.0, -32197.0][..], &[f32::NAN][..], &[176.0][..]] {
+            assert!(build_composition(&rain, &sun, &native, &native, &[], markers).is_err());
+        }
+        let mut corrupt = sun.clone();
+        corrupt[8] ^= 1;
+        assert!(build_composition(&rain, &corrupt, &native, &native, &[], &[-32197.0]).is_err());
+        let mut other = native.clone();
+        other[offset + 4] ^= 1;
+        assert!(
+            build_composition(&rain, &sun, &other, &native, &[], &[-32197.0])
+                .unwrap()
+                .is_none()
+        );
+        assert!(build_composition(&rain, &sun, &native, &other, &[], &[-32197.0]).is_err());
     }
     #[test]
     fn custom_data_instruction_lengths_are_checked() {

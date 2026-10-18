@@ -41,7 +41,9 @@ features. These are individual perspectives, not 360-degree panoramas.
 
 Optimize one matching screenshot at a time. Freeze the original reference;
 recapture the same pose after a conversion change, then recheck earlier views.
-Evening and rain are in scope; night is not.
+Evening and rain are in scope; night is not. The original reference sets are
+complete and frozen: do not launch 0.21 or capture more original frames.
+Continue comparisons by capturing only the 0.26 port at those saved poses.
 
 ## First observation
 
@@ -638,3 +640,64 @@ is a separate permutation; all four unique original permutations lack the
 native rain attenuation. Original/native sun specular and foliage scattering
 also differ, but should be tested separately. Close09 is the next fixed view
 for the diffuse-angle experiment. Other maps' broad audits remain pending.
+
+### Original direct-sun lighting
+
+The isolated diffuse-angle experiment increased close09 error from 13.627
+to 13.985 and was rejected. Original foliage scattering alone reduced it
+to 13.283, but left the grass colour deficit; that diagnostic is also not
+enabled. A fresh accepted-build control measured 13.668, illustrating the
+smaller variation between captures.
+
+The capture helper now reads back PS texture slots 0–2, allowing the material
+parameters to be inspected alongside normals and albedo. In close09, the
+left and central grass regions contain mostly opaque ground with zero
+scattering; average roughness is 0.92–0.95. Static ray intersections identify
+`ground_moss_s` beneath those regions. Its original and native diffuse RGB
+pixels match at every mip level, and normal/roughness textures are identical.
+The diffuse blobs differ in lower-mip alpha, not colour. These observations
+favour examining rough-surface lighting over a colour-texture substitution.
+
+`legacy_sun_lighting_021` restores the pinned original composition's complete
+direct-sun diffuse/specular block, selected by the existing map marker. It
+requires `legacy_fog_021`. The original block temporarily changes the material
+roughness register; the adapter saves and restores it so later native foliage
+and rain calculations retain their inputs. It composes with the accepted
+rain-albedo correction and retains all native instructions for unmarked maps.
+Original and template blobs are hash-pinned; four compatible native variants
+are emitted. Other permutations remain unchanged.
+
+On Mamayev evening, close09 improves from 13.627 to 13.257. Its left grass
+region improves from 26.163 to 22.412, central grass from 16.318 to 15.379,
+and right ground from 9.708 to 9.459. Subsequent regression views also improve:
+close03 9.293 → 9.052, close06 11.808 → 11.384, east 5.168 → 4.865,
+southwest 2.970 → 2.616. The five-view contact sheet was inspected; remaining
+close foliage differences prevent a claim of completed parity. All original
+frames were reused. Live audit confirms the expected marker and shader
+`884c60376279964764ac5b498cafa2bb`.
+
+The porter output is byte-identical to that independently rendered diagnostic.
+Tests cover sun-only and rain-plus-sun programs, multiple markers, exact
+original arithmetic, roughness restoration, complete native fallback,
+metadata, checksums and altered/unsupported input rejection. All 344 ordinary
+tests and seven retail shader tests pass. The option is enabled only
+for the validated Mamayev evening map; other weather maps require separate
+first-view validation. Remaining Mamayev views and the other maps' broad
+audits are still outstanding.
+
+Full parity17 build/apply/verify pass: 7,009 files and 299 materials. Only the
+four composition programs differ from parity16; 7,005 other files are unchanged.
+The entire rebuilt archive is byte-identical to diagnostic24 (SHA-256
+`f07d88463618d104bc7e2898fcf1fa85e45480cea7677738deef60aee40f0178`).
+
+The subsequent broad audit covers all 18 saved Mamayev evening views. Five
+validated target frames were reused and 13 new target frames were captured.
+Fourteen MAEs decrease; four increase by 0.045–0.140 (close07, north-quarter,
+south-quarter and south). Inspection of all three contact-sheet pages shows
+no broad lighting regression. Moving smoke and foliage still affect the
+comparison, so small score changes alone are not conclusive. Mean error drops
+from 4.972 to 4.864 for the 12 panoramas and 10.942 to 10.764 for the six close
+views. Nearby foliage remains darker/more contrasty than the original, and
+some existing bright geometry gaps remain. The first broad-capture launch
+timed out before scene readiness and produced no images; its clean retry
+completed all 13 frames. No original client was launched.
