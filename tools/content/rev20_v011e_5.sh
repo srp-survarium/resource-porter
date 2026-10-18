@@ -9,6 +9,7 @@
 #      environment_probe(2) specular 5 -> 1), then checked present in both projects;
 #   5. hud.swf: the exoskeletons' oxygen slot (exo_oxygen_hud_swf.py of resource-porter
 #      fix/exo-oxygen-hud-icon e6e0fca, over -4's hud.swf and -5's lobby_menu.swf);
+# (V011E_4: the base pack, version BASE_VERSION, default -4; -7's base is a fresh build from the bundle)
 # then a note and version 5, the diff against -4 (files and manifest), the pack check with the 0.21d pack over
 # stock + 12, 14, 17, 19, and SHA256SUMS.
 #   rev20_v011e_5.sh OUT_DIR FOG_PLAN|FOG_SCRIPT.sh|- SPAWN_PLAN|SPAWN_SCRIPT.sh|- [M021D_PACK]
@@ -63,12 +64,12 @@ echo "== 5. exo oxygen HUD icon"
 cp $V4/files/flash_movies/hud.swf $W/hud-4.swf
 $P $EXO $W/hud-4.swf $N/files/flash_movies/lobby_menu.swf $W/hud-5.swf
 cp $W/hud-5.swf $N/files/flash_movies/hud.swf
-$P - "$N" "$V4" "$W" "$FOG" "$SPAWN" "$VERSION" "$HERE/$KIT_PLAN" <<'PY'
+$P - "$N" "$V4" "$W" "$FOG" "$SPAWN" "$VERSION" "$HERE/$KIT_PLAN" "${BASE_VERSION:-4}" <<'PY'
 import hashlib, json, sys
 from pathlib import Path
 new, old, work, fog, spawn, version = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]
 kit = json.loads(Path(sys.argv[7]).read_text())['projects']['projects/v011e_level_03/day_2/client_project']
-p = json.loads((new / 'pack.json').read_text()); assert p['version'] == '4'
+p = json.loads((new / 'pack.json').read_text()); assert p['version'] == sys.argv[8], (p['version'], sys.argv[8])
 p['version'] = version
 hud = [o for o in p['operations'] if o['op'] == 'replace_file' and o['path'] == 'flash_movies/hud.swf']
 assert len(hud) == 1    # the precondition stays the released patch-14 hud.swf
