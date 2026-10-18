@@ -386,3 +386,26 @@ The original 0.21 screenshots are fixed references, captured once. Reuse the
 saved shader constants, draw traces and raw targets as well; further visual
 iteration uses 0.26 captures only. Extra original diagnostic runs must not
 become routine recaptures of the reference set.
+
+## Remaining rain shading investigation
+
+Saved original and native wet-surface audits agree on the authored surface
+intensity (0.37 for Mamayev rain). Both shaders modify gloss and normals,
+using different equations. A target-only diagnostic restored the original
+body under map177's marker, remapping the density and time bindings. The
+active shader was confirmed, but close03 error changed only from 15.14 to
+14.64, and foreground rock error from 24.16 to 23.79. The obvious darkness
+remained, so this trial was not retained in the porter.
+
+Shader observation can validate unused/stale eye-position constants against
+the inverse-view matrix's translation and forward direction. JSON records
+which validation succeeded. R16G16_FLOAT readback is now supported for the
+wet pass's normal target; the observer still only copies GPU resources.
+
+The subsequent target-only trace covers wet surfaces, probes, ambient lights,
+AO and the later fog/effects passes. The active high-quality probe shaders
+are `a70e272e38e42666e139c6c9db335166` and
+`4f5e7dc1cf82ffa2512c125a42fe1be5`. Their diffuse equations largely match
+the original; the AO application differs by the original 2.5 multiplier.
+The upstream AO calculation also changed, so restoring that multiplier is
+only a diagnostic hypothesis pending comparison with the fixed reference.

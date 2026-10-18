@@ -108,7 +108,7 @@ static void fog_save_texture(ID3D11DeviceContext *context,ID3D11Resource *resour
     fprintf(json,",\"%s_descriptor\":{\"width\":%u,\"height\":%u,\"dxgi_format\":%u,\"samples\":%u,\"mips\":%u,\"array_size\":%u}",name,desc.Width,desc.Height,(unsigned)desc.Format,desc.SampleDesc.Count,desc.MipLevels,desc.ArraySize);
     unsigned stride=desc.Format==DXGI_FORMAT_R16G16B16A16_FLOAT?8:
                     desc.Format==DXGI_FORMAT_R32G32B32A32_FLOAT?16:
-                    desc.Format==DXGI_FORMAT_R11G11B10_FLOAT || desc.Format==DXGI_FORMAT_R8G8B8A8_UNORM ||
+                    desc.Format==DXGI_FORMAT_R16G16_FLOAT || desc.Format==DXGI_FORMAT_R11G11B10_FLOAT || desc.Format==DXGI_FORMAT_R8G8B8A8_UNORM ||
                     desc.Format==DXGI_FORMAT_B8G8R8A8_UNORM || desc.Format==DXGI_FORMAT_R10G10B10A2_UNORM?4:0;
     if (!stride || desc.SampleDesc.Count!=1 || desc.MipLevels!=1 || desc.ArraySize!=1) goto done;
     ID3D11DeviceContext_GetDevice(context,&device);
