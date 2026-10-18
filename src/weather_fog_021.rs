@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Opt-in retail 0.21 fog equations inside the pinned native 0.26 shader.
+//! Opt-in retail 0.21 fog and sky equations inside pinned native 0.26 shaders.
 //! Retail bytecode is read from the user's databases, never shipped here.
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
+pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";
 
 pub struct Profile {
     pub marker: f32,
@@ -75,7 +76,7 @@ fn chunks(code: &[u8]) -> Result<Vec<([u8; 4], Vec<u8>)>> {
 fn pinned_code<'a>(blob: &'a [u8], expected: &str) -> Result<(usize, &'a [u8])> {
     ensure!(
         format!("{:x}", Sha256::digest(blob)) == expected,
-        "unsupported retail fog shader"
+        "unsupported retail atmosphere shader"
     );
     let offset = 4 + u32_at(blob, 0)? as usize * 264;
     let code = blob
@@ -222,6 +223,18 @@ pub fn build(source: &[u8], target: &[u8], profiles: &[Profile]) -> Result<Vec<u
     );
     instructions(&updated)?;
     entries[index].1 = bytes(&updated);
+    let result = assemble(native, &entries)?;
+    for (i, (old, new)) in chunks(native)?.iter().zip(chunks(&result)?).enumerate() {
+        if i != index {
+            ensure!(old == &new, "native shader metadata changed");
+        }
+    }
+    let mut blob = target[..offset].to_vec();
+    blob.extend(result);
+    Ok(blob)
+}
+
+fn assemble(native: &[u8], entries: &[([u8; 4], Vec<u8>)]) -> Result<Vec<u8>> {
     let mut result = native[..32 + entries.len() * 4].to_vec();
     for (i, (tag, data)) in entries.iter().enumerate() {
         let chunk_offset = (result.len() as u32).to_le_bytes();
@@ -234,11 +247,123 @@ pub fn build(source: &[u8], target: &[u8], profiles: &[Profile]) -> Result<Vec<u
     result[24..28].copy_from_slice(&size);
     let digest = checksum(&result)?;
     result[4..20].copy_from_slice(&digest);
-    for (i, (old, new)) in chunks(native)?.iter().zip(chunks(&result)?).enumerate() {
-        if i != index {
-            ensure!(old == &new, "native shader metadata changed");
+    Ok(result)
+}
+
+/// The original sky has the same varying/texture ABI as 0.26. Preserve its
+/// complete arithmetic and select it only for maps already using legacy fog.
+pub fn build_sky(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
+    ensure!(!markers.is_empty(), "no original sky markers");
+    let (_, source) = pinned_code(
+        source,
+        "bd9cff731c4e3f3b506dc7283b9ce9b0ba70d7280dd207ea69bb3bd0e7494bad",
+    )?;
+    let (offset, native) = pinned_code(
+        target,
+        "8cad6019edbef9109e249ce181774cecbb0e32f810591618bd66664b8325c2e0",
+    )?;
+    let original = chunks(source)?;
+    let mut entries = chunks(native)?;
+    let chunk = |name: &[u8; 4], items: &[([u8; 4], Vec<u8>)]| -> Result<usize> {
+        items
+            .iter()
+            .position(|(tag, _)| tag == name)
+            .context("missing sky shader chunk")
+    };
+    for name in [b"ISGN", b"OSGN"] {
+        ensure!(
+            original[chunk(name, &original)?].1 == entries[chunk(name, &entries)?].1,
+            "sky signature changed"
+        );
+    }
+    let index = chunk(b"SHDR", &entries)?;
+    let native_words = words(&entries[index].1)?;
+    let native_ops = instructions(&native_words)?;
+    let source_ops = instructions(&words(&original[chunk(b"SHDR", &original)?].1)?)?;
+    let body_start = |ops: &[Vec<u32>]| -> Result<usize> {
+        let at = ops
+            .iter()
+            .position(|i| i[0] & 2047 == 104)
+            .context("missing sky temporaries")?;
+        ensure!(ops[at] == [0x02000068, 3], "sky temporary count changed");
+        Ok(at + 1)
+    };
+    let nb = body_start(&native_ops)?;
+    let sb = body_start(&source_ops)?;
+    let mut updated = native_words[..2].to_vec();
+    updated.extend(native_ops[..nb].iter().flatten());
+    let mut seen = std::collections::BTreeSet::new();
+    for marker in markers {
+        ensure!(
+            marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
+            "invalid or duplicate sky marker"
+        );
+        updated.extend([
+            0x08000018,
+            0x00100082,
+            2,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010003a,
+            2,
+        ]);
+        updated.extend(source_ops[sb..].iter().flatten());
+        updated.push(0x01000015);
+    }
+    updated.extend(native_ops[nb..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[index].1 = bytes(&updated);
+    // The layout stays native. Mark the original-only constants and marker
+    // as used so reflection-based binding also supplies the new branch.
+    let reflection = chunk(b"RDEF", &entries)?;
+    let rdef = &mut entries[reflection].1;
+    let count = u32_at(rdef, 0)? as usize;
+    let buffers = u32_at(rdef, 4)? as usize;
+    let string = |data: &[u8], at: usize| -> Result<String> {
+        let tail = data.get(at..).context("missing reflection string")?;
+        let len = tail
+            .iter()
+            .position(|b| *b == 0)
+            .context("unterminated reflection string")?;
+        Ok(std::str::from_utf8(&tail[..len])?.to_owned())
+    };
+    let mut changed = 0;
+    for i in 0..count {
+        let at = buffers + i * 24;
+        if string(rdef, u32_at(rdef, at)? as usize)? != "static_globals" {
+            continue;
+        }
+        let vars = u32_at(rdef, at + 4)? as usize;
+        let start = u32_at(rdef, at + 8)? as usize;
+        for j in 0..vars {
+            let at = start + j * 24;
+            let name = string(rdef, u32_at(rdef, at)? as usize)?;
+            let expected = match name.as_str() {
+                "atmosphere_parameters1" => Some((256, 16)),
+                "atmosphere_parameters2" => Some((272, 16)),
+                "atmosphere_parameters3" => Some((288, 16)),
+                "to_sun_direction" => Some((352, 12)),
+                _ => None,
+            };
+            if let Some((offset, size)) = expected {
+                ensure!(
+                    u32_at(rdef, at + 4)? == offset
+                        && u32_at(rdef, at + 8)? == size
+                        && u32_at(rdef, at + 12)? == 0,
+                    "sky constant layout changed"
+                );
+                rdef[at + 12..at + 16].copy_from_slice(&2u32.to_le_bytes());
+                changed += 1;
+            }
         }
     }
+    ensure!(changed == 4, "sky constant binding mismatch");
+    let result = assemble(native, &entries)?;
     let mut blob = target[..offset].to_vec();
     blob.extend(result);
     Ok(blob)

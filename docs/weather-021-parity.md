@@ -138,3 +138,23 @@ All captures still use the same frozen `mamayev-close-03` reference.
 For a generated shader, add `--audit-fog --fog-digest DXBC_DIGEST` to capture.
 The observer then selects only that shader, and the runner verifies its identity.
 This option observes constants only; it never substitutes rendering data.
+
+## Opt-in original sky arithmetic
+
+`legacy_sky_021: true` adds the original sky calculation for that map and requires
+`legacy_fog_021` so both use the same map marker. The original and native shader
+input/output signatures match. The porter copies the complete original sky
+instruction body and retains the native body for unmarked maps. It enables four
+existing reflection variables used by the added branch, preserving their names,
+types and offsets. The native scattering textures are still used.
+
+In trial 05, this lowers the first close view's MAE from 19.09 to 13.70/255;
+the fixed sky region falls from 51.55 to 24.65. Live source/target audits confirm
+the direction, sun color and fog parameters required by the original sky math.
+The original draw constant's unused fourth component differs between builds;
+the original shader reads only its direction components. Cloud/sky differences
+remain, so this is progress rather than final parity.
+
+The integrated four-map build emits byte-identical fog and sky shaders to the
+tested experiments. Only Mamayev evening opts in during the current regression
+check; the other three variants remain on the preserved baseline behavior.

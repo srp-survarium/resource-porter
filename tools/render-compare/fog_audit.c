@@ -95,6 +95,11 @@ static void fog_observe(ID3D11DeviceContext *context) {
     for (unsigned i=0;i<4;++i) {
         fprintf(file,",\"atmosphere_parameters%u\":",i);fog_vector(file,values+60+4*i,4);
     }
+    UINT draw_size=0;unsigned char *draw=fog_read_buffer(context,0,&draw_size);
+    if (draw) {
+        fputs(",\"draw_constants\":",file);fog_vector(file,(const float *)draw,draw_size/sizeof(float));
+        free(draw);
+    }
     fputs("}\n",file);fclose(file);free(data);
     EnterCriticalSection(&lock);fog_audited_id=camera.id;LeaveCriticalSection(&lock);
 }

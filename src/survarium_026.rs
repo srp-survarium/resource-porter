@@ -57,6 +57,9 @@ pub struct Map {
     /// retains its native path for unmarked maps. Experimental visual parity.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_fog_021: bool,
+    /// Original sky arithmetic for this map, sharing the legacy fog marker.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_sky_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1256,6 +1259,7 @@ pub fn build(
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
     for map in &m.maps {
+        ensure!(!map.legacy_sky_021 || map.legacy_fog_021, "original sky requires legacy_fog_021");
         ensure!(
             matches!(
                 map.level.as_str(),
@@ -1380,6 +1384,7 @@ pub fn build(
     let mut overrides = BTreeMap::new();
     let mut collision_repairs = BTreeMap::new();
     let mut fog_profiles = Vec::new();
+    let mut sky_markers = Vec::new();
     for map in &m.maps {
         let mut project = adapt_project(
             cfg(&mut donor, &map.donor_project())?,
@@ -1389,7 +1394,9 @@ pub fn build(
         )
         .with_context(|| format!("adapting {}", map.donor_project()))?;
         if map.legacy_fog_021 {
-            fog_profiles.push(mark_legacy_fog(&mut project, map)?);
+            let profile = mark_legacy_fog(&mut project, map)?;
+            if map.legacy_sky_021 { sky_markers.push(profile.marker); }
+            fog_profiles.push(profile);
         }
         if map.native_lighting {
             let native = &target_projects[&map.target_project()];
@@ -1425,6 +1432,15 @@ pub fn build(
             &donor.read(crate::weather_fog_021::PATH)?,
             &target.read(crate::weather_fog_021::PATH)?,
             &fog_profiles,
+        )?)
+    };
+    let sky_shader = if sky_markers.is_empty() {
+        None
+    } else {
+        Some(crate::weather_fog_021::build_sky(
+            &donor.read(crate::weather_fog_021::SKY_PATH)?,
+            &target.read(crate::weather_fog_021::SKY_PATH)?,
+            &sky_markers,
         )?)
     };
     let forced: BTreeSet<String> = donor
@@ -1641,6 +1657,10 @@ pub fn build(
     if let Some(shader) = fog_shader {
         emit(output, crate::weather_fog_021::PATH, &shader,
              "0.21d-fog-equations+unchanged-0.26g-fallback", &mut files)?;
+    }
+    if let Some(shader) = sky_shader {
+        emit(output, crate::weather_fog_021::SKY_PATH, &shader,
+             "0.21d-sky-equations+unchanged-0.26g-fallback", &mut files)?;
     }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -2041,6 +2061,7 @@ mod tests {
             native_lighting: false,
             environment_overrides: BTreeMap::new(),
             legacy_fog_021: false,
+            legacy_sky_021: false,
             map_id: None,
             name: None,
         };
@@ -2288,6 +2309,7 @@ mod tests {
             native_lighting: false,
             environment_overrides: BTreeMap::new(),
             legacy_fog_021: false,
+            legacy_sky_021: false,
             map_id: None,
             name: None,
         };
