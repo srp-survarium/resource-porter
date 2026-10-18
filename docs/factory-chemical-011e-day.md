@@ -153,3 +153,21 @@ a built maps-v011e pack (`track-fog-rev20.plan.json` through
 replaced, the result checked by hash, nothing else may change).
 `verify_track_fog.py` and `render_track_fog.py` are the offline checks and
 pictures.
+
+**Deeper fog (revision 20, second build).** The owner, from the loading-station
+walkway (~7 m): the grown fog was a thin layer, see-through, mostly on the open
+track. Two rust_smoke clouds per 5 m stage (one per track, the x 12.9 one often
+under a hopper wagon, hidden from above) made it ~0.33 opaque straight down
+(`fog_sim_track.py`: the real smoke1 alpha, the particle's alpha/size over life,
+depth-tested against the collision). Native smokes have the same per-billboard
+alpha (rust_smoke, level_06 ground smoke, the level_02 fruit: smoke1 texture,
+peaks 0.19-0.24), and smoke_grenade is one-shot, so the fog is denser by count:
+`--fog-rows '0:0.85:10.9/14.1/17.4/20.6;2.5:1.7:10.9/14.1/17.4/20.6'`, two
+rows of four emitters across the bed per stage (199 in all), the second row
+2.5 m on and 1.7 m up (the fog stands about 3.3 m tall; the damage cap stays at
+2.2 m), each moved up to 2.5 m aside out of wagons and pipes (28 moved, one
+dropped). Estimated opacity of the open bed straight down 0.77 (was 0.33), at
+45 deg 0.87, at 60 deg 0.94 (was 0.54). Steady particles 21.8 k on the map
+(was 6.9 k; native level_03 ~17 k with its electro anomalies, level_06 ~15 k);
+overdraw looking into the fog about 4 times the first build's. Damage objects
+and stage times are unchanged.

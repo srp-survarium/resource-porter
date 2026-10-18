@@ -54,9 +54,11 @@ stages = []
 for n, o in track.items():
     if n.endswith('/controller') and '/stage_' in n:
         st = o['states']
-        fog = objs[st[1]['groups'][0]['zones'][0]]
-        clouds = [[fog['position'][i] + e['position'][i] for i in range(3)] for e in fog['effect_zones']]
-        assert fog['idle_particle'] == 'fx/level_3_anomaly/rust_smoke' and fog['max_hit'] == 0
+        clouds = []
+        for zn in st[1]['groups'][0]['zones']:
+            fog = objs[zn]
+            assert fog['idle_particle'] == 'fx/level_3_anomaly/rust_smoke' and fog['max_hit'] == 0 and len(fog['effect_zones']) <= 6
+            clouds += [[fog['position'][i] + e['position'][i] for i in range(3)] for e in fog['effect_zones']]
         stages.append(dict(name=n.split('/')[-2], at=st[0]['active_time_sec'], clouds=clouds))
 stages.sort(key=lambda s: s['at'])
 rust = [o['position'] for n, o in objs.items() if n.startswith('fx/fill_rust_fog/')]
