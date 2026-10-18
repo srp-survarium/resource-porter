@@ -775,7 +775,7 @@ mod tests {
                 match v {
                     serde_json::Value::Object(m) => m.iter().for_each(|(k, v)| walk(v, k, out)),
                     serde_json::Value::Array(a) => a.iter().for_each(|v| walk(v, key, out)),
-                    serde_json::Value::String(s) if key == "zones" || key == "name" => out.push(s.clone()),
+                    serde_json::Value::String(s) if key == "zones" || key == "name" || key == "artefact_containers" => out.push(s.clone()),
                     _ => {}
                 }
             }
@@ -792,7 +792,21 @@ mod tests {
             if c.source == "anomaly/fruit/fruit_anomaly" {
                 controllers += 1;
                 assert_eq!(c.set["energy_enabled"], false, "players cannot move the timers");
-                assert_eq!(c.set["max_artefacts_count"], 0, "no artefact spawn without containers");
+                // Artefacts only with their own spots (each a container of the pack on a spot sphere).
+                let containers = c.set["artefact_containers"].as_array().unwrap();
+                if c.set["artefacts_enabled"] == true {
+                    assert!(c.set["max_artefacts_count"].as_i64().unwrap() >= 1 && !containers.is_empty(), "{}", c.full_name);
+                    for name in containers {
+                        let container = track.clones.iter().find(|o| Some(o.full_name.as_str()) == name.as_str()).expect("a container of the pack");
+                        let spot = container.set["collision_geometries"][0]["name"].as_str().unwrap();
+                        assert!(names.contains(spot), "{}: spot {spot}", container.full_name);
+                        let first = c.set["artefacts_first_spawn_time_sec"].as_i64().unwrap();
+                        assert!(first >= c.set["states"][0]["active_time_sec"].as_i64().unwrap(), "{}: no artefact before its stage's fog", c.full_name);
+                    }
+                } else {
+                    assert_eq!(c.set["max_artefacts_count"], 0, "no artefact spawn without containers");
+                    assert!(containers.is_empty());
+                }
                 let states = c.set["states"].as_array().unwrap();
                 assert_eq!(states[0]["energy_threshold"], 0);
                 assert_eq!(states[0]["energy_on_exit"], 1);

@@ -20,7 +20,7 @@ pack=$(realpath -e "$1") || die "no pack directory $1"
 stock=$(realpath -e "${2:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}") || die "no stock resources.db"
 plan="$repo/tools/day-map-objectives/track-fog-rev20.plan.json"
 fill="$repo/ports/gameplay-fill/chemical-011e-track-anomaly.json"
-fill_sha256=2730b1dc4f2638259ba4e6ddda6cbc2fa4fa676624e458d064ad27a90de594f4
+fill_sha256=a138742023c9326e0a1ce303a9506c83e6bca50982e85e2088c7f80a6c0d3ece
 [ -f "$pack/pack.json" ] && [ -d "$pack/files" ] || die "$pack is not a built pack (pack.json, files/)"
 id=$(jq -r .id "$pack/pack.json") || die "unreadable $pack/pack.json"
 [ "$id" = maps-v011e ] || die "$pack is pack '$id', not maps-v011e"
@@ -35,8 +35,13 @@ added=$(jq -r '.add_files[]?.path' "$plan")
 newpack=$(mktemp); trap 'rm -f "$newpack"' EXIT
 cp "$pack/pack.json" "$newpack"
 for p in $added; do
-  [ ! -e "$pack/files/$p" ] || die "$pack/files/$p already exists"
-  jq -e --arg p "$p" '[.operations[] | select(.path == $p)] | length == 0' "$newpack" >/dev/null || die "pack.json already names $p"
+  n=$(jq --arg p "$p" '[.operations[] | select(.path == $p)] | length' "$newpack")
+  if [ -e "$pack/files/$p" ] || [ "$n" != 0 ]; then
+    # Already there from an earlier run of this fog: the same file (checked by the editor) and one add_file.
+    [ -e "$pack/files/$p" ] && [ "$n" = 1 ] && jq -e --arg p "$p" '[.operations[] | select(.path == $p and .op == "add_file")] | length == 1' "$newpack" >/dev/null \
+      || die "$p: the file and pack.json's add_file must both be there or both be absent"
+    continue
+  fi
   jq --arg p "$p" '.operations |= ([(map(select(.op == "add_file")) + [{op: "add_file", path: $p}] | sort_by(.path))[], (map(select(.op != "add_file")))[]])' "$newpack" > "$newpack.next"
   mv "$newpack.next" "$newpack"
 done
@@ -47,7 +52,7 @@ exe="${CARGO_TARGET_DIR:-$repo/target}/release/examples/edit-built-pack"
 echo "pack: $pack (version $(jq -r .version "$pack/pack.json"))"
 for d in day_2 day_4; do sha256sum "$pack/files/projects/v011e_level_04/$d/client_project"; done | sed 's/^/before: /'
 "$exe" "$pack" "$plan" "$stock" || die "edit failed; the pack is unchanged"
-[ -z "$added" ] || { cp "$newpack" "$pack/pack.json"; for p in $added; do echo "pack.json: add_file $p"; done; }
+cmp -s "$newpack" "$pack/pack.json" || { cp "$newpack" "$pack/pack.json"; echo "pack.json: add_file for $added"; }
 for d in day_2 day_4; do sha256sum "$pack/files/projects/v011e_level_04/$d/client_project"; done | sed 's/^/after:  /'
 for p in $added; do sha256sum "$pack/files/$p" | sed 's/^/added:  /'; done
 jq -r '
