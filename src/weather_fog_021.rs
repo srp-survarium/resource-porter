@@ -20,6 +20,160 @@ pub const COMPOSITION_TEMPLATE: &str = "shaders/sm_4_0/composition.ps/___3010___
 pub const AO_SOURCE: &str = "shaders/sm_4_0/ssao_accumulation.ps/___________________________________________________________________";
 pub const AO_PATH: &str = "shaders/sm_4_0/ssao_hemisphere_optimized.ps/___________________________________________________________________";
 
+const GOD_RAYS_ORIGINAL_HASHES: [&str; 4] = [
+    "58a4f9d93b6524696e0b32fe116c72e1bf5545adbe1061e03a7dab585bc8a8f5",
+    "1265ec2bae5b6543a6af848d1590a284c0d59c27547179b47d270f25fa841f43",
+    "8735101e9ff7817b376041ed21f8eff58642a54c9a0c7214df940175d6f7294b",
+    "7f6ffc9cb1489f8f867366566006f505ed4a8c1e72b39452ae1095dc5b3555b4",
+];
+const GOD_RAYS_NATIVE_HASHES: [&str; 4] = [
+    "05d8c8a5f7460fd38935304f8ef1057f8d2209fe025222f853c45f32975db91c",
+    "7df0523b942b0c408a304fac8a03b612e6be14acd098cce2f3814ea6c9aeb788",
+    "ff40e57843e00fca92fde840ab72fdab0b4f4fc0a667c769c0382dc24c2b8a53",
+    "261805d2fdb7d775dc5143379f76de4148d121ea77307a906f7eef115c120b00",
+];
+
+/// Original radial sun-ray attenuation; projection, mask, samples, colors,
+/// application ordering and every unmarked map retain native behavior.
+pub fn build_god_rays_falloff(
+    source: &[u8],
+    target: &[u8],
+    quality: usize,
+    markers: &[f32],
+) -> Result<Vec<u8>> {
+    ensure!(quality < 4, "invalid god-rays quality");
+    ensure!(!markers.is_empty(), "no original god-rays markers");
+    let mut seen = std::collections::BTreeSet::new();
+    for marker in markers {
+        ensure!(
+            marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
+            "invalid or duplicate god-rays marker"
+        );
+    }
+    let (_, original) = pinned_code(source, GOD_RAYS_ORIGINAL_HASHES[quality])?;
+    let (offset, native) = pinned_code(target, GOD_RAYS_NATIVE_HASHES[quality])?;
+    let source_chunks = chunks(original)?;
+    let mut entries = chunks(native)?;
+    let si = entries
+        .iter()
+        .position(|(t, _)| t == b"SHDR")
+        .context("missing god-rays program")?;
+    let source_ops = instructions(&words(
+        &source_chunks
+            .iter()
+            .find(|(t, _)| t == b"SHDR")
+            .context("missing original god-rays program")?
+            .1,
+    )?)?;
+    let native_words = words(&entries[si].1)?;
+    let native_ops = instructions(&native_words)?;
+    let start = if quality == 3 { 24 } else { 22 };
+    let nt = if quality == 3 { 7 } else { 6 };
+    let scratch = if quality == 3 { 4 } else { 3 };
+    ensure!(
+        native_ops[nt] == [0x02000068, scratch],
+        "god-rays temporaries changed"
+    );
+    ensure!(
+        native_ops[start - 1] == [0x0500004b, 0x00100012, 0, 0x0010000a, 0],
+        "god-rays distance boundary changed"
+    );
+    ensure!(
+        native_ops[start]
+            == [
+                0x07000033,
+                0x00100012,
+                0,
+                0x0010000a,
+                0,
+                0x00004001,
+                1.0f32.to_bits()
+            ],
+        "native god-rays attenuation changed"
+    );
+    let mut body = source_ops[start..start + 5].to_vec();
+    ensure!(
+        body[0] == [0x0500002f, 0x00100012, 0, 0x0010000a, 0]
+            && body[1] == [0x08000038, 0x00100012, 0, 0x0010000a, 0, 0x0020800a, 0, 3]
+            && body[3]
+                == [
+                    0x07000038, 0x00100012, 0, 0x0010000a, 0, 0x00004001, 0xc1e6d4ca
+                ],
+        "original god-rays attenuation changed"
+    );
+    body[1][7] = 2; // god_rays_parameters2.x: original CB0[3], native CB0[2].
+    let mut prefix = native_ops[..start].to_vec();
+    prefix[nt][1] = scratch + 1;
+    let mut updated = native_words[..2].to_vec();
+    updated.extend(prefix.iter().flatten());
+    // Nested if/else selects the original block once even with several maps.
+    for marker in markers {
+        updated.extend([
+            0x08000018,
+            0x00100012,
+            scratch,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010000a,
+            scratch,
+        ]);
+        updated.extend(body.iter().flatten());
+        updated.push(0x01000012);
+    }
+    updated.extend(native_ops[start..start + 5].iter().flatten());
+    updated.extend(std::iter::repeat_n(0x01000015, markers.len()));
+    updated.extend(native_ops[start + 5..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[si].1 = bytes(&updated);
+    let r = &mut entries
+        .iter_mut()
+        .find(|(t, _)| t == b"RDEF")
+        .context("missing god-rays reflection")?
+        .1;
+    fn name(r: &[u8], at: usize) -> Result<&str> {
+        let tail = r.get(at..).context("missing god-rays name")?;
+        let end = tail
+            .iter()
+            .position(|b| *b == 0)
+            .context("unterminated god-rays name")?;
+        Ok(std::str::from_utf8(&tail[..end])?)
+    }
+    let mut marked = 0;
+    for i in 0..u32_at(r, 0)? as usize {
+        let cb = u32_at(r, 4)? as usize + 24 * i;
+        if name(r, u32_at(r, cb)? as usize)? != "static_globals" {
+            continue;
+        }
+        for j in 0..u32_at(r, cb + 4)? as usize {
+            let var = u32_at(r, cb + 8)? as usize + 24 * j;
+            if name(r, u32_at(r, var)? as usize)? != "atmosphere_parameters3" {
+                continue;
+            }
+            ensure!(
+                u32_at(r, var + 4)? == 288
+                    && u32_at(r, var + 8)? == 16
+                    && u32_at(r, var + 12)? == 0,
+                "god-rays marker layout changed"
+            );
+            r[var + 12..var + 16].copy_from_slice(&2u32.to_le_bytes());
+            marked += 1;
+        }
+    }
+    ensure!(marked == 1, "missing god-rays map marker");
+    let mut blob = target[..offset].to_vec();
+    blob.extend(assemble(native, &entries)?);
+    Ok(blob)
+}
+
+pub fn god_rays_path(quality: usize) -> String {
+    format!("shaders/sm_4_0/god_rays.ps/__{quality}{}", "_".repeat(64))
+}
+
 /// Original quality-1 ambient occlusion, normalized for the native filter and
 /// application passes. Original generation stores AO * 0.4 and application
 /// multiplies by 2.5; native application expects the unscaled value. Keep the
@@ -1375,6 +1529,128 @@ fn checksum(code: &[u8]) -> Result<[u8; 16]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_god_rays_falloff_preserves_sampling_and_native_fallback() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let variants = [
+            (
+                "d79c55881c1e1c243515068939c2bc7d",
+                "94a98b930db8bdf71db817c367d84e7a",
+            ),
+            (
+                "045fad96720b6628c767f8908a7431d7",
+                "7759560a9d4fd0a28525aa2ced44df5f",
+            ),
+            (
+                "00f3835280be28e02112096682c537f4",
+                "2545deef4156221dee72a0a6696646b1",
+            ),
+            (
+                "7cbb4292f978ea0b7d3d06d69307b5eb",
+                "e1e695b27bb25b6a5434be35680cc908",
+            ),
+        ];
+        let program = |entries: &Vec<([u8; 4], Vec<u8>)>| {
+            instructions(&words(&entries.iter().find(|(t, _)| t == b"SHDR").unwrap().1).unwrap())
+                .unwrap()
+        };
+        for (quality, (original_digest, native_digest)) in variants.iter().enumerate() {
+            let source =
+                std::fs::read(root.join(format!("original-{original_digest}.blob"))).unwrap();
+            let native = std::fs::read(root.join(format!("native-{native_digest}.blob"))).unwrap();
+            let offset = 4 + u32_at(&native, 0).unwrap() as usize * 264;
+            let source_offset = 4 + u32_at(&source, 0).unwrap() as usize * 264;
+            let original_chunks = chunks(&native[offset..]).unwrap();
+            let native_ops = program(&original_chunks);
+            let source_ops = program(&chunks(&source[source_offset..]).unwrap());
+            let start = if quality == 3 { 24 } else { 22 };
+            let temp = if quality == 3 { 7 } else { 6 };
+            let scratch = native_ops[temp][1];
+            for markers in [&[-32188.0f32][..], &[-32188.0, -32197.0][..]] {
+                let result = build_god_rays_falloff(&source, &native, quality, markers).unwrap();
+                assert_eq!(&result[..offset], &native[..offset]);
+                assert_eq!(
+                    checksum(&result[offset..]).unwrap(),
+                    result[offset + 4..offset + 20]
+                );
+                let new_chunks = chunks(&result[offset..]).unwrap();
+                let ops = program(&new_chunks);
+                let mut prefix = ops[..start].to_vec();
+                assert_eq!(prefix[temp][1], scratch + 1);
+                prefix[temp][1] = scratch;
+                assert_eq!(prefix, native_ops[..start]);
+                let mut at = start;
+                for marker in markers {
+                    assert_eq!(
+                        ops[at],
+                        [
+                            0x08000018,
+                            0x00100012,
+                            scratch,
+                            0x0020803a,
+                            1,
+                            18,
+                            0x00004001,
+                            marker.to_bits()
+                        ]
+                    );
+                    assert_eq!(ops[at + 1], [0x0304001f, 0x0010000a, scratch]);
+                    let mut restored = ops[at + 2..at + 7].to_vec();
+                    assert_eq!(restored[1][7], 2);
+                    restored[1][7] = 3;
+                    assert_eq!(restored, source_ops[start..start + 5]);
+                    assert_eq!(ops[at + 7], [0x01000012]);
+                    at += 8;
+                }
+                assert_eq!(ops[at..at + 5], native_ops[start..start + 5]);
+                at += 5;
+                for _ in markers {
+                    assert_eq!(ops[at], [0x01000015]);
+                    at += 1;
+                }
+                assert_eq!(ops[at..], native_ops[start + 5..]);
+                for ((tag, old), (new_tag, new)) in original_chunks.iter().zip(&new_chunks) {
+                    assert_eq!(tag, new_tag);
+                    if tag == b"RDEF" {
+                        assert_eq!(old.len(), new.len());
+                        assert_eq!(
+                            old.iter()
+                                .zip(new)
+                                .filter(|(a, b)| a != b)
+                                .collect::<Vec<_>>(),
+                            [(&0, &2)]
+                        );
+                    } else if tag != b"SHDR" {
+                        assert_eq!(old, new);
+                    }
+                }
+                if quality == 2 && markers.len() == 1 {
+                    assert_eq!(
+                        &result[offset..],
+                        std::fs::read(root.join("trial21-god-rays.dxbc")).unwrap()
+                    );
+                }
+            }
+            for markers in [
+                &[][..],
+                &[-32188.0, -32188.0][..],
+                &[f32::NAN][..],
+                &[167.0][..],
+            ] {
+                assert!(build_god_rays_falloff(&source, &native, quality, markers).is_err());
+            }
+            assert!(build_god_rays_falloff(&source, &native, 4, &[-32188.0]).is_err());
+            let mut altered = source.clone();
+            altered[8] ^= 1;
+            assert!(build_god_rays_falloff(&altered, &native, quality, &[-32188.0]).is_err());
+            let mut altered = native.clone();
+            altered[8] ^= 1;
+            assert!(build_god_rays_falloff(&source, &altered, quality, &[-32188.0]).is_err());
+        }
+    }
+
     #[test]
     #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
     fn retail_ambient_occlusion_matches_rendered_generator_and_preserves_fallback() {

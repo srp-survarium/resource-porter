@@ -78,6 +78,9 @@ pub struct Map {
     /// Original quality-1 ambient occlusion, normalized for native application.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_ambient_occlusion_021: bool,
+    /// Original radial sun-ray falloff, retaining native mask and application.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_god_rays_falloff_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1380,6 +1383,7 @@ pub fn build(
         ensure!(!map.legacy_particle_fog_021 || map.legacy_fog_021, "original particle fog requires legacy_fog_021");
         ensure!(!map.legacy_water_fog_021 || map.legacy_fog_021, "original water fog requires legacy_fog_021");
         ensure!(!map.legacy_rain_albedo_021 || (map.legacy_fog_021 && map.weather == "rain"), "original rain albedo requires rain weather and legacy_fog_021");
+        ensure!(!map.legacy_god_rays_falloff_021 || map.legacy_fog_021, "original god-rays falloff requires legacy_fog_021");
         ensure!(!map.legacy_ambient_occlusion_021 || map.legacy_fog_021, "original ambient occlusion requires legacy_fog_021");
         ensure!(
             !map.legacy_sky_021 || map.legacy_fog_021,
@@ -1520,6 +1524,7 @@ pub fn build(
     let mut water_fog_profiles = Vec::new();
     let mut rain_albedo_markers = Vec::new();
     let mut ao_markers = Vec::new();
+    let mut god_rays_markers = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1536,6 +1541,9 @@ pub fn build(
             let profile = mark_legacy_fog(&mut project, map)?;
             if map.legacy_rain_albedo_021 {
                 rain_albedo_markers.push(profile.marker);
+            }
+            if map.legacy_god_rays_falloff_021 {
+                god_rays_markers.push(profile.marker);
             }
             if map.legacy_ambient_occlusion_021 {
                 ao_markers.push(profile.marker);
@@ -1608,6 +1616,15 @@ pub fn build(
             &donor.read(crate::weather_fog_021::AO_SOURCE)?,
             &target.read(crate::weather_fog_021::AO_PATH)?, &ao_markers)?)
     };
+    let mut god_rays_shaders = Vec::new();
+    if !god_rays_markers.is_empty() {
+        for quality in 0..4 {
+            let path = crate::weather_fog_021::god_rays_path(quality);
+            let shader = crate::weather_fog_021::build_god_rays_falloff(
+                &donor.read(&path)?, &target.read(&path)?, quality, &god_rays_markers)?;
+            god_rays_shaders.push((path, shader));
+        }
+    }
     let mut rain_albedo_shaders = Vec::new();
     if !rain_albedo_markers.is_empty() {
         let source = donor.read(crate::weather_fog_021::COMPOSITION_SOURCE)?;
@@ -1930,6 +1947,9 @@ pub fn build(
     }
     for (path, shader) in rain_albedo_shaders {
         emit(output, &path, &shader, "0.21d-rain-diffuse+native-composition-and-unmarked-fallback", &mut files)?;
+    }
+    for (path, shader) in god_rays_shaders {
+        emit(output, &path, &shader, "0.21d-god-rays-falloff+native-sampling-and-unmarked-fallback", &mut files)?;
     }
     if let Some(shader) = ao_shader {
         emit(output, crate::weather_fog_021::AO_PATH, &shader,
@@ -2474,6 +2494,7 @@ mod tests {
             legacy_water_fog_021: false,
             legacy_rain_albedo_021: false,
             legacy_ambient_occlusion_021: false,
+            legacy_god_rays_falloff_021: false,
             map_id: None,
             name: None,
         };
@@ -2728,6 +2749,7 @@ mod tests {
             legacy_water_fog_021: false,
             legacy_rain_albedo_021: false,
             legacy_ambient_occlusion_021: false,
+            legacy_god_rays_falloff_021: false,
             map_id: None,
             name: None,
         };

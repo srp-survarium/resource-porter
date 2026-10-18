@@ -561,3 +561,47 @@ do differ between versions, but changing those would not address this
 observed glow. Original god-rays generation and its postprocess application
 are the next comparison; surface shading and the broad visual audit remain
 unfinished.
+
+### Original sun-ray radial falloff
+
+`legacy_god_rays_falloff_021` requires `legacy_fog_021` and restores only the
+radial falloff in all four pinned native `god_rays.ps` quality variants.
+The original shader uses `exp(-20 * distance^attenuation_power)`; native
+0.26 uses `(1 - min(distance, 1))^attenuation_power`. For Vostok evening's
+authored power 2.13, at screen distance 0.5 these are 0.0104 and 0.2285.
+That difference explains the broad orange light over the sun-facing forest.
+
+The adapter copies the five original attenuation instructions, remaps
+`god_rays_parameters2.x` from original CB0[3] to native CB0[2], and guards
+them with the existing map marker. Projection, mask, sample count and
+quality-specific sampling, authored color/intensity, application ordering,
+and unmarked maps retain their native instructions. All eight source/native
+blobs are SHA-256 pinned. Retail tests cover every quality, multiple map
+markers, source arithmetic, complete native fallback, metadata, checksums,
+and rejection of unsupported or altered inputs. Quality 2 produces exactly
+the shader bytes used in the independently rendered diagnostic.
+
+The first Vostok evening south-quarter view improves from MAE 7.193 to
+4.225, with the broad forest glow visibly closer to the frozen original.
+The live shader audit confirms marker -32188, the fixed camera and the
+corrected shader. Remaining views were checked afterwards, reusing that
+first frame: close03 8.186 (previously 7.920), close06 5.023 (4.774), and
+east-quarter 7.187 (6.991). These views look similar. Their saved native
+traces each contain 3,600 zero sun-ray samples, consistent with the sun
+being behind the camera; the small image-error increases should not be
+interpreted as proof of a falloff regression.
+
+This is a scoped falloff correction, not complete original sun-ray pipeline
+parity. The original mask uses a depth threshold of 400, native 300; their
+application ordering also differs. Those are separate investigations. No
+new original captures were made. All 344 ordinary tests and all six retail
+shader tests pass (eight weather tests including the two ordinary ones).
+
+The parity manifest enables this option for Vostok evening only. Full
+build/apply/verify pass with 7,009 files and 299 materials; all 7,005 files
+from parity14 are unchanged. The four additions are the quality variants
+of `god_rays.ps`. The active quality-2 program is byte-identical to the
+validated diagnostic. Archive SHA-256:
+`44609b89e28117eba309e37f64091975b35673cdea68a3748ef0970d7ec83ee6`.
+Mamayev evening validation and the remaining surface/foliage and broad
+visual audit are still outstanding.

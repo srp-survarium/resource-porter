@@ -21,7 +21,8 @@
       "legacy_clouds_021": true,
       "legacy_scattering_021": true,
       "legacy_particle_fog_021": true,
-      "legacy_ambient_occlusion_021": true
+      "legacy_ambient_occlusion_021": true,
+      "legacy_god_rays_falloff_021": true
     },
     {
       "id": 168,
