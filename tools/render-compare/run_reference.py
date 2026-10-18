@@ -42,6 +42,7 @@ def main():
     ap.add_argument('--frames', type=int, default=1); ap.add_argument('--output', type=Path, required=True)
     ap.add_argument('--wine', type=Path, required=True); ap.add_argument('--viewport', type=Path, required=True)
     ap.add_argument('--texture-quality', default='2')
+    ap.add_argument('--audit-fog', action='store_true', help='record the active retail fog shader constants without replacing shaders')
     ap.add_argument('--xdotool', required=True, type=Path)
     ap.add_argument('--project', required=True, choices=['level_03/evening','level_03/rain','level_06/evening','level_06/rain'])
     ap.add_argument('--build', choices=['021d', '026g'], default='021d')
@@ -84,6 +85,8 @@ def main():
                VK_ICD_FILENAMES='/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json',
                DXVK_FRAME_RATE='60', SRP_CAPTURE_BUILD=a.build, SRP_REFERENCE_PROJECT=a.project, SRP_CAPTURE_CONTROL=win(control))
     env.pop('VK_DRIVER_FILES', None)
+    if a.audit_fog:
+        env['SRP_CAPTURE_AUDIT_FOG'] = '1'
     processes, logs = [], []
     try:
         cfg.write_text('\n'.join(lines+[f'r_texture_quality {a.texture_quality}', 'ui off'])+'\n', encoding='cp1251')
@@ -180,15 +183,20 @@ def main():
         (a.output/'final-status.json').write_bytes(status_path.read_bytes())
         (a.output/'profile-during.cfg').write_bytes(cfg.read_bytes())
         artifacts = {str(p.relative_to(a.output)): hashlib.sha256(p.read_bytes()).hexdigest()
-                     for p in a.output.rglob('*') if p.is_file() and p.suffix in ('.bmp', '.json', '.cfg')}
+                     for p in a.output.rglob('*') if p.is_file() and p.suffix in ('.bmp', '.json', '.cfg', '.bin')}
+        missing_fog = [p.name for p in (a.output/'poses').glob('*.bmp')
+                       if a.audit_fog and not Path(str(p)+'.fog.json').exists()]
         (a.output/'capture-manifest.json').write_text(json.dumps({
             'build': a.build, 'project': a.project, 'ui_command': 'ui off',
             'database': database,
+            'audit_fog': a.audit_fog, 'missing_fog_audits': missing_fog,
             'expected_frames': len(frames), 'captured_frames': len(list((a.output/'poses').glob('*.bmp'))),
             'skipped': skipped, 'artifacts': artifacts,
             'runtime_sha256': {name: hashlib.sha256((r/'client/binaries/x86'/name).read_bytes()).hexdigest()
                                for name in ('survarium-capture.exe', 'camera_hook.dll', 'd3d11.dll', 'dxgi.dll')},
         }, indent=2)+'\n')
+        if missing_fog:
+            raise RuntimeError('requested fog audits were not captured: '+', '.join(missing_fog))
     finally:
         subprocess.run([str(a.wine.parent/'wineserver'), '-k'], env=env, timeout=15, check=False)
         subprocess.run([str(a.wine.parent/'wineserver'), '-w'], env=env, timeout=30, check=False)

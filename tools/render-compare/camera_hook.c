@@ -51,6 +51,8 @@ static void error(const char *message) {
     LeaveCriticalSection(&lock);
 }
 
+#include "fog_audit.c"
+
 static void matrices(const Camera *c, float *view, float *projection) {
     float x = c->forward[0], y = c->forward[1], z = c->forward[2];
     float n = sqrtf(x*x + y*y + z*z);
@@ -290,7 +292,7 @@ static int install_present(void) {
     DWORD protection;
     int ok=VirtualProtect(&vtable[8],sizeof(void *),PAGE_READWRITE,&protection);
     if (ok) { vtable[8]=(void *)present; VirtualProtect(&vtable[8],sizeof(void *),protection,&protection); }
-    // Original 0.11e references are screenshot-only: no shader observers or replacements.
+    if (ok) ok=install_fog_audit(device,context);
 
     ID3D11DeviceContext_Release(context);
     ID3D11Device_Release(device);

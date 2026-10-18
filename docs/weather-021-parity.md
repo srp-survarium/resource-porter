@@ -81,3 +81,31 @@ capture hashes and matching camera parameters before producing an original-left/
 candidate-right image, an absolute-difference image and numeric diagnostics.
 Optional named region rectangles support separate foreground/horizon checks.
 New captures record the resource database hash as well as runtime/image hashes.
+
+## Read-only fog audit
+
+`run_reference.py --audit-fog` tags the pinned retail fog shader by its DXBC
+digest and saves its pixel constant buffer at the requested settled camera.
+It checks the uploaded eye position against the requested pose so a lobby or
+loading draw cannot be mistaken for gameplay. The audit does not replace
+shaders or constants. Raw bytes retain nonfinite values; the JSON view writes
+them as `null`. Required audit files are hashed in the capture manifest.
+
+On the first close view, both builds upload identical eye position, sun color,
+sun direction, Rayleigh near/far distances and density. However, 0.21 uploads
+Rayleigh RGB `[2.74699569, 2.74699569, 2.74699569]`, while 0.26 uploads zero
+there and samples a scattering texture instead. Merely retaining the authored
+Rayleigh color property therefore does not retain the original appearance.
+
+The original Mie height multiplier is **positive infinity**, not the reciprocal
+of its authored 25.37. Recovered 0.21 symbols and retail code explain why:
+`math::lerp<environment_properties>` (RVA `0x1abd99`) zero-initializes its output
+and skips the `mie_fog_height_falloff` member at offset `0x15c`.
+`renderer_context::set_static_frame_parameters` (RVA `0xef8e2`) then uploads
+`1 / height_falloff`. The loader and copy operations do include this member.
+At the current positive-height camera, the original draw contributes no Mie
+fog. Treating the authored value as the observed renderer value would be wrong.
+
+The accepted conversion remains iteration 1. A separate experiment will test
+the original Rayleigh calculation before accepting any shader compatibility
+change. Other maps, weather and camera elevations still need verification.
