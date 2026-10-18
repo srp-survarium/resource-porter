@@ -268,7 +268,19 @@ def matches_levels(tags):
     k = [j for j, x in enumerate(ins) if x[1] == 0x2c and x[2][0] == cologne]
     assert len(k) == 1 and ins[k[0] + 1][1] == 0x56 and ins[k[0] + 1][2] == [5], 'Cologne is not the table\'s last row'
     new = ins[k[0] + 2]
-    assert new[1] == 0x55 and new[2] == [8], 'the levels table is not 8 rows (already patched?)'
+    if new[1] == 0x2c:      # rows after Cologne: a movie that has them already (revision 20's lobby_menu.swf)
+        found, j = [], k[0] + 2
+        while ins[j][1] == 0x2c:
+            row = [abc.strings[ins[j + i][2][0] - 1] for i in range(6)]
+            found.append((row[0][1:].decode(), [r[1:].decode() for r in row[1:]]))   # skip each string's length byte
+            assert ins[j + 6][1] == 0x56 and ins[j + 6][2] == [5], 'unexpected Matches table'
+            j += 7
+        assert ins[j][1] == 0x55 and ins[j][2] == [8 + len(found)], 'unexpected Matches table'
+        want = [(key, names) for key, names in MATCHES_LEVELS]
+        assert found == want, f'the movie has other Matches rows: {found}'
+        print('Matches window: levels 9-13 already there, unchanged')
+        return
+    assert new[1] == 0x55 and new[2] == [8], 'the levels table is not 8 rows'
     code = b''
     for key, names in MATCHES_LEVELS:
         assert len(names) == 5

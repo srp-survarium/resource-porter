@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Skhid revision 18: the v0.11 maps as one content pack, over the stock archive and the released
-# patches 12, 14 and 17.
+# Skhid: the v0.11 maps as one content pack, over the stock archive and the released patches in BASE_PATCHES
+# (revision 21: 12, 14, 17, 19, 20).
 #   Chemical Plant (v0.11): 206 batteries, 207 Team Deathmatch (level 12)
 #   Vostok Radar Station (v0.11): 208 batteries, 209 Team Deathmatch (level 13)
 # with the gameplay fill, the 0.11e loading picture (loading_screen_id 29, lobby_menu.swf) and the
@@ -17,27 +17,28 @@ V=${VOSTOK_PORT:-$HERE/../target/release/vostok-port}          # this branch: th
 PACK_TOOL=${PACK_TOOL:-/tmp/rev17-metal-fix/target/release/vostok-port}   # content packs (fix/021-maps-native-finish)
 B="/mnt/hdd/Projects/Survarium Builds/pdb-structure-inputs"
 STOCK=/home/sheep/Projects/survarium/srp/0.26g/game/resources.db
-# The released patches, oldest first (release/patches.tsv): revision 20 builds over 12, 14, 17 and 19.
-BPD=${BASE_PATCHES:-/mnt/hdd/Projects/release-20/base-patches}
-PATCHES=($BPD/resources.db.patch_12 $BPD/resources.db.patch_14 $BPD/resources.db.patch_17 $BPD/resources.db.patch_19)
-declare -A WANT=([resources.db]=c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c
-  [resources.db.patch_12]=2b771e4b2040707434bb17aa27b1965aacba2ca355eb38634f504b61d6c8fab3
-  [resources.db.patch_14]=60a69dcc6b661d09c3143fb74d6806f6f1ba6d465af3c29bfa669a58ce9a404c
-  [resources.db.patch_17]=807b0e784c679a41009940d56ee76919d2bb5f14559154b927faf43405624081
-  [resources.db.patch_19]=8bb0e952014e8420ecd1b959631ec9e62e2f7c6ad04e14293fd8d726a6f9840b)
-for f in $STOCK "${PATCHES[@]}"; do
-  h=$(sha256sum "$f" | cut -d' ' -f1); [ "$h" = "${WANT[$(basename $f)]}" ] || { echo "unexpected $(basename $f): $h"; exit 1; }
-done
+# The released patches, oldest first (release/patches.tsv), from BASE_PATCHES with its SHA256SUMS (checked).
+BPD=${BASE_PATCHES:-/mnt/hdd/Projects/release-21/base-patches}
+mapfile -t PATCHES < <(ls $BPD/resources.db.patch_* | sort -t_ -k2 -n)
+(cd $BPD && sha256sum -c --quiet SHA256SUMS) || { echo "base patches do not match $BPD/SHA256SUMS"; exit 1; }
+[ "$(sha256sum $STOCK | cut -d' ' -f1)" = c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c ] || { echo "unexpected stock archive"; exit 1; }
+echo "base patches: $(for f in "${PATCHES[@]}"; do basename $f; done | tr '\n' ' ')"
 G=$HERE/ports/gameplay-fill; W=${WORK:-$OUT.work}; mkdir -p $W $OUT
 FILLS=(); for p in chemical-011e-anomaly chemical-011e-rust-fog chemical-011e-track-anomaly chemical-011e-resupply chemical-011e-containers \
                    radar-011e-anomaly radar-011e-resupply radar-011e-containers; do FILLS+=(--gameplay-fill $G/$p.json); done
 # TRACK_FILL: another chemical-011e-track-anomaly.json (e.g. -4's, so that the track fog script applies after).
 [ -n "${TRACK_FILL:-}" ] && FILLS=("${FILLS[@]/$G\/chemical-011e-track-anomaly.json/$TRACK_FILL}")
-rm -rf $W/bundle $OUT/$PK
-(cd $HERE && $V build-survarium-maps-026 --manifest ports/survarium-011e-v011-release-to-026g.json --donor-db "$B/011e/app/resources.db" \
+# SKIP_BUNDLE=1 keeps the bundle already built in the work dir (the same tree and inputs).
+[ "${SKIP_BUNDLE:-}" = 1 ] && [ -d $W/bundle ] || { rm -rf $W/bundle; BUILD_BUNDLE=1; }
+rm -rf $OUT/$PK
+[ "${BUILD_BUNDLE:-}" = 1 ] && (cd $HERE && $V build-survarium-maps-026 --manifest ports/survarium-011e-v011-release-to-026g.json --donor-db "$B/011e/app/resources.db" \
   --server-donor-db "$B/011a/app/resources.db" --target-db $STOCK --output $W/bundle "${FILLS[@]}") | tail -1
-BP=(); for f in "${PATCHES[@]}"; do BP+=(--base-patch $f); done
+# The bundle is converted over the patches up to 17, as -3 and -4 were: patch 19 (weapons and scopes) adds
+# items_compatibility rows the stock-built bundle's dictionary does not have, which from-bundle reads as a
+# removal. The check below runs over all of them, 19 included; the movies come from the newest that ships each.
+BP=(); for f in "${PATCHES[@]:0:3}"; do BP+=(--base-patch $f); done
 $PACK_TOOL pack from-bundle --base-db $STOCK "${BP[@]}" --build-base-db $STOCK --bundle $W/bundle --output $OUT/$PK --id maps-v011e --version $N | tail -1
+BP=(); for f in "${PATCHES[@]}"; do BP+=(--base-patch $f); done
 # The two movies as players have them now (each from the newest released patch that ships it), and 0.11e's.
 for s in lobby_menu hud; do
   for ((i = ${#PATCHES[@]} - 1; i >= -1; i--)); do

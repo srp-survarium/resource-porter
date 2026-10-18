@@ -14,7 +14,7 @@
 # stock + 12, 14, 17, 19, and SHA256SUMS.
 #   rev20_v011e_5.sh OUT_DIR FOG_PLAN|FOG_SCRIPT.sh|- SPAWN_PLAN|SPAWN_SCRIPT.sh|- [M021D_PACK]
 set -euo pipefail
-OUT=$1; FOG=$2; SPAWN=$3; M021D=${4:-/mnt/hdd/Projects/release-20/packs/maps-021d-5}
+OUT=$1; FOG=$2; SPAWN=$3; M021D=${4:--}   # the 0.21d pack to check with, or - (revision 21: the 0.21d maps are in patch 20)
 HERE=$(cd -- "$(dirname -- "$0")/../.." && pwd)
 P=/nix/store/0if41r2dp11y0v833p5yrpgr8mdanqjk-python3-3.13.15-env/bin/python3
 export PYTHONPATH=/nix/store/017x90g6glr0vrs1dws38wasaayhh0ba-python3.13-pillow-12.3.0/lib/python3.13/site-packages
@@ -25,10 +25,10 @@ EXO=${EXO_TOOL:-/mnt/hdd/Projects/exo-oxygen-icon/porter/tools/content/exo_oxyge
 PACK_TOOL=${PACK_TOOL:-/tmp/rev17-metal-fix/target/release/vostok-port}
 V4=${V011E_4:-/mnt/hdd/Projects/release-20/packs/maps-v011e-4}
 STOCK=/home/sheep/Projects/survarium/srp/0.26g/game/resources.db
-BP=${BASE_PATCHES:-/mnt/hdd/Projects/release-20/base-patches}
+BP=${BASE_PATCHES:-/mnt/hdd/Projects/release-21/base-patches}
+mapfile -t PATCH_NUMS < <(ls $BP/resources.db.patch_* | sed 's/.*patch_//' | sort -n)
 (cd $BP && sha256sum -c --quiet SHA256SUMS)
 [ -x $EDIT ] && [ -x $PROBES ] || { echo "build the examples edit-built-pack and open-reversed-sphere-probes first"; exit 1; }
-[ "$(sha256sum $V4/files/flash_movies/hud.swf | cut -c1-16)" = 3be3ba15ce912c5b ] || { echo "-4's hud.swf is not 3be3ba15"; exit 1; }
 VERSION=${VERSION:-5}; KIT_PLAN=${KIT_PLAN:-ports/rev20/maps-v011e-$VERSION-kit-and-loading.json}
 NAME=maps-v011e-$VERSION
 W=${WORK:-$OUT.work$VERSION}; mkdir -p "$W" "$OUT"; rm -rf "${OUT:?}/$NAME"
@@ -60,12 +60,19 @@ assert abs(num(p1['probe_side_width']) - 7.818) < 1e-3, p1
 print(sys.argv[1].split('/projects/')[1], 'lighting leaves present:', p2['specular_multiplier'], p1['probe_side_width'])
 PY
 done
-echo "== 5. exo oxygen HUD icon"
-cp $V4/files/flash_movies/hud.swf $W/hud-4.swf
-$P $EXO $W/hud-4.swf $N/files/flash_movies/lobby_menu.swf $W/hud-5.swf
-cp $W/hud-5.swf $N/files/flash_movies/hud.swf
+# The exo oxygen icon: only over a hud.swf whose released base is patch 14's (57ed9742...); revision 20 released
+# it in patch 20's hud.swf, which the base pack's movie is then built over.
+HUD_BASE=$($P -c "import json,sys; print([o['base_sha256'] for o in json.load(open(sys.argv[1]))['operations'] if o['op'] == 'replace_file' and o['path'] == 'flash_movies/hud.swf'][0])" $V4/pack.json)
+if [ "$HUD_BASE" = 57ed9742c47806a0746ba3728f5d7a4b6389402ce2c42155c7f6b1a64379af78 ]; then
+  echo "== 5. exo oxygen HUD icon"
+  cp $V4/files/flash_movies/hud.swf $W/hud-4.swf
+  $P $EXO $W/hud-4.swf $N/files/flash_movies/lobby_menu.swf $W/hud-5.swf
+  cp $W/hud-5.swf $N/files/flash_movies/hud.swf; export EXO_APPLIED=1
+else
+  echo "== 5. exo oxygen HUD icon: already in the released hud.swf the base is built over ($HUD_BASE), skipped"
+fi
 $P - "$N" "$V4" "$W" "$FOG" "$SPAWN" "$VERSION" "$HERE/$KIT_PLAN" "${BASE_VERSION:-4}" <<'PY'
-import hashlib, json, sys
+import hashlib, json, os, sys
 from pathlib import Path
 new, old, work, fog, spawn, version = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4], sys.argv[5], sys.argv[6]
 kit = json.loads(Path(sys.argv[7]).read_text())['projects']['projects/v011e_level_03/day_2/client_project']
@@ -82,8 +89,9 @@ p['notes'].append(f'maps-v011e-{version}: 208/209 base kits (208; 209 the crates
                   + ('206/207 growing track fog rebuilt (track fog worker\'s plan); ' if fog != '-' else '')
                   + ('respawn point fixes of 206-209 (spawn worker\'s plan); ' if spawn != '-' else '')
                   + 'lighting: 206/207 global probe opened (probe_side_width 0.5 -> 7.818), environment_probe(2) specular 5 -> 1; '
-                  'hud.swf: the exoskeletons\' oxygen slot shows their helmet (exo_oxygen_hud_swf.py, fix/exo-oxygen-hud-icon e6e0fca: '
-                  'hudItems cells 28/29, hudIcons 110/113, their grey copies, the empty-tank test)')
+                  + ('hud.swf: the exoskeletons\' oxygen slot shows their helmet (exo_oxygen_hud_swf.py, fix/exo-oxygen-hud-icon e6e0fca: '
+                     'hudItems cells 28/29, hudIcons 110/113, their grey copies, the empty-tank test)' if os.environ.get('EXO_APPLIED') == '1'
+                     else 'hud.swf: the released one (with the exo oxygen icon) plus the 0.11e minimaps'))
 (new / 'pack.json').write_text(json.dumps(p, indent=2, ensure_ascii=False) + '\n')
 def files(d): return {str(f.relative_to(d)): hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted((d / 'files').rglob('*')) if f.is_file()}
 fa, fb = files(old), files(new)
@@ -94,8 +102,9 @@ ops = [i for i, (x, y) in enumerate(zip(po['operations'], p['operations'])) if x
 report = dict(old=str(old), new=str(new), files_changed=changed, manifest_keys_changed=manifest, operations_changed=ops)
 (new.parent / f'maps-v011e-{version}.diff.json').write_text(json.dumps(report, indent=1) + '\n'); print(json.dumps(report, indent=1))
 PY
-BASE=(); for n in 12 14 17 19; do BASE+=(--base-patch $BP/resources.db.patch_$n); done
-$PACK_TOOL pack check --pack "$M021D" --pack "$N" --base-db $STOCK "${BASE[@]}" | tail -3
+BASE=(); for n in "${PATCH_NUMS[@]}"; do BASE+=(--base-patch $BP/resources.db.patch_$n); done
+CHECK=(); [ "$M021D" != - ] && CHECK+=(--pack "$M021D")
+$PACK_TOOL pack check "${CHECK[@]}" --pack "$N" --base-db $STOCK "${BASE[@]}" | tail -3
 (cd "$OUT" && find $NAME -type f -print0 | sort -z | xargs -0 sha256sum > $NAME.files.sha256 \
   && sha256sum $NAME/pack.json $NAME.files.sha256 > SHA256SUMS.v011e-$VERSION)
 cat "$OUT/SHA256SUMS.v011e-$VERSION"
