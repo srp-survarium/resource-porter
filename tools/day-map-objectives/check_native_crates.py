@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent)); sys.path.insert(0, str
 from fast_world import FastWorld
 from audit_respawns import config, tri_box
 
-HX, HZ, H = 0.74, 0.57, 0.68
+import os
+HX, HZ, H = (float(v) for v in os.environ.get("BOX", "0.74,0.57,0.68").split(","))
 
 
 def e2b(a):
@@ -39,7 +40,7 @@ def main():
         for name, l in (('centre', [0, 0, 0]), ('+x+z', [HX, 0, HZ]), ('+x-z', [HX, 0, -HZ]), ('-x+z', [-HX, 0, HZ]), ('-x-z', [-HX, 0, -HZ])):
             q = world(l); f = w.floor(q[0], q[1], q[2], below=0.6, above=0.6)
             floors[name] = None if not f else dict(height=round(f[0], 3), model=f[1].split('/models/')[-1], corner_y=round(q[1], 3))
-        snap = floors['centre']['height'] if floors['centre'] else p[1]
+        snap = p[1] if os.environ.get("NOSNAP") else (floors["centre"]["height"] if floors["centre"] else p[1])
         dy = snap - p[1]
         hits = collections.defaultdict(lambda: dict(n=0, lo=[9, 9, 9], hi=[-9, -9, -9], depth=0.0))
         steps = lambda h, s: [(-h + s * i) for i in range(int(2 * h / s) + 1)]
