@@ -20,7 +20,7 @@ pack=$(realpath -e "$1") || die "no pack directory $1"
 stock=$(realpath -e "${2:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}") || die "no stock resources.db"
 plan="$repo/tools/day-map-objectives/track-fog-rev20.plan.json"
 fill="$repo/ports/gameplay-fill/chemical-011e-track-anomaly.json"
-fill_sha256=a138742023c9326e0a1ce303a9506c83e6bca50982e85e2088c7f80a6c0d3ece
+fill_sha256=71085a68c1de080d2a5a908abf9c6e8e11061efc8b1b586ea43b813edb1b6c6f
 [ -f "$pack/pack.json" ] && [ -d "$pack/files" ] || die "$pack is not a built pack (pack.json, files/)"
 id=$(jq -r .id "$pack/pack.json") || die "unreadable $pack/pack.json"
 [ "$id" = maps-v011e ] || die "$pack is pack '$id', not maps-v011e"

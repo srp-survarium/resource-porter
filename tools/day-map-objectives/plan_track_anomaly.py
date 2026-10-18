@@ -78,6 +78,7 @@ def args():
     ap.add_argument('--artefact-radius', type=float, default=0.6, help='spot sphere radius (native 0.45..0.73)')
     ap.add_argument('--artefact-cooldown', type=int, default=80); ap.add_argument('--artefact-search', type=int, default=6)
     ap.add_argument('--fog-particle', default=PARTICLE, help=f'the fog clouds\' particle (default {PARTICLE})')
+    ap.add_argument('--fog-rows-alt', default=None, help='the rows of the even-numbered stages (default: --fog-rows)')
     ap.add_argument('--fog-rows', default=None, help="rows of emitters per stage, 'DZ:LIFT:X/X/..;..' (default: one per track at --cloud-height)")
     ap.add_argument('--damage', default='240:0.06,300:0.08,360:0.10,420:0.12', help='time_sec:max_hit steps')
     ap.add_argument('--lag', type=float, default=4.5, help='damage ends this far behind the newest cloud')
@@ -135,8 +136,11 @@ def main():
     stage_z, report = [], []
     # --fog-rows: per stage, rows of rust_smoke emitters across the track bed ('DZ:LIFT:X/X/...;...'), each
     # LIFT above the ground under it, moved sideways (up to 2.5 m) out of wagons and other collision.
-    fog_rows = None if a.fog_rows is None else [(float(dz), float(h), [float(x) for x in xs.split('/')])
-                                                 for dz, h, xs in (r.split(':') for r in a.fog_rows.split(';'))]
+    # An emitter is X or X@LIFT (its own height over the bed, else the row's).
+    def rows(text):
+        return None if text is None else [(float(dz), float(h), [(float(x.split('@')[0]), float(x.split('@')[1]) if '@' in x else float(h)) for x in xs.split('/')])
+                                          for dz, h, xs in (r.split(':') for r in text.split(';'))]
+    fog_rows, fog_rows_alt = rows(a.fog_rows), rows(a.fog_rows_alt)
     emitters, shifted = [0], [0]
     stage_z_all = [a.first_z + a.spacing * j for j in range(a.stages)]
     stage_t = [a.start + a.interval * j for j in range(a.stages)]
@@ -182,11 +186,11 @@ def main():
                   effect_zones=[dict(position=[round(x - cx, 3), round(h + a.cloud_height - gy, 3), 0], rotation=[0, 0, 0]) for x, h in zip(tracks, heights)])
             fogs.append(f'{p}/fog_zone')
         else:
-            for r, (dz, lift, xs) in enumerate(fog_rows):
+            for r, (dz, lift, xs) in enumerate(fog_rows_alt if fog_rows_alt is not None and k % 2 == 0 else fog_rows):
                 zr = z + dz if a.end_z is None else min(z + dz, a.end_z - 1.0)
                 spots = []
-                for x in xs:
-                    spot = clear_spot(x, zr, lift)
+                for x, lift_x in xs:
+                    spot = clear_spot(x, zr, lift_x)
                     if spot is None: report.append(f'stage {k:02d} row {r + 1}: no clear spot near ({x}, {zr})'); continue
                     if spot[0] != x: shifted[0] += 1
                     spots.append(spot)
