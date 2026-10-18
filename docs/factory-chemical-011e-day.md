@@ -186,3 +186,27 @@ roof, the bed and rails are hidden with 4 x alpha 4, 8 x alpha 3 and 6 x alpha 4
 (the latter thinner between the tracks), while the 8 x rust_smoke build shows
 the rails. Frame rate at the walkway pose on the headless display: 38 fps
 (8 x rust_smoke: 33). Damage boxes and stage times are unchanged.
+
+**Alpha x5 and artefacts in the track fog (revision 21).** In game (run 4) the
+x4 particle still let a few rail lines show in a wagon's shadow; the particle is
+now rust_smoke with alpha x5 (peaks 0.95 / 0.66): no ground or rail is visible
+from the walkway or the hopper roof, at the same frame rate (headless walkway
+38.8 fps on 206, 39.0 on 207). The plan replaces an x4 particle from an earlier
+application (`replaces`).
+
+Two stage controllers now spawn artefacts (`--artefacts`), as native cores do
+(`artefacts_enabled`, a pool, `max_artefacts_count`, first spawn, respawn
++- variation, chance, `artefact_containers`; each container an
+`artefact_container` with cooldown 80 s and search 6 s on a spot sphere):
+section A (stage z 40, first spawn 270 s) and section B (stage z 95, 405 s),
+one at a time each, lifebone (54, the native toxic cloud's artefact) with a
+pool of 5, respawn 80 +- 30 s, chance 1, spot radius 0.6. With the moss
+field's 2 + 2 the map holds up to 6 at once (native maps 3-4). The spots
+(`track_artefact_spots.py`) lie on the track bed where the fog already stands
+at the first spawn, clear of wagons and pipes, with a free standing capsule,
+inside the damage boxes: A (12.65, 25), (18.6, 32), (15.75, 39), (12.9, 46);
+B (18.6, 72), (18.6, 79), (15.75, 86), (12.9, 93). Everything stays under
+`logic/fill/track_anomaly/`. The client simulation spawns artefacts (srp only
+counts the artefact event for quests and the explorer award); fixed-camera
+captures showed no artefact object at these spots nor at the native moss
+spots, so whether artefacts spawn on these maps is still to be shown by hand.

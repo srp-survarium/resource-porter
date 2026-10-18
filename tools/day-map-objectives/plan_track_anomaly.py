@@ -53,6 +53,7 @@ from fast_world import FastWorld
 from audit_collision_region import collision_parts
 
 TEMPLATE = 'projects/level_02/day_2/client_project'
+CONTAINER, SPOT = 'anomaly/fruit/artefacts/fruit_artefact_container_1', 'anomaly/fruit/artefacts/fruit_artefact_collision_1'
 CORE, DUMMY = 'anomaly/fruit/fruit_anomaly', 'anomaly/fruit/fruit_toxic_cloud_dummy'
 FOG, DAMAGE = 'anomaly/fruit/fx_locator/fruit_toxic_cloud_lvl1_fx', 'anomaly/fruit/fruit_toxic_cloud_lvl1'
 GEOMETRY = 'anomaly/fruit/fruit_toxic_cloud_collision_lvl1'
@@ -69,6 +70,13 @@ def args():
     ap.add_argument('--spacing', type=float, default=5.0, help='metres between stages along the tracks')
     ap.add_argument('--tracks', default='12.9,18.6', help='x of the track centre lines')
     ap.add_argument('--cloud-height', type=float, default=0.85, help='cloud above the ground (level_03 median)')
+    ap.add_argument('--artefacts', default=None, help="artefact sections 'STAGE_Z:FIRST_SPAWN_SEC:X/Z,X/Z,..;..': that stage's controller spawns them at those bed spots")
+    ap.add_argument('--artefact', default='54:5', help='dict_id:pool count (54 lifebone, the native fruit cloud\'s)')
+    ap.add_argument('--artefact-max', type=int, default=1, help='artefacts on the ground at once per section')
+    ap.add_argument('--artefact-respawn', default='80:30', help='respawn seconds:variation')
+    ap.add_argument('--artefact-chance', type=float, default=1.0)
+    ap.add_argument('--artefact-radius', type=float, default=0.6, help='spot sphere radius (native 0.45..0.73)')
+    ap.add_argument('--artefact-cooldown', type=int, default=80); ap.add_argument('--artefact-search', type=int, default=6)
     ap.add_argument('--fog-particle', default=PARTICLE, help=f'the fog clouds\' particle (default {PARTICLE})')
     ap.add_argument('--fog-rows', default=None, help="rows of emitters per stage, 'DZ:LIFT:X/X/..;..' (default: one per track at --cloud-height)")
     ap.add_argument('--damage', default='240:0.06,300:0.08,360:0.10,420:0.12', help='time_sec:max_hit steps')
@@ -95,7 +103,7 @@ def main():
     assert steps == sorted(steps) and all(0 < h <= 1 for _, h in steps)
     level_02 = a.level_02.read_bytes()
     native = {o['full_name']: o for o in config(level_02)['client_objects'] if 'full_name' in o}
-    for name in (CORE, DUMMY, FOG, DAMAGE, GEOMETRY): assert name in native, name
+    for name in (CORE, DUMMY, FOG, DAMAGE, GEOMETRY, CONTAINER, SPOT): assert name in native, name
     project = config((a.overlay/'projects/v011e_level_04/day_2/client_project').read_bytes())
     world = FastWorld(a.overlay, project)
     rails = []
@@ -124,12 +132,26 @@ def main():
         return dict(enabled=True, energy_threshold=threshold, active_time_sec=seconds, energy_on_exit=exit_energy,
                     shoot_trigger=False, zone_activity_trigger=False, groups=[group(zones)])
     cx = sum(tracks) / len(tracks)
-    stage_z, stage_t, report = [], [], []
+    stage_z, report = [], []
     # --fog-rows: per stage, rows of rust_smoke emitters across the track bed ('DZ:LIFT:X/X/...;...'), each
     # LIFT above the ground under it, moved sideways (up to 2.5 m) out of wagons and other collision.
     fog_rows = None if a.fog_rows is None else [(float(dz), float(h), [float(x) for x in xs.split('/')])
                                                  for dz, h, xs in (r.split(':') for r in a.fog_rows.split(';'))]
     emitters, shifted = [0], [0]
+    stage_z_all = [a.first_z + a.spacing * j for j in range(a.stages)]
+    stage_t = [a.start + a.interval * j for j in range(a.stages)]
+    sections, artefact_report = {}, []
+    if a.artefacts:
+        for sec in a.artefacts.split(';'):
+            sz_, first, spots = sec.split(':')
+            sections[round(float(sz_), 3)] = (int(first), [tuple(float(v) for v in xz.split('/')) for xz in spots.split(',')])
+        assert set(sections) <= {round(v, 3) for v in stage_z_all}, f'artefact stages {sorted(sections)} are not stages'
+    bed_world = []
+    def bed_ground(x, z):
+        if not bed_world:
+            bed_world.append(FastWorld(a.overlay, parts=[q for q in world.parts if re.search(a.bed_models, '/' + q[0])]))
+        f = bed_world[0].floor(x, 2.4, z, below=1.5, above=0.7)
+        return f[0] if f else None
     def clear_spot(x, z, lift):
         for dx in (0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5, 2.0, -2.0, 2.5, -2.5):
             f = world.floor(x + dx, 2.4, z, below=1.5, above=0.7)
@@ -141,7 +163,7 @@ def main():
         return None
     for k in range(1, a.stages + 1):
         z = a.first_z + a.spacing * (k - 1); t = a.start + a.interval * (k - 1)
-        stage_z.append(z); stage_t.append(t)
+        stage_z.append(z)
         p = f'{ROOT}/stage_{k:02d}'
         heights = []
         for x in tracks:
@@ -173,7 +195,28 @@ def main():
                 clone(FOG, name, position=[cx, gy, z], max_hit=0, idle_particle=a.fog_particle, collision_geometries=carrier,
                       effect_zones=[dict(position=[round(x - cx, 3), round(y - gy, 3), round(zz - z, 3)], rotation=[0, 0, 0]) for x, y, zz in spots])
                 fogs.append(name); emitters[0] += len(spots)
-        clone(CORE, f'{p}/controller', position=[cx, gy, z], **quiet,
+        spawn = dict(quiet)
+        section = sections.get(round(z, 3))
+        if section is not None:
+            first, spots = section
+            assert first >= t, f'stage {k}: artefacts at {first} s before its fog ({t} s)'
+            names = []
+            for i, (sx, sz) in enumerate(spots, 1):
+                assert stage_t[next(j for j, zz in enumerate(stage_z_all) if zz - a.spacing / 2 <= sz <= zz + a.spacing / 2)] <= first, \
+                    f'stage {k} spot ({sx}, {sz}): its fog starts after the first spawn'
+                g = bed_ground(sx, sz); assert g is not None, f'no track bed under the spot ({sx}, {sz})'
+                c = f'{p}/artefacts/container_{i}'
+                clone(SPOT, f'{c}_spot', position=[sx, round(g, 3), sz],
+                      meshes=[dict(type=0, position=[0, 0, 0], rotation=[0, 0, 0], scale=[a.artefact_radius] * 3)])
+                clone(CONTAINER, c, position=[sx, round(g, 3), sz], artefacts_cooldown_time_sec=a.artefact_cooldown,
+                      artefacts_search_time_sec=a.artefact_search, collision_geometries=[dict(name=f'{c}_spot')])
+                names.append(c)
+            art_id, pool = (int(v) for v in a.artefact.split(':')); respawn, variation = (int(v) for v in a.artefact_respawn.split(':'))
+            spawn.update(artefacts_enabled=True, max_artefacts_count=a.artefact_max, artefacts=[dict(dict_id=art_id, count=pool)],
+                         artefacts_first_spawn_time_sec=first, artefacts_respawn_time_sec=respawn, artefacts_respawn_variation_sec=variation,
+                         artefacts_respawn_chance=int(a.artefact_chance) if float(a.artefact_chance).is_integer() else a.artefact_chance, artefact_containers=names)
+            artefact_report.append(dict(stage=k, z=z, first_spawn_sec=first, spots=[[sx, sz] for sx, sz in spots]))
+        clone(CORE, f'{p}/controller', position=[cx, gy, z], **spawn,
               states=[state(0, t, 1, [f'{p}/idle_zone']), state(1, 0, 0, fogs)])
     # Damage: one controller, a timed chain idle -> step 1 -> ... -> last step.
     p = f'{ROOT}/damage'
@@ -260,7 +303,7 @@ def main():
     print(json.dumps(dict(parameters={k: v for k, v in vars(a).items() if k not in ('level_02', 'overlay', 'output', 'segments_out')},
                           stages=[dict(stage=k + 1, at_sec=t, z=z) for k, (t, z) in enumerate(zip(stage_t, stage_z))][::5],
                           full_at_sec=stage_t[-1], damage=damage, objects=dict(kinds), clouds=a.stages * len(tracks),
-                          wagons=report, fog_emitters=emitters[0] or a.stages * len(tracks), fog_emitters_moved_aside=shifted[0]), indent=1))
+                          wagons=report, artefacts=artefact_report, fog_emitters=emitters[0] or a.stages * len(tracks), fog_emitters_moved_aside=shifted[0]), indent=1))
     if segments and a.segments_out:
         a.segments_out.write_text(json.dumps(dict(segments=segments, stages=[dict(stage=k + 1, at_sec=t, z=z) for k, (t, z) in enumerate(zip(stage_t, stage_z))],
                                                   steps=[dict(step=j, at_sec=t, max_hit=h, z1=z1_of[j]) for j, (t, h) in enumerate(steps, 1)]), indent=1) + '\n')

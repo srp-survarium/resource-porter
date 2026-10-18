@@ -29,7 +29,8 @@
 //! [0, yaw, 0]. With `"only_prefix": P` in the plan, each project outside the client objects under P
 //! must come out identical. `"add_files": [{"path", "from_db", "from_sha256", "set": {leaf: value},
 //! "sha256"}]` derives new files from stock configs (each leaf must exist and change; the result's
-//! hash is checked; the path must be new; pack.json's operations are the caller's). Every file is
+//! hash is checked; an existing file must be identical (left) or one of its `"replaces"` hashes
+//! (rewritten); pack.json's operations are the caller's). Every file is
 //! edited in memory first and written only when all its plan's ops succeeded.
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -69,6 +70,9 @@ struct DerivedFile {
     set: BTreeMap<String, serde_json::Value>,
     /// The sha256 of the result.
     sha256: String,
+    /// Earlier versions of this file (their sha256) that the result may replace.
+    #[serde(default)]
+    replaces: Vec<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -365,7 +369,17 @@ fn main() -> Result<()> {
         let hash = format!("{:x}", Sha256::digest(&out));
         ensure!(hash == add.sha256, "{}: the result's sha256 is {hash}, expected {}", add.path, add.sha256);
         let file = files.join(&add.path);
-        ensure!(!file.exists(), "{} already exists", file.display());
+        if file.exists() {
+            let have = format!("{:x}", Sha256::digest(std::fs::read(&file)?));
+            if have == hash {
+                println!("{}: already present, identical (sha256 {hash})", add.path);
+                continue;
+            }
+            ensure!(add.replaces.contains(&have), "{} already exists with sha256 {have}, neither the derived {hash} nor an earlier version", file.display());
+            println!("{}: replaces the earlier version {have} with sha256 {hash}", add.path);
+            edited.push((file, out));
+            continue;
+        }
         println!("{}: derived from {} with {} leaves set, sha256 {hash}", add.path, add.from_db, add.set.len());
         edited.push((file, out));
     }
