@@ -469,5 +469,19 @@
       "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
     }
   },
-  "open_reversed_sphere_probes": true
+  "open_reversed_sphere_probes": true,
+  "reviewed_native_textures": {
+    "tiled/metal/metal_rust_02_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~10 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "tiled/metal/metal_column_06_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~3.9 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "tiled/stucco/stucco_ceiling_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~3.4 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "props/furniture/table_stool_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~2.5 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "tiled/stucco/stucco_08_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~2.5 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "tiled/bricks/bricks_brick_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~2.3 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "tiled/stucco/stucco_05_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~2.0 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "door/door_gate_nmap": "the same normal map as 0.26's (decoded, correlation >= 0.93), which 0.26 flattened: 0.11e's is ~1.5 times stronger and, under 0.26's lighting, blotched rusted metal and walls",
+    "tiled/floor/floor_trash": "the same colour as 0.26's (PSNR >= 52 dB), which 0.26 gave the alpha heights its vertex-blend technique reads; 0.11e's DXT1 has none and its floors blended in noise",
+    "tiled/trash/trash": "the same colour as 0.26's (PSNR >= 52 dB), which 0.26 gave the alpha heights its vertex-blend technique reads; 0.11e's DXT1 has none and its floors blended in noise",
+    "tiled/bricks/brick_02": "the same colour as 0.26's (PSNR >= 52 dB), which 0.26 gave the alpha heights its vertex-blend technique reads; 0.11e's DXT1 has none and its floors blended in noise",
+    "tiled/bricks/briks_trash_02": "the same colour as 0.26's (PSNR >= 52 dB), which 0.26 gave the alpha heights its vertex-blend technique reads; 0.11e's DXT1 has none and its floors blended in noise"
+  }
 }
