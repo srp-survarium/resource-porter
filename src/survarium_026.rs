@@ -75,6 +75,9 @@ pub struct Map {
     /// Omit 0.26's additional rain diffuse attenuation, absent in 0.21.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_rain_albedo_021: bool,
+    /// Original quality-1 ambient occlusion, normalized for native application.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_ambient_occlusion_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1377,6 +1380,7 @@ pub fn build(
         ensure!(!map.legacy_particle_fog_021 || map.legacy_fog_021, "original particle fog requires legacy_fog_021");
         ensure!(!map.legacy_water_fog_021 || map.legacy_fog_021, "original water fog requires legacy_fog_021");
         ensure!(!map.legacy_rain_albedo_021 || (map.legacy_fog_021 && map.weather == "rain"), "original rain albedo requires rain weather and legacy_fog_021");
+        ensure!(!map.legacy_ambient_occlusion_021 || map.legacy_fog_021, "original ambient occlusion requires legacy_fog_021");
         ensure!(
             !map.legacy_sky_021 || map.legacy_fog_021,
             "original sky requires legacy_fog_021"
@@ -1515,6 +1519,7 @@ pub fn build(
     let mut particle_fog_profiles = Vec::new();
     let mut water_fog_profiles = Vec::new();
     let mut rain_albedo_markers = Vec::new();
+    let mut ao_markers = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1531,6 +1536,9 @@ pub fn build(
             let profile = mark_legacy_fog(&mut project, map)?;
             if map.legacy_rain_albedo_021 {
                 rain_albedo_markers.push(profile.marker);
+            }
+            if map.legacy_ambient_occlusion_021 {
+                ao_markers.push(profile.marker);
             }
             if map.legacy_water_fog_021 {
                 water_fog_profiles.push(profile.clone());
@@ -1595,6 +1603,11 @@ pub fn build(
         )?)
     };
     let mut cloud_shaders = Vec::new();
+    let ao_shader = if ao_markers.is_empty() { None } else {
+        Some(crate::weather_fog_021::build_ambient_occlusion(
+            &donor.read(crate::weather_fog_021::AO_SOURCE)?,
+            &target.read(crate::weather_fog_021::AO_PATH)?, &ao_markers)?)
+    };
     let mut rain_albedo_shaders = Vec::new();
     if !rain_albedo_markers.is_empty() {
         let source = donor.read(crate::weather_fog_021::COMPOSITION_SOURCE)?;
@@ -1917,6 +1930,10 @@ pub fn build(
     }
     for (path, shader) in rain_albedo_shaders {
         emit(output, &path, &shader, "0.21d-rain-diffuse+native-composition-and-unmarked-fallback", &mut files)?;
+    }
+    if let Some(shader) = ao_shader {
+        emit(output, crate::weather_fog_021::AO_PATH, &shader,
+             "0.21d-quality1-ambient-occlusion+native-unmarked-fallback", &mut files)?;
     }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -2456,6 +2473,7 @@ mod tests {
             legacy_particle_fog_021: false,
             legacy_water_fog_021: false,
             legacy_rain_albedo_021: false,
+            legacy_ambient_occlusion_021: false,
             map_id: None,
             name: None,
         };
@@ -2709,6 +2727,7 @@ mod tests {
             legacy_particle_fog_021: false,
             legacy_water_fog_021: false,
             legacy_rain_albedo_021: false,
+            legacy_ambient_occlusion_021: false,
             map_id: None,
             name: None,
         };

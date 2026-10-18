@@ -481,3 +481,52 @@ remain fixed. The parity manifest enables the option on both rain maps.
 The full 7,004-file bundle builds, applies and verifies; archive SHA-256 is
 `56550a8c2f0aefde97e2f208a294fc479905707faf6a3d85800ff79668b490e3`.
 Only the four composition variants differ from the prior accepted bundle.
+
+## Ambient occlusion after the rain-lighting correction
+
+The original and native ambient-volume shader programs are byte-identical
+(their reflection metadata differs), as is `apply_ambient_lights.ps`.
+Restoring the original finishes of the three raycast-identified foreground
+ground materials changes close03 error only from 9.35 to 8.94 and leaves the
+dark foreground; that material diagnostic is not retained.
+
+Retesting the original quality-1 AO generator after removing the native rain
+attenuation improves all four Mamayev rain views. Close03 changes from 9.19
+to 8.18, close06 from 9.88 to 8.96, east from 4.13 to 3.90, and southwest
+from 3.84 to 3.57. The separately measured foreground region improves from
+13.36 to 11.03. The first close frame is reused in the regression comparison.
+The read-only draw trace confirms the original generator and the accepted
+rain-composition shader both execute. All original screenshots stay frozen.
+
+`legacy_ambient_occlusion_021` requires `legacy_fog_021` for its map marker.
+It restores the pinned original quality-1 generator inside the native
+`ssao_hemisphere_optimized.ps`, retaining the full native body for unmarked
+maps. Original generation stores AO at 0.4 scale and original application
+multiplies by 2.5; the adapter normalizes generation to the native filter and
+application range. It does not add a brightness multiplier to native AO.
+The source noise and downsampled-depth resources are remapped by their
+bindings. The native `s_base` and original `s_linear` names denote the same
+linear/wrap sampler; the depth sampler remains `s_accumulator`.
+
+The retail test reverses only those resource remaps and compares every
+instruction with the independently rendered diagnostic. It also verifies
+every native fallback instruction, single and multiple markers, reflection
+metadata, asset-header preservation, DXBC checksum, and rejection of modified
+templates or invalid markers. Validation passes: 344 ordinary tests and all
+five explicit retail shader tests. The full four-map bundle builds with
+7,005 files; all 7,004 files from the prior accepted bundle are unchanged.
+Only Mamayev rain currently opts in. Quality-1 captures are the validated
+scope; other AO techniques remain native.
+
+The exact porter-built archive also passes apply and verify. Its guarded
+close03 capture scores 8.21 overall and 11.01 on the foreground, consistent
+with the diagnostic's 8.18 and 11.03. The trace confirms the guarded shader
+`9a5f48515381083948b6efbc54cecde0` executes. The foreground retains about
+72% of its pre-AO lighting, compared with 61% under the native generator;
+the unguarded diagnostic retains about 73%. Remaining differences include
+animated content, surface shading and small bright flecks.
+
+This correction is retained for Mamayev rain. Archive SHA-256:
+`a1e9a0a8386783062167b5e75c7d6688f98ecbcd9a966961f053e8bbac7cd3a4`.
+Vostok and evening AO validation, evening flares, and the broad four-weather
+visual audit remain outstanding; visual parity is not yet established.

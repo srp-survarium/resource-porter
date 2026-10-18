@@ -17,6 +17,153 @@ pub const WATER_TEMPLATE: &str = "shaders/sm_4_0/forward_water.ps/_3__1_1_______
 pub const COMPOSITION_PREFIX: &str = "shaders/sm_4_0/composition.ps/";
 pub const COMPOSITION_SOURCE: &str = "shaders/sm_4_0/composition.ps/_0_300_____________________________________________________________";
 pub const COMPOSITION_TEMPLATE: &str = "shaders/sm_4_0/composition.ps/___3010______0_____________________________________________________";
+pub const AO_SOURCE: &str = "shaders/sm_4_0/ssao_accumulation.ps/___________________________________________________________________";
+pub const AO_PATH: &str = "shaders/sm_4_0/ssao_hemisphere_optimized.ps/___________________________________________________________________";
+
+/// Original quality-1 ambient occlusion, normalized for the native filter and
+/// application passes. Original generation stores AO * 0.4 and application
+/// multiplies by 2.5; native application expects the unscaled value. Keep the
+/// complete native generator for every map not explicitly marked.
+pub fn build_ambient_occlusion(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
+    ensure!(!markers.is_empty(), "no original AO markers");
+    let mut seen = std::collections::BTreeSet::new();
+    for marker in markers {
+        ensure!(
+            marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
+            "invalid or duplicate AO marker"
+        );
+    }
+    let (_, original) = pinned_code(
+        source,
+        "4c4584d1fb369df50f23fb6b532a2fbd552d0704174f4bdb2913de5c39c45b79",
+    )?;
+    let (offset, native) = pinned_code(
+        target,
+        "b2725c5daf5c98edd8d96335c74343f1cd08aea967bcc0d7e6528f4c9f7cb820",
+    )?;
+    let source_chunks = chunks(original)?;
+    let mut entries = chunks(native)?;
+    let si = entries
+        .iter()
+        .position(|(tag, _)| tag == b"SHDR")
+        .context("missing AO program")?;
+    let source_words = words(
+        &source_chunks
+            .iter()
+            .find(|(tag, _)| tag == b"SHDR")
+            .context("missing original AO program")?
+            .1,
+    )?;
+    let source_ops = instructions(&source_words)?;
+    let native_words = words(&entries[si].1)?;
+    let mut native_ops = instructions(&native_words)?;
+    let st = source_ops
+        .iter()
+        .position(|i| i[0] & 2047 == 104)
+        .context("missing original AO temporaries")?;
+    let nt = native_ops
+        .iter()
+        .position(|i| i[0] & 2047 == 104)
+        .context("missing native AO temporaries")?;
+    ensure!(
+        source_ops[st] == [0x02000068, 11] && native_ops[nt] == [0x02000068, 9],
+        "AO temporary layout changed"
+    );
+    let mut body = source_ops[st + 1..].to_vec();
+    let mut normalized = 0;
+    for ins in &mut body {
+        if ins.as_slice()
+            == [
+                0x07000038, 0x00102012, 0, 0x0010000a, 0, 0x00004001, 0x3ecccccd,
+            ]
+        {
+            ins[6] = 1.0f32.to_bits();
+            normalized += 1;
+        }
+        // The pinned original uses only sample and sample_l, with immediate
+        // resource/sampler operands at these exact locations. Original noise
+        // t0 -> native t2; downsampled depth t1 -> t3. s_linear and s_base
+        // are the same linear/wrap sampler; s_accumulator moves from s1 to s3.
+        if matches!(ins[0] & 2047, 69 | 72) {
+            ensure!(
+                ins[5] == 0x00107e46 && ins[7] == 0x00106000 && ins[6] <= 1 && ins[8] <= 1,
+                "original AO sample binding changed"
+            );
+            ins[6] += 2;
+            if ins[8] == 1 {
+                ins[8] = 3;
+            }
+        }
+    }
+    ensure!(normalized == 1, "original AO normalization changed");
+    ensure!(
+        native_ops[1] == [0x04000059, 0x00208e46, 1, 15],
+        "native AO globals changed"
+    );
+    native_ops[1][3] = 19;
+    native_ops[nt][1] = 12;
+    let mut updated = native_words[..2].to_vec();
+    updated.extend(native_ops[..=nt].iter().flatten());
+    for marker in markers {
+        updated.extend([
+            0x08000018,
+            0x00100082,
+            11,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010003a,
+            11,
+        ]);
+        updated.extend(body.iter().flatten());
+        updated.push(0x01000015);
+    }
+    updated.extend(native_ops[nt + 1..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[si].1 = bytes(&updated);
+    let r = &mut entries
+        .iter_mut()
+        .find(|(tag, _)| tag == b"RDEF")
+        .context("missing AO reflection")?
+        .1;
+    fn name(r: &[u8], at: usize) -> Result<&str> {
+        let tail = r.get(at..).context("missing AO reflection name")?;
+        let end = tail
+            .iter()
+            .position(|c| *c == 0)
+            .context("unterminated AO reflection name")?;
+        Ok(std::str::from_utf8(&tail[..end])?)
+    }
+    let mut marked = 0;
+    for i in 0..u32_at(r, 0)? as usize {
+        let cb = u32_at(r, 4)? as usize + 24 * i;
+        if name(r, u32_at(r, cb)? as usize)? != "static_globals" {
+            continue;
+        }
+        for j in 0..u32_at(r, cb + 4)? as usize {
+            let var = u32_at(r, cb + 8)? as usize + 24 * j;
+            if name(r, u32_at(r, var)? as usize)? != "atmosphere_parameters3" {
+                continue;
+            }
+            ensure!(
+                u32_at(r, var + 4)? == 288
+                    && u32_at(r, var + 8)? == 16
+                    && u32_at(r, var + 12)? == 0,
+                "AO marker layout changed"
+            );
+            r[var + 12..var + 16].copy_from_slice(&2u32.to_le_bytes());
+            marked += 1;
+        }
+    }
+    ensure!(marked == 1, "missing AO map marker");
+    let mut blob = target[..offset].to_vec();
+    blob.extend(assemble(native, &entries)?);
+    Ok(blob)
+}
 
 /// 0.26 introduced a rain-shadow-dependent diffuse attenuation in composition.
 /// The pinned 0.21 composition has no such step. Bypass only that final block
@@ -1228,6 +1375,110 @@ fn checksum(code: &[u8]) -> Result<[u8; 16]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_ambient_occlusion_matches_rendered_generator_and_preserves_fallback() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let source =
+            std::fs::read(root.join("original-38aca4f822a8778b42fe607386e85653.blob")).unwrap();
+        let native =
+            std::fs::read(root.join("native-6c2bc152a852f04b73f6902cbce82ea0.blob")).unwrap();
+        let diagnostic = std::fs::read(root.join("trial15-ao-generator.dxbc")).unwrap();
+        let program = |entries: &Vec<([u8; 4], Vec<u8>)>| {
+            instructions(&words(&entries.iter().find(|(t, _)| t == b"SHDR").unwrap().1).unwrap())
+                .unwrap()
+        };
+        let reference = program(&chunks(&diagnostic).unwrap());
+        let st = reference.iter().position(|i| i[0] & 2047 == 104).unwrap();
+        let offset = 4 + u32_at(&native, 0).unwrap() as usize * 264;
+        let original_chunks = chunks(&native[offset..]).unwrap();
+        let original_ops = program(&original_chunks);
+        let nt = original_ops
+            .iter()
+            .position(|i| i[0] & 2047 == 104)
+            .unwrap();
+        for markers in [&[-32198.0f32][..], &[-32198.0, -32189.0][..]] {
+            let result = build_ambient_occlusion(&source, &native, markers).unwrap();
+            assert_eq!(&result[..offset], &native[..offset]);
+            assert_eq!(
+                checksum(&result[offset..]).unwrap(),
+                result[offset + 4..offset + 20]
+            );
+            let new_chunks = chunks(&result[offset..]).unwrap();
+            let ops = program(&new_chunks);
+            let mut declarations = ops[..=nt].to_vec();
+            assert_eq!(declarations[1][3], 19);
+            assert_eq!(declarations[nt][1], 12);
+            declarations[1][3] = 15;
+            declarations[nt][1] = 9;
+            assert_eq!(declarations, original_ops[..=nt]);
+            let mut at = nt + 1;
+            for marker in markers {
+                assert_eq!(
+                    ops[at],
+                    [
+                        0x08000018,
+                        0x00100082,
+                        11,
+                        0x0020803a,
+                        1,
+                        18,
+                        0x00004001,
+                        marker.to_bits()
+                    ]
+                );
+                assert_eq!(ops[at + 1], [0x0304001f, 0x0010003a, 11]);
+                let end = at + 2 + reference.len() - st - 1;
+                let mut restored = ops[at + 2..end].to_vec();
+                for ins in &mut restored {
+                    if matches!(ins[0] & 2047, 69 | 72) {
+                        assert!(matches!(ins[6], 2 | 3));
+                        assert!(matches!(ins[8], 0 | 3));
+                        ins[6] -= 2;
+                        if ins[8] == 3 {
+                            ins[8] = 1;
+                        }
+                    }
+                }
+                // Independent diagnostic was rendered with the source bindings.
+                // Reverse only the resource remap: every arithmetic/control-flow
+                // instruction, including AO normalization, must match exactly.
+                assert_eq!(restored, reference[st + 1..]);
+                assert_eq!(ops[end], [0x01000015]);
+                at = end + 1;
+            }
+            assert_eq!(ops[at..], original_ops[nt + 1..]);
+            for ((tag, old), (new_tag, new)) in original_chunks.iter().zip(&new_chunks) {
+                assert_eq!(tag, new_tag);
+                if tag == b"RDEF" {
+                    assert_eq!(old.len(), new.len());
+                    assert_eq!(
+                        old.iter()
+                            .zip(new)
+                            .filter(|(a, b)| a != b)
+                            .collect::<Vec<_>>(),
+                        [(&0, &2)]
+                    );
+                } else if tag != b"SHDR" {
+                    assert_eq!(old, new);
+                }
+            }
+        }
+        for markers in [
+            &[][..],
+            &[-32198.0, -32198.0][..],
+            &[f32::NAN][..],
+            &[177.0][..],
+        ] {
+            assert!(build_ambient_occlusion(&source, &native, markers).is_err());
+        }
+        let mut altered = source.clone();
+        altered[8] ^= 1;
+        assert!(build_ambient_occlusion(&altered, &native, &[-32198.0]).is_err());
+        let mut altered = native.clone();
+        altered[8] ^= 1;
+        assert!(build_ambient_occlusion(&source, &altered, &[-32198.0]).is_err());
+    }
     #[test]
     #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
     fn retail_rain_albedo_preserves_native_composition_and_fallback() {

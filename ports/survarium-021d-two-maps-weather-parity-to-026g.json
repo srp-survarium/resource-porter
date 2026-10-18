@@ -83,7 +83,8 @@
       "legacy_scattering_021": true,
       "legacy_particle_fog_021": true,
       "legacy_water_fog_021": true,
-      "legacy_rain_albedo_021": true
+      "legacy_rain_albedo_021": true,
+      "legacy_ambient_occlusion_021": true
     }
   ],
   "material_templates": {
