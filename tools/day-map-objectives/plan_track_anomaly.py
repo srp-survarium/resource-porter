@@ -69,6 +69,7 @@ def args():
     ap.add_argument('--spacing', type=float, default=5.0, help='metres between stages along the tracks')
     ap.add_argument('--tracks', default='12.9,18.6', help='x of the track centre lines')
     ap.add_argument('--cloud-height', type=float, default=0.85, help='cloud above the ground (level_03 median)')
+    ap.add_argument('--fog-particle', default=PARTICLE, help=f'the fog clouds\' particle (default {PARTICLE})')
     ap.add_argument('--fog-rows', default=None, help="rows of emitters per stage, 'DZ:LIFT:X/X/..;..' (default: one per track at --cloud-height)")
     ap.add_argument('--damage', default='240:0.06,300:0.08,360:0.10,420:0.12', help='time_sec:max_hit steps')
     ap.add_argument('--lag', type=float, default=4.5, help='damage ends this far behind the newest cloud')
@@ -155,7 +156,7 @@ def main():
         clone(DUMMY, f'{p}/idle_zone', position=[cx, gy, z], collision_geometries=carrier)
         fogs = []
         if fog_rows is None:
-            clone(FOG, f'{p}/fog_zone', position=[cx, gy, z], max_hit=0, idle_particle=PARTICLE, collision_geometries=carrier,
+            clone(FOG, f'{p}/fog_zone', position=[cx, gy, z], max_hit=0, idle_particle=a.fog_particle, collision_geometries=carrier,
                   effect_zones=[dict(position=[round(x - cx, 3), round(h + a.cloud_height - gy, 3), 0], rotation=[0, 0, 0]) for x, h in zip(tracks, heights)])
             fogs.append(f'{p}/fog_zone')
         else:
@@ -169,7 +170,7 @@ def main():
                     spots.append(spot)
                 assert 0 < len(spots) <= 6, f'stage {k} row {r + 1}: {len(spots)} emitters (native zones carry up to 6)'
                 name = f'{p}/fog_zone' if r == 0 else f'{p}/fog_zone_{r + 1}'
-                clone(FOG, name, position=[cx, gy, z], max_hit=0, idle_particle=PARTICLE, collision_geometries=carrier,
+                clone(FOG, name, position=[cx, gy, z], max_hit=0, idle_particle=a.fog_particle, collision_geometries=carrier,
                       effect_zones=[dict(position=[round(x - cx, 3), round(y - gy, 3), round(zz - z, 3)], rotation=[0, 0, 0]) for x, y, zz in spots])
                 fogs.append(name); emitters[0] += len(spots)
         clone(CORE, f'{p}/controller', position=[cx, gy, z], **quiet,

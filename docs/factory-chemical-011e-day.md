@@ -171,3 +171,18 @@ dropped). Estimated opacity of the open bed straight down 0.77 (was 0.33), at
 (was 6.9 k; native level_03 ~17 k with its electro anomalies, level_06 ~15 k);
 overdraw looking into the fog about 4 times the first build's. Damage objects
 and stage times are unchanged.
+
+**Opaque fog (revision 21, verified in game).** The owner, on the 8-per-stage
+build: "fog from top is still visible". The fog's particle is now
+`particles/fx/ported/v011e/track_fog.particle`, native rust_smoke with its alpha
+over life four times as high (peaks 0.76 / 0.53; colour, size, count, rate,
+life and domain native; `track_fog_particle.py`, derived by the plan's
+`add_files` from the stock file). Four emitters across the bed per stage
+(x 10.9 / 14.1 / 17.4 / 20.6, 0.85 m up; 100 in all, half the previous 199)
+hide the bed. In-game captures (one headless client, the owner's graphics
+settings, fixed camera poses at full growth; `ingame/` of the work directory):
+from the walkway pose of the owner's 02-33-04 screenshot and from a hopper
+roof, the bed and rails are hidden with 4 x alpha 4, 8 x alpha 3 and 6 x alpha 4
+(the latter thinner between the tracks), while the 8 x rust_smoke build shows
+the rails. Frame rate at the walkway pose on the headless display: 38 fps
+(8 x rust_smoke: 33). Damage boxes and stage times are unchanged.

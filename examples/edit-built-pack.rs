@@ -27,8 +27,10 @@
 //!   `"or": [{"count", "sha256", "note"}, ...]` accepts further states.
 //! Every op must change something (an expect op checks only); a respawn yaw is written as rotation
 //! [0, yaw, 0]. With `"only_prefix": P` in the plan, each project outside the client objects under P
-//! must come out identical. Every file is edited in memory first and written only when all its
-//! plan's ops succeeded.
+//! must come out identical. `"add_files": [{"path", "from_db", "from_sha256", "set": {leaf: value},
+//! "sha256"}]` derives new files from stock configs (each leaf must exist and change; the result's
+//! hash is checked; the path must be new; pack.json's operations are the caller's). Every file is
+//! edited in memory first and written only when all its plan's ops succeeded.
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -49,6 +51,24 @@ struct Plan {
     /// The only client objects the project ops may change (full-name prefix).
     #[serde(default)]
     only_prefix: Option<String>,
+    /// New files derived from the stock database (leaf edits of a native config).
+    #[serde(default)]
+    add_files: Vec<DerivedFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DerivedFile {
+    /// Published path under files/ (it must not exist yet).
+    path: String,
+    /// The stock config it is derived from, and that file's sha256.
+    from_db: String,
+    from_sha256: String,
+    /// Leaves set on the copy (each must exist and change).
+    #[serde(default)]
+    set: BTreeMap<String, serde_json::Value>,
+    /// The sha256 of the result.
+    sha256: String,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -195,6 +215,15 @@ fn json_leaf(v: &serde_json::Value, like: Option<&ConfigValue>) -> Result<Config
         (J::Number(n), Some(ConfigValue::Float(_))) => ConfigValue::Float(n.as_f64().unwrap() as f32),
         (J::String(t), Some(ConfigValue::String(_))) => ConfigValue::String(t.clone()),
         (J::Bool(b), Some(ConfigValue::Boolean(_))) => ConfigValue::Boolean(*b),
+        (J::Array(items), Some(like @ (ConfigValue::Float2(_) | ConfigValue::Float3(_) | ConfigValue::Float4(_)))) => {
+            let f: Vec<f32> = items.iter().map(|v| v.as_f64().map(|x| x as f32).context("a number")).collect::<Result<_>>()?;
+            match (like, f.as_slice()) {
+                (ConfigValue::Float2(_), [a, b]) => ConfigValue::Float2([*a, *b]),
+                (ConfigValue::Float3(_), [a, b, c]) => ConfigValue::Float3([*a, *b, *c]),
+                (ConfigValue::Float4(_), [a, b, c, d]) => ConfigValue::Float4([*a, *b, *c, *d]),
+                _ => bail!("{v} has the wrong length for {like:?}"),
+            }
+        }
         (v, like) => bail!("{v} cannot replace {like:?}"),
     })
 }
@@ -321,6 +350,25 @@ fn main() -> Result<()> {
     let plan: Plan = serde_json::from_reader(std::fs::File::open(&args[1])?)?;
     let mut stock = vostok_resource_porter::archive::ResourceDb::open(Path::new(&args[2]))?;
     let mut edited = Vec::new();
+    for add in &plan.add_files {
+        let bytes = stock.read(&add.from_db)?;
+        let hash = format!("{:x}", Sha256::digest(&bytes));
+        ensure!(hash == add.from_sha256, "{}: sha256 {hash}, expected {}", add.from_db, add.from_sha256);
+        let mut config = BinaryConfig::parse(&bytes)?;
+        for (leaf, value) in &add.set {
+            let old = get(&config.root, leaf).with_context(|| format!("{}: no {leaf}", add.from_db))?.clone();
+            let new = json_leaf(value, Some(&old)).with_context(|| format!("{}: {leaf}", add.path))?;
+            ensure!(new != old, "{}: {leaf} is already {value}", add.path);
+            config.root.set_path(leaf, new)?;
+        }
+        let out = config.to_bytes()?;
+        let hash = format!("{:x}", Sha256::digest(&out));
+        ensure!(hash == add.sha256, "{}: the result's sha256 is {hash}, expected {}", add.path, add.sha256);
+        let file = files.join(&add.path);
+        ensure!(!file.exists(), "{} already exists", file.display());
+        println!("{}: derived from {} with {} leaves set, sha256 {hash}", add.path, add.from_db, add.set.len());
+        edited.push((file, out));
+    }
     for (path, ops) in &plan.projects {
         let file = files.join(path);
         let mut project = BinaryConfig::parse(&std::fs::read(&file).with_context(|| file.display().to_string())?)?;
@@ -339,6 +387,9 @@ fn main() -> Result<()> {
         edited.push((file, project.to_bytes()?));
     }
     for (file, bytes) in edited {
+        if let Some(dir) = file.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
         std::fs::write(&file, bytes)?;
         println!("wrote {}", file.display());
     }

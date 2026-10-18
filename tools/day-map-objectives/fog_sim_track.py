@@ -19,7 +19,7 @@ from audit_collision_region import collision_parts
 
 ap = argparse.ArgumentParser(); ap.add_argument('root', type=Path); ap.add_argument('project', type=Path); ap.add_argument('out')
 ap.add_argument('--window', default='4,27,40,100'); ap.add_argument('--px', type=float, default=0.1)
-ap.add_argument('--snapshots', type=int, default=6); ap.add_argument('--seed', type=int, default=1)
+ap.add_argument('--snapshots', type=int, default=6); ap.add_argument('--alpha-mult', type=float, default=1.0, help='the track clouds\' particle alpha over rust_smoke (track_fog)'); ap.add_argument('--seed', type=int, default=1)
 ap.add_argument('--texture', type=Path, required=True, help='textures/fx/lighted_smoke/smoke1.dds (vostok-port extract)')
 a = ap.parse_args()
 X0, X1, Z0, Z1 = (float(v) for v in a.window.split(','))
@@ -32,8 +32,9 @@ for n, o in objs.items():
         for st in o['states'][1:]:
             for zn in st['groups'][0]['zones']:
                 z = objs[zn]
-                if z.get('idle_particle') == 'fx/level_3_anomaly/rust_smoke':
+                if z.get('idle_particle', '').endswith(('/rust_smoke', '/track_fog')):
                     clouds += [[z['position'][i] + e['position'][i] for i in range(3)] for e in z['effect_zones']]
+track_n = len(clouds)
 clouds += [o['position'] for n, o in objs.items() if n.startswith('fx/fill_rust_fog/cloud_')]
 # Top surface of the movement collision (for the depth test and the background).
 top = np.full((H, W), -1e9)
@@ -74,12 +75,13 @@ tex = dxt5_alpha(a.texture)
 rng = np.random.default_rng(a.seed)
 def snapshot():
     trans = np.ones((H, W))
-    for c in clouds:
+    for ci, c in enumerate(clouds):
+        mult = a.alpha_mult if ci < track_n else 1.0
         if not (X0 - 7 < c[0] < X1 + 7 and Z0 - 7 < c[2] < Z1 + 7): continue
         r = 5 * np.sqrt(rng.random(100)); th = rng.random(100) * 2 * np.pi
         px, pz = c[0] + r * np.cos(th), c[2] + r * np.sin(th)
         age = rng.random(100); row = rng.random(100)
-        peak = 0.191 + (0.132 - 0.191) * row
+        peak = (0.191 + (0.132 - 0.191) * row) * mult
         alpha = np.where(age < 0.487, age / 0.487, (1 - age) / (1 - 0.487)) * peak
         size = 1.955 + (3.167 - 1.955) * age; rot = rng.random(100) * 2 * np.pi
         for k in range(100):
