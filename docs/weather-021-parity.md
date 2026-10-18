@@ -283,10 +283,26 @@ The geometry fog pass precedes this effect and contains no blue smoke.
 
 The captured original vertex digest is `9b11960c94a13675b92cbebf3d4dc919`;
 the corresponding native digest is `2a73464d45e748c014a63b25f5eaa660`.
-A separate diagnostic trial transplants only the original vertex fog block
-under Mamayev rain's existing marker, retaining native particle geometry,
-lighting, declarations and unmarked behavior. Its first-frame validation is
-pending; no rain compatibility change is enabled in the accepted manifest.
+A diagnostic trial transplanted only the original vertex fog block under
+Mamayev rain's existing marker, retaining native particle geometry, lighting,
+declarations and unmarked behavior. This removed the large blue smoke plume
+and reduced whole-frame error from 28.73 to 15.22. Extending the same checked
+block to the remaining active variants removes the smaller blue artifacts too
+(15.16 whole-frame error; 3.60 sky error). Close ground remains too dark.
+
+`legacy_particle_fog_021` implements this opt-in conversion and requires
+`legacy_fog_021`. It reads the pinned original and native template from retail
+databases, matches the complete native fog block and its following register
+reset, and adds separate scratch registers for the original arithmetic.
+All 24 matching variants in the 480-variant native particle family are
+converted; other variants remain unchanged. The builder checks both counts.
+The original color, far-distance binding and observed infinite height falloff
+are restored, including the original 0.2 particle-fog color multiplier.
+The native fog block remains intact for unmarked maps. Retail integration
+tests verify native metadata, subsequent lighting and fallback instructions.
+
+The full porter bundle and wider regression are pending; no rain compatibility
+change is enabled in the accepted manifest yet.
 
 For diagnosis, `--audit-render-target` reads the selected draw's color target
 and its first two supported uncompressed pixel textures, with formats and

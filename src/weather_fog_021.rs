@@ -8,12 +8,16 @@ pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_tempor
 pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";
 pub const CLOUD_PREFIX: &str = "shaders/sm_4_0/atmosphere_clouds.ps/";
 pub const SCATTERING_PATH: &str = "shaders/sm_4_0/make_mie_rayleigh_texture.ps/___________________________________________________________________";
+pub const PARTICLE_PREFIX: &str = "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/";
+pub const PARTICLE_SOURCE: &str = "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/00__1_____________0___27___0____0_0________________0_0_____________";
+pub const PARTICLE_TEMPLATE: &str = "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/0___1____________0___27___0____0_0_________________0_0_____________";
 
 pub struct ScatteringProfile {
     pub marker: f32,
     pub rayleigh_sun: f32,
 }
 
+#[derive(Clone)]
 pub struct Profile {
     pub marker: f32,
     /// The original renderer uploads pow(authored RGB, 2.2).
@@ -246,7 +250,11 @@ fn instructions(words: &[u32]) -> Result<Vec<Vec<u32>>> {
     let mut out = Vec::new();
     let mut at = 2;
     while at < words.len() {
-        let count = ((words[at] >> 24) & 127) as usize;
+        let count = if words[at] & 2047 == 53 {
+            *words.get(at + 1).context("truncated custom shader data")? as usize
+        } else {
+            ((words[at] >> 24) & 127) as usize
+        };
         ensure!(
             count > 0 && at + count <= words.len(),
             "invalid shader instruction"
@@ -255,6 +263,207 @@ fn instructions(words: &[u32]) -> Result<Vec<Vec<u32>>> {
         at += count;
     }
     Ok(out)
+}
+
+/// Restore the original fog interpolator in the checked batched particle
+/// variants. Particle geometry and lighting remain native. Other variants
+/// return None; the caller checks the pinned retail family's variant count.
+pub fn build_particle(
+    source: &[u8],
+    target: &[u8],
+    template: &[u8],
+    profiles: &[Profile],
+) -> Result<Option<Vec<u8>>> {
+    ensure!(!profiles.is_empty(), "no original particle fog profiles");
+    let (_, original) = pinned_code(
+        source,
+        "955ddb23052e167e2842e990ff7698f3ed8ee05dd06ebda01096c21bb893e529",
+    )?;
+    let (_, reference) = pinned_code(
+        template,
+        "28ab00cfa95506fefed79f14bc8474df332e804d6ffc6be11846c4f42fd72a5f",
+    )?;
+    let program = |code: &[u8]| -> Result<Vec<Vec<u32>>> {
+        let entries = chunks(code)?;
+        instructions(&words(
+            &entries
+                .iter()
+                .find(|(t, _)| t == b"SHDR")
+                .context("missing particle program")?
+                .1,
+        )?)
+    };
+    let source_ops = program(original)?;
+    let template_ops = program(reference)?;
+    let source_fog = &source_ops[169..214];
+    let native_fog = &template_ops[37..90];
+    ensure!(
+        source_fog[0]
+            == [
+                0x09000000, 0x00100072, 2, 0x00101246, 0, 0x80208246, 0x41, 2, 20
+            ]
+            && source_fog[44] == [0x05002036, 0x00102082, 7, 0x0010003a, 0],
+        "original particle fog boundary changed"
+    );
+    let offset = 4 + u32_at(target, 0)? as usize * 264;
+    let native = target.get(offset..).context("truncated particle shader")?;
+    ensure!(
+        checksum(native)? == native[4..20],
+        "particle checksum mismatch"
+    );
+    let mut entries = chunks(native)?;
+    let index = entries
+        .iter()
+        .position(|(t, _)| t == b"SHDR")
+        .context("missing particle program")?;
+    let original_words = words(&entries[index].1)?;
+    let mut native_ops = instructions(&original_words)?;
+    let matches: Vec<_> = native_ops
+        .windows(native_fog.len())
+        .enumerate()
+        .filter_map(|(i, block)| (block == native_fog).then_some(i))
+        .collect();
+    if matches.is_empty() {
+        return Ok(None);
+    }
+    ensure!(matches.len() == 1, "ambiguous particle fog block");
+    let start = matches[0];
+    let end = start + native_fog.len();
+    ensure!(
+        native_ops.get(end..end + 7) == Some(&template_ops[90..97]),
+        "particle fog live-register boundary changed"
+    );
+    let ti = native_ops
+        .iter()
+        .position(|ins| ins[0] & 2047 == 104)
+        .context("missing particle temporaries")?;
+    let base = native_ops[ti][1];
+    ensure!(base <= 64, "unexpected particle temporaries");
+    native_ops[ti][1] = base + 5;
+    let profile_register = base + 4;
+    let mut body = Vec::new();
+    let mut remaps = [0; 3];
+    for ins in source_fog {
+        let mut fixed = vec![ins[0]];
+        let mut at = 1;
+        while at < ins.len() {
+            let mut token = ins[at];
+            at += 1;
+            let extended = token & 0x80000000 != 0;
+            let extension = if extended {
+                let value = ins[at];
+                at += 1;
+                Some(value)
+            } else {
+                None
+            };
+            let kind = (token >> 12) & 255;
+            let dimensions = ((token >> 20) & 3) as usize;
+            let mut indices = ins[at..at + dimensions].to_vec();
+            at += dimensions;
+            if kind == 4 {
+                ensure!(dimensions == 0 && !extended, "unexpected particle literal");
+                let count = if token & 3 == 2 { 4 } else { 1 };
+                fixed.push(token);
+                fixed.extend(&ins[at..at + count]);
+                at += count;
+                continue;
+            }
+            match kind {
+                0 => {
+                    ensure!(
+                        dimensions == 1 && indices[0] < 4,
+                        "unexpected original particle temporary"
+                    );
+                    indices[0] += base;
+                }
+                1 => {
+                    ensure!(indices == [0], "unexpected original particle position");
+                    indices[0] = 6;
+                }
+                8 => {
+                    ensure!(
+                        dimensions == 2 && indices[0] == 2,
+                        "unexpected particle constant buffer"
+                    );
+                    indices[0] = 1;
+                    if indices[1] == 18 {
+                        let component = (token >> 4) & 3;
+                        if component == 0 {
+                            token += 0x10;
+                            remaps[0] += 1;
+                        } else {
+                            ensure!(
+                                component == 1,
+                                "unexpected original particle height operand"
+                            );
+                            token = (token & !(0x00300000 | 0x000ff000 | 0x30)) | 0x00100000 | 0x30;
+                            indices = vec![profile_register];
+                            remaps[1] += 1;
+                        }
+                    } else if indices[1] == 15 && (token >> 2) & 3 == 1 {
+                        token = (token & !(0x00300000 | 0x000ff000)) | 0x00100000;
+                        indices = vec![profile_register];
+                        remaps[2] += 1;
+                    }
+                }
+                2 => {}
+                _ => anyhow::bail!("unexpected particle fog operand"),
+            }
+            fixed.push(token);
+            fixed.extend(extension);
+            fixed.extend(indices);
+        }
+        fixed[0] = (fixed[0] & !0x7f000000) | (fixed.len() as u32) << 24;
+        body.push(fixed);
+    }
+    ensure!(remaps == [1, 2, 1], "particle fog bindings changed");
+    let mut updated = original_words[..2].to_vec();
+    updated.extend(native_ops[..start].iter().flatten());
+    let mut seen = std::collections::BTreeSet::new();
+    for profile in profiles {
+        ensure!(
+            profile.marker.is_finite()
+                && profile.marker < -32000.0
+                && seen.insert(profile.marker.to_bits())
+                && profile.color.iter().all(|v| v.is_finite() && *v >= 0.0),
+            "invalid particle fog profile"
+        );
+        updated.extend([
+            0x08000018,
+            0x00100082,
+            profile_register,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            profile.marker.to_bits(),
+            0x0304001f,
+            0x0010003a,
+            profile_register,
+        ]);
+        updated.extend([
+            0x08000036,
+            0x001000f2,
+            profile_register,
+            0x00004002,
+            profile.color[0].to_bits(),
+            profile.color[1].to_bits(),
+            profile.color[2].to_bits(),
+            f32::INFINITY.to_bits(),
+        ]);
+        updated.extend(body.iter().flatten());
+        updated.push(0x01000012); // else: next marked profile, then native fallback
+    }
+    updated.extend(native_fog.iter().flatten());
+    updated.extend(std::iter::repeat_n(0x01000015, profiles.len()));
+    updated.extend(native_ops[end..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[index].1 = bytes(&updated);
+    let mut result = target[..offset].to_vec();
+    result.extend(assemble(native, &entries)?);
+    Ok(Some(result))
 }
 fn chunks(code: &[u8]) -> Result<Vec<([u8; 4], Vec<u8>)>> {
     ensure!(
@@ -809,6 +1018,76 @@ fn checksum(code: &[u8]) -> Result<[u8; 16]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn custom_data_instruction_lengths_are_checked() {
+        assert_eq!(
+            instructions(&[0, 6, 53, 3, 0, 0x0100003e]).unwrap(),
+            vec![vec![53, 3, 0], vec![0x0100003e]]
+        );
+        assert!(instructions(&[0, 3, 53]).is_err());
+        assert!(instructions(&[0, 4, 53, 8]).is_err());
+    }
+
+    #[test]
+    #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
+    fn retail_particle_fog_preserves_lighting_and_unmarked_path() {
+        let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
+        let source =
+            std::fs::read(root.join("original-9b11960c94a13675b92cbebf3d4dc919.blob")).unwrap();
+        let template =
+            std::fs::read(root.join("native-2a73464d45e748c014a63b25f5eaa660.blob")).unwrap();
+        let profiles = [Profile {
+            marker: -32198.0,
+            color: [0.875f32.powf(2.2); 3],
+        }];
+        let directory = root
+            .join("native-particle-vertices/overlay")
+            .join(PARTICLE_PREFIX);
+        let mut patched = 0;
+        for entry in std::fs::read_dir(directory).unwrap() {
+            let target = std::fs::read(entry.unwrap().path()).unwrap();
+            let Some(result) = build_particle(&source, &target, &template, &profiles).unwrap()
+            else {
+                continue;
+            };
+            patched += 1;
+            let offset = 4 + u32_at(&target, 0).unwrap() as usize * 264;
+            assert_eq!(&result[..offset], &target[..offset]);
+            let old = chunks(&target[offset..]).unwrap();
+            let new = chunks(&result[offset..]).unwrap();
+            assert_eq!(
+                checksum(&result[offset..]).unwrap(),
+                result[offset + 4..offset + 20]
+            );
+            for ((tag, a), (new_tag, b)) in old.iter().zip(&new) {
+                assert_eq!(tag, new_tag);
+                if tag != b"SHDR" {
+                    assert_eq!(a, b);
+                    continue;
+                }
+                let old = instructions(&words(a).unwrap()).unwrap();
+                let new = instructions(&words(b).unwrap()).unwrap();
+                let end = old
+                    .iter()
+                    .position(|i| i == &[0x05002036, 0x00102082, 7, 0x0010000a, 0])
+                    .unwrap()
+                    + 1;
+                // Native lighting after fog survives exactly; native fog remains
+                // as the unmarked branch, immediately before the inserted endif.
+                assert!(new.ends_with(&old[end..]));
+                assert!(
+                    new.windows(54)
+                        .any(|w| w[..53] == old[end - 53..end] && w[53] == [0x01000015])
+                );
+            }
+        }
+        assert_eq!(patched, 24);
+        let bad = [Profile {
+            marker: -32198.0,
+            color: [f32::NAN; 3],
+        }];
+        assert!(build_particle(&source, &template, &template, &bad).is_err());
+    }
     #[test]
     #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
     fn retail_shader_adapters_preserve_native_fallbacks() {

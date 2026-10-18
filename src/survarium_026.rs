@@ -66,6 +66,9 @@ pub struct Map {
     /// Original atmospheric lookup coefficients and authored Rayleigh gain.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_scattering_021: bool,
+    /// Original fog interpolation for the checked batched particle variants.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_particle_fog_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -1365,6 +1368,7 @@ pub fn build(
     let mut projects = BTreeSet::new();
     for map in &m.maps {
         ensure!(!map.legacy_scattering_021 || map.legacy_sky_021,"original scattering requires legacy_sky_021");
+        ensure!(!map.legacy_particle_fog_021 || map.legacy_fog_021, "original particle fog requires legacy_fog_021");
         ensure!(
             !map.legacy_sky_021 || map.legacy_fog_021,
             "original sky requires legacy_fog_021"
@@ -1500,6 +1504,7 @@ pub fn build(
     let mut sky_markers = Vec::new();
     let mut cloud_markers = Vec::new();
     let mut scattering_profiles = Vec::new();
+    let mut particle_fog_profiles = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1514,6 +1519,9 @@ pub fn build(
         .with_context(|| format!("adapting {}", map.donor_project()))?;
         if map.legacy_fog_021 {
             let profile = mark_legacy_fog(&mut project, map)?;
+            if map.legacy_particle_fog_021 {
+                particle_fog_profiles.push(profile.clone());
+            }
             if map.legacy_scattering_021 {
                 scattering_profiles.push(original_scattering_profile(&project,map,profile.marker)?);
             }
@@ -1571,6 +1579,21 @@ pub fn build(
         )?)
     };
     let mut cloud_shaders = Vec::new();
+    let mut particle_fog_shaders = Vec::new();
+    if !particle_fog_profiles.is_empty() {
+        let source = donor.read(crate::weather_fog_021::PARTICLE_SOURCE)?;
+        let template = target.read(crate::weather_fog_021::PARTICLE_TEMPLATE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::PARTICLE_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 480, "unexpected native particle variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_particle(
+                &source, &target.read(&path)?, &template, &particle_fog_profiles)? {
+                particle_fog_shaders.push((path,shader));
+            }
+        }
+        ensure!(particle_fog_shaders.len() == 24, "unexpected compatible particle fog variant count");
+    }
     let scattering_shader = if scattering_profiles.is_empty() {None} else {
         Some(crate::weather_fog_021::build_scattering(
             &donor.read(crate::weather_fog_021::SCATTERING_PATH)?,
@@ -1839,6 +1862,9 @@ pub fn build(
     if let Some(shader) = scattering_shader {
         emit(output,crate::weather_fog_021::SCATTERING_PATH,&shader,
              "0.21d-scattering-equations+unchanged-0.26g-fallback",&mut files)?;
+    }
+    for (path, shader) in particle_fog_shaders {
+        emit(output, &path, &shader, "0.21d-particle-fog+native-geometry-lighting-and-fallback", &mut files)?;
     }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -2375,6 +2401,7 @@ mod tests {
             legacy_sky_021: false,
             legacy_clouds_021: false,
             legacy_scattering_021: false,
+            legacy_particle_fog_021: false,
             map_id: None,
             name: None,
         };
@@ -2625,6 +2652,7 @@ mod tests {
             legacy_sky_021: false,
             legacy_clouds_021: false,
             legacy_scattering_021: false,
+            legacy_particle_fog_021: false,
             map_id: None,
             name: None,
         };
