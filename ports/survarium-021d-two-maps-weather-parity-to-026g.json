@@ -11,8 +11,8 @@
       "name": {
         "key": "st_level_10_name",
         "english": "RLS Vostok (v0.21)",
-        "russian": "\u0420\u041b\u0421 \"\u0412\u043e\u0441\u0442\u043e\u043a\" (v0.21)",
-        "ukrainian": "\u0420\u041b\u0421 \"\u0412\u043e\u0441\u0442\u043e\u043a\" (v0.21)",
+        "russian": "РЛС \"Восток\" (v0.21)",
+        "ukrainian": "РЛС \"Восток\" (v0.21)",
         "german": "RS Vostok (v0.21)",
         "polish": "Stacja Radarowa \"Vostok\" (v0.21)"
       }
@@ -26,8 +26,8 @@
       "name": {
         "key": "st_level_10_name",
         "english": "RLS Vostok (v0.21)",
-        "russian": "\u0420\u041b\u0421 \"\u0412\u043e\u0441\u0442\u043e\u043a\" (v0.21)",
-        "ukrainian": "\u0420\u041b\u0421 \"\u0412\u043e\u0441\u0442\u043e\u043a\" (v0.21)",
+        "russian": "РЛС \"Восток\" (v0.21)",
+        "ukrainian": "РЛС \"Восток\" (v0.21)",
         "german": "RS Vostok (v0.21)",
         "polish": "Stacja Radarowa \"Vostok\" (v0.21)"
       }
@@ -41,13 +41,15 @@
       "name": {
         "key": "st_level_11_name",
         "english": "Mamayev Kurgan (v0.21)",
-        "russian": "\u041c\u0430\u043c\u0430\u0435\u0432 \u043a\u0443\u0440\u0433\u0430\u043d (v0.21)",
-        "ukrainian": "\u041c\u0430\u043c\u0430\u0457\u0432 \u043a\u0443\u0440\u0433\u0430\u043d (v0.21)",
+        "russian": "Мамаев курган (v0.21)",
+        "ukrainian": "Мамаїв курган (v0.21)",
         "german": "Mamaew kurgan (v0.21)",
         "polish": "Kurhan Mamaja (v0.21)"
       },
       "legacy_fog_021": true,
-      "legacy_sky_021": true
+      "legacy_sky_021": true,
+      "legacy_clouds_021": true,
+      "legacy_scattering_021": true
     },
     {
       "id": 177,
@@ -58,8 +60,8 @@
       "name": {
         "key": "st_level_11_name",
         "english": "Mamayev Kurgan (v0.21)",
-        "russian": "\u041c\u0430\u043c\u0430\u0435\u0432 \u043a\u0443\u0440\u0433\u0430\u043d (v0.21)",
-        "ukrainian": "\u041c\u0430\u043c\u0430\u0457\u0432 \u043a\u0443\u0440\u0433\u0430\u043d (v0.21)",
+        "russian": "Мамаев курган (v0.21)",
+        "ukrainian": "Мамаїв курган (v0.21)",
         "german": "Mamaew kurgan (v0.21)",
         "polish": "Kurhan Mamaja (v0.21)"
       }

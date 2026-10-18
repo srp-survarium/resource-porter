@@ -63,6 +63,9 @@ pub struct Map {
     /// Original cloud shading, source defaults and rotation convention.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_clouds_021: bool,
+    /// Original atmospheric lookup coefficients and authored Rayleigh gain.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_scattering_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -554,6 +557,44 @@ fn prepare_legacy_clouds(project: &mut ConfigValue, map: &Map) -> Result<()> {
         properties.set_path(key, value)?;
     }
     Ok(())
+}
+
+fn original_scattering_profile(
+    project: &ConfigValue,
+    map: &Map,
+    marker: f32,
+) -> Result<crate::weather_fog_021::ScatteringProfile> {
+    ensure!(
+        !map.environment_overrides
+            .keys()
+            .any(|k| k.starts_with("atmosphere_")),
+        "original scattering conflicts with atmosphere overrides"
+    );
+    let objects = array(
+        project
+            .named("client_objects")
+            .context("missing scattering environment")?,
+    )?;
+    let environment = objects
+        .iter()
+        .find(|o| string(o, "game_object_type") == Some("environment"))
+        .context("missing scattering environment")?;
+    let props = environment
+        .named("properties")
+        .context("missing scattering properties")?;
+    let value = match props.named("atmosphere_rayleighSun_multiplier") {
+        Some(ConfigValue::Float(v)) => *v,
+        Some(ConfigValue::Integer(v)) => *v as f32,
+        _ => bail!("missing original Rayleigh sunlight multiplier"),
+    };
+    ensure!(
+        value.is_finite() && value >= 0.0,
+        "invalid original Rayleigh sunlight multiplier"
+    );
+    Ok(crate::weather_fog_021::ScatteringProfile {
+        marker,
+        rayleigh_sun: value,
+    })
 }
 
 /// All authored interaction-zone references must still resolve after upgrading.
@@ -1323,6 +1364,7 @@ pub fn build(
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
     for map in &m.maps {
+        ensure!(!map.legacy_scattering_021 || map.legacy_sky_021,"original scattering requires legacy_sky_021");
         ensure!(
             !map.legacy_sky_021 || map.legacy_fog_021,
             "original sky requires legacy_fog_021"
@@ -1457,6 +1499,7 @@ pub fn build(
     let mut fog_profiles = Vec::new();
     let mut sky_markers = Vec::new();
     let mut cloud_markers = Vec::new();
+    let mut scattering_profiles = Vec::new();
     for map in &m.maps {
         let mut source = cfg(&mut donor, &map.donor_project())?;
         if map.legacy_clouds_021 {
@@ -1471,6 +1514,9 @@ pub fn build(
         .with_context(|| format!("adapting {}", map.donor_project()))?;
         if map.legacy_fog_021 {
             let profile = mark_legacy_fog(&mut project, map)?;
+            if map.legacy_scattering_021 {
+                scattering_profiles.push(original_scattering_profile(&project,map,profile.marker)?);
+            }
             if map.legacy_sky_021 {
                 sky_markers.push(profile.marker);
             }
@@ -1525,6 +1571,13 @@ pub fn build(
         )?)
     };
     let mut cloud_shaders = Vec::new();
+    let scattering_shader = if scattering_profiles.is_empty() {None} else {
+        Some(crate::weather_fog_021::build_scattering(
+            &donor.read(crate::weather_fog_021::SCATTERING_PATH)?,
+            &target.read(crate::weather_fog_021::SCATTERING_PATH)?,
+            &target.read(crate::weather_fog_021::SKY_PATH)?,
+            &scattering_profiles)?)
+    };
     if !cloud_markers.is_empty() {
         let paths: Vec<_> = target
             .paths_with_prefix(crate::weather_fog_021::CLOUD_PREFIX)
@@ -1782,6 +1835,10 @@ pub fn build(
             "0.21d-cloud-equations+unchanged-0.26g-fallback",
             &mut files,
         )?;
+    }
+    if let Some(shader) = scattering_shader {
+        emit(output,crate::weather_fog_021::SCATTERING_PATH,&shader,
+             "0.21d-scattering-equations+unchanged-0.26g-fallback",&mut files)?;
     }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
@@ -2219,6 +2276,44 @@ mod tests {
     }
 
     #[test]
+    fn scattering_uses_authored_gain_instead_of_sun_intensity() {
+        let mut map: Map = serde_json::from_value(
+            serde_json::json!({"id":176,"level":"level_06","weather":"evening"}),
+        )
+        .unwrap();
+        let project = named(vec![(
+            "client_objects",
+            ConfigValue::Indexed(vec![named(vec![
+                (
+                    "game_object_type",
+                    ConfigValue::String("environment".into()),
+                ),
+                (
+                    "properties",
+                    named(vec![
+                        ("sun_intensity", ConfigValue::Integer(2)),
+                        (
+                            "atmosphere_rayleighSun_multiplier",
+                            ConfigValue::Float(4.67),
+                        ),
+                    ]),
+                ),
+            ])]),
+        )]);
+        assert_eq!(
+            original_scattering_profile(&project, &map, -32197.0)
+                .unwrap()
+                .rayleigh_sun,
+            4.67
+        );
+        map.environment_overrides.insert(
+            "atmosphere_rayleighSun_multiplier".into(),
+            serde_json::json!(2),
+        );
+        assert!(original_scattering_profile(&project, &map, -32197.0).is_err());
+    }
+
+    #[test]
     fn legacy_fog_preserves_authored_colors_and_rejects_conflicting_overrides() {
         let mut map: Map = serde_json::from_value(serde_json::json!({
             "id": 176, "level": "level_06", "weather": "evening", "legacy_fog_021": true
@@ -2279,6 +2374,7 @@ mod tests {
             legacy_fog_021: false,
             legacy_sky_021: false,
             legacy_clouds_021: false,
+            legacy_scattering_021: false,
             map_id: None,
             name: None,
         };
@@ -2528,6 +2624,7 @@ mod tests {
             legacy_fog_021: false,
             legacy_sky_021: false,
             legacy_clouds_021: false,
+            legacy_scattering_021: false,
             map_id: None,
             name: None,
         };

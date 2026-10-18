@@ -43,15 +43,20 @@ def main():
     ap.add_argument('--wine', type=Path, required=True); ap.add_argument('--viewport', type=Path, required=True)
     ap.add_argument('--texture-quality', default='2')
     ap.add_argument('--audit-fog', action='store_true', help='record the active retail fog shader constants without replacing shaders')
-    ap.add_argument('--fog-digest', help='also audit an experimental fog shader by its 32-character DXBC digest')
+    ap.add_argument('--audit-render-target', action='store_true', help='also read the floating-point color target before the audited draw')
+    ap.add_argument('--audit-after-draw', action='store_true', help='observe immediately after the selected draw instead of before it')
+    ap.add_argument('--fog-digest', help='observe only these DXBC digests (one or up to eight comma-separated hashes)')
     ap.add_argument('--xdotool', required=True, type=Path)
     ap.add_argument('--project', required=True, choices=['level_03/evening','level_03/rain','level_06/evening','level_06/rain'])
     ap.add_argument('--build', choices=['021d', '026g'], default='021d')
     ap.add_argument('--server', type=Path, help='0.26 match-server executable')
     ap.add_argument('--map', type=int, choices=[167,168,176,177])
     a = ap.parse_args()
-    if a.fog_digest and (not a.audit_fog or len(a.fog_digest) != 32 or any(c not in '0123456789abcdef' for c in a.fog_digest)):
-        ap.error('--fog-digest requires --audit-fog and 32 lowercase hexadecimal characters')
+    if (a.audit_render_target or a.audit_after_draw) and not a.audit_fog:
+        ap.error('--audit-render-target and --audit-after-draw require --audit-fog')
+    digests = a.fog_digest.split(',') if a.fog_digest else []
+    if digests and (not a.audit_fog or len(digests) > 8 or any(len(d) != 32 or any(c not in '0123456789abcdef' for c in d) for d in digests)):
+        ap.error('--fog-digest requires --audit-fog and up to eight 32-character lowercase hexadecimal digests')
     if a.build == '026g' and (a.server is None or a.map is None):
         ap.error('0.26 requires --server and --map')
     expected_map = {'level_03/evening':167, 'level_03/rain':168,
@@ -90,9 +95,15 @@ def main():
     env.pop('VK_DRIVER_FILES', None)
     if a.audit_fog:
         env['SRP_CAPTURE_AUDIT_FOG'] = '1'
+        if a.audit_render_target:
+            env['SRP_CAPTURE_AUDIT_RT'] = '1'
+        if a.audit_after_draw:
+            env['SRP_CAPTURE_AUDIT_AFTER'] = '1'
         if a.fog_digest:
             env['SRP_CAPTURE_FOG_DIGEST'] = a.fog_digest
     processes, logs = [], []
+    crash_root = r/'client/binaries/x86'
+    existing_crashes = set(crash_root.glob('SRP-crash-*.dmp'))
     try:
         cfg.write_text('\n'.join(lines+[f'r_texture_quality {a.texture_quality}', 'ui off'])+'\n', encoding='cp1251')
         commands = [
@@ -122,6 +133,9 @@ def main():
         window_shown = False
         last_progress = last_restore = time.monotonic()
         while time.monotonic() < deadline:
+            new_crashes = set(crash_root.glob('SRP-crash-*.dmp')) - existing_crashes
+            if new_crashes:
+                raise RuntimeError('client crash during readiness: '+', '.join(str(p) for p in sorted(new_crashes)))
             if any(p.poll() is not None for p in processes):
                 raise RuntimeError('reference process exited before scene readiness')
             rendered = status_path.exists() and json.loads(status_path.read_text()).get('present_calls', 0) > 0
@@ -188,15 +202,19 @@ def main():
         (a.output/'final-status.json').write_bytes(status_path.read_bytes())
         (a.output/'profile-during.cfg').write_bytes(cfg.read_bytes())
         artifacts = {str(p.relative_to(a.output)): hashlib.sha256(p.read_bytes()).hexdigest()
-                     for p in a.output.rglob('*') if p.is_file() and p.suffix in ('.bmp', '.json', '.cfg', '.bin')}
+                     for p in a.output.rglob('*') if p.is_file() and p.suffix in ('.bmp', '.json', '.jsonl', '.cfg', '.bin')}
         missing_fog = [p.name for p in (a.output/'poses').glob('*.bmp')
                        if a.audit_fog and not Path(str(p)+'.fog.json').exists()]
+        missing_targets = [p.name for p in (a.output/'poses').glob('*.bmp')
+                           if a.audit_render_target and not Path(str(p)+('.post-draw.bin' if a.audit_after_draw else '.pre-draw.bin')).exists()]
         wrong_fog = [p.name for p in (a.output/'poses').glob('*.fog.json')
-                     if a.fog_digest and json.loads(p.read_text())['shader_digest'] != a.fog_digest]
+                     if a.fog_digest and json.loads(p.read_text())['shader_digest'] not in digests]
         (a.output/'capture-manifest.json').write_text(json.dumps({
             'build': a.build, 'project': a.project, 'ui_command': 'ui off',
             'database': database,
-            'audit_fog': a.audit_fog, 'missing_fog_audits': missing_fog,
+            'audit_fog': a.audit_fog, 'audit_render_target': a.audit_render_target, 'missing_fog_audits': missing_fog,
+            'missing_render_targets': missing_targets,
+            'audit_after_draw': a.audit_after_draw,
             'requested_fog_digest': a.fog_digest, 'wrong_fog_audits': wrong_fog,
             'expected_frames': len(frames), 'captured_frames': len(list((a.output/'poses').glob('*.bmp'))),
             'skipped': skipped, 'artifacts': artifacts,
@@ -205,6 +223,8 @@ def main():
         }, indent=2)+'\n')
         if missing_fog:
             raise RuntimeError('requested fog audits were not captured: '+', '.join(missing_fog))
+        if missing_targets:
+            raise RuntimeError('requested pre-draw targets were not captured: '+', '.join(missing_targets))
         if wrong_fog:
             raise RuntimeError('requested experimental fog shader was not active: '+', '.join(wrong_fog))
     finally:

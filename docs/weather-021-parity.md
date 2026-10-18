@@ -59,8 +59,8 @@ verification logs, camera poses and capture manifests.
 ## Parity iteration 1: fog height
 
 The separate `survarium-021d-two-maps-weather-parity-to-026g.json` tracks accepted
-parity adjustments without changing the preserved baseline manifest. So far it
-changes only Mamayev evening's `mie_fog_base_height` from the inherited 75 to 0.
+parity adjustments without changing the preserved baseline manifest. The first
+iteration changed Mamayev evening's `mie_fog_base_height` from inherited 75 to 0.
 The manifest's `environment_overrides` can edit existing environment properties
 only, with compatible scalar/vector types; unknown keys and invalid types fail.
 
@@ -188,8 +188,9 @@ Trial 07 builds, applies and verifies. Its settled cloud audit matches the
 original tint `[2.00530, 1.44464, 1.04453]`, fog power/up-limit `[2, 0.25]`,
 white fog color and static-layer rotation/radius. However, close-03 raw RGB
 error is 14.53 versus the accepted build's 13.62, and sky error is 29.18.
-The option is experimental and remains disabled in the four-map parity
-manifest. Correcting individual inputs is not sufficient for visual acceptance.
+This cloud-only trial was not accepted. The option was subsequently enabled
+together with the scattering correction below, after four-view validation.
+Correcting individual inputs is not sufficient for visual acceptance.
 
 The read-only draw audit accepts a comma-separated set of candidate shader
 digests and also records vertex constants and render-target blending. This
@@ -199,3 +200,66 @@ All 342 ordinary porter tests pass; the separately invoked retail integration
 test verifies fog/sky output hashes and unchanged native cloud instruction
 bodies/signatures for all three distinct cloud programs. Retail inputs remain
 local and are not included with the tests.
+
+## Original atmospheric lookup generation
+
+The cloud investigation exposed a separate input change in the sky lookup
+generator. Original 0.21 uploads Mamayev evening's authored Rayleigh sunlight
+multiplier, 4.67. Native 0.26 uploads sun intensity, 2, in that position; its
+three other lookup parameters remain `[42.78, 2.27, 75.09]`. Live startup
+draw audits confirm this. The native upload at VA `0x1a446a` loads environment
+offset `0x48`, then uploads the four-component lookup parameter at `0x1a44a7`.
+The native shader also changes two green-channel scattering coefficients.
+
+Changing only the coefficients (trial 08) barely changes the screenshot.
+Restoring the authored gain as well (trial 09) makes both generated lookup
+textures byte-identical to the original. The frozen close view's sky error
+falls from 29.18 to 3.39/255; whole-image error falls to 10.11. A fresh original
+capture differs from the frozen reference by 1.86 in the sky and 4.24 overall.
+These measurements retain normal animation and image noise.
+
+`legacy_scattering_021` requires `legacy_sky_021`. Its original instruction
+branch retains the original coefficients and uses the donor's authored gain.
+The adapter adds the native sky's existing static-global buffer layout to the
+lookup shader, enabling only the existing environment marker. It retains both
+native lookup parameter bindings and the unchanged native instruction body.
+No authored environment parameter is repurposed for the additional guard.
+The integration test checks native fallback instructions and signatures,
+including a second marked profile and zero authored gain. The ordinary suite
+now passes 343 tests.
+
+The first guarded build exposed a reflection-reader constraint: its resource
+binding table must precede the referenced names/type records. Appending the
+table after them caused a startup failure. The corrected adapter keeps the
+table in place and retains the retail `atmosphere_rayleigh_mie_parameters`
+name. Independent reflection checks cover D3DCompiler 43 and 47; the retail
+integration test checks the table order and unchanged native lookup bindings.
+
+The corrected four-map build (6,968 resources) verifies with database SHA-256
+`8c183ae9e39c97303d8c10c32f3997dcbdf0744051dc95ffcc8f285729367c95`.
+Only Mamayev evening enables all four atmosphere options. Both lookup textures
+are byte-identical to the original in the integrated runtime as well. Four
+matching views improve over the previous accepted atmosphere build:
+
+| View | Previous error | Original clouds + scattering |
+| --- | ---: | ---: |
+| close-03 | 13.62 | 9.51 |
+| southwest | 11.40 | 6.49 |
+| east | 15.37 | 5.30 |
+| close-06 | 14.41 | 11.96 |
+
+Cloud placement and sky color now agree closely in the wide views. Remaining
+terrain/foliage shading differences and unsynchronized animation still affect
+the close views. Other weather variants remain to be matched.
+
+An unchanged Mamayev rain control confirms the native fallback's appearance:
+before/after error is 2.43 overall and 0.55 in the sky, with the visible changes
+confined to animated rain, smoke and vegetation. The parity manifest now retains
+all four atmosphere options for Mamayev evening; rain conversion is next.
+
+For diagnosis, `--audit-render-target` reads the selected draw's color target
+and its first two supported uncompressed pixel textures, with formats and
+dimensions recorded. `--audit-after-draw` selects the output immediately after
+the draw. Startup lookup constants are recorded separately in JSONL, since
+those draws precede the settled camera. These options copy GPU resources for
+observation and do not substitute shaders, uniforms or render state.

@@ -7,11 +7,217 @@ use sha2::{Digest, Sha256};
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
 pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";
 pub const CLOUD_PREFIX: &str = "shaders/sm_4_0/atmosphere_clouds.ps/";
+pub const SCATTERING_PATH: &str = "shaders/sm_4_0/make_mie_rayleigh_texture.ps/___________________________________________________________________";
+
+pub struct ScatteringProfile {
+    pub marker: f32,
+    pub rayleigh_sun: f32,
+}
 
 pub struct Profile {
     pub marker: f32,
     /// The original renderer uploads pow(authored RGB, 2.2).
     pub color: [f32; 3],
+}
+
+/// The native CPU substitutes sun intensity for the authored Rayleigh gain.
+/// Restore that input and the original coefficients only for marked maps.
+pub fn build_scattering(
+    source: &[u8],
+    target: &[u8],
+    native_sky: &[u8],
+    profiles: &[ScatteringProfile],
+) -> Result<Vec<u8>> {
+    ensure!(!profiles.is_empty(), "no original scattering profiles");
+    let (_, source) = pinned_code(
+        source,
+        "721754b91581085aa3eb47c2fbce03db6c373183d52dceae469804669ff6f32e",
+    )?;
+    let (offset, native) = pinned_code(
+        target,
+        "d9b19759a64be27f4cf98e3b843a53f3398e48b8ac8217ffba69b11551567755",
+    )?;
+    let (_, sky) = pinned_code(
+        native_sky,
+        "8cad6019edbef9109e249ce181774cecbb0e32f810591618bd66664b8325c2e0",
+    )?;
+    let original = chunks(source)?;
+    let mut entries = chunks(native)?;
+    let sky = chunks(sky)?;
+    let index = entries
+        .iter()
+        .position(|(tag, _)| tag == b"SHDR")
+        .context("missing scattering program")?;
+    let original_words = words(
+        &original
+            .iter()
+            .find(|(tag, _)| tag == b"SHDR")
+            .context("missing source scattering program")?
+            .1,
+    )?;
+    let native_words = words(&entries[index].1)?;
+    let source_ops = instructions(&original_words)?;
+    let mut native_ops = instructions(&native_words)?;
+    let temps = |ops: &[Vec<u32>]| {
+        ops.iter()
+            .position(|ins| ins[0] & 2047 == 104)
+            .context("missing scattering temporaries")
+    };
+    let st = temps(&source_ops)?;
+    let nt = temps(&native_ops)?;
+    ensure!(
+        source_ops[st] == [0x02000068, 13] && native_ops[nt] == source_ops[st],
+        "unexpected scattering temporaries"
+    );
+    ensure!(
+        source_ops[..st] == native_ops[..nt],
+        "scattering declarations changed"
+    );
+    ensure!(
+        original_words.len() == native_words.len()
+            && original_words
+                .iter()
+                .zip(&native_words)
+                .filter(|(a, b)| a != b)
+                .count()
+                == 2,
+        "unexpected scattering equation changes"
+    );
+
+    // Reuse the native sky's exact static-global layout so the existing
+    // environment marker is available during LUT generation. Both $Globals
+    // layouts are two float4s; replace the second variable's name with the
+    // lookup generator's name and retain only the two constant-buffer bindings.
+    let ri = entries
+        .iter()
+        .position(|(tag, _)| tag == b"RDEF")
+        .context("missing scattering reflection")?;
+    let mut r = sky
+        .iter()
+        .find(|(tag, _)| tag == b"RDEF")
+        .context("missing sky reflection")?
+        .1
+        .clone();
+    fn name(r: &[u8], at: usize) -> Result<&str> {
+        let tail = r.get(at..).context("missing reflection name")?;
+        let n = tail
+            .iter()
+            .position(|c| *c == 0)
+            .context("unterminated reflection name")?;
+        Ok(std::str::from_utf8(&tail[..n])?)
+    }
+    let count = u32_at(&r, 0)? as usize;
+    let buffers = u32_at(&r, 4)? as usize;
+    ensure!(count == 2, "unexpected sky buffer count");
+    let new_name = r.len() as u32;
+    r.extend_from_slice(b"atmosphere_rayleigh_mie_parameters\0");
+    let (mut renamed, mut marked) = (0, 0);
+    for i in 0..count {
+        let at = buffers + i * 24;
+        let buffer_name = name(&r, u32_at(&r, at)? as usize)?.to_owned();
+        let count = u32_at(&r, at + 4)? as usize;
+        let variables = u32_at(&r, at + 8)? as usize;
+        for j in 0..count {
+            let at = variables + j * 24;
+            let variable = name(&r, u32_at(&r, at)? as usize)?.to_owned();
+            if buffer_name == "$Globals" && variable == "atmosphere_cloud_parameters" {
+                ensure!(
+                    u32_at(&r, at + 4)? == 16 && u32_at(&r, at + 8)? == 16,
+                    "unexpected lookup parameter layout"
+                );
+                r[at..at + 4].copy_from_slice(&new_name.to_le_bytes());
+                r[at + 12..at + 16].copy_from_slice(&2u32.to_le_bytes());
+                renamed += 1;
+            } else if buffer_name == "static_globals" {
+                let flags = if variable == "atmosphere_parameters3" {
+                    ensure!(
+                        u32_at(&r, at + 4)? == 288 && u32_at(&r, at + 8)? == 16,
+                        "unexpected scattering marker layout"
+                    );
+                    marked += 1;
+                    2u32
+                } else {
+                    0
+                };
+                r[at + 12..at + 16].copy_from_slice(&flags.to_le_bytes());
+            }
+        }
+    }
+    ensure!(
+        renamed == 1 && marked == 1,
+        "scattering reflection binding missing"
+    );
+    let count = u32_at(&r, 8)? as usize;
+    let resources = u32_at(&r, 12)? as usize;
+    let mut bindings = Vec::new();
+    for i in 0..count {
+        let at = resources + i * 32;
+        if u32_at(&r, at + 4)? == 0 {
+            bindings.extend_from_slice(&r[at..at + 32]);
+        }
+    }
+    ensure!(
+        bindings.len() == 64,
+        "unexpected scattering buffer bindings"
+    );
+    // Keep the binding table before its referenced names and type records.
+    // The retail reflection reader does not accept a table appended after
+    // those records, even though all absolute offsets remain in bounds.
+    r[resources..resources + bindings.len()].copy_from_slice(&bindings);
+    r[8..12].copy_from_slice(&2u32.to_le_bytes());
+    entries[ri].1 = r;
+
+    native_ops[nt][1] = 14;
+    let mut updated = native_words[..2].to_vec();
+    updated.extend(native_ops[..nt].iter().flatten());
+    updated.extend([0x04000059, 0x00208e46, 1, 26]); // static_globals b1
+    updated.extend(&native_ops[nt]);
+    let mut seen = std::collections::BTreeSet::new();
+    for profile in profiles {
+        ensure!(
+            profile.marker.is_finite()
+                && profile.marker < -32000.0
+                && seen.insert(profile.marker.to_bits()),
+            "invalid scattering marker"
+        );
+        ensure!(
+            profile.rayleigh_sun.is_finite() && profile.rayleigh_sun >= 0.0,
+            "invalid original Rayleigh multiplier"
+        );
+        updated.extend([
+            0x08000018,
+            0x00100082,
+            13,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            profile.marker.to_bits(),
+            0x0304001f,
+            0x0010003a,
+            13,
+        ]);
+        let mut replacements = 0;
+        for ins in &source_ops[st + 1..] {
+            let mut ins = ins.clone();
+            if let Some(at) = ins.windows(3).position(|w| w == [0x00208006, 0, 1]) {
+                let value = profile.rayleigh_sun.to_bits();
+                ins.splice(at..at + 3, [0x00004002, value, value, value, value]);
+                ins[0] = (ins[0] & !0x7f000000) | (ins.len() as u32) << 24;
+                replacements += 1;
+            }
+            updated.extend(ins);
+        }
+        ensure!(replacements == 1, "original Rayleigh binding changed");
+        updated.push(0x01000015);
+    }
+    updated.extend(native_ops[nt + 1..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[index].1 = bytes(&updated);
+    let mut blob = target[..offset].to_vec();
+    blob.extend(assemble(native, &entries)?);
+    Ok(blob)
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
@@ -661,6 +867,88 @@ mod tests {
             corrupted[offset + 60] ^= 1;
             assert!(build_cloud(&source, &corrupted, &[-32197.0], lit).is_err());
         }
+        let source = read("original-make_mie_rayleigh_texture.ps");
+        let native = read("target-make_mie_rayleigh_texture.ps");
+        let sky = read("target-atmosphere.ps");
+        let result = build_scattering(
+            &source,
+            &native,
+            &sky,
+            &[
+                ScatteringProfile {
+                    marker: -32197.0,
+                    rayleigh_sun: 4.67,
+                },
+                ScatteringProfile {
+                    marker: -32188.0,
+                    rayleigh_sun: 0.0,
+                },
+            ],
+        )
+        .unwrap();
+        let offset = 4 + u32_at(&native, 0).unwrap() as usize * 264;
+        let old = chunks(&native[offset..]).unwrap();
+        let new = chunks(&result[offset..]).unwrap();
+        let reflection = |items: &[([u8; 4], Vec<u8>)]| {
+            let r = &items.iter().find(|(tag, _)| tag == b"RDEF").unwrap().1;
+            let name = |at: usize| {
+                let end = r[at..].iter().position(|b| *b == 0).unwrap() + at;
+                std::str::from_utf8(&r[at..end]).unwrap().to_owned()
+            };
+            let table_end = u32_at(r, 12).unwrap() + u32_at(r, 8).unwrap() * 32;
+            let buffers = u32_at(r, 4).unwrap() as usize;
+            let mut globals = Vec::new();
+            for i in 0..u32_at(r, 0).unwrap() as usize {
+                let at = buffers + i * 24;
+                let no = u32_at(r, at).unwrap();
+                assert!(
+                    no >= table_end,
+                    "binding table must precede reflection names"
+                );
+                if name(no as usize) != "$Globals" {
+                    continue;
+                }
+                let vars = u32_at(r, at + 8).unwrap() as usize;
+                for j in 0..u32_at(r, at + 4).unwrap() as usize {
+                    let v = vars + j * 24;
+                    globals.push((
+                        name(u32_at(r, v).unwrap() as usize),
+                        u32_at(r, v + 4).unwrap(),
+                        u32_at(r, v + 8).unwrap(),
+                        u32_at(r, v + 12).unwrap(),
+                    ));
+                }
+            }
+            globals
+        };
+        assert_eq!(
+            reflection(&old),
+            reflection(&new),
+            "native lookup constant names/layout must be preserved"
+        );
+        for ((ot, ob), (nt, nb)) in old.iter().zip(&new) {
+            assert_eq!(ot, nt);
+            if ot == b"SHDR" {
+                let a = instructions(&words(ob).unwrap()).unwrap();
+                let b = instructions(&words(nb).unwrap()).unwrap();
+                let start = a.iter().position(|i| i[0] & 2047 == 104).unwrap() + 1;
+                assert_eq!(&a[start..], &b[b.len() - (a.len() - start)..]);
+            } else if ot != b"RDEF" {
+                assert_eq!(ob, nb);
+            }
+        }
+        assert!(
+            build_scattering(
+                &source,
+                &native,
+                &sky,
+                &[ScatteringProfile {
+                    marker: -32197.0,
+                    rayleigh_sun: f32::NAN
+                }]
+            )
+            .is_err()
+        );
     }
 
     #[test]
