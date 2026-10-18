@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""make_fill.py TEMPLATE_PROJECT SPEC_JSON OUT_DIR  (revision 20: SPEC_JSON = rev20_021d_6.crates.json, OUT_DIR = ports/gameplay-fill)
+"""make_fill.py STOCK_DB SPEC_JSON OUT_DIR  (revision 20: SPEC_JSON = rev20_021d_7.crates.json, OUT_DIR = ports/gameplay-fill;
+$PORTER: vostok-port, to extract the templates)
 
-SPEC_JSON: {"<fill file stem>": {"name": ..., "map_id": N, "crates": [{"team": 0|1, "position": [x,y,z], "yaw": phi,
-            "slope_x": gx, "slope_z": gz, "why": "..."}]}}
-Writes one survarium_026::fill pack per stem: per crate one group of native level_04's resupply set (zone,
-collision, ammo decal, container_closed instance), team 0 from logic/vip/team1, team 1 from logic/vip/team2,
-renamed to logic/fill/teamN/, moved so the crate stands at `position` with its local x along (cos phi, sin phi)
-in (x, z), tilted to the fitted floor plane (slopes gx along its local x, gz along its local z). The group's
-turn is basis(native crate)^T * basis(target) as Euler XYZ (skeleton_animation's convention)."""
-import hashlib, json, math, sys
+SPEC_JSON: {"<fill file stem>": {"name": ..., "map_id": N, "template": native project (default level_04/day_2),
+            "crates": [{"team": 0|1, "native": "logic/vip/team1/" (default team1 for team 0, team2 for team 1),
+                        "position": [x,y,z], "keep_rotation": true | "yaw": phi, "slope_x": gx, "slope_z": gz, "why": "..."}]}}
+Writes one survarium_026::fill pack per stem: per crate one group of the template's native resupply set `native`
+(zone, collision, ammo decal, the container_closed instance under the decal), renamed to logic/fill/teamN/, moved
+rigidly so the crate stands at `position`: with keep_rotation as natively turned (a pure translation), else
+with its local x along (cos phi, sin phi) in (x, z), tilted to the fitted floor plane (slopes gx along its local
+x, gz along its local z): the group's turn is basis(native crate)^T * basis(target) as Euler XYZ
+(skeleton_animation's convention)."""
+import hashlib, json, math, os, subprocess, sys, tempfile
 from pathlib import Path
 import os
 sys.path.insert(0, os.environ.get('TOOLS', '/mnt/hdd/Projects/release-20/crates-021d/tools-a0b5933/tools') + '/chemical-plant')
@@ -33,24 +36,42 @@ def target(phi, gx, gz):
     y = norm(cross(z0, x)); z = cross(x, y)
     return [x, y, z]
 
-NATIVE = {0: ('logic/vip/team1/', 'logic/fill/team1/'), 1: ('logic/vip/team2/', 'logic/fill/team2/')}
+NATIVE = {0: 'logic/vip/team1/', 1: 'logic/vip/team2/'}
+FILL = {0: 'logic/fill/team1/', 1: 'logic/fill/team2/'}
+TEMPLATE = 'projects/level_04/day_2/client_project'
+
+def read_template(db, path, cache={}):
+    if path not in cache:
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / 'client_project'
+            subprocess.run([os.environ.get('PORTER', '/tmp/r18/target/release/vostok-port'), 'extract', '--db', db, '--path', path,
+                            '--output', str(out)], check=True, capture_output=True)
+            data = out.read_bytes()
+        cache[path] = (hashlib.sha256(data).hexdigest(), config(data))
+    return cache[path]
+
+def native_crate(proj, src, team):
+    """The native crate of resupply set `src` (the container_closed instance under its ammo decal)."""
+    objs = {o['full_name']: o for o in proj['client_objects'] if o.get('full_name', '').startswith(src + 'resupply/')}
+    assert objs[src + 'resupply/resupply_zone']['team'] == team, (src, team)
+    decal = objs[src + 'resupply/ammo_decal']['position']
+    crates = [v for v in proj['render_visuals'] if v['lib_name'] == 'item/quest/container_closed']
+    near = min(crates, key=lambda v: math.dist(v['position'], decal))
+    assert math.dist(near['position'], decal) < 1.5
+    return near['position'], near['rotation']
 
 def main():
-    tpath, spec, out = Path(sys.argv[1]), json.load(open(sys.argv[2])), Path(sys.argv[3])
-    data = tpath.read_bytes(); sha = hashlib.sha256(data).hexdigest(); proj = config(data)
-    crates = [v for v in proj['render_visuals'] if v['lib_name'] == 'item/quest/container_closed']
-    zones = {o['full_name']: o for o in proj['client_objects'] if o.get('game_object_type') == 'resupply_zone'}
-    anchors = {}
-    for team, (src, _) in NATIVE.items():
-        col = next(o for o in proj['client_objects'] if o['full_name'] == src + 'resupply/resupply_collision')
-        near = min(crates, key=lambda v: math.dist(v['position'], col['position']))
-        assert math.dist(near['position'], col['position']) < 1.5 and zones[src + 'resupply/resupply_zone']['team'] == team
-        anchors[team] = (near['position'], near['rotation'])
+    db, spec, out = sys.argv[1], json.load(open(sys.argv[2])), Path(sys.argv[3])
     for stem, f in spec.items():
+        template = f.get('template', TEMPLATE); sha, proj = read_template(db, template)
         groups = []
         for c in f['crates']:
-            src, dst = NATIVE[c['team']]; anchor, nrot = anchors[c['team']]
-            turn = mul(tr(e2b(nrot)), target(c['yaw'], c.get('slope_x', 0.0), c.get('slope_z', 0.0)))
+            src, dst = c.get('native', NATIVE[c['team']]), FILL[c['team']]
+            anchor, nrot = native_crate(proj, src, c['team'])
+            if c.get('keep_rotation'):   # the native crate's own rotation: a pure translation
+                turn = e2b([0.0, 0.0, 0.0])
+            else:
+                turn = mul(tr(e2b(nrot)), target(c['yaw'], c.get('slope_x', 0.0), c.get('slope_z', 0.0)))
             pitch, yaw, roll = b2e(turn)
             final = b2e(mul(e2b(nrot), turn))
             groups.append({
@@ -58,10 +79,10 @@ def main():
                 'client_objects': [src + 'resupply/resupply_zone', src + 'resupply/resupply_collision', src + 'resupply/ammo_decal'],
                 'models': ['item/quest/container_closed'],
                 'anchor': [round(v, 3) for v in anchor], 'radius': 1.5, 'team': c['team'], 'rename': {src: dst},
-                'to': {'position': c['position'], 'yaw': round(yaw, 4), 'pitch': round(pitch, 4), 'roll': round(roll, 4)}})
-            print(stem, 'team', c['team'], 'crate at', c['position'], 'final crate rotation', [round(v, 4) for v in final], file=sys.stderr)
-        pack = {'name': f['name'], 'map_id': f['map_id'], 'template_project': 'projects/level_04/day_2/client_project',
-                'template_sha256': sha, 'groups': groups}
+                'to': {'position': c['position'], 'yaw': round(yaw, 4) + 0.0, 'pitch': round(pitch, 4) + 0.0, 'roll': round(roll, 4) + 0.0}})
+            print(stem, 'team', c['team'], 'native', src, [round(v, 3) for v in anchor], '-> crate at', c['position'],
+                  'final crate rotation', [round(v, 4) for v in final], file=sys.stderr)
+        pack = {'name': f['name'], 'map_id': f['map_id'], 'template_project': template, 'template_sha256': sha, 'groups': groups}
         (out / f'{stem}.json').write_text(json.dumps(pack, indent=2) + '\n')
 
 main()

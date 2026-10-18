@@ -1,69 +1,69 @@
 {
-  "name": "mamayev-021d TDM ammo resupply (one crate per team in its spawn area; native level_04 resupply set)",
+  "name": "mamayev-021d TDM ammo resupply (native level_06 day_4's crates at its x/z on 0.21d's ground)",
   "map_id": 153,
-  "template_project": "projects/level_04/day_2/client_project",
-  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "template_project": "projects/level_06/day_4/client_project",
+  "template_sha256": "a510b35fe44c24a08c90d0036c52a83aa130dfa62ff63b9be6f618a8fb870af1",
   "groups": [
     {
-      "name": "team 0 ammo crate at the north end of the team 0 spawn trench (the area is two packed rows of points), 1.4 m from the nearest point, tilted to the ground (native team1 resupply)",
+      "name": "team 0 ammo crate at native level_06 day_4's x/z, native heading, on 0.21d's ground and tilted to it",
       "client_objects": [
-        "logic/vip/team1/resupply/resupply_zone",
-        "logic/vip/team1/resupply/resupply_collision",
-        "logic/vip/team1/resupply/ammo_decal"
+        "logic/vip/team_1/resupply/resupply_zone",
+        "logic/vip/team_1/resupply/resupply_collision",
+        "logic/vip/team_1/resupply/ammo_decal"
       ],
       "models": [
         "item/quest/container_closed"
       ],
       "anchor": [
-        -38.216,
-        1.937,
-        28.819
+        -7.01,
+        29.331,
+        97.235
       ],
       "radius": 1.5,
       "team": 0,
       "rename": {
-        "logic/vip/team1/": "logic/fill/team1/"
+        "logic/vip/team_1/": "logic/fill/team1/"
       },
       "to": {
         "position": [
-          -47.24,
-          17.786,
-          70.55
+          -7.01,
+          21.986,
+          97.235
         ],
-        "yaw": -1.539,
-        "pitch": -0.4439,
-        "roll": -0.3905
+        "yaw": -0.0023,
+        "pitch": -0.0153,
+        "roll": -0.0134
       }
     },
     {
-      "name": "team 1 ammo crate at the team 1 spawn centroid, 1.8 m from the nearest point, tilted to the ground (native team2 resupply)",
+      "name": "team 1 ammo crate at native level_06 day_4's x/z, native heading, on 0.21d's ground and tilted to it",
       "client_objects": [
-        "logic/vip/team2/resupply/resupply_zone",
-        "logic/vip/team2/resupply/resupply_collision",
-        "logic/vip/team2/resupply/ammo_decal"
+        "logic/vip/team_2/resupply/resupply_zone",
+        "logic/vip/team_2/resupply/resupply_collision",
+        "logic/vip/team_2/resupply/ammo_decal"
       ],
       "models": [
         "item/quest/container_closed"
       ],
       "anchor": [
-        64.691,
-        3.601,
-        46.992
+        70.034,
+        29.305,
+        96.533
       ],
       "radius": 1.5,
       "team": 1,
       "rename": {
-        "logic/vip/team2/": "logic/fill/team2/"
+        "logic/vip/team_2/": "logic/fill/team2/"
       },
       "to": {
         "position": [
-          107.64,
-          22.876,
-          133.88
+          70.034,
+          22.028,
+          96.533
         ],
-        "yaw": 0.6138,
-        "pitch": -0.0304,
-        "roll": 0.0578
+        "yaw": 0.0,
+        "pitch": 0.0001,
+        "roll": -0.0001
       }
     }
   ]

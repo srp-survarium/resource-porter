@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Skhid revision 20: maps-021d-6 = maps-021d-5 + one native 0.26 ammo crate per team on each 0.21d map
+# Skhid revision 20: maps-021d-7 = maps-021d-5 + one native 0.26 ammo crate per team on each 0.21d map, where the
+# native map of the same location has it (the owner, after testing -6: "check 0.26 for where they put it", ammo only)
 # (+ the spawn worker's 0.21d spawn fixes), derived in place from the built -5 (not rebuilt from the bundle):
 #   1. copy maps-021d-5;
 #   2. the crates: edit-built-pack (resource-porter a0b5933, examples/edit-built-pack.rs) applies the four
-#      gameplay-fill packs of rev20_021d_6.plan.json, one per project: native level_04's resupply set (zone,
-#      collision box, ammo decal, item/quest/container_closed render + collision instance) per team, renamed
-#      logic/fill/teamN/, moved rigidly to the reviewed spots (166/175 beside each team's battery container,
-#      152/153 in each team's spawn area). The template is stock's projects/level_04/day_2, hash-checked; the
-#      crate model is native, so no file is added;
+#      gameplay-fill packs of rev20_021d_7.plan.json, one per project: the native level's own resupply set
+#      (logic/vip/teamN/resupply: zone, collision box, ammo decal, item/quest/container_closed render + collision
+#      instance) of the same weather and mode (stock's projects/level_03|level_06/day_2|day_4, hash-checked),
+#      renamed logic/fill/teamN/, at native's spot: level_03 as native (native rotation, 2-4 cm up onto 0.21d's
+#      floor), level_06 at native's x/z and heading on 0.21d's ground 7.3 m lower, tilted to it. The battery
+#      containers stay 0.21d's. The crate model is native, so no file is added;
 #   3. the spawn fixes, after the crates (they re-check every point against the crates' new collision):
 #      SPAWNS=<resource-porter rev20-spawn-check>/tools/spawn-check/apply-spawns-021d.sh, unless SPAWNS=none
-#      (then the result is maps-021d-6-pre, crates only);
-#   4. version 6 and a note;
+#      (then the result is maps-021d-7-pre, crates only);
+#   4. version 7 and a note;
 #   5. proof: manifest and file diff against -5 (only the four projects change), per-object diff of each
 #      project (only the crate objects and spawn objects), the pack check with maps-v011e (V011E, default the newest of -6, -5,
 #      -4) over stock + 12, 14, 17, 19, files.sha256 and SHA256SUMS lines.
-#   rev20_021d_6.sh BUILD_DIR
+#   rev20_021d_7.sh BUILD_DIR   (maps-021d-6, the crates beside the containers: commit f2b1d87)
 set -euo pipefail
 BUILD=$(realpath -m "$1"); mkdir -p "$BUILD"
 HERE=$(cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -34,13 +36,13 @@ STOCK=/home/sheep/Projects/survarium/srp/0.26g/game/resources.db
 [ "$(sha256sum $STOCK | cut -d' ' -f1)" = c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c ] || { echo "unexpected stock archive"; exit 1; }
 (cd $BP && sha256sum -c --quiet SHA256SUMS)
 [ "$(sha256sum $M021D_5/pack.json | cut -d' ' -f1)" = 5675aa071c327f26857b3d7667212729c73e3b61b9afa93311ddfd1f5aef9f29 ] || { echo "unexpected maps-021d-5"; exit 1; }
-NAME=maps-021d-6; [ "$SPAWNS" = none ] && NAME=maps-021d-6-pre
+NAME=maps-021d-7; [ "$SPAWNS" = none ] && NAME=maps-021d-7-pre
 OUT=$BUILD/$NAME
 rm -rf "${OUT:?}" "$OUT.spawn-check"
 cp -a --reflink=auto "$M021D_5" "$OUT"
 
 echo "== crates"
-(cd "$HERE" && "$EDIT" "$OUT" tools/content/rev20_021d_6.plan.json $STOCK) | tee "$BUILD/$NAME.crates.log"
+(cd "$HERE" && "$EDIT" "$OUT" tools/content/rev20_021d_7.plan.json $STOCK) | tee "$BUILD/$NAME.crates.log"
 if [ "$SPAWNS" != none ]; then
   echo "== spawns ($SPAWNS, resource-porter $(git -C "$(dirname "$SPAWNS")" rev-parse --short HEAD))"
   "$SPAWNS" "$OUT" | tee "$BUILD/$NAME.spawns.log"
@@ -51,10 +53,11 @@ import json, sys
 from pathlib import Path
 out, old, name, spawns = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 p = json.loads((out / 'pack.json').read_text()); assert p['version'] == '5'
-p['version'] = '6'
+p['version'] = '7'
 p['notes'].append(f'{name}: one native 0.26 ammo crate per team (native level_04 logic/vip/teamN/resupply: resupply_zone, '
-                  'resupply_collision, ammo_decal, item/quest/container_closed; renamed logic/fill/teamN/resupply) on each map: '
-                  '166/175 beside each team\'s battery container, 152/153 in each team\'s spawn area '
+                  'resupply_collision, ammo_decal, item/quest/container_closed; renamed logic/fill/teamN/resupply) on each map '
+                  'where the native map of the location has it (native level_03 / level_06 of the same weather and mode; '
+                  'level_06\'s at native x/z on 0.21d\'s lower ground); the battery containers stay 0.21d\'s '
                   '(ports/gameplay-fill/*-021d-*resupply.json)'
                   + ('' if spawns == 'none' else '; the revision 20 spawn fixes (respawn points and their zones, resource-porter rev20-spawn-check)')
                   + '; nothing else differs from maps-021d-5')
@@ -93,6 +96,19 @@ import collections, json, sys
 for p, changes in json.load(open(sys.argv[1])).items():
     c = collections.Counter(f"{x['change']} {x['path']}" for x in changes); print(p, dict(c))
 PY
+
+# Against -6 (the crates beside the containers): only the crates differ.
+M021D_6=${M021D_6:-$R20/packs/maps-021d-6}
+if [ -d "$M021D_6" ]; then
+  $P -I "$CHECKS/project_diff.py" "$M021D_6" "$OUT" projects/v021d_level_0{3,6}/day_{2,4}/client_project > "$BUILD/$NAME.objects-vs-6.json" \
+    || { echo "against -6 a project change is neither a crate nor a spawn object: $BUILD/$NAME.objects-vs-6.json"; exit 1; }
+  $P - "$BUILD/$NAME.objects-vs-6.json" <<'PY2'
+import collections, json, sys
+for p, changes in json.load(open(sys.argv[1])).items():
+    assert all(x['ok'] and 'respawn' not in x['path'] and 'respawn' not in str(x.get('name')) for x in changes), p
+    print('vs -6:', p, dict(collections.Counter(f"{x['change']} {x['path']}" for x in changes)))
+PY2
+fi
 
 BASE=(); for n in "${PATCHES[@]}"; do BASE+=(--base-patch $BP/resources.db.patch_$n); done
 echo "== pack check ($NAME + $(basename $V011E) over stock + ${PATCHES[*]})"

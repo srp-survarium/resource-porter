@@ -1,11 +1,11 @@
 {
-  "name": "vostok-021d TDM ammo resupply (one crate per team in its spawn area; native level_04 resupply set)",
+  "name": "vostok-021d TDM ammo resupply (native level_03 day_4's crates at its spots)",
   "map_id": 152,
-  "template_project": "projects/level_04/day_2/client_project",
-  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "template_project": "projects/level_03/day_4/client_project",
+  "template_sha256": "90b29b6315e8727460909c17635c3e53416f100cfee4ae7dc9a1518fa329bc54",
   "groups": [
     {
-      "name": "team 0 ammo crate at the team 0 spawn centroid, the middle of the east spawn room, 3.6 m from the nearest spawn point (native team1 resupply)",
+      "name": "team 0 ammo crate where native level_03 day_4 has it, native rotation, 2 cm higher onto 0.21d's floor",
       "client_objects": [
         "logic/vip/team1/resupply/resupply_zone",
         "logic/vip/team1/resupply/resupply_collision",
@@ -15,9 +15,9 @@
         "item/quest/container_closed"
       ],
       "anchor": [
-        -38.216,
-        1.937,
-        28.819
+        -50.242,
+        0.484,
+        -73.745
       ],
       "radius": 1.5,
       "team": 0,
@@ -26,17 +26,17 @@
       },
       "to": {
         "position": [
-          -37.13,
-          0.875,
-          -99.54
+          -50.242,
+          0.504,
+          -73.745
         ],
-        "yaw": -1.5421,
-        "pitch": -0.0334,
-        "roll": -0.0364
+        "yaw": 0.0,
+        "pitch": 0.0,
+        "roll": 0.0
       }
     },
     {
-      "name": "team 1 ammo crate at the team 1 spawn centroid, against the room's south wall, 1.8 m from the nearest spawn point (native team2 resupply)",
+      "name": "team 1 ammo crate where native level_03 day_4 has it, native rotation, 4 cm higher onto 0.21d's floor",
       "client_objects": [
         "logic/vip/team2/resupply/resupply_zone",
         "logic/vip/team2/resupply/resupply_collision",
@@ -46,9 +46,9 @@
         "item/quest/container_closed"
       ],
       "anchor": [
-        64.691,
-        3.601,
-        46.992
+        41.558,
+        0.409,
+        15.49
       ],
       "radius": 1.5,
       "team": 1,
@@ -57,13 +57,13 @@
       },
       "to": {
         "position": [
-          78.09,
-          0.91,
-          5.27
+          41.558,
+          0.449,
+          15.49
         ],
-        "yaw": 0.614,
-        "pitch": 0.0107,
-        "roll": -0.0086
+        "yaw": 0.0,
+        "pitch": 0.0,
+        "roll": 0.0
       }
     }
   ]

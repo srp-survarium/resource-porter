@@ -24,9 +24,9 @@ def walk(path, a, b, out):
             xa, xb = ka.get(k, []), kb.get(k, [])
             if len(xa) == len(xb) == 1 and xa[0] != xb[0] and isinstance(xa[0], dict):
                 fields = sorted(f for f in set(xa[0]) | set(xb[0]) if xa[0].get(f) != xb[0].get(f))
-                out.append(dict(path=path, change='changed', name=k[:120], fields={f: [xa[0].get(f), xb[0].get(f)] for f in fields}, ok=spawn(path, xb[0])))
+                out.append(dict(path=path, change='changed', name=k[:120], fields={f: [xa[0].get(f), xb[0].get(f)] for f in fields}, ok=crate(xb[0]) or spawn(path, xb[0])))
             elif xa != xb:
-                for o in xa[len(xb):] if len(xa) > len(xb) else []: out.append(dict(path=path, change='removed', name=k[:120], ok=spawn(path, o)))
+                for o in xa[len(xb):] if len(xa) > len(xb) else []: out.append(dict(path=path, change='removed', name=k[:120], ok=crate(o) or spawn(path, o)))
                 for o in xb[len(xa):] if len(xb) > len(xa) else []: out.append(dict(path=path, change='added', name=(o.get('full_name') or o.get('lib_name')) if isinstance(o, dict) else k[:120],
                                                                                      position=o.get('position') if isinstance(o, dict) else None, rotation=o.get('rotation') if isinstance(o, dict) else None,
                                                                                      ok=crate(o) or spawn(path, o)))

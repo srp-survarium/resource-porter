@@ -1,11 +1,11 @@
 {
-  "name": "vostok-021d ammo resupply (one crate per team beside its battery container; native level_04 resupply set)",
+  "name": "vostok-021d ammo resupply (native level_03's crates at native level_03's spots; the battery containers stay 0.21d's)",
   "map_id": 166,
-  "template_project": "projects/level_04/day_2/client_project",
-  "template_sha256": "2b8e864787760371f4ae148ef72ef4530d7a3e025b6b39d739d912373b8c56bd",
+  "template_project": "projects/level_03/day_2/client_project",
+  "template_sha256": "87c89c0f18a3ea3691026c6b42b42291b1c590e1e953d54fc2044108de9e9fee",
   "groups": [
     {
-      "name": "team 0 ammo crate 2.6 m north of the team 0 container in the hangar aisle, in line with it (long axis along the aisle), so both lanes beside it stay as wide as beside the container; clear of the pillar to its north-east (native team1 resupply: zone, collision, ammo decal, container_closed)",
+      "name": "team 0 ammo crate where native level_03 has it (logic/vip/team1/resupply: zone, collision, ammo decal, container_closed), native rotation, 2 cm higher onto 0.21d's floor",
       "client_objects": [
         "logic/vip/team1/resupply/resupply_zone",
         "logic/vip/team1/resupply/resupply_collision",
@@ -15,9 +15,9 @@
         "item/quest/container_closed"
       ],
       "anchor": [
-        -38.216,
-        1.937,
-        28.819
+        -50.242,
+        0.484,
+        -73.745
       ],
       "radius": 1.5,
       "team": 0,
@@ -26,17 +26,17 @@
       },
       "to": {
         "position": [
-          -23.572,
-          0.51,
-          -71.9
+          -50.242,
+          0.504,
+          -73.745
         ],
-        "yaw": 0.0286,
-        "pitch": 0.003,
-        "roll": -0.001
+        "yaw": 0.0,
+        "pitch": 0.0,
+        "roll": 0.0
       }
     },
     {
-      "name": "team 1 ammo crate 2.4 m north of the team 1 container in the open yard, long axis east-west (native team2 resupply)",
+      "name": "team 1 ammo crate where native level_03 has it (logic/vip/team2/resupply), native rotation, 4 cm higher onto 0.21d's floor",
       "client_objects": [
         "logic/vip/team2/resupply/resupply_zone",
         "logic/vip/team2/resupply/resupply_collision",
@@ -46,9 +46,9 @@
         "item/quest/container_closed"
       ],
       "anchor": [
-        64.691,
-        3.601,
-        46.992
+        41.558,
+        0.409,
+        15.49
       ],
       "radius": 1.5,
       "team": 1,
@@ -57,13 +57,13 @@
       },
       "to": {
         "position": [
-          38.021,
-          0.445,
-          4.993
+          41.558,
+          0.449,
+          15.49
         ],
-        "yaw": -0.614,
-        "pitch": -3.1309,
-        "roll": -3.133
+        "yaw": 0.0,
+        "pitch": 0.0,
+        "roll": 0.0
       }
     }
   ]

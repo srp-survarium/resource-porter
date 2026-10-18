@@ -1,0 +1,18 @@
+{
+ "vostok-021d-resupply": {"name": "vostok-021d ammo resupply (native level_03's crates at native level_03's spots; the battery containers stay 0.21d's)", "map_id": 166,
+  "template": "projects/level_03/day_2/client_project", "crates": [
+  {"team": 0, "native": "logic/vip/team1/", "position": [-50.242, 0.504, -73.745], "keep_rotation": true, "why": "team 0 ammo crate where native level_03 has it (logic/vip/team1/resupply: zone, collision, ammo decal, container_closed), native rotation, 2 cm higher onto 0.21d's floor"},
+  {"team": 1, "native": "logic/vip/team2/", "position": [41.558, 0.449, 15.49], "keep_rotation": true, "why": "team 1 ammo crate where native level_03 has it (logic/vip/team2/resupply), native rotation, 4 cm higher onto 0.21d's floor"}]},
+ "vostok-021d-tdm-resupply": {"name": "vostok-021d TDM ammo resupply (native level_03 day_4's crates at its spots)", "map_id": 152,
+  "template": "projects/level_03/day_4/client_project", "crates": [
+  {"team": 0, "native": "logic/vip/team1/", "position": [-50.242, 0.504, -73.745], "keep_rotation": true, "why": "team 0 ammo crate where native level_03 day_4 has it, native rotation, 2 cm higher onto 0.21d's floor"},
+  {"team": 1, "native": "logic/vip/team2/", "position": [41.558, 0.449, 15.49], "keep_rotation": true, "why": "team 1 ammo crate where native level_03 day_4 has it, native rotation, 4 cm higher onto 0.21d's floor"}]},
+ "mamayev-021d-resupply": {"name": "mamayev-021d ammo resupply (native level_06's crates at native level_06's x/z on 0.21d's ground; the battery containers stay 0.21d's)", "map_id": 175,
+  "template": "projects/level_06/day_2/client_project", "crates": [
+  {"team": 0, "native": "logic/vip/team_1/", "position": [-7.01, 21.986, 97.235], "yaw": 1.4056, "slope_x": 0.1413, "slope_z": 0.2555, "why": "team 0 ammo crate at native level_06's x/z (logic/vip/team_1/resupply), native heading, on 0.21d's ground (7.3 m below native's) and tilted to it"},
+  {"team": 1, "native": "logic/vip/team_2/", "position": [70.034, 22.028, 96.533], "yaw": -1.0675, "slope_x": 0.0625, "slope_z": 0.0452, "why": "team 1 ammo crate at native level_06's x/z (logic/vip/team_2/resupply), native heading, on 0.21d's ground (7.3 m below native's) and tilted to it"}]},
+ "mamayev-021d-tdm-resupply": {"name": "mamayev-021d TDM ammo resupply (native level_06 day_4's crates at its x/z on 0.21d's ground)", "map_id": 153,
+  "template": "projects/level_06/day_4/client_project", "crates": [
+  {"team": 0, "native": "logic/vip/team_1/", "position": [-7.01, 21.986, 97.235], "yaw": 1.4056, "slope_x": 0.1413, "slope_z": 0.2555, "why": "team 0 ammo crate at native level_06 day_4's x/z, native heading, on 0.21d's ground and tilted to it"},
+  {"team": 1, "native": "logic/vip/team_2/", "position": [70.034, 22.028, 96.533], "yaw": -1.0675, "slope_x": 0.0625, "slope_z": 0.0452, "why": "team 1 ammo crate at native level_06 day_4's x/z, native heading, on 0.21d's ground and tilted to it"}]}
+}
