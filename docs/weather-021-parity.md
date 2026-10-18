@@ -408,4 +408,25 @@ are `a70e272e38e42666e139c6c9db335166` and
 `4f5e7dc1cf82ffa2512c125a42fe1be5`. Their diffuse equations largely match
 the original; the AO application differs by the original 2.5 multiplier.
 The upstream AO calculation also changed, so restoring that multiplier is
-only a diagnostic hypothesis pending comparison with the fixed reference.
+not a faithful conversion on its own. A target-only diagnostic with the
+original 2.5 application multiplier improves close03 error to 8.03, but the
+original generator stores AO at 0.4 scale. That isolated brightness change
+is rejected. Restoring the original quality-1 generator, normalized for
+the native filter/application range, changes close03 error only to 14.10
+and leaves the dark foreground. That diagnostic is also not retained.
+The recovered original stage and effect compiler confirm quality 1 selects
+the standard `ssao_accumulation` technique; no original recapture was needed.
+
+## Mamayev water regression
+
+The saved Mamayev rain draw trace uses the same forward-water shader as
+Vostok. Enabling `legacy_water_fog_021` for map177 changes only eight water
+variants; the other 6,992 files are byte-identical to the accepted archive.
+Build, apply and verify pass. The archive SHA-256 is
+`8fc5d6f4bb291f5ec9e36475da2bc182d35d41bf570d2eaa263c5d56d489f13e`.
+
+Against the fixed originals, four target-only checks score 15.22 (close03),
+16.49 (close06), 6.96 (east), and 6.49 (southwest). They remain stable relative
+to the prior atmosphere correction. The parity manifest enables the original
+water equations for Mamayev rain too. Some small bright specks and the dark
+foreground persist; water fog does not account for those differences.
