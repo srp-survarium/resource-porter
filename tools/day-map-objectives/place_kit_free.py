@@ -28,6 +28,7 @@ def main():
     ap.add_argument('--gap', type=float, default=0.5); ap.add_argument('--spawn-clear', type=float, default=1.5)
     ap.add_argument('--walkway', type=float, default=1.0); ap.add_argument('--max-residual', type=float, default=0.08)
     ap.add_argument('--label', default='kit')
+    ap.add_argument('--debug', action='store_true', help='print why each crate candidate fails')
     ap.add_argument('--crate-only', action='store_true', help='place only the crate (around --around, else near X Z)')
     ap.add_argument('--around', type=float, nargs=2, metavar=('CX', 'CZ'), help='an existing container: the crate goes 1.4-4 m from it, '
                     'its footprint at least 0.7 m clear of a 1.0 m circle round the container')
@@ -120,7 +121,10 @@ def main():
             sp = clear_of_spawns(cx, cz, 'crate')
             if sp < a.spawn_clear: why_not['a spawn point within --spawn-clear'] += 1; continue
             f2, why = footprint(cx, cz, 'crate')
-            if not f2: why_not['crate: ' + why.split(' at ')[0].split(' (')[0]] += 1; continue
+            if not f2:
+                why_not['crate: ' + why.split(' at ')[0].split(' (')[0]] += 1
+                if a.debug: print('rejected', round(cx, 3), round(cz, 3), round(yw, 4), why, file=sys.stderr)
+                continue
             if not ring_free(cx, cz, 'crate', a.walkway): why_not['no --walkway of free floor around'] += 1; continue
             if best is None: best = (d0, cx, cz, yw, f2, sp)
         if not best:
