@@ -99,16 +99,17 @@ Rayleigh color property therefore does not retain the original appearance.
 
 The original Mie height multiplier is **positive infinity**, not the reciprocal
 of its authored 25.37. Recovered 0.21 symbols and retail code explain why:
-`math::lerp<environment_properties>` (RVA `0x1abd99`) zero-initializes its output
+`math::lerp<environment_properties>` (VA `0x1abd99`) zero-initializes its output
 and skips the `mie_fog_height_falloff` member at offset `0x15c`.
-`renderer_context::set_static_frame_parameters` (RVA `0xef8e2`) then uploads
+`renderer_context::set_static_frame_parameters` (VA `0xef8e2`) then uploads
 `1 / height_falloff`. The loader and copy operations do include this member.
+These are disassembly virtual addresses with image base `0x10000`, not RVAs.
 At the current positive-height camera, the original draw contributes no Mie
 fog. Treating the authored value as the observed renderer value would be wrong.
 
-The accepted four-map manifest remains iteration 1. Shader compatibility is
-being checked separately before enabling it there. Other maps, weather and
-camera elevations still need verification.
+The four-map parity manifest now enables the checked fog and sky compatibility
+for Mamayev evening. Other maps, weather and additional camera elevations still
+need verification.
 
 ## Opt-in original fog arithmetic
 
@@ -156,5 +157,15 @@ the original shader reads only its direction components. Cloud/sky differences
 remain, so this is progress rather than final parity.
 
 The integrated four-map build emits byte-identical fog and sky shaders to the
-tested experiments. Only Mamayev evening opts in during the current regression
-check; the other three variants remain on the preserved baseline behavior.
+tested experiments. It builds, applies and verifies as 6,959 resources; its
+database SHA-256 is
+`f9ff9d07398dab64f7c6fe4d78c3066c64a95b42991daaefd597d4c66b30f5b1`.
+Only Mamayev evening opts in; the other three variants remain on the preserved
+baseline behavior.
+
+The integrated build was checked at `mamayev-close-03`, `mamayev-southwest`,
+`mamayev-east` and `mamayev-close-06`, with matching poses and active shader
+audits. Their raw RGB errors are 13.62, 11.40, 15.37 and 14.41 respectively.
+The wide views expose remaining cloud placement and color differences, and
+unsynchronized smoke/vegetation still affect these measurements. These four
+checks support retaining the improvement, not calling Mamayev evening finished.

@@ -46,9 +46,8 @@
         "german": "Mamaew kurgan (v0.21)",
         "polish": "Kurhan Mamaja (v0.21)"
       },
-      "environment_overrides": {
-        "mie_fog_base_height": 0
-      }
+      "legacy_fog_021": true,
+      "legacy_sky_021": true
     },
     {
       "id": 177,
