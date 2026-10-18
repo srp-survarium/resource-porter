@@ -64,7 +64,12 @@
         "ukrainian": "Мамаїв курган (v0.21)",
         "german": "Mamaew kurgan (v0.21)",
         "polish": "Kurhan Mamaja (v0.21)"
-      }
+      },
+      "legacy_fog_021": true,
+      "legacy_sky_021": true,
+      "legacy_clouds_021": true,
+      "legacy_scattering_021": true,
+      "legacy_particle_fog_021": true
     }
   ],
   "material_templates": {

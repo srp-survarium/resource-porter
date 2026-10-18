@@ -301,8 +301,19 @@ are restored, including the original 0.2 particle-fog color multiplier.
 The native fog block remains intact for unmarked maps. Retail integration
 tests verify native metadata, subsequent lighting and fallback instructions.
 
-The full porter bundle and wider regression are pending; no rain compatibility
-change is enabled in the accepted manifest yet.
+The full porter bundle contains 6,992 files; its database hash is
+`d67a2c139ae5a6bef6980dd8d0fdbb1365622fd725a42e33d60c60db33f88ed7`.
+Build, apply, verify and four rain views pass. Errors against the originals
+are 15.20 (close03), 16.45 (close06), 6.97 (east) and 6.53 (southwest).
+Wide sky and haze are much closer; close ground remains darker, and small
+particle differences remain. This is an accepted improvement, not final parity.
+
+The four earlier evening views retain their appearance (errors 9.92, 12.29,
+5.29 and 6.51 in the same order). The accepted parity manifest now enables all
+five options for Mamayev rain; Mamayev evening retains its four atmosphere
+options. Vostok evening and rain remain on the preserved conversion pending
+their individual comparisons. Validation: 344 ordinary tests passed, plus both
+retail shader integration tests invoked explicitly.
 
 For diagnosis, `--audit-render-target` reads the selected draw's color target
 and its first two supported uncompressed pixel textures, with formats and
