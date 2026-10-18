@@ -28,6 +28,9 @@ pub enum TextureMatch {
     /// level for 122, colour PSNR at least 42 dB in every level for the
     /// other 56; alpha differs only in the smaller levels.
     SameTopLevel,
+    /// Named by the port manifest (`reviewed_native_textures`): the same
+    /// art as decoded, with 0.26's own normal strength or alpha channel.
+    Reviewed,
 }
 
 /// Header length and the byte size of the full-resolution level.

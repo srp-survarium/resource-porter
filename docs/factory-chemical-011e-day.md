@@ -153,3 +153,24 @@ a built maps-v011e pack (`track-fog-rev20.plan.json` through
 replaced, the result checked by hash, nothing else may change).
 `verify_track_fog.py` and `render_track_fog.py` are the offline checks and
 pictures.
+
+## Surfaces under 0.26's lighting (revision 20)
+
+With the probe fixes the lighting reads right, but some surfaces did not:
+Chemical's team-0 hall floor and boilers, Radar's hangar floor.
+
+* Vertex-blended materials on 0.26's height-and-mask blend (technique 1, tiled
+  mask) kept 0.11e's `constant_vertex_blended_falloff` 1 where 0.26 has 10 or
+  15: the second layer was smeared over whole floors in the mask's noise,
+  mottled and whitish. A material taking the native finish now also takes the
+  native blend tuning (falloff, strength, factor, tiled-mask scale, rotation and
+  texture) where it blends by the native technique and mask: 34 materials of
+  both maps (`floor_trash_dirt_vc`, `concrete_green_moh_vc`,
+  `concrete_column_trash_vc`, `trash_concrete_vc`, `concrete_green_trash_dirt_vc`, ...).
+* `reviewed_native_textures`: textures that decode as 0.26's own art, which
+  0.26 re-made: eight normal maps 1.5 to 10 times flatter in 0.26
+  (`metal_rust_02_nmap` 10x: the boilers' white blotches; `metal_column_06`,
+  `stucco_ceiling`, `stucco_08`, `stucco_05`, `bricks_brick`, `table_stool`,
+  `door_gate`), and four colour maps that 0.26 gave the alpha heights its blend
+  reads (`floor_trash`, `trash`, `brick_02`, `briks_trash_02`). They are
+  referenced as the native textures.

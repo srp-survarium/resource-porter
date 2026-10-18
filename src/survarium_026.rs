@@ -114,6 +114,11 @@ pub struct Manifest {
     /// it ([`open_reversed_sphere_probes`]).
     #[serde(default)]
     pub open_reversed_sphere_probes: bool,
+    /// Donor textures referenced as the target's of the same name, reviewed
+    /// (name: reason): decoded, the same art as 0.26's, which 0.26 re-made
+    /// with its own normal strength or with the alpha its shaders read.
+    #[serde(default)]
+    pub reviewed_native_textures: BTreeMap<String, String>,
     /// Reviewed exceptions kept over a material's native or constant finish.
     #[serde(default)]
     pub finish_exceptions: BTreeMap<String, crate::material_finish::FinishException>,
@@ -2271,6 +2276,17 @@ pub fn build_with_fill(
     } else {
         (BTreeMap::new(), BTreeSet::new())
     };
+    let mut native_textures = native_textures;
+    for (name, reason) in &m.reviewed_native_textures {
+        let dds = format!("textures/{name}.dds");
+        ensure!(!reason.trim().is_empty(), "reviewed native texture {name} needs its reason");
+        ensure!(target.is_file(&dds), "reviewed native texture {name}: the target has no {dds}");
+        ensure!(
+            first.donor_files.contains(&dds),
+            "reviewed native texture {name}: the maps import no {dds}"
+        );
+        native_textures.entry(dds).or_insert(crate::native_equivalence::TextureMatch::Reviewed);
+    }
     eprintln!(
         "{} materials take the native finish; {} donor textures and {} converted materials are the target's own",
         native_finish_materials.len(),

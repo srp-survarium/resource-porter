@@ -87,6 +87,21 @@ const FINISH_TEXTURES: &[(&str, &str)] = &[
     ),
 ];
 
+/// How 0.26's vertex blend mixes the second layer in: the transition
+/// falloff and strength, and the tiled noise mask. They tune 0.26's own
+/// blend techniques (a height-and-mask blend 0.11e did not have): 0.11e's
+/// `constant_vertex_blended_falloff` 1 on 0.26's technique 1 (native 10 or
+/// 15) smeared the second layer over whole floors in noise, the mottled,
+/// whitish floors of Chemical's and Radar's halls. Taken only where the
+/// converted material blends by the native material's technique and mask.
+const VERTEX_BLEND_VALUES: &[&str] = &[
+    "constant_vertex_blended_falloff",
+    "constant_vertex_blended_strength",
+    "constant_vertex_blended_factor",
+    "constant_tiled_mask_uv_scale",
+    "constant_tiled_mask_uv_rotation",
+];
+
 fn value<'a>(effect: &'a ConfigValue, name: &str) -> Option<&'a ConfigValue> {
     effect.named(name)?.named("value")
 }
@@ -212,6 +227,25 @@ pub fn adopt_native_finish_with(
             if switch(effect, name) == switch(native_effect, name) {
                 take_map(effect, texture);
             }
+        }
+        let same_blend = [
+            "vertex_blend_technique",
+            "use_tiled_vertex_blended_mask",
+            "use_vertex_blended_diffuse",
+        ]
+        .iter()
+        .all(|name| {
+            value(effect, name).is_some() && value(effect, name) == value(native_effect, name)
+        });
+        if same_blend {
+            for name in VERTEX_BLEND_VALUES {
+                if value(effect, name).is_some()
+                    && let Some(native_value) = value(native_effect, name)
+                {
+                    set_value(effect, name, native_value.clone());
+                }
+            }
+            take_map(effect, "texture_vertex_blended_tiled_mask");
         }
     }
     Ok(bound)
@@ -625,6 +659,48 @@ mod tests {
             ..exception
         };
         assert!(apply_finish_exception(&mut converted, &unexplained).is_err());
+    }
+
+    /// 0.11e `floor_trash_dirt_vc` on 0.26's technique 1 with a tiled mask:
+    /// the blend tuning becomes native; a different technique keeps its own.
+    #[test]
+    fn the_vertex_blend_tuning_follows_the_native_technique() {
+        let blend = |technique: i32, falloff: i32| {
+            material(vec![
+                ("use_vertex_blended_diffuse", B(true)),
+                ("vertex_blend_technique", I(technique)),
+                ("use_tiled_vertex_blended_mask", B(true)),
+                (
+                    "texture_vertex_blended_tiled_mask",
+                    s("tiled/vertex_blend_masks/tiled_mask_01"),
+                ),
+                ("constant_vertex_blended_falloff", I(falloff)),
+                ("constant_vertex_blended_strength", I(2)),
+            ])
+        };
+        let mut converted = blend(1, 1);
+        let mut native = blend(1, 10);
+        set_value(
+            native
+                .named_mut("material")
+                .unwrap()
+                .named_mut("g_stage")
+                .unwrap()
+                .named_mut("effect")
+                .unwrap(),
+            "texture_vertex_blended_tiled_mask",
+            s("tiled/vertex_blend_masks/tiled_mask_03"),
+        );
+        let bound = adopt_native_finish(&mut converted, &native).unwrap();
+        assert_eq!(get(&converted, "constant_vertex_blended_falloff"), I(10));
+        assert_eq!(
+            get(&converted, "texture_vertex_blended_tiled_mask"),
+            s("tiled/vertex_blend_masks/tiled_mask_03")
+        );
+        assert!(bound.contains("tiled/vertex_blend_masks/tiled_mask_03"));
+        let mut other = blend(0, 1);
+        adopt_native_finish(&mut other, &native).unwrap();
+        assert_eq!(get(&other, "constant_vertex_blended_falloff"), I(1));
     }
 
     #[test]
