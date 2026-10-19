@@ -58,7 +58,9 @@ reads only below the working directory.
   mask's jaw) stay in front of it.
 - One variant per glove class, as stock torsos: sleeves over wrist-length
   cuffs (`data_full`), into short and long gauntlets (`data_short`,
-  `data_long`).
+  `data_long`). Inside gauntlets the sleeve ends 3 cm past the deepest
+  opening of its class, as the stock gauntlet variants are cut short: deeper
+  in, it could only show through the gauntlet.
 - Backpack straps sink into the shoulders about as much as on stock jackets.
 - Matte cloth.
 

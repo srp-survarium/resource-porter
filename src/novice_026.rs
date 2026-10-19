@@ -184,6 +184,52 @@ const INTO_GAUNTLETS: LimbFit<'static> = LimbFit {
     distal_reach: 0.0,
 };
 
+/// How far the sleeve reaches into the gauntlet whose opening is deepest
+/// along the forearm (m).
+const GAUNTLET_OVERLAP: f64 = 0.03;
+
+/// The jacket without the sleeve triangles wholly beyond
+/// [`GAUNTLET_OVERLAP`] past the deepest opening of `gloves` along each
+/// forearm (ForeArm to Hand); and that distance from the ForeArm bone (m).
+fn trim_into_gauntlets(
+    jacket: &[u8],
+    gloves: &[(String, Vec<u8>)],
+    bind_pose: &[u8],
+) -> Result<(Vec<u8>, f64)> {
+    let bones = crate::mask_fit::bone_origins(bind_pose)?;
+    let bone = |n: &str| bones.get(n).copied().with_context(|| format!("no {n} bone"));
+    let mut axes = vec![];
+    let mut deepest = 0.0_f64;
+    for side in ["Left", "Right"] {
+        let (a, b) = (bone(&format!("{side}ForeArm"))?, bone(&format!("{side}Hand"))?);
+        let d = crate::mask_fit::sub(b, a);
+        let len = crate::mask_fit::dot(d, d).sqrt();
+        let dir = d.map(|v| v / len);
+        let along = move |p: [f64; 3]| crate::mask_fit::dot(crate::mask_fit::sub(p, a), dir);
+        for (_, model) in gloves {
+            let mesh = Shell::parse("glove", model)?.mesh;
+            let opening = mesh
+                .positions
+                .iter()
+                .filter(|p| p[0] * a[0] > 0.0)
+                .map(|&p| along(p))
+                .fold(f64::INFINITY, f64::min);
+            ensure!(opening.is_finite(), "a glove without a {side} hand");
+            deepest = deepest.max(opening);
+        }
+        axes.push((a[0].signum(), along));
+    }
+    let cut = deepest + GAUNTLET_OVERLAP;
+    let kept = keep_triangles(jacket, |corners| {
+        !axes.iter().any(|(side, along)| {
+            corners
+                .iter()
+                .all(|(p, _)| p[0] * side > 0.0 && along(*p) > cut)
+        })
+    })?;
+    Ok((kept, cut))
+}
+
 /// The game's view of the resources: the stock archive with the released
 /// patches over it.
 fn game_view(db: &Path, patches: &[PathBuf]) -> Result<ResourceDb> {
@@ -600,6 +646,17 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
             r.moved,
             r.max_move * 1000.0
         );
+        if spec.layer == Layer::Inside {
+            // As stock gauntlet variants do, the sleeve ends inside the
+            // gauntlet: what is deep in it can only show through it.
+            let (kept, cut_at) = trim_into_gauntlets(&fitted, class_gloves, &bind_pose)?;
+            println!(
+                "  sleeves end {:.0} mm inside the deepest-opening gauntlet ({:.0} mm along the forearm)",
+                GAUNTLET_OVERLAP * 1000.0,
+                cut_at * 1000.0
+            );
+            fitted = kept;
+        }
         variant(&out, &manifest, "torso", suffix, &fitted, &mut models, files)?;
     }
     out.refit_bounds(&models, files)?;
