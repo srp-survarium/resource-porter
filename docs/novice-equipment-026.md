@@ -1,5 +1,11 @@
 # STK2 Novice cap and jacket for 0.26g
 
+**Only the cap ships** (the owner, 2026-10-19). The jacket's port stays in
+`src/novice_026.rs` behind `SHIP_JACKET = false`: its model, config,
+textures, dictionary row, texts and icon are not built. Open on it when it
+was dropped: the sweater's neck went into the chin in game (the
+owner's test of pack novice-5).
+
 Two items from the cancelled S.T.A.L.K.E.R. 2's novice stalker
 (`neutral_01_novice`), on the native v0.26g player:
 

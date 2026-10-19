@@ -51,7 +51,13 @@ def main():
 
     # (name, meshes, yaw, pitch, share of the cell): helmets fill about two
     # thirds of theirs, torsos all of it.
-    specs = [('cap', [mesh('hat', 'head')], 25, 12, 0.7), ('jacket', [mesh('torso', 'torso')], 18, 4, 1.0)]
+    specs = [('cap', [mesh('hat', 'head')], 25, 12, 0.7)]
+    # The jacket is not shipped (the owner, 2026-10-19): only a bundle with
+    # its model gets its icon.
+    if (a.bundle / 'overlay/models/ported/novice_026/torso.skinned_model').exists():
+        specs.append(('jacket', [mesh('torso', 'torso')], 18, 4, 1.0))
+    else:
+        del CELLS['jacket']
     prefix, tags = renderer.swf_tags(a.lobby_swf)
     tag_index, char_id, argb = renderer.atlas_tag(tags)
     h, w = argb.shape[:2]

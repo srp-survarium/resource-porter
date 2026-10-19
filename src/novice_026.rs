@@ -49,6 +49,9 @@ fn is_glove(corners: &[([f64; 3], [f64; 2]); 3]) -> bool {
 /// Item ids, free in stock and in every released Skhid patch (12-22);
 /// 1800-1820 are taken or reserved by other ports.
 pub const CAP_ID: i32 = 1821;
+/// Whether the jacket ships. The owner (2026-10-19): only the cap; the
+/// jacket's port stays here, out of the bundle.
+pub const SHIP_JACKET: bool = false;
 pub const JACKET_ID: i32 = 1822;
 /// Free cells of the equipment atlas over patch 22's lobby movie: rows 1-9
 /// of column 6 are the exoskeletons' and the balaclava's, 10-17 are
@@ -408,8 +411,14 @@ fn zones(c: &BinaryConfig) -> Vec<String> {
 }
 
 pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Result<()> {
-    let manifest: ArmorPortManifest =
+    let mut manifest: ArmorPortManifest =
         serde_json::from_str(include_str!("../ports/novice-stk2-to-026g.json"))?;
+    if !SHIP_JACKET {
+        manifest
+            .model
+            .target_models
+            .retain(|path, _| path == &format!("{ROOT}/hat.skinned_model"));
+    }
     let donor = source.join(
         "resources/exported/models/character/human/neutral/neutral_01_novice/neutral_01_novice.skinned_model",
     );
@@ -537,121 +546,126 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
     out.raw(HAT, &cap, files)?;
     set_counts(&out, HAT, &cap, files)?;
 
-    // --- The jacket ---
-    let donor_torso = fs::read(overlay.join(TORSO))?;
-    let jacket = keep_triangles(&donor_torso, |c| !is_glove(c))?;
-    let mut jacket = jacket;
-    // Its trunk over every trousers' waist.
-    let legs = worn_with(&mut target, "legs", &["data"])?;
-    let leg_meshes: Vec<(String, Mesh)> = legs
-        .into_values()
-        .flatten()
-        .map(|(l, b)| Ok((l.clone(), Shell::parse(l, &b)?.mesh)))
-        .collect::<Result<_>>()?;
-    let hem = parse_mesh(&jacket, 48, "jacket")?
-        .positions
-        .iter()
-        .map(|p| p[1])
-        .fold(f64::INFINITY, f64::min);
-    let axis = [
-        [0.0, 0.0, bone("Hip")?[2]],
-        bone("Hip")?,
-        bone("Spin")?,
-        bone("Spin_1")?,
-        bone("Chest")?,
-        bone("Neck")?,
-        bone("Head")?,
-    ];
-    let waist = BodyFit {
-        axis: &axis,
-        y_range: (hem + 0.005, bone("Chest")?[1]),
-        max_x: 0.3,
-        clearance: 0.004,
-        cap: 0.025,
-        by_part: true,
-        max_forward: 1.0,
-    };
-    let covers: Vec<Cover<'_>> = leg_meshes
-        .iter()
-        .map(|(l, m)| Cover {
-            label: l.clone(),
-            mesh: m,
-        })
-        .collect();
-    let r = crate::body_fit::fit(&mut jacket, &covers, &waist)?;
-    println!(
-        "Jacket over {} trousers surfaces: moved {} vertices, up to {:.1} mm",
-        covers.len(),
-        r.moved,
-        r.max_move * 1000.0
-    );
-    report_covers(&r.covers);
-    // The collar over the native neck and the masks' hems.
-    let neck_meshes: Vec<(String, Mesh)> = std::iter::once(("native head".to_owned(), head.clone()))
-        .chain(masks.iter().map(|m| (m.label.clone(), m.mesh.clone())))
-        .collect();
-    let collar = BodyFit {
-        axis: &axis,
-        y_range: (bone("Chest")?[1], bone("Head")?[1]),
-        max_x: 0.2,
-        clearance: COLLAR_CLEARANCE,
-        cap: 0.012,
-        by_part: false,
-        max_forward: 0.5,
-    };
-    let covers: Vec<Cover<'_>> = neck_meshes
-        .iter()
-        .map(|(l, m)| Cover {
-            label: l.clone(),
-            mesh: m,
-        })
-        .collect();
-    let r = crate::body_fit::fit(&mut jacket, &covers, &collar)?;
-    println!(
-        "Collar over the native neck and {} mask surfaces: moved {} vertices, up to {:.1} mm",
-        masks.len(),
-        r.moved,
-        r.max_move * 1000.0
-    );
-    report_covers(&r.covers);
-    // One variant per glove class.
-    let gloves = worn_with(&mut target, "gloves", &["data"])?;
-    let mut models = BTreeMap::new();
-    models.insert(
-        format!("{ROOT}/hat.skinned_model"),
-        manifest.model.target_models[&format!("{ROOT}/hat.skinned_model")].clone(),
-    );
-    for (class, suffix, spec) in [
-        ("data_full", "", &OVER_CUFFS),
-        ("data_short", "_short", &INTO_GAUNTLETS),
-        ("data_long", "_long", &INTO_GAUNTLETS),
-    ] {
-        let mut fitted = jacket.clone();
-        let class_gloves = gloves
-            .get(class)
-            .with_context(|| format!("no {class} gloves"))?;
-        let r = crate::limb_fit::fit(&mut fitted, class_gloves, &bind_pose, spec)?;
+    // --- The jacket (not shipped: the owner's decision of 2026-10-19) ---
+    if SHIP_JACKET {
+        // --- The jacket ---
+        let donor_torso = fs::read(overlay.join(TORSO))?;
+        let jacket = keep_triangles(&donor_torso, |c| !is_glove(c))?;
+        let mut jacket = jacket;
+        // Its trunk over every trousers' waist.
+        let legs = worn_with(&mut target, "legs", &["data"])?;
+        let leg_meshes: Vec<(String, Mesh)> = legs
+            .into_values()
+            .flatten()
+            .map(|(l, b)| Ok((l.clone(), Shell::parse(l, &b)?.mesh)))
+            .collect::<Result<_>>()?;
+        let hem = parse_mesh(&jacket, 48, "jacket")?
+            .positions
+            .iter()
+            .map(|p| p[1])
+            .fold(f64::INFINITY, f64::min);
+        let axis = [
+            [0.0, 0.0, bone("Hip")?[2]],
+            bone("Hip")?,
+            bone("Spin")?,
+            bone("Spin_1")?,
+            bone("Chest")?,
+            bone("Neck")?,
+            bone("Head")?,
+        ];
+        let waist = BodyFit {
+            axis: &axis,
+            y_range: (hem + 0.005, bone("Chest")?[1]),
+            max_x: 0.3,
+            clearance: 0.004,
+            cap: 0.025,
+            by_part: true,
+            max_forward: 1.0,
+        };
+        let covers: Vec<Cover<'_>> = leg_meshes
+            .iter()
+            .map(|(l, m)| Cover {
+                label: l.clone(),
+                mesh: m,
+            })
+            .collect();
+        let r = crate::body_fit::fit(&mut jacket, &covers, &waist)?;
         println!(
-            "Sleeves {} {} {class} gloves: moved {} vertices, up to {:.1} mm",
-            if spec.layer == Layer::Outside { "over" } else { "into" },
-            class_gloves.len(),
+            "Jacket over {} trousers surfaces: moved {} vertices, up to {:.1} mm",
+            covers.len(),
             r.moved,
             r.max_move * 1000.0
         );
-        if spec.layer == Layer::Inside {
-            // As stock gauntlet variants do, the sleeve ends inside the
-            // gauntlet: what is deep in it can only show through it.
-            let (kept, cut_at) = trim_into_gauntlets(&fitted, class_gloves, &bind_pose)?;
+        report_covers(&r.covers);
+        // The collar over the native neck and the masks' hems.
+        let neck_meshes: Vec<(String, Mesh)> = std::iter::once(("native head".to_owned(), head.clone()))
+            .chain(masks.iter().map(|m| (m.label.clone(), m.mesh.clone())))
+            .collect();
+        let collar = BodyFit {
+            axis: &axis,
+            y_range: (bone("Chest")?[1], bone("Head")?[1]),
+            max_x: 0.2,
+            clearance: COLLAR_CLEARANCE,
+            cap: 0.012,
+            by_part: false,
+            max_forward: 0.5,
+        };
+        let covers: Vec<Cover<'_>> = neck_meshes
+            .iter()
+            .map(|(l, m)| Cover {
+                label: l.clone(),
+                mesh: m,
+            })
+            .collect();
+        let r = crate::body_fit::fit(&mut jacket, &covers, &collar)?;
+        println!(
+            "Collar over the native neck and {} mask surfaces: moved {} vertices, up to {:.1} mm",
+            masks.len(),
+            r.moved,
+            r.max_move * 1000.0
+        );
+        report_covers(&r.covers);
+        // One variant per glove class.
+        let gloves = worn_with(&mut target, "gloves", &["data"])?;
+        let mut models = BTreeMap::new();
+        models.insert(
+            format!("{ROOT}/hat.skinned_model"),
+            manifest.model.target_models[&format!("{ROOT}/hat.skinned_model")].clone(),
+        );
+        for (class, suffix, spec) in [
+            ("data_full", "", &OVER_CUFFS),
+            ("data_short", "_short", &INTO_GAUNTLETS),
+            ("data_long", "_long", &INTO_GAUNTLETS),
+        ] {
+            let mut fitted = jacket.clone();
+            let class_gloves = gloves
+                .get(class)
+                .with_context(|| format!("no {class} gloves"))?;
+            let r = crate::limb_fit::fit(&mut fitted, class_gloves, &bind_pose, spec)?;
             println!(
-                "  sleeves end {:.0} mm inside the deepest-opening gauntlet ({:.0} mm along the forearm)",
-                GAUNTLET_OVERLAP * 1000.0,
-                cut_at * 1000.0
+                "Sleeves {} {} {class} gloves: moved {} vertices, up to {:.1} mm",
+                if spec.layer == Layer::Outside { "over" } else { "into" },
+                class_gloves.len(),
+                r.moved,
+                r.max_move * 1000.0
             );
-            fitted = kept;
+            if spec.layer == Layer::Inside {
+                // As stock gauntlet variants do, the sleeve ends inside the
+                // gauntlet: what is deep in it can only show through it.
+                let (kept, cut_at) = trim_into_gauntlets(&fitted, class_gloves, &bind_pose)?;
+                println!(
+                    "  sleeves end {:.0} mm inside the deepest-opening gauntlet ({:.0} mm along the forearm)",
+                    GAUNTLET_OVERLAP * 1000.0,
+                    cut_at * 1000.0
+                );
+                fitted = kept;
+            }
+            variant(&out, &manifest, "torso", suffix, &fitted, &mut models, files)?;
         }
-        variant(&out, &manifest, "torso", suffix, &fitted, &mut models, files)?;
+        out.refit_bounds(&models, files)?;
+    } else {
+        out.refit_bounds(manifest.model.target_models.iter(), files)?;
     }
-    out.refit_bounds(&models, files)?;
 
     // --- Materials: matte cloth, as stock knit and canvas ---
     // The jacket's UVs use its whole texture (only the hands' block, inside
@@ -659,7 +673,10 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
     for (part, stem, crop) in [
         ("hat", "neutral_01_novice_head", cap_crop),
         ("torso", "neutral_01_novice_torso", None),
-    ] {
+    ]
+    .into_iter()
+    .filter(|(part, _, _)| SHIP_JACKET || *part == "hat")
+    {
         out.cloth_material_cropped(
             &mut target,
             "novice_026",
@@ -701,7 +718,10 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
             JACKET_STATS,
             TEXTS[2].1.english,
         ),
-    ] {
+    ]
+    .into_iter()
+    .filter(|piece| SHIP_JACKET || piece.0 == CAP_ID)
+    {
         let piece = Piece {
             id,
             slot,
@@ -761,9 +781,13 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
         registration.push(entry);
     }
     out.config("gameplay/db_static_dictionaries", &dictionary, files)?;
+    let texts: Vec<&(&str, Text)> = TEXTS
+        .iter()
+        .filter(|(key, _)| SHIP_JACKET || key.starts_with("st_novice_026_helmet"))
+        .collect();
     ensure!(
         strings.keys().map(String::as_str).collect::<BTreeSet<_>>()
-            == TEXTS.iter().map(|(key, _)| *key).collect(),
+            == texts.iter().map(|(key, _)| *key).collect(),
         "the items' string keys changed: {:?}",
         strings.keys()
     );
@@ -771,7 +795,7 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
     for language in LANGUAGES {
         let path = format!("localization/{language}/localization");
         let mut loc = parse_config(&mut target, &path, "localization")?;
-        for (key, text) in &TEXTS {
+        for (key, text) in &texts {
             set_string(&mut loc.root, key, text.get(language)?)?;
         }
         localizations.push((language, path, loc));
@@ -796,7 +820,11 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
         serde_json::to_vec_pretty(&registration)?,
     )?;
     crate::model_validation::validate_effective_overlay(db, &overlay)?;
-    println!("Built Novice cap and jacket: {} resources", record.files.len());
+    println!(
+        "Built Novice {}: {} resources",
+        if SHIP_JACKET { "cap and jacket" } else { "cap" },
+        record.files.len()
+    );
     Ok(())
 }
 
