@@ -288,6 +288,59 @@ pub(crate) fn set_card_prop(c: &mut BinaryConfig, prop_id: i32, value: &str) -> 
         .set_path("prop_value", s(value))
 }
 
+/// A converted surface (48-byte vertices) with only the triangles `keep`
+/// accepts, given their corners' (position, UV), and only the vertices
+/// those use, in their order. Any chunk after the indices is kept.
+pub(crate) fn keep_triangles(
+    model: &[u8],
+    keep: impl Fn(&[([f64; 3], [f64; 2]); 3]) -> bool,
+) -> Result<Vec<u8>> {
+    let mesh = crate::mask_fit::parse_mesh(model, 48, "surface")?;
+    let f = |i: usize, at: usize| -> f64 {
+        let at = 12 + i * 48 + at;
+        f64::from(f32::from_le_bytes(model[at..at + 4].try_into().unwrap()))
+    };
+    let corner = |i: usize| (mesh.positions[i], [f(i, 40), f(i, 44)]);
+    let kept: Vec<[usize; 3]> = mesh
+        .triangles
+        .iter()
+        .copied()
+        .filter(|t| keep(&t.map(corner)))
+        .collect();
+    ensure!(!kept.is_empty(), "no triangle kept");
+    let mut used = vec![false; mesh.positions.len()];
+    for &i in kept.iter().flatten() {
+        used[i] = true;
+    }
+    let mut remap = vec![usize::MAX; mesh.positions.len()];
+    let mut order = vec![];
+    for (i, u) in used.iter().enumerate() {
+        if *u {
+            remap[i] = order.len();
+            order.push(i);
+        }
+    }
+    let index_chunk = 12 + mesh.positions.len() * 48;
+    let rest = index_chunk + 8 + crate::mask_fit::read_u32(model, index_chunk + 4)?;
+    let mut out = vec![];
+    out.extend_from_slice(&3_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + order.len() * 48)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(order.len())?.to_le_bytes());
+    for &i in &order {
+        out.extend_from_slice(&model[12 + i * 48..12 + (i + 1) * 48]);
+    }
+    out.extend_from_slice(&4_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + kept.len() * 6)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(kept.len() * 3)?.to_le_bytes());
+    for t in &kept {
+        for &i in t {
+            out.extend_from_slice(&u16::try_from(remap[i])?.to_le_bytes());
+        }
+    }
+    out.extend_from_slice(model.get(rest..).context("truncated surface")?);
+    Ok(out)
+}
+
 /// Position bounds of a converted skinned surface.
 pub(crate) fn converted_bounds(b: &[u8]) -> Result<([f32; 3], [f32; 3])> {
     let n = u32::from_le_bytes(b[8..12].try_into()?) as usize;

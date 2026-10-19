@@ -90,6 +90,7 @@ pub struct ShellFit {
     pub depth_after: f32,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct Mesh {
     pub positions: Vec<[f64; 3]>,
     pub triangles: Vec<[usize; 3]>,
@@ -157,7 +158,7 @@ pub(crate) fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 /// Farthest intersection of the ray `origin + t * dir` with the mesh, as
 /// (t, triangle, barycentric weights).
-fn farthest_hit(
+pub(crate) fn farthest_hit(
     origin: [f64; 3],
     dir: [f64; 3],
     positions: &[[f64; 3]],
@@ -196,7 +197,7 @@ pub(crate) fn bone_origins(bind_pose: &[u8]) -> Result<BTreeMap<String, [f64; 3]
 
 /// All intersections of the ray `origin + t * dir` (t > 0) with the mesh, as
 /// (t, whether the triangle faces along the ray).
-fn ray_hits(
+pub(crate) fn ray_hits(
     origin: [f64; 3],
     dir: [f64; 3],
     positions: &[[f64; 3]],
@@ -866,7 +867,7 @@ fn tuck_into_neck(
 
 /// Welds seam-split copies (same position) and lists each welded vertex's
 /// neighbours.
-fn weld_vertices(mesh: &Mesh) -> (Vec<usize>, Vec<BTreeSet<usize>>) {
+pub(crate) fn weld_vertices(mesh: &Mesh) -> (Vec<usize>, Vec<BTreeSet<usize>>) {
     let mut welded = HashMap::new();
     let weld: Vec<usize> = mesh
         .positions
@@ -1029,6 +1030,8 @@ pub(crate) fn skins(model: &[u8], stride: usize) -> Result<Vec<Skin>> {
                     let w = read_f32(v, 16)?;
                     vec![w, 1.0 - w]
                 }
+                // Rigid parts: one bone, no weight stored.
+                36 => vec![1.0, 0.0, 0.0, 0.0],
                 _ => bail!("no skin layout for {stride}-byte vertices"),
             };
             let mut skin: BTreeMap<u8, f64> = BTreeMap::new();
@@ -1061,7 +1064,7 @@ fn put_skin(vertex: &mut [u8], skin: &[(u8, f64)]) {
 
 /// The closest point of triangle `abc` to `p`, as barycentric weights
 /// (Ericson, Real-Time Collision Detection 5.1.5).
-fn closest_on_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> [f64; 3] {
+pub(crate) fn closest_on_triangle(p: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> [f64; 3] {
     let (ab, ac, ap) = (sub(b, a), sub(c, a), sub(p, a));
     let (d1, d2) = (dot(ab, ap), dot(ac, ap));
     if d1 <= 0.0 && d2 <= 0.0 {
@@ -1161,7 +1164,7 @@ pub fn follow_head_weights(mask: &mut [u8], head: &[u8]) -> Result<WeightFollow>
 pub use crate::skeleton_animation::Frame;
 
 /// Skins model-space positions from the bind frames to the posed ones.
-fn skin_positions(
+pub(crate) fn skin_positions(
     positions: &[[f64; 3]],
     skins: &[Skin],
     bind: &[Frame],
