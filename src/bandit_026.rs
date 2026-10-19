@@ -184,6 +184,68 @@ pub fn pose_clearances(
     Ok(out)
 }
 
+/// Texels of the 1024² diffuse kept around the balaclava's UVs, so the
+/// smaller mips still see the cloth's surroundings as before.
+const ATLAS_MARGIN: f64 = 16.0;
+/// Sizes of the cropped maps (width, height). The island is about 790 x 560
+/// texels of the 1024² diffuse: its width keeps every texel (the knit's ribs
+/// run across it), its height loses about a tenth. The donor's 1:2
+/// diffuse:normal ratio stays.
+const ATLAS_DIFFUSE: [u32; 2] = [1024, 512];
+const ATLAS_NORMAL: [u32; 2] = [2048, 1024];
+const VERTEX: usize = 48;
+
+fn vertex_uvs(mask: &[u8]) -> Result<impl Iterator<Item = (usize, [f32; 2])> + '_> {
+    let count = crate::mask_fit::read_u32(mask, 8)?;
+    ensure!(mask.len() >= 12 + count * VERTEX, "truncated mask vertices");
+    let f = move |at: usize| f32::from_le_bytes(mask[at..at + 4].try_into().unwrap());
+    Ok((0..count).map(move |i| {
+        let at = 12 + i * VERTEX;
+        (at, [f(at + 40), f(at + 44)])
+    }))
+}
+
+/// The rectangle of the atlas the mask's UVs cover, widened by
+/// `ATLAS_MARGIN` and put on the 1/1024 grid.
+pub(crate) fn atlas_crop(mask: &[u8]) -> Result<crate::outfit_026::AtlasCrop> {
+    let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for (_, uv) in vertex_uvs(mask)? {
+        for k in 0..2 {
+            lo[k] = lo[k].min(f64::from(uv[k]));
+            hi[k] = hi[k].max(f64::from(uv[k]));
+        }
+    }
+    ensure!(
+        lo.iter().chain(&hi).all(|c| (0.0..=1.0).contains(c)),
+        "the mask's UVs leave the atlas: {lo:?}..{hi:?}"
+    );
+    let grid = |c: f64, up: bool| {
+        let t = c * 1024.0 + if up { ATLAS_MARGIN } else { -ATLAS_MARGIN };
+        (if up { t.ceil() } else { t.floor() }).clamp(0.0, 1024.0) / 1024.0
+    };
+    Ok(crate::outfit_026::AtlasCrop {
+        uv_min: [grid(lo[0], false), grid(lo[1], false)],
+        uv_max: [grid(hi[0], true), grid(hi[1], true)],
+        diffuse: ATLAS_DIFFUSE,
+        normal: ATLAS_NORMAL,
+    })
+}
+
+/// Moves every UV into the cropped maps: the float pair and the sub-texel
+/// fraction kept in the tangent's and binormal's top bytes.
+pub(crate) fn remap_to_crop(mask: &mut [u8], crop: &crate::outfit_026::AtlasCrop) -> Result<()> {
+    let uvs: Vec<_> = vertex_uvs(mask)?.collect();
+    for (at, uv) in uvs {
+        for k in 0..2 {
+            let scaled = ((f64::from(uv[k]) - crop.uv_min[k]) / (crop.uv_max[k] - crop.uv_min[k])) as f32;
+            ensure!((0.0..=1.0).contains(&scaled), "UV outside the crop at vertex byte {at}");
+            mask[at + 40 + 4 * k..at + 44 + 4 * k].copy_from_slice(&scaled.to_le_bytes());
+            mask[at + 35 + 4 * k] = crate::armor::quantized_uv_fraction(scaled);
+        }
+    }
+    Ok(())
+}
+
 pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
     let mut manifest: ArmorPortManifest =
         serde_json::from_str(include_str!("../ports/bandit-stk2-to-026g.json"))?;
@@ -250,6 +312,14 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
         worst * 1000.0,
         face * 1000.0
     );
+    // The balaclava samples about a quarter of the donor's attachment atlas;
+    // the rest is other bandit gear. Its maps keep only that part.
+    let crop = atlas_crop(&mask)?;
+    remap_to_crop(&mut mask, &crop)?;
+    println!(
+        "Balaclava atlas: UV {:?}..{:?}, maps resampled to {:?} diffuse and {:?} normal",
+        crop.uv_min, crop.uv_max, crop.diffuse, crop.normal
+    );
     out.raw(mask_path, &mask, files)?;
     // The fit refines the cloth over the skull; the surface's properties
     // carry its counts.
@@ -296,6 +366,7 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
         "attach",
         &textures.join("bandit_01_attach"),
         crate::outfit_026::Finish::CLOTH,
+        Some(&crop),
         files,
     )?;
     let mut dictionary =
@@ -424,6 +495,38 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::{ConfigValue, NamedValue};
+
+    fn mask_with_uvs(uvs: &[[f32; 2]]) -> Vec<u8> {
+        let mut mask = vec![3, 0, 0, 0, 0, 0, 0, 0];
+        mask.extend((uvs.len() as u32).to_le_bytes());
+        for uv in uvs {
+            let mut v = [0_u8; 48];
+            v[40..44].copy_from_slice(&uv[0].to_le_bytes());
+            v[44..48].copy_from_slice(&uv[1].to_le_bytes());
+            mask.extend(v);
+        }
+        mask
+    }
+
+    #[test]
+    fn the_atlas_crop_keeps_the_island_and_its_margin() {
+        let mut mask = mask_with_uvs(&[[0.25, 0.5], [0.75, 0.875], [0.5, 0.6]]);
+        let crop = atlas_crop(&mask).unwrap();
+        assert_eq!(crop.uv_min, [240.0 / 1024.0, 496.0 / 1024.0]);
+        assert_eq!(crop.uv_max, [784.0 / 1024.0, 912.0 / 1024.0]);
+        remap_to_crop(&mut mask, &crop).unwrap();
+        let uvs: Vec<_> = vertex_uvs(&mask).unwrap().map(|(_, uv)| uv).collect();
+        // The same atlas point before and after: old = min + new * size.
+        for (old, new) in [[0.25_f32, 0.5], [0.75, 0.875], [0.5, 0.6]].iter().zip(&uvs) {
+            for k in 0..2 {
+                let back = crop.uv_min[k] + f64::from(new[k]) * (crop.uv_max[k] - crop.uv_min[k]);
+                assert!((back - f64::from(old[k])).abs() < 1e-6);
+            }
+        }
+        // The fraction bytes follow the new UVs.
+        assert_eq!(mask[12 + 35], crate::armor::quantized_uv_fraction(uvs[0][0]));
+        assert_eq!(mask[12 + 39], crate::armor::quantized_uv_fraction(uvs[0][1]));
+    }
 
     #[test]
     fn the_balaclava_is_named_and_described_in_every_client_language() {

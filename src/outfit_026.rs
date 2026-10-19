@@ -132,7 +132,8 @@ impl Writer<'_> {
     }
 
     /// A material on the native tank-torso template, with the donor's
-    /// diffuse and normal maps, `<texture_stem><suffix>.tga`, and `finish`.
+    /// diffuse and normal maps, `<texture_stem><suffix>.tga`, and `finish`;
+    /// with `crop`, only that part of each map, resampled.
     pub(crate) fn cloth_material(
         &self,
         target: &mut ResourceDb,
@@ -140,6 +141,7 @@ impl Writer<'_> {
         part: &str,
         texture_stem: &Path,
         finish: Finish,
+        crop: Option<&AtlasCrop>,
         files: &mut Vec<BuiltFile>,
     ) -> Result<()> {
         self.cloth_material_cropped(target, port, part, texture_stem, None, finish, files)
@@ -204,7 +206,15 @@ impl Writer<'_> {
             fs::create_dir_all(dest.parent().unwrap())?;
             let mut source = texture_stem.as_os_str().to_owned();
             source.push(format!("{suffix}.tga"));
-            crate::armor::convert_texture(Path::new(&source), &dest, compression)?;
+            if let Some(crop) = crop {
+                let cropped = dest.with_extension("crop.tga");
+                let size = if role == "diffuse" { crop.diffuse } else { crop.normal };
+                crop_texture(Path::new(&source), &cropped, crop, size)?;
+                crate::armor::convert_texture(&cropped, &dest, compression)?;
+                fs::remove_file(cropped)?;
+            } else {
+                crate::armor::convert_texture(Path::new(&source), &dest, compression)?;
+            }
             let bytes = crate::duty_026::texture_dds(&fs::read(&dest)?, &p, srgb)?;
             self.raw(&format!("{p}.dds"), &bytes, files)?;
             let mut opts = parse_config(
@@ -231,6 +241,50 @@ impl Writer<'_> {
             files,
         )
     }
+}
+
+/// The part of a donor texture atlas a model uses, in UV units on the
+/// 1/1024 grid (so on whole texels of every map 1024 wide or larger), and the
+/// square edge each map is resampled to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct AtlasCrop {
+    pub uv_min: [f64; 2],
+    pub uv_max: [f64; 2],
+    pub diffuse: [u32; 2],
+    pub normal: [u32; 2],
+}
+
+/// `source` (an uncompressed TGA) cut to `crop` and resampled (Lanczos) to
+/// `size`, as an uncompressed true-colour TGA.
+fn crop_texture(source: &Path, output: &Path, crop: &AtlasCrop, size: [u32; 2]) -> Result<()> {
+    let header = fs::read(source)?;
+    ensure!(header.len() >= 18, "TGA header is truncated: {}", source.display());
+    let source_size = [
+        f64::from(u16::from_le_bytes([header[12], header[13]])),
+        f64::from(u16::from_le_bytes([header[14], header[15]])),
+    ];
+    let texel = |k: usize, uv: f64| -> Result<u32> {
+        let t = uv * source_size[k];
+        ensure!(t.fract() == 0.0, "crop edge {uv} is not on a texel of {}", source.display());
+        Ok(t as u32)
+    };
+    let (x, y) = (texel(0, crop.uv_min[0])?, texel(1, crop.uv_min[1])?);
+    let (w, h) = (texel(0, crop.uv_max[0])? - x, texel(1, crop.uv_max[1])? - y);
+    let result = std::process::Command::new("magick")
+        .arg(source)
+        .args(["-crop", &format!("{w}x{h}+{x}+{y}"), "+repage"])
+        .args(["-filter", "Lanczos", "-resize", &format!("{}x{}!", size[0], size[1])])
+        .args(["-type", "TrueColor", "-compress", "None"])
+        .arg(output)
+        .output()
+        .context("starting ImageMagick; enter the repository Nix shell")?;
+    ensure!(
+        result.status.success(),
+        "ImageMagick failed to crop {}: {}",
+        source.display(),
+        String::from_utf8_lossy(&result.stderr).trim()
+    );
+    Ok(())
 }
 
 /// One wearable item built from a native equipment template.
