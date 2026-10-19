@@ -72,18 +72,21 @@ reads only below the working directory.
 
 ## Stats
 
-Both are the Scavengers' (faction 1), level 2: the server's rule sells them at
-the Scavengers' second rank. No seller override.
+The owner's (2026-10-19): both level 2 and in no faction (`parameters.faction`
+0, as the Vityaz and the Lancaster): srp sells them to everyone at no rank
+only with its exceptions naming them (skhid-srp `feat/novice-no-faction-sellers`);
+without that, the rule sells gear of no faction nowhere, and they only drop.
+The jacket has 25 armour and pocket capacity +1, as native torsos have it:
+the default modification 1170 (`pocket_slot_size` +1), after the Quilted
+jacket's own ammo bag (1050).
 
 | | level | armour | isolation | kg | price | drop weight |
 | --- | --- | --- | --- | --- | --- | --- |
 | Novice's knit cap (1821) | 2 | 10 | 10 | 0.3 | 2,000 | 140 |
 | Mounting helmet (330, Scav) | 4 | 20 | 5 | 1.0 | 8,080 | 120 |
 | Biker's helmet (27, BM) | 3 | 20 | 0 | 1.2 | 4,730 | 130 |
-| Amber respirator (43, Scav mask) | 3 | 5 | 30 | 0.5 | 1,190 | 130 |
-| Novice's field jacket (1822) | 2 | 20 | 10 | 4.5 | 3,300 | 140 |
+| Novice's field jacket (1822) | 2 | 25 | 10 | 4.5 | 3,300 | 140 |
 | Quilted jacket (31, Scav) | 1 | 10 | 10 | 3.0 | 1,900 | 150 |
-| Leather sleeveless jacket (29, BM) | 1 | 15 | 5 | 3.0 | 2,100 | 150 |
 | Chemical protection jacket (34, Scav) | 3 | 20 | 50 | 6.0 | 4,750 | 130 |
 | Survivor's jacket (325, Scav) | 3 | 30 | 10 | 5.0 | 4,750 | 1 |
 

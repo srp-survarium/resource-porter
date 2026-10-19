@@ -118,9 +118,10 @@ pub struct Stats {
     pub cost: i32,
 }
 
-/// Proposed, against the native low-level gear (see the port's notes):
-/// both Scavengers' (faction 1), level 2, so the server's rule sells them at
-/// the Scavengers' second rank; drops between level 1 (150) and level 3 (130).
+/// The owner's numbers (2026-10-19): level 2, in no faction ("they
+/// shouldn't belong to any group"); drops between level 1 (150) and level 3
+/// (130). The cap as proposed; the jacket with 25 armour and one more
+/// pocket capacity (below).
 pub const CAP_STATS: Stats = Stats {
     level: 2,
     armor: 0.10,
@@ -131,13 +132,19 @@ pub const CAP_STATS: Stats = Stats {
 };
 pub const JACKET_STATS: Stats = Stats {
     level: 2,
-    armor: 0.20,
+    armor: 0.25,
     isolation: 0.10,
     weight: 4.5,
     drop_weight: 140,
     cost: 3300,
 };
-const SCAVENGERS: i32 = 1;
+/// No faction: `parameters.faction` 0, as the configs of the gear no
+/// faction sells (the PP-19-01 Vityaz, the MP-27M Lancaster).
+const NO_FACTION: i32 = 0;
+/// Pocket capacity +1 (`st_modify_quick_slot_size`: `pocket_slot_size`
+/// +1), the default modification native torsos carry for it (the
+/// Reinforced padded jacket, the OZK-18KB and Zubr UM-4 vests).
+const POCKET_CAPACITY_PLUS_ONE: i32 = 1170;
 
 /// Clips the cap is checked through (as the balaclava is).
 pub use crate::bandit_026::POSE_CLIPS;
@@ -356,7 +363,7 @@ fn set_stats(c: &mut BinaryConfig, stats: &Stats, zones: &[&str]) -> Result<()> 
             .set_path(&format!("parameters.{key}"), V::Integer(stats.level))?;
     }
     c.root
-        .set_path("parameters.faction", V::Integer(SCAVENGERS))?;
+        .set_path("parameters.faction", V::Integer(NO_FACTION))?;
     c.root
         .set_path("parameters.weight", V::Float(stats.weight))?;
     c.root
@@ -726,6 +733,20 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
         ensure!(!zones.is_empty(), "{template} protects no hit zone");
         let zones: Vec<&str> = zones.iter().map(String::as_str).collect();
         set_stats(&mut c, &stats, &zones)?;
+        if category == "torso" {
+            // The template's own default modification (the Quilted jacket's
+            // ammo bag, 1050) stays; the pocket capacity is added to it.
+            let mut mods = match c.root.named("default_modifications") {
+                Some(V::Indexed(m)) => m.clone(),
+                _ => vec![],
+            };
+            ensure!(
+                !mods.contains(&V::Integer(POCKET_CAPACITY_PLUS_ONE)),
+                "the torso template already has pocket capacity"
+            );
+            mods.push(V::Integer(POCKET_CAPACITY_PLUS_ONE));
+            c.root.set_path("default_modifications", V::Indexed(mods))?;
+        }
         items
             .iter_mut()
             .find(|v| v.named("dict_id") == Some(&V::Integer(id)))
