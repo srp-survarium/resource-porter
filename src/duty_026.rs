@@ -960,6 +960,30 @@ fn props(values: &[(i32, String)]) -> V {
     )
 }
 
+/// The stamina-regeneration modifier as the stock item configs spell it,
+/// and as the exe reads it (its name table at 0x928448).
+const STAMINA_REGEN_MISSPELT: &str = "stamina_regenation_speed_modifier";
+const STAMINA_REGEN: &str = "stamina_regeneration_speed_modifier";
+
+/// Renames a key of `parameters`, keeping its value. The encoder writes a
+/// table in key-CRC order, so the renamed key lands where the game looks.
+fn rename_parameter(cfg: &mut V, old: &str, new: &str) -> Result<()> {
+    let Some(V::Named(parameters)) = cfg.named_mut("parameters") else {
+        return Ok(());
+    };
+    if !parameters.iter().any(|f| f.name == old) {
+        return Ok(());
+    }
+    ensure!(
+        !parameters.iter().any(|f| f.name == new),
+        "parameters has both {old} and {new}"
+    );
+    for f in parameters.iter_mut().filter(|f| f.name == old) {
+        f.name = new.into();
+    }
+    Ok(())
+}
+
 /// The dictionary row and config of each piece of the variant's set.
 fn set_items<'v>(
     variant: &'v Variant,
@@ -981,6 +1005,10 @@ fn set_items<'v>(
         row.set_path("name", string(piece.name))?;
         row.set_path("base_cost", V::Integer(piece.cost))?;
         let mut cfg = template.clone();
+        // Skhid's weapon balance 1 (revision 21, resources.db.patch_21) spelt
+        // the key as the exe reads it in every item config, these pieces'
+        // too; the templates come from the stock database.
+        rename_parameter(&mut cfg, STAMINA_REGEN_MISSPELT, STAMINA_REGEN)?;
         let armor = if piece.kind == Kind::Helmet {
             variant.ballistic.1
         } else {
@@ -1785,6 +1813,40 @@ mod tests {
             cfg.named("ui_desc").and_then(|u| u.named("icon")),
             Some(&V::Indexed(vec![V::Integer(3), V::Integer(6)]))
         );
+    }
+
+    #[test]
+    fn every_piece_spells_stamina_regeneration_as_the_exe_reads_it() {
+        // The stock templates' misspelt key, as weapon balance 1 found it.
+        let mut natives = natives();
+        for (_, template) in &mut natives.templates {
+            template
+                .set_path(
+                    &format!("parameters.{STAMINA_REGEN_MISSPELT}"),
+                    V::Integer(7),
+                )
+                .unwrap();
+        }
+        for variant in [&DUTY, &FREEDOM] {
+            for (piece, _, cfg) in set_items(variant, &natives, true).unwrap() {
+                let parameters = cfg.named("parameters").unwrap();
+                assert_eq!(
+                    parameters.named(STAMINA_REGEN),
+                    Some(&V::Integer(7)),
+                    "{}",
+                    piece.name
+                );
+                assert_eq!(parameters.named(STAMINA_REGEN_MISSPELT), None);
+            }
+        }
+        // Without the misspelt key nothing is added.
+        let set = set_items(&DUTY, &self::natives(), true).unwrap();
+        assert!(set.iter().all(|(_, _, cfg)| {
+            cfg.named("parameters")
+                .unwrap()
+                .named(STAMINA_REGEN)
+                .is_none()
+        }));
     }
 
     #[test]
