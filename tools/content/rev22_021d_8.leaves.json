@@ -1,0 +1,30 @@
+{
+  "projects": {
+    "projects/v021d_level_03/day_2/client_project": [
+      {"object": "anomaly/random_anomalies/antena/coridor_1/electro_anomaly_1", "index": 126, "set": {
+        "artefacts_respawn_chance": {"was": 0.2, "i32": 1},
+        "artefacts_respawn_time_sec": {"was": 120, "i32": 60},
+        "artefacts.0.count": {"was": 1, "i32": 5}}},
+      {"object": "anomaly/electro/electric_anomaly", "index": 149, "set": {
+        "artefacts_respawn_chance": {"was": 0.5, "i32": 1},
+        "artefacts_respawn_time_sec": {"was": 120, "i32": 70}}},
+      {"object": "anomaly/anomaly_rust/rust_anomaly", "index": 189, "set": {
+        "artefacts_respawn_chance": {"was": 0.5, "i32": 1},
+        "artefacts_respawn_time_sec": {"was": 120, "i32": 70},
+        "max_artefacts_count": {"was": 1, "i32": 2}}}
+    ],
+    "projects/v021d_level_03/day_4/client_project": [
+      {"object": "anomaly/random_anomalies/antena/coridor_1/electro_anomaly_1", "index": 126, "set": {
+        "artefacts_respawn_chance": {"was": 0.2, "i32": 1},
+        "artefacts_respawn_time_sec": {"was": 120, "i32": 60},
+        "artefacts.0.count": {"was": 1, "i32": 5}}},
+      {"object": "anomaly/electro/electric_anomaly", "index": 149, "set": {
+        "artefacts_respawn_chance": {"was": 0.5, "i32": 1},
+        "artefacts_respawn_time_sec": {"was": 120, "i32": 70}}},
+      {"object": "anomaly/anomaly_rust/rust_anomaly", "index": 189, "set": {
+        "artefacts_respawn_chance": {"was": 0.5, "i32": 1},
+        "artefacts_respawn_time_sec": {"was": 120, "i32": 70},
+        "max_artefacts_count": {"was": 1, "i32": 2}}}
+    ]
+  }
+}
