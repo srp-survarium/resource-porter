@@ -54,7 +54,7 @@ assert keys == ['notes', 'version'] and pn['notes'][:-1] == po['notes'], keys
 expect = {'client_objects[189].max_artefacts_count': ('i32:2', 'i32:3')}
 leaves = {}
 for w in ('day_2', 'day_4'):
-    a = dict(l.rstrip('\n').split('\t', 1) for l in open(out / f'.{w}.9.leaves')); b = dict(l.rstrip('\n').split('\t', 1) for l in open(out / f'.{w}.9.leaves'))
+    a = dict(l.rstrip('\n').split('\t', 1) for l in open(out / f'.{w}.8.leaves')); b = dict(l.rstrip('\n').split('\t', 1) for l in open(out / f'.{w}.9.leaves'))
     got = {k: (a.get(k), b.get(k)) for k in set(a) | set(b) if a.get(k) != b.get(k)}
     assert got == expect, (w, got)
     leaves[w] = {k: f'{x} -> {y}' for k, (x, y) in sorted(got.items())}
