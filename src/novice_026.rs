@@ -99,32 +99,13 @@ pub const TEXTS: [(&str, Text); 4] = [
     ),
 ];
 
-/// The collar is lowered from this far below the Neck bone up.
-const COLLAR_FROM_BELOW_NECK: f64 = 0.04;
-/// Its rim comes down to this height, as stock high collars (the Stalker's
-/// jacket's is at 1.612 m).
-const COLLAR_TOP: f64 = 1.615;
-
-/// Moves the jacket's vertices above `from` down so its top lands on `top`,
-/// smoothly (nothing at `from`, all of it at the top). Returns the drop at
-/// the top (mm).
-fn lower_collar(jacket: &mut [u8], from: f64, top: f64) -> Result<f64> {
-    let mesh = parse_mesh(jacket, 48, "jacket")?;
-    let highest = mesh.positions.iter().map(|p| p[1]).fold(f64::NEG_INFINITY, f64::max);
-    ensure!(highest > top && top > from, "the collar is already low");
-    let drop = highest - top;
-    for (i, p) in mesh.positions.iter().enumerate() {
-        if p[1] <= from {
-            continue;
-        }
-        let t = ((p[1] - from) / (highest - from)).clamp(0.0, 1.0);
-        let y = p[1] - drop * t * t * (3.0 - 2.0 * t);
-        let at = 12 + i * 48 + 4;
-        jacket[at..at + 4].copy_from_slice(&(y as f32).to_le_bytes());
-    }
-    Ok(drop * 1000.0)
-}
-
+/// Room the collar leaves around the native neck and the masks' hems in
+/// the bind pose: the neck turns with the head inside a collar that follows
+/// the chest, and the nape comes back into it when the head tilts back.
+/// (Lowering the donor's high collar instead, by 3 to 5 cm, left its
+/// narrow rim on the wider native nape: more of the neck came through it
+/// in the clips, not less.)
+const COLLAR_CLEARANCE: f64 = 0.008;
 /// One item's numbers. Armour and isolation are fractions; the card shows
 /// them in percent.
 #[derive(Clone, Copy, Debug)]
@@ -588,12 +569,6 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
         r.max_move * 1000.0
     );
     report_covers(&r.covers);
-    // The donor's head stood higher on his body than the native one does
-    // (the cap came down 3.8 cm with his face), so his collar reaches up to
-    // the native nape and its rim cuts the back of a balaclava. It comes down
-    // to a stock collar's height, smoothly from the shoulders up.
-    let lowered = lower_collar(&mut jacket, bone("Neck")?[1] - COLLAR_FROM_BELOW_NECK, COLLAR_TOP)?;
-    println!("Collar: lowered {lowered:.1} mm at its rim, from the shoulders up");
     // The collar over the native neck and the masks' hems.
     let neck_meshes: Vec<(String, Mesh)> = std::iter::once(("native head".to_owned(), head.clone()))
         .chain(masks.iter().map(|m| (m.label.clone(), m.mesh.clone())))
@@ -602,7 +577,7 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
         axis: &axis,
         y_range: (bone("Chest")?[1], bone("Head")?[1]),
         max_x: 0.2,
-        clearance: 0.003,
+        clearance: COLLAR_CLEARANCE,
         cap: 0.012,
         by_part: false,
         max_forward: 0.5,
@@ -785,6 +760,97 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
     )?;
     crate::model_validation::validate_effective_overlay(db, &overlay)?;
     println!("Built Novice cap and jacket: {} resources", record.files.len());
+    Ok(())
+}
+
+/// The native neck under a jacket's collar through the cap's clips: for
+/// each clip, the most neck points outside the collar (by more than 1 mm) in
+/// one pose and how far. `jacket` is a converted torso of the player's rig.
+/// Prints and returns the worst; it is a comparison, not a gate (stock
+/// collars are checked the same way for the reference).
+pub fn collar_poses(db: &Path, patches: &[PathBuf], jackets: &[(String, Vec<u8>, Vec<u8>)]) -> Result<()> {
+    use crate::skeleton_animation::{Clip, Rig};
+    let mut target = game_view(db, patches)?;
+    let bind_pose = target.read(HEAD_BIND_POSE)?;
+    let rig = Rig::parse(&bind_pose, &target.read(PLAYER_SKELETON)?)?;
+    let bind = rig.rest();
+    let names: Vec<String> = rig.bones.iter().map(|b| b.name.clone()).collect();
+    let head_bytes = target.read(crate::bandit_026::HEAD_MODEL)?;
+    let head = parse_mesh(&head_bytes, 40, "native head")?;
+    let head_posed = crate::hat_fit::Posed::new(&head, &head_bytes, &bind_pose, &names)?;
+    let bones = crate::mask_fit::bone_origins(&bind_pose)?;
+    // The neck below the jaw, and the nape behind the Head bone up to it;
+    // not the jaw, whose corners stand over the collar.
+    let (neck_bone, head_bone) = (bones["Neck"], bones["Head"]);
+    let in_neck = |p: [f64; 3]| {
+        p[1] < neck_bone[1] + 0.05 || (p[2] < head_bone[2] && p[1] < head_bone[1])
+    };
+    // The neck below the jaw, not the throat in front (the chin hangs over
+    // the collar there).
+    let neck: Vec<usize> = (0..head.positions.len())
+        .filter(|&i| in_neck(head.positions[i]))
+        .collect();
+    let mut poses = vec![("bind pose".to_owned(), bind.clone())];
+    for name in POSE_CLIPS {
+        let path = format!("animations/single/weapons/{name}");
+        let clip = Clip::parse(
+            &target.read(&format!("{path}.b-spline"))?,
+            &target.read(&format!("{path}.bones_names"))?,
+        )?;
+        let end = clip.duration();
+        for k in 0..POSE_SAMPLES {
+            poses.push(((*name).to_owned(), rig.pose(&clip, end * k as f32 / (POSE_SAMPLES - 1) as f32)));
+        }
+    }
+    let axis_bones = ["Hip", "Spin", "Spin_1", "Chest", "Neck", "Head"].map(|n| rig.index(n).unwrap());
+    let skin = |p: &crate::hat_fit::Posed<'_>, pose: &[crate::mask_fit::Frame]| -> Result<Vec<[f64; 3]>> {
+        let skins: Vec<crate::mask_fit::Skin> = p
+            .skins
+            .iter()
+            .map(|s| s.iter().map(|&(b, w)| (p.bones[usize::from(b)], w)).collect())
+            .collect();
+        crate::mask_fit::skin_positions(&p.mesh.positions, &skins, &bind, pose)
+    };
+    for (label, model, model_bind) in jackets {
+        let mesh = parse_mesh(model, 48, "jacket")?;
+        let posed = crate::hat_fit::Posed::new(&mesh, model, model_bind, &names)?;
+        let mut per_clip: BTreeMap<String, (usize, f64)> = BTreeMap::new();
+        for (clip, pose) in &poses {
+            let mut axis: Vec<[f64; 3]> = axis_bones
+                .iter()
+                .map(|&b| pose[b].1.map(f64::from))
+                .collect();
+            axis.sort_by(|a, b| a[1].total_cmp(&b[1]));
+            let spec = BodyFit {
+                axis: &axis,
+                y_range: (axis[3][1] - 0.05, axis[5][1]),
+                max_x: 0.2,
+                clearance: 0.0,
+                cap: 1.0,
+                by_part: false,
+                max_forward: 0.5,
+            };
+            let garment = skin(&posed, pose)?;
+            let head_now = skin(&head_posed, pose)?;
+            let points: Vec<[f64; 3]> = neck.iter().map(|&i| head_now[i]).collect();
+            let (n, depth) = crate::body_fit::outside(&spec, &garment, &mesh.triangles, &points, 0.001);
+            let e = per_clip.entry(clip.clone()).or_default();
+            if n > e.0 {
+                *e = (n, e.1.max(depth));
+            } else {
+                e.1 = e.1.max(if n > 0 { depth } else { 0.0 });
+            }
+        }
+        let total: usize = per_clip.values().map(|v| v.0).sum();
+        let worst = per_clip
+            .iter()
+            .max_by_key(|(_, v)| v.0)
+            .map(|(c, v)| format!("{c}: {} points, {:.1} mm", v.0, v.1 * 1000.0))
+            .unwrap_or_default();
+        println!(
+            "{label}: neck points out of the collar, summed over the clips' worst poses: {total}; worst {worst}"
+        );
+    }
     Ok(())
 }
 

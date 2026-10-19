@@ -47,15 +47,16 @@ reads only below the working directory.
   The hands are cut by texture (the gloves' UV block, on the arms), not by
   weight: the weight rule takes the forearm roll bone for a hand and cut the
   sleeves short.
-- His collar was made for a head that stood higher: it is lowered 2.9 cm, from
-  the shoulders up, to a stock high collar's height.
 - Pushed out (never in) over every trousers' waist in the game, 4 mm clear.
   Holsters and pouches that stand more than 2.5 cm out are left crossing the
   hem, as stock long jackets cross them (Quilted jacket, Reinforced padded
   jacket).
 - The collar is pushed out over the native neck and the masks' neck hems,
-  3 mm clear, 1.2 cm at most; parts in front of the throat (respirators, a
-  mask's jaw) stay in front of it.
+  8 mm clear (the neck turns with the head inside a collar that follows the
+  chest), 1.2 cm at most; parts in front of the throat (respirators, a mask's
+  jaw) stay in front of it. Through the 19 clips the native neck comes out of
+  it at 4 points in all (worst 4.2 mm, sprinting); the Quilted jacket's at 1
+  (56 mm), the Thug's jacket's at 2 (`examples/check-novice-collar.rs`).
 - One variant per glove class, as stock torsos: sleeves over wrist-length
   cuffs (`data_full`), into short and long gauntlets (`data_short`,
   `data_long`). Inside gauntlets the sleeve ends 3 cm past the deepest

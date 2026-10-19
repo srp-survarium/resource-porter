@@ -21,6 +21,7 @@ pub(crate) struct Cover<'a> {
     pub mesh: &'a Mesh,
 }
 
+#[derive(Clone, Copy)]
 pub struct BodyFit<'a> {
     /// The body axis, bottom to top: (x, y, z) points by rising y.
     pub axis: &'a [[f64; 3]],
@@ -405,4 +406,31 @@ mod tests {
         let report = fit(&mut bytes, &covers, &spec(false)).unwrap();
         assert!(report.max_move <= 0.025 + 0.004 + 1e-6, "{}", report.max_move);
     }
+}
+
+/// Points of `acc` (positions over `acc_triangles`' mesh, any pose) within
+/// the scope and outside `garment` by more than `margin`: their count and
+/// the farthest (m). For checks of posed meshes.
+pub(crate) fn outside(
+    spec: &BodyFit<'_>,
+    garment: &[[f64; 3]],
+    triangles: &[[usize; 3]],
+    acc: &[[f64; 3]],
+    margin: f64,
+) -> (usize, f64) {
+    let mesh = Mesh {
+        positions: acc.to_vec(),
+        triangles: vec![],
+    };
+    let quiet = BodyFit {
+        clearance: 0.0,
+        ..*spec
+    };
+    let found = pokes(&quiet, garment, triangles, &mesh);
+    let bad: Vec<f64> = found
+        .into_iter()
+        .map(|(_, pen, _, _)| pen)
+        .filter(|&pen| pen > margin)
+        .collect();
+    (bad.len(), bad.iter().copied().fold(0.0, f64::max))
 }
