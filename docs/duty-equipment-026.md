@@ -34,13 +34,23 @@ The reason was oxygen: 0.100b's `player.cpp` activates oxygen with
 `inventory.action(back_slot, true)`. 0.26g does not. Its quick-bar keys
 (`0x4000 << n`, n = 0..5) act on the n-th usable item found by 0x2FE7F0.
 That function walks quick slots 13 to 18, then armour slots 3, 0, 1, 2, 4, 5
-and 6 (table 0x925FD8; caller 0x2D8D88). The body keeps native oxygen data
-(`data.type = 1`, an `oxygen_tank`; `amount_time_sec = 30`; `influences`
-from `scavenger_oxygen_1`), so its oxygen is found in the torso slot.
-Armour (`hit_params`) and weight are read per worn item, not per slot.
-Oxygen in a toxic area has not been playtested. `data.type` only chooses
-the usable object `items_cook` makes of the item (1 an `oxygen_tank`, 4
-none); the skin cook below never reads it.
+and 6 (table 0x925FD8; caller 0x2D8D88). Up to duty-exo v20 and
+freedom-exo v4 the body kept native oxygen data (`data.type = 1`;
+`amount_time_sec = 30`; `influences` from `scavenger_oxygen_1`;
+`parameters.oxygen_amount` 30 and the card's "Oxygen capacity" line, prop
+11), so its oxygen was found in the torso slot.
+
+That made the body an oxygen tank, not armour. The item factory (0x31F660)
+switches on `data.type`: 1 builds an `oxygen_tank`, which reads only
+`amount_time_sec` and `influences`; 4 builds armour, which reads
+`hit_params` and turns `default_modifications` and the `*_modifier`
+parameters into the wearer's modifiers. So the body's protection and its
+modifiers, the artefact slot 1040 among them, did nothing. Owner's
+decision (2026-10-19): the body is armour (`data.type` from its torso
+template, 4, as the stock torsos `renesanse_torso_6`, `edge_torso_6` and
+`scavenger_torso_2` with 1040 are), without oxygen, and keeps its
+artefact slot (duty-exo v21, freedom-exo v5). The skin cook below never
+reads `data.type`.
 
 ### How the client draws the body (v17)
 
@@ -83,7 +93,7 @@ the inventory and is re-equipped in the torso slot.
 | Isolation | 70 | 70 | 70 | 70 | |
 | Price | 172 500 | 75 000 | 26 250 | 26 250 | 300 000 |
 | Drop weight | 10 | 10 | 10 | 10 | |
-| Oxygen | 30 seconds | | | | |
+| Oxygen | none (30 seconds up to v20) | | | | |
 | Default modifiers | 1030, 1050, 1170, 1040 | none | none | none | |
 
 The gloves and boots weigh and cost what Zubr UM-4's do, drop as theirs
@@ -91,7 +101,7 @@ The gloves and boots weigh and cost what Zubr UM-4's do, drop as theirs
 owner's set totals.
 
 The set keeps the v15 suit's totals: weight, price, armour per region,
-isolation, modifiers and oxygen. The split follows the native sets. The
+isolation and modifiers (and, up to v20, its oxygen). The split follows the native sets. The
 helmet costs the average of the Zubr and Pilgrim helmets (77 500 and
 72 500). Its weight is between their 6 and 5 kg. The modifiers add a pocket,
 an ammo bag, pocket capacity and an artefact slot. They sit on the body, as
@@ -221,12 +231,13 @@ slots and covered slots come from the dictionary row (`item_category`,
 
 ## Validation
 
-Builder tests: `duty_body_is_torso_armour_and_keeps_its_oxygen`,
+Builder tests: `duty_body_is_torso_armour_without_oxygen`,
 `duty_helmet_covers_the_mask_like_zubrs`,
 `duty_set_splits_the_suit_without_overlap` and
 `only_earlier_duty_rows_are_replaced`. The set has not yet been seen in
 the lobby or a match. Check there that the back, legs, gloves, boots and
-mask cells are locked, and that oxygen is on the quick bar.
+mask cells are locked, that no oxygen is on the quick bar, and that the
+body gives its artefact slot (1040).
 
 Earlier, v13 (one item in the back slot) was checked in the native lobby:
 `.work/duty-026/duty-v13-equipped.png` and `duty-v13-removed.png`.

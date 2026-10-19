@@ -153,7 +153,7 @@ the gloves' bare fingers excluded).
 Stock items end at 737. Duty owns and retires 1800–1806. The Bandit pack
 uses 1810–1814 (balaclava, jacket, jeans, hands, shoes). 1807 and 1808 are
 free, and they are outside the range Duty's builder deletes. Covered slots,
-oxygen (30 s), level 15, cost and the drops (every piece as its
+level 15, cost and the drops (every piece as its
 template, 10) copy Duty's `BODY`/`HELMET`.
 The faction and the characteristics differ (next section). 0.26g has no
 Freedom faction. Owner's decision (2026-10-16): the Freedom exo belongs to
@@ -209,7 +209,7 @@ Freedom set has 2 points less ballistic protection (equal to Pilgrim),
 lighter. Its utility changes are mobility, +3% movement speed and −4%
 stamina use, and no pocket capacity (Duty's 1170 is left out; owner,
 2026-10-16). Quick slots, ammo bags and the artefact slot stay as Duty's. There is no health regeneration and no second artefact slot (an
-earlier proposal had them; the owner removed them). The set's oxygen stays.
+earlier proposal had them; the owner removed them). The body has no oxygen (owner, 2026-10-19; as Duty's).
 
 | Stat (config field) | Zubr UM-4 | Pilgrim | Duty | **Freedom (final)** |
 | --- | --- | --- | --- | --- |
@@ -224,7 +224,7 @@ earlier proposal had them; the owner removed them). The set's oxygen stays.
 | Health regen `health_regeneration_speed_modifier` | — | +0.15 (1094, back) | — | — |
 | Movement `movement_speed_modifier` | — | — | — | **+0.03 (1112)** |
 | Stamina `stamina_spending_speed_modifier` | — | — | — | **−0.04 (1161)** |
-| Oxygen (`data.amount_time_sec`) | — | — | 30 s | 30 s |
+| Oxygen (`data.amount_time_sec`) | — | — | — (30 s up to v20) | — (30 s up to v4) |
 | Cost (`base_cost`, body pieces) | 210 000 (4 pieces) | 237 500 (5 pieces) | 225 000 | 225 000 |
 | **Helmet**: template | `renesanse_helmet_6` | `edge_helmet_6` | `renesanse_helmet_6` | **`edge_helmet_6`** |
 | `parameters.weight` | 6 | 5 | 5 | **4.5** |
