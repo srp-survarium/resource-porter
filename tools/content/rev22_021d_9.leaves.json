@@ -1,0 +1,10 @@
+{
+  "projects": {
+    "projects/v021d_level_03/day_2/client_project": [
+      {"object": "anomaly/anomaly_rust/rust_anomaly", "index": 189, "set": {"max_artefacts_count": {"was": 2, "i32": 3}}}
+    ],
+    "projects/v021d_level_03/day_4/client_project": [
+      {"object": "anomaly/anomaly_rust/rust_anomaly", "index": 189, "set": {"max_artefacts_count": {"was": 2, "i32": 3}}}
+    ]
+  }
+}
