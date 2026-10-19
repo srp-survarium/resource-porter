@@ -40,6 +40,11 @@ reads only below the working directory.
 - It takes the native head's skin weights, and is checked through the
   balaclava's 19 lobby and match clips: the head and every mask stay under it.
 - Matte knit (`Finish::CLOTH`).
+- Its maps are cut to the power-of-two window its UVs use (the knit band:
+  2048x1024 of the 2048x2048 head texture, the UVs moved with it), texel for
+  texel: the diffuse 2.67 → 1.33 MiB, the normal map 5.33 → 2.67 MiB. The
+  jacket uses its whole texture and keeps it (2048x2048, DXT1 2.67 MiB and
+  DXT5 normal 5.33 MiB).
 
 ## The jacket
 

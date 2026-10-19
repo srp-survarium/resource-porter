@@ -517,6 +517,16 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
         follow.max_distance * 1000.0
     );
     check_cap_poses(&mut target, &cap, &head_bytes, &bind_pose, &mask_models)?;
+    // Same quality, less size: the cap samples only the knit band of the
+    // head texture, so its maps are cut to the power-of-two window its UVs
+    // use, texel for texel.
+    let head_texture = textures.join("neutral_01_novice_head");
+    let size = crate::outfit_026::tga_size(&head_texture.with_extension("tga"))?;
+    let cap_crop = crate::outfit_026::uv_crop(&cap, size)?;
+    if let Some(crop) = cap_crop {
+        crate::outfit_026::remap_uvs(&mut cap, crop, size)?;
+        println!("  cap maps cut to {crop:?} of {size:?}");
+    }
     out.raw(HAT, &cap, files)?;
     set_counts(&out, HAT, &cap, files)?;
 
@@ -637,12 +647,18 @@ pub fn build(source: &Path, db: &Path, patches: &[PathBuf], output: &Path) -> Re
     out.refit_bounds(&models, files)?;
 
     // --- Materials: matte cloth, as stock knit and canvas ---
-    for (part, stem) in [("hat", "neutral_01_novice_head"), ("torso", "neutral_01_novice_torso")] {
-        out.cloth_material(
+    // The jacket's UVs use its whole texture (only the hands' block, inside
+    // it, is left), so its maps stay whole.
+    for (part, stem, crop) in [
+        ("hat", "neutral_01_novice_head", cap_crop),
+        ("torso", "neutral_01_novice_torso", None),
+    ] {
+        out.cloth_material_cropped(
             &mut target,
             "novice_026",
             part,
             &textures.join(stem),
+            crop,
             crate::outfit_026::Finish::CLOTH,
             files,
         )?;

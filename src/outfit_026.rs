@@ -142,6 +142,54 @@ impl Writer<'_> {
         finish: Finish,
         files: &mut Vec<BuiltFile>,
     ) -> Result<()> {
+        self.cloth_material_cropped(target, port, part, texture_stem, None, finish, files)
+    }
+
+    /// As [`Self::cloth_material`], the maps cut to `crop` (x, y, width,
+    /// height in texels, from [`uv_crop`]) first, at their own resolution:
+    /// the surface's UVs must have been moved with [`remap_uvs`].
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn cloth_material_cropped(
+        &self,
+        target: &mut ResourceDb,
+        port: &str,
+        part: &str,
+        texture_stem: &Path,
+        crop: Option<[u32; 4]>,
+        finish: Finish,
+        files: &mut Vec<BuiltFile>,
+    ) -> Result<()> {
+        let cropped_stem;
+        let texture_stem = match crop {
+            None => texture_stem,
+            Some([x, y, w, h]) => {
+                let dir = self.overlay.with_file_name("cropped-textures");
+                fs::create_dir_all(&dir)?;
+                cropped_stem = dir.join(format!("{port}_{part}"));
+                for suffix in ["", "_nmap"] {
+                    let mut source = texture_stem.as_os_str().to_owned();
+                    source.push(format!("{suffix}.tga"));
+                    let mut dest = cropped_stem.as_os_str().to_owned();
+                    dest.push(format!("{suffix}.tga"));
+                    let result = std::process::Command::new("magick")
+                        .arg(&source)
+                        .arg("-crop")
+                        .arg(format!("{w}x{h}+{x}+{y}"))
+                        .arg("+repage")
+                        .arg(&dest)
+                        .output()
+                        .context("starting ImageMagick")?;
+                    ensure!(
+                        result.status.success(),
+                        "ImageMagick could not crop {}: {}",
+                        Path::new(&source).display(),
+                        String::from_utf8_lossy(&result.stderr)
+                    );
+                    ensure!(tga_size(Path::new(&dest))? == [w, h], "the crop of {} is not {w}x{h}", Path::new(&source).display());
+                }
+                &cropped_stem
+            }
+        };
         let mut mat = parse_config(
             target,
             "material_instances/characters/human/renesanse_tank/renesanse_tank_torso.material",
@@ -341,6 +389,74 @@ pub(crate) fn keep_triangles(
     Ok(out)
 }
 
+/// Width and height of a TGA image.
+pub(crate) fn tga_size(path: &Path) -> Result<[u32; 2]> {
+    let mut header = [0_u8; 18];
+    use std::io::Read;
+    fs::File::open(path)
+        .with_context(|| path.display().to_string())?
+        .read_exact(&mut header)?;
+    Ok([
+        u32::from(u16::from_le_bytes([header[12], header[13]])),
+        u32::from(u16::from_le_bytes([header[14], header[15]])),
+    ])
+}
+
+/// The smallest power-of-two window of a `size` texture (aligned to its own
+/// size, so every mip level keeps the texel grid it had) that holds every
+/// UV the surface's triangles use; `None` when that is the whole texture.
+pub(crate) fn uv_crop(model: &[u8], size: [u32; 2]) -> Result<Option<[u32; 4]>> {
+    let mesh = crate::mask_fit::parse_mesh(model, 48, "surface")?;
+    let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for &i in mesh.triangles.iter().flatten() {
+        for k in 0..2 {
+            let at = 12 + i * 48 + 40 + k * 4;
+            let v = f64::from(f32::from_le_bytes(model[at..at + 4].try_into()?));
+            lo[k] = lo[k].min(v);
+            hi[k] = hi[k].max(v);
+        }
+    }
+    ensure!(lo[0] >= 0.0 && lo[1] >= 0.0 && hi[0] <= 1.0 && hi[1] <= 1.0, "UVs outside 0..1 wrap: no crop");
+    let mut window = [0_u32; 4];
+    for k in 0..2 {
+        ensure!(size[k].is_power_of_two(), "texture size {size:?} is not a power of two");
+        let (a, b) = (lo[k] * f64::from(size[k]), hi[k] * f64::from(size[k]));
+        let mut span = 4_u32;
+        loop {
+            let start = (a / f64::from(span)).floor() * f64::from(span);
+            if b <= start + f64::from(span) || span >= size[k] {
+                let start = if span >= size[k] { 0 } else { start as u32 };
+                window[k] = start;
+                window[k + 2] = span.min(size[k]);
+                break;
+            }
+            span *= 2;
+        }
+    }
+    Ok((window[2] < size[0] || window[3] < size[1]).then_some(window))
+}
+
+/// Moves a surface's UVs into the `crop` window of a `size` texture, and
+/// the UV fraction its tangent and binormal carry (the top byte: the
+/// fraction of UV x 1024, in 0..255) with them.
+pub(crate) fn remap_uvs(model: &mut [u8], crop: [u32; 4], size: [u32; 2]) -> Result<()> {
+    let count = crate::mask_fit::read_u32(model, 8)?;
+    for i in 0..count {
+        let v = 12 + i * 48;
+        for k in 0..2 {
+            let at = v + 40 + k * 4;
+            let uv = f64::from(f32::from_le_bytes(model[at..at + 4].try_into()?));
+            let moved = (uv * f64::from(size[k]) - f64::from(crop[k])) / f64::from(crop[k + 2]);
+            let moved = moved as f32;
+            model[at..at + 4].copy_from_slice(&moved.to_le_bytes());
+            let rebased = f64::from(moved) * 1024.0;
+            model[v + 35 + k * 4] =
+                (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+        }
+    }
+    Ok(())
+}
+
 /// Position bounds of a converted skinned surface.
 pub(crate) fn converted_bounds(b: &[u8]) -> Result<([f32; 3], [f32; 3])> {
     let n = u32::from_le_bytes(b[8..12].try_into()?) as usize;
@@ -422,6 +538,38 @@ mod tests {
             panic!("{key}")
         };
         fields[0].value.clone()
+    }
+
+    #[test]
+    fn a_crop_keeps_the_uvs_texel_for_texel() {
+        // One triangle over the top band of a 2048 texture.
+        let mut model = vec![];
+        model.extend_from_slice(&3_u32.to_le_bytes());
+        model.extend_from_slice(&(4 + 3 * 48_u32).to_le_bytes());
+        model.extend_from_slice(&3_u32.to_le_bytes());
+        for uv in [[0.06_f32, 0.05], [0.93, 0.05], [0.5, 0.37]] {
+            let mut v = [0_u8; 48];
+            v[40..44].copy_from_slice(&uv[0].to_le_bytes());
+            v[44..48].copy_from_slice(&uv[1].to_le_bytes());
+            model.extend_from_slice(&v);
+        }
+        model.extend_from_slice(&4_u32.to_le_bytes());
+        model.extend_from_slice(&(4 + 6_u32).to_le_bytes());
+        model.extend_from_slice(&3_u32.to_le_bytes());
+        for i in [0_u16, 1, 2] {
+            model.extend_from_slice(&i.to_le_bytes());
+        }
+        let size = [2048, 2048];
+        let crop = uv_crop(&model, size).unwrap().unwrap();
+        assert_eq!(crop, [0, 0, 2048, 1024]);
+        remap_uvs(&mut model, crop, size).unwrap();
+        let v = |i: usize| f32::from_le_bytes(model[12 + i * 48 + 44..12 + i * 48 + 48].try_into().unwrap());
+        // The same texel row: twice the v in a texture half as tall.
+        assert!((v(2) - 0.74).abs() < 1e-6);
+        let r = f64::from(v(2)) * 1024.0;
+        assert_eq!(model[12 + 2 * 48 + 39], (255.5 * (r - r.floor())).floor() as u8);
+        // A surface that uses the whole texture keeps it.
+        assert_eq!(uv_crop(&model, [2048, 1024]).unwrap(), None);
     }
 
     #[test]

@@ -43,7 +43,10 @@ def main():
         floats = raw.copy().view('<f4').reshape(n, 12)
         pos = floats[:, :3].astype(float)
         faces = np.frombuffer(b, dtype='<u2', offset=24 + 48 * n, count=struct.unpack_from('<I', b, 20 + 48 * n)[0]).reshape(-1, 3)
-        tex = np.asarray(Image.open(a.textures / f'neutral_01_novice_{texture}.tga').convert('RGB'), dtype=float) / 255
+        # A map the build cut to the UVs' window is the one the UVs index.
+        cropped = a.bundle / f'cropped-textures/novice_026_{model.split("_")[0]}.tga'
+        source = cropped if cropped.exists() else a.textures / f'neutral_01_novice_{texture}.tga'
+        tex = np.asarray(Image.open(source).convert('RGB'), dtype=float) / 255
         return pos, floats[:, 10:12].astype(float), raw[:, 28:31][:, ::-1].astype(float) / 127.5 - 1, faces, tex, np.unique(faces)
 
     # (name, meshes, yaw, pitch, share of the cell): helmets fill about two
