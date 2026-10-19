@@ -410,7 +410,7 @@ fn split_components(
 /// What a set piece is: its model, protection and data follow from it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Kind {
-    /// Torso, frame, back unit and legs, with the oxygen.
+    /// Torso, frame, back unit and legs.
     Body,
     /// The combined helmet and mask.
     Helmet,
@@ -441,11 +441,12 @@ struct SetPiece {
 
 /// The body suit: torso, frame, back unit and legs. Worn in the torso slot
 /// (category 3), as the user expects of body armour; the gloves and boots
-/// are pieces of their own (owner, 2026-10-17). Its
-/// oxygen still works there: 0.26g's quick-bar keys act on the n-th usable
-/// item of quick slots 13..=18 and then armour slots 3, 0, 1, 2, 4, 5, 6
-/// (0x2FE7F0, table 0x925FD8; called from 0x2D8D88), not on the back slot
-/// alone as 0.100b's `player.cpp` did.
+/// are pieces of their own (owner, 2026-10-17). It is armour, as its
+/// template (`data.type` 4), and carries no oxygen (owner, 2026-10-19): the
+/// item factory (0x31F660) makes an item of `data.type` 1 an oxygen tank,
+/// which reads only `amount_time_sec` and `influences`, not the armour's
+/// `hit_params` or the modifiers of its `default_modifications` (the
+/// artefact slot 1040 among them).
 const BODY: SetPiece = SetPiece {
     kind: Kind::Body,
     id: 1805,
@@ -844,8 +845,6 @@ impl SetPiece {
 
 /// The native configs the set is made of.
 struct Natives {
-    /// `scavenger_oxygen_1`.
-    oxygen: V,
     /// Zubr UM-4's pieces by category: helmet, torso, legs, gloves, boots.
     protection: Vec<(String, V)>,
     /// Each set piece's template: its dictionary row and config.
@@ -961,6 +960,30 @@ fn props(values: &[(i32, String)]) -> V {
     )
 }
 
+/// The stamina-regeneration modifier as the stock item configs spell it,
+/// and as the exe reads it (its name table at 0x928448).
+const STAMINA_REGEN_MISSPELT: &str = "stamina_regenation_speed_modifier";
+const STAMINA_REGEN: &str = "stamina_regeneration_speed_modifier";
+
+/// Renames a key of `parameters`, keeping its value. The encoder writes a
+/// table in key-CRC order, so the renamed key lands where the game looks.
+fn rename_parameter(cfg: &mut V, old: &str, new: &str) -> Result<()> {
+    let Some(V::Named(parameters)) = cfg.named_mut("parameters") else {
+        return Ok(());
+    };
+    if !parameters.iter().any(|f| f.name == old) {
+        return Ok(());
+    }
+    ensure!(
+        !parameters.iter().any(|f| f.name == new),
+        "parameters has both {old} and {new}"
+    );
+    for f in parameters.iter_mut().filter(|f| f.name == old) {
+        f.name = new.into();
+    }
+    Ok(())
+}
+
 /// The dictionary row and config of each piece of the variant's set.
 fn set_items<'v>(
     variant: &'v Variant,
@@ -982,6 +1005,10 @@ fn set_items<'v>(
         row.set_path("name", string(piece.name))?;
         row.set_path("base_cost", V::Integer(piece.cost))?;
         let mut cfg = template.clone();
+        // Skhid's weapon balance 1 (revision 21, resources.db.patch_21) spelt
+        // the key as the exe reads it in every item config, these pieces'
+        // too; the templates come from the stock database.
+        rename_parameter(&mut cfg, STAMINA_REGEN_MISSPELT, STAMINA_REGEN)?;
         let armor = if piece.kind == Kind::Helmet {
             variant.ballistic.1
         } else {
@@ -1039,25 +1066,21 @@ fn set_items<'v>(
                 field("part_name", string(surface)),
             ])
         };
-        let mut shown = vec![
+        let shown = [
             (6, format!("{}", (armor * 100.0f32).round())),
             (8, format!("{}", (variant.anomaly * 100.0f32).round())),
             (15, format!("{:.1}", piece.weight)),
         ];
+        // Every piece is the armour its template is (`data.type` 4 for the
+        // native armour pieces); the body too, so the game applies its
+        // `hit_params` and `default_modifications`.
+        let native_type = template
+            .named("data")
+            .and_then(|v| v.named("type"))
+            .with_context(|| format!("native {} has no data.type", piece.template))?
+            .clone();
         let data = if body {
-            // Native oxygen behaviour (`data.type` 1 makes an oxygen tank of
-            // the item), with the displayed capacity.
-            cfg.set_path("parameters.oxygen_amount", V::Integer(30))?;
-            shown.push((11, "30".into()));
-            let mut data = vec![];
-            for key in ["type", "amount_time_sec", "influences"] {
-                let value = natives
-                    .oxygen
-                    .named("data")
-                    .and_then(|v| v.named(key))
-                    .context("oxygen data missing")?;
-                data.push(field(key, value.clone()));
-            }
+            let mut data = vec![field("type", native_type)];
             // No `base_model_hud` here: 0.26g's skin cook
             // (`profile_skin_visual_cook::on_configs_loaded`, 0x205336) draws
             // a part's hud model instead of its `base_model` wherever the
@@ -1092,11 +1115,6 @@ fn set_items<'v>(
             data.push(field("additional_model_slots", covers));
             data
         } else {
-            let native_type = template
-                .named("data")
-                .and_then(|v| v.named("type"))
-                .with_context(|| format!("native {} has no data.type", piece.template))?
-                .clone();
             let mut data = vec![field("type", native_type)];
             match piece.kind {
                 Kind::Helmet => data.extend([
@@ -1439,12 +1457,6 @@ pub fn build_variant(
         }
     }
     let mut natives = Natives {
-        oxygen: parse_config(
-            &mut target,
-            "gameplay/items/armour/back/scavenger_oxygen_1.options",
-            "native oxygen behavior",
-        )?
-        .root,
         protection: vec![],
         templates: vec![],
     };
@@ -1645,19 +1657,10 @@ mod tests {
                 field("base_cost", V::Integer(105000)),
             ])
         };
-        let oxygen = table(vec![field(
-            "data",
-            table(vec![
-                field("type", V::Integer(1)),
-                field("amount_time_sec", V::Integer(30)),
-                field("influences", V::Indexed(vec![string("face toxic")])),
-            ]),
-        )]);
         let zubr = |category: &str, regions: &[&str]| {
             (category.to_owned(), native("arm", regions, model(4)))
         };
         Natives {
-            oxygen,
             protection: vec![
                 zubr("helmet", &["brain", "face"]),
                 zubr("torso", &["chest", "stomach", "left_arm"]),
@@ -1692,8 +1695,40 @@ mod tests {
         zones.iter().map(|zone| zone.name.clone()).collect()
     }
 
+    /// The ids of a config's lobby card lines (`ui_desc.props_list`).
+    fn prop_ids(cfg: &V) -> Vec<i32> {
+        let Some(V::Indexed(props)) = cfg.named("ui_desc").and_then(|u| u.named("props_list"))
+        else {
+            panic!("no props_list")
+        };
+        props
+            .iter()
+            .map(|prop| match prop.named("prop_id") {
+                Some(V::Integer(id)) => *id,
+                other => panic!("prop_id {other:?}"),
+            })
+            .collect()
+    }
+
+    /// The body is armour, as its torso template, and carries no oxygen
+    /// (owner, 2026-10-19): an item of `data.type` 1 is an oxygen tank, and
+    /// the game then applies neither its `hit_params` nor its modifiers.
+    fn assert_body_is_armour_without_oxygen(cfg: &V) {
+        assert_eq!(data_of(cfg, "type"), Some(&V::Integer(4)));
+        assert_eq!(data_of(cfg, "amount_time_sec"), None);
+        assert_eq!(data_of(cfg, "influences"), None);
+        assert_eq!(
+            cfg.named("parameters")
+                .and_then(|p| p.named("oxygen_amount")),
+            None
+        );
+        // Armour, isolation and weight; no "Oxygen capacity" line (11).
+        assert_eq!(prop_ids(cfg), [6, 8, 15]);
+        assert!(cfg.named("hit_params").is_some());
+    }
+
     #[test]
-    fn duty_body_is_torso_armour_and_keeps_its_oxygen() {
+    fn duty_body_is_torso_armour_without_oxygen() {
         let set = set_items(&DUTY, &natives(), true).unwrap();
         let (piece, row, cfg) = &set[0];
         assert_eq!(piece.id, 1805);
@@ -1714,11 +1749,7 @@ mod tests {
             data_of(cfg, "additional_model_slots"),
             Some(&V::Indexed(["back", "pants"].map(string).to_vec()))
         );
-        // `data.type` 1 makes an oxygen tank of the item; 0.26g's quick bar
-        // finds it in any armour slot.
-        assert_eq!(data_of(cfg, "type"), Some(&V::Integer(1)));
-        assert_eq!(data_of(cfg, "amount_time_sec"), Some(&V::Integer(30)));
-        assert!(data_of(cfg, "influences").is_some());
+        assert_body_is_armour_without_oxygen(cfg);
         // The native head shows without the helmet; no head model is worn.
         assert_eq!(data_of(cfg, "remove_head_model"), None);
         let Some(V::Indexed(models)) = data_of(cfg, "additional_models") else {
@@ -1782,6 +1813,40 @@ mod tests {
             cfg.named("ui_desc").and_then(|u| u.named("icon")),
             Some(&V::Indexed(vec![V::Integer(3), V::Integer(6)]))
         );
+    }
+
+    #[test]
+    fn every_piece_spells_stamina_regeneration_as_the_exe_reads_it() {
+        // The stock templates' misspelt key, as weapon balance 1 found it.
+        let mut natives = natives();
+        for (_, template) in &mut natives.templates {
+            template
+                .set_path(
+                    &format!("parameters.{STAMINA_REGEN_MISSPELT}"),
+                    V::Integer(7),
+                )
+                .unwrap();
+        }
+        for variant in [&DUTY, &FREEDOM] {
+            for (piece, _, cfg) in set_items(variant, &natives, true).unwrap() {
+                let parameters = cfg.named("parameters").unwrap();
+                assert_eq!(
+                    parameters.named(STAMINA_REGEN),
+                    Some(&V::Integer(7)),
+                    "{}",
+                    piece.name
+                );
+                assert_eq!(parameters.named(STAMINA_REGEN_MISSPELT), None);
+            }
+        }
+        // Without the misspelt key nothing is added.
+        let set = set_items(&DUTY, &self::natives(), true).unwrap();
+        assert!(set.iter().all(|(_, _, cfg)| {
+            cfg.named("parameters")
+                .unwrap()
+                .named(STAMINA_REGEN)
+                .is_none()
+        }));
     }
 
     #[test]
@@ -1958,8 +2023,8 @@ mod tests {
             data_of(&head.2, "base_model"),
             Some(&string("ported/freedom_026/duty_03_head"))
         );
-        // Oxygen stays.
-        assert_eq!(data_of(&body.2, "type"), Some(&V::Integer(1)));
+        // Armour, as Duty's: no oxygen, the artefact slot (1040) kept.
+        assert_body_is_armour_without_oxygen(&body.2);
         // Stats: 33 kg and 300 000 for the set, the gloves and boots as
         // Pilgrim's; +3% speed and -4% stamina, and no pocket capacity (1170,
         // which Duty keeps).
