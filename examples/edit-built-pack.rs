@@ -30,6 +30,9 @@
 //!   template project read from STOCK_DB and checked against its hash;
 //! - `{"op": "add_render_visual", "lib_name": M, "position": [x,y,z], "yaw": a, "scale": [x,y,z]}`: a static model
 //!   (a copy of the first render visual with these fields), e.g. a stand-in figure for test builds;
+//! - `{"op": "swap_visual", "model": M, "near": [x,y,z], "radius": r, "to": M2, "turn_yaw": a}`: the one
+//!   render visual of model M within r of the point shows model M2 instead, turned by `a` about its own
+//!   up axis (M2's frame to M's); its position stays, and so do M's collision objects;
 //! - `{"op": "expect_client_prefix", "prefix": P, "count": N, "sha256": H}`: the client objects whose
 //!   full name starts with P are exactly N, and H is the sha256 of them as one binary config array
 //!   (in project order) — a precondition before the edits, or the expected result after them;
@@ -140,6 +143,7 @@ enum Op {
     /// A static render visual (a copy of the project's first one with these fields), e.g. a
     /// human-sized model standing in a test build.
     AddRenderVisual { lib_name: String, position: [f32; 3], #[serde(default)] yaw: f32, #[serde(default)] scale: Option<[f32; 3]> },
+    SwapVisual { model: String, near: [f32; 3], radius: f32, to: String, #[serde(default)] turn_yaw: f32, #[serde(default)] why: Option<String> },
     ExpectClientPrefix {
         prefix: String,
         count: usize,
@@ -417,6 +421,20 @@ fn apply(root: &mut ConfigValue, op: &Op, stock: &mut vostok_resource_porter::ar
             v.set_path("scale", ConfigValue::Float3(scale.unwrap_or([1.0; 3])))?;
             visuals.push(v);
             format!("render visual {lib_name} at {position:?}")
+        }
+        Op::SwapVisual { model, near: at, radius, to, turn_yaw, why } => {
+            let visuals = items(root, "render_visuals")?;
+            let mut hits: Vec<&mut ConfigValue> =
+                visuals.iter_mut().filter(|o| model_of(o).as_deref() == Some(model.as_str()) && within(o, *at, *radius)).collect();
+            ensure!(hits.len() == 1, "{} render visuals of {model} within {radius} m of {at:?}, expected 1", hits.len());
+            let v = &mut hits[0];
+            let old = f3(v, "rotation").unwrap_or([0.0; 3]);
+            let rotation = basis_to_euler(&multiply(&euler_to_basis([0.0, *turn_yaw, 0.0]), &euler_to_basis(old)));
+            let position = f3(v, "position").context("render visual without position")?;
+            v.set_path("lib_name", ConfigValue::String(to.clone()))?;
+            v.set_path("visual_name", ConfigValue::String(to.clone()))?;
+            v.set_path("rotation", ConfigValue::Float3(rotation))?;
+            format!("render visual {model} at {position:?} -> {to}, rotation {old:?} -> {rotation:?}{}", why.as_deref().map(|w| format!(" ({w})")).unwrap_or_default())
         }
         Op::ExpectClientPrefix { prefix, count, sha256, or } => {
             let (n, hash) = prefixed(root, prefix)?;

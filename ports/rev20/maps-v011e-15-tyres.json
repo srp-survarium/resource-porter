@@ -1,0 +1,112 @@
+{
+ "projects": {
+  "projects/v011e_level_03/day_2/client_project": [
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_d",
+    "near": [
+     21.669,
+     0.459,
+     12.131
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_d",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   },
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_d",
+    "near": [
+     22.924,
+     0.458,
+     12.52
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_d",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   },
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_e",
+    "near": [
+     21.014,
+     0.479,
+     13.674
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_e",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   },
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_e",
+    "near": [
+     23.986,
+     0.563,
+     13.415
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_e",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   }
+  ],
+  "projects/v011e_level_03/day_4/client_project": [
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_d",
+    "near": [
+     21.669,
+     0.459,
+     12.131
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_d",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   },
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_d",
+    "near": [
+     22.924,
+     0.458,
+     12.52
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_d",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   },
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_e",
+    "near": [
+     21.014,
+     0.479,
+     13.674
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_e",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   },
+   {
+    "op": "swap_visual",
+    "model": "ported/v011e/props/cover/tyres_cover_e",
+    "near": [
+     23.986,
+     0.563,
+     13.415
+    ],
+    "radius": 0.3,
+    "to": "props/cover/tyres_cover_e",
+    "turn_yaw": -1.5707963267948966,
+    "why": "0.11e stack mixes low-poly untextured truck tyres (vehicles_s1) with UAZ wheels; 0.26 re-made the same stack, a quarter turn round"
+   }
+  ]
+ }
+}
