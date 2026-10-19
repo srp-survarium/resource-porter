@@ -2465,6 +2465,12 @@ pub fn build_with_fill(
         } else {
             donor.read(path)?
         };
+        if path.ends_with(".veg") {
+            // The client never reads the editor's paint mask; it only
+            // takes managed resource memory (crate::vegetation).
+            bytes = crate::vegetation::drop_paint_mask(&bytes)
+                .with_context(|| format!("dropping the paint mask of {path}"))?;
+        }
         if m.source_build.early() && path.ends_with("/converted_model") {
             bytes = early::geometry(&bytes, m.wrapped_uv_surfaces.contains(path))
                 .with_context(|| format!("converting early geometry {path}"))?;
