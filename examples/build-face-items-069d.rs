@@ -11,10 +11,18 @@ struct Args {
     /// The stock 0.26g resources.db.
     #[arg(long)]
     target_db: PathBuf,
+    /// Released `resources.db.patch_<n>` archives over the target database.
+    #[arg(long = "patch")]
+    patches: Vec<PathBuf>,
     #[arg(long)]
     output: PathBuf,
 }
 fn main() -> anyhow::Result<()> {
     let a = Args::parse();
-    vostok_resource_porter::face_items_069d::build(&a.source_root, &a.target_db, &a.output)
+    vostok_resource_porter::face_items_069d::build(
+        &a.source_root,
+        &a.target_db,
+        &a.patches,
+        &a.output,
+    )
 }

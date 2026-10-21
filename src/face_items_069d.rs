@@ -572,6 +572,9 @@ pub fn fit_surface(
     let shells = crate::bandit_026::helmets_worn_over_masks(target, &bind_pose)?;
     let fit = crate::mask_fit::fit_same_rig_under(&mut mask, &head, &bind_pose, &shells)?;
     let follow = crate::mask_fit::follow_head_weights_along_rays(&mut mask, &head, &bind_pose)?;
+    // Where a pose of the game's clips slides the skin out under the cloth.
+    let relief =
+        crate::bandit_026::relieve_poses(target, &mut mask, &head, crate::mask_fit::RIM_ZONE)?;
     if let Some(dir) = debug {
         fs::write(dir.join(format!("{}-fitted", spec.name)), &mask)?;
     }
@@ -598,6 +601,12 @@ pub fn fit_surface(
             s.depth_after * 1000.0
         );
     }
+    println!(
+        "  relief over the game's poses: {} rounds, {} vertices moved out up to {:.2} mm",
+        relief.rounds,
+        relief.moved,
+        relief.farthest * 1000.0
+    );
     let (mut worst, mut face) = (f64::INFINITY, f64::INFINITY);
     for (clip, c) in
         crate::bandit_026::pose_clearances_rim(target, &mask, &head, crate::mask_fit::RIM_ZONE)?
@@ -689,7 +698,15 @@ fn configure(c: &mut BinaryConfig, spec: &Spec) -> Result<()> {
     Ok(())
 }
 
-pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
+/// `patches`: the released `resources.db.patch_<n>`, which the shared files
+/// (the dictionary, the localizations) and the helmets the cloth goes under
+/// are read through, as players have them.
+pub fn build(
+    source: &Path,
+    db: &Path,
+    patches: &[std::path::PathBuf],
+    output: &Path,
+) -> Result<()> {
     crate::weapon::prepare_empty_output(output)?;
     let overlay = output.join("overlay");
     let out = Writer {
@@ -697,7 +714,7 @@ pub fn build(source: &Path, db: &Path, output: &Path) -> Result<()> {
         tag: "Face-069d",
     };
     let mut files = vec![];
-    let mut target = ResourceDb::open(db)?;
+    let mut target = crate::novice_026::game_view(db, patches)?;
     let mut dictionary =
         parse_config(&mut target, "gameplay/db_static_dictionaries", "dictionary")?;
     let mut registration = vec![];
