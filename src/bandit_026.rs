@@ -160,15 +160,28 @@ pub fn pose_clearances_rim(
     head: &[u8],
     rim_zone: f64,
 ) -> Result<Vec<(String, crate::mask_fit::PosedClearance)>> {
+    pose_clearances_at(db, mask, head, rim_zone, false)
+}
+
+/// As [`pose_clearances_rim`]; with `dense`, measured through the head's
+/// edge and triangle middles too, as [`relieve_poses`] clears them.
+pub fn pose_clearances_at(
+    db: &mut ResourceDb,
+    mask: &[u8],
+    head: &[u8],
+    rim_zone: f64,
+    dense: bool,
+) -> Result<Vec<(String, crate::mask_fit::PosedClearance)>> {
     let poses = SampledPoses::read(db)?;
     let check = |pose: &[crate::skeleton_animation::Frame]| {
-        crate::mask_fit::posed_clearance_rim(
+        crate::mask_fit::posed_clearance_at(
             mask,
             head,
             &poses.bind_pose,
             &poses.bind,
             pose,
             rim_zone,
+            dense,
         )
     };
     let all = poses.map(check)?;
@@ -273,11 +286,15 @@ pub struct Relief {
 pub const RELIEF_TARGET: f64 = 0.0005;
 /// Rounds of relief before giving up.
 const RELIEF_ROUNDS: usize = 6;
-/// The most the relief moves one vertex (m): it smooths over where a pose
-/// pulls the skin out under the cloth (behind the jaw, at the nape: the Army
-/// balaclava needs 2.6 mm at 13 vertices under the jaw), within the 4 mm the
-/// fit keeps elsewhere; it does not refit the mask.
-const RELIEF_MAX: f64 = 0.003;
+/// The most the relief moves one vertex (m), by default: it smooths over
+/// where a pose pulls the skin out under the cloth (behind the jaw, at the
+/// nape: the Army balaclava needs 2.6 mm at 13 vertices under the jaw),
+/// within the 4 mm the fit keeps elsewhere; it does not refit the mask.
+pub const RELIEF_MAX: f64 = 0.003;
+/// For masks made on the native rig (0.69d): their cloth was made over
+/// 0.69d's own heads, and the native ear stands out through it between the
+/// head's vertices (the keffiyeh needs about 7 mm over the left ear).
+pub const RELIEF_MAX_SAME_RIG: f64 = 0.01;
 
 /// After the fit: where a sampled pose of the game's clips brings the head
 /// within [`RELIEF_TARGET`] of the cloth (the skin slides out under it where
@@ -289,6 +306,7 @@ pub fn relieve_poses(
     mask: &mut [u8],
     head: &[u8],
     rim_zone: f64,
+    max: f64,
 ) -> Result<Relief> {
     let poses = SampledPoses::read(db)?;
     let vertices = crate::mask_fit::read_u32(mask, 8)?;
@@ -330,11 +348,16 @@ pub fn relieve_poses(
         for (t, n) in total.iter_mut().zip(&need) {
             *t += n;
         }
-        let farthest = total.iter().copied().fold(0.0, f64::max);
+        let (at, farthest) = total
+            .iter()
+            .copied()
+            .enumerate()
+            .fold((0, 0.0), |a, (i, t)| if t > a.1 { (i, t) } else { a });
         ensure!(
-            farthest <= RELIEF_MAX,
-            "the relief would move the cloth {:.2} mm: more than smoothing, refit it",
-            farthest * 1000.0
+            farthest <= max,
+            "the relief would move the cloth {:.2} mm (vertex {at} at {:?}, round {round}): more than smoothing, refit it",
+            farthest * 1000.0,
+            crate::mask_fit::parse_mesh(mask, 48, "mask")?.positions[at]
         );
         relief = Relief {
             rounds: round + 1,

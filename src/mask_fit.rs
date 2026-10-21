@@ -1007,6 +1007,24 @@ pub(crate) fn interior_vertices(
         .collect()
 }
 
+/// The cloth vertices of a mask made on the native rig that lie deep inside
+/// the native head ([`interior_vertices`] with the fit's own depth and
+/// height): the inside of its rolled eye and mouth holes, which the fit
+/// leaves where they are.
+pub(crate) fn inside_head(mask: &[u8], head: &[u8], bind_pose: &[u8]) -> Result<Vec<bool>> {
+    let cloth = parse_mesh(mask, 48, "mask")?;
+    let head = parse_mesh(head, 40, "native head")?;
+    let neck = *bone_origins(bind_pose)?
+        .get("Neck")
+        .context("no Neck bone")?;
+    Ok(interior_vertices(
+        &cloth.positions,
+        &head,
+        INTERIOR_DEPTH,
+        neck[1] + TUCK_START_ABOVE_NECK,
+    ))
+}
+
 /// The point inside the skull the fit pushes and measures along rays from:
 /// the middle of the head's bounds, at the eyes' height.
 fn head_centre(head: &Mesh, eye_y: f64) -> [f64; 3] {
@@ -1611,6 +1629,20 @@ pub fn posed_clearance_rim(
     pose: &[Frame],
     rim_zone: f64,
 ) -> Result<PosedClearance> {
+    posed_clearance_at(mask, head, bind_pose, bind, pose, rim_zone, false)
+}
+
+/// As [`posed_clearance_rim`]; with `dense`, measured through the head's
+/// edge and triangle middles too ([`head_samples`]).
+pub fn posed_clearance_at(
+    mask: &[u8],
+    head: &[u8],
+    bind_pose: &[u8],
+    bind: &[Frame],
+    pose: &[Frame],
+    rim_zone: f64,
+    dense: bool,
+) -> Result<PosedClearance> {
     let bones = bone_origins(bind_pose)?;
     let (head_bone, eyes_y) = (
         *bones.get("Head").context("no Head bone")?,
@@ -1623,7 +1655,7 @@ pub fn posed_clearance_rim(
         through: 0,
         at: [0.0; 3],
     };
-    for g in posed_gaps(mask, head, bind_pose, bind, pose, rim_zone)? {
+    for g in posed_gaps(mask, head, bind_pose, bind, pose, rim_zone, dense)? {
         result.through += usize::from(g.gap < 0.0);
         if lower_face(g.bind_at, head_bone, eyes_y) && g.gap < result.face_min {
             result.face_min = g.gap;
@@ -1658,6 +1690,7 @@ pub(crate) fn posed_gaps(
     bind: &[Frame],
     pose: &[Frame],
     rim_zone: f64,
+    dense: bool,
 ) -> Result<Vec<PosedGap>> {
     let cloth = parse_mesh(mask, 48, "mask")?;
     let head_mesh = parse_mesh(head, 40, "native head")?;
@@ -1708,10 +1741,11 @@ pub(crate) fn posed_gaps(
         (lo[2] + hi[2]) / 2.0,
     ];
     let posed_cloth = skin_positions(&cloth.positions, &skins(mask, 48)?, bind, pose)?;
-    let posed_head = skin_positions(&head_mesh.positions, &skins(head, 40)?, bind, pose)?;
+    let (head_points, head_skins) = head_samples(&head_mesh, skins(head, 40)?, dense);
+    let posed_head = skin_positions(&head_points, &head_skins, bind, pose)?;
     let posed_centre = skin_positions(&[centre], &[vec![(head_index as u8, 1.0)]], bind, pose)?[0];
     let mut gaps = vec![];
-    for (bind_at, &p) in head_mesh.positions.iter().zip(&posed_head) {
+    for (bind_at, &p) in head_points.iter().zip(&posed_head) {
         if bind_at[1] < neck[1] + TUCK_FULL_ABOVE_NECK {
             continue;
         }
@@ -1735,6 +1769,44 @@ pub(crate) fn posed_gaps(
     Ok(gaps)
 }
 
+/// The head points the rays go through: its vertices, and with `dense` the
+/// middles of its edges and triangles too (skinned by their corners'
+/// weights, averaged): two faceted surfaces can cross between their
+/// vertices, as the native ear and nape do through 0.69d's knit.
+fn head_samples(head: &Mesh, skins: Vec<Skin>, dense: bool) -> (Vec<[f64; 3]>, Vec<Skin>) {
+    let mut points = head.positions.clone();
+    let mut out = skins.clone();
+    if !dense {
+        return (points, out);
+    }
+    let mix = |corners: &[usize]| -> ([f64; 3], Skin) {
+        let n = corners.len() as f64;
+        let p = [0, 1, 2].map(|k| corners.iter().map(|&v| head.positions[v][k]).sum::<f64>() / n);
+        let mut w: BTreeMap<u8, f64> = BTreeMap::new();
+        for &v in corners {
+            for &(b, x) in &skins[v] {
+                *w.entry(b).or_default() += x / n;
+            }
+        }
+        (p, w.into_iter().collect())
+    };
+    let mut edges = BTreeSet::new();
+    for t in &head.triangles {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            edges.insert((a.min(b), a.max(b)));
+        }
+        let (p, w) = mix(t);
+        points.push(p);
+        out.push(w);
+    }
+    for (a, b) in edges {
+        let (p, w) = mix(&[a, b]);
+        points.push(p);
+        out.push(w);
+    }
+    (points, out)
+}
+
 /// How far each cloth vertex must move out for every measured head vertex
 /// to keep `target` under the cloth in this pose: the shortfall over a hit
 /// triangle, given to its corners as the bind-pose fit gives a push
@@ -1750,7 +1822,7 @@ pub(crate) fn posed_shortfall(
 ) -> Result<Vec<f64>> {
     let cloth = parse_mesh(mask, 48, "mask")?;
     let mut need = vec![0.0_f64; cloth.positions.len()];
-    for g in posed_gaps(mask, head, bind_pose, bind, pose, rim_zone)? {
+    for g in posed_gaps(mask, head, bind_pose, bind, pose, rim_zone, true)? {
         let short = target - g.gap;
         if short <= 0.0 {
             continue;
@@ -1760,6 +1832,87 @@ pub(crate) fn posed_shortfall(
         }
     }
     Ok(need)
+}
+
+/// The triangles the fit turned over: their winding faces away from their
+/// corners' normals (the converted cloth's own, which the fit keeps). A
+/// turned triangle is culled from the outside, and the head shows through
+/// it as a speck.
+pub(crate) fn turned_triangles(mask: &[u8]) -> Result<Vec<bool>> {
+    let mesh = parse_mesh(mask, 48, "mask")?;
+    let normal = vertex_normals(mask, mesh.positions.len())?;
+    Ok(mesh
+        .triangles
+        .iter()
+        .map(|t| {
+            let [a, b, c] = t.map(|v| mesh.positions[v]);
+            let g = cross(sub(b, a), sub(c, a));
+            let n = [0, 1, 2].map(|k| t.iter().map(|&v| normal[v][k]).sum::<f64>());
+            dot(g, g) > 1e-20 && dot(g, n) < 0.0
+        })
+        .collect())
+}
+
+fn vertex_normals(mask: &[u8], count: usize) -> Result<Vec<[f64; 3]>> {
+    (0..count)
+        .map(|i| {
+            let at = 12 + i * 48 + 28;
+            let u = u32::from_le_bytes(mask.get(at..at + 4).context("truncated mask")?.try_into()?);
+            Ok([(u >> 16) & 255, (u >> 8) & 255, u & 255].map(|c| f64::from(c) / 127.5 - 1.0))
+        })
+        .collect()
+}
+
+/// Smooths the corners of turned triangles ([`turned_triangles`]) toward
+/// their neighbours until none is turned (at most `rounds`): the fit's
+/// pushes, pulls and the neck tuck fold the cloth over itself in a few
+/// places. Seam copies move together. Returns the triangles turned before
+/// and after.
+pub(crate) fn unfold(mask: &mut [u8], rounds: usize) -> Result<(usize, usize)> {
+    let mesh = parse_mesh(mask, 48, "mask")?;
+    let (weld, neighbours) = weld_vertices(&mesh);
+    let mut positions = vec![[0.0_f64; 3]; neighbours.len()];
+    for (i, &w) in weld.iter().enumerate() {
+        positions[w] = mesh.positions[i];
+    }
+    let count =
+        |m: &[u8]| -> Result<usize> { Ok(turned_triangles(m)?.iter().filter(|&&t| t).count()) };
+    let before = count(mask)?;
+    let mut after = before;
+    for _ in 0..rounds {
+        if after == 0 {
+            break;
+        }
+        let turned = turned_triangles(mask)?;
+        let mut moving = vec![false; neighbours.len()];
+        for (t, &is) in mesh.triangles.iter().zip(&turned) {
+            if is {
+                for &v in t {
+                    moving[weld[v]] = true;
+                }
+            }
+        }
+        let next: Vec<[f64; 3]> = (0..neighbours.len())
+            .map(|w| {
+                if !moving[w] || neighbours[w].is_empty() {
+                    return positions[w];
+                }
+                let n = neighbours[w].len() as f64;
+                let mean = [0, 1, 2]
+                    .map(|k| neighbours[w].iter().map(|&u| positions[u][k]).sum::<f64>() / n);
+                [0, 1, 2].map(|k| 0.5 * positions[w][k] + 0.5 * mean[k])
+            })
+            .collect();
+        positions = next;
+        for (i, &w) in weld.iter().enumerate() {
+            for (k, v) in positions[w].iter().enumerate() {
+                let at = 12 + i * 48 + 4 * k;
+                mask[at..at + 4].copy_from_slice(&(*v as f32).to_le_bytes());
+            }
+        }
+        after = count(mask)?;
+    }
+    Ok((before, after))
 }
 
 /// Moves cloth vertices out along their own normals by `need` (m, per

@@ -74,6 +74,10 @@ pub struct Spec {
     /// `<albedo>_nmap`.
     pub albedo: &'static str,
     pub look: Look,
+    /// Whether the inner roll of its eye opening goes: 0.69d paints it black
+    /// and its own head filled the opening up to it; the native temples sit
+    /// deeper, and it showed as a dark rim at the window's corners.
+    pub drop_dark_rim: bool,
     pub faction: i32,
     pub item_level: i32,
     /// Protection against bullets, blades and blasts (`armor`), and against
@@ -86,7 +90,8 @@ pub struct Spec {
     pub base_cost: i32,
     pub is_premium: bool,
     /// Whether it takes the helmet slot too (`additional_model_slots`): a
-    /// rigid part over the skull (goggles, a monocular, a night vision mount)
+    /// rigid part over the skull (goggles, a monocular, a night vision mount,
+    /// the Snow-20's thick hood, which a helmet pulled in by 7 cm)
     /// cannot be pulled in under a helmet as cloth is, so no helmet is worn
     /// with it and it is fitted over the bare head only.
     pub covers_helmet: bool,
@@ -110,6 +115,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "edge_balaclava_s",
         albedo: "character/human/balaclavas/edge_balaclava/edge_balaclava",
         look: Look::Cloth,
+        drop_dark_rim: false,
         faction: 4,
         item_level: 3,
         armor: 0.15,
@@ -144,6 +150,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "scavenger_balaclava_s",
         albedo: "character/human/balaclavas/scavenger_balaclava/scavenger_balaclava",
         look: Look::Cloth,
+        drop_dark_rim: false,
         faction: 1,
         item_level: 3,
         armor: 0.12,
@@ -178,6 +185,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "army_balaclava_s",
         albedo: "character/human/balaclavas/army_balaclava/army_balaclava",
         look: Look::Cloth,
+        drop_dark_rim: true,
         faction: 3,
         item_level: 3,
         armor: 0.18,
@@ -212,6 +220,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "market_balaclava_s",
         albedo: "character/human/balaclavas/market_balaclava/market_balaclava",
         look: Look::Cloth,
+        drop_dark_rim: false,
         faction: 2,
         item_level: 3,
         armor: 0.20,
@@ -246,6 +255,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "black_market_raider_09_mask_s",
         albedo: "character/human/black_market_raider_09/black_market_raider_09_mask",
         look: Look::Armour,
+        drop_dark_rim: false,
         faction: 2,
         item_level: 5,
         armor: 0.35,
@@ -280,6 +290,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "renesanse_sniper_07_mask_s",
         albedo: "character/human/newyears_2020/renesanse_sniper_07_snow_mask",
         look: Look::Emissive("character/human/newyears_2020/renesanse_sniper_07_snow_mask_emis"),
+        drop_dark_rim: false,
         faction: 3,
         item_level: 4,
         armor: 0.25,
@@ -288,7 +299,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 120,
         base_cost: 3300,
         is_premium: false,
-        covers_helmet: false,
+        covers_helmet: true,
         icon: [16, 6],
         name_text: Text {
             english: "Snow-20 Thermal vision",
@@ -314,6 +325,7 @@ pub const SPECS: [Spec; 7] = [
         surface: "league_shadow_mask_s",
         albedo: "character/human/special_items/league_shadow/league_shadow_mask",
         look: Look::Armour,
+        drop_dark_rim: false,
         faction: 0,
         item_level: 5,
         armor: 0.35,
@@ -574,7 +586,16 @@ pub fn fit_surface(
         spec.model
     )))?;
     let bind_pose = target.read(HEAD_BIND_POSE)?;
-    same_rig(&donor_pose, &bind_pose, spec.model)?;
+    // Only the bones the surface is skinned to must bind where the native
+    // ones do: the Snow-20's model moved a leg's roll bone.
+    let used: std::collections::BTreeSet<usize> = parsed
+        .vertices
+        .iter()
+        .flat_map(|v| v.bones.iter().zip(v.weights))
+        .filter(|(_, w)| *w > 0.0)
+        .map(|(&b, _)| usize::from(b))
+        .collect();
+    same_rig_for(&donor_pose, &bind_pose, spec.model, Some(&used))?;
     let mut mask = crate::v069d_skinned::to_026_four_bone(&parsed)?;
     if let Some(dir) = debug {
         fs::create_dir_all(dir)?;
@@ -588,9 +609,43 @@ pub fn fit_surface(
     };
     let fit = crate::mask_fit::fit_same_rig_under(&mut mask, &head, &bind_pose, &shells)?;
     let follow = crate::mask_fit::follow_head_weights_along_rays(&mut mask, &head, &bind_pose)?;
+    // The fit folds the cloth over itself in places (layered wraps, the
+    // neck tuck): a turned triangle is culled from outside and the skin
+    // shows through it as a speck.
+    let (turned, left) = crate::mask_fit::unfold(&mut mask, 200)?;
+    // The inside of the rolled holes stays deep in the native head; where
+    // that head is smaller than 0.69d's it shows through the opening as a
+    // dark rim (the Balaclava's eye window). Whole triangles of it go.
+    let inside = crate::mask_fit::inside_head(&mask, &head, &bind_pose)?;
+    let deep: std::collections::BTreeSet<[u32; 3]> =
+        crate::mask_fit::parse_mesh(&mask, 48, "mask")?
+            .positions
+            .iter()
+            .zip(&inside)
+            .filter(|(_, i)| **i)
+            .map(|(p, _)| p.map(|v| (v as f32).to_bits()))
+            .collect();
+    let before = crate::mask_fit::read_u32(&mask, 8)?;
+    if !deep.is_empty() {
+        mask = crate::outfit_026::keep_triangles(&mask, |c| {
+            !c.iter()
+                .all(|(p, _)| deep.contains(&p.map(|v| (v as f32).to_bits())))
+        })?;
+    }
+    let dropped = before - crate::mask_fit::read_u32(&mask, 8)?;
+    let dark_rim = if spec.drop_dark_rim {
+        drop_dark_rim(&mut mask, source, spec, &head)?
+    } else {
+        0
+    };
     // Where a pose of the game's clips slides the skin out under the cloth.
-    let relief =
-        crate::bandit_026::relieve_poses(target, &mut mask, &head, crate::mask_fit::RIM_ZONE)?;
+    let relief = crate::bandit_026::relieve_poses(
+        target,
+        &mut mask,
+        &head,
+        crate::mask_fit::RIM_ZONE,
+        crate::bandit_026::RELIEF_MAX_SAME_RIG,
+    )?;
     if let Some(dir) = debug {
         fs::write(dir.join(format!("{}-fitted", spec.name)), &mask)?;
     }
@@ -618,15 +673,26 @@ pub fn fit_surface(
         );
     }
     println!(
+        "  unfold: {turned} turned triangles -> {left} (the rest under another layer or at a rim)"
+    );
+    println!("  inside the head: {dropped} vertices only hidden triangles used, dropped");
+    if spec.drop_dark_rim {
+        println!("  the eye opening's black inner roll: {dark_rim} triangles dropped");
+    }
+    println!(
         "  relief over the game's poses: {} rounds, {} vertices moved out up to {:.2} mm",
         relief.rounds,
         relief.moved,
         relief.farthest * 1000.0
     );
     let (mut worst, mut face) = (f64::INFINITY, f64::INFINITY);
-    for (clip, c) in
-        crate::bandit_026::pose_clearances_rim(target, &mask, &head, crate::mask_fit::RIM_ZONE)?
-    {
+    for (clip, c) in crate::bandit_026::pose_clearances_at(
+        target,
+        &mask,
+        &head,
+        crate::mask_fit::RIM_ZONE,
+        true,
+    )? {
         worst = worst.min(c.min);
         face = face.min(c.face_min);
         ensure!(
@@ -647,10 +713,123 @@ pub fn fit_surface(
     Ok(mask)
 }
 
+/// Luminance (0..1) of mip 0 of a DXT1 DDS at `uv` (wrapped), nearest texel.
+fn dxt1_luminance(dds: &[u8], uv: [f64; 2]) -> Result<f64> {
+    ensure!(dds.len() > 128 && &dds[84..88] == b"DXT1", "not a DXT1 DDS");
+    let h = u32::from_le_bytes(dds[12..16].try_into()?) as usize;
+    let w = u32::from_le_bytes(dds[16..20].try_into()?) as usize;
+    let x = ((uv[0].rem_euclid(1.0) * w as f64) as usize).min(w - 1);
+    let y = ((uv[1].rem_euclid(1.0) * h as f64) as usize).min(h - 1);
+    let at = 128 + ((y / 4) * w.div_ceil(4) + x / 4) * 8;
+    let block = dds.get(at..at + 8).context("short DXT1 data")?;
+    let c = |v: u16| {
+        [
+            f64::from((v >> 11) & 31) / 31.0,
+            f64::from((v >> 5) & 63) / 63.0,
+            f64::from(v & 31) / 31.0,
+        ]
+    };
+    let (v0, v1) = (
+        u16::from_le_bytes([block[0], block[1]]),
+        u16::from_le_bytes([block[2], block[3]]),
+    );
+    let (a, b) = (c(v0), c(v1));
+    let index = (u32::from_le_bytes(block[4..8].try_into()?) >> (2 * ((y % 4) * 4 + x % 4))) & 3;
+    let mix = |t: f64| [0, 1, 2].map(|k| a[k] * (1.0 - t) + b[k] * t);
+    let rgb = match (index, v0 > v1) {
+        (0, _) => a,
+        (1, _) => b,
+        (2, true) => mix(1.0 / 3.0),
+        (3, true) => mix(2.0 / 3.0),
+        (2, false) => mix(0.5),
+        _ => [0.0; 3],
+    };
+    Ok(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
+}
+
+/// Below this the albedo is the painted-black inside of an opening.
+const BLACK: f64 = 0.06;
+/// How far from an opening's edge its inner roll reaches (m): the
+/// Balaclava's turns in about 2 cm at the window's corners.
+const DARK_RIM_ZONE: f64 = 0.03;
+
+/// Drops the triangles near an opening (`DARK_RIM_ZONE`) whose albedo is
+/// black at their middle: the inner roll of a hole, painted black. Returns
+/// how many went.
+fn drop_dark_rim(mask: &mut Vec<u8>, source: &Path, spec: &Spec, head: &[u8]) -> Result<usize> {
+    let dds = fs::read(source.join(format!("textures/{}.dds", spec.albedo)))?;
+    let mesh = crate::mask_fit::parse_mesh(mask, 48, "mask")?;
+    let head_mesh = crate::mask_fit::parse_mesh(head, 40, "native head")?;
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for p in &head_mesh.positions {
+        for k in 0..3 {
+            lo[k] = lo[k].min(p[k]);
+            hi[k] = hi[k].max(p[k]);
+        }
+    }
+    let centre = [0, 1, 2].map(|k| (lo[k] + hi[k]) / 2.0);
+    let rim = crate::mask_fit::rim_triangles(
+        &mesh.positions,
+        &mesh.triangles,
+        DARK_RIM_ZONE,
+        &vec![false; mesh.positions.len()],
+        centre,
+    );
+    let uv = |i: usize| -> [f64; 2] {
+        let at = 12 + i * 48 + 40;
+        [0, 4].map(|o| {
+            f64::from(f32::from_le_bytes(
+                mask[at + o..at + o + 4].try_into().unwrap(),
+            ))
+        })
+    };
+    let mut dark = std::collections::BTreeSet::new();
+    for (t, (tri, &r)) in mesh.triangles.iter().zip(&rim).enumerate() {
+        if !r {
+            continue;
+        }
+        let mid = [0, 1].map(|k| tri.iter().map(|&v| uv(v)[k]).sum::<f64>() / 3.0);
+        if dxt1_luminance(&dds, mid)? < BLACK {
+            dark.insert(t);
+        }
+    }
+    if dark.is_empty() {
+        return Ok(0);
+    }
+    // keep_triangles sees corners, not indices: key each triangle by its
+    // corners' positions and UVs.
+    let key = |c: &[([f64; 3], [f64; 2]); 3]| {
+        c.map(|(p, uv)| {
+            (
+                p.map(|v| (v as f32).to_bits()),
+                uv.map(|v| (v as f32).to_bits()),
+            )
+        })
+    };
+    let drop: std::collections::BTreeSet<_> = dark
+        .iter()
+        .map(|&t| key(&mesh.triangles[t].map(|v| (mesh.positions[v], uv(v)))))
+        .collect();
+    let count = dark.len();
+    *mask = crate::outfit_026::keep_triangles(mask, |c| !drop.contains(&key(c)))?;
+    Ok(count)
+}
+
 /// Whether a donor bind pose is the native one: the same bones in the same
 /// order at the same frames, but for Root and Item, which nothing is
 /// skinned to (0.69d moved both).
 pub fn same_rig(donor: &[u8], native: &[u8], label: &str) -> Result<()> {
+    same_rig_for(donor, native, label, None)
+}
+
+/// As [`same_rig`], the frames compared only for the bones in `used` (by
+/// index) when given: the names and order of every bone still must match.
+pub fn same_rig_for(
+    donor: &[u8],
+    native: &[u8],
+    label: &str,
+    used: Option<&std::collections::BTreeSet<usize>>,
+) -> Result<()> {
     let d = crate::armor::bind_pose_frames(donor, label)?;
     let n = crate::armor::bind_pose_frames(native, "native head")?;
     ensure!(
@@ -661,7 +840,7 @@ pub fn same_rig(donor: &[u8], native: &[u8], label: &str) -> Result<()> {
     );
     for (i, ((dn, df), (nn, nf))) in d.iter().zip(&n).enumerate() {
         ensure!(dn == nn, "{label}: bone {i} is {dn}, natively {nn}");
-        if dn == "Root" || dn == "Item" {
+        if dn == "Root" || dn == "Item" || used.is_some_and(|u| !u.contains(&i)) {
             continue;
         }
         let worst = df
@@ -981,5 +1160,10 @@ mod tests {
         };
         same_rig(&pose(1.6, 0.2), &pose(1.6, 0.0), "test").unwrap();
         assert!(same_rig(&pose(1.65, 0.0), &pose(1.6, 0.0), "test").is_err());
+        // A bone no vertex is skinned to may bind elsewhere.
+        let root_only = std::collections::BTreeSet::from([0]);
+        same_rig_for(&pose(1.65, 0.0), &pose(1.6, 0.0), "test", Some(&root_only)).unwrap();
+        let head = std::collections::BTreeSet::from([1]);
+        assert!(same_rig_for(&pose(1.65, 0.0), &pose(1.6, 0.0), "test", Some(&head)).is_err());
     }
 }

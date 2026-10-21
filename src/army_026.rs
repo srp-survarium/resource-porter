@@ -63,6 +63,8 @@ pub const ARMOUR: f32 = 0.3;
 pub const ISOLATION: f32 = 0.15;
 pub const COST: i32 = 10_000;
 pub const DROP_WEIGHT: i32 = 80;
+/// Smoothing rounds that undo the fit's folds ([`crate::mask_fit::unfold`]).
+const UNFOLD_ROUNDS: usize = 200;
 
 /// The balaclava's name and description in every client language.
 pub const TEXTS: [(&str, Text); 2] = [
@@ -183,8 +185,22 @@ pub fn build(
         follow.off_head_bones,
         follow.max_distance * 1000.0
     );
+    // The fit folds the cloth over itself in a few places (the neck tuck):
+    // a turned triangle is culled from outside and the skin shows through.
+    let (turned, left) = crate::mask_fit::unfold(&mut mask, UNFOLD_ROUNDS)?;
+    println!("  unfold: {turned} turned triangles -> {left}");
+    ensure!(
+        left == 0,
+        "{left} triangles of the balaclava stay turned over"
+    );
     // Where a pose of the game's clips slides the skin out under the cloth.
-    let relief = crate::bandit_026::relieve_poses(&mut target, &mut mask, &head, 0.0)?;
+    let relief = crate::bandit_026::relieve_poses(
+        &mut target,
+        &mut mask,
+        &head,
+        0.0,
+        crate::bandit_026::RELIEF_MAX,
+    )?;
     println!(
         "  relief over the game's poses: {} rounds, {} vertices moved out up to {:.2} mm",
         relief.rounds,
@@ -192,7 +208,7 @@ pub fn build(
         relief.farthest * 1000.0
     );
     let (mut worst, mut face) = (f64::INFINITY, f64::INFINITY);
-    let clips = crate::bandit_026::pose_clearances(&mut target, &mask, &head)?;
+    let clips = crate::bandit_026::pose_clearances_at(&mut target, &mask, &head, 0.0, true)?;
     for (clip, c) in &clips {
         worst = worst.min(c.min);
         face = face.min(c.face_min);
