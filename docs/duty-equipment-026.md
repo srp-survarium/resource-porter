@@ -1,13 +1,24 @@
 # Duty exoskeleton for v0.26g
 
-The v16 build is a **set of two items**, like the native level 15
+The v19 build is a **set of four items**, like the native level 15
 exoskeleton sets (Zubr UM-4, Pilgrim): 0.26g has no set ID or set bonus,
-so a set is separate items of one faction and level.
+so a set is separate items of one faction and level. The gloves and boots
+are not part of the exoskeleton (owner, 2026-10-17): they are pieces of
+their own, as Zubr UM-4's are.
 
-| Item | ID | Slot | Covers (linked cells) | Model |
-| --- | --- | --- | --- | --- |
-| Duty exoskeleton | 1805 | torso (2), category 3 | back, legs, gloves, boots | torso, frame, back unit, legs, hands, boots |
-| Duty exoskeleton helmet | 1800 | helmet (0), category 1 | mask | the original combined helmet and mask |
+| Item | ID | Slot | Covers (linked cells) | Model | Icon |
+| --- | --- | --- | --- | --- | --- |
+| Duty exoskeleton | 1805 | torso (2), category 3 | back, legs | torso, frame, back unit, legs | [1, 6] |
+| Duty exoskeleton helmet | 1800 | helmet (0), category 1 | mask | the original combined helmet and mask | [3, 6] |
+| Duty gloves | 1803 | gloves (5), category 6 | — | the hands, with their first-person model | [6, 6] |
+| Duty boots | 1804 | boots (6), category 7 | — | the boots | [7, 6] |
+
+The gloves carry `base_model_hud`/`part_name_hud` as native gloves do: the
+cook draws the first-person hands from the gloves slot. They name
+`model_type` `data_full` (the long sleeves the STK2 hands were made for);
+the boots keep their template's `data_long`. 1803 and 1804 are inside
+Duty's range (1800–1806, the old split's gloves and boots ids) and free in
+stock and patches 12 and 14.
 
 Profile slots are helmet 0, mask 1, torso 2, back 3, legs 4, gloves 5 and
 boots 6. Each piece lists its covered slots in `data.additional_model_slots`,
@@ -65,14 +76,19 @@ the inventory and is re-equipped in the torso slot.
 
 ## Statistics
 
-| Property | Body | Helmet | Set |
-| --- | --- | --- | --- |
-| Weight | 30 kg | 5 kg | 35 kg |
-| Armour | 87 (10 body regions) | 72 (brain, face) | |
-| Isolation | 70 | 70 | |
-| Price | 225 000 | 75 000 | 300 000 |
-| Oxygen | 30 seconds | | |
-| Default modifiers | 1030, 1050, 1170, 1040 | none | |
+| Property | Body | Helmet | Gloves | Boots | Set |
+| --- | --- | --- | --- | --- | --- |
+| Weight | 26.4 kg | 5 kg | 0.6 kg | 3 kg | 35 kg |
+| Armour (ballistic) | 87 (front, back, forearms, hips) | 72 (brain, face) | 87 (arms) | 87 (feet) | |
+| Isolation | 70 | 70 | 70 | 70 | |
+| Price | 172 500 | 75 000 | 26 250 | 26 250 | 300 000 |
+| Drop weight | 10 | 10 | 10 | 10 | |
+| Oxygen | 30 seconds | | | | |
+| Default modifiers | 1030, 1050, 1170, 1040 | none | none | none | |
+
+The gloves and boots weigh and cost what Zubr UM-4's do, drop as theirs
+(10), and have no modifications, as theirs; the body is the rest of the
+owner's set totals.
 
 The set keeps the v15 suit's totals: weight, price, armour per region,
 isolation, modifiers and oxygen. The split follows the native sets. The
@@ -81,23 +97,24 @@ helmet costs the average of the Zubr and Pilgrim helmets (77 500 and
 an ammo bag, pocket capacity and an artefact slot. They sit on the body, as
 native torso modifiers do. Each of the player's 12 hit regions
 (`base_character_full` `hit_targets`) is protected once, on one piece, with
-all seven hit types: the helmet brain and face, the body every region the
-native torso, trousers, gloves and boots protect (front, back, both
-forearms, arms, hips and feet), at the set's armour. The build stops if a
-region is left out or protected twice (`check_coverage`). Both pieces have
-Renaissance faction, item and matchmaking level 15. Since v18 both drop
-from matches (owner, 2026-10-16). The helmet drops as the native helmet of
-its tier: its template's `drop_weight`, Zubr UM-4's and Pilgrim's 10. The
-body is a whole torso, trousers, gloves and boots in one item, so it drops
-half as often as the native torso it is made from: 5, against the Zubr and
-Pilgrim torsos' 10 (`BODY_DROP_DIVISOR`). srp's roll (`v026g::drops`) takes
+all seven hit types, as the native pieces split them: the helmet brain and
+face, the gloves both arms, the boots both feet, and the body the native
+torso's and trousers' regions (front, back, both forearms and hips), all at
+the set's armour. The build stops if a region is left out or protected
+twice (`check_coverage`). Every piece has Renaissance faction, item and
+matchmaking level 15. Since v18 all drop from matches (owner, 2026-10-16).
+Every piece drops as the native piece of its tier it is made from: its
+template's `drop_weight`, Zubr UM-4's and Pilgrim's 10. The body, which no
+longer covers the gloves and boots, drops as the native torso (owner,
+2026-10-17; before the split it had half). srp's roll (`v026g::drops`) takes
 a category group, a category of it evenly, an item level from the match
-level's row, then an item of that category and level by weight, so the
-bodies share the level-15 torso roll with Zubr's and Pilgrim's: each body
-gets 5/30 of it, each native torso 10/30 (was 10/20). In a generic match
-drop that is 0.10 (armour) x 1/7 (torso) x the row's level-15 share (10 % at
-match level 15, 50 % at 20) x 5/30: 0.024 % to 0.12 % per match for each
-body, against 0.048 % to 0.24 % for each native torso. 0.26g has no way for
+level's row, then an item of that category and level by weight, so each
+piece shares its category's level-15 roll with Zubr's and Pilgrim's piece:
+each of the four level-15 torsos (or helmets, gloves, boots) gets 10/40 of
+it (a native one had 10/20 before these sets). In a generic match drop that
+is 0.10 (armour) x 1/7 (the category) x the row's level-15 share (10 % at
+match level 15, 50 % at 20) x 1/4: 0.036 % to 0.18 % per match for each
+piece, native or not. 0.26g has no way for
 a player to throw an item away; "droppable" is the match drop.
 Camouflage and decals remain disabled: imported textures have no
 customization masks.

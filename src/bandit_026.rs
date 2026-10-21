@@ -149,13 +149,24 @@ pub fn pose_clearances(
     mask: &[u8],
     head: &[u8],
 ) -> Result<Vec<(String, crate::mask_fit::PosedClearance)>> {
+    pose_clearances_rim(db, mask, head, 0.0)
+}
+
+/// As [`pose_clearances`], not measuring where the head shows through an
+/// opening (`mask_fit::posed_clearance_rim`).
+pub fn pose_clearances_rim(
+    db: &mut ResourceDb,
+    mask: &[u8],
+    head: &[u8],
+    rim_zone: f64,
+) -> Result<Vec<(String, crate::mask_fit::PosedClearance)>> {
     use crate::skeleton_animation::{Clip, Rig};
     let bind_pose = db.read(HEAD_BIND_POSE)?;
     let rig = Rig::parse(&bind_pose, &db.read(PLAYER_SKELETON)?)?;
     let bind = rig.rest();
     let mut out = vec![(
         "bind pose".to_owned(),
-        crate::mask_fit::posed_clearance(mask, head, &bind_pose, &bind, &bind)?,
+        crate::mask_fit::posed_clearance_rim(mask, head, &bind_pose, &bind, &bind, rim_zone)?,
     )];
     for name in POSE_CLIPS {
         let path = format!("animations/single/weapons/{name}");
@@ -174,7 +185,9 @@ pub fn pose_clearances(
         for k in 0..POSE_SAMPLES {
             let time = end * k as f32 / (POSE_SAMPLES - 1) as f32;
             let pose = rig.pose(&clip, time);
-            let c = crate::mask_fit::posed_clearance(mask, head, &bind_pose, &bind, &pose)?;
+            let c = crate::mask_fit::posed_clearance_rim(
+                mask, head, &bind_pose, &bind, &pose, rim_zone,
+            )?;
             if worst.is_none_or(|w| c.min < w.min) {
                 worst = Some(c);
             }
