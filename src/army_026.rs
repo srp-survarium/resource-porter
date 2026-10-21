@@ -50,19 +50,20 @@ const DONOR: &str = "bandit_01_head_02.skinned_model";
 /// Wears the two-hole balaclava, whose eye holes anchor the fit.
 const EYE_REFERENCE: &str = "bandit_01_head_01.skinned_model";
 
-/// Stats [the owner's call; proposed 2026-10-21]: the Bandit balaclava's
-/// (level 8, armour 30, isolation 15, 1.0 kg, 10,000), which sits between
-/// the Renaissance Army's own level 8 respirator (ren_mask_3: 15/50, 0.8 kg,
-/// 8,660) and its level 9 Assault mask (ren_mask_2: 40/5, 1.5 kg, 13,130).
-/// The server's rule sells a Renaissance item of level 8 at reputation level
-/// 3 (item level - 5). It drops as the faction's level 8 masks do (80; the
-/// Bandit balaclava has the Black Market mask's 110).
-pub const LEVEL: i32 = 8;
-pub const WEIGHT: f32 = 1.0;
+/// Stats. Level 6 is the owner's (2026-10-21): the server's rule sells a
+/// Renaissance item of level 6 at reputation level 1 (item level - 5). The
+/// rest are proposed after the one native level 6 mask, the Fringe Settlers'
+/// respirator (edge_resp_1: armour 10, isolation 50, 0.8 kg, 5,230, drop
+/// weight 100; the Renaissance Army has none of level 6): its weight, price
+/// and drop weight. A respirator's protection is no cloth's, so armour and
+/// isolation follow the nearest armour mask, the level 5 Corsair (bm_mask_1:
+/// 30 / 5).
+pub const LEVEL: i32 = 6;
+pub const WEIGHT: f32 = 0.8;
 pub const ARMOUR: f32 = 0.3;
-pub const ISOLATION: f32 = 0.15;
-pub const COST: i32 = 10_000;
-pub const DROP_WEIGHT: i32 = 80;
+pub const ISOLATION: f32 = 0.05;
+pub const COST: i32 = 5_230;
+pub const DROP_WEIGHT: i32 = 100;
 /// Smoothing rounds that undo the fit's folds ([`crate::mask_fit::unfold`]).
 const UNFOLD_ROUNDS: usize = 200;
 
@@ -406,7 +407,7 @@ mod tests {
     #[test]
     fn the_card_shows_the_stats() {
         assert_eq!(format!("{}", (ARMOUR * 100.0).round()), "30");
-        assert_eq!(format!("{}", (ISOLATION * 100.0).round()), "15");
-        assert_eq!(format!("{WEIGHT:.1}"), "1.0");
+        assert_eq!(format!("{}", (ISOLATION * 100.0).round()), "5");
+        assert_eq!(format!("{WEIGHT:.1}"), "0.8");
     }
 }

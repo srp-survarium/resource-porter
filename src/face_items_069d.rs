@@ -106,6 +106,9 @@ pub struct Spec {
 /// armour masks beside the level-5 "Corsair" (30 / 5, 1.0 kg). Proposed,
 /// not yet approved by the owner.
 pub const SPECS: [Spec; 7] = [
+    // Level 5 is the owner's (2026-10-21). Proposed after the one native
+    // level 5 mask, the Corsair (bm_mask_1: 30 / 5, 1.0 kg, 4,460, drop
+    // weight 110).
     Spec {
         id: 1812,
         donor_id: 2092,
@@ -117,12 +120,12 @@ pub const SPECS: [Spec; 7] = [
         look: Look::Cloth,
         drop_dark_rim: false,
         faction: 4,
-        item_level: 3,
-        armor: 0.15,
-        isolation: 0.10,
-        weight: 0.3,
-        drop_weight: 130,
-        base_cost: 1300,
+        item_level: 5,
+        armor: 0.30,
+        isolation: 0.05,
+        weight: 1.0,
+        drop_weight: 110,
+        base_cost: 4460,
         is_premium: false,
         covers_helmet: false,
         icon: [10, 6],
@@ -141,6 +144,10 @@ pub const SPECS: [Spec; 7] = [
             polish: "Bawełniana kefija owinięta wokół głowy i twarzy. Chroni przed pyłem i wiatrem i nieco łagodzi uderzenie po stycznej.",
         },
     },
+    // Level 8 is the owner's (2026-10-21). Proposed after a native level 8
+    // mask (the Scavengers have none): the Smaragd's (edge_resp_3) weight,
+    // price and drop weight; a respirator's protection is no cloth's, so
+    // armour and isolation are the Corsair's (bm_mask_1, 30 / 5).
     Spec {
         id: 1813,
         donor_id: 2094,
@@ -152,12 +159,12 @@ pub const SPECS: [Spec; 7] = [
         look: Look::Cloth,
         drop_dark_rim: false,
         faction: 1,
-        item_level: 3,
-        armor: 0.12,
-        isolation: 0.12,
-        weight: 0.3,
-        drop_weight: 130,
-        base_cost: 1300,
+        item_level: 8,
+        armor: 0.30,
+        isolation: 0.05,
+        weight: 1.0,
+        drop_weight: 80,
+        base_cost: 7840,
         is_premium: false,
         covers_helmet: false,
         icon: [11, 6],
@@ -246,6 +253,10 @@ pub const SPECS: [Spec; 7] = [
             polish: "Komin z nadrukiem czaszki naciągnięty na usta i nos. Zakrywa twarz i nie wpuszcza pyłu.",
         },
     },
+    // Level 10 is the owner's (2026-10-21). Proposed after the nearest native
+    // mask (none is of level 10, the Black Market's only mask is of level 5):
+    // the level 9 Assault mask (renesanse_mask_2: 40 / 5, 1.5 kg, 13,130,
+    // drop weight 70).
     Spec {
         id: 1816,
         donor_id: 948,
@@ -257,12 +268,12 @@ pub const SPECS: [Spec; 7] = [
         look: Look::Armour,
         drop_dark_rim: false,
         faction: 2,
-        item_level: 5,
-        armor: 0.35,
-        isolation: 0.10,
-        weight: 0.8,
-        drop_weight: 110,
-        base_cost: 5200,
+        item_level: 10,
+        armor: 0.40,
+        isolation: 0.05,
+        weight: 1.5,
+        drop_weight: 70,
+        base_cost: 13130,
         is_premium: false,
         covers_helmet: true,
         icon: [15, 6],
@@ -352,6 +363,15 @@ pub const SPECS: [Spec; 7] = [
         },
     },
 ];
+
+/// Items that are built but not shipped: the owner took the Snow-20 and the
+/// Delta 2 out of the release (2026-10-21).
+pub const NOT_SHIPPED: [i32; 2] = [1817, 1818];
+
+/// The items the bundle carries: [`SPECS`] but [`NOT_SHIPPED`].
+pub fn shipped() -> impl Iterator<Item = &'static Spec> {
+    SPECS.iter().filter(|s| !NOT_SHIPPED.contains(&s.id))
+}
 
 /// The native mask whose config, model files and dictionary row each item
 /// starts from.
@@ -915,7 +935,7 @@ pub fn build(
     let mut registration = vec![];
     let mut item_configs = vec![];
     let mut strings = BTreeMap::new();
-    for spec in &SPECS {
+    for spec in shipped() {
         let mask = fit_surface(&mut target, source, spec, Some(&output.join("debug")))?;
         let material = material(&out, &mut target, source, spec, &mut files)?;
         model_files(&out, &mut target, spec, &mask, &material, &mut files)?;
@@ -996,8 +1016,7 @@ pub fn build(
     }
     out.config("gameplay/db_static_dictionaries", &dictionary, &mut files)?;
 
-    let texts: Vec<(String, Text)> = SPECS
-        .iter()
+    let texts: Vec<(String, Text)> = shipped()
         .flat_map(|spec| {
             let [n, d] = text_keys(spec);
             [(n, spec.name_text), (d, spec.description)]
@@ -1048,7 +1067,7 @@ pub fn build(
     crate::model_validation::validate_effective_overlay(db, &overlay)?;
     println!(
         "Built {} 0.69d masks: {} resources",
-        SPECS.len(),
+        shipped().count(),
         files.len()
     );
     Ok(())
@@ -1087,13 +1106,13 @@ mod tests {
             assert!((0.05..=0.5).contains(&s.armor), "{}", s.name);
             assert!((0.05..=0.7).contains(&s.isolation), "{}", s.name);
             assert!((0.2..=2.0).contains(&s.weight), "{}", s.name);
-            // Below the "Corsair" mask's 30 below level 5, cloth below the
-            // level-3 "Amber" respirator's 35 in all.
+            // Below the "Corsair" mask's 30 below level 5; cloth below level
+            // 5 under the level-3 "Amber" respirator's 35 in all.
             if s.item_level < 5 {
                 assert!(s.armor <= 0.3, "{}", s.name);
             }
-            if matches!(s.look, Look::Cloth) {
-                assert!(s.armor + s.isolation <= 0.35, "{}", s.name);
+            if matches!(s.look, Look::Cloth) && s.item_level < 5 {
+                assert!(s.armor + s.isolation <= 0.35 + 1e-6, "{}", s.name);
             }
             // Premium: gold, not dropped, no seller of its own.
             if s.is_premium {
