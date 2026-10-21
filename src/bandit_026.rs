@@ -171,11 +171,12 @@ pub fn pose_clearances_rim(
             rim_zone,
         )
     };
-    let mut out = vec![("bind pose".to_owned(), check(&poses.bind)?)];
-    for (name, clip) in &poses.clips {
+    let all = poses.map(check)?;
+    let mut out = vec![("bind pose".to_owned(), all[0])];
+    for (k, (name, _)) in poses.clips.iter().enumerate() {
+        let clip = &all[1 + k * POSE_SAMPLES..1 + (k + 1) * POSE_SAMPLES];
         let mut worst: Option<crate::mask_fit::PosedClearance> = None;
-        for pose in clip {
-            let c = check(pose)?;
+        for &c in clip {
             if worst.is_none_or(|w| c.min < w.min) {
                 worst = Some(c);
             }
@@ -233,6 +234,30 @@ impl SampledPoses {
                 .flat_map(|(_, c)| c.iter().map(Vec::as_slice)),
         )
     }
+
+    /// `f` of every pose of [`Self::all`], in that order, on a few threads.
+    pub fn map<T: Send>(
+        &self,
+        f: impl Fn(&[crate::skeleton_animation::Frame]) -> Result<T> + Sync,
+    ) -> Result<Vec<T>> {
+        let poses: Vec<_> = self.all().collect();
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+        let chunk = poses.len().div_ceil(threads);
+        std::thread::scope(|scope| {
+            let workers: Vec<_> = poses
+                .chunks(chunk)
+                .map(|part| scope.spawn(|| part.iter().map(|p| f(p)).collect::<Result<Vec<T>>>()))
+                .collect();
+            let mut out = Vec::with_capacity(poses.len());
+            for w in workers {
+                out.extend(
+                    w.join()
+                        .map_err(|_| anyhow::anyhow!("a pose thread panicked"))??,
+                );
+            }
+            Ok(out)
+        })
+    }
 }
 
 /// What [`relieve_poses`] did.
@@ -271,8 +296,8 @@ pub fn relieve_poses(
     let mut relief = Relief::default();
     for round in 0..=RELIEF_ROUNDS {
         let mut need = vec![0.0_f64; vertices];
-        for pose in poses.all() {
-            let short = crate::mask_fit::posed_shortfall(
+        let shortfalls = poses.map(|pose| {
+            crate::mask_fit::posed_shortfall(
                 mask,
                 head,
                 &poses.bind_pose,
@@ -280,7 +305,9 @@ pub fn relieve_poses(
                 pose,
                 rim_zone,
                 RELIEF_TARGET,
-            )?;
+            )
+        })?;
+        for short in shortfalls {
             for (n, s) in need.iter_mut().zip(short) {
                 *n = n.max(s);
             }
