@@ -85,6 +85,11 @@ pub struct Spec {
     /// Silver, or gold for a premium item.
     pub base_cost: i32,
     pub is_premium: bool,
+    /// Whether it takes the helmet slot too (`additional_model_slots`): a
+    /// rigid part over the skull (goggles, a monocular, a night vision mount)
+    /// cannot be pulled in under a helmet as cloth is, so no helmet is worn
+    /// with it and it is fitted over the bare head only.
+    pub covers_helmet: bool,
     /// Atlas cell, `[row, col]`.
     pub icon: [i32; 2],
     pub name_text: Text,
@@ -113,6 +118,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 130,
         base_cost: 1300,
         is_premium: false,
+        covers_helmet: false,
         icon: [10, 6],
         name_text: Text {
             english: "Keffiyeh",
@@ -146,6 +152,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 130,
         base_cost: 1300,
         is_premium: false,
+        covers_helmet: false,
         icon: [11, 6],
         name_text: Text {
             english: "3-Hole Balaclava",
@@ -179,6 +186,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 130,
         base_cost: 1300,
         is_premium: false,
+        covers_helmet: false,
         icon: [12, 6],
         name_text: Text {
             english: "Balaclava",
@@ -212,6 +220,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 130,
         base_cost: 1300,
         is_premium: false,
+        covers_helmet: false,
         icon: [13, 6],
         name_text: Text {
             english: "Buff",
@@ -245,6 +254,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 110,
         base_cost: 5200,
         is_premium: false,
+        covers_helmet: true,
         icon: [15, 6],
         name_text: Text {
             english: "Protective mask",
@@ -278,6 +288,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 120,
         base_cost: 3300,
         is_premium: false,
+        covers_helmet: false,
         icon: [16, 6],
         name_text: Text {
             english: "Snow-20 Thermal vision",
@@ -311,6 +322,7 @@ pub const SPECS: [Spec; 7] = [
         drop_weight: 0,
         base_cost: 500,
         is_premium: true,
+        covers_helmet: true,
         icon: [17, 6],
         name_text: Text {
             english: "Delta 2 mask",
@@ -569,7 +581,11 @@ pub fn fit_surface(
         fs::write(dir.join(format!("{}-converted", spec.name)), &mask)?;
     }
     let head = target.read(crate::bandit_026::HEAD_MODEL)?;
-    let shells = crate::bandit_026::helmets_worn_over_masks(target, &bind_pose)?;
+    let shells = if spec.covers_helmet {
+        vec![]
+    } else {
+        crate::bandit_026::helmets_worn_over_masks(target, &bind_pose)?
+    };
     let fit = crate::mask_fit::fit_same_rig_under(&mut mask, &head, &bind_pose, &shells)?;
     let follow = crate::mask_fit::follow_head_weights_along_rays(&mut mask, &head, &bind_pose)?;
     // Where a pose of the game's clips slides the skin out under the cloth.
@@ -764,6 +780,13 @@ pub fn build(
         strings.insert(name_key, spec.name_text.english.to_owned());
         strings.insert(desc_key, spec.description.english.to_owned());
         configure(&mut c, spec)?;
+        if spec.covers_helmet {
+            set(
+                &mut c,
+                "data.additional_model_slots",
+                V::Indexed(vec![s("helmet")]),
+            )?;
+        }
         let row = items
             .iter_mut()
             .find(|v| v.named("dict_id") == Some(&V::Integer(spec.id)))
@@ -772,6 +795,10 @@ pub fn build(
         row.set_path("name", s(format!("{PORT}_{}", spec.name)))?;
         row.set_path("base_cost", V::Integer(spec.base_cost))?;
         row.set_path("is_premium", V::Boolean(spec.is_premium))?;
+        // The server reads the slots from the config (additional_model_slots).
+        for k in ["slot", "additional_slots", "template"] {
+            entry.as_object_mut().unwrap().remove(k);
+        }
         entry["config"] = json!(path);
         entry["donor"] =
             json!({"build": "0.69d", "dict_id": spec.donor_id, "name": spec.donor_name});
