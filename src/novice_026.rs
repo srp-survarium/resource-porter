@@ -223,7 +223,7 @@ fn trim_into_gauntlets(
 
 /// The game's view of the resources: the stock archive with the released
 /// patches over it.
-fn game_view(db: &Path, patches: &[PathBuf]) -> Result<ResourceDb> {
+pub(crate) fn game_view(db: &Path, patches: &[PathBuf]) -> Result<ResourceDb> {
     let mut layers = vec![db.to_path_buf()];
     let mut sorted = patches.to_vec();
     sorted.sort_by_key(|p| {

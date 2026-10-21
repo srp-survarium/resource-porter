@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pub mod archive;
+pub mod army_026;
 pub mod armor;
 pub mod bandit_026;
 pub mod body_fit;

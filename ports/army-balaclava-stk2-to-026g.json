@@ -1,0 +1,111 @@
+{
+  "format_version": 1,
+  "asset": {
+    "id": "army-balaclava-stk2-to-026g",
+    "donor_build": "stalker2-2011",
+    "target_build": "0.26g"
+  },
+  "armors": [],
+  "model": {
+    "retarget_hand_landmarks": false,
+    "animation_skeleton": "resources/animations/skeletons/scavengers_01",
+    "bind_pose_template": "models/character/human/base/base_character_boot.skinned_model/render/bind_pose",
+    "settings_template": "models/character/human/base/base_character_boot.skinned_model/settings",
+    "skeleton_template": "models/character/human/base/base_character_boot.skinned_model/skeleton",
+    "render_properties_template": "models/character/human/base/base_character_boot.skinned_model/render/export_properties",
+    "surface_properties_template": "models/character/human/base/base_character_boot.skinned_model/render/base_character_boot_s/export_properties",
+    "bone_map": {
+      "Root": "Root",
+      "Hip": "Hip",
+      "Weapon": "Weapon",
+      "Pistol": "Pistol",
+      "Item": "Item",
+      "LeftUpLeg": "LeftUpLeg",
+      "RightUpLeg": "RightUpLeg",
+      "Spin": "Spin",
+      "LeftUpLeg_Roll": "LeftUpLeg_Roll",
+      "LeftKnee": "LeftKnee",
+      "LeftLeg": "LeftLeg",
+      "LeftFoot": "LeftFoot",
+      "LeftToe": "LeftToe",
+      "RightUpLeg_Roll": "RightUpLeg_Roll",
+      "RightKnee": "RightKnee",
+      "RightLeg": "RightLeg",
+      "RightFoot": "RightFoot",
+      "RightToe": "RightToe",
+      "Spin_1": "Spin_1",
+      "Chest": "Chest",
+      "RightClavicle": "RightClavicle",
+      "Neck": "Neck",
+      "LeftClavicle": "LeftClavicle",
+      "RightArm": "RightArm",
+      "RightShoulder": "RightShoulder",
+      "RightForeArm": "RightForeArm",
+      "RightArm_Roll": "RightArm_Roll",
+      "RightForeArm_Roll": "RightForeArm_Roll",
+      "RightHand": "RightHand",
+      "RightIndex1": "RightIndex1",
+      "RightThumb1": "RightThumb1",
+      "RightRing1": "RightRing1",
+      "RightMiddle1": "RightMiddle1",
+      "RightPinky1": "RightPinky1",
+      "RightIndex2": "RightIndex2",
+      "RightIndex3": "RightIndex3",
+      "RightThumb2": "RightThumb2",
+      "RightThumb3": "RightThumb3",
+      "RightRing2": "RightRing2",
+      "RightRing3": "RightRing3",
+      "RightMiddle2": "RightMiddle2",
+      "RightMiddle3": "RightMiddle3",
+      "RightPinky2": "RightPinky2",
+      "RightPinky3": "RightPinky3",
+      "Head": "Head",
+      "LeftEye": "LeftEye",
+      "Jaw": "Jaw",
+      "RightEye": "RightEye",
+      "LeftShoulder": "LeftShoulder",
+      "LeftArm": "LeftArm",
+      "LeftArm_Roll": "LeftArm_Roll",
+      "LeftForeArm": "LeftForeArm",
+      "LeftHand": "LeftHand",
+      "LeftForeArm_Roll": "LeftForeArm_Roll",
+      "LeftRing1": "LeftRing1",
+      "LeftIndex1": "LeftIndex1",
+      "LeftThumb1": "LeftThumb1",
+      "LeftMiddle1": "LeftMiddle1",
+      "LeftPinky1": "LeftPinky1",
+      "LeftRing2": "LeftRing2",
+      "LeftRing3": "LeftRing3",
+      "LeftIndex2": "LeftIndex2",
+      "LeftIndex3": "LeftIndex3",
+      "LeftThumb2": "LeftThumb2",
+      "LeftThumb3": "LeftThumb3",
+      "LeftMiddle2": "LeftMiddle2",
+      "LeftMiddle3": "LeftMiddle3",
+      "LeftPinky2": "LeftPinky2",
+      "LeftPinky3": "LeftPinky3"
+    },
+    "surfaces": {
+      "bandit_01_attach_s": "ported/army_026/attach",
+      "bandit_01_head_s": "ported/army_026/head"
+    },
+    "target_models": {
+      "models/ported/army_026/mask.skinned_model": {
+        "surfaces": {
+          "mask": {
+            "source": "bandit_01_attach_s"
+          }
+        }
+      }
+    }
+  },
+  "materials": [],
+  "textures": [],
+  "dictionary": {
+    "path": "gameplay/db_static_dictionaries"
+  },
+  "localization": {
+    "path": "localization/russian/localization",
+    "strings": {}
+  }
+}
