@@ -470,7 +470,7 @@ fn icon_png(dir: &Path, name: &str, fill: u8) -> (String, Vec<u8>) {
     let pixels = icon(fill);
     let path = dir.join(name);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    atlas::write_icon_png(&path, &pixels).unwrap();
+    atlas::write_icon_png(&path, &pixels, atlas::EQUIPMENT_GRID).unwrap();
     (
         fs::read(&path).unwrap().len().to_string(),
         fs::read(path).unwrap(),

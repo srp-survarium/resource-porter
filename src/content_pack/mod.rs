@@ -117,7 +117,8 @@ pub enum Operation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         languages: Option<Vec<String>>,
     },
-    /// Draw icons into empty cells of the lobby equipment atlas.
+    /// Draw icons into empty cells of a lobby icon atlas (`symbol`, the
+    /// equipment atlas by default; its cells: `atlas::grid`).
     AtlasIconsAdd {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         swf: Option<String>,
@@ -381,6 +382,13 @@ pub fn validate_pack(pack: &Pack) -> Vec<String> {
                 if let Err(error) = validate_resource_path(swf) {
                     fail(error.to_string());
                 }
+                let grid = match atlas::grid(symbol) {
+                    Ok(grid) => grid,
+                    Err(error) => {
+                        fail(error.to_string());
+                        continue;
+                    }
+                };
                 for icon in icons {
                     if !cells.insert((swf.to_owned(), symbol.to_owned(), icon.row, icon.col)) {
                         fail(format!(
@@ -388,12 +396,14 @@ pub fn validate_pack(pack: &Pack) -> Vec<String> {
                             icon.row, icon.col
                         ));
                     }
-                    if let Err(error) = atlas::cell_origin(icon.row, icon.col) {
+                    if let Err(error) = atlas::cell_origin(grid, icon.row, icon.col) {
                         fail(error.to_string());
                     }
                     match safe_join(&pack.dir, &icon.source) {
                         Ok(path) => {
-                            if let Err(error) = atlas::read_icon_png(&path, icon.premultiplied) {
+                            if let Err(error) =
+                                atlas::read_icon_png(&path, icon.premultiplied, grid)
+                            {
                                 fail(format!("icon {}: {error:#}", icon.source));
                             }
                         }
@@ -990,7 +1000,11 @@ impl<'a> Plan<'a> {
             let pack = &self.packs[edit.pack];
             let icon = edit.icon;
             let pixels =
-                atlas::read_icon_png(&safe_join(&pack.dir, &icon.source)?, icon.premultiplied)?;
+                atlas::read_icon_png(
+                    &safe_join(&pack.dir, &icon.source)?,
+                    icon.premultiplied,
+                    original.grid,
+                )?;
             let current = original.cell(icon.row, icon.col)?;
             if current == pixels {
                 continue;
@@ -1700,6 +1714,7 @@ pub fn verify_in(db: &mut ResourceDb, dirs: &[PathBuf], skipped: &[String]) -> R
                             let pixels = atlas::read_icon_png(
                                 &safe_join(&pack.dir, &icon.source)?,
                                 icon.premultiplied,
+                                bitmap.grid,
                             )?;
                             if bitmap.cell(icon.row, icon.col)? != pixels {
                                 bail!("atlas cell [{}, {}] differs", icon.row, icon.col);

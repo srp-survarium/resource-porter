@@ -646,7 +646,7 @@ impl Builder {
             let source = format!("icons/r{row:02}c{col:02}.png");
             let destination = output.join(&source);
             fs::create_dir_all(destination.parent().unwrap())?;
-            atlas::write_icon_png(&destination, &pixels)?;
+            atlas::write_icon_png(&destination, &pixels, atlas::EQUIPMENT_GRID)?;
             icons.push(AtlasIcon {
                 row,
                 col,

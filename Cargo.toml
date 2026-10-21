@@ -27,6 +27,8 @@ crc32fast = "1.4"
 encoding_rs = "0.8"
 flate2 = "1.0"
 png = "0.17"
+# The big camouflage atlas of lobby_menu.swf is a DefineBitsJPEG2.
+zune-jpeg = "0.4"
 # The archive code: skhid-srp's `srp-026g/crates/resources-db` (branch
 # release/resources-db-porter-needs, on top of release/scripts).
 resources-db = { git = "https://github.com/srp-survarium/skhid-srp", rev = "c81c234906dcfd94207f6a701c9421af969049a1" }
