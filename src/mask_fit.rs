@@ -548,11 +548,15 @@ pub fn fit_to_native_head_under(
 }
 
 /// How a mask is first placed on the native head.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
     /// Moved rigidly so its eye holes sit over the native eyes: the donor
     /// head stood elsewhere on its skeleton (STK2).
     EyeHoles,
+    /// As `EyeHoles`, the holes given (the mask's space): a mask with one
+    /// wide eye window has no pair to find, and takes the holes of another
+    /// mask converted from the same donor head ([`mask_eye_holes`]).
+    Holes([f64; 3]),
     /// Left where it is: the donor was made on the native rig and bind pose
     /// (the 0.69d masks), so only the clearance over the head is fitted.
     SameRig,
@@ -567,6 +571,36 @@ pub fn fit_same_rig_under(
     shells: &[Shell],
 ) -> Result<MaskFit> {
     fit_under(mask, head, bind_pose, shells, Align::SameRig)
+}
+
+/// As `fit_to_native_head_under`, the rigid move taking `holes` (in the
+/// mask's space) onto the native eyes ([`Align::Holes`]).
+pub fn fit_to_native_head_under_at(
+    mask: &mut Vec<u8>,
+    holes: [f64; 3],
+    head: &[u8],
+    bind_pose: &[u8],
+    shells: &[Shell],
+) -> Result<MaskFit> {
+    fit_under(mask, head, bind_pose, shells, Align::Holes(holes))
+}
+
+/// The middle of a converted mask's two eye holes, in its own space.
+pub fn mask_eye_holes(mask: &[u8]) -> Result<[f64; 3]> {
+    let mesh = parse_mesh(mask, 48, "mask")?;
+    let (weld, neighbours) = weld_vertices(&mesh);
+    let mut edge_uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    for tri in &mesh.triangles {
+        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+            let (a, b) = (weld[a], weld[b]);
+            *edge_uses.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    }
+    let mut welded_positions = vec![[0.0; 3]; neighbours.len()];
+    for (i, &w) in weld.iter().enumerate() {
+        welded_positions[w] = mesh.positions[i];
+    }
+    eye_holes(&edge_uses, &welded_positions)
 }
 
 fn fit_under(
@@ -618,7 +652,10 @@ fn fit_under(
     let mut eyes = [0, 1, 2].map(|k| (left_eye[k] + right_eye[k]) / 2.0);
     eyes[2] += CORNEA_AHEAD_OF_EYE_BONE;
     let (offset, rim_zone) = match align {
-        Align::EyeHoles => (eye_hole_offset(&edge_uses, &welded_positions, eyes)?, 0.0),
+        Align::EyeHoles => (sub(eyes, eye_holes(&edge_uses, &welded_positions)?), 0.0),
+        // Rigid move of the whole mask: shifting only the head-weighted part
+        // folds the jaw where its weights blend into the neck.
+        Align::Holes(holes) => (sub(eyes, holes), 0.0),
         Align::SameRig => ([0.0; 3], RIM_ZONE),
     };
     let interior = if align == Align::SameRig {
@@ -681,7 +718,7 @@ fn fit_under(
     };
     let face = |p: [f64; 3]| lower_face(p, head_bone, eyes[1]);
     let face_extra = match align {
-        Align::EyeHoles => FACE_EXTRA_CLEARANCE,
+        Align::EyeHoles | Align::Holes(_) => FACE_EXTRA_CLEARANCE,
         Align::SameRig => SAME_RIG_FACE_EXTRA_CLEARANCE,
     };
     let clearance = |p: [f64; 3]| CLEARANCE + if face(p) { face_extra } else { 0.0 };
@@ -886,13 +923,11 @@ fn fit_under(
     })
 }
 
-/// The rigid move that puts the mask's two highest openings, its eye holes,
-/// over the native eyes. Openings are loops of edges used by one triangle;
-/// the neck opening is the lowest.
-fn eye_hole_offset(
+/// The middle of the mask's two highest openings, its eye holes. Openings
+/// are loops of edges used by one triangle; the neck opening is the lowest.
+fn eye_holes(
     edge_uses: &BTreeMap<(usize, usize), usize>,
     welded_positions: &[[f64; 3]],
-    eyes: [f64; 3],
 ) -> Result<[f64; 3]> {
     let welded_count = welded_positions.len();
     let mut rim: Vec<Vec<usize>> = vec![vec![]; welded_count];
@@ -936,10 +971,7 @@ fn eye_hole_offset(
         first[0] * second[0] < 0.0,
         "the two highest mask openings are not a left/right eye pair"
     );
-    let holes = [0, 1, 2].map(|k| (first[k] + second[k]) / 2.0);
-    // Rigid move of the whole mask: shifting only the head-weighted part folds
-    // the jaw where its weights blend into the neck.
-    Ok(sub(eyes, holes))
+    Ok([0, 1, 2].map(|k| (first[k] + second[k]) / 2.0))
 }
 
 /// Which points above `above` are more than `depth` inside `head`: behind
@@ -1579,6 +1611,54 @@ pub fn posed_clearance_rim(
     pose: &[Frame],
     rim_zone: f64,
 ) -> Result<PosedClearance> {
+    let bones = bone_origins(bind_pose)?;
+    let (head_bone, eyes_y) = (
+        *bones.get("Head").context("no Head bone")?,
+        bones.get("LeftEye").context("no LeftEye bone")?[1],
+    );
+    let mut result = PosedClearance {
+        min: f64::INFINITY,
+        face_min: f64::INFINITY,
+        face_at: [0.0; 3],
+        through: 0,
+        at: [0.0; 3],
+    };
+    for g in posed_gaps(mask, head, bind_pose, bind, pose, rim_zone)? {
+        result.through += usize::from(g.gap < 0.0);
+        if lower_face(g.bind_at, head_bone, eyes_y) && g.gap < result.face_min {
+            result.face_min = g.gap;
+            result.face_at = g.bind_at;
+        }
+        if g.gap < result.min {
+            result.min = g.gap;
+            result.at = g.bind_at;
+        }
+    }
+    Ok(result)
+}
+
+/// One measured head vertex in a pose: its bind-pose place, the gap to the
+/// cloth over it (negative: through), and the cloth triangle the ray met,
+/// with the barycentric weights of the hit.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PosedGap {
+    pub bind_at: [f64; 3],
+    pub gap: f64,
+    pub tri: usize,
+    pub bary: [f64; 3],
+}
+
+/// The rays of [`posed_clearance_rim`]: from inside the posed skull through
+/// every head vertex above the tucked neck to the farthest cloth it meets,
+/// rays at an opening's rim left out.
+pub(crate) fn posed_gaps(
+    mask: &[u8],
+    head: &[u8],
+    bind_pose: &[u8],
+    bind: &[Frame],
+    pose: &[Frame],
+    rim_zone: f64,
+) -> Result<Vec<PosedGap>> {
     let cloth = parse_mesh(mask, 48, "mask")?;
     let head_mesh = parse_mesh(head, 40, "native head")?;
     let bones = bone_origins(bind_pose)?;
@@ -1630,14 +1710,7 @@ pub fn posed_clearance_rim(
     let posed_cloth = skin_positions(&cloth.positions, &skins(mask, 48)?, bind, pose)?;
     let posed_head = skin_positions(&head_mesh.positions, &skins(head, 40)?, bind, pose)?;
     let posed_centre = skin_positions(&[centre], &[vec![(head_index as u8, 1.0)]], bind, pose)?[0];
-    let head_bone = bone("Head")?;
-    let mut result = PosedClearance {
-        min: f64::INFINITY,
-        face_min: f64::INFINITY,
-        face_at: [0.0; 3],
-        through: 0,
-        at: [0.0; 3],
-    };
+    let mut gaps = vec![];
     for (bind_at, &p) in head_mesh.positions.iter().zip(&posed_head) {
         if bind_at[1] < neck[1] + TUCK_FULL_ABOVE_NECK {
             continue;
@@ -1645,25 +1718,96 @@ pub fn posed_clearance_rim(
         let d = sub(p, posed_centre);
         let r = dot(d, d).sqrt();
         let dir = d.map(|v| v / r);
-        let Some((t, tri, _)) = farthest_hit(posed_centre, dir, &posed_cloth, &cloth.triangles)
+        let Some((t, tri, bary)) = farthest_hit(posed_centre, dir, &posed_cloth, &cloth.triangles)
         else {
             continue;
         };
         if rim[tri] {
             continue;
         }
-        let gap = t - r;
-        result.through += usize::from(gap < 0.0);
-        if lower_face(*bind_at, head_bone, left_eye[1]) && gap < result.face_min {
-            result.face_min = gap;
-            result.face_at = *bind_at;
+        gaps.push(PosedGap {
+            bind_at: *bind_at,
+            gap: t - r,
+            tri,
+            bary,
+        });
+    }
+    Ok(gaps)
+}
+
+/// How far each cloth vertex must move out for every measured head vertex
+/// to keep `target` under the cloth in this pose: the shortfall over a hit
+/// triangle, given to its corners as the bind-pose fit gives a push
+/// (`cover_head`). Zero where the pose is clear.
+pub(crate) fn posed_shortfall(
+    mask: &[u8],
+    head: &[u8],
+    bind_pose: &[u8],
+    bind: &[Frame],
+    pose: &[Frame],
+    rim_zone: f64,
+    target: f64,
+) -> Result<Vec<f64>> {
+    let cloth = parse_mesh(mask, 48, "mask")?;
+    let mut need = vec![0.0_f64; cloth.positions.len()];
+    for g in posed_gaps(mask, head, bind_pose, bind, pose, rim_zone)? {
+        let short = target - g.gap;
+        if short <= 0.0 {
+            continue;
         }
-        if gap < result.min {
-            result.min = gap;
-            result.at = *bind_at;
+        for (&corner, b) in cloth.triangles[g.tri].iter().zip(g.bary) {
+            need[corner] = need[corner].max(short * (0.3 + b * 1.4).min(1.0));
         }
     }
-    Ok(result)
+    Ok(need)
+}
+
+/// Moves cloth vertices out along their own normals by `need` (m, per
+/// vertex): seam copies together by the most any of them needs, the push
+/// spread a little to the neighbours so the cloth stays smooth. Returns the
+/// vertices moved and the farthest move.
+pub(crate) fn push_along_normals(mask: &mut [u8], need: &[f64]) -> Result<(usize, f64)> {
+    let mesh = parse_mesh(mask, 48, "mask")?;
+    ensure!(need.len() == mesh.positions.len(), "one push a vertex");
+    let (weld, neighbours) = weld_vertices(&mesh);
+    let mut welded = vec![0.0_f64; neighbours.len()];
+    let mut normal = vec![[0.0_f64; 3]; neighbours.len()];
+    for (i, &w) in weld.iter().enumerate() {
+        welded[w] = welded[w].max(need[i]);
+        let at = 12 + i * 48 + 28;
+        let u = u32::from_le_bytes(mask[at..at + 4].try_into()?);
+        let n = [(u >> 16) & 255, (u >> 8) & 255, u & 255].map(|c| f64::from(c) / 127.5 - 1.0);
+        for k in 0..3 {
+            normal[w][k] += n[k];
+        }
+    }
+    for _ in 0..2 {
+        welded = (0..welded.len())
+            .map(|v| {
+                let n = &neighbours[v];
+                let mean = n.iter().map(|&u| welded[u]).sum::<f64>() / n.len().max(1) as f64;
+                welded[v].max(0.5 * mean)
+            })
+            .collect();
+    }
+    let (mut moved, mut farthest) = (0, 0.0_f64);
+    for (i, &w) in weld.iter().enumerate() {
+        let push = welded[w];
+        if push <= 0.0 {
+            continue;
+        }
+        let len = dot(normal[w], normal[w]).sqrt();
+        ensure!(len > 1e-6, "cloth vertex {i} has no normal to move along");
+        for k in 0..3 {
+            let at = 12 + i * 48 + 4 * k;
+            let v = f64::from(f32::from_le_bytes(mask[at..at + 4].try_into()?))
+                + normal[w][k] / len * push;
+            mask[at..at + 4].copy_from_slice(&(v as f32).to_le_bytes());
+        }
+        moved += 1;
+        farthest = farthest.max(push);
+    }
+    Ok((moved, farthest))
 }
 
 #[cfg(test)]

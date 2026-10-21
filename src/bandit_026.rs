@@ -160,34 +160,22 @@ pub fn pose_clearances_rim(
     head: &[u8],
     rim_zone: f64,
 ) -> Result<Vec<(String, crate::mask_fit::PosedClearance)>> {
-    use crate::skeleton_animation::{Clip, Rig};
-    let bind_pose = db.read(HEAD_BIND_POSE)?;
-    let rig = Rig::parse(&bind_pose, &db.read(PLAYER_SKELETON)?)?;
-    let bind = rig.rest();
-    let mut out = vec![(
-        "bind pose".to_owned(),
-        crate::mask_fit::posed_clearance_rim(mask, head, &bind_pose, &bind, &bind, rim_zone)?,
-    )];
-    for name in POSE_CLIPS {
-        let path = format!("animations/single/weapons/{name}");
-        let clip = Clip::parse(
-            &db.read(&format!("{path}.b-spline"))?,
-            &db.read(&format!("{path}.bones_names"))?,
+    let poses = SampledPoses::read(db)?;
+    let check = |pose: &[crate::skeleton_animation::Frame]| {
+        crate::mask_fit::posed_clearance_rim(
+            mask,
+            head,
+            &poses.bind_pose,
+            &poses.bind,
+            pose,
+            rim_zone,
         )
-        .with_context(|| path.clone())?;
-        ensure!(
-            clip.animation_type == 0,
-            "{path}: animation type {}; only whole-body clips are checked",
-            clip.animation_type
-        );
-        let end = clip.duration();
+    };
+    let mut out = vec![("bind pose".to_owned(), check(&poses.bind)?)];
+    for (name, clip) in &poses.clips {
         let mut worst: Option<crate::mask_fit::PosedClearance> = None;
-        for k in 0..POSE_SAMPLES {
-            let time = end * k as f32 / (POSE_SAMPLES - 1) as f32;
-            let pose = rig.pose(&clip, time);
-            let c = crate::mask_fit::posed_clearance_rim(
-                mask, head, &bind_pose, &bind, &pose, rim_zone,
-            )?;
+        for pose in clip {
+            let c = check(pose)?;
             if worst.is_none_or(|w| c.min < w.min) {
                 worst = Some(c);
             }
@@ -195,6 +183,139 @@ pub fn pose_clearances_rim(
         out.push(((*name).to_owned(), worst.context("no poses sampled")?));
     }
     Ok(out)
+}
+
+/// The native head's bind pose and rig at rest, and [`POSE_SAMPLES`] poses
+/// across each of [`POSE_CLIPS`].
+pub struct SampledPoses {
+    pub bind_pose: Vec<u8>,
+    pub bind: Vec<crate::skeleton_animation::Frame>,
+    pub clips: Vec<(&'static str, Vec<Vec<crate::skeleton_animation::Frame>>)>,
+}
+
+impl SampledPoses {
+    pub fn read(db: &mut ResourceDb) -> Result<Self> {
+        use crate::skeleton_animation::{Clip, Rig};
+        let bind_pose = db.read(HEAD_BIND_POSE)?;
+        let rig = Rig::parse(&bind_pose, &db.read(PLAYER_SKELETON)?)?;
+        let bind = rig.rest();
+        let mut clips = vec![];
+        for name in POSE_CLIPS {
+            let path = format!("animations/single/weapons/{name}");
+            let clip = Clip::parse(
+                &db.read(&format!("{path}.b-spline"))?,
+                &db.read(&format!("{path}.bones_names"))?,
+            )
+            .with_context(|| path.clone())?;
+            ensure!(
+                clip.animation_type == 0,
+                "{path}: animation type {}; only whole-body clips are checked",
+                clip.animation_type
+            );
+            let end = clip.duration();
+            let poses = (0..POSE_SAMPLES)
+                .map(|k| rig.pose(&clip, end * k as f32 / (POSE_SAMPLES - 1) as f32))
+                .collect();
+            clips.push((*name, poses));
+        }
+        Ok(Self {
+            bind_pose,
+            bind,
+            clips,
+        })
+    }
+
+    /// Every sampled pose, the bind pose first.
+    pub fn all(&self) -> impl Iterator<Item = &[crate::skeleton_animation::Frame]> {
+        std::iter::once(self.bind.as_slice()).chain(
+            self.clips
+                .iter()
+                .flat_map(|(_, c)| c.iter().map(Vec::as_slice)),
+        )
+    }
+}
+
+/// What [`relieve_poses`] did.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Relief {
+    pub rounds: usize,
+    pub moved: usize,
+    pub farthest: f64,
+}
+
+/// The gap the relief leaves over the head in every sampled pose (m): the
+/// gate, [`POSED_CLEARANCE`], with a margin.
+pub const RELIEF_TARGET: f64 = 0.0005;
+/// Rounds of relief before giving up.
+const RELIEF_ROUNDS: usize = 6;
+/// The most the relief moves one vertex (m): it smooths over where a pose
+/// pulls the skin out under the cloth (behind the jaw, at the nape: the Army
+/// balaclava needs 2.6 mm at 13 vertices under the jaw), within the 4 mm the
+/// fit keeps elsewhere; it does not refit the mask.
+const RELIEF_MAX: f64 = 0.003;
+
+/// After the fit: where a sampled pose of the game's clips brings the head
+/// within [`RELIEF_TARGET`] of the cloth (the skin slides out under it where
+/// the Head and Neck weights blend), the cloth over that place is moved out
+/// along its normals by the shortfall, round after round until every pose
+/// keeps the target. Each round reads every pose; most masks need none.
+pub fn relieve_poses(
+    db: &mut ResourceDb,
+    mask: &mut [u8],
+    head: &[u8],
+    rim_zone: f64,
+) -> Result<Relief> {
+    let poses = SampledPoses::read(db)?;
+    let vertices = crate::mask_fit::read_u32(mask, 8)?;
+    let mut total = vec![0.0_f64; vertices];
+    let mut relief = Relief::default();
+    for round in 0..=RELIEF_ROUNDS {
+        let mut need = vec![0.0_f64; vertices];
+        for pose in poses.all() {
+            let short = crate::mask_fit::posed_shortfall(
+                mask,
+                head,
+                &poses.bind_pose,
+                &poses.bind,
+                pose,
+                rim_zone,
+                RELIEF_TARGET,
+            )?;
+            for (n, s) in need.iter_mut().zip(short) {
+                *n = n.max(s);
+            }
+        }
+        if need.iter().all(|&n| n <= 0.0) {
+            return Ok(relief);
+        }
+        ensure!(
+            round < RELIEF_ROUNDS,
+            "the cloth still comes within {:.2} mm of the head in a pose after {RELIEF_ROUNDS} rounds of relief",
+            RELIEF_TARGET * 1000.0
+        );
+        // A little past the shortfall, so a round settles it.
+        for n in &mut need {
+            if *n > 0.0 {
+                *n += 0.0001;
+            }
+        }
+        crate::mask_fit::push_along_normals(mask, &need)?;
+        for (t, n) in total.iter_mut().zip(&need) {
+            *t += n;
+        }
+        let farthest = total.iter().copied().fold(0.0, f64::max);
+        ensure!(
+            farthest <= RELIEF_MAX,
+            "the relief would move the cloth {:.2} mm: more than smoothing, refit it",
+            farthest * 1000.0
+        );
+        relief = Relief {
+            rounds: round + 1,
+            moved: total.iter().filter(|&&t| t > 0.0).count(),
+            farthest,
+        };
+    }
+    Ok(relief)
 }
 
 /// Texels of the 1024² diffuse kept around the balaclava's UVs, so the
@@ -250,8 +371,12 @@ pub(crate) fn remap_to_crop(mask: &mut [u8], crop: &crate::outfit_026::AtlasCrop
     let uvs: Vec<_> = vertex_uvs(mask)?.collect();
     for (at, uv) in uvs {
         for k in 0..2 {
-            let scaled = ((f64::from(uv[k]) - crop.uv_min[k]) / (crop.uv_max[k] - crop.uv_min[k])) as f32;
-            ensure!((0.0..=1.0).contains(&scaled), "UV outside the crop at vertex byte {at}");
+            let scaled =
+                ((f64::from(uv[k]) - crop.uv_min[k]) / (crop.uv_max[k] - crop.uv_min[k])) as f32;
+            ensure!(
+                (0.0..=1.0).contains(&scaled),
+                "UV outside the crop at vertex byte {at}"
+            );
             mask[at + 40 + 4 * k..at + 44 + 4 * k].copy_from_slice(&scaled.to_le_bytes());
             mask[at + 35 + 4 * k] = crate::armor::quantized_uv_fraction(scaled);
         }
@@ -530,15 +655,24 @@ mod tests {
         remap_to_crop(&mut mask, &crop).unwrap();
         let uvs: Vec<_> = vertex_uvs(&mask).unwrap().map(|(_, uv)| uv).collect();
         // The same atlas point before and after: old = min + new * size.
-        for (old, new) in [[0.25_f32, 0.5], [0.75, 0.875], [0.5, 0.6]].iter().zip(&uvs) {
+        for (old, new) in [[0.25_f32, 0.5], [0.75, 0.875], [0.5, 0.6]]
+            .iter()
+            .zip(&uvs)
+        {
             for k in 0..2 {
                 let back = crop.uv_min[k] + f64::from(new[k]) * (crop.uv_max[k] - crop.uv_min[k]);
                 assert!((back - f64::from(old[k])).abs() < 1e-6);
             }
         }
         // The fraction bytes follow the new UVs.
-        assert_eq!(mask[12 + 35], crate::armor::quantized_uv_fraction(uvs[0][0]));
-        assert_eq!(mask[12 + 39], crate::armor::quantized_uv_fraction(uvs[0][1]));
+        assert_eq!(
+            mask[12 + 35],
+            crate::armor::quantized_uv_fraction(uvs[0][0])
+        );
+        assert_eq!(
+            mask[12 + 39],
+            crate::armor::quantized_uv_fraction(uvs[0][1])
+        );
     }
 
     #[test]
