@@ -144,7 +144,7 @@ impl Writer<'_> {
         crop: Option<&AtlasCrop>,
         files: &mut Vec<BuiltFile>,
     ) -> Result<()> {
-        self.cloth_material_cropped(target, port, part, texture_stem, None, finish, files)
+        self.cloth_material_with(target, port, part, texture_stem, None, crop, finish, files)
     }
 
     /// As [`Self::cloth_material`], the maps cut to `crop` (x, y, width,
@@ -161,6 +161,25 @@ impl Writer<'_> {
         finish: Finish,
         files: &mut Vec<BuiltFile>,
     ) -> Result<()> {
+        self.cloth_material_with(target, port, part, texture_stem, crop, None, finish, files)
+    }
+
+    /// The material and its maps: cut to the texel window `crop` at their
+    /// own resolution ([`Self::cloth_material_cropped`]), or to the UV
+    /// rectangle `atlas` and resampled ([`Self::cloth_material`]).
+    #[allow(clippy::too_many_arguments)]
+    fn cloth_material_with(
+        &self,
+        target: &mut ResourceDb,
+        port: &str,
+        part: &str,
+        texture_stem: &Path,
+        crop: Option<[u32; 4]>,
+        atlas: Option<&AtlasCrop>,
+        finish: Finish,
+        files: &mut Vec<BuiltFile>,
+    ) -> Result<()> {
+        ensure!(crop.is_none() || atlas.is_none(), "a material's maps are cut one way");
         let cropped_stem;
         let texture_stem = match crop {
             None => texture_stem,
@@ -206,7 +225,7 @@ impl Writer<'_> {
             fs::create_dir_all(dest.parent().unwrap())?;
             let mut source = texture_stem.as_os_str().to_owned();
             source.push(format!("{suffix}.tga"));
-            if let Some(crop) = crop {
+            if let Some(crop) = atlas {
                 let cropped = dest.with_extension("crop.tga");
                 let size = if role == "diffuse" { crop.diffuse } else { crop.normal };
                 crop_texture(Path::new(&source), &cropped, crop, size)?;
