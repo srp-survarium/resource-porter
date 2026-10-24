@@ -1,0 +1,6 @@
+# Where each map's files came from (sha256). The CS maps: the installed Clear Sky's mp/<level>.db.
+# The community maps: the downloaded archives, the .xdb0 inside, and the level files unpacked from it (dl-mp_*.sha256).
+24005e7bee8ac4153206c15b6b1e9977ecb5a2cafb7ce579fb3a12104bf1d388  mp_station.rar
+2d6ed9fe1c515f568f916301c55cebe62d215d573bf2f5267c8b844266ea51a9  mp_depository.zip
+b07c49fab24664999671d391a78b00953a78a782888834477cec4cd63b7c4246  mp_{UG}station.xdb0
+0a9f9ddf6de1b56dabbf08aaab2016500af7cad965a1dd2cfc8278c5b0524ae1  mp_{UG}depository.xdb0
