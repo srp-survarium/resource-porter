@@ -2233,7 +2233,7 @@ fn write_float3(output: &mut Vec<u8>, vector: [f32; 3]) {
     }
 }
 
-fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
+pub(crate) fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
     let length = (vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]).sqrt();
     if length > f32::EPSILON {
         for component in &mut vector {

@@ -21,6 +21,7 @@
 //! | [`blender`] | `shaders.xr` | shader name to blender class id |
 //! | [`omf`] | `meshes/**/*.omf` | skeletal motion banks and their bone names |
 //! | [`skeleton`] | `meshes/actors/**/*.ogf` | actor bone hierarchy and rest pose |
+//! | [`skinned`] | `meshes/actors/**/*.ogf` | actor surfaces: skinned vertices and triangles |
 
 pub mod archive;
 pub mod blender;
@@ -33,5 +34,6 @@ pub mod lzhuf;
 pub mod ogf;
 pub mod omf;
 pub mod skeleton;
+pub mod skinned;
 pub mod spawn;
 pub mod vertex;

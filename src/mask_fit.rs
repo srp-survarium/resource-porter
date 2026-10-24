@@ -1359,6 +1359,11 @@ pub(crate) fn skins(model: &[u8], stride: usize) -> Result<Vec<Skin>> {
                     let w = [read_f32(v, 16)?, read_f32(v, 20)?, read_f32(v, 24)?];
                     vec![w[0], w[1], w[2], 1.0 - w[0] - w[1] - w[2]]
                 }
+                // Three bones, two weights stored (some released torsos).
+                44 => {
+                    let w = [read_f32(v, 16)?, read_f32(v, 20)?];
+                    vec![w[0], w[1], 1.0 - w[0] - w[1]]
+                }
                 40 => {
                     let w = read_f32(v, 16)?;
                     vec![w, 1.0 - w]
