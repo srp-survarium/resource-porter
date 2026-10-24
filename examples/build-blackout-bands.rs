@@ -1,101 +1,84 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Blackout's team armbands, from S.T.A.L.K.E.R. Clear Sky / Call of Pripyat
-//! multiplayer: `vostok_resource_porter::blackout_bands`.
+//! Blackout's team armbands, a blue and a red cloth band made on the sleeves
+//! of every torso: `vostok_resource_porter::blackout_bands`.
 //!
 //! ```text
 //! cargo run --release --example build-blackout-bands -- \
-//!     --source-root "STEAM/common/Stalker Call of Pripyat" \
 //!     --target-db RETAIL/resources.db [--patch RETAIL/resources.db.patch_N ...] \
 //!     --output .work/blackout-bands
 //! vostok-port pack from-bundle --base-db RETAIL/resources.db [--base-patch ...] \
-//!     --bundle .work/blackout-bands --output PACK --id blackout-bands --version 1
+//!     --bundle .work/blackout-bands --output PACK --id blackout-bands --version 2
 //! ```
 use clap::Parser;
 use std::path::PathBuf;
-use vostok_resource_porter::blackout_bands::{CLEARANCE, Placement, SURFACE, TEAMS, build};
+use vostok_resource_porter::blackout_bands::{COLOURS, SURFACE, band_model, build};
 
 #[derive(Parser)]
 struct Args {
-    /// A Clear Sky or Call of Pripyat installation (or unpacked gamedata).
-    #[arg(long)]
-    source_root: PathBuf,
     #[arg(long)]
     target_db: PathBuf,
-    /// Released `resources.db.patch_<n>`: their torsos are fitted over too.
+    /// Released `resources.db.patch_<n>`: their torsos get bands too.
     #[arg(long = "patch")]
     patches: Vec<PathBuf>,
     #[arg(long)]
     output: PathBuf,
-    /// The band's lower edge as a fraction of the upper arm (default 0.88).
-    #[arg(long)]
-    distal: Option<f64>,
-    /// The quantile of the torsos' sleeves the band goes over (default 1:
-    /// all of them; lower is snugger on most and sinks into the bulkiest).
-    #[arg(long)]
-    cover: Option<f64>,
 }
 
 fn main() -> anyhow::Result<()> {
     let a = Args::parse();
-    let mut placement = Placement::default();
-    placement.distal = a.distal.unwrap_or(placement.distal);
-    placement.cover = a.cover.unwrap_or(placement.cover);
-    let r = build(
-        &a.source_root,
-        &a.target_db,
-        &a.patches,
-        placement,
-        &a.output,
-    )?;
+    let r = build(&a.target_db, &a.patches, &a.output)?;
     let mm = |m: f64| m * 1000.0;
     println!(
-        "Band: {:.2}-{:.2} of the {:.0} mm upper arm ({:.0} mm below the shoulder joint), {:.0} mm wide, {:.0} / {:.0} mm around (left / right), emblem at {:.0} / {:.0} deg; {} vertices, {} triangles; pushed {} rounds",
-        r.proximal,
-        r.distal,
+        "Bands at {:.2}-{:.2} of the {:.0} mm upper arm, {:.0} mm out of the sleeve, on {} torsos:",
+        r.window[0],
+        r.window[1],
         mm(r.upper_arm),
-        mm(r.below_shoulder),
-        mm(r.width),
-        mm(r.circumference[0]),
-        mm(r.circumference[1]),
-        r.emblem_degrees[0],
-        r.emblem_degrees[1],
-        r.vertices,
-        r.triangles,
-        r.push_rounds
+        mm(r.offset),
+        r.bands.len()
     );
-    println!(
-        "Gaps over {} torso models (clearance {:.0} mm), thinnest sleeves first:",
-        r.torsos.len(),
-        mm(CLEARANCE)
-    );
-    for g in &r.torsos {
+    for b in &r.bands {
         println!(
-            "  {:72} least {:5.1} mean {:5.1} largest {:5.1} mm, sleeve under {:3}% of the band",
-            g.model,
-            mm(g.least),
-            mm(g.mean),
-            mm(g.largest),
-            100 * g.covered / g.samples.max(1)
+            "  {:62} {:4}+{:<4} vertices, around the arm {:3.0}% / {:3.0}%",
+            b.base_model,
+            b.vertices[0],
+            b.vertices[1],
+            b.coverage[0] * 100.0,
+            b.coverage[1] * 100.0
         );
     }
-    println!("Least gap in the game's clips (band and sleeve skinned):");
+    println!("Skipped {}:", r.skipped.len());
+    for (m, why) in &r.skipped {
+        println!("  {m}: {why}");
+    }
+    println!("Band to sleeve in the game's clips (least / mean / largest):");
     for p in &r.poses {
         println!(
-            "  {:58} {:+6.1} mm ({} arm, {}, at {:.2} {:+.0} deg)",
+            "  {:52} {:+5.1} / {:4.1} / {:4.1} mm, sleeve over {} of {} (worst {} arm, {})",
             p.clip,
             mm(p.least),
+            mm(p.mean),
+            mm(p.largest),
+            p.covered,
+            p.measured,
             p.side,
-            p.torso,
-            p.at,
-            p.angle
+            p.worst
         );
+        let most: Vec<String> = p
+            .most_covered
+            .iter()
+            .map(|(m, f)| format!("{m} {:.1}%", f * 100.0))
+            .collect();
+        println!("    most covered: {}", most.join(", "));
     }
-    for t in &TEAMS {
-        println!(
-            "Part: base_model \"{}\", part_name \"{SURFACE}\", material \"{}\"",
-            t.base_model(),
-            t.material()
-        );
+    if let Some(b) = r.bands.first() {
+        for c in &COLOURS {
+            println!(
+                "e.g. {} -> base_model \"{}\", part_name \"{SURFACE}\", material \"{}\"",
+                b.base_model,
+                band_model(&b.base_model, c.name),
+                c.material()
+            );
+        }
     }
     Ok(())
 }

@@ -1,35 +1,43 @@
 # Blackout team armbands for 0.26g
 
-The blue and the green team armband of S.T.A.L.K.E.R. Clear Sky / Call of
-Pripyat multiplayer, on both upper arms of the native v0.26g player, for the
-Blackout battery variant (no interface: teams are told apart by the band).
-`src/blackout_bands.rs`. No item: the game adds the band to every player's
-visual as a part.
+A plain cloth armband, blue (team 0) or red (team 1), on both upper arms of
+the native v0.26g player, for the Blackout battery variant (no interface:
+teams are told apart by the band). `src/blackout_bands.rs`. No item: the
+game adds the band to every player's visual as one more part, next to the
+torso.
 
-| team | `base_model` | `part_name` | material |
-| --- | --- | --- | --- |
-| blue | `ported/blackout/band_blue` | `band` | `ported/blackout/band_blue` |
-| green | `ported/blackout/band_green` | `band` | `ported/blackout/band_green` |
+Every torso model has its own band, an offset shell of its own sleeve: the
+sleeve's outer skin between 0.45 and 0.67 of the way from the shoulder joint
+to the elbow (60 mm), cut there and moved 4 mm out, each vertex skinned as
+the sleeve point it was made from, with the torso's own skeleton and bind
+pose. So it deforms with the sleeve through shoulder and elbow.
 
-Donors: `meshes/actors/stalker_mp/mp_team_{blue,green}_1.ogf` and
-`textures/act/act_mp_team_{blue,green}_1.dds` (Clear Sky and Call of Pripyat
-ship the same bytes). The band is the models' `models\selflightl` child
-mesh. The port keeps its width, the emblem's side and the band's cloth (cut
-from the texture, centred on the emblem) and makes a new ring on the native
-upper arm, over the sleeves of every torso the player can wear (stock and
-released ports), rigid on `LeftArm` / `RightArm`. The normal map is flat.
-The builder prints and writes (`report.json`) the gaps over every torso and
-the least gap in the lobby and match clips.
+Naming, for a torso part whose `base_model` is `<B>` (as the torso item
+configs and `gameplay/bodyparts/default` write it):
+
+| | |
+| --- | --- |
+| model | `ported/blackout/<B, '/' as '_'>_blue`, `..._red` (`models/<that>.skinned_model`) |
+| `part_name` | `band` |
+| materials | `ported/blackout/band_blue`, `ported/blackout/band_red` (shared) |
+
+e.g. `character/human/edge/edge_hunter_01_torso_s1` ->
+`ported/blackout/character_human_edge_edge_hunter_01_torso_s1_red`.
+The bundle's `torsos.tsv` lists the torso records that have bands.
 
 ```
 cargo run --release --example build-blackout-bands -- \
-    --source-root "Stalker Call of Pripyat" --target-db resources.db \
-    --patch resources.db.patch_12 … --patch resources.db.patch_31 --output bundle \
-    [--distal 0.88] [--cover 1]
+    --target-db resources.db \
+    --patch resources.db.patch_12 … --patch resources.db.patch_31 --output bundle
 vostok-port pack from-bundle --base-db resources.db --base-patch … --bundle bundle \
-    --output blackout-bands-1 --id blackout-bands --version 1
+    --output blackout-bands-2 --id blackout-bands --version 2
 ```
 
-`--distal` places the band's lower edge along the upper arm, `--cover` is
-the quantile of the sleeves it goes over (1: all; lower is snugger on most
-torsos and sinks into the bulkiest).
+The builder reports each torso's band, the torsos it skips (no sleeve around
+the upper arm) and the band's distance to its sleeve in the bind pose and in
+the AK match idle and run, the AK lobby idle and a pistol lobby idle.
+
+Pack 1 was one ring for all torsos, taken from S.T.A.L.K.E.R. Clear Sky /
+Call of Pripyat multiplayer (`soc::codec::skinned` reads their actor
+models): the hull of every sleeve, 70 cm around, low on the arm and rigid on
+the upper-arm bone, it stood centimetres off the sleeves.
