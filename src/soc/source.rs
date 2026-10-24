@@ -31,6 +31,15 @@ pub enum SocSource {
         /// Normalised relative path -> real path.
         index: BTreeMap<String, PathBuf>,
     },
+    /// Loose `gamedata` files over a base source: a level folder recompiled
+    /// in the SDK, read with the game's own archives for everything else.
+    /// Opened from a directory holding `base` (the installation or tree)
+    /// and `overlay` (gamedata-relative files, e.g. `levels/<level>/...`).
+    Layered {
+        root: PathBuf,
+        index: BTreeMap<String, PathBuf>,
+        base: Box<SocSource>,
+    },
 }
 
 impl SocSource {
@@ -58,10 +67,24 @@ impl SocSource {
         Ok(Self::Directory { root, index })
     }
 
+    /// Open a layered source: `root/overlay` files over `root/base`.
+    pub fn open_layered(root: impl AsRef<Path>) -> Result<Self> {
+        let root = root.as_ref().to_path_buf();
+        let base = Self::open(root.join("base"))?;
+        let overlay = root.join("overlay");
+        let mut index = BTreeMap::new();
+        walk(&overlay, &overlay, &mut index)?;
+        ensure!(!index.is_empty(), "{} contains no files", overlay.display());
+        Ok(Self::Layered { root, index, base: Box::new(base) })
+    }
+
     /// Open whichever backend `root` is: an installation if it holds packed
     /// archives, an unpacked tree otherwise.
     pub fn open(root: impl AsRef<Path>) -> Result<Self> {
         let root = root.as_ref();
+        if root.join("base").is_dir() && root.join("overlay").is_dir() {
+            return Self::open_layered(root);
+        }
         let packed_at_root = fs::read_dir(root)
             .with_context(|| format!("listing {}", root.display()))?
             .filter_map(|entry| entry.ok())
@@ -94,7 +117,7 @@ impl SocSource {
 
     pub fn root(&self) -> &Path {
         match self {
-            Self::Archives { root, .. } | Self::Directory { root, .. } => root,
+            Self::Archives { root, .. } | Self::Directory { root, .. } | Self::Layered { root, .. } => root,
         }
     }
 
@@ -102,6 +125,7 @@ impl SocSource {
         match self {
             Self::Archives { set, .. } => set.contains(relative),
             Self::Directory { index, .. } => index.contains_key(&normalize(relative)),
+            Self::Layered { index, base, .. } => index.contains_key(&normalize(relative)) || base.contains(relative),
         }
     }
 
@@ -115,6 +139,10 @@ impl SocSource {
                     .with_context(|| format!("{relative} is missing from {}", root.display()))?;
                 fs::read(path).with_context(|| format!("reading {}", path.display()))
             }
+            Self::Layered { index, base, .. } => match index.get(&normalize(relative)) {
+                Some(path) => fs::read(path).with_context(|| format!("reading {}", path.display())),
+                None => base.read(relative),
+            },
         }
     }
 
@@ -183,6 +211,11 @@ impl SocSource {
         let names: Vec<String> = match self {
             Self::Archives { set, .. } => set.names().map(ToOwned::to_owned).collect(),
             Self::Directory { index, .. } => index.keys().cloned().collect(),
+            Self::Layered { index, base, .. } => {
+                let mut names: Vec<String> = index.keys().cloned().collect();
+                names.extend(base.levels().into_iter().map(|l| format!("levels/{l}/")));
+                names
+            }
         };
         let mut levels: Vec<String> = names
             .iter()

@@ -326,6 +326,117 @@ pub(super) fn project(
     Ok(old)
 }
 
+/// Ammo stashes cloned from the native mode project: per team its
+/// `resupply_zone`, the zone's collision geometry, the ammo decal and the
+/// container (render visual and collision object nearest the zone), moved so
+/// the container stands at the stash position. Orientation is the template's.
+/// The map's ammo stashes into its finished 0.26g project (after collisions
+/// are adapted: the stashes' container is a native model).
+pub(super) fn resupply_apply(
+    project: &mut ConfigValue,
+    target: &ConfigValue,
+    stashes: &[super::Resupply],
+    path: &str,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    let mut client = match project.named("client_objects") {
+        Some(ConfigValue::Indexed(list)) => list.clone(),
+        _ => Vec::new(),
+    };
+    resupply_fill(&mut client, project, target, stashes, path, notes)?;
+    project.set_path("client_objects", ConfigValue::Indexed(client))?;
+    Ok(())
+}
+
+fn resupply_fill(
+    client: &mut Vec<ConfigValue>,
+    old: &mut ConfigValue,
+    target: &ConfigValue,
+    stashes: &[super::Resupply],
+    path: &str,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    let target_objects = array(target.named("client_objects").context("target objects")?)?;
+    let visuals = array(target.named("render_visuals").context("target visuals")?)?;
+    let collisions = array(target.named("collision_objects").context("target collision")?)?;
+    let pos = |o: &ConfigValue| -> Option<[f32; 3]> {
+        match o.named("position") { Some(ConfigValue::Float3(p)) => Some(*p), _ => None }
+    };
+    let mut new_visuals = Vec::new();
+    let mut new_collisions = Vec::new();
+    for (index, stash) in stashes.iter().enumerate() {
+        ensure!(stash.team < 2, "resupply team must be 0 or 1");
+        ensure!(stash.position.iter().all(|v| v.is_finite()), "non-finite resupply position {index}");
+        let zone = target_objects
+            .iter()
+            .find(|o| string(o, "game_object_type") == Some("resupply_zone")
+                && matches!(o.named("team"), Some(ConfigValue::Integer(t)) if *t == i32::from(stash.team)))
+            .context("native mode project has no resupply zone for the team")?;
+        let zone_name = string(zone, "full_name").context("zone name")?.to_owned();
+        let folder = zone_name.rsplit_once('/').map(|(f, _)| f.to_owned()).context("zone folder")?;
+        let group: Vec<&ConfigValue> = target_objects
+            .iter()
+            .filter(|o| string(o, "full_name").is_some_and(|n| n.starts_with(&format!("{folder}/"))))
+            .collect();
+        let geometry = group
+            .iter()
+            .find(|o| string(o, "game_object_type") == Some("collision_geometry"))
+            .context("resupply zone has no collision geometry")?;
+        let anchor = pos(geometry).context("geometry position")?;
+        let near = |list: &[ConfigValue], model: &str| -> Option<ConfigValue> {
+            list.iter()
+                .filter(|o| string(o, "lib_name").is_some_and(|n| n.contains(model)))
+                .min_by(|a, b| {
+                    let d = |o: &ConfigValue| pos(o).map(|p| (p[0] - anchor[0]).powi(2) + (p[2] - anchor[2]).powi(2)).unwrap_or(f32::MAX);
+                    d(a).total_cmp(&d(b))
+                })
+                .cloned()
+        };
+        let visual = near(visuals, "item/quest/container_closed").context("no container visual near the resupply zone")?;
+        let collision = near(collisions, "item/quest/container_closed").context("no container collision near the resupply zone")?;
+        let base = pos(&visual).context("container position")?;
+        let shift = [stash.position[0] - base[0], stash.position[1] - base[1], stash.position[2] - base[2]];
+        let moved = |o: &ConfigValue| -> Result<ConfigValue> {
+            let mut o = o.clone();
+            if let Some(p) = pos(&o) {
+                o.set_path("position", ConfigValue::Float3([p[0] + shift[0], p[1] + shift[1], p[2] + shift[2]]))?;
+            }
+            Ok(o)
+        };
+        let new_folder = format!("logic/stash{index}/team{}/resupply", stash.team + 1);
+        for object in group {
+            let mut object = moved(object)?;
+            let name = string(&object, "full_name").unwrap().replacen(&folder, &new_folder, 1);
+            object.set_path("full_name", ConfigValue::String(name))?;
+            if let Some(ConfigValue::Indexed(geometries)) = object.named_mut("collision_geometries") {
+                for g in geometries {
+                    if let Some(n) = string(g, "name").map(str::to_owned) {
+                        g.set_path("name", ConfigValue::String(n.replacen(&folder, &new_folder, 1)))?;
+                    }
+                }
+            }
+            client.push(object);
+        }
+        new_visuals.push(moved(&visual)?);
+        new_collisions.push(moved(&collision)?);
+        notes.push(format!(
+            "{path}: ammo stash {index} (team {}) at {:?}{}",
+            stash.team + 1,
+            stash.position,
+            stash.reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default()
+        ));
+    }
+    for (key, mut extra) in [("render_visuals", new_visuals), ("collision_objects", new_collisions)] {
+        let mut list = match old.named(key) {
+            Some(ConfigValue::Indexed(list)) => list.clone(),
+            _ => Vec::new(),
+        };
+        list.append(&mut extra);
+        old.set_path(key, ConfigValue::Indexed(list))?;
+    }
+    Ok(())
+}
+
 /// Server groups of a deathmatch: only respawn points, every source point
 /// registered once per team. Fields come from the native mode project's first
 /// respawn point (its 0.26 protection and spawn-check rules), never its place.
@@ -342,10 +453,18 @@ pub(super) fn deathmatch_groups(
         .transpose()?
         .and_then(|points| points.first())
         .context("native mode project has no respawn point template")?;
-    ensure!(!deathmatch.respawns.is_empty(), "deathmatch has no respawn points");
+    ensure!(
+        deathmatch.respawns.is_empty() != deathmatch.teams.is_empty(),
+        "deathmatch needs either respawns (both teams) or teams (one list per team)"
+    );
+    if !deathmatch.teams.is_empty() {
+        ensure!(deathmatch.teams.len() == 2, "deathmatch teams must be two lists");
+        ensure!(deathmatch.teams.iter().all(|t| !t.is_empty()), "a deathmatch team has no respawn point");
+    }
     let mut points = Vec::new();
     for team in 0..2 {
-        for (index, point) in deathmatch.respawns.iter().enumerate() {
+        let list = if deathmatch.teams.is_empty() { &deathmatch.respawns } else { &deathmatch.teams[team as usize] };
+        for (index, point) in list.iter().enumerate() {
             ensure!(
                 point.iter().all(|v| v.is_finite()),
                 "non-finite deathmatch respawn {index}"
@@ -367,11 +486,20 @@ pub(super) fn deathmatch_groups(
             points.push(object);
         }
     }
-    notes.push(format!(
-        "{path}: deathmatch: {} source points ({}) registered for both teams; victory items, collectors and source gameplay zones omitted; protection and spawn checks follow the native mode template",
-        deathmatch.respawns.len(),
-        deathmatch.source
-    ));
+    if deathmatch.teams.is_empty() {
+        notes.push(format!(
+            "{path}: deathmatch: {} source points ({}) registered for both teams; victory items, collectors and source gameplay zones omitted; protection and spawn checks follow the native mode template",
+            deathmatch.respawns.len(),
+            deathmatch.source
+        ));
+    } else {
+        notes.push(format!(
+            "{path}: team deathmatch: {} + {} points by team ({}); victory items, collectors and source gameplay zones omitted; protection and spawn checks follow the native mode template",
+            deathmatch.teams[0].len(),
+            deathmatch.teams[1].len(),
+            deathmatch.source
+        ));
+    }
     Ok(ConfigValue::Named(vec![NamedValue {
         name: "respawn_points".into(),
         value: ConfigValue::Indexed(points),

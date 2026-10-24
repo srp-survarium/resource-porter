@@ -248,6 +248,36 @@ pub struct Map {
     /// in manifest order (the tool assigns the same ids). Requires `hud_key`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loading_image: Option<String>,
+    /// The mode's `ui.loading_screen_id`, set outright: the id of a loading
+    /// image the target's own lobby movie already holds (skhid builds
+    /// lobby_menu from source). Takes the place of `loading_image`'s count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loading_screen_id: Option<i32>,
+    /// The mode's `match_making_params.map_id`: the level number the lobby
+    /// and the match maker group maps by (the template's otherwise, which
+    /// would show the map as its template level).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level_number: Option<u8>,
+    /// `map_name` in other languages, by localization table
+    /// (`russian`, `ukrainian`, ...); the rest take `map_name`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub map_names: BTreeMap<String, String>,
+    /// Ammo stashes: the native mode project's resupply zone of that team
+    /// (zone, its collision geometry, ammo decal and container) moved here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub resupply: Vec<Resupply>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Resupply {
+    /// 0 or 1, as the respawn points' `team`.
+    pub team: u8,
+    /// The container's base on the floor, map coordinates.
+    pub position: [f32; 3],
+    /// Why here (the planner's reason), kept in the notes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -256,7 +286,12 @@ pub struct Deathmatch {
     /// Where the points come from, e.g. the source `level.game` records.
     pub source: String,
     /// `[x, y, z, yaw]` in the map's coordinates, feet on the floor.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub respawns: Vec<[f32; 4]>,
+    /// Per-team points instead (team 0, team 1): each registered for its
+    /// team only. Either this or `respawns`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub teams: Vec<Vec<[f32; 4]>>,
     /// Points dropped after review, with the reason.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub dropped: BTreeMap<String, String>,
@@ -2612,6 +2647,22 @@ pub fn build(
         compatibility_notes.push(note);
         overrides.insert(donor_project, project.to_bytes()?);
     }
+    for map in &m.maps {
+        if map.resupply.is_empty() {
+            continue;
+        }
+        let donor_project = map.donor_project(m.source_build);
+        let mut project = BinaryConfig::parse(&overrides[&donor_project])?;
+        early::resupply_apply(
+            &mut project.root,
+            &target_projects[&map.target_project()],
+            &map.resupply,
+            &donor_project,
+            &mut compatibility_notes,
+        )
+        .with_context(|| format!("adding the ammo stashes of {donor_project}"))?;
+        overrides.insert(donor_project, project.to_bytes()?);
+    }
     let hidden_campfire_materials: Vec<String> = m
         .maps
         .iter()
@@ -3042,7 +3093,15 @@ pub fn build(
         if let Some(id) = map.map_name_id() {
             mode.set_path("mode.ui.map_name", ConfigValue::String(id))?;
         }
-        if let Some(id) = loading_screen_id(&m.maps, map.id) {
+        if let Some(level) = map.level_number {
+            ensure!(
+                matches!(mode.named("mode").and_then(|v| v.named("match_making_params")).and_then(|v| v.named("map_id")),
+                         Some(ConfigValue::Integer(_))),
+                "template mode has no match_making_params.map_id"
+            );
+            mode.set_path("mode.match_making_params.map_id", ConfigValue::Integer(level.into()))?;
+        }
+        if let Some(id) = map.loading_screen_id.or_else(|| loading_screen_id(&m.maps, map.id)) {
             ensure!(
                 matches!(mode.named("mode").and_then(|v| v.named("ui")).and_then(|v| v.named("loading_screen_id")),
                          Some(ConfigValue::Integer(_))),
@@ -3102,6 +3161,16 @@ pub fn build(
         ensure!(!tables.is_empty(), "the target has no localization tables");
         for table in &tables {
             let mut strings = cfg(&mut target, table)?;
+            let language = table.trim_start_matches("localization/").trim_end_matches("/localization");
+            let names: Vec<(String, String)> = m
+                .maps
+                .iter()
+                .filter_map(|map| {
+                    let id = map.map_name_id()?;
+                    let text = map.map_names.get(language).or(map.map_name.as_ref())?;
+                    Some((id, text.clone()))
+                })
+                .collect();
             add_map_names(&mut strings, &names).with_context(|| format!("adding map names to {table}"))?;
             emit(
                 output,

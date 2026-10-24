@@ -363,7 +363,10 @@ def play_area(tris, spawns, bounds, step=None, all_floors=False, slab_tops=False
         lo, hi = np.searchsorted(fp, c, 'left'), np.searchsorted(fp, c, 'right')
         best = [k for k in range(lo, hi) if abs(fh[k] - y) < 0.6]
         if not best:
-            raise SystemExit(f'spawn {x, y, z} has no floor cell')
+            # A point on a narrow floor can fall in a cell its walls block on
+            # this grid; the other points still seed its area.
+            print(f'note: spawn {x, y, z} has no floor cell of its own', file=sys.stderr)
+            continue
         seeds.add(label[best[0]])
     reach = np.isin(label, list(seeds))
     rp, rh, rc = fp[reach], fh[reach], fc[reach]
@@ -383,10 +386,11 @@ def disk(r):
 
 
 def render_map(overlay, spec_map, out):
-    key = KEYS[spec_map['id']]
+    key = KEYS.get(spec_map['id'], spec_map.get('hud_key'))
     project = config((overlay / 'projects' / f"v010b_{spec_map['donor_project']}" / 'day_4' /
                       'client_project').read_bytes())
-    spawns = [r[:3] for r in spec_map['deathmatch']['respawns']]
+    dm = spec_map['deathmatch']
+    spawns = [r[:3] for r in dm.get('respawns') or [p for team in dm.get('teams', []) for p in team]]
     sx = [s[0] for s in spawns]; sz = [s[2] for s in spawns]
     margin = 150
     bounds = (min(sx) - margin, min(sz) - margin, max(sx) + margin, max(sz) + margin)

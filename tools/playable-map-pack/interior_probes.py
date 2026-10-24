@@ -182,7 +182,8 @@ def propose(overlay, spec_map, cells_dir=None):
     project = mm.config((overlay / 'projects' / f"v010b_{spec_map['donor_project']}" / 'day_4' /
                          'client_project').read_bytes())
     tris = mm.collision_triangles(overlay, project)
-    spawns = [r[:3] for r in spec_map['deathmatch']['respawns']]
+    dm = spec_map['deathmatch']
+    spawns = [r[:3] for r in dm.get('respawns') or [p for team in dm.get('teams', []) for p in team]]
     cache = cells_dir / f'{key}-cells.npz' if cells_dir else None
     if cache and cache.exists():
         z = np.load(cache)
