@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
             b.vertices[0],
             b.vertices[1],
             b.coverage[0] * 100.0,
-            b.coverage[1] * 100.0
+            b.coverage[1] * 100.0,
         );
     }
     println!("Skipped {}:", r.skipped.len());
@@ -64,22 +64,26 @@ fn main() -> anyhow::Result<()> {
     println!("Band to sleeve in the game's clips (least / mean / largest):");
     for p in &r.poses {
         println!(
-            "  {:52} {:+5.1} / {:4.1} / {:4.1} mm, sleeve over {} of {} (worst {} arm, {})",
+            "  {:52} {:+6.1} / {:4.1} / {:5.1} mm, off the sleeve {:.1}% (under it {:.1}%) (least: {} arm, {})",
             p.clip,
             mm(p.least),
             mm(p.mean),
             mm(p.largest),
-            p.covered,
-            p.measured,
+            100.0 * p.off as f64 / p.measured.max(1) as f64,
+            100.0 * p.covered as f64 / p.measured.max(1) as f64,
             p.side,
             p.worst
         );
         let most: Vec<String> = p
-            .most_covered
+            .most_off
             .iter()
             .map(|(m, f)| format!("{m} {:.1}%", f * 100.0))
             .collect();
-        println!("    most covered: {}", most.join(", "));
+        println!("    most off: {}", most.join(", "));
+        println!(
+            "    edges off square to the upper arm: worst {:.1} deg ({} arm, {}), mean {:.2} deg",
+            p.tilt_worst, p.tilt_worst_side, p.tilt_worst_torso, p.tilt_mean
+        );
     }
     if let Some(b) = r.bands.first() {
         for c in &COLOURS {

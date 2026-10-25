@@ -17,10 +17,17 @@
 //!
 //! * the sleeve's outermost, outward-facing triangles of the upper arm (skin
 //!   mostly on the side's arm bones) between [`WINDOW`] of the way from the
-//!   shoulder joint (`Arm`) to the elbow (`ForeArm`), cut at those two planes;
+//!   shoulder joint (`Arm`) to the elbow (`ForeArm`), cut at those two planes,
+//!   square to that bone line;
 //! * moved [`OFFSET`] out along the shell's own smooth normals;
-//! * every vertex with the skin of the sleeve point it was made from (cut
-//!   points: their edge's skins blended), so it deforms as the sleeve does;
+//! * skinned square to the arm (`square_skins`: on the upper arm's own
+//!   bones, `Arm` and its twist bone `Arm_Roll`, the same all round each
+//!   height), so both edges stay square to it in every pose. The sleeve's
+//!   own skin leans on the clavicle and chest at the top and the forearm at
+//!   the bottom, so in a pose the sleeve shears: pack 5 copied that skin and
+//!   its rings leaned up to 32 degrees (a slanted stripe on a dead player).
+//!   Square, the band stands a little farther off the sleeve where the
+//!   sleeve sags in a pose ([`OFFSET`] keeps it out of it);
 //! * the torso's own `skeleton` and `render/bind_pose`, so the combined skin
 //!   maps its bones exactly as it maps the torso's.
 //!
@@ -118,10 +125,14 @@ pub fn band_model(torso: &str, colour: &str) -> String {
 }
 
 /// The band between these fractions of the upper arm (`Arm` 0, `ForeArm`
-/// 1): 60 mm of the 272 mm arm, its middle 152 mm below the shoulder joint.
-pub const WINDOW: [f64; 2] = [0.45, 0.67];
-/// How far the band stands out of the sleeve (m).
-pub const OFFSET: f64 = 0.004;
+/// 1): 60 mm of the 272 mm arm, its middle 180 mm below the shoulder joint.
+/// Packs 2-5 had it at 0.45-0.67; there the sleeves lean most on the
+/// clavicle and chest (a mean 12 % of their skin), which shears them in a
+/// pose. At 0.55-0.77 that is least (6-8 %) before the forearm takes over.
+pub const WINDOW: [f64; 2] = [0.55, 0.77];
+/// How far the band stands out of the sleeve (m). 6 mm, not pack 5's 4:
+/// a band made square no longer follows every shear of its sleeve.
+pub const OFFSET: f64 = 0.006;
 /// A triangle is sleeve when its corners' skins are on average at least
 /// this much on the side's arm bones.
 const SLEEVE_WEIGHT: f64 = 0.5;
@@ -156,11 +167,13 @@ const TORSO_KEYS: [&str; 5] = [
 ];
 /// The clips the band is checked through: a match idle and run with the
 /// AK, the AK lobby idle (pack 1's worst) and a pistol lobby idle.
-pub const POSE_CLIPS: [&str; 4] = [
+pub const POSE_CLIPS: [&str; 6] = [
     "ak/player/stand/3rd_view/on_site/on_site_idle",
     "ak/player/stand/3rd_view/run/forward",
     "ak/player/stand/3rd_view/on_site/idle_lobby",
     "tt33/player/stand/3rd_view/on_site/idle_wpn_loby",
+    "ak/player/stand/3rd_view/death/on_site_back",
+    "ak/player/stand/3rd_view/death/on_site_fwd",
 ];
 const POSE_SAMPLES: usize = 24;
 /// Sleeve found out along a band vertex's line no farther than this past the
@@ -411,8 +424,12 @@ struct Shell {
     sources: Vec<[f64; 3]>,
     normals: Vec<[f64; 3]>,
     skins: Vec<Skin>,
+    /// The skins of the sleeve points they were made from.
+    source_skins: Vec<Skin>,
     uvs: Vec<[f64; 2]>,
     triangles: Vec<[usize; 3]>,
+    /// Which cut plane a vertex lies on: 0 the shoulder's, 1 the elbow's.
+    edges: Vec<Option<u8>>,
     /// Rays from the axis at the band's middle that meet it, of all.
     coverage: f64,
 }
@@ -542,6 +559,11 @@ fn shell(torso: &Torso, arm: &Arm, arm_bones: &BTreeSet<u8>, front: f64) -> Shel
             .push(std::array::from_fn(|k| c.position[k] + n[k] * OFFSET));
         out.sources.push(c.position);
         out.normals.push(n);
+        out.edges.push(match c.key {
+            Key::Cut(_, _, plane) => Some(plane),
+            Key::Vertex(_) => None,
+        });
+        out.source_skins.push(c.skin.clone());
         out.skins.push(c.skin);
         out.uvs
             .push([((s - s0) / (s1 - s0)).clamp(0.0, 1.0), (a + PI) / TAU]);
@@ -563,6 +585,60 @@ fn shell(torso: &Torso, arm: &Arm, arm_bones: &BTreeSet<u8>, front: f64) -> Shel
     out.coverage = hits as f64 / COVERAGE_RAYS as f64;
     out
 }
+
+/// The band's skin made square to the upper arm: on the upper arm's own
+/// bones only (`Arm` and its twist bone `Arm_Roll`, which turns about the
+/// arm's axis), the twist share the same all round the arm at each height,
+/// the mean of the sleeve's there (within [`RING_SPAN`]).
+///
+/// The sleeve's own skin differs round the arm: its top leans on the
+/// shoulder, its inside on the chest, its lower edge on the forearm. A ring
+/// of points cut square in the bind pose then spreads along the arm in a
+/// pose (up to 25-30 degrees in the match and death clips): a slanted
+/// stripe. Bones that only turn the arm about its axis keep every plane
+/// square to it in every pose.
+fn square_skins(shell: &Shell, arm: &Arm, [arm_bone, roll]: [u8; 2]) -> Vec<Skin> {
+    let s: Vec<f64> = shell
+        .sources
+        .iter()
+        .map(|p| arm.cylindrical(*p).0)
+        .collect();
+    let share: Vec<Option<f64>> = shell
+        .source_skins
+        .iter()
+        .map(|skin| {
+            let w = |b: u8| {
+                skin.iter()
+                    .filter(|(x, _)| *x == b)
+                    .map(|(_, w)| w)
+                    .sum::<f64>()
+            };
+            let (a, r) = (w(arm_bone), w(roll));
+            (a + r > 1e-6).then(|| r / (a + r))
+        })
+        .collect();
+    (0..shell.source_skins.len())
+        .map(|i| {
+            let near: Vec<f64> = (0..s.len())
+                .filter(|&j| (s[j] - s[i]).abs() <= RING_SPAN)
+                .filter_map(|j| share[j])
+                .collect();
+            let r = if near.is_empty() {
+                0.0
+            } else {
+                near.iter().sum::<f64>() / near.len() as f64
+            };
+            if r > 1e-6 {
+                vec![(arm_bone, 1.0 - r), (roll, r)]
+            } else {
+                vec![(arm_bone, 1.0)]
+            }
+        })
+        .collect()
+}
+
+/// Band vertices this near along the arm share their twist share (m).
+const RING_SPAN: f64 = 0.008;
 
 /// Which way stock skinned surfaces wind a front face: the sign of
 /// `(b - a) x (c - a)` against the stored vertex normals.
@@ -674,10 +750,20 @@ pub struct PoseGap {
     /// Band vertices the sleeve comes over by more than 1 mm, of all, over
     /// all samples.
     pub covered: usize,
+    /// Band vertices off their sleeve (`is_off`: under it, or floating),
+    /// of all, over all samples.
+    pub off: usize,
     pub measured: usize,
-    /// The torsos whose band the sleeve comes over most: the fraction of
+    /// The torsos whose band is most often off its sleeve: the fraction of
     /// their band vertices over all samples.
-    pub most_covered: Vec<(String, f64)>,
+    pub most_off: Vec<(String, f64)>,
+    /// How far the band's edges lean from square to the upper arm (the
+    /// posed `Arm` to `ForeArm` line), degrees: the worst, where, and the
+    /// mean over every edge, torso and sample.
+    pub tilt_worst: f64,
+    pub tilt_worst_torso: String,
+    pub tilt_worst_side: String,
+    pub tilt_mean: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -719,11 +805,17 @@ pub fn build(db: &Path, patches: &[PathBuf], look: Look, output: &Path) -> Resul
     };
     let origins = bone_origins(&bind_pose)?;
     let mut arm_bones: [BTreeSet<u8>; 2] = Default::default();
+    let mut upper = [[0_u8; 2]; 2];
     let mut arms = vec![];
     for (k, side) in SIDES.iter().enumerate() {
         for b in ["Arm", "Arm_Roll", "ForeArm", "ForeArm_Roll", "Shoulder"] {
             arm_bones[k].insert(index(&format!("{side}{b}"))?);
         }
+        upper[k] = [
+            index(&format!("{side}Arm"))?,
+            index(&format!("{side}Arm_Roll"))?,
+        ];
+        {}
         arms.push(Arm::new(
             origins[&format!("{side}Arm")],
             origins[&format!("{side}ForeArm")],
@@ -767,7 +859,14 @@ pub fn build(db: &Path, patches: &[PathBuf], look: Look, output: &Path) -> Resul
         built.push((torso, shells));
     }
     ensure!(!built.is_empty(), "no torso has a sleeve");
-    let poses = pose_gaps(&mut view, &bind_pose, &built)?;
+    // Square to the upper arm in every pose.
+    for (_, shells) in &mut built {
+        for (k, shell) in shells.iter_mut().enumerate() {
+            shell.skins = square_skins(shell, &arms[k], upper[k]);
+        }
+    }
+    let poses = sample_poses(&mut view, &bind_pose)?;
+    let poses = pose_gaps(&built, &poses)?;
 
     // --- Models, materials, maps ---
     let out = Writer {
@@ -1257,27 +1356,23 @@ fn write_model(
     out.config(&format!("{root}/render/export_properties"), &render, files)
 }
 
-/// One sampled pose's measure: least gap, sum, largest, worst torso and
-/// side, covered and measured vertices.
-type PoseMeasure = (f64, f64, f64, usize, usize, usize, usize);
+/// The game's clips sampled on the player's rig, and what the measures
+/// need of it.
+struct Poses {
+    bind: Vec<crate::skeleton_animation::Frame>,
+    /// The bind pose, then [`POSE_SAMPLES`] poses of each of [`POSE_CLIPS`].
+    clips: Vec<(String, Vec<Vec<crate::skeleton_animation::Frame>>)>,
+    /// Each side's `Arm` and `ForeArm`.
+    joints: [[u8; 2]; 2],
+    /// Every arm and shoulder bone, both sides.
+    on_arm: BTreeSet<u8>,
+}
 
-/// The band's distance to its sleeve in the bind pose and [`POSE_SAMPLES`]
-/// poses of each of [`POSE_CLIPS`]: band and sleeve skinned (the player's
-/// bind pose and rig), each band vertex measured from the sleeve point it
-/// was made from, out along the line between them; where the sleeve comes
-/// out over the band on that line (within [`OVER`] of it: farther out is other
-/// geometry, the body by the armpit or a pouch, not the sleeve), the gap is how far it is
-/// out (negative).
-fn pose_gaps(
-    view: &mut ResourceDb,
-    bind_pose: &[u8],
-    built: &[(Torso, [Shell; 2])],
-) -> Result<Vec<PoseGap>> {
-    use crate::skeleton_animation::{Clip, Frame, Rig};
+fn sample_poses(view: &mut ResourceDb, bind_pose: &[u8]) -> Result<Poses> {
+    use crate::skeleton_animation::{Clip, Rig};
     let rig = Rig::parse(bind_pose, &view.read(PLAYER_SKELETON)?)?;
     let bind = rig.rest();
-    let mut poses: Vec<(String, Vec<Vec<Frame>>)> =
-        vec![("bind pose".to_owned(), vec![bind.clone()])];
+    let mut clips = vec![("bind pose".to_owned(), vec![bind.clone()])];
     for name in POSE_CLIPS {
         let path = format!("animations/single/weapons/{name}");
         let clip = Clip::parse(
@@ -1286,84 +1381,225 @@ fn pose_gaps(
         )
         .with_context(|| path.clone())?;
         let end = clip.duration();
-        poses.push((
+        clips.push((
             name.to_owned(),
             (0..POSE_SAMPLES)
                 .map(|k| rig.pose(&clip, end * k as f32 / (POSE_SAMPLES - 1) as f32))
                 .collect(),
         ));
     }
-    // The sleeve the band could meet: arm-weighted triangles of each torso.
-    let on_arm: BTreeSet<u8> = rig
+    let index = |n: String| {
+        rig.index(&n)
+            .and_then(|i| u8::try_from(i).ok())
+            .with_context(|| format!("no {n}"))
+    };
+    let mut joints = [[0; 2]; 2];
+    for (k, side) in SIDES.iter().enumerate() {
+        joints[k] = [
+            index(format!("{side}Arm"))?,
+            index(format!("{side}ForeArm"))?,
+        ];
+    }
+    let on_arm = rig
         .bones
         .iter()
         .enumerate()
         .filter(|(_, b)| b.name.contains("Arm") || b.name.contains("Shoulder"))
         .filter_map(|(i, _)| u8::try_from(i).ok())
         .collect();
-    let near: Vec<Vec<[usize; 3]>> = built
+    Ok(Poses {
+        bind,
+        clips,
+        joints,
+        on_arm,
+    })
+}
+
+/// A torso's triangles the band could meet in a pose: mostly on the arm.
+fn near_sleeve(torso: &Torso, on_arm: &BTreeSet<u8>) -> Vec<[usize; 3]> {
+    let w = arm_weights(torso, on_arm);
+    torso
+        .triangles
         .iter()
-        .map(|(t, _)| {
-            let w = arm_weights(t, &on_arm);
-            t.triangles
+        .copied()
+        .filter(|t| t.iter().map(|&i| w[i]).sum::<f64>() / 3.0 >= 0.2)
+        .collect()
+}
+
+/// One torso's bands in one pose: each band vertex's gap to its sleeve
+/// (m) and each edge's lean from square to the upper arm (degrees), with
+/// their side.
+#[derive(Default)]
+struct PoseFit {
+    gaps: Vec<(f64, usize)>,
+    tilts: Vec<(f64, usize)>,
+}
+
+/// Band and sleeve skinned into `pose` (each with its own skin): each band
+/// vertex measured from the sleeve point it was made from; out from the
+/// arm, the gap is that distance, less where the sleeve comes out over the
+/// band within [`OVER`] of it (farther out is other geometry: the body by
+/// the armpit, a pouch); into the arm, it is negative. Each band edge's
+/// plane against the posed `Arm` to `ForeArm` line.
+fn fit_in_pose(
+    torso: &Torso,
+    shells: &[Shell; 2],
+    near: &[[usize; 3]],
+    poses: &Poses,
+    pose: &[crate::skeleton_animation::Frame],
+) -> Result<PoseFit> {
+    let bind = &poses.bind;
+    let mut fit = PoseFit::default();
+    let sleeve = crate::mask_fit::skin_positions(&torso.positions, &torso.skins, bind, pose)?;
+    for (k, shell) in shells.iter().enumerate() {
+        let j = poses.joints[k];
+        let origin = |b: u8| bind[usize::from(b)].1.map(f64::from);
+        let ends = crate::mask_fit::skin_positions(
+            &[origin(j[0]), origin(j[1])],
+            &[vec![(j[0], 1.0)], vec![(j[1], 1.0)]],
+            bind,
+            pose,
+        )?;
+        let axis = normalize(sub(ends[1], ends[0]));
+        let band = crate::mask_fit::skin_positions(&shell.positions, &shell.skins, bind, pose)?;
+        for plane in [0, 1] {
+            let ring: Vec<[f64; 3]> = band
                 .iter()
-                .copied()
-                .filter(|tri| tri.iter().map(|&i| w[i]).sum::<f64>() / 3.0 >= 0.2)
-                .collect()
-        })
-        .collect();
-    let measure = |pose: &[Frame]| -> Result<(PoseMeasure, Vec<usize>)> {
-        let mut r: PoseMeasure = (f64::INFINITY, 0.0, f64::NEG_INFINITY, 0, 0, 0, 0);
-        let mut by_torso = vec![0_usize; built.len()];
-        for (t, (torso, shells)) in built.iter().enumerate() {
-            let sleeve =
-                crate::mask_fit::skin_positions(&torso.positions, &torso.skins, &bind, pose)?;
-            for (k, shell) in shells.iter().enumerate() {
-                let band =
-                    crate::mask_fit::skin_positions(&shell.positions, &shell.skins, &bind, pose)?;
-                let src =
-                    crate::mask_fit::skin_positions(&shell.sources, &shell.skins, &bind, pose)?;
-                for (b, s) in band.iter().zip(&src) {
-                    let d = sub(*b, *s);
-                    let len = dot(d, d).sqrt();
-                    if len < 1e-9 {
-                        continue;
-                    }
-                    let dir = d.map(|x| x / len);
-                    let over = crate::mask_fit::ray_hits(*s, dir, &sleeve, &near[t])
-                        .into_iter()
-                        .map(|h| h.0)
-                        .filter(|&h| h > len && h < len + OVER)
-                        .fold(None, |m: Option<f64>, h| Some(m.map_or(h, |m| m.max(h))));
-                    let gap = over.map_or(len, |h| len - h);
-                    r.6 += 1;
-                    r.5 += usize::from(gap < -0.001);
-                    by_torso[t] += usize::from(gap < -0.001);
-                    r.1 += gap;
-                    r.2 = r.2.max(gap);
-                    if gap < r.0 {
-                        r.0 = gap;
-                        r.3 = t;
-                        r.4 = k;
-                    }
+                .zip(&shell.edges)
+                .filter(|(_, e)| **e == Some(plane))
+                .map(|(p, _)| *p)
+                .collect();
+            if let Some(normal) = plane_normal(&ring) {
+                let a = dot(normal, axis).abs().clamp(0.0, 1.0).acos().to_degrees();
+                fit.tilts.push((a, k));
+            }
+        }
+        for b in &band {
+            // On the ray from the posed arm's axis out through the band
+            // vertex: the sleeve's outermost surface up to OVER beyond it.
+            let w = sub(*b, ends[0]);
+            let foot: [f64; 3] = std::array::from_fn(|x| ends[0][x] + axis[x] * dot(w, axis));
+            let out = sub(*b, foot);
+            let r = dot(out, out).sqrt();
+            if r < 1e-6 {
+                continue;
+            }
+            let sleeve_r = crate::mask_fit::ray_hits(foot, out.map(|x| x / r), &sleeve, near)
+                .into_iter()
+                .map(|h| h.0)
+                .filter(|&h| h > 0.0 && h < r + OVER)
+                .fold(None, |m: Option<f64>, h| {
+                    Some(m.map_or(h, |m: f64| m.max(h)))
+                });
+            // Nothing of the sleeve under it: it stands off by more than
+            // OVER.
+            fit.gaps
+                .push((sleeve_r.map_or(OFFSET + OVER, |s| r - s), k));
+        }
+    }
+    Ok(fit)
+}
+
+/// A band vertex is off its sleeve when the sleeve comes over it by more
+/// than 1 mm or it stands more than [`OFF_FLOAT`] farther out than
+/// [`OFFSET`].
+fn is_off(gap: f64) -> bool {
+    !(-0.001..=OFFSET + OFF_FLOAT).contains(&gap)
+}
+
+/// Standing this much farther out than [`OFFSET`] is floating (m).
+const OFF_FLOAT: f64 = 0.004;
+
+/// The normal of the plane through `points` (least squares): the
+/// eigenvector of their scatter with the least eigenvalue (Jacobi), if the
+/// points span a plane.
+#[allow(clippy::needless_range_loop)]
+fn plane_normal(points: &[[f64; 3]]) -> Option<[f64; 3]> {
+    if points.len() < 3 {
+        return None;
+    }
+    let n = points.len() as f64;
+    let mean: [f64; 3] = std::array::from_fn(|k| points.iter().map(|p| p[k]).sum::<f64>() / n);
+    let mut a = [[0.0; 3]; 3];
+    for p in points {
+        let d = sub(*p, mean);
+        for i in 0..3 {
+            for j in 0..3 {
+                a[i][j] += d[i] * d[j];
+            }
+        }
+    }
+    let mut v = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    for _ in 0..50 {
+        let (mut p, mut q, mut big) = (0, 1, 0.0);
+        for i in 0..3 {
+            for j in i + 1..3 {
+                if a[i][j].abs() > big {
+                    (p, q, big) = (i, j, a[i][j].abs());
                 }
             }
         }
-        Ok((r, by_torso))
-    };
-    let band_vertices: Vec<usize> = built
+        if big < 1e-15 {
+            break;
+        }
+        let theta = (a[q][q] - a[p][p]) / (2.0 * a[p][q]);
+        let t = if theta == 0.0 {
+            1.0
+        } else {
+            theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt())
+        };
+        let (c, s) = (1.0 / (t * t + 1.0).sqrt(), t / (t * t + 1.0).sqrt());
+        let mut b = a;
+        for k in 0..3 {
+            b[k][p] = c * a[k][p] - s * a[k][q];
+            b[k][q] = s * a[k][p] + c * a[k][q];
+        }
+        let mut d = b;
+        for k in 0..3 {
+            d[p][k] = c * b[p][k] - s * b[q][k];
+            d[q][k] = s * b[p][k] + c * b[q][k];
+        }
+        a = d;
+        for row in &mut v {
+            let (x, y) = (row[p], row[q]);
+            row[p] = c * x - s * y;
+            row[q] = s * x + c * y;
+        }
+    }
+    let k = (0..3).min_by(|&i, &j| a[i][i].total_cmp(&a[j][j]))?;
+    let mut spreads = [a[0][0], a[1][1], a[2][2]];
+    spreads.sort_by(f64::total_cmp);
+    (spreads[1] > 1e-8).then(|| normalize([v[0][k], v[1][k], v[2][k]]))
+}
+
+/// Over every torso, per clip: the gaps, the vertices off their sleeve and
+/// the edges' lean.
+fn pose_gaps(built: &[(Torso, [Shell; 2])], poses: &Poses) -> Result<Vec<PoseGap>> {
+    let near: Vec<Vec<[usize; 3]>> = built
         .iter()
-        .map(|(_, s)| s[0].positions.len() + s[1].positions.len())
+        .map(|(t, _)| near_sleeve(t, &poses.on_arm))
         .collect();
     let mut out = vec![];
-    for (clip, frames) in &poses {
+    for (clip, frames) in &poses.clips {
+        // Each torso's fits over the clip's samples, on a few threads.
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
-        let chunk = frames.len().div_ceil(threads);
-        let results: Vec<Vec<(PoseMeasure, Vec<usize>)>> = std::thread::scope(|scope| {
-            let workers: Vec<_> = frames
+        let chunk = built.len().div_ceil(threads);
+        let per_torso: Vec<Vec<PoseFit>> = std::thread::scope(|scope| {
+            let workers: Vec<_> = built
                 .chunks(chunk)
-                .map(|part| {
-                    scope.spawn(|| part.iter().map(|f| measure(f)).collect::<Result<Vec<_>>>())
+                .zip(near.chunks(chunk))
+                .map(|(part, nears)| {
+                    scope.spawn(move || {
+                        part.iter()
+                            .zip(nears)
+                            .map(|((torso, shells), n)| {
+                                frames
+                                    .iter()
+                                    .map(|f| fit_in_pose(torso, shells, n, poses, f))
+                                    .collect::<Result<Vec<_>>>()
+                            })
+                            .collect::<Result<Vec<_>>>()
+                    })
                 })
                 .collect();
             workers
@@ -1373,37 +1609,60 @@ fn pose_gaps(
                         .map_err(|_| anyhow::anyhow!("a pose thread panicked"))?
                 })
                 .collect::<Result<Vec<_>>>()
+                .map(|v| v.into_iter().flatten().collect())
         })?;
-        let (all, tallies): (Vec<PoseMeasure>, Vec<Vec<usize>>) =
-            results.into_iter().flatten().unzip();
-        let mut most_covered: Vec<(String, f64)> = built
-            .iter()
-            .enumerate()
-            .map(|(t, (torso, _))| {
-                let n: usize = tallies.iter().map(|v| v[t]).sum();
-                (
-                    torso.base_model.clone(),
-                    n as f64 / (band_vertices[t] * frames.len()) as f64,
-                )
-            })
-            .collect();
-        most_covered.sort_by(|a, b| b.1.total_cmp(&a.1));
-        most_covered.truncate(5);
-        let worst = all
-            .iter()
-            .min_by(|a, b| a.0.total_cmp(&b.0))
-            .context("no poses")?;
-        let measured: usize = all.iter().map(|r| r.6).sum();
+        let mut least = (f64::INFINITY, 0, 0);
+        let mut largest = f64::NEG_INFINITY;
+        let (mut sum, mut measured, mut off, mut covered) = (0.0, 0, 0, 0);
+        let mut tilt_worst = (0.0, 0, 0);
+        let (mut tilt_sum, mut tilts) = (0.0, 0);
+        let mut most_off = vec![];
+        for (t, fits) in per_torso.iter().enumerate() {
+            let mut torso_off = 0;
+            let mut torso_n = 0;
+            for f in fits {
+                for &(g, k) in &f.gaps {
+                    sum += g;
+                    measured += 1;
+                    torso_n += 1;
+                    off += usize::from(is_off(g));
+                    torso_off += usize::from(is_off(g));
+                    covered += usize::from(g < -0.001);
+                    largest = largest.max(g);
+                    if g < least.0 {
+                        least = (g, t, k);
+                    }
+                }
+                for &(a, k) in &f.tilts {
+                    tilt_sum += a;
+                    tilts += 1;
+                    if a > tilt_worst.0 {
+                        tilt_worst = (a, t, k);
+                    }
+                }
+            }
+            most_off.push((
+                built[t].0.base_model.clone(),
+                torso_off as f64 / torso_n.max(1) as f64,
+            ));
+        }
+        most_off.sort_by(|a, b| b.1.total_cmp(&a.1));
+        most_off.truncate(5);
         out.push(PoseGap {
             clip: clip.clone(),
-            least: worst.0,
-            mean: all.iter().map(|r| r.1).sum::<f64>() / measured.max(1) as f64,
-            largest: all.iter().map(|r| r.2).fold(f64::NEG_INFINITY, f64::max),
-            worst: built[worst.3].0.base_model.clone(),
-            side: SIDES[worst.4].to_owned(),
-            covered: all.iter().map(|r| r.5).sum(),
+            least: least.0,
+            mean: sum / measured.max(1) as f64,
+            largest,
+            worst: built[least.1].0.base_model.clone(),
+            side: SIDES[least.2].to_owned(),
+            covered,
+            off,
             measured,
-            most_covered,
+            most_off,
+            tilt_worst: tilt_worst.0,
+            tilt_worst_torso: built[tilt_worst.1].0.base_model.clone(),
+            tilt_worst_side: SIDES[tilt_worst.2].to_owned(),
+            tilt_mean: tilt_sum / tilts.max(1) as f64,
         });
     }
     Ok(out)
@@ -1523,6 +1782,45 @@ mod tests {
         }
         let c = [0.2, 0.05, 0.03];
         assert_eq!(wear(c, 5, 0), wear(c, 5, BAND_MAP[1]));
+    }
+
+    #[test]
+    fn square_skins_are_the_upper_arm_alone_and_the_same_round_a_ring() {
+        let a = arm();
+        let mut t = tube(&a, 0.05, 24, 1.0);
+        // Round the arm the sleeve leans on other bones: the top on the
+        // shoulder (9), the inside on the chest (4).
+        for (i, p) in t.positions.clone().iter().enumerate() {
+            let (_, _, angle) = a.cylindrical(*p);
+            t.skins[i] = if angle > 1.0 {
+                vec![(7, 0.5), (8, 0.3), (9, 0.2)]
+            } else if angle < -1.0 {
+                vec![(4, 0.2), (7, 0.6), (8, 0.2)]
+            } else {
+                vec![(7, 0.7), (8, 0.3)]
+            };
+        }
+        let mut s = shell(&t, &a, &[7, 8, 9].into(), 1.0);
+        assert_eq!(s.skins, s.source_skins);
+        s.skins = square_skins(&s, &a, [7, 8]);
+        for (skin, e) in s.skins.iter().zip(&s.edges) {
+            assert!(skin.iter().all(|(b, _)| *b == 7 || *b == 8), "{skin:?}");
+            assert!((skin.iter().map(|x| x.1).sum::<f64>() - 1.0).abs() < 1e-9);
+            if e.is_some() {
+                let first = &s.skins[s.edges.iter().position(|x| x == e).unwrap()];
+                assert_eq!(skin, first);
+            }
+        }
+    }
+
+    #[test]
+    fn a_ring_square_to_the_arm_has_the_arm_for_its_normal() {
+        let a = arm();
+        let ring: Vec<[f64; 3]> = (0..12)
+            .map(|k| a.point(0.1, 0.05, k as f64 * TAU / 12.0))
+            .collect();
+        let n = plane_normal(&ring).unwrap();
+        assert!(dot(n, a.dir).abs() > 1.0 - 1e-9);
     }
 
     #[test]

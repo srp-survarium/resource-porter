@@ -7,10 +7,17 @@ game adds the band to every player's visual as one more part, next to the
 torso.
 
 Every torso model has its own band, an offset shell of its own sleeve: the
-sleeve's outer skin between 0.45 and 0.67 of the way from the shoulder joint
-to the elbow (60 mm), cut there and moved 4 mm out, each vertex skinned as
-the sleeve point it was made from, with the torso's own skeleton and bind
-pose. So it deforms with the sleeve through shoulder and elbow.
+sleeve's outer skin between 0.55 and 0.77 of the way from the shoulder joint
+to the elbow (60 mm), cut there square to that bone line and moved 6 mm out,
+with the torso's own skeleton and bind pose. Its skin is the upper arm's own
+bones (`Arm`, and the twist bone `Arm_Roll` at the sleeve's mean share for
+each height), so both edges stay square to the arm in every pose (pack 6).
+Packs 2-5 copied each sleeve point's skin, clavicle, chest and forearm
+shares and all, and in a pose the ring leaned with the sheared sleeve, up to
+about 30 degrees.
+
+`examples/pose-blackout-bands.rs` writes a torso and its bands skinned into
+one pose of a clip, for offline renders.
 
 Naming, for a torso part whose `base_model` is `<B>` (as the torso item
 configs and `gameplay/bodyparts/default` write it):
@@ -30,7 +37,7 @@ cargo run --release --example build-blackout-bands -- \
     --target-db resources.db \
     --patch resources.db.patch_12 … --patch resources.db.patch_31 --output bundle
 vostok-port pack from-bundle --base-db resources.db --base-patch … --bundle bundle \
-    --output blackout-bands-5 --id blackout-bands --version 5 [--look ...]
+    --output blackout-bands-6 --id blackout-bands --version 6 [--look ...]
 ```
 
 `--look` picks the cloth; the geometry is the same in all:
@@ -40,11 +47,12 @@ vostok-port pack from-bundle --base-db resources.db --base-patch … --bundle bu
 | `plain` | 2 | solid blue (28,64,178) / red (176,26,26), plain cloth material, flat normal map |
 | `cloth` | 3 | the game's grey woven fabric (`camo/scavenger/fabric_grey`: diffuse, weave normal map, roughness map) tiled at its own weave and tinted to the clean colours, on the Scavenger jacket's material (`scavengers_01_torso`) |
 | `worn` | 4 | worn navy (38,64,122) / brick red (146,50,36) with grain, fading and dust, plain cloth material |
-| `worn-cloth` | 5 (default) | the grey fabric tinted to the worn colours, with the fading and dust |
+| `worn-cloth` | 5, 6 (default) | the grey fabric tinted to the worn colours, with the fading and dust |
 
 The builder reports each torso's band, the torsos it skips (no sleeve around
 the upper arm) and the band's distance to its sleeve in the bind pose and in
-the AK match idle and run, the AK lobby idle and a pistol lobby idle.
+the AK match idle and run, the AK lobby idle, a pistol lobby idle and two
+death clips, with how far its edges lean from square to the arm.
 
 Pack 1 was one ring for all torsos, taken from S.T.A.L.K.E.R. Clear Sky /
 Call of Pripyat multiplayer (`soc::codec::skinned` reads their actor
