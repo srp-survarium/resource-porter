@@ -45,8 +45,10 @@ pub const SURFACE: &str = "band";
 pub struct Colour {
     pub name: &'static str,
     pub team: u8,
-    /// sRGB.
+    /// sRGB, clean (pack 2).
     pub rgb: [u8; 3],
+    /// sRGB, worn: a dull navy and a brick red.
+    pub worn: [u8; 3],
 }
 
 pub const COLOURS: [Colour; 2] = [
@@ -54,13 +56,49 @@ pub const COLOURS: [Colour; 2] = [
         name: "blue",
         team: 0,
         rgb: [28, 64, 178],
+        worn: [38, 64, 122],
     },
     Colour {
         name: "red",
         team: 1,
         rgb: [176, 26, 26],
+        worn: [146, 50, 36],
     },
 ];
+
+/// How the band's cloth looks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub enum Look {
+    /// A solid team colour on the plain cloth material (pack 2).
+    Plain,
+    /// The game's grey woven fabric (the "Grey fabric" camouflage:
+    /// diffuse, weave normal map, roughness map) on the Scavenger jacket's
+    /// material, tinted to the clean team colour.
+    Cloth,
+    /// The worn team colour with dirt and fading, on the plain cloth
+    /// material with a flat normal map.
+    Worn,
+    /// The game's fabric tinted to the worn colour, with the dirt and
+    /// fading.
+    WornCloth,
+}
+
+impl Look {
+    fn colour(self, c: &Colour) -> [u8; 3] {
+        match self {
+            Look::Plain | Look::Cloth => c.rgb,
+            Look::Worn | Look::WornCloth => c.worn,
+        }
+    }
+
+    fn fabric(self) -> bool {
+        matches!(self, Look::Cloth | Look::WornCloth)
+    }
+
+    fn worn(self) -> bool {
+        matches!(self, Look::Worn | Look::WornCloth)
+    }
+}
 
 impl Colour {
     /// The material instance every band of this colour uses (under
@@ -644,6 +682,7 @@ pub struct PoseGap {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
+    pub look: Look,
     pub upper_arm: f64,
     pub window: [f64; 2],
     pub offset: f64,
@@ -660,7 +699,7 @@ pub struct Report {
 ///
 /// `patches`: the released `resources.db.patch_<n>`, whose torsos get
 /// bands too.
-pub fn build(db: &Path, patches: &[PathBuf], output: &Path) -> Result<Report> {
+pub fn build(db: &Path, patches: &[PathBuf], look: Look, output: &Path) -> Result<Report> {
     crate::weapon::prepare_empty_output(output)?;
     let overlay = output.join("overlay");
     let mut view = crate::novice_026::game_view(db, patches)?;
@@ -738,23 +777,7 @@ pub fn build(db: &Path, patches: &[PathBuf], output: &Path) -> Result<Report> {
     let mut files = vec![];
     let maps = output.join("maps");
     fs::create_dir_all(&maps)?;
-    for colour in &COLOURS {
-        let stem = maps.join(format!("band_{}", colour.name));
-        solid_tga(&stem.with_extension("tga"), colour.rgb)?;
-        solid_tga(
-            &PathBuf::from(format!("{}_nmap.tga", stem.display())),
-            [128, 128, 255],
-        )?;
-        out.cloth_material_cropped(
-            &mut view,
-            PORT,
-            &format!("band_{}", colour.name),
-            &stem,
-            None,
-            Finish::CLOTH,
-            &mut files,
-        )?;
-    }
+    materials(&out, &mut view, look, &maps, &mut files)?;
     for (torso, shells) in &built {
         let surface = encode(&[(&arms[0], &shells[0]), (&arms[1], &shells[1])])?;
         for colour in &COLOURS {
@@ -776,6 +799,7 @@ pub fn build(db: &Path, patches: &[PathBuf], output: &Path) -> Result<Report> {
         .collect();
     fs::write(output.join("torsos.tsv"), tsv)?;
     let report = Report {
+        look,
         upper_arm: arms[0].length,
         window: WINDOW,
         offset: OFFSET,
@@ -793,15 +817,356 @@ pub fn build(db: &Path, patches: &[PathBuf], output: &Path) -> Result<Report> {
 
 /// A solid `rgb` 24-bit TGA of [`MAP_SIZE`].
 fn solid_tga(path: &Path, rgb: [u8; 3]) -> Result<()> {
+    write_tga(path, MAP_SIZE, MAP_SIZE, |_, _| rgb)
+}
+
+/// A 24-bit top-left TGA of `w` x `h`, each texel from `texel(x, y)`.
+fn write_tga(path: &Path, w: u32, h: u32, texel: impl Fn(u32, u32) -> [u8; 3]) -> Result<()> {
     let mut b = vec![0_u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let edge = u16::try_from(MAP_SIZE)?;
-    b.extend_from_slice(&edge.to_le_bytes());
-    b.extend_from_slice(&edge.to_le_bytes());
+    b.extend_from_slice(&u16::try_from(w)?.to_le_bytes());
+    b.extend_from_slice(&u16::try_from(h)?.to_le_bytes());
     b.extend_from_slice(&[24, 0x20]);
-    for _ in 0..MAP_SIZE * MAP_SIZE {
-        b.extend_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+    for y in 0..h {
+        for x in 0..w {
+            let [r, g, bl] = texel(x, y);
+            b.extend_from_slice(&[bl, g, r]);
+        }
     }
     fs::write(path, b)?;
+    Ok(())
+}
+
+/// The game's grey woven fabric: the "Grey fabric" camouflage
+/// (`camo_fabric_grey`) a player can put on a jacket, a tileable 512x512
+/// set of diffuse, weave normal map and roughness map.
+pub const FABRIC: &str = "character/human/camo/scavenger/fabric_grey";
+/// The fabric's material: the Scavenger jacket's, a skinned character
+/// torso's cloth (`complex`, skeletal meshes, the fuzzy sheen of cloth),
+/// whose diffuse, normal and roughness maps the camouflage stands in for.
+pub const FABRIC_MATERIAL: &str =
+    "material_instances/characters/human/scavengers_01/scavengers_01_torso.material";
+/// The jacket's Fresnel map over its upper-arm sleeve, mean (its texels
+/// at the middles of the sleeve's triangles there): the band's constant.
+const SLEEVE_FRESNEL: f32 = 0.012;
+/// The cloth a 512-texel fabric tile spans (m): threads about 1 mm apart.
+const FABRIC_SPAN: f64 = 0.25;
+/// The band's maps: across the band and around the arm, and the cloth
+/// they span (60 mm across; around, two whole fabric tiles, so the map
+/// meets itself where the band's UVs wrap).
+const BAND_MAP: [u32; 2] = [128, 1024];
+const BAND_SPAN: [f64; 2] = [0.06, 0.5];
+/// Dust ground into worn cloth (sRGB).
+const DIRT: [u8; 3] = [88, 78, 62];
+
+fn to_linear(c: u8) -> f64 {
+    let c = f64::from(c) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn to_srgb(c: f64) -> u8 {
+    let c = c.clamp(0.0, 1.0);
+    let s = if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    };
+    (s * 255.0).round() as u8
+}
+
+fn luminance(c: [f64; 3]) -> f64 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+/// A decoded texture, RGBA bytes.
+struct Pixels {
+    w: u32,
+    h: u32,
+    rgba: Vec<u8>,
+}
+
+impl Pixels {
+    /// `textures/<name>.dds` of the game, decoded by ImageMagick.
+    fn decode(view: &mut ResourceDb, name: &str, work: &Path) -> Result<Self> {
+        let path = format!("textures/{name}.dds");
+        let bytes = view.read(&path)?;
+        let info = crate::soc::source::parse_dds(&bytes, &path)?;
+        let stem = work.join(name.replace('/', "_"));
+        let (dds, raw) = (stem.with_extension("dds"), stem.with_extension("rgba"));
+        fs::write(&dds, &bytes)?;
+        let result = std::process::Command::new("magick")
+            .arg(&dds)
+            .args(["-depth", "8"])
+            .arg(format!("rgba:{}", raw.display()))
+            .output()
+            .context("starting ImageMagick; enter the repository Nix shell")?;
+        ensure!(
+            result.status.success(),
+            "ImageMagick could not decode {path}: {}",
+            String::from_utf8_lossy(&result.stderr).trim()
+        );
+        let rgba = fs::read(&raw)?;
+        fs::remove_file(&dds)?;
+        fs::remove_file(&raw)?;
+        ensure!(
+            rgba.len() == (info.width * info.height * 4) as usize,
+            "{path}: decoded {} bytes for {}x{}",
+            rgba.len(),
+            info.width,
+            info.height
+        );
+        Ok(Self {
+            w: info.width,
+            h: info.height,
+            rgba,
+        })
+    }
+
+    /// Bilinear, wrapping, 0..1 per channel.
+    fn sample(&self, x: f64, y: f64) -> [f64; 4] {
+        let (x, y) = (x - 0.5, y - 0.5);
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let at = |i: f64, j: f64, k: usize| -> f64 {
+            let i = (i as i64).rem_euclid(i64::from(self.w)) as usize;
+            let j = (j as i64).rem_euclid(i64::from(self.h)) as usize;
+            f64::from(self.rgba[(j * self.w as usize + i) * 4 + k]) / 255.0
+        };
+        std::array::from_fn(|k| {
+            let top = at(x0, y0, k) * (1.0 - fx) + at(x0 + 1.0, y0, k) * fx;
+            let bottom = at(x0, y0 + 1.0, k) * (1.0 - fx) + at(x0 + 1.0, y0 + 1.0, k) * fx;
+            top * (1.0 - fy) + bottom * fy
+        })
+    }
+
+    /// This tile at the band's texel `(x, y)` of [`BAND_MAP`].
+    fn on_band(&self, x: u32, y: u32) -> [f64; 4] {
+        let scale = |k: usize, t: u32, size: u32| {
+            (f64::from(t) + 0.5) / f64::from(BAND_MAP[k]) * BAND_SPAN[k] / FABRIC_SPAN
+                * f64::from(size)
+        };
+        self.sample(scale(0, x, self.w), scale(1, y, self.h))
+    }
+}
+
+/// Smooth value noise in 0..1 with `cell` texel cells, wrapping around the
+/// band (`BAND_MAP[1]` must be a multiple of `cell`).
+fn noise(x: u32, y: u32, cell: u32, seed: u64) -> f64 {
+    let hash = |i: i64, j: i64| -> f64 {
+        let mut h = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            ^ (j as u64).wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+            ^ seed.wrapping_mul(0x1656_67B1_9E37_79F9);
+        h ^= h >> 31;
+        h = h.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        h ^= h >> 29;
+        (h >> 11) as f64 / (1_u64 << 53) as f64
+    };
+    let period = i64::from(BAND_MAP[1] / cell);
+    let (fx, fy) = (
+        (f64::from(x) + 0.5) / f64::from(cell),
+        (f64::from(y) + 0.5) / f64::from(cell),
+    );
+    let (i, j) = (fx.floor() as i64, fy.floor() as i64);
+    let s = |t: f64| t * t * (3.0 - 2.0 * t);
+    let (u, v) = (s(fx - fx.floor()), s(fy - fy.floor()));
+    let at = |di: i64, dj: i64| hash(i + di, (j + dj).rem_euclid(period));
+    let top = at(0, 0) * (1.0 - u) + at(1, 0) * u;
+    let bottom = at(0, 1) * (1.0 - u) + at(1, 1) * u;
+    top * (1.0 - v) + bottom * v
+}
+
+/// Worn cloth: grain, faded patches and ground-in dust over linear `c`.
+fn wear(c: [f64; 3], x: u32, y: u32) -> [f64; 3] {
+    let grain = (noise(x, y, 8, 3) - 0.5) * 0.16 + (noise(x, y, 2, 4) - 0.5) * 0.08;
+    let fade = noise(x, y, 256, 5) * 0.6 + noise(x, y, 64, 6) * 0.4;
+    let dirt = noise(x, y, 128, 7) * 0.6 + noise(x, y, 32, 8) * 0.4;
+    let fade = ((fade - 0.45) / 0.4).clamp(0.0, 1.0) * 0.3;
+    let dirt = ((dirt - 0.5) / 0.35).clamp(0.0, 1.0) * 0.25;
+    let grey = luminance(c);
+    let dust = DIRT.map(to_linear);
+    std::array::from_fn(|k| {
+        let g = c[k] * (1.0 + grain);
+        let faded = g * (1.0 - fade) + (grey * 1.25) * fade;
+        faded * (1.0 - dirt) + dust[k] * dirt
+    })
+}
+
+/// The bands' two materials and their maps, as `look` has them.
+fn materials(
+    out: &Writer<'_>,
+    view: &mut ResourceDb,
+    look: Look,
+    maps: &Path,
+    files: &mut Vec<crate::manifest::BuiltFile>,
+) -> Result<()> {
+    if look.fabric() {
+        return fabric_materials(out, view, look, maps, files);
+    }
+    for colour in &COLOURS {
+        let stem = maps.join(format!("band_{}", colour.name));
+        let rgb = look.colour(colour);
+        if look.worn() {
+            let base = rgb.map(to_linear);
+            write_tga(
+                &stem.with_extension("tga"),
+                BAND_MAP[0],
+                BAND_MAP[1],
+                |x, y| wear(base, x, y).map(to_srgb),
+            )?;
+        } else {
+            solid_tga(&stem.with_extension("tga"), rgb)?;
+        }
+        solid_tga(
+            &PathBuf::from(format!("{}_nmap.tga", stem.display())),
+            [128, 128, 255],
+        )?;
+        out.cloth_material_cropped(
+            view,
+            PORT,
+            &format!("band_{}", colour.name),
+            &stem,
+            None,
+            Finish::CLOTH,
+            files,
+        )?;
+    }
+    Ok(())
+}
+
+/// One converted map of the bands, `textures/ported/blackout/<name>`, with
+/// the options of the fabric's map it comes from.
+#[allow(clippy::too_many_arguments)]
+fn band_texture(
+    out: &Writer<'_>,
+    view: &mut ResourceDb,
+    tga: &Path,
+    name: &str,
+    compression: crate::manifest::TextureCompression,
+    srgb: bool,
+    options_from: &str,
+    files: &mut Vec<crate::manifest::BuiltFile>,
+) -> Result<String> {
+    let path = format!("textures/ported/{PORT}/{name}");
+    let dds = tga.with_extension("dds");
+    crate::armor::convert_texture(tga, &dds, compression)?;
+    let bytes = crate::duty_026::texture_dds(&fs::read(&dds)?, &path, srgb)?;
+    out.raw(&format!("{path}.dds"), &bytes, files)?;
+    let options = parse_config(
+        view,
+        &format!("textures/{options_from}.options"),
+        "texture options",
+    )?;
+    out.config(&format!("{path}.options"), &options, files)?;
+    Ok(format!("ported/{PORT}/{name}"))
+}
+
+/// The game's grey fabric, tiled at its own weave over the band and tinted
+/// to each team's colour (its light and dark kept: each texel's luminance
+/// against the tile's mean scales the colour), on the Scavenger jacket's
+/// material with the fabric's own weave normal map and roughness map.
+fn fabric_materials(
+    out: &Writer<'_>,
+    view: &mut ResourceDb,
+    look: Look,
+    maps: &Path,
+    files: &mut Vec<crate::manifest::BuiltFile>,
+) -> Result<()> {
+    use crate::manifest::TextureCompression;
+    let diffuse = Pixels::decode(view, FABRIC, maps)?;
+    let normal = Pixels::decode(view, &format!("{FABRIC}_nmap"), maps)?;
+    let rough = Pixels::decode(view, &format!("{FABRIC}_smap"), maps)?;
+    let [w, h] = BAND_MAP;
+    // The weave: DXT5nm, X in alpha and Y in green, as an RGB normal map.
+    let tga = maps.join("band_fabric_normal.tga");
+    write_tga(&tga, w, h, |x, y| {
+        let t = normal.on_band(x, y);
+        let (nx, ny) = (t[3] * 2.0 - 1.0, t[1] * 2.0 - 1.0);
+        let nz = (1.0 - nx * nx - ny * ny).max(0.0).sqrt();
+        [nx, ny, nz].map(|c| ((c * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8)
+    })?;
+    let normal_name = band_texture(
+        out,
+        view,
+        &tga,
+        "band_fabric_normal",
+        TextureCompression::Dxt5Normal,
+        false,
+        &format!("{FABRIC}_nmap"),
+        files,
+    )?;
+    let tga = maps.join("band_fabric_roughness.tga");
+    write_tga(&tga, w, h, |x, y| {
+        let t = rough.on_band(x, y);
+        [t[0], t[1], t[2]].map(|c| (c * 255.0).round() as u8)
+    })?;
+    let rough_name = band_texture(
+        out,
+        view,
+        &tga,
+        "band_fabric_roughness",
+        TextureCompression::Dxt1,
+        false,
+        &format!("{FABRIC}_smap"),
+        files,
+    )?;
+    let mean = {
+        let n = (diffuse.w * diffuse.h) as usize;
+        (0..n)
+            .map(|i| luminance(std::array::from_fn(|k| to_linear(diffuse.rgba[i * 4 + k]))))
+            .sum::<f64>()
+            / n as f64
+    };
+    for colour in &COLOURS {
+        let tint = look.colour(colour).map(to_linear);
+        let tga = maps.join(format!("band_{}_diffuse.tga", colour.name));
+        write_tga(&tga, w, h, |x, y| {
+            let t = diffuse.on_band(x, y);
+            let lum = luminance(std::array::from_fn(|k| {
+                to_linear((t[k] * 255.0).round() as u8)
+            }));
+            let shade = (lum / mean).clamp(0.0, 2.5);
+            let c = tint.map(|v| v * shade);
+            let c = if look.worn() { wear(c, x, y) } else { c };
+            c.map(to_srgb)
+        })?;
+        let diffuse_name = band_texture(
+            out,
+            view,
+            &tga,
+            &format!("band_{}_diffuse", colour.name),
+            TextureCompression::Dxt1,
+            true,
+            FABRIC,
+            files,
+        )?;
+        let mut mat = parse_config(view, FABRIC_MATERIAL, "material")?;
+        for (slot, value) in [
+            ("texture_diffuse", &diffuse_name),
+            ("texture_normal", &normal_name),
+            ("texture_alphablended_normal", &normal_name),
+            ("texture_detail_normal", &normal_name),
+            ("texture_roughness", &rough_name),
+        ] {
+            mat.root.set_path(
+                &format!("material.g_stage.effect.{slot}.value"),
+                V::String(value.clone()),
+            )?;
+        }
+        for key in ["constant_fresnel_min", "constant_fresnel_max"] {
+            mat.root.set_path(
+                &format!("material.g_stage.effect.{key}.value"),
+                V::Float(SLEEVE_FRESNEL),
+            )?;
+        }
+        out.config(
+            &format!("material_instances/{}.material", colour.material()),
+            &mat,
+            files,
+        )?;
+    }
     Ok(())
 }
 
@@ -1147,6 +1512,17 @@ mod tests {
         let t = tube(&a, 0.05, 24, 1.0);
         let s = shell(&t, &a, &[3].into(), 1.0);
         assert!(s.triangles.is_empty() && s.coverage == 0.0);
+    }
+
+    #[test]
+    fn worn_cloth_meets_itself_around_the_arm() {
+        for cell in [2, 8, 32, 64, 128, 256] {
+            for x in [0, 17, 127] {
+                assert_eq!(noise(x, 0, cell, 9), noise(x, BAND_MAP[1], cell, 9));
+            }
+        }
+        let c = [0.2, 0.05, 0.03];
+        assert_eq!(wear(c, 5, 0), wear(c, 5, BAND_MAP[1]));
     }
 
     #[test]

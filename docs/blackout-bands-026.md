@@ -30,8 +30,17 @@ cargo run --release --example build-blackout-bands -- \
     --target-db resources.db \
     --patch resources.db.patch_12 … --patch resources.db.patch_31 --output bundle
 vostok-port pack from-bundle --base-db resources.db --base-patch … --bundle bundle \
-    --output blackout-bands-2 --id blackout-bands --version 2
+    --output blackout-bands-5 --id blackout-bands --version 5 [--look ...]
 ```
+
+`--look` picks the cloth; the geometry is the same in all:
+
+| look | pack | cloth |
+| --- | --- | --- |
+| `plain` | 2 | solid blue (28,64,178) / red (176,26,26), plain cloth material, flat normal map |
+| `cloth` | 3 | the game's grey woven fabric (`camo/scavenger/fabric_grey`: diffuse, weave normal map, roughness map) tiled at its own weave and tinted to the clean colours, on the Scavenger jacket's material (`scavengers_01_torso`) |
+| `worn` | 4 | worn navy (38,64,122) / brick red (146,50,36) with grain, fading and dust, plain cloth material |
+| `worn-cloth` | 5 (default) | the grey fabric tinted to the worn colours, with the fading and dust |
 
 The builder reports each torso's band, the torsos it skips (no sleeve around
 the upper arm) and the band's distance to its sleeve in the bind pose and in

@@ -11,7 +11,7 @@
 //! ```
 use clap::Parser;
 use std::path::PathBuf;
-use vostok_resource_porter::blackout_bands::{COLOURS, SURFACE, band_model, build};
+use vostok_resource_porter::blackout_bands::{COLOURS, Look, SURFACE, band_model, build};
 
 #[derive(Parser)]
 struct Args {
@@ -22,11 +22,22 @@ struct Args {
     patches: Vec<PathBuf>,
     #[arg(long)]
     output: PathBuf,
+    /// The cloth: `plain` (pack 2), `cloth` (the game's grey fabric tinted
+    /// to the team colour), `worn` (worn colours with dirt), `worn-cloth`.
+    #[arg(long, default_value = "worn-cloth")]
+    look: String,
 }
 
 fn main() -> anyhow::Result<()> {
     let a = Args::parse();
-    let r = build(&a.target_db, &a.patches, &a.output)?;
+    let look = match a.look.as_str() {
+        "plain" => Look::Plain,
+        "cloth" => Look::Cloth,
+        "worn" => Look::Worn,
+        "worn-cloth" => Look::WornCloth,
+        other => anyhow::bail!("no look {other}: plain, cloth, worn or worn-cloth"),
+    };
+    let r = build(&a.target_db, &a.patches, look, &a.output)?;
     let mm = |m: f64| m * 1000.0;
     println!(
         "Bands at {:.2}-{:.2} of the {:.0} mm upper arm, {:.0} mm out of the sleeve, on {} torsos:",
