@@ -185,6 +185,18 @@ fn main() -> Result<()> {
         fs::write(dest, posed)?;
         written += 1;
     }
+    // The posed joints, for measures against the posed bones.
+    let joints: Vec<String> = rig
+        .bones
+        .iter()
+        .zip(&pose)
+        .map(|(b, (_, at))| format!("{}\t{}\t{}\t{}\n", b.name, at[0], at[1], at[2]))
+        .collect();
+    let dest = a
+        .output
+        .join(format!("models/{}.skinned_model/joints.tsv", a.torso));
+    fs::create_dir_all(dest.parent().unwrap())?;
+    fs::write(dest, joints.concat())?;
     println!("{written} surfaces posed at {} of {}", a.at, a.clip);
     Ok(())
 }
