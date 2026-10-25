@@ -31,6 +31,13 @@ struct Args {
     /// A clip under `animations/single/weapons/`.
     #[arg(long)]
     clip: String,
+    /// Additive clips (a weapon's `hands_only` hold, a `_look`) layered on
+    /// `--clip` in order, as the game mixes a third-person pose.
+    #[arg(long = "add")]
+    adds: Vec<String>,
+    /// Where in each `--add` clip, 0 to 1 (default: `--at`).
+    #[arg(long = "add-at")]
+    add_at: Vec<f32>,
     /// Where in the clip, 0 (start) to 1 (end).
     #[arg(long, default_value_t = 1.0)]
     at: f32,
@@ -120,7 +127,20 @@ fn main() -> Result<()> {
         &view.read(&format!("{path}.b-spline"))?,
         &view.read(&format!("{path}.bones_names"))?,
     )?;
-    let pose = rig.pose(&clip, clip.duration() * a.at.clamp(0.0, 1.0));
+    let mut adds = vec![];
+    for (k, name) in a.adds.iter().enumerate() {
+        let path = format!("animations/single/weapons/{name}");
+        let add = Clip::parse(
+            &view.read(&format!("{path}.b-spline"))?,
+            &view.read(&format!("{path}.bones_names"))?,
+        )?;
+        ensure!(add.animation_type == 1, "{name} is not an additive clip");
+        let at = a.add_at.get(k).copied().unwrap_or(a.at).clamp(0.0, 1.0);
+        let time = add.duration() * at;
+        adds.push((add, time));
+    }
+    let layers: Vec<(&Clip, f32)> = adds.iter().map(|(c, t)| (c, *t)).collect();
+    let pose = rig.pose_layered((&clip, clip.duration() * a.at.clamp(0.0, 1.0)), &layers);
     // How the twist bone turns against its arm: a twist about the arm's
     // axis keeps the axis; a swing turns it.
     for side in ["Left", "Right"] {

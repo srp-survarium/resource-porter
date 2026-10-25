@@ -514,6 +514,42 @@ pub fn euler_to_basis(angles: [f32; 3]) -> Basis {
     ]
 }
 
+/// `math_quaternion_inline.h quaternion(float3 angles)`, as `[x, y, z, w]`.
+fn engine_quaternion(angles: [f32; 3]) -> [f32; 4] {
+    let [x, y, z] = angles.map(|a| (a * 0.5).sin_cos());
+    let (xs_yc, xc_ys) = (x.0 * y.1, x.1 * y.0);
+    let (xc_yc, xs_ys) = (x.1 * y.1, x.0 * y.0);
+    [
+        -xs_yc * z.1 - xc_ys * z.0,
+        -xc_ys * z.1 + xs_yc * z.0,
+        -xc_yc * z.0 - xs_ys * z.1,
+        -xc_yc * z.1 + xs_ys * z.0,
+    ]
+}
+
+/// `math_quaternion_inline.h operator *`.
+fn hamilton(l: [f32; 4], r: [f32; 4]) -> [f32; 4] {
+    let ([lx, ly, lz, lw], [rx, ry, rz, rw]) = (l, r);
+    [
+        lw * rx + lx * rw + ly * rz - lz * ry,
+        lw * ry - lx * rz + ly * rw + lz * rx,
+        lw * rz + lx * ry - ly * rx + lz * rw,
+        lw * rw - lx * rx - ly * ry - lz * rz,
+    ]
+}
+
+/// `math_float4x4_inline.h create_matrix(quaternion, 0)`'s rotation.
+fn quaternion_basis([x, y, z, w]: [f32; 4]) -> Basis {
+    let (xx, yy, zz) = (x * x, y * y, z * z);
+    let (xy, xz, yz) = (x * y, x * z, y * z);
+    let (wx, wy, wz) = (w * x, w * y, w * z);
+    [
+        [1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz), 2.0 * (xz + wy)],
+        [2.0 * (xy + wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx)],
+        [2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (xx + yy)],
+    ]
+}
+
 /// The inverse of [`euler_to_basis`], reading the angles back out of the basis.
 ///
 /// At a gimbal lock the Z angle is unrecoverable, so it is pinned to zero and
@@ -690,6 +726,69 @@ impl Rig {
             .collect()
     }
 
+    /// Like [`Self::pose`], with additive clips (`animation_type` 1: a
+    /// third-person weapon hold's `hands_only` clips, the `_look` clips)
+    /// layered on the full one as the engine's `bone_matrices_computer`
+    /// does: per bone, translations add and rotations compose as
+    /// quaternions, `base * layer` in order. A bone a layer does not drive
+    /// is left as it is.
+    pub fn pose_layered(&self, base: (&Clip, f32), layers: &[(&Clip, f32)]) -> Vec<Frame> {
+        let sample = |clip: &Clip, time: f32, index: usize| {
+            clip.bones
+                .iter()
+                .position(|name| *name == self.bones[index].name)
+                .map(|track| {
+                    let c = &clip.tracks[track].channels;
+                    (
+                        [0, 1, 2].map(|k| c[k].evaluate(time)),
+                        [3, 4, 5].map(|k| c[k].evaluate(time)),
+                    )
+                })
+        };
+        let locals: Vec<([f32; 3], Basis)> = (0..self.bones.len())
+            .map(|index| {
+                let (mut translation, angles) =
+                    sample(base.0, base.1, index).unwrap_or_else(|| self.local_rest(index));
+                let mut rotation = engine_quaternion(angles);
+                for (clip, time) in layers {
+                    if let Some((t, a)) = sample(clip, *time, index) {
+                        translation = [0, 1, 2].map(|k| translation[k] + t[k]);
+                        rotation = hamilton(rotation, engine_quaternion(a));
+                    }
+                }
+                (translation, quaternion_basis(rotation))
+            })
+            .collect();
+        let mut frames: Vec<Option<Frame>> = vec![None; self.bones.len()];
+        fn resolve(
+            rig: &Rig,
+            locals: &[([f32; 3], Basis)],
+            index: usize,
+            frames: &mut [Option<Frame>],
+        ) -> Frame {
+            if let Some(frame) = frames[index] {
+                return frame;
+            }
+            let (translation, local) = locals[index];
+            let frame = match rig.bones[index].parent {
+                None => (local, translation),
+                Some(parent) => {
+                    let (parent_basis, parent_at) = resolve(rig, locals, parent, frames);
+                    let offset = transform(translation, &parent_basis);
+                    (
+                        multiply(&local, &parent_basis),
+                        [0, 1, 2].map(|k| offset[k] + parent_at[k]),
+                    )
+                }
+            };
+            frames[index] = Some(frame);
+            frame
+        }
+        (0..self.bones.len())
+            .map(|index| resolve(self, &locals, index, &mut frames))
+            .collect()
+    }
+
     /// Every bone's model-space rest frame, as [`Self::pose`] gives a pose.
     pub fn rest(&self) -> Vec<Frame> {
         (0..self.bones.len())
@@ -792,6 +891,24 @@ fn collect_skeleton_parents(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The engine's quaternion of a set of angles is the rotation its
+    /// Euler matrix is, and the matrix of `a * b` applies `a`'s turn
+    /// first, then `b`'s.
+    #[test]
+    fn engine_quaternions_match_the_euler_matrices() {
+        let close =
+            |a: &Basis, b: &Basis| (0..3).all(|i| (0..3).all(|j| (a[i][j] - b[i][j]).abs() < 1e-5));
+        let a = [0.4, -1.1, 2.3];
+        let b = [-0.7, 0.2, 0.9];
+        let qa = engine_quaternion(a);
+        assert!(close(&quaternion_basis(qa), &euler_to_basis(a)));
+        let composed = quaternion_basis(hamilton(qa, engine_quaternion(b)));
+        assert!(close(
+            &composed,
+            &multiply(&euler_to_basis(a), &euler_to_basis(b))
+        ));
+    }
 
     /// Retail writes a bone that never moves as four control points and an end
     /// knot; the curve it produces must be exactly that value everywhere.

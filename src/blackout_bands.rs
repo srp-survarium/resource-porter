@@ -740,7 +740,24 @@ pub struct TorsoBand {
 /// the band.
 #[derive(Clone, Debug, Serialize)]
 pub struct PoseGap {
+    /// The weapon's class, for a third-person hold.
+    pub class: String,
     pub clip: String,
+    /// Poses sampled; of them, where the sleeve is measured.
+    pub poses: usize,
+    pub gap_poses: usize,
+    /// Each band triangle edge's posed length over its bind length: the
+    /// longest (where, and in which pose), the shortest and the mean over
+    /// every edge, torso and pose.
+    pub stretch_worst: f64,
+    pub stretch_worst_torso: String,
+    pub stretch_worst_side: String,
+    pub stretch_worst_pose: String,
+    pub stretch_least: f64,
+    pub stretch_mean: f64,
+    /// Each edge ring's posed length over its bind length: longest, shortest.
+    pub ring_worst: f64,
+    pub ring_least: f64,
     pub least: f64,
     pub mean: f64,
     pub largest: f64,
@@ -1360,33 +1377,261 @@ fn write_model(
 /// need of it.
 struct Poses {
     bind: Vec<crate::skeleton_animation::Frame>,
-    /// The bind pose, then [`POSE_SAMPLES`] poses of each of [`POSE_CLIPS`].
-    clips: Vec<(String, Vec<Vec<crate::skeleton_animation::Frame>>)>,
+    /// The bind pose, [`POSE_SAMPLES`] poses of each of [`POSE_CLIPS`], then
+    /// every weapon's third-person holds ([`WEAPONS`]).
+    sets: Vec<PoseSet>,
     /// Each side's `Arm` and `ForeArm`.
     joints: [[u8; 2]; 2],
     /// Every arm and shoulder bone, both sides.
     on_arm: BTreeSet<u8>,
 }
 
+/// Poses measured together: one clip, or one clip of a weapon's hold
+/// layered on each of [`BODIES`].
+struct PoseSet {
+    /// The weapon's class, for a hold.
+    class: String,
+    clip: String,
+    /// Each pose: where it is, its frames, and whether the sleeve is
+    /// measured in it too.
+    poses: Vec<(String, Vec<crate::skeleton_animation::Frame>, bool)>,
+}
+
+/// Every weapon of 0.26g with third-person clips, by class. In a match the
+/// game layers a weapon's additive `hands_only` clips (`animation_type` 1:
+/// its hold, shot, reload) on the AK's full-body clips; the AK's own hold
+/// is those full-body clips.
+pub const WEAPONS: [(&str, &str); 32] = [
+    ("rifle", "ak"),
+    ("rifle", "ak_12"),
+    ("rifle", "a_545"),
+    ("rifle", "ash_12"),
+    ("rifle", "val"),
+    ("rifle", "a9_91"),
+    ("rifle", "sks"),
+    ("rifle", "socom16"),
+    ("rifle", "sr3m"),
+    ("smg", "ump_45"),
+    ("smg", "uzi"),
+    ("smg", "kiparis"),
+    ("smg", "pp2000"),
+    ("smg", "ppsh"),
+    ("smg", "vityaz"),
+    ("smg", "sr2m"),
+    ("pistol", "tt33"),
+    ("pistol", "magnum"),
+    ("shotgun", "rem870"),
+    ("shotgun", "mp153"),
+    ("shotgun", "toz34"),
+    ("shotgun", "toz66"),
+    ("shotgun", "toz122"),
+    ("shotgun", "vepr"),
+    ("sniper", "mosin_nagant"),
+    ("sniper", "rem700"),
+    ("sniper", "sv_98"),
+    ("sniper", "svd"),
+    ("sniper", "vssk"),
+    ("sniper", "vsk_94"),
+    ("sniper", "winchester_1894"),
+    ("lmg", "rpd"),
+];
+
+/// A full-body clip a hold is layered on, with an additive `_look` (aim
+/// pitch, 0 to 1 of its length) and where in the body clip.
+struct Body {
+    clip: &'static str,
+    look: Option<(&'static str, f32)>,
+    at: &'static [f32],
+}
+
+const IDLE: &str = "ak/player/stand/3rd_view/on_site/on_site_idle";
+const IDLE_LOOK: &str = "ak/player/stand/3rd_view/on_site/on_site_idle_look";
+const AIMED: &str = "ak/player/stand/3rd_view/on_site/aimed_on_site_idle";
+
+/// Standing idle and aimed (where the sleeve is measured too: the first
+/// [`GAP_BODIES`]), idle looking down and up, running, running aimed,
+/// sprinting and crouched aimed.
+const BODIES: [Body; 8] = [
+    Body {
+        clip: IDLE,
+        look: None,
+        at: &[0.5],
+    },
+    Body {
+        clip: AIMED,
+        look: None,
+        at: &[0.5],
+    },
+    Body {
+        clip: IDLE,
+        look: Some((IDLE_LOOK, 0.0)),
+        at: &[0.5],
+    },
+    Body {
+        clip: IDLE,
+        look: Some((IDLE_LOOK, 1.0)),
+        at: &[0.5],
+    },
+    Body {
+        clip: "ak/player/stand/3rd_view/run/forward",
+        look: None,
+        at: &[0.0, 0.25, 0.5, 0.75],
+    },
+    Body {
+        clip: "ak/player/stand/3rd_view/run/aimed_forward",
+        look: None,
+        at: &[0.0, 0.5],
+    },
+    Body {
+        clip: "ak/player/stand/3rd_view/sprint/sprint",
+        look: None,
+        at: &[0.0, 0.5],
+    },
+    Body {
+        clip: "ak/player/crouch/3rd_view/aimed_on_site_idle",
+        look: None,
+        at: &[0.5],
+    },
+];
+const GAP_BODIES: usize = 2;
+/// Samples over each hold clip; the sleeve is measured at every other one.
+const HOLD_SAMPLES: usize = 6;
+
+fn read_clip(view: &mut ResourceDb, name: &str) -> Result<crate::skeleton_animation::Clip> {
+    let path = format!("animations/single/weapons/{name}");
+    crate::skeleton_animation::Clip::parse(
+        &view.read(&format!("{path}.b-spline"))?,
+        &view.read(&format!("{path}.bones_names"))?,
+    )
+    .with_context(|| path.clone())
+}
+
+/// A weapon's clip under `on_site/` that moves its hold in a match (not a
+/// lobby idle, a hit, a grenade or an aim pitch).
+fn is_hold_clip(rest: &str) -> bool {
+    let skip = [
+        "grenade",
+        "_look",
+        "idle_wpn",
+        "lobby",
+        "loby",
+        "on_site_hit",
+        "camera",
+        "physical_jerks",
+    ];
+    !skip.iter().any(|s| rest.contains(s)) && rest != "on_site_idle" && rest != "aimed_on_site_idle"
+}
+
 fn sample_poses(view: &mut ResourceDb, bind_pose: &[u8]) -> Result<Poses> {
     use crate::skeleton_animation::{Clip, Rig};
     let rig = Rig::parse(bind_pose, &view.read(PLAYER_SKELETON)?)?;
     let bind = rig.rest();
-    let mut clips = vec![("bind pose".to_owned(), vec![bind.clone()])];
+    let mut sets = vec![PoseSet {
+        class: String::new(),
+        clip: "bind pose".to_owned(),
+        poses: vec![("bind".to_owned(), bind.clone(), true)],
+    }];
     for name in POSE_CLIPS {
-        let path = format!("animations/single/weapons/{name}");
-        let clip = Clip::parse(
-            &view.read(&format!("{path}.b-spline"))?,
-            &view.read(&format!("{path}.bones_names"))?,
-        )
-        .with_context(|| path.clone())?;
+        let clip = read_clip(view, name)?;
         let end = clip.duration();
-        clips.push((
-            name.to_owned(),
-            (0..POSE_SAMPLES)
-                .map(|k| rig.pose(&clip, end * k as f32 / (POSE_SAMPLES - 1) as f32))
+        sets.push(PoseSet {
+            class: String::new(),
+            clip: name.to_owned(),
+            poses: (0..POSE_SAMPLES)
+                .map(|k| {
+                    let at = k as f32 / (POSE_SAMPLES - 1) as f32;
+                    (format!("{at:.2}"), rig.pose(&clip, end * at), true)
+                })
                 .collect(),
-        ));
+        });
+    }
+    // Each body pose: what it is, the clip and where, the look and where,
+    // whether the sleeve is measured.
+    type BodyPose = (String, Clip, f32, Option<(Clip, f32)>, bool);
+    let mut bodies: Vec<BodyPose> = vec![];
+    for (k, body) in BODIES.iter().enumerate() {
+        let clip = read_clip(view, body.clip)?;
+        let look = match body.look {
+            Some((name, at)) => {
+                let c = read_clip(view, name)?;
+                let t = c.duration() * at;
+                Some((c, t))
+            }
+            None => None,
+        };
+        for &at in body.at {
+            let name = body
+                .clip
+                .trim_start_matches("ak/player/")
+                .replace("/3rd_view", "");
+            let label = match body.look {
+                Some((_, l)) => format!("{name} look {l} @{at}"),
+                None => format!("{name} @{at}"),
+            };
+            bodies.push((
+                label,
+                clip.clone(),
+                clip.duration() * at,
+                look.clone(),
+                k < GAP_BODIES,
+            ));
+        }
+    }
+    let layered = |body: &BodyPose, hold: Option<(&Clip, f32)>| {
+        let mut layers: Vec<(&Clip, f32)> = vec![];
+        if let Some((look, t)) = &body.3 {
+            layers.push((look, *t));
+        }
+        layers.extend(hold);
+        rig.pose_layered((&body.1, body.2), &layers)
+    };
+    for (class, weapon) in WEAPONS {
+        if weapon == "ak" {
+            sets.push(PoseSet {
+                class: class.to_owned(),
+                clip: "ak (full-body clips)".to_owned(),
+                poses: bodies
+                    .iter()
+                    .map(|b| (b.0.clone(), layered(b, None), b.4))
+                    .collect(),
+            });
+        }
+        let prefix = format!("animations/single/weapons/{weapon}/player/stand/3rd_view/on_site/");
+        let names: Vec<String> = view
+            .paths_with_prefix(&prefix)
+            .filter_map(|p| p.strip_suffix(".b-spline"))
+            .filter(|p| is_hold_clip(&p[prefix.len()..]))
+            .map(|p| p["animations/single/weapons/".len()..].to_owned())
+            .collect();
+        for name in names {
+            let clip = read_clip(view, &name)?;
+            let end = clip.duration();
+            let short = name.replace("/player/stand/3rd_view/on_site", "");
+            let mut poses = vec![];
+            for s in 0..HOLD_SAMPLES {
+                let at = s as f32 / (HOLD_SAMPLES - 1) as f32;
+                let gaps = s % 2 == 0;
+                if clip.animation_type == 1 {
+                    for b in &bodies {
+                        poses.push((
+                            format!("{} + {at:.1}", b.0),
+                            layered(b, Some((&clip, end * at))),
+                            b.4 && gaps,
+                        ));
+                    }
+                } else if name.contains("/hands_only/") {
+                    // A full clip of the hold: as it is.
+                    poses.push((format!("{at:.1}"), rig.pose(&clip, end * at), gaps));
+                }
+            }
+            if !poses.is_empty() {
+                sets.push(PoseSet {
+                    class: class.to_owned(),
+                    clip: short,
+                    poses,
+                });
+            }
+        }
     }
     let index = |n: String| {
         rig.index(&n)
@@ -1409,7 +1654,7 @@ fn sample_poses(view: &mut ResourceDb, bind_pose: &[u8]) -> Result<Poses> {
         .collect();
     Ok(Poses {
         bind,
-        clips,
+        sets,
         joints,
         on_arm,
     })
@@ -1426,13 +1671,35 @@ fn near_sleeve(torso: &Torso, on_arm: &BTreeSet<u8>) -> Vec<[usize; 3]> {
         .collect()
 }
 
-/// One torso's bands in one pose: each band vertex's gap to its sleeve
-/// (m) and each edge's lean from square to the upper arm (degrees), with
-/// their side.
+/// One torso's bands in one pose, each with its side: each band vertex's
+/// gap to its sleeve (m; when measured), each edge's lean from square to
+/// the upper arm (degrees), each triangle edge's length and each edge
+/// ring's length against the bind pose's.
 #[derive(Default)]
 struct PoseFit {
     gaps: Vec<(f64, usize)>,
     tilts: Vec<(f64, usize)>,
+    stretch: Vec<(f64, usize)>,
+    rings: Vec<(f64, usize)>,
+}
+
+/// A shell's triangle edges, once each, with their bind-pose length.
+fn band_edges(shell: &Shell) -> Vec<(usize, usize, f64)> {
+    let mut edges: BTreeSet<(usize, usize)> = BTreeSet::new();
+    for t in &shell.triangles {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            edges.insert((a.min(b), a.max(b)));
+        }
+    }
+    edges
+        .into_iter()
+        .map(|(a, b)| {
+            let d = sub(shell.positions[a], shell.positions[b]);
+            (a, b, dot(d, d).sqrt())
+        })
+        .filter(|e| e.2 > 1e-5)
+        .collect()
 }
 
 /// Band and sleeve skinned into `pose` (each with its own skin): each band
@@ -1440,17 +1707,25 @@ struct PoseFit {
 /// arm, the gap is that distance, less where the sleeve comes out over the
 /// band within [`OVER`] of it (farther out is other geometry: the body by
 /// the armpit, a pouch); into the arm, it is negative. Each band edge's
-/// plane against the posed `Arm` to `ForeArm` line.
+/// plane against the posed `Arm` to `ForeArm` line; each triangle edge and
+/// edge ring against its bind length. `gaps`: measure the sleeve too.
+#[allow(clippy::too_many_arguments)]
 fn fit_in_pose(
     torso: &Torso,
     shells: &[Shell; 2],
+    edges: &[Vec<(usize, usize, f64)>; 2],
     near: &[[usize; 3]],
     poses: &Poses,
     pose: &[crate::skeleton_animation::Frame],
+    gaps: bool,
 ) -> Result<PoseFit> {
     let bind = &poses.bind;
     let mut fit = PoseFit::default();
-    let sleeve = crate::mask_fit::skin_positions(&torso.positions, &torso.skins, bind, pose)?;
+    let sleeve = if gaps {
+        crate::mask_fit::skin_positions(&torso.positions, &torso.skins, bind, pose)?
+    } else {
+        vec![]
+    };
     for (k, shell) in shells.iter().enumerate() {
         let j = poses.joints[k];
         let origin = |b: u8| bind[usize::from(b)].1.map(f64::from);
@@ -1462,6 +1737,23 @@ fn fit_in_pose(
         )?;
         let axis = normalize(sub(ends[1], ends[0]));
         let band = crate::mask_fit::skin_positions(&shell.positions, &shell.skins, bind, pose)?;
+        let mut ring = [[0.0; 2]; 2];
+        for &(a, b, length) in &edges[k] {
+            let d = sub(band[a], band[b]);
+            let posed = dot(d, d).sqrt();
+            fit.stretch.push((posed / length, k));
+            if let (Some(pa), Some(pb)) = (shell.edges[a], shell.edges[b])
+                && pa == pb
+            {
+                ring[usize::from(pa)][0] += length;
+                ring[usize::from(pa)][1] += posed;
+            }
+        }
+        for [bind_length, posed] in ring {
+            if bind_length > 0.0 {
+                fit.rings.push((posed / bind_length, k));
+            }
+        }
         for plane in [0, 1] {
             let ring: Vec<[f64; 3]> = band
                 .iter()
@@ -1473,6 +1765,9 @@ fn fit_in_pose(
                 let a = dot(normal, axis).abs().clamp(0.0, 1.0).acos().to_degrees();
                 fit.tilts.push((a, k));
             }
+        }
+        if !gaps {
+            continue;
         }
         for b in &band {
             // On the ray from the posed arm's axis out through the band
@@ -1572,30 +1867,38 @@ fn plane_normal(points: &[[f64; 3]]) -> Option<[f64; 3]> {
     (spreads[1] > 1e-8).then(|| normalize([v[0][k], v[1][k], v[2][k]]))
 }
 
-/// Over every torso, per clip: the gaps, the vertices off their sleeve and
-/// the edges' lean.
+/// Over every torso, per pose set: the gaps, the vertices off their
+/// sleeve, the edges' lean and the band's stretch.
 fn pose_gaps(built: &[(Torso, [Shell; 2])], poses: &Poses) -> Result<Vec<PoseGap>> {
     let near: Vec<Vec<[usize; 3]>> = built
         .iter()
         .map(|(t, _)| near_sleeve(t, &poses.on_arm))
         .collect();
+    let edges: Vec<[Vec<(usize, usize, f64)>; 2]> = built
+        .iter()
+        .map(|(_, s)| [band_edges(&s[0]), band_edges(&s[1])])
+        .collect();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+    let chunk = built.len().div_ceil(threads);
     let mut out = vec![];
-    for (clip, frames) in &poses.clips {
-        // Each torso's fits over the clip's samples, on a few threads.
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
-        let chunk = built.len().div_ceil(threads);
+    for set in &poses.sets {
+        // Each torso's fits over the set's poses, on a few threads.
         let per_torso: Vec<Vec<PoseFit>> = std::thread::scope(|scope| {
             let workers: Vec<_> = built
                 .chunks(chunk)
                 .zip(near.chunks(chunk))
-                .map(|(part, nears)| {
+                .zip(edges.chunks(chunk))
+                .map(|((part, nears), edges)| {
                     scope.spawn(move || {
                         part.iter()
                             .zip(nears)
-                            .map(|((torso, shells), n)| {
-                                frames
+                            .zip(edges)
+                            .map(|(((torso, shells), n), e)| {
+                                set.poses
                                     .iter()
-                                    .map(|f| fit_in_pose(torso, shells, n, poses, f))
+                                    .map(|(_, f, gaps)| {
+                                        fit_in_pose(torso, shells, e, n, poses, f, *gaps)
+                                    })
                                     .collect::<Result<Vec<_>>>()
                             })
                             .collect::<Result<Vec<_>>>()
@@ -1616,11 +1919,15 @@ fn pose_gaps(built: &[(Torso, [Shell; 2])], poses: &Poses) -> Result<Vec<PoseGap
         let (mut sum, mut measured, mut off, mut covered) = (0.0, 0, 0, 0);
         let mut tilt_worst = (0.0, 0, 0);
         let (mut tilt_sum, mut tilts) = (0.0, 0);
+        let mut stretch_worst = (0.0, 0, 0, 0);
+        let mut stretch_least = f64::INFINITY;
+        let (mut stretch_sum, mut stretches) = (0.0, 0);
+        let (mut ring_worst, mut ring_least) = (0.0_f64, f64::INFINITY);
         let mut most_off = vec![];
         for (t, fits) in per_torso.iter().enumerate() {
             let mut torso_off = 0;
             let mut torso_n = 0;
-            for f in fits {
+            for (p, f) in fits.iter().enumerate() {
                 for &(g, k) in &f.gaps {
                     sum += g;
                     measured += 1;
@@ -1640,6 +1947,18 @@ fn pose_gaps(built: &[(Torso, [Shell; 2])], poses: &Poses) -> Result<Vec<PoseGap
                         tilt_worst = (a, t, k);
                     }
                 }
+                for &(s, k) in &f.stretch {
+                    stretch_sum += s;
+                    stretches += 1;
+                    stretch_least = stretch_least.min(s);
+                    if s > stretch_worst.0 {
+                        stretch_worst = (s, t, k, p);
+                    }
+                }
+                for &(r, _) in &f.rings {
+                    ring_worst = ring_worst.max(r);
+                    ring_least = ring_least.min(r);
+                }
             }
             most_off.push((
                 built[t].0.base_model.clone(),
@@ -1649,7 +1968,18 @@ fn pose_gaps(built: &[(Torso, [Shell; 2])], poses: &Poses) -> Result<Vec<PoseGap
         most_off.sort_by(|a, b| b.1.total_cmp(&a.1));
         most_off.truncate(5);
         out.push(PoseGap {
-            clip: clip.clone(),
+            class: set.class.clone(),
+            clip: set.clip.clone(),
+            poses: set.poses.len(),
+            gap_poses: set.poses.iter().filter(|p| p.2).count(),
+            stretch_worst: stretch_worst.0,
+            stretch_worst_torso: built[stretch_worst.1].0.base_model.clone(),
+            stretch_worst_side: SIDES[stretch_worst.2].to_owned(),
+            stretch_worst_pose: set.poses[stretch_worst.3].0.clone(),
+            stretch_least,
+            stretch_mean: stretch_sum / stretches.max(1) as f64,
+            ring_worst,
+            ring_least,
             least: least.0,
             mean: sum / measured.max(1) as f64,
             largest,
