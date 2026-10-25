@@ -5,7 +5,7 @@
 //!
 //! ```text
 //! cargo run --release --example pose-blackout-bands -- --target-db RETAIL/resources.db \
-//!     [--patch RETAIL/resources.db.patch_N ...] --overlay BUNDLE/overlay \
+//!     [--patch RETAIL/resources.db.patch_N ...] [--overlay BUNDLE/overlay] \
 //!     --torso character/human/scavengers/scavengers_01_torso_s1 \
 //!     --clip ak/player/stand/3rd_view/death/on_site_back --at 1.0 --output posed
 //! ```
@@ -22,9 +22,9 @@ struct Args {
     target_db: PathBuf,
     #[arg(long = "patch")]
     patches: Vec<PathBuf>,
-    /// The bands' bundle overlay.
+    /// The bands' bundle overlay: its band models are posed too.
     #[arg(long)]
-    overlay: PathBuf,
+    overlay: Option<PathBuf>,
     /// The torso part's `base_model`.
     #[arg(long)]
     torso: String,
@@ -174,12 +174,13 @@ fn main() -> Result<()> {
         fs::write(dest, posed)?;
         written += 1;
     }
-    for colour in &COLOURS {
+    for colour in COLOURS.iter().filter(|_| a.overlay.is_some()) {
         let path = format!(
             "models/{}.skinned_model/render/band/converted_model",
             band_model(&a.torso, colour.name)
         );
-        let posed = pose_surface(&fs::read(a.overlay.join(&path))?, &bind, &pose)?;
+        let overlay = a.overlay.as_ref().expect("filtered");
+        let posed = pose_surface(&fs::read(overlay.join(&path))?, &bind, &pose)?;
         let dest = a.output.join(&path);
         fs::create_dir_all(dest.parent().unwrap())?;
         fs::write(dest, posed)?;
