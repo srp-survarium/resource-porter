@@ -146,6 +146,21 @@ conversion, material patches, dependency scans and model validation.
 `vostok-sdk-backend` exposes map decompile/preview operations through JSON
 requests; examples are in `examples/sdk/`.
 
+## Compose static models
+
+`compose-model` makes one static model of the surfaces of several, each moved by its own
+translation: an optic placed on a weapon's mount with the mount's rail, or a separate reticle model
+baked into an optic's aimed model as a surface of its own (skhid-srp's rifle scopes). Materials can
+be renamed on the way; normals, tangents and uvs keep their bytes (translations only).
+
+```sh
+vostok-port compose-model --output out/optic_aim.model \
+    --part donor/optic_aim.model=0,0.0019,0 \
+    --part donor/reticle_dot.model=0,0.0400,0.6 \
+    --part ours/variant.model:picatini_lastochka_s \
+    --material weapons/modules/scopes/scope_lense_1p=weapons/loc2/scope_lense_1p
+```
+
 ## Run in the client
 
 The scripts under `scripts/` support local Wine/SRP demos. They require a
