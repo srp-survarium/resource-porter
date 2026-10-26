@@ -73,9 +73,11 @@ retail level_03 grass (`flora/grass_l03_alt`, `gra_green_01`, the
   test hits (passable materials are already gone). The result is the
   positions X-Ray draws, at the same density and spread for each model.
 - **Models.** Each placed X-Ray detail model becomes one grass model with
-  its own geometry and UVs. Normals are the cards' face normals, as the
-  native grass has. LOD 1 keeps the larger half of the cards, and a one-card
-  model keeps its card. All models share one material: the grass template
+  its own geometry and UVs. Normals are X-Ray's: its detail shaders light
+  a vertex along `normalize(P - base + (0, 0.75, 0))`, outward from the
+  tuft's foot and mostly up. With the cards' face normals, which lie nearly
+  flat, the tufts went black under a high sun. LOD 1 keeps the larger half
+  of the cards, and a one-card model keeps its card. All models share one material: the grass template
   with the level's detail texture in its colour slots and a flat normal map.
   Clear Sky and later compilers bake every detail into one `build_details`
   sheet. The grass system draws each 16 m patch as one draw call with the

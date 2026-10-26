@@ -305,9 +305,12 @@ impl GrassMesh {
 
 /// A detail model as the target's two grass LODs.
 ///
-/// Normals are the area-weighted face normals at each vertex (a card's own
-/// facing, as the native grass models carry), tangent and binormal follow
-/// the texture axes. LOD 1 keeps the larger half of the model's cards (its
+/// Normals are X-Ray's own: its detail shaders (`deffer_detail_w_flat.vs`)
+/// light a vertex along `normalize(P - base + (0, 0.75, 0))`, outward from
+/// the tuft's foot and mostly up, at the scale the tuft is drawn
+/// ([`layer_scale`]). A card's face normal instead lies nearly flat, and
+/// under a high sun the tufts go black. Tangent and binormal follow the
+/// texture axes. LOD 1 keeps the larger half of the model's cards (its
 /// connected pieces), as the native grass drops cards with distance; a
 /// one-card model keeps its card.
 pub fn grass_lods(object: &DetailObject) -> Result<[GrassMesh; 2]> {
@@ -319,7 +322,8 @@ pub fn grass_lods(object: &DetailObject) -> Result<[GrassMesh; 2]> {
     if triangles.is_empty() {
         bail!("detail model has no triangles");
     }
-    let lod0 = mesh(object, &triangles)?;
+    let scale = layer_scale(object).0;
+    let lod0 = mesh(object, &triangles, scale)?;
 
     // Cards: triangles joined by shared vertices.
     let mut parent: Vec<usize> = (0..object.vertices.len()).collect();
@@ -349,7 +353,7 @@ pub fn grass_lods(object: &DetailObject) -> Result<[GrassMesh; 2]> {
     // Largest first; ties keep file order (stable sort).
     cards.sort_by(|a, b| b.0.total_cmp(&a.0));
     let lod1_triangles: Vec<[usize; 3]> = cards.into_iter().take(keep).flat_map(|c| c.1).collect();
-    let lod1 = mesh(object, &lod1_triangles)?;
+    let lod1 = mesh(object, &lod1_triangles, scale)?;
     Ok([lod0, lod1])
 }
 
@@ -363,7 +367,7 @@ fn normalized(v: [f32; 3], fallback: [f32; 3]) -> [f32; 3] {
 }
 
 /// The vertices `triangles` use, compacted, with normals and texture axes.
-fn mesh(object: &DetailObject, triangles: &[[usize; 3]]) -> Result<GrassMesh> {
+fn mesh(object: &DetailObject, triangles: &[[usize; 3]], scale: f32) -> Result<GrassMesh> {
     let mut remap: BTreeMap<usize, u16> = BTreeMap::new();
     for t in triangles {
         for &i in t {
@@ -376,7 +380,6 @@ fn mesh(object: &DetailObject, triangles: &[[usize; 3]]) -> Result<GrassMesh> {
     for (&source, &target) in &remap {
         order[usize::from(target)] = source;
     }
-    let mut normal = vec![[0.0_f32; 3]; order.len()];
     let mut tangent = vec![[0.0_f32; 3]; order.len()];
     let mut binormal = vec![[0.0_f32; 3]; order.len()];
     for t in triangles {
@@ -385,7 +388,6 @@ fn mesh(object: &DetailObject, triangles: &[[usize; 3]]) -> Result<GrassMesh> {
             sub(v[1].position, v[0].position),
             sub(v[2].position, v[0].position),
         );
-        let face = cross(e1, e2);
         let (du1, dv1) = (v[1].uv[0] - v[0].uv[0], v[1].uv[1] - v[0].uv[1]);
         let (du2, dv2) = (v[2].uv[0] - v[0].uv[0], v[2].uv[1] - v[0].uv[1]);
         let det = du1 * dv2 - du2 * dv1;
@@ -401,7 +403,6 @@ fn mesh(object: &DetailObject, triangles: &[[usize; 3]]) -> Result<GrassMesh> {
         for &i in t {
             let slot = usize::from(remap[&i]);
             for k in 0..3 {
-                normal[slot][k] += face[k];
                 tangent[slot][k] += t_dir[k];
                 binormal[slot][k] += b_dir[k];
             }
@@ -417,7 +418,11 @@ fn mesh(object: &DetailObject, triangles: &[[usize; 3]]) -> Result<GrassMesh> {
                 bounds.0[k] = bounds.0[k].min(v.position[k]);
                 bounds.1[k] = bounds.1[k].max(v.position[k]);
             }
-            let n = normalized(normal[slot], [0.0, 1.0, 0.0]);
+            let p = v.position;
+            let n = normalized(
+                [p[0] * scale, p[1] * scale + 0.75, p[2] * scale],
+                [0.0, 1.0, 0.0],
+            );
             // Gram-Schmidt against the normal; a degenerate mapping falls
             // back to any perpendicular pair.
             let project = |a: [f32; 3]| {
@@ -605,13 +610,16 @@ mod tests {
         // Two of three cards: the 1 m and the 0.8 m one.
         assert_eq!((lod1.vertices.len(), lod1.indices.len()), (8, 12));
         assert_eq!(lod1.bounds.1[0], 4.8);
-        // The cards face +z (cross of the first two edges), packed as
-        // (x, y, z) -> bits 16, 8, 0 around 127.5.
+        // X-Ray's normal at the foot is straight up (scale 0.5 .. 0.9: the
+        // vertex at the origin), packed as (x, y, z) -> bits 16, 8, 0.
         let n = u32::from_le_bytes(lod0.vertices[0][12..16].try_into().unwrap());
         assert_eq!(
             (n >> 24, (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff),
-            (127, 127, 127, 255)
+            (127, 127, 255, 127)
         );
+        // A tip leans out: (1, 1, 0) * 0.7 + (0, 0.75, 0).
+        let n = u32::from_le_bytes(lod0.vertices[2][12..16].try_into().unwrap());
+        assert!((n >> 16) & 0xff > 180 && (n >> 8) & 0xff > 200, "{n:x}");
         let bytes = lod0.encode().unwrap();
         assert_eq!(&bytes[8..56], &STATIC_VERTEX_DECLARATION);
         assert_eq!(bytes.len(), 8 + 48 + 4 + 12 * 32 + 12 + 18 * 2);
