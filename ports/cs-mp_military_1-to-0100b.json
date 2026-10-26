@@ -56,5 +56,6 @@
  "family_diffuse_paths": {
   "emissive": "material.forward.effect.texture_emissive.value",
   "terrain": "material.g_stage.effect.texture_diffuse_0.value"
- }
+ },
+ "detail_objects": {}
 }

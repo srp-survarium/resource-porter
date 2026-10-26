@@ -27,6 +27,7 @@ pub mod blender;
 pub mod cform;
 pub mod chunks;
 pub mod cipher;
+pub mod details;
 pub mod gamemtl;
 pub mod level;
 pub mod lzhuf;

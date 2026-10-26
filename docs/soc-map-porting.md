@@ -53,6 +53,46 @@ entities or LOD impostors. Ladder animation conversion is a separate
 [experimental path](soc-ladder-animation.md). Instant-kill collision materials
 retain footing without their damage behaviour.
 
+## Grass: detail objects
+
+`"detail_objects": {}` in a recipe converts the level's `level.details`
+(X-Ray's grass, flowers and ground litter) into the target's grass system.
+Without it a map has no grass. The options (`density`, and the material,
+model and layer templates) default to X-Ray's `r__detail_density` 0.3 and the
+retail level_03 grass (`flora/grass_l03_alt`, `gra_green_01`, the
+`_gra_green` layer).
+
+- **Placement.** X-Ray stores no positions: per 2 m slot it keeps four
+  object ids, their corner densities (4 bits each), a height range and baked
+  light. `CDetailManager::cache_Decompress` regenerates a slot near the
+  camera, and the converter runs the same procedure once (its jittered
+  `ceil(2/density)+1` square grid, the bilinear density and 16x16 ordered
+  dither, the choice among the objects that pass, the slot-seeded `CRandom`
+  streams). Each kept tuft drops straight down onto the highest upward
+  collision face within the slot's height range, the faces X-Ray's own ray
+  test hits (passable materials are already gone). The result is the
+  positions X-Ray draws, at the same density and spread for each model.
+- **Models.** Each placed X-Ray detail model becomes one grass model with
+  its own geometry and UVs. Normals are the cards' face normals, as the
+  native grass has. LOD 1 keeps the larger half of the cards, and a one-card
+  model keeps its card. All models share one material: the grass template
+  with the level's detail texture in its colour slots and a flat normal map.
+  Clear Sky and later compilers bake every detail into one `build_details`
+  sheet. The grass system draws each 16 m patch as one draw call with the
+  material of the patch's first model, so a level whose details use several
+  textures stops the build (they would need one atlas).
+- **Layers.** One vegetation layer per model, with probability 1, holds that
+  model's positions (`projects/<project>/vegetation/detail_NN.veg`,
+  positions and up normals, without the editor mask). Its scale is X-Ray's
+  `randF(min*0.5, max*0.9)` as a base and an absolute delta. It has a random
+  yaw and stands upright (X-Ray only turns details about y). `wind_factor`
+  is 0 for X-Ray's `DO_NO_WAVING` litter. The vegetation object is the
+  template's, at the origin, and it joins the client project's objects.
+- **Not carried over:** the per-slot sun, sky and RGB terms. A target grass
+  instance has one fixed colour (`grass_layer_resources_ready` passes
+  200,200,200) and a `.veg` file has no colour field. The target's sun
+  shadows and skylight light the grass instead.
+
 ## Resource contracts
 
 - Render and collision arrays use different model-reference conventions;

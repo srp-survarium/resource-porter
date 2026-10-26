@@ -310,6 +310,56 @@ pub struct SocMapManifest {
     /// so this must be a deliberate, recorded decision.
     #[serde(default)]
     pub allow_untrimmed_mip_chains: bool,
+    /// Convert the level's detail objects (`level.details`: its grass,
+    /// flowers and ground litter) into the target's grass system. Absent,
+    /// the map has no grass.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail_objects: Option<DetailObjects>,
+}
+
+/// How [`SocMapManifest::detail_objects`] are converted. `{}` takes X-Ray's
+/// own defaults and the retail level_03 grass as the target schema.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DetailObjects {
+    /// Metres between X-Ray's candidate rows (`r__detail_density`; lower is
+    /// denser). The engine default is 0.3.
+    #[serde(default = "default_detail_density")]
+    pub density: f32,
+    /// The grass material each converted model is drawn with, its textures
+    /// swapped for the level's detail texture.
+    #[serde(default = "default_detail_material")]
+    pub material_template: String,
+    /// A grass model (two LODs) whose configs the converted models clone.
+    #[serde(default = "default_detail_model")]
+    pub model_template: String,
+    /// The vegetation layer of `templates.client_project` the generated
+    /// layers clone; the vegetation object around it is cloned too.
+    #[serde(default = "default_detail_layer")]
+    pub layer_template: String,
+    /// A flat normal map for the converted material: X-Ray details have none.
+    #[serde(default = "default_detail_normal")]
+    pub flat_normal: String,
+}
+
+fn default_detail_density() -> f32 {
+    super::convert::details::DEFAULT_DENSITY
+}
+
+fn default_detail_material() -> String {
+    "material_instances/flora/grass_l03_alt.material".to_owned()
+}
+
+fn default_detail_model() -> String {
+    "models/level/03/flora/gra_green_01.model".to_owned()
+}
+
+fn default_detail_layer() -> String {
+    "_gra_green".to_owned()
+}
+
+fn default_detail_normal() -> String {
+    "editor/default_nmap".to_owned()
 }
 
 fn default_surfaces_per_model() -> usize {
@@ -595,6 +645,7 @@ pub(crate) fn sample_manifest() -> SocMapManifest {
         normal_texture_overrides: BTreeMap::new(),
         material_aliases: BTreeMap::new(),
         allow_untrimmed_mip_chains: false,
+        detail_objects: None,
     }
 }
 

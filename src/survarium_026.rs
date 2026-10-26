@@ -4177,6 +4177,7 @@ mod tests {
             deathmatch: Some(Deathmatch {
                 source: "test".into(),
                 respawns: vec![[1.0, 0.0, 2.0, 0.5], [3.0, 5.35, 4.0, -1.0]],
+                teams: Vec::new(),
                 dropped: BTreeMap::new(),
                 adjusted: BTreeMap::new(),
             }),

@@ -61,6 +61,9 @@ pub struct SocMapBuildRecord {
     pub dropped_template_objects: BTreeMap<String, usize>,
     /// Source normal maps bound into the target materials.
     pub bound_normal_maps: usize,
+    /// The level's grass, when the recipe converts its detail objects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail_objects: Option<super::details::DetailReport>,
     pub files: Vec<BuiltFile>,
 }
 
@@ -193,12 +196,28 @@ pub fn build_bundle(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let textures = plan_textures(manifest, &mut source, &material_plans)?;
+    let mut textures = plan_textures(manifest, &mut source, &material_plans)?;
     let normals: BTreeSet<String> = textures
         .iter()
         .filter(|texture| texture.source_name.ends_with("_bump"))
         .map(|texture| texture.source_name.clone())
         .collect();
+    // Grass: the detail objects stand on the same collision the map ships
+    // (passable faces already dropped, as X-Ray's own drop skips them).
+    let detail_plan = match &manifest.detail_objects {
+        Some(options) => {
+            let (plan, texture) = super::details::plan(manifest, options, &mut source, &cform)?;
+            if textures.iter().any(|t| t.target_dds == texture.target_dds) {
+                bail!(
+                    "the detail texture {} is also a level texture",
+                    texture.source_name
+                );
+            }
+            textures.push(texture);
+            Some((options, plan))
+        }
+        None => None,
+    };
 
     // --- emit -------------------------------------------------------------
     let mut files = Vec::new();
@@ -291,6 +310,20 @@ pub fn build_bundle(
     let extent = MapExtent::of(&surfaces, cform.header.bounding_box)?;
     let post_effect =
         write_post_process_material(manifest, &mut target, &overlay, &extent, &mut files)?;
+    let details = detail_plan
+        .map(|(options, plan)| {
+            super::details::write(manifest, options, &plan, &mut target, &overlay, &mut files)
+        })
+        .transpose()?;
+    if let Some((_, report)) = &details {
+        println!(
+            "detail_objects={} models={} density={}",
+            report.total_instances,
+            report.instances.len(),
+            report.density
+        );
+    }
+    let (vegetation, detail_report) = details.unzip();
     let dropped_objects = write_projects(
         manifest,
         &mut target,
@@ -299,6 +332,7 @@ pub fn build_bundle(
         &collision_models,
         &extent,
         &post_effect,
+        vegetation,
         &mut files,
     )?;
 
@@ -339,6 +373,7 @@ pub fn build_bundle(
         map_extent: extent,
         dropped_template_objects: dropped_objects,
         bound_normal_maps: normals.len(),
+        detail_objects: detail_report,
         files,
     };
 
@@ -1737,12 +1772,24 @@ pub(crate) fn write_projects(
     collision_models: &[String],
     extent: &MapExtent,
     post_effect: &str,
+    vegetation: Option<ConfigValue>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<BTreeMap<String, usize>> {
     let bindings = &manifest.project_bindings;
 
     let mut client = load_template(target, &manifest.templates.client_project)?;
     let dropped_objects = filter_template_objects(manifest, &mut client.root, extent, post_effect)?;
+    // The map's own grass joins the objects the template kept.
+    if let (Some(vegetation), Some(array_path)) = (vegetation, &bindings.objects_array_path) {
+        let ConfigValue::Indexed(mut objects) = named_path(&client.root, array_path)?.clone()
+        else {
+            bail!("project template {array_path} is not an indexed array");
+        };
+        objects.push(vegetation);
+        client
+            .root
+            .set_path(array_path, ConfigValue::Indexed(objects))?;
+    }
     client.root.set_path(
         &bindings.project_name_path,
         ConfigValue::String(manifest.project_name.clone()),

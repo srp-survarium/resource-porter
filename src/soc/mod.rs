@@ -36,6 +36,7 @@
 pub mod build;
 pub mod codec;
 pub mod convert;
+pub mod details;
 pub mod manifest;
 pub mod source;
 

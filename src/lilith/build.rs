@@ -328,6 +328,7 @@ pub fn build_bundle(
         &collision_models,
         &extent,
         &post_effect,
+        None,
         &mut files,
     )?;
 

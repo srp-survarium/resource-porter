@@ -18,6 +18,7 @@
 
 pub mod animation;
 pub mod collision;
+pub mod details;
 pub mod game_material;
 pub mod render_material;
 pub mod spawn;

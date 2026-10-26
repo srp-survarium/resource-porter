@@ -28,7 +28,7 @@ pub const MAX_SURFACE_VERTICES: usize = 65_536;
 
 /// The target static vertex declaration, byte-identical to the one the weapon
 /// and STK2 importers already emit.
-const STATIC_VERTEX_DECLARATION: [u8; 48] = [
+pub(crate) const STATIC_VERTEX_DECLARATION: [u8; 48] = [
     0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, // position: float3
     0x00, 0x00, 0x0c, 0x00, 0x04, 0x00, 0x03, 0x00, // normal: D3DCOLOR
     0x00, 0x00, 0x10, 0x00, 0x04, 0x00, 0x06, 0x00, // tangent: D3DCOLOR
@@ -498,7 +498,7 @@ pub fn assign_models(surfaces: &[MergedSurface], per_model: usize) -> Result<Vec
         .collect())
 }
 
-fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
+pub(crate) fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
     let length = (vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]).sqrt();
     if length > f32::EPSILON {
         for component in &mut vector {
