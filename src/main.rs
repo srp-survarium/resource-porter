@@ -94,6 +94,21 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// One static model of the surfaces of several, each moved by its own
+    /// translation: an optic on a weapon's mount with the mount's rail, or a
+    /// separate reticle model baked into an aimed model as a surface.
+    ComposeModel {
+        /// A model directory with its translation and the surfaces taken:
+        /// DIR[=TX,TY,TZ][:SURFACE,...] (all of LOD0 without a list).
+        #[arg(long = "part", required = true)]
+        parts: Vec<String>,
+        /// A material name renamed in the composed settings: FROM=TO.
+        #[arg(long = "material")]
+        materials: Vec<String>,
+        /// The composed model's directory (a new one).
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Rebuild selected materials through explicit target-build templates.
     BuildMaterialPatch {
         /// Database containing the effective materials to convert.
@@ -1010,6 +1025,26 @@ fn main() -> Result<()> {
                     serde_json::to_string(&candidate.target_features)?
                 );
             }
+        }
+        Command::ComposeModel {
+            parts,
+            materials,
+            output,
+        } => {
+            let parts = parts
+                .iter()
+                .map(|p| vostok_resource_porter::model_compose::Part::parse(p))
+                .collect::<Result<Vec<_>>>()?;
+            let mut renames = std::collections::BTreeMap::new();
+            for m in &materials {
+                let (from, to) = m
+                    .split_once('=')
+                    .with_context(|| format!("--material {m}: not FROM=TO"))?;
+                renames.insert(from.to_owned(), to.to_owned());
+            }
+            vostok_resource_porter::model_compose::compose(&parts, &renames, &output)?;
+            println!("parts={}", parts.len());
+            println!("model={}", output.display());
         }
         Command::BuildMaterialPatch {
             source_db,
