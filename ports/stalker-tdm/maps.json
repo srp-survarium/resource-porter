@@ -1,5 +1,5 @@
 {
- "note": "Static settings per map for ports/stalker-tdm/<map>.json (tools/stalker-tdm/make_spec.py). ids: maps_dict 210-215 (free in skhid); level_number: match_making_params.map_id 14-19 (live uses 1-13). Tall ladders stay as they are: no ramps, lids or blockers. loading_screen_id 30-35: the lobby movie built from source (srp-026g/flash/lobby_menu) holds their pictures. Names other than English: translations for the owner to check. The game keeps its texts in Windows-1251: a German or Polish name with letters outside it takes the English one.",
+ "note": "Static settings per map for ports/stalker-tdm/<map>.json (tools/stalker-tdm/make_spec.py). ids: maps_dict 210-215 (free in skhid); level_number: match_making_params.map_id 14-19 (live uses 1-13). Tall ladders stay as they are, except where a map lists added geometry (walker_ramps, walker_boxes, props, cuts: make_spec.py passes them to the importer): Experimental Pool's cave-in, team 1's way to the roof at ladder clmbl#8 (the owner's pick of 2026-10-27). loading_screen_id 30-35: the lobby movie built from source (srp-026g/flash/lobby_menu) holds their pictures. Names other than English: translations for the owner to check. The game keeps its texts in Windows-1251: a German or Polish name with letters outside it takes the English one.",
  "maps": {
   "cs-mp_bath": {
    "recipe": "cs-mp_bath-to-0100b",
@@ -20,7 +20,256 @@
     "native_tint": true,
     "interiors": []
    },
-   "loading_screen_id": 30
+   "loading_screen_id": 30,
+   "walker_ramps": [
+    {
+     "name": "s_cavein_ramp",
+     "from": [
+      -11.9,
+      9.53,
+      -5.2
+     ],
+     "to": [
+      -4.75,
+      13.45,
+      -5.2
+     ],
+     "width": 1.2,
+     "planks": true,
+     "reason": "team 1's way up to the roof of the south block: planks laid from a fallen slab up over the cave-in onto the roof, 28.7 deg"
+    }
+   ],
+   "props": [
+    {
+     "name": "s_cavein_ramp_foot",
+     "model": "props/cover/concrete_tray_01",
+     "position": [
+      -10.65,
+      9.0,
+      -5.37
+     ],
+     "reason": "fallen roof slab the ramp starts on (0.53 m up)",
+     "yaw": 1.5708
+    },
+    {
+     "name": "s_cavein_hanging_slab",
+     "model": "props/cover/concrete_tray_01",
+     "position": [
+      -6.62,
+      12.22,
+      -7.0
+     ],
+     "reason": "a roof slab hanging into the cave-in from its west rim",
+     "rotation": [
+      -0.0,
+      1.5708,
+      0.61087
+     ]
+    },
+    {
+     "name": "s_cavein_rim_nw",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      -9.75,
+      13.45,
+      -5.15
+     ],
+     "reason": "broken slab with rebar at the north-west rim",
+     "rotation": [
+      -0.0,
+      0.4,
+      0.20944
+     ]
+    },
+    {
+     "name": "s_cavein_rim_w",
+     "model": "props/garbage/concrete_wreck2",
+     "position": [
+      -8.35,
+      13.45,
+      -6.95
+     ],
+     "reason": "broken slab with rebar at the west rim",
+     "rotation": [
+      2.75768,
+      1.09649,
+      -2.62209
+     ]
+    },
+    {
+     "name": "s_cavein_rim_mid",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      -8.95,
+      13.45,
+      -5.95
+     ],
+     "reason": "broken slab with rebar on the ragged west edge",
+     "rotation": [
+      0.45288,
+      1.1627,
+      -0.42006
+     ]
+    },
+    {
+     "name": "s_cavein_rebar_s",
+     "model": "props/garbage/concrete_wreck3",
+     "position": [
+      -7.4,
+      13.45,
+      -8.32
+     ],
+     "reason": "rebar sticking out over the south rim",
+     "yaw": 0.3
+    },
+    {
+     "name": "s_cavein_rebar_e",
+     "model": "props/garbage/concrete_wreck3",
+     "position": [
+      -4.05,
+      13.45,
+      -7.95
+     ],
+     "reason": "rebar sticking out over the hatch",
+     "yaw": 1.9
+    },
+    {
+     "name": "s_cavein_rubble",
+     "model": "props/garbage/concrete_wrecks",
+     "position": [
+      -6.0,
+      9.0,
+      -7.55
+     ],
+     "reason": "rubble under the cave-in, round the ladder foot",
+     "yaw": 0.5
+    },
+    {
+     "name": "s_cavein_fallen_slab",
+     "model": "props/cover/concrete_tray_01",
+     "position": [
+      -6.35,
+      9.43,
+      -6.4
+     ],
+     "reason": "a fallen slab leaning on the rubble",
+     "rotation": [
+      -0.0,
+      1.5708,
+      0.29671
+     ]
+    },
+    {
+     "name": "s_cavein_chunk_a",
+     "model": "props/garbage/concrete_wreck2",
+     "position": [
+      -8.45,
+      9.0,
+      -7.85
+     ],
+     "reason": "a broken slab by the south wall",
+     "yaw": 1.1
+    },
+    {
+     "name": "s_cavein_chunk_b",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      -10.25,
+      9.0,
+      -8.1
+     ],
+     "reason": "a broken slab by the south wall",
+     "yaw": 1.65
+    },
+    {
+     "name": "s_cavein_bits",
+     "model": "props/garbage/concrete_wreck3",
+     "position": [
+      -6.2,
+      9.0,
+      -5.95
+     ],
+     "reason": "broken bits and rebar under the ramp",
+     "yaw": 2.4
+    }
+   ],
+   "cuts": [
+    {
+     "name": "s_cavein_core",
+     "models": "models/ported/cs/bath/",
+     "centre": [
+      -6.18,
+      13.379999999999999,
+      -6.04
+     ],
+     "half": [
+      1.72,
+      0.24,
+      1.51
+     ],
+     "reason": "the cave-in over the east of the hatch room: the roof slab only (y 13.14-13.62), the walls stay"
+    },
+    {
+     "name": "s_cavein_west",
+     "models": "models/ported/cs/bath/",
+     "centre": [
+      -8.325,
+      13.379999999999999,
+      -5.44
+     ],
+     "half": [
+      0.425,
+      0.24,
+      0.91
+     ],
+     "reason": "its ragged west edge over the ramp (headroom)"
+    },
+    {
+     "name": "s_cavein_tip",
+     "models": "models/ported/cs/bath/",
+     "centre": [
+      -9.05,
+      13.379999999999999,
+      -5.04
+     ],
+     "half": [
+      0.3,
+      0.24,
+      0.51
+     ],
+     "reason": "its ragged west tip over the ramp (headroom)"
+    },
+    {
+     "name": "s_cavein_hatch",
+     "models": "models/ported/cs/bath/",
+     "centre": [
+      -5.705,
+      13.379999999999999,
+      -8.11
+     ],
+     "half": [
+      1.245,
+      0.24,
+      0.56
+     ],
+     "reason": "its south part, taking in the ladder hatch"
+    },
+    {
+     "name": "s_cavein_notch",
+     "models": "models/ported/cs/bath/",
+     "centre": [
+      -7.425,
+      13.379999999999999,
+      -7.8
+     ],
+     "half": [
+      0.475,
+      0.24,
+      0.25
+     ],
+     "reason": "a notch in its south edge"
+    }
+   ]
   },
   "cs-mp_military_1": {
    "recipe": "cs-mp_military_1-to-0100b",

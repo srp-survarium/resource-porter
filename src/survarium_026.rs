@@ -340,7 +340,17 @@ pub struct Prop {
     pub position: [f32; 3],
     #[serde(default)]
     pub yaw: f32,
+    /// Full Euler rotation (the collision-primitive convention) for a tilted
+    /// prop, e.g. a broken slab hanging from a rim; replaces `yaw`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<[f32; 3]>,
     pub reason: String,
+}
+
+impl Prop {
+    fn euler(&self) -> [f32; 3] {
+        self.rotation.unwrap_or([0.0, self.yaw, 0.0])
+    }
 }
 
 /// Native 0.26 board laid as a plank: 0.28 m wide, 2 m long along +y from
@@ -1417,7 +1427,7 @@ fn emit_props(props: &[Prop], target: &mut ResourceDb, project: &mut ConfigValue
     let mut visuals_added = Vec::new();
     for prop in props {
         ensure!(
-            prop.position.iter().all(|v| v.is_finite()) && prop.yaw.is_finite(),
+            prop.position.iter().chain(&prop.euler()).all(|v| v.is_finite()),
             "invalid prop {}",
             prop.name
         );
@@ -1429,7 +1439,7 @@ fn emit_props(props: &[Prop], target: &mut ResourceDb, project: &mut ConfigValue
                 prop.model
             );
         }
-        let rotation = ConfigValue::Float3([0.0, prop.yaw, 0.0]);
+        let rotation = ConfigValue::Float3(prop.euler());
         for (part, cmask, cgroup) in [("collision", 16, 8), ("walker_collision", 4, 2)] {
             collisions_added.push(ConfigValue::Named(vec![
                 NamedValue { name: "rotation".into(), value: rotation.clone() },
@@ -1462,7 +1472,7 @@ fn emit_props(props: &[Prop], target: &mut ResourceDb, project: &mut ConfigValue
     for prop in visuals_added {
         let mut visual = prototype.clone();
         visual.set_path("position", ConfigValue::Float3(prop.position))?;
-        visual.set_path("rotation", ConfigValue::Float3([0.0, prop.yaw, 0.0]))?;
+        visual.set_path("rotation", ConfigValue::Float3(prop.euler()))?;
         visual.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
         visual.set_path("lib_name", ConfigValue::String(prop.model.clone()))?;
         visual.set_path("visual_name", ConfigValue::String(prop.model.clone()))?;

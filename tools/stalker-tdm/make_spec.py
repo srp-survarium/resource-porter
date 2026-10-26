@@ -8,13 +8,16 @@ Each MAP is a key of maps.json (cs-mp_bath, cs-mp_military_1, training-camp-cs-d
 rembasa-cs-dm, dl-mp_station, dl-mp_depository). The spawns and ammo stashes
 come from spots.json, the map spot planner's list: every spot of the map, by
 team (team 0 = team 1). TEMPLATES.json is xray_material_templates.py's output
-for the map's donor. No ramps, lids or blockers: tall ladders stay as they are.
+for the map's donor. A map's added geometry (`walker_ramps`, `walker_boxes`,
+`props`, `cuts` in maps.json, e.g. a way up where only a ladder was) goes into
+the spec as it is; otherwise ladders stay as the source has them.
 """
 import argparse
 import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+GEOMETRY = ('walker_ramps', 'walker_boxes', 'props', 'cuts')   # build-survarium-maps-026's added geometry
 TARGET_SHA256 = 'c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c'
 
 
@@ -68,7 +71,11 @@ def entry_of(key, m, all_spots):
         entry['campfires'] = m['campfires']
     if stashes:
         entry['resupply'] = stashes
-    print(f'map {m["id"]} {m["project"]}: {len(teams[0])}+{len(teams[1])} spawns, {len(stashes)} stashes')
+    for k in GEOMETRY:
+        if m.get(k):
+            entry[k] = m[k]
+    added = ', '.join(f'{len(m[k])} {k}' for k in GEOMETRY if m.get(k))
+    print(f'map {m["id"]} {m["project"]}: {len(teams[0])}+{len(teams[1])} spawns, {len(stashes)} stashes' + (f'; {added}' if added else ''))
     return entry
 
 
