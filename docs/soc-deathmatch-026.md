@@ -564,3 +564,65 @@ recipe's `user.cfg`, and `--frame-rate 0` lifts the 60 fps cap.
 `capture_dm_gallery.py` takes the static gallery on its own Xvfb display
 (`--window 1920x1080 --set r_motion_blur_quality=0` for loading-screen
 shots, `--ui on` with a `"mode": 3` pose for the HUD).
+
+## Military Warehouses ground relief (2026-10-27)
+
+The `stalker-maps-026` checkpoint's Military Warehouses ground lost two parts
+of Clear Sky's terrain shading and inherited unrelated parallax textures.
+This applies to its `levels\mp_military_1_asfalt` and
+`levels\mp_military_1_grass` materials (`shader_0156`, `shader_0166`).
+
+Evidence from the installed Clear Sky archives, rather than a newer engine's
+shader implementation:
+
+- `textures/terrain/terrain_mp_military_1.thm`, chunk `0x0815`, names
+  `detail\detail_grnd_grass` with scale **57**. The previous port read only
+  `textures.ltx`, missed that association and used its world-size fallback:
+  **142** repeats. The porter now reads the THM association and its enabling
+  flags (`STextureParams::Load`, `CTextureDescrMngr::LoadTHM`); an enabled THM
+  overrides an LTX association. The emitted count retains the native integer
+  config type (fractional source counts are rounded as before).
+- Both `shaders/r2/deffer_impl_flat.ps` and `shaders/r3/deffer_impl_flat.ps`
+  blend four `_bump` maps as WZY, subtract 0.5, halve the mixed Z component,
+  and normalize. They do **not** apply parallax to this terrain. The old
+  channel-only conversion lost that doubled slope. Separate
+  `*_bump_terrain` DXT5nm textures now encode each layer's strengthened normal
+  and the target's Y convention. Ordinary bump textures are unchanged.
+  This is a per-layer approximation: the target normalizes layers before
+  blending, whereas Clear Sky normalizes their combined vector.
+- All four height slots previously retained the template's soil, dead grass,
+  loam and debris maps. They now use a generated constant-white linear DDS,
+  which gives the existing terrain parallax shader zero texture-coordinate
+  offset. The shader switches and their shipped permutations stay intact.
+
+The grass texture's mean angular error against the source shader's single-layer
+normal, measured after DDS compression, falls from **14.01 degrees to 4.06**.
+Its median tilt changes from **16.64 degrees to 31.86**, versus **31.93** in
+Clear Sky. These are texture measurements, not a claim that the lighting or
+all four-layer blends are identical to Clear Sky.
+
+The first-stage Military Warehouses rebuild changes two materials and adds four normal
+DDS/options pairs plus the neutral height DDS/options pair. Existing geometry,
+collision, vegetation, ordinary normal textures and other files remain the
+same. The six-map candidate reuses the checkpoint's other five maps and its
+map layouts; it does not include the separately prepared Experimental Pool
+cave-in. Other maps need rebuilding to receive this converter correction.
+
+Validation: the full porter tests passed (346 library tests and one additional
+tool test); the final X-Ray subset passed 153 tests. New coverage checks THM
+scales/flags/malformed chunks and normal directions in both tangent axes.
+Workspace Clippy is blocked by existing approximate-PI literals in animation
+and early-map tests; the repository also has existing rustfmt differences.
+The content builder rejected the first candidate's floating-point tile fields;
+the corrected candidate keeps their native integer type.
+
+The final 0.26g import keeps 10,363 files byte-identical, changes two materials,
+adds ten files and drops eight now-unused original terrain-normal DDS/options
+files. The corrected `stalker-maps@6` content build passed the native material
+type checks, archive readback and all 12,981 manifest file checks. Headless
+in-game captures at matching Military Warehouses road/grass poses completed;
+the asphalt and exposed grass show stronger relief without visible UV warping.
+Evidence and before/after PNGs are preserved locally in
+`/mnt/hdd/Projects/stalker-maps-026/analysis-bath/ground-relief/`.
+`cargo clippy --lib` and the three resources-db dependency tests also passed.
+The full workspace Clippy and formatting limitations above remain.

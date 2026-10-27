@@ -35,4 +35,5 @@ pub mod ogf;
 pub mod omf;
 pub mod skeleton;
 pub mod spawn;
+pub mod texture_metadata;
 pub mod vertex;
