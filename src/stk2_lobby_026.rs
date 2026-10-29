@@ -1567,6 +1567,10 @@ fn apply_post_process(
     let set = |object: &mut ConfigValue, key: &str, value: ConfigValue| -> Result<()> {
         let path = format!("properties.{key}");
         if crate::content_pack::value::value_at(object, &path).is_some() {
+            let value = match value {
+                ConfigValue::Float(v) => number_like(object, &path, v),
+                other => other,
+            };
             object.set_path(&path, value)?;
         }
         Ok(())
@@ -2182,30 +2186,26 @@ fn replace_project(
         object.set_path("position", ConfigValue::Float3(light.position))?;
         object.set_path("rotation", ConfigValue::Float3(light.rotation))?;
         object.set_path("color", ConfigValue::Float3(light.color))?;
-        object.set_path(
-            "intensity",
-            ConfigValue::Float(light.intensity * spec.intensity_scale),
-        )?;
+        let value = number_like(&object, "intensity", light.intensity * spec.intensity_scale);
+        object.set_path("intensity", value)?;
         if light.kind != LightKind::Sun {
-            object.set_path("range", ConfigValue::Float(light.range * spec.range_scale))?;
-            object.set_path(
-                "attenuation_power",
-                ConfigValue::Float(light.attenuation_power),
-            )?;
+            let value = number_like(&object, "range", light.range * spec.range_scale);
+            object.set_path("range", value)?;
+            let value = number_like(&object, "attenuation_power", light.attenuation_power);
+            object.set_path("attenuation_power", value)?;
         }
         object.set_path("is_cast_shadow", ConfigValue::Boolean(light.cast_shadow))?;
-        object.set_path(
-            "diffuse_influence_factor",
-            ConfigValue::Float(light.influence[0]),
-        )?;
-        object.set_path(
-            "specular_influence_factor",
-            ConfigValue::Float(light.influence[1]),
-        )?;
+        let value = number_like(&object, "diffuse_influence_factor", light.influence[0]);
+        object.set_path("diffuse_influence_factor", value)?;
+        let value = number_like(&object, "specular_influence_factor", light.influence[1]);
+        object.set_path("specular_influence_factor", value)?;
         if let Some([umbra, penumbra, falloff]) = light.cone {
-            object.set_path("spot_umbra_angle", ConfigValue::Float(umbra))?;
-            object.set_path("spot_penumbra_angle", ConfigValue::Float(penumbra))?;
-            object.set_path("spot_falloff", ConfigValue::Float(falloff))?;
+            let value = number_like(&object, "spot_umbra_angle", umbra);
+            object.set_path("spot_umbra_angle", value)?;
+            let value = number_like(&object, "spot_penumbra_angle", penumbra);
+            object.set_path("spot_penumbra_angle", value)?;
+            let value = number_like(&object, "spot_falloff", falloff);
+            object.set_path("spot_falloff", value)?;
         }
         object.set_path("layer", ConfigValue::String("default".to_owned()))?;
         made.push(object);
@@ -2549,6 +2549,17 @@ fn write_slice(
         vertices,
         collision: has_collision && !built.is_empty(),
     })
+}
+
+/// A number in the type the object already has there: an integer where
+/// 0.26g keeps one (and the value is whole), a float otherwise.
+fn number_like(object: &ConfigValue, path: &str, value: f32) -> ConfigValue {
+    match crate::content_pack::value::value_at(object, path) {
+        Some(ConfigValue::Integer(_)) if value.fract() == 0.0 && value.abs() < 1e9 => {
+            ConfigValue::Integer(value as i32)
+        }
+        _ => ConfigValue::Float(value),
+    }
 }
 
 fn parse(db: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
