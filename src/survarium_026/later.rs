@@ -584,6 +584,52 @@ fn triangles(bytes: &[u8]) -> usize {
 }
 
 /// LOD index of each surface (the lowest LOD naming it).
+/// A surface name as a path component without spaces or signs: 0.69d names
+/// some by their Maya material (`material #25`), which 0.26's own surfaces
+/// never are and skhid-srp's release tools (space-separated lists) cannot
+/// carry. Letters, digits and `_` stay; every other run becomes one `_`.
+fn plain_surface(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            out.push(c);
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    out
+}
+
+/// A model file's path with its surface folder (`.model/render/<surface>/`) plain.
+fn plain_render_path(path: &str) -> String {
+    let Some((model, rest)) = path.split_once(".model/render/") else { return path.to_owned() };
+    match rest.split_once('/') {
+        Some((surface, file)) => format!("{model}.model/render/{}/{file}", plain_surface(surface)),
+        None => path.to_owned(),
+    }
+}
+
+/// The surfaces a model's settings name (materials, LOD lists), plain as
+/// their folders (`plain_render_path`).
+fn plain_surfaces(settings: &mut ConfigValue) {
+    if let Some(ConfigValue::Named(entries)) = settings.named_mut("material_settings") {
+        for entry in entries {
+            entry.name = plain_surface(&entry.name);
+        }
+    }
+    if let Some(ConfigValue::Named(lods)) = settings.named_mut("lod_hierrarchy") {
+        for lod in lods {
+            if let Some(ConfigValue::Indexed(surfaces)) = lod.value.named_mut("surfaces") {
+                for surface in surfaces {
+                    if let ConfigValue::String(name) = surface {
+                        *name = plain_surface(name);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// A donor model's settings, its LOD surface lists as 0.26 writes them.
 fn model_settings(db: &mut ResourceDb, path: &str, build: SourceBuild) -> Result<ConfigValue> {
     let mut c = cfg(db, path)?;
@@ -2964,7 +3010,7 @@ pub fn build(
             }
         }
         let mut bytes = donor.read(path)?;
-        let dest = level_files.get(path).cloned().unwrap_or_else(|| relocate(path));
+        let dest = plain_render_path(&level_files.get(path).cloned().unwrap_or_else(|| relocate(path)));
         if path.ends_with("/converted_model") {
             bytes = geometry(&bytes, m.source_build).with_context(|| format!("repacking {path}"))?;
             let terrain = m.decimate_terrain.iter().any(|p| path.starts_with(&format!("models/{p}")));
@@ -3032,7 +3078,7 @@ pub fn build(
                         let error = if level == 1 { simplify.max_error } else { simplify.lod2_max_error.unwrap_or(simplify.max_error) };
                         let lod = simplify_mesh_with(&bytes, ratio, error, simplify.options(level))?.unwrap_or_else(|| bytes.clone());
                         let name = format!("srp_lod{level}_{surface}");
-                        let gen_dest = relocate(&format!("{model_root}/render/{name}/converted_model"));
+                        let gen_dest = plain_render_path(&relocate(&format!("{model_root}/render/{name}/converted_model")));
                         emit(output, &gen_dest, &lod, "0.69d LOD0 simplified by meshoptimizer", &mut files)?;
                         let properties = donor.read(&format!("{model_root}/render/{surface}/export_properties"))?;
                         let mut properties = BinaryConfig::parse(&properties)?;
@@ -3044,7 +3090,7 @@ pub fn build(
                             properties.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
                         }
                         let properties = properties.to_bytes()?;
-                        emit(output, &relocate(&format!("{model_root}/render/{name}/export_properties")), &properties, source, &mut files)?;
+                        emit(output, &plain_render_path(&relocate(&format!("{model_root}/render/{name}/export_properties"))), &properties, source, &mut files)?;
                         generated.entry(model_root.to_owned()).or_insert_with(Vec::new).push((level, surface.to_owned(), name));
                     }
                 }
@@ -3154,6 +3200,7 @@ pub fn build(
                 )?;
                 lod_switched += 1;
             }
+            plain_surfaces(&mut c);
             bytes = BinaryConfig { root: c }.to_bytes()?;
         } else if path.ends_with(".veg") {
             vegetation_instances.insert(path.clone(), super::early::vegetation_instances(&bytes).with_context(|| format!("checking {path}"))?);
@@ -4347,6 +4394,24 @@ mod tests {
         assert_eq!(text(effect, "t_smoothness"), Some("tiled/metal/metal_truba_spec"));
         assert_eq!(number(effect, "max_smoothness"), Some(0.6));
         assert_eq!(text(effect, "texture_diffuse"), Some("tiled/metal/metal_truba"), "0.26 names kept");
+    }
+
+    #[test]
+    fn surface_folders_and_names_lose_spaces_and_signs() {
+        assert_eq!(plain_surface("lod1_material #25"), "lod1_material_25");
+        assert_eq!(plain_surface("metal_truba"), "metal_truba");
+        assert_eq!(
+            plain_render_path("models/x/notebook.model/render/material #25/converted_model"),
+            "models/x/notebook.model/render/material_25/converted_model"
+        );
+        assert_eq!(plain_render_path("models/x/a.model/settings"), "models/x/a.model/settings");
+        let mut settings = named(vec![
+            ("material_settings", named(vec![("material #25", named(vec![("material_name", ConfigValue::String("m".into()))]))])),
+            ("lod_hierrarchy", named(vec![("LOD0", named(vec![("surfaces", ConfigValue::Indexed(vec![ConfigValue::String("material #25".into())]))]))])),
+        ]);
+        plain_surfaces(&mut settings);
+        assert!(settings.named("material_settings").unwrap().named("material_25").is_some());
+        assert_eq!(surface_lods(&settings), BTreeMap::from([("material_25".to_owned(), 0)]));
     }
 
     #[test]
