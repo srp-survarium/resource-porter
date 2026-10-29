@@ -1,0 +1,81 @@
+{
+  "source_build": "0.46c2",
+  "donor_fingerprint": "623890d5e855acd7039020652b5379a8baed72cb35b40e04b3701ec131aae0a8",
+  "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "lobby": {
+    "donor_project": "projects/lobby_scene/day/client_project",
+    "template_project": "projects/lobby_scene/day/client_project",
+    "output_project": "lobby_scene/hangar_046",
+    "vegetation_folder": "hangar_046",
+    "probes": "donor"
+  },
+  "namespace": "ported/v046c2_lobby",
+  "game_material_names": {
+    "cactus_slime": "mud",
+    "concrete_solid": "concrete",
+    "crystal": "glass",
+    "fog": "default",
+    "grass_walkable_nowalk": "grass_walkable",
+    "ground_not_walkable_new": "ground_not_walkable",
+    "metall_railings_thin": "metall_thin",
+    "metall_tank_solid": "metall_tank",
+    "metall_thick_solid": "metall_thick",
+    "metall_thin_fridge": "metall_thin",
+    "no_collision": "default",
+    "nut": "metall_thin",
+    "paper_thick": "paper",
+    "sand": "ground",
+    "schiefer_solid": "schiefer",
+    "slime": "mud",
+    "smoke": "default",
+    "snow": "ground",
+    "stone_solid": "stone",
+    "stone_walkable": "stone",
+    "transparency1_metall_thick": "metall_thick",
+    "transparency1_metall_thin": "metall_thin",
+    "wood_branch": "wood_thin",
+    "wood_tin": "wood_thin"
+  },
+  "material_templates": {
+    "opaque": "tiled/concrete/concrete_01",
+    "opaque_two_sided": "tiled/roof/roof_02",
+    "vertex_colour": "tiled/concrete/concrete_crack",
+    "vertex_blend": "tiled/bricks/brick_02_top_burned_vc",
+    "alpha_test": "decals/moss_2",
+    "alpha_test_two_sided": "flora/roots_tile",
+    "foliage": "flora/anomaly_tree_leaves",
+    "grass": "flora/grass_l03",
+    "decal": "decals/decals_multiply_04",
+    "projected_decal": "decals/newspaper_05_corner",
+    "terrain": "terrain_tiled/l_03_alfa_buter/grass_02",
+    "glass_cutout": "flora/roots_tile",
+    "glass": "level/lobby/glass_clone",
+    "water": "water/water",
+    "foliage_vc": "flora/roots_tree_leaves_05_nowind",
+    "alpha_test_vc": "tiled/window/window_brokengl_vc",
+    "alpha_test_two_sided_vc": "tiled/window/window_brokengl_vc",
+    "glass_cutout_vc": "tiled/window/window_brokengl_vc",
+    "opaque_two_sided_vc": "tiled/floor/floor_plate_tile",
+    "opaque_vc": "tiled/concrete/concrete_crack",
+    "terrain_blend": "tiled/bricks/brick_02_burn_vc"
+  },
+  "roughness_scale": 1.0,
+  "max_texture_size": 2048,
+  "ambient_sounds": {
+    "project": "projects/lobby_scene/day/client_project",
+    "include": [
+      "sounds/background",
+      "sounds/lobby_room_tone"
+    ],
+    "offset": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "particle_replacements": {
+    "fx/environment/lamp_sparks": "fx/environment/lamp_sparks",
+    "fx/environment/lamp_sparks_side_orange": "fx/environment/lamp_sparks",
+    "fx/environment/leaflet_pause_slow": "fx/environment/leaflet_pause"
+  }
+}

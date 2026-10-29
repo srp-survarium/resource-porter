@@ -230,3 +230,45 @@ steep_walker.rs` lists every narrow walker face steeper than 55 degrees that
 rises over 2 m; in the TDM scene these are tree trunks, fence posts,
 pylon and antenna legs (3 420 faces, none on a ladder model), not climb
 routes, so no ramp or plank was added.
+
+## Lobby scenes (0.46c2 hangar, 0.69d tent camp)
+
+The same builder makes a lobby project when the manifest has `lobby` in
+place of `map` (`build-survarium-later-scene` is an alias of the command):
+
+```sh
+vostok-port build-survarium-later-scene \
+  --manifest ports/survarium-046c2-lobby-hangar-to-026g.json \
+  --donor-db v046c2.split --target-db "$TARGET_026_DB" --output "$BUNDLE"
+vostok-port build-survarium-later-scene \
+  --manifest ports/survarium-069d-lobby-camp-to-026g.json \
+  --donor-db donor-069d.split --target-db "$TARGET_026_DB" --output "$BUNDLE"
+vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
+  --bundle "$BUNDLE" --output <id>-<version> --id <id> --version <version>
+```
+
+* A lobby is a client project only (`projects/lobby_scene/<name>/client_project`):
+  no server objects, mode, dictionary row or localization. Its templates are
+  the 0.26 lobby's (`projects/lobby_scene/day`). Both donors put the lobby's
+  character where 0.26 does (`gameplay/lobby_menu.options`: `local_player` at
+  the origin, rotation 180), so the scene keeps the donor's coordinates.
+* Vegetation instance files go to `projects/lobby_scene/vegetation/<vegetation_folder>/`:
+  every lobby shares the level directory and the donors name theirs alike.
+* `namespace` (`ported/v046c2_lobby`, `ported/v069d_lobby`) keeps a lobby's
+  imported files apart from a map port of the same build.
+* **0.46c2** has 0.69d's 16-byte configs but 0.26's vertex basis (the same
+  mesh is byte-identical) and material vocabulary (`texture_diffuse`,
+  `use_nmap`, `texture_roughness` as gloss): `geometry` keeps the basis and
+  drops chunks 110/113, `vocabulary_046` adds the 0.69d names so materials
+  convert through the same templates (`roughness_scale` 1), a LOD's surface
+  table becomes a list (`lod_lists`), and an empty game material with id 0
+  becomes 0.26's 65535. Its lights are 0.26 intensities; its probes are
+  0.26's format (a cubemap and its `_diffuse`) and are imported
+  (`"probes": "donor"`). Wire sets are the same object and are kept.
+* **0.69d**: lux and lumen as for Duga, but the lobby keeps its ambient
+  lights: `type` 1 (multiplying, the painted contact shadows) is dropped,
+  spheres take radius x scale, and intensities are scaled to the 0.26 lobby's
+  median and capped at 3. Its probes keep their volumes on the 0.26 lobby's
+  cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
+  Year snow of volume 72's project; `native_materials` draws its window panes
+  (`water/glass_water`) with 0.26's `tiled/window/glass`.

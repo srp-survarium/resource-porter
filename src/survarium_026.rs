@@ -30,29 +30,35 @@ pub enum SourceBuild {
     #[default]
     #[serde(rename = "0.21d")]
     V021d,
+    /// 0.46c2 (2016), split into 36 volumes: the 16-byte configs of 0.69d
+    /// with the 0.26 vertex basis and material vocabulary; see `later`.
+    #[serde(rename = "0.46c2")]
+    V046c2,
     /// 0.69d0 (2022), split into 76 volumes; see `later`.
     #[serde(rename = "0.69d")]
     V069d,
 }
 
 impl SourceBuild {
-    fn prefix(self) -> &'static str {
+    pub(crate) fn prefix(self) -> &'static str {
         match self {
             Self::V010b => "v010b",
             Self::V011a => "v011a",
             Self::V011e => "v011e",
             Self::V020e => "v020e",
             Self::V021d => "v021d",
+            Self::V046c2 => "v046c2",
             Self::V069d => "v069d",
         }
     }
-    fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::V010b => "0.10b-802",
             Self::V011a => "0.11a-816",
             Self::V011e => "0.11e-884",
             Self::V020e => "0.20e-1916",
             Self::V021d => "0.21d-2010",
+            Self::V046c2 => "0.46c2",
             Self::V069d => "0.69d0",
         }
     }

@@ -28,7 +28,17 @@ pub struct Manifest {
     /// `archive::split_fingerprint` of the donor volume list.
     pub donor_fingerprint: String,
     pub target_sha256: String,
-    pub map: MapSpec,
+    /// What is ported: a map (`map`) or a lobby scene (`lobby`); exactly one
+    /// (`Manifest::port`).
+    #[serde(default)]
+    pub map: Option<MapSpec>,
+    #[serde(default)]
+    pub lobby: Option<LobbySpec>,
+    /// Where imported resources go, under each family (`models/<it>/...`);
+    /// default `ported/<build prefix>`. Ports of one build that may ship side
+    /// by side take their own, so no file of one overwrites another's.
+    #[serde(default)]
+    pub namespace: Option<String>,
     /// 0.69d-only game materials (collision surfaces) -> the 0.26 material
     /// that behaves the same for bullets and footsteps.
     pub game_material_names: BTreeMap<String, String>,
@@ -40,6 +50,11 @@ pub struct Manifest {
     /// Models never taken from 0.26 even when an equivalent ships there.
     #[serde(default)]
     pub force_donor_models: BTreeSet<String>,
+    /// Donor materials drawn with a native 0.26 material as it is, by donor
+    /// name (a material whose category's template would draw it wrongly:
+    /// 0.69d's window panes made of a still-water material).
+    #[serde(default)]
+    pub native_materials: BTreeMap<String, String>,
     /// Native particles that stand in for 0.69d particles, by donor name.
     #[serde(default)]
     pub particle_replacements: BTreeMap<String, String>,
@@ -237,6 +252,99 @@ pub struct MapSpec {
     pub matte_water_probe: Option<String>,
 }
 
+/// A lobby scene: the project the lobby menu loads behind the character (0.26
+/// loads `lobby_scene/day`; another worker picks among these). It is a client
+/// project only: no server project, mode or registration. The donor's
+/// character stands where 0.26's does (the origin, facing -z: both builds'
+/// `gameplay/lobby_menu.options` put `local_player` at (0, 0, 0), rotation
+/// 180), so the scene keeps the donor's coordinates.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LobbySpec {
+    /// The donor's lobby project.
+    pub donor_project: String,
+    /// The native lobby whose objects are the templates (environment, probes,
+    /// lights), and whose ambient lights' median the donor's are scaled to.
+    pub template_project: String,
+    /// Output project directory under `projects/` (`lobby_scene/<name>`).
+    pub output_project: String,
+    /// Folder under the level's `vegetation/` for this lobby's instance
+    /// files: every lobby is in `projects/lobby_scene/`, and the donors name
+    /// theirs alike (`vegetation/green.veg`).
+    pub vegetation_folder: String,
+    /// How the donor's environment probes are drawn.
+    pub probes: LobbyProbes,
+    /// Donor model-name prefixes whose instances are left out (a seasonal
+    /// event's dressing).
+    #[serde(default)]
+    pub exclude_models: Vec<String>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum LobbyProbes {
+    /// The donor's own cubemaps, imported with their volumes. 0.46c2 bakes
+    /// probes as 0.26 does: a DXT5 cubemap and its `_diffuse` irradiance.
+    Donor,
+    /// The donor's volumes, drawn with this template probe's (`full_name`)
+    /// cubemaps: 0.69d probes are encoded for its exposure pipeline and carry
+    /// their irradiance as SH coefficients, with no `_diffuse` cubemap.
+    Template { native: String },
+}
+
+/// What one manifest ports, parsed from its `map` / `lobby` keys.
+#[derive(Clone)]
+pub enum Port {
+    Map(MapSpec),
+    Lobby(LobbySpec),
+}
+
+impl Port {
+    fn donor_project(&self) -> &str {
+        match self {
+            Self::Map(m) => &m.donor_project,
+            Self::Lobby(l) => &l.donor_project,
+        }
+    }
+    fn template_project(&self) -> &str {
+        match self {
+            Self::Map(m) => &m.template_project,
+            Self::Lobby(l) => &l.template_project,
+        }
+    }
+    fn output_project(&self) -> &str {
+        match self {
+            Self::Map(m) => &m.output_project,
+            Self::Lobby(l) => &l.output_project,
+        }
+    }
+    fn excluded(&self, model: &str) -> bool {
+        match self {
+            Self::Map(_) => false,
+            Self::Lobby(l) => l.exclude_models.iter().any(|p| model.starts_with(p.as_str())),
+        }
+    }
+}
+
+impl Manifest {
+    pub fn port(&self) -> Result<Port> {
+        match (&self.map, &self.lobby) {
+            (Some(map), None) => Ok(Port::Map(map.clone())),
+            (None, Some(lobby)) => Ok(Port::Lobby(lobby.clone())),
+            _ => bail!("a manifest ports one map (`map`) or one lobby (`lobby`)"),
+        }
+    }
+    /// The folder imported resources take under each family.
+    pub fn namespace(&self) -> String {
+        self.namespace.clone().unwrap_or_else(|| format!("ported/{}", self.source_build.prefix()))
+    }
+    /// 0.69d stores light in photometric units (lux, lumen); 0.46c2 in 0.26's
+    /// unitless intensities.
+    fn photometric(&self) -> bool {
+        self.source_build == SourceBuild::V069d
+    }
+}
+
 fn value_of<'a>(effect: &'a ConfigValue, name: &str) -> Option<&'a ConfigValue> {
     let field = effect.named(name)?;
     Some(field.named("value").unwrap_or(field))
@@ -272,9 +380,11 @@ fn number(effect: &ConfigValue, name: &str) -> Option<f32> {
 /// 0.69d stores each as one float whose value is `(x << 16 | y << 8 | z) /
 /// 2^24` - the same three bytes, carried exactly by the float mantissa. The
 /// alpha bytes (normal 127, tangent/binormal 255 on 0.26's static meshes) are
-/// not stored by 0.69d and take the canonical values. Chunks 110 and 114
-/// (0.69d mesh statistics) are dropped; any other unknown chunk is an error.
-pub fn geometry(bytes: &[u8]) -> Result<Vec<u8>> {
+/// not stored by 0.69d and take the canonical values. 0.46c2 already packs
+/// the basis as 0.26 does (the same mesh is byte-identical in both), so only
+/// its chunks change. Chunks 110, 113 (0.46c2) and 114 (0.69d) are mesh
+/// statistics and are dropped; any other unknown chunk is an error.
+pub fn geometry(bytes: &[u8], build: SourceBuild) -> Result<Vec<u8>> {
     let u32_at = |offset: usize| -> Result<usize> {
         Ok(u32::from_le_bytes(
             bytes
@@ -294,7 +404,8 @@ pub fn geometry(bytes: &[u8]) -> Result<Vec<u8>> {
         "unsupported static vertex chunk (stride {stride})"
     );
     let mut result = bytes[..8 + size].to_vec();
-    for vertex in result[12..8 + size].chunks_exact_mut(stride) {
+    let float_basis = build == SourceBuild::V069d;
+    for vertex in result[12..8 + size].chunks_exact_mut(stride).filter(|_| float_basis) {
         for (slot, alpha) in [(12, 0x7f_u32), (16, 0xff), (20, 0xff)] {
             let raw = u32::from_le_bytes(vertex[slot..slot + 4].try_into().unwrap());
             let value = f32::from_bits(raw);
@@ -320,8 +431,8 @@ pub fn geometry(bytes: &[u8]) -> Result<Vec<u8>> {
                 indices = true;
                 result.extend_from_slice(&bytes[offset..end]);
             }
-            110 | 114 => {}
-            other => bail!("unknown 0.69d geometry chunk {other}"),
+            110 | 113 | 114 => {}
+            other => bail!("unknown {} geometry chunk {other}", build.label()),
         }
         offset = end;
     }
@@ -473,6 +584,29 @@ fn triangles(bytes: &[u8]) -> usize {
 }
 
 /// LOD index of each surface (the lowest LOD naming it).
+/// A donor model's settings, its LOD surface lists as 0.26 writes them.
+fn model_settings(db: &mut ResourceDb, path: &str, build: SourceBuild) -> Result<ConfigValue> {
+    let mut c = cfg(db, path)?;
+    if build == SourceBuild::V046c2 {
+        lod_lists(&mut c);
+    }
+    Ok(c)
+}
+
+/// 0.46c2 writes a LOD's surfaces as a table of names with empty values
+/// (`LOD0.surfaces.bushsg = ""`); 0.26 and 0.69d as a list of names, which
+/// 0.26 requires. Lists are left as they are.
+fn lod_lists(settings: &mut ConfigValue) {
+    let Some(ConfigValue::Named(lods)) = settings.named_mut("lod_hierrarchy") else { return };
+    for lod in lods {
+        let Some(surfaces) = lod.value.named_mut("surfaces") else { continue };
+        if let ConfigValue::Named(names) = surfaces {
+            let list = names.iter().map(|n| ConfigValue::String(n.name.clone())).collect();
+            *surfaces = ConfigValue::Indexed(list);
+        }
+    }
+}
+
 fn surface_lods(settings: &ConfigValue) -> BTreeMap<String, usize> {
     let mut result = BTreeMap::new();
     for (index, lod) in ["LOD0", "LOD1", "LOD2"].iter().enumerate() {
@@ -1241,6 +1375,56 @@ pub fn convert_material(
     })
 }
 
+/// 0.46c2 materials still name their maps as 0.26 does (`texture_diffuse`,
+/// `use_nmap`, `texture_roughness`: 0.26's gloss channel); 0.69d renamed them
+/// (`t_albedo`, `use_t_normal`, `t_smoothness`). Every field 0.69d reads is
+/// added under its 0.69d name, so `categorize` and `convert_material` read
+/// both builds alike; the manifest's `roughness_scale` is then 1 (the values
+/// are 0.26's already).
+pub fn vocabulary_046(root: &mut ConfigValue) {
+    const NAMES: [(&str, &str); 14] = [
+        ("texture_diffuse", "t_albedo"),
+        ("use_tdiffuse", "use_t_albedo"),
+        ("texture_normal", "t_normal"),
+        ("use_nmap", "use_t_normal"),
+        ("texture_roughness", "t_smoothness"),
+        ("use_troughness", "use_t_smoothness"),
+        ("constant_roughness", "smoothness"),
+        ("constant_roughness_min", "min_smoothness"),
+        ("constant_roughness_max", "max_smoothness"),
+        ("texture_translucency", "t_translucency"),
+        ("use_ttranslucency", "use_t_translucency"),
+        ("constant_diffuse", "albedo_color"),
+        ("use_tditail_diffuse", "use_t_albedo_detail"),
+        ("use_tparallax", "use_parallax"),
+    ];
+    let Some(ConfigValue::Named(stages)) = root.named_mut("material") else { return };
+    for stage in stages {
+        let Some(ConfigValue::Named(fields)) = stage.value.named_mut("effect") else { continue };
+        for (old, new) in NAMES {
+            if fields.iter().any(|f| f.name == new) {
+                continue;
+            }
+            if let Some(field) = fields.iter().find(|f| f.name == old).cloned() {
+                fields.push(NamedValue { name: new.into(), value: field.value });
+            }
+        }
+    }
+}
+
+/// 0.46c2 exports surfaces without a game material (render-only background
+/// models) with an empty name and id 0; 0.26 writes its 65535 sentinel.
+fn unassigned_046(settings: &mut ConfigValue) {
+    let Some(ConfigValue::Named(entries)) = settings.named_mut("game_material_settings") else { return };
+    for entry in entries {
+        if matches!(entry.value.named("game_material_name"), Some(ConfigValue::String(n)) if n.is_empty()) {
+            if let Some(id) = entry.value.named_mut("game_material_id") {
+                *id = ConfigValue::Integer(65_535);
+            }
+        }
+    }
+}
+
 /// Every texture-valued effect field of a converted material.
 fn bound_textures(root: &ConfigValue) -> Vec<String> {
     let mut result = Vec::new();
@@ -1611,8 +1795,11 @@ pub struct SceneReport {
     pub models: BTreeSet<String>,
     /// Model names referenced by vegetation layers.
     pub vegetation_models: BTreeSet<String>,
-    /// Vegetation instance files, project-relative.
-    pub vegetation_files: BTreeSet<String>,
+    /// Vegetation instance files relative to the level directory: the
+    /// donor's name -> the emitted one.
+    pub vegetation_files: BTreeMap<String, String>,
+    /// Donor cubemaps the scene's probes name (lobbies with `LobbyProbes::Donor`).
+    pub probe_textures: BTreeSet<String>,
     pub decal_materials: BTreeSet<String>,
     pub counts: BTreeMap<String, usize>,
     pub notes: Vec<String>,
@@ -1631,11 +1818,14 @@ fn model_of_reference(reference: &str) -> String {
     }
 }
 
-/// Build the 0.26 scene from the 0.69d TDM scene and the native template.
+/// Build the 0.26 scene from the donor's scene (a 0.69d map's TDM scene, or a
+/// lobby) and the native template. `photometric`: the donor's lights are in
+/// lux and lumen (0.69d), not 0.26's unitless intensities (0.46c2).
 pub fn convert_scene(
     donor: &ConfigValue,
     template: &ConfigValue,
-    spec: &MapSpec,
+    port: &Port,
+    photometric: bool,
     particle_replacements: &BTreeMap<String, String>,
 ) -> Result<SceneReport> {
     let mut counts = BTreeMap::<String, usize>::new();
@@ -1645,8 +1835,13 @@ pub fn convert_scene(
 
     // Render and collision instances.
     let mut visuals = Vec::new();
+    let mut excluded = 0usize;
     for visual in array(donor.named("render_visuals").context("no render_visuals")?)? {
         let model = string(visual, "model_name").context("render visual without model_name")?;
+        if port.excluded(&model_of_reference(model)) {
+            excluded += 1;
+            continue;
+        }
         models.insert(model_of_reference(model));
         visuals.push(named(vec![
             ("lib_name", ConfigValue::String(model.replace('\\', "/"))),
@@ -1659,6 +1854,9 @@ pub fn convert_scene(
     let mut collisions = Vec::new();
     for collision in array(donor.named("collision_objects").context("no collision_objects")?)? {
         let model = string(collision, "model_name").context("collision without model_name")?;
+        if port.excluded(&model_of_reference(model)) {
+            continue;
+        }
         models.insert(model_of_reference(model));
         collisions.push(named(vec![
             ("lib_name", ConfigValue::String(model.replace('\\', "/"))),
@@ -1679,8 +1877,12 @@ pub fn convert_scene(
     let mut objects = Vec::new();
     let mut decal_materials = BTreeSet::new();
     let mut vegetation_models = BTreeSet::new();
-    let mut vegetation_files = BTreeSet::new();
+    let mut vegetation_files = BTreeMap::new();
+    let mut probe_textures = BTreeSet::new();
     let mut dropped = BTreeMap::<String, usize>::new();
+    if excluded > 0 {
+        notes.push(format!("left out: {excluded} render instances of the excluded models and their collision"));
+    }
 
     // Environment: the native one, lit from the donor's sun direction.
     let mut environment = first_template(template, "environment")?;
@@ -1698,67 +1900,125 @@ pub fn convert_scene(
     environment.set_path("properties.sun_angle", ConfigValue::Float(elevation))?;
     environment.set_path("properties.sun_position_azimut", ConfigValue::Float(azimuth))?;
     notes.push(format!(
-        "environment: native {} sky, clouds, fog and post-process; 0.69d sun direction (elevation {elevation}, azimuth {azimuth}); 0.69d exposure, colour grading, light shafts and fog volumes have no 0.26 counterpart",
-        spec.template_project
+        "environment: native {} sky, clouds, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its exposure, colour grading, light shafts and fog volumes have no 0.26 counterpart",
+        port.template_project()
     ));
     objects.push(environment);
     count("environment");
 
-    // One native outdoor probe over the whole map. 0.69d probes are encoded
-    // for its exposure pipeline (RGBM-like alpha, SH irradiance) and do not
-    // decode in 0.26.
-    let mut probe = templates_of(template, "environment_probe")
-        .into_iter()
-        .filter(|p| integer(p, "geometry") == Some(0))
-        .max_by(|a, b| {
-            real(a, "radius")
-                .unwrap_or(0.0)
-                .total_cmp(&real(b, "radius").unwrap_or(0.0))
-        })
-        .context("template has no sphere probe")?
-        .clone();
-    probe.set_path("position", ConfigValue::Float3(spec.global_probe_position))?;
-    probe.set_path("radius", ConfigValue::Float(spec.global_probe_radius))?;
-    probe.set_path("name", ConfigValue::String("global".into()))?;
-    probe.set_path(
-        "full_name",
-        ConfigValue::String("env_and_lights/probes/global".into()),
-    )?;
-    let global_texture = probe_texture(&probe).context("global probe texture")?;
-    set_probe_texture(&mut probe, &global_texture)?;
-    objects.push(probe);
-    count("environment_probe");
-    // Local probes: 0.69d volumes with native cubemaps by folder.
-    let mut class_probes = Vec::new();
-    for class in &spec.probe_classes {
-        let native = templates_of(template, "environment_probe")
+    match port {
+        Port::Map(map) => {
+        // One native outdoor probe over the whole map. 0.69d probes are encoded
+        // for its exposure pipeline (RGBM-like alpha, SH irradiance) and do not
+        // decode in 0.26.
+        let mut probe = templates_of(template, "environment_probe")
             .into_iter()
-            .find(|p| string(p, "full_name") == Some(class.native.as_str()))
-            .with_context(|| format!("template has no probe {}", class.native))?;
-        class_probes.push((class.prefix.clone(), native.clone(), probe_texture(native).context("probe texture")?));
-    }
-    for object in donor_objects.iter().filter(|o| kind(o) == "environment_probe") {
-        let full_name = string(object, "full_name").unwrap_or("");
-        if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) {
-            continue;
-        }
-        let Some((_, native, texture)) = class_probes.iter().find(|(prefix, _, _)| full_name.starts_with(prefix.as_str())) else {
-            continue;
-        };
-        let mut p = native.clone();
-        place(&mut p, object, full_name)?;
-        set_probe_texture(&mut p, texture)?;
-        let scale = float3(object, "scale")?;
-        // 0.69d shapes: 0 sphere, 1 box, 2/3 boxes with other falloffs.
-        let sphere = integer(object, "geometry") == Some(0);
-        p.set_path("geometry", ConfigValue::Integer(if sphere { 0 } else { 1 }))?;
-        if sphere {
-            p.set_path("radius", ConfigValue::Float(scale.iter().cloned().fold(0.0, f32::max)))?;
-            p.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
-        }
-        copy_shared(&mut p, object, &["probe_side_width"])?;
-        objects.push(p);
+            .filter(|p| integer(p, "geometry") == Some(0))
+            .max_by(|a, b| {
+                real(a, "radius")
+                    .unwrap_or(0.0)
+                    .total_cmp(&real(b, "radius").unwrap_or(0.0))
+            })
+            .context("template has no sphere probe")?
+            .clone();
+        probe.set_path("position", ConfigValue::Float3(map.global_probe_position))?;
+        probe.set_path("radius", ConfigValue::Float(map.global_probe_radius))?;
+        probe.set_path("name", ConfigValue::String("global".into()))?;
+        probe.set_path(
+            "full_name",
+            ConfigValue::String("env_and_lights/probes/global".into()),
+        )?;
+        let global_texture = probe_texture(&probe).context("global probe texture")?;
+        set_probe_texture(&mut probe, &global_texture)?;
+        objects.push(probe);
         count("environment_probe");
+        // Local probes: 0.69d volumes with native cubemaps by folder.
+        let mut class_probes = Vec::new();
+        for class in &map.probe_classes {
+            let native = templates_of(template, "environment_probe")
+                .into_iter()
+                .find(|p| string(p, "full_name") == Some(class.native.as_str()))
+                .with_context(|| format!("template has no probe {}", class.native))?;
+            class_probes.push((class.prefix.clone(), native.clone(), probe_texture(native).context("probe texture")?));
+        }
+        for object in donor_objects.iter().filter(|o| kind(o) == "environment_probe") {
+            let full_name = string(object, "full_name").unwrap_or("");
+            if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) {
+                continue;
+            }
+            let Some((_, native, texture)) = class_probes.iter().find(|(prefix, _, _)| full_name.starts_with(prefix.as_str())) else {
+                continue;
+            };
+            let mut p = native.clone();
+            place(&mut p, object, full_name)?;
+            set_probe_texture(&mut p, texture)?;
+            let scale = float3(object, "scale")?;
+            // 0.69d shapes: 0 sphere, 1 box, 2/3 boxes with other falloffs.
+            let sphere = integer(object, "geometry") == Some(0);
+            p.set_path("geometry", ConfigValue::Integer(if sphere { 0 } else { 1 }))?;
+            if sphere {
+                p.set_path("radius", ConfigValue::Float(scale.iter().cloned().fold(0.0, f32::max)))?;
+                p.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
+            }
+            copy_shared(&mut p, object, &["probe_side_width"])?;
+            objects.push(p);
+            count("environment_probe");
+        }
+        }
+        Port::Lobby(lobby) => {
+            // The donor's volumes on the template's probe; their cubemaps the
+            // donor's own or the template's.
+            let native = match &lobby.probes {
+                LobbyProbes::Donor => templates_of(template, "environment_probe").into_iter().next(),
+                LobbyProbes::Template { native } => templates_of(template, "environment_probe")
+                    .into_iter()
+                    .find(|p| string(p, "full_name") == Some(native.as_str())),
+            }
+            .context("template has no such environment probe")?
+            .clone();
+            let native_texture = probe_texture(&native).context("template probe texture")?;
+            for object in donor_objects.iter().filter(|o| kind(o) == "environment_probe") {
+                if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) {
+                    continue;
+                }
+                let full_name = string(object, "full_name").unwrap_or("environment_probe");
+                let mut p = native.clone();
+                place(&mut p, object, full_name)?;
+                let texture = match &lobby.probes {
+                    LobbyProbes::Donor => {
+                        let t = string(object, "texture").context("donor probe without texture")?.replace('\\', "/");
+                        probe_textures.insert(t.clone());
+                        // Same model of probe: every value of both builds' schema.
+                        copy_shared(
+                            &mut p,
+                            object,
+                            &[
+                                "radius", "geometry", "probe_side_width", "diffuse_multiplier", "specular_multiplier", "ambient_multiplier",
+                                "affect_diffuse", "smart_attenuation", "use_parallax_correction", "priority", "cubemap_resolution_index",
+                            ],
+                        )?;
+                        t
+                    }
+                    LobbyProbes::Template { .. } => {
+                        let scale = float3(object, "scale")?;
+                        let sphere = integer(object, "geometry") == Some(0);
+                        p.set_path("geometry", ConfigValue::Integer(if sphere { 0 } else { 1 }))?;
+                        if sphere {
+                            p.set_path("radius", ConfigValue::Float(scale.iter().cloned().fold(0.0, f32::max)))?;
+                            p.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
+                        }
+                        native_texture.clone()
+                    }
+                };
+                set_probe_texture(&mut p, &texture)?;
+                objects.push(p);
+                count("environment_probe");
+            }
+            notes.push(match &lobby.probes {
+                LobbyProbes::Donor => format!("environment probes: the donor's volumes and cubemaps ({} cubemaps)", probe_textures.len()),
+                LobbyProbes::Template { native } => format!("environment probes: the donor's volumes drawn with {native} of {} ({native_texture})", lobby.template_project),
+            });
+        }
     }
 
     let ambient_template = first_template(template, "ambient_light")?;
@@ -1769,12 +2029,19 @@ pub fn convert_scene(
         .or_else(|| templates_of(template, "light").into_iter().next())
         .context("template has no light")?
         .clone();
-    let resupply_template = first_template(template, "resupply_zone")?;
-    let collision_geometry_template = templates_of(template, "collision_geometry")
-        .into_iter()
-        .find(|c| array(c.named("meshes").unwrap_or(&ConfigValue::Indexed(vec![]))).is_ok_and(|m| m.len() == 1))
-        .context("template has no single-mesh collision geometry")?
-        .clone();
+    // Only maps have resupply zones (a lobby's template has none).
+    let resupply_template = || first_template(template, "resupply_zone");
+    let collision_geometry_template = || {
+        templates_of(template, "collision_geometry")
+            .into_iter()
+            .find(|c| array(c.named("meshes").unwrap_or(&ConfigValue::Indexed(vec![]))).is_ok_and(|m| m.len() == 1))
+            .cloned()
+            .context("template has no single-mesh collision geometry")
+    };
+    let keep_ambient_lights = match port {
+        Port::Map(map) => map.ambient_lights,
+        Port::Lobby(_) => true,
+    };
     let particle_template = templates_of(template, "particle").first().map(|p| (*p).clone());
 
     let mut kept_collision_geometry = BTreeSet::new();
@@ -1786,10 +2053,16 @@ pub fn convert_scene(
             continue;
         }
         match t {
-            "ambient_light" if !spec.ambient_lights => {
+            "ambient_light" if !keep_ambient_lights => {
                 *dropped.entry("ambient_light (photometric units and shapes 2/3 have no 0.26 equivalent)".into()).or_default() += 1;
             }
             "environment_probe" => {}
+            // 0.69d's `type` 1 ambient lights multiply the light under them
+            // (the scene's painted contact shadows, a multiplier below 1);
+            // 0.26's only add.
+            "ambient_light" if photometric && integer(object, "type") == Some(1) => {
+                *dropped.entry("multiplying ambient light (0.69d type 1, contact shadows; 0.26's ambient lights only add)".into()).or_default() += 1;
+            }
             "ambient_light" => {
                 let mut a = ambient_template.clone();
                 place(&mut a, object, &full_name)?;
@@ -1802,11 +2075,24 @@ pub fn convert_scene(
                 // 0.69d lights in lux (illuminance x multiplier); 0.26 in a
                 // unitless intensity on an sRGB colour. The scale makes the
                 // map's median ambient light match the template's median.
-                let lux = real(object, "illuminance").unwrap_or(1.0)
-                    * real(object, "multiplier").unwrap_or(1.0)
-                    * real(object, "intensity").unwrap_or(1.0);
+                // 0.46c2's are 0.26's intensities.
+                let intensity = if photometric {
+                    real(object, "illuminance").unwrap_or(1.0)
+                        * real(object, "multiplier").unwrap_or(1.0)
+                        * real(object, "intensity").unwrap_or(1.0)
+                } else {
+                    real(object, "intensity").unwrap_or(1.0)
+                };
                 a.set_path("color", ConfigValue::Integer(packed_colour(colour)))?;
-                a.set_path("intensity", ConfigValue::Float(lux))?;
+                a.set_path("intensity", ConfigValue::Float(intensity))?;
+                // 0.69d sizes a sphere by its scale (radius 5 times the
+                // largest scale); 0.26 by its radius at scale 1.
+                if photometric && integer(object, "geometry") == Some(0) {
+                    let scale = float3(object, "scale")?;
+                    let radius = real(object, "radius").unwrap_or(1.0) * scale.iter().cloned().fold(0.0, f32::max);
+                    a.set_path("radius", ConfigValue::Float(radius))?;
+                    a.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
+                }
                 objects.push(a);
                 count("ambient_light");
             }
@@ -1840,12 +2126,16 @@ pub fn convert_scene(
                         "static_shadows", "lighting_model", "shadow_map_size_index",
                     ],
                 )?;
-                // 0.69d photometric power (lumen); 0.26 intensity is unitless.
-                let power = real(object, "luminous_power").unwrap_or(30.0) * real(object, "intensity").unwrap_or(1.0);
-                l.set_path("intensity", ConfigValue::Float((power / 30.0).clamp(0.2, 3.0)))?;
+                if photometric {
+                    // 0.69d photometric power (lumen); 0.26 intensity is unitless.
+                    let power = real(object, "luminous_power").unwrap_or(30.0) * real(object, "intensity").unwrap_or(1.0);
+                    l.set_path("intensity", ConfigValue::Float((power / 30.0).clamp(0.2, 3.0)))?;
+                    notes.push(format!("{full_name}: point light intensity {} from luminous power {power}", (power / 30.0).clamp(0.2, 3.0)));
+                } else {
+                    l.set_path("intensity", ConfigValue::Float(real(object, "intensity").unwrap_or(1.0)))?;
+                }
                 objects.push(l);
                 count("light");
-                notes.push(format!("{full_name}: point light intensity {} from luminous power {power}", (power / 30.0).clamp(0.2, 3.0)));
             }
             "resupply_zone" => {
                 // Team 2 is neutral in both builds. 0.26 maps only author team
@@ -1864,6 +2154,7 @@ pub fn convert_scene(
                     kept_collision_geometry.insert(link.clone());
                 }
                 let teams: Vec<i32> = if team == 2 { vec![0, 1] } else { vec![team] };
+                let resupply_template = resupply_template()?;
                 for (i, team) in teams.iter().enumerate() {
                     let mut r = resupply_template.clone();
                     let name = if i == 0 { full_name.clone() } else { format!("{full_name}_team{team}") };
@@ -1903,7 +2194,17 @@ pub fn convert_scene(
                     for def in array(layer.named("model_def").context("model_def")?)? {
                         vegetation_models.insert(model_of_reference(string(def, "name").context("veg model")?));
                     }
-                    vegetation_files.insert(string(layer, "filename").context("veg filename")?.replace('\\', "/"));
+                    let file = string(layer, "filename").context("veg filename")?.replace('\\', "/");
+                    let emitted = match port {
+                        Port::Map(_) => file.clone(),
+                        Port::Lobby(lobby) => {
+                            let name = file.strip_prefix("vegetation/").unwrap_or(&file);
+                            let emitted = format!("vegetation/{}/{name}", lobby.vegetation_folder);
+                            l.set_path("filename", ConfigValue::String(emitted.clone()))?;
+                            emitted
+                        }
+                    };
+                    vegetation_files.insert(file, emitted);
                     layers.push(l);
                 }
                 v.set_path("layers", ConfigValue::Indexed(layers))?;
@@ -1926,6 +2227,20 @@ pub fn convert_scene(
                     _ => *dropped.entry(format!("particle {name}")).or_default() += 1,
                 }
             }
+            // A hanging cable: the same object in both builds (0.46c2 adds a
+            // texture tile 0.26 does not read).
+            "wire_set" if templates_of(template, "wire_set").first().is_some() => {
+                let mut w = first_template(template, "wire_set")?;
+                place(&mut w, object, &full_name)?;
+                copy_shared(
+                    &mut w,
+                    object,
+                    &["fragments_count", "iterations", "margin", "offset1", "points_count", "stiftness", "timescale", "wire_width"],
+                )?;
+                w.set_path("points", object.named("points").context("wire_set without points")?.clone())?;
+                objects.push(w);
+                count("wire_set");
+            }
             "collision_geometry" => {} // linked ones are added below
             "environment" => {}
             other => *dropped.entry(other.to_owned()).or_default() += 1,
@@ -1933,7 +2248,7 @@ pub fn convert_scene(
     }
     for link in &kept_collision_geometry {
         let donor_geometry = by_name[link.as_str()];
-        let mut c = collision_geometry_template.clone();
+        let mut c = collision_geometry_template()?;
         place(&mut c, donor_geometry, link)?;
         copy_shared(&mut c, donor_geometry, &["collision_filter_group", "collision_filter_mask", "filter_group", "filter_mask", "mode"])?;
         let meshes = array(donor_geometry.named("meshes").context("collision meshes")?)?;
@@ -1952,59 +2267,77 @@ pub fn convert_scene(
         count("collision_geometry");
     }
 
-    // Spawns: the donor's TDM folder, on native respawn points.
-    let respawn_template = first_template(template, "respawn_point")?;
-    let mut respawns = Vec::new();
-    let mut teams = BTreeMap::<i32, usize>::new();
-    let donor_respawns = donor
-        .named("server_objects")
-        .and_then(|s| s.named("respawn_points"))
-        .context("donor has no respawn points")?;
-    for spawn in array(donor_respawns)? {
-        let full_name = string(spawn, "full_name").unwrap_or("");
-        if !full_name.starts_with(&spec.spawn_folder) {
-            continue;
-        }
-        let mut r = respawn_template.clone();
-        place(&mut r, spawn, full_name)?;
-        let team = integer(spawn, "team").context("spawn team")?;
-        ensure!(matches!(team, 0 | 1), "{full_name}: unexpected team {team}");
-        copy_shared(&mut r, spawn, &["team", "priority", "point_id", "invulnerability_time"])?;
-        // 0.26's loader treats absent check radii as no check; the donor's
-        // radii are authored for its spawns, keep them.
-        for field in ["ally_check_radius", "enemy_check_radius"] {
-            if let Some(v) = real(spawn, field) {
-                r.set_path(field, ConfigValue::Float(v))?;
-            }
-        }
-        *teams.entry(team).or_default() += 1;
-        respawns.push(r);
-    }
-    ensure!(
-        teams.get(&0).copied().unwrap_or(0) > 0 && teams.get(&1).copied().unwrap_or(0) > 0,
-        "both teams need spawns, got {teams:?}"
-    );
-    counts.insert("respawn_point".into(), respawns.len());
-    notes.push(format!("spawns: {} from {} (team 0: {}, team 1: {})", respawns.len(), spec.spawn_folder, teams[&0], teams[&1]));
     for (what, n) in &dropped {
-        notes.push(format!("dropped {n} {what} (no 0.26 counterpart or not part of TDM)"));
+        let why = match port {
+            Port::Map(_) => "no 0.26 counterpart or not part of TDM",
+            Port::Lobby(_) => "no 0.26 counterpart",
+        };
+        notes.push(format!("dropped {n} {what} ({why})"));
     }
 
-    // project_name is the HUD minimap key, not a directory. 0.26's
-    // Minimap.setProps sends keys it does not know to its level_09 slot,
-    // which no 0.26 map uses; the UI bundle (build_069d_ui.py) puts the
-    // donor minimap there.
-    notes.push(format!("HUD minimap key: the donor's {:?}; 0.26 resolves unknown keys to its unused level_09 minimap slot", spec.level));
-    let mut project = named(vec![
-        ("project_name", ConfigValue::String(spec.level.clone())),
-        ("client_objects", ConfigValue::Indexed(objects)),
-        ("render_visuals", ConfigValue::Indexed(visuals)),
-        ("collision_objects", ConfigValue::Indexed(collisions)),
-        (
-            "server_objects",
-            named(vec![("respawn_points", ConfigValue::Indexed(respawns))]),
-        ),
-    ]);
+    let mut project = match port {
+        Port::Map(map) => {
+            // Spawns: the donor's TDM folder, on native respawn points.
+            let respawn_template = first_template(template, "respawn_point")?;
+            let mut respawns = Vec::new();
+            let mut teams = BTreeMap::<i32, usize>::new();
+            let donor_respawns = donor
+                .named("server_objects")
+                .and_then(|s| s.named("respawn_points"))
+                .context("donor has no respawn points")?;
+            for spawn in array(donor_respawns)? {
+                let full_name = string(spawn, "full_name").unwrap_or("");
+                if !full_name.starts_with(&map.spawn_folder) {
+                    continue;
+                }
+                let mut r = respawn_template.clone();
+                place(&mut r, spawn, full_name)?;
+                let team = integer(spawn, "team").context("spawn team")?;
+                ensure!(matches!(team, 0 | 1), "{full_name}: unexpected team {team}");
+                copy_shared(&mut r, spawn, &["team", "priority", "point_id", "invulnerability_time"])?;
+                // 0.26's loader treats absent check radii as no check; the donor's
+                // radii are authored for its spawns, keep them.
+                for field in ["ally_check_radius", "enemy_check_radius"] {
+                    if let Some(v) = real(spawn, field) {
+                        r.set_path(field, ConfigValue::Float(v))?;
+                    }
+                }
+                *teams.entry(team).or_default() += 1;
+                respawns.push(r);
+            }
+            ensure!(
+                teams.get(&0).copied().unwrap_or(0) > 0 && teams.get(&1).copied().unwrap_or(0) > 0,
+                "both teams need spawns, got {teams:?}"
+            );
+            counts.insert("respawn_point".into(), respawns.len());
+            notes.push(format!("spawns: {} from {} (team 0: {}, team 1: {})", respawns.len(), map.spawn_folder, teams[&0], teams[&1]));
+            // project_name is the HUD minimap key, not a directory. 0.26's
+            // Minimap.setProps sends keys it does not know to its level_09 slot,
+            // which no 0.26 map uses; the UI bundle (build_069d_ui.py) puts the
+            // donor minimap there.
+            notes.push(format!("HUD minimap key: the donor's {:?}; 0.26 resolves unknown keys to its unused level_09 minimap slot", map.level));
+            named(vec![
+                ("project_name", ConfigValue::String(map.level.clone())),
+                ("client_objects", ConfigValue::Indexed(objects)),
+                ("render_visuals", ConfigValue::Indexed(visuals)),
+                ("collision_objects", ConfigValue::Indexed(collisions)),
+                (
+                    "server_objects",
+                    named(vec![("respawn_points", ConfigValue::Indexed(respawns))]),
+                ),
+            ])
+        }
+        // A lobby is a client project: no server objects.
+        Port::Lobby(_) => named(vec![
+            (
+                "project_name",
+                ConfigValue::String(string(template, "project_name").unwrap_or("lobby_scene").to_owned()),
+            ),
+            ("client_objects", ConfigValue::Indexed(objects)),
+            ("render_visuals", ConfigValue::Indexed(visuals)),
+            ("collision_objects", ConfigValue::Indexed(collisions)),
+        ]),
+    };
     if let Some(camera) = template.named("camera") {
         let mut camera = camera.clone();
         if let Some(c) = donor.named("camera") {
@@ -2033,13 +2366,19 @@ pub fn convert_scene(
         models,
         vegetation_models,
         vegetation_files,
+        probe_textures,
         decal_materials,
         counts,
         notes,
     })
 }
 
-/// Normalize ambient light intensities so their median matches `target_median`.
+/// The brightest 0.26 ambient light a scaled 0.69d one becomes (0.26's own
+/// stop at 2.2 in the lobby and 4 in 0.46c2's).
+const AMBIENT_MAX: f32 = 3.0;
+
+/// Normalize ambient light intensities so their median matches
+/// `target_median`, at most `AMBIENT_MAX`.
 fn calibrate_ambient(project: &mut ConfigValue, target_median: f32) -> Result<f32> {
     let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
         bail!("no client objects")
@@ -2056,8 +2395,10 @@ fn calibrate_ambient(project: &mut ConfigValue, target_median: f32) -> Result<f3
     values.sort_by(f32::total_cmp);
     let median = values[values.len() / 2];
     let scale = target_median / median;
+    // 0.69d's brightest (lamp shades, painted window light) are tens of times
+    // its median under its auto exposure; 0.26 has none and draws them white.
     for o in objects.iter_mut().filter(|o| kind(o) == "ambient_light") {
-        let v = real(o, "intensity").unwrap_or(0.0) * scale;
+        let v = (real(o, "intensity").unwrap_or(0.0) * scale).min(AMBIENT_MAX);
         o.set_path("intensity", ConfigValue::Float(v))?;
     }
     Ok(scale)
@@ -2123,9 +2464,9 @@ fn parent_dir(path: &str) -> &str {
     path.rsplit_once('/').map_or("", |(a, _)| a)
 }
 
-fn relocate(path: &str) -> String {
+fn relocate(path: &str, namespace: &str) -> String {
     let (family, tail) = path.split_once('/').expect("resource has a family");
-    format!("{family}/ported/v069d/{tail}")
+    format!("{family}/{namespace}/{tail}")
 }
 
 pub fn build(
@@ -2136,31 +2477,42 @@ pub fn build(
 ) -> Result<Record> {
     let m: Manifest = serde_json::from_reader(fs::File::open(manifest_path)?)
         .with_context(|| format!("reading {}", manifest_path.display()))?;
-    ensure!(m.source_build == SourceBuild::V069d, "this builder ports 0.69d maps");
+    ensure!(
+        matches!(m.source_build, SourceBuild::V069d | SourceBuild::V046c2),
+        "this builder ports 0.69d and 0.46c2 scenes"
+    );
+    let port = m.port()?;
+    let ns = m.namespace();
+    let relocate = |path: &str| relocate(path, &ns);
     eprintln!("Checking donor and target fingerprints...");
     check_hash(donor_path, &m.donor_fingerprint)?;
     check_hash(target_path, &m.target_sha256)?;
     let mut donor = ResourceDb::open(donor_path)?;
     let mut target = ResourceDb::open(target_path)?;
-    let spec = m.map.clone();
 
     let mut dictionary = cfg(&mut target, DICTIONARY)?;
-    if let Some(ConfigValue::Indexed(entries)) = dictionary.named("maps_dict") {
-        for entry in entries {
-            ensure!(
-                integer(entry, "id") != Some(spec.id.into()),
-                "map ID {} is already registered",
-                spec.id
-            );
+    if let Port::Map(spec) = &port {
+        if let Some(ConfigValue::Indexed(entries)) = dictionary.named("maps_dict") {
+            for entry in entries {
+                ensure!(
+                    integer(entry, "id") != Some(spec.id.into()),
+                    "map ID {} is already registered",
+                    spec.id
+                );
+            }
+        } else {
+            bail!("0.26 dictionary has no maps_dict");
         }
-    } else {
-        bail!("0.26 dictionary has no maps_dict");
     }
-    let template = cfg(&mut target, &spec.template_project)?;
-    let donor_project = cfg(&mut donor, &spec.donor_project)?;
+    let template = cfg(&mut target, port.template_project())?;
+    let donor_project = cfg(&mut donor, port.donor_project())?;
     eprintln!("Converting the scene...");
-    let mut scene = convert_scene(&donor_project, &template, &spec, &m.particle_replacements)?;
-    let ambient_scale = calibrate_ambient(&mut scene.project, median_ambient(&template))?;
+    let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &m.particle_replacements)?;
+    let ambient_scale = if m.photometric() {
+        Some(calibrate_ambient(&mut scene.project, median_ambient(&template))?)
+    } else {
+        None
+    };
     if let Some(sounds) = &m.ambient_sounds {
         let source = cfg(&mut target, &sounds.project)?;
         let Some(ConfigValue::Indexed(objects)) = scene.project.named_mut("client_objects") else { bail!("no objects") };
@@ -2177,10 +2529,13 @@ pub fn build(
             added += 1;
         }
         scene.counts.insert("object_sound".into(), added);
-        scene.notes.push(format!("ambience: {added} native object_sound emitters from {} (0.69d sound environments have no 0.26 counterpart)", sounds.project));
+        scene.notes.push(format!("ambience: {added} native object_sound emitters from {} (the donor's sound environments have no 0.26 counterpart)", sounds.project));
     }
     let mut notes = std::mem::take(&mut scene.notes);
-    notes.push(format!("ambient lights: 0.69d lux scaled by {ambient_scale:.4} so their median intensity matches the template's"));
+    notes.push(match ambient_scale {
+        Some(scale) => format!("ambient lights: 0.69d lux scaled by {scale:.4} so their median intensity matches the template's"),
+        None => format!("ambient lights and lights: {}'s intensities, which are 0.26's", m.source_build.label()),
+    });
 
     // Which models come from 0.26 and which from the donor.
     let mut native_models = BTreeSet::new();
@@ -2203,9 +2558,10 @@ pub fn build(
         }
     }
     notes.push(format!(
-        "models: {} native 0.26 models reused (same collision, render bounds within 5 cm), {} imported from 0.69d",
+        "models: {} native 0.26 models reused (same collision, render bounds within 5 cm), {} imported from {}",
         native_models.len(),
-        donor_models.len()
+        donor_models.len(),
+        m.source_build.label()
     ));
 
     // Donor files: the imported models' files, their materials and textures.
@@ -2228,7 +2584,7 @@ pub fn build(
         ensure!(!files.is_empty(), "donor model {model} has no files");
         // Render geometry no material or LOD names is not drawn by 0.69d
         // either (stale export leftovers); it is not imported.
-        let settings_probe = cfg(&mut donor, &format!("{root}settings"))?;
+        let settings_probe = model_settings(&mut donor, &format!("{root}settings"), m.source_build)?;
         let mut referenced = BTreeSet::new();
         if let Some(ConfigValue::Named(entries)) = settings_probe.named("material_settings") {
             referenced.extend(entries.iter().map(|e| e.name.clone()));
@@ -2249,7 +2605,7 @@ pub fn build(
             }
         }
         let settings_path = format!("{root}settings");
-        let settings = cfg(&mut donor, &settings_path)?;
+        let settings = model_settings(&mut donor, &settings_path, m.source_build)?;
         let lods = surface_lods(&settings);
         for (surface, lod) in &lods {
             surface_lod.insert(format!("{root}render/{surface}/converted_model"), *lod);
@@ -2315,9 +2671,14 @@ pub fn build(
         templates.insert(category.clone(), (path.clone(), config));
     }
     let default_normal = "editor/default_nmap";
-    // The native global probe stands in for reflection cubemaps that ship nowhere.
+    // A native probe stands in for reflection cubemaps that ship nowhere: the
+    // map's global one, or a lobby template's (a lobby's may be the donor's).
     let cube = {
-        let Some(ConfigValue::Indexed(objects)) = scene.project.named("client_objects") else { bail!("no objects") };
+        let objects = match &port {
+            Port::Map(_) => scene.project.named("client_objects"),
+            Port::Lobby(_) => template.named("client_objects"),
+        };
+        let Some(ConfigValue::Indexed(objects)) = objects else { bail!("no objects") };
         let probe = objects.iter().find(|o| kind(o) == "environment_probe").context("no probe")?;
         string(probe, "texture").context("probe texture")?.to_owned()
     };
@@ -2335,6 +2696,11 @@ pub fn build(
     let mut material_notes = BTreeMap::<String, Vec<String>>::new();
     for (material, usage) in &material_usage {
         let path = format!("material_instances/{material}.material");
+        if let Some(native) = m.native_materials.get(material) {
+            ensure!(target.is_file(&format!("material_instances/{native}.material")), "native material {native} missing");
+            notes.push(format!("{material}: drawn with the native {native} (manifest)"));
+            continue;
+        }
         if !donor.is_file(&path) {
             notes.push(format!(
                 "{material}: named by a 0.69d surface but shipped by 0.69d {}; the name is kept",
@@ -2342,7 +2708,10 @@ pub fn build(
             ));
             continue;
         }
-        let root = cfg(&mut donor, &path).with_context(|| format!("decal or model material {material}"))?;
+        let mut root = cfg(&mut donor, &path).with_context(|| format!("decal or model material {material}"))?;
+        if m.source_build == SourceBuild::V046c2 {
+            vocabulary_046(&mut root);
+        }
         let category = categorize(&root, *usage).with_context(|| format!("categorizing {material}"))?;
         if category == Category::Terrain {
             let effect = g_stage(&root).and_then(|s| s.named("effect")).context("terrain effect")?;
@@ -2414,7 +2783,7 @@ pub fn build(
             // Assign every terrain surface its dominant layer.
             for (surface, _) in surface_strides.iter() {
                 let Some((model_root, surface_name)) = surface.strip_suffix("/converted_model").and_then(|p| p.split_once(".model/render/")) else { continue };
-                let settings = cfg(&mut donor, &format!("{model_root}.model/settings"))?;
+                let settings = model_settings(&mut donor, &format!("{model_root}.model/settings"), m.source_build)?;
                 let uses = settings
                     .named("material_settings")
                     .and_then(|s| s.named(surface_name))
@@ -2492,7 +2861,11 @@ pub fn build(
                 converted.notes.push("water fog colour: the 0.69d scattering colour".into());
             }
             let smoothness = effect.and_then(|e| number(e, "smoothness")).unwrap_or(1.0);
-            if let (true, Some(probe)) = (smoothness < 0.5, &spec.matte_water_probe) {
+            let matte_water_probe = match &port {
+                Port::Map(spec) => spec.matte_water_probe.as_ref(),
+                Port::Lobby(_) => None,
+            };
+            if let (true, Some(probe)) = (smoothness < 0.5, matte_water_probe) {
                 let native = templates_of(&template, "environment_probe").into_iter().find(|p| string(p, "full_name") == Some(probe.as_str())).with_context(|| format!("template has no probe {probe}"))?;
                 let cube = probe_texture(native).context("matte water probe texture")?;
                 set_effect(&mut converted.root, "forward", "texture_reflection", ConfigValue::String(cube.clone()))?;
@@ -2528,26 +2901,41 @@ pub fn build(
         }
     }
     // Vegetation files are relative to the project's level directory.
-    let donor_level_dir = parent_dir(parent_dir(&spec.donor_project));
-    let output_level_dir = parent_dir(&format!("projects/{}/client_project", spec.output_project)).to_owned();
+    let donor_level_dir = parent_dir(parent_dir(port.donor_project()));
+    let output_level_dir = parent_dir(&format!("projects/{}/client_project", port.output_project())).to_owned();
     let output_level_dir = parent_dir(&output_level_dir).to_owned();
-    for veg in &scene.vegetation_files {
+    // Donor files that keep their place in the level (vegetation instances).
+    let mut level_files = BTreeMap::new();
+    for (veg, emitted) in &scene.vegetation_files {
         let path = format!("{donor_level_dir}/{veg}");
         ensure!(donor.is_file(&path), "vegetation file {path} missing");
+        level_files.insert(path.clone(), format!("{output_level_dir}/{emitted}"));
         donor_files.insert(path);
+    }
+    // The donor's probe cubemaps (a cubemap, its irradiance and their options).
+    let mut probe_textures = BTreeSet::new();
+    for t in &scene.probe_textures {
+        for suffix in [".dds", ".options", "_diffuse.dds", "_diffuse.options"] {
+            let path = format!("textures/{t}{suffix}");
+            ensure!(donor.is_file(&path) || suffix.ends_with(".options"), "probe cubemap {path} missing");
+            if donor.is_file(&path) {
+                donor_files.insert(path);
+            }
+        }
+        probe_textures.insert(t.clone());
     }
 
     // References to rewrite: imported donor resources move to the namespace.
     let mut substitutions = BTreeMap::new();
     for model in &donor_models {
-        let dest = format!("ported/v069d/{model}");
+        let dest = format!("{ns}/{model}");
         substitutions.insert(model.clone(), dest.clone());
         substitutions.insert(format!("models/{model}.model"), format!("models/{dest}.model"));
         substitutions.insert(format!("resources/models/{model}.model"), format!("resources/models/{dest}.model"));
     }
-    let material_dest = |name: &str| format!("ported/v069d/{name}");
+    let material_dest = |name: &str| format!("{ns}/{name}");
     for t in &donor_textures {
-        substitutions.insert(format!("texture:{t}"), format!("ported/v069d/{t}"));
+        substitutions.insert(format!("texture:{t}"), format!("{ns}/{t}"));
     }
 
     crate::weapon::prepare_empty_output(output)?;
@@ -2556,7 +2944,8 @@ pub fn build(
     let mut converted_geometry = BTreeSet::new();
     let mut repaired_model_settings = BTreeSet::new();
     let mut vegetation_instances = BTreeMap::new();
-    let source = "0.69d0+0.26g-adapter";
+    let source = format!("{}+0.26g-adapter", m.source_build.label());
+    let source = source.as_str();
     let mut halved = 0usize;
     let mut decimated = 0usize;
     let mut terrain_triangles = (0usize, 0usize);
@@ -2575,13 +2964,9 @@ pub fn build(
             }
         }
         let mut bytes = donor.read(path)?;
-        let dest = if let Some(rest) = path.strip_prefix(&format!("{donor_level_dir}/")) {
-            format!("{output_level_dir}/{rest}")
-        } else {
-            relocate(path)
-        };
+        let dest = level_files.get(path).cloned().unwrap_or_else(|| relocate(path));
         if path.ends_with("/converted_model") {
-            bytes = geometry(&bytes).with_context(|| format!("repacking {path}"))?;
+            bytes = geometry(&bytes, m.source_build).with_context(|| format!("repacking {path}"))?;
             let terrain = m.decimate_terrain.iter().any(|p| path.starts_with(&format!("models/{p}")));
             let locked = match (terrain, m.terrain_simplify) {
                 (true, Some(t)) => simplify_mesh_with(&bytes, t.ratio, t.max_error, meshopt::SimplifyOptions::LockBorder)?,
@@ -2671,8 +3056,12 @@ pub fn build(
             }
         } else if path.ends_with(".model/settings") {
             let mut c = BinaryConfig::parse(&bytes)?.root;
+            lod_lists(&mut c);
             let model_root = path.trim_end_matches("/settings");
             if c.named("game_material_settings").is_some() {
+                if m.source_build == SourceBuild::V046c2 {
+                    unassigned_046(&mut c);
+                }
                 crate::target_native_map::remap_game_material_settings(
                     &mut c,
                     path,
@@ -2693,6 +3082,8 @@ pub fn build(
                         *name = material_dest(&first[0]);
                     } else if converted_materials.contains_key(&normalized) {
                         *name = material_dest(&normalized);
+                    } else if let Some(native) = m.native_materials.get(&normalized) {
+                        *name = native.clone();
                     }
                 }
             }
@@ -2843,7 +3234,7 @@ pub fn build(
     // Materials.
     for (name, converted) in &converted_materials {
         let mut root = converted.root.clone();
-        rewrite_textures(&mut root, &donor_textures);
+        rewrite_textures(&mut root, &donor_textures, &ns);
         let dest = format!("material_instances/{}.material", material_dest(name));
         ensure!(!target.contains(&dest), "would overwrite native {dest}");
         emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("0.26g template {}", converted.template), &mut files)?;
@@ -2877,7 +3268,7 @@ pub fn build(
             if members.len() < 2 {
                 continue;
             }
-            let root = format!("models/ported/v069d/{model}.model");
+            let root = format!("models/{ns}/{model}.model");
             let mut surfaces = Vec::new();
             for entry in fs::read_dir(overlay.join(&root).join("render"))? {
                 let entry = entry?;
@@ -2906,7 +3297,7 @@ pub fn build(
                     .map(|&i| Ok(Placement { position: float3(&visuals[i], "position")?, rotation: float3(&visuals[i], "rotation")?, scale: float3(&visuals[i], "scale")? }))
                     .collect::<Result<_>>()?;
                 let name = format!("srp_batch/{}_{cx}_{cz}_{chunk_index}", model.replace('/', "__"));
-                let dest = format!("models/ported/v069d/{name}.model");
+                let dest = format!("models/{ns}/{name}.model");
                 let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
                 for surface in &surfaces {
                     let bytes = fs::read(overlay.join(&root).join("render").join(surface).join("converted_model"))?;
@@ -2931,7 +3322,7 @@ pub fn build(
                 }
                 emit(output, &format!("{dest}/settings"), &BinaryConfig { root: batch_settings }.to_bytes()?, source, &mut files)?;
                 added.push(named(vec![
-                    ("lib_name", ConfigValue::String(format!("ported/v069d/{name}"))),
+                    ("lib_name", ConfigValue::String(format!("{ns}/{name}"))),
                     ("position", ConfigValue::Float3([0.0; 3])),
                     ("rotation", ConfigValue::Float3([0.0; 3])),
                     ("scale", ConfigValue::Float3([1.0; 3])),
@@ -2979,7 +3370,7 @@ pub fn build(
                 if !donor.is_file(&path) {
                     continue;
                 }
-                surfaces.push((surface.clone(), geometry(&donor.read(&path)?)?));
+                surfaces.push((surface.clone(), geometry(&donor.read(&path)?, m.source_build)?));
                 materials.push(settings.named("material_settings").and_then(|t| t.named(surface)).and_then(|e| string(e, "material_name")).unwrap_or("").to_owned());
             }
             surfaces.sort();
@@ -3063,7 +3454,7 @@ pub fn build(
         // borders); foliage and grass merge only with models of the same
         // material set.
         let category = |material: &str| {
-            let name = material.strip_prefix("ported/v069d/").unwrap_or(material);
+            let name = material.strip_prefix(&format!("{ns}/")).unwrap_or(material);
             converted_materials.get(name).map(|c| c.category)
         };
         let alone = |material: &str| matches!(category(material), Some(Category::Glass | Category::Water | Category::Terrain | Category::ProjectedDecal));
@@ -3099,7 +3490,7 @@ pub fn build(
                 continue;
             }
             if !prepared.contains_key(&model) {
-                let root = if native { format!("models/{model}.model") } else { format!("models/ported/v069d/{model}.model") };
+                let root = if native { format!("models/{model}.model") } else { format!("models/{ns}/{model}.model") };
                 let settings = read_model_config(&mut target, &overlay, native, &format!("{root}/settings"))?;
                 let materials = settings.named("material_settings");
                 let mut lods: [Vec<(String, String)>; 3] = Default::default();
@@ -3229,7 +3620,7 @@ pub fn build(
             let merged = merge_cluster(&offered, lods).with_context(|| format!("clustering cell {cx},{cz}"))?;
             let (settings, member_root, member_native) = first.unwrap();
             let name = if group.is_empty() { format!("srp_cluster/cell_{cx}_{cz}") } else { format!("srp_cluster/{group}_{cx}_{cz}") };
-            let dest = format!("models/ported/v069d/{name}.model");
+            let dest = format!("models/{ns}/{name}.model");
             let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
             let mut hierarchy: Vec<NamedValue> = Vec::new();
             let mut material_settings = Vec::new();
@@ -3300,7 +3691,7 @@ pub fn build(
             set_bounds(&mut properties, lo, hi)?;
             emit(output, &format!("{dest}/render/export_properties"), &BinaryConfig { root: properties }.to_bytes()?, "instances merged by material", &mut files)?;
             added.push(named(vec![
-                ("lib_name", ConfigValue::String(format!("ported/v069d/{name}"))),
+                ("lib_name", ConfigValue::String(format!("{ns}/{name}"))),
                 ("position", ConfigValue::Float3([0.0; 3])),
                 ("rotation", ConfigValue::Float3([0.0; 3])),
                 ("scale", ConfigValue::Float3([1.0; 3])),
@@ -3323,56 +3714,62 @@ pub fn build(
 
     // Scene references.
     let mut project = scene.project;
-    rewrite_scene(&mut project, &donor_models, &converted_materials)?;
-    let output_project = format!("projects/{}/client_project", spec.output_project);
+    rewrite_scene(&mut project, &donor_models, &converted_materials, &probe_textures, &ns)?;
+    let output_project = format!("projects/{}/client_project", port.output_project());
     ensure!(!target.contains(&output_project), "project exists");
-    emit(output, &output_project, &BinaryConfig { root: project }.to_bytes()?, "0.69d scene on 0.26g templates", &mut files)?;
+    let what = format!("{} scene on 0.26g templates", m.source_build.label());
+    emit(output, &output_project, &BinaryConfig { root: project }.to_bytes()?, &what, &mut files)?;
 
-    // Mode and registration.
-    let mut mode = cfg(&mut target, &spec.template_mode)?;
-    mode.set_path("mode.name", ConfigValue::String(spec.mode_name.trim_end_matches(".options").into()))?;
-    mode.set_path("mode.match_making_params.map_name", ConfigValue::String(spec.output_project.clone()))?;
-    // The donor's own map name, its strings added to 0.26 localization below.
-    let donor_mode = cfg(&mut donor, &spec.donor_mode)?;
-    let name_key = string(&donor_mode, "mode.ui.map_name").or_else(|| donor_mode.named("mode").and_then(|m| m.named("ui")).and_then(|u| string(u, "map_name"))).context("donor mode has no ui.map_name")?.to_owned();
-    mode.set_path("mode.ui.map_name", ConfigValue::String(name_key.clone()))?;
-    if let Some(id) = spec.loading_screen_id {
-        mode.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(id.into()))?;
-        notes.push(format!("loading screen: slot {id} of lobby_menu.swf (the UI bundle puts the donor's image there)"));
-    }
-    let mut added_strings = Vec::new();
-    for path in target.paths_with_prefix("localization/").filter(|p| p.ends_with("/localization")).map(str::to_owned).collect::<Vec<_>>() {
-        let mut strings = cfg(&mut target, &path)?;
-        let ConfigValue::Named(entries) = strings.named("strings").context("localization without strings")? else { bail!("{path}: strings is not a table") };
-        if entries.iter().any(|e| e.name == name_key) {
-            continue;
+    if let Port::Map(spec) = &port {
+        // Mode and registration.
+        let mut mode = cfg(&mut target, &spec.template_mode)?;
+        mode.set_path("mode.name", ConfigValue::String(spec.mode_name.trim_end_matches(".options").into()))?;
+        mode.set_path("mode.match_making_params.map_name", ConfigValue::String(spec.output_project.clone()))?;
+        // The donor's own map name, its strings added to 0.26 localization below.
+        let donor_mode = cfg(&mut donor, &spec.donor_mode)?;
+        let name_key = string(&donor_mode, "mode.ui.map_name").or_else(|| donor_mode.named("mode").and_then(|m| m.named("ui")).and_then(|u| string(u, "map_name"))).context("donor mode has no ui.map_name")?.to_owned();
+        mode.set_path("mode.ui.map_name", ConfigValue::String(name_key.clone()))?;
+        if let Some(id) = spec.loading_screen_id {
+            mode.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(id.into()))?;
+            notes.push(format!("loading screen: slot {id} of lobby_menu.swf (the UI bundle puts the donor's image there)"));
         }
-        // The same language from the donor, else its English text.
-        let donor_path = if donor.is_file(&path) { path.clone() } else { "localization/english/localization".to_owned() };
-        let donor_strings = cfg(&mut donor, &donor_path)?;
-        let text = donor_strings.named("strings").and_then(|s| string(s, &name_key)).with_context(|| format!("{donor_path} has no {name_key}"))?.to_owned();
-        let Some(ConfigValue::Named(entries)) = strings.named_mut("strings") else { unreachable!() };
-        entries.push(NamedValue { name: name_key.clone(), value: ConfigValue::String(text) });
-        emit(output, &path, &BinaryConfig { root: strings }.to_bytes()?, &format!("0.26g localization + {name_key} from {donor_path}"), &mut files)?;
-        added_strings.push(path.split('/').nth(1).unwrap_or("").to_owned());
+        let mut added_strings = Vec::new();
+        for path in target.paths_with_prefix("localization/").filter(|p| p.ends_with("/localization")).map(str::to_owned).collect::<Vec<_>>() {
+            let mut strings = cfg(&mut target, &path)?;
+            let ConfigValue::Named(entries) = strings.named("strings").context("localization without strings")? else { bail!("{path}: strings is not a table") };
+            if entries.iter().any(|e| e.name == name_key) {
+                continue;
+            }
+            // The same language from the donor, else its English text.
+            let donor_path = if donor.is_file(&path) { path.clone() } else { "localization/english/localization".to_owned() };
+            let donor_strings = cfg(&mut donor, &donor_path)?;
+            let text = donor_strings.named("strings").and_then(|s| string(s, &name_key)).with_context(|| format!("{donor_path} has no {name_key}"))?.to_owned();
+            let Some(ConfigValue::Named(entries)) = strings.named_mut("strings") else { unreachable!() };
+            entries.push(NamedValue { name: name_key.clone(), value: ConfigValue::String(text) });
+            emit(output, &path, &BinaryConfig { root: strings }.to_bytes()?, &format!("0.26g localization + {name_key} from {donor_path}"), &mut files)?;
+            added_strings.push(path.split('/').nth(1).unwrap_or("").to_owned());
+        }
+        ensure!(!added_strings.is_empty() || target.is_file("localization/english/localization"), "no localization to extend");
+        notes.push(format!("map name: the donor's {name_key} added to 0.26 localization ({})", added_strings.join(", ")));
+        let mode_path = format!("gameplay/game_modes/{}", spec.mode_name);
+        ensure!(!target.contains(&mode_path), "mode exists");
+        emit(output, &mode_path, &BinaryConfig { root: mode }.to_bytes()?, "0.26g mode template", &mut files)?;
+        let ConfigValue::Indexed(entries) = dictionary.named_mut("maps_dict").unwrap() else { unreachable!() };
+        entries.push(named(vec![
+            ("id", ConfigValue::Integer(spec.id.into())),
+            ("cfg_mode_name", ConfigValue::String(spec.mode_name.clone())),
+        ]));
+        emit(output, DICTIONARY, &BinaryConfig { root: dictionary }.to_bytes()?, "0.26g+additive-map-registration", &mut files)?;
     }
-    ensure!(!added_strings.is_empty() || target.is_file("localization/english/localization"), "no localization to extend");
-    notes.push(format!("map name: the donor's {name_key} added to 0.26 localization ({})", added_strings.join(", ")));
-    let mode_path = format!("gameplay/game_modes/{}", spec.mode_name);
-    ensure!(!target.contains(&mode_path), "mode exists");
-    emit(output, &mode_path, &BinaryConfig { root: mode }.to_bytes()?, "0.26g mode template", &mut files)?;
-    let ConfigValue::Indexed(entries) = dictionary.named_mut("maps_dict").unwrap() else { unreachable!() };
-    entries.push(named(vec![
-        ("id", ConfigValue::Integer(spec.id.into())),
-        ("cfg_mode_name", ConfigValue::String(spec.mode_name.clone())),
-    ]));
-    emit(output, DICTIONARY, &BinaryConfig { root: dictionary }.to_bytes()?, "0.26g+additive-map-registration", &mut files)?;
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let record = Record {
         format_version: 1,
-        asset_id: "retail-v069d-duga-to-026g".into(),
-        donor_build: SourceBuild::V069d.label().into(),
+        asset_id: match &port {
+            Port::Map(_) => "retail-v069d-duga-to-026g".into(),
+            Port::Lobby(l) => format!("retail-{}-{}-to-026g", m.source_build.prefix(), l.output_project.replace('/', "-")),
+        },
+        donor_build: m.source_build.label().into(),
         target_build: "0.26g0-2777".into(),
         target_db_sha256: m.target_sha256.clone(),
         server_project_fallback: None,
@@ -3388,12 +3785,15 @@ pub fn build(
         vegetation_instances,
     };
     serde_json::to_writer_pretty(fs::File::create(output.join("port-manifest.json"))?, &record)?;
-    let summary = serde_json::json!({ "map": spec, "counts": scene.counts, "native_models": native_models, "donor_models": donor_models });
+    let summary = match &port {
+        Port::Map(spec) => serde_json::json!({ "map": spec, "counts": scene.counts, "native_models": native_models, "donor_models": donor_models }),
+        Port::Lobby(spec) => serde_json::json!({ "lobby": spec, "counts": scene.counts, "native_models": native_models, "donor_models": donor_models }),
+    };
     serde_json::to_writer_pretty(fs::File::create(output.join("scene-summary.json"))?, &summary)?;
     Ok(record)
 }
 
-fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>) {
+fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>, ns: &str) {
     match root {
         ConfigValue::Named(fields) => {
             for field in fields {
@@ -3407,15 +3807,15 @@ fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>) {
                     if let Some(ConfigValue::String(s)) = slot {
                         let n = s.replace('\\', "/");
                         if donor_textures.contains(&n) {
-                            *s = format!("ported/v069d/{n}");
+                            *s = format!("{ns}/{n}");
                         }
                     }
                 } else {
-                    rewrite_textures(&mut field.value, donor_textures);
+                    rewrite_textures(&mut field.value, donor_textures, ns);
                 }
             }
         }
-        ConfigValue::Indexed(values) => values.iter_mut().for_each(|v| rewrite_textures(v, donor_textures)),
+        ConfigValue::Indexed(values) => values.iter_mut().for_each(|v| rewrite_textures(v, donor_textures, ns)),
         _ => {}
     }
 }
@@ -3424,13 +3824,15 @@ fn rewrite_scene(
     project: &mut ConfigValue,
     donor_models: &BTreeSet<String>,
     materials: &BTreeMap<String, ConvertedMaterial>,
+    probe_textures: &BTreeSet<String>,
+    ns: &str,
 ) -> Result<()> {
     let relocate_model = |reference: &str| -> String {
         let model = model_of_reference(reference);
         if !donor_models.contains(&model) {
             return reference.to_owned();
         }
-        reference.replacen(&model, &format!("ported/v069d/{model}"), 1)
+        reference.replacen(&model, &format!("{ns}/{model}"), 1)
     };
     for group in ["render_visuals", "collision_objects"] {
         let Some(ConfigValue::Indexed(items)) = project.named_mut(group) else { bail!("no {group}") };
@@ -3446,8 +3848,14 @@ fn rewrite_scene(
                 if let Some(ConfigValue::String(s)) = object.named_mut("decal_material") {
                     let n = s.replace('\\', "/");
                     if materials.contains_key(&n) {
-                        *s = format!("ported/v069d/{n}");
+                        *s = format!("{ns}/{n}");
                     }
+                }
+            }
+            "environment_probe" => {
+                let Some(texture) = string(object, "texture").map(|t| t.replace('\\', "/")) else { continue };
+                if probe_textures.contains(&texture) {
+                    set_probe_texture(object, &format!("{ns}/{texture}"))?;
                 }
             }
             "vegetation" => {
@@ -3504,7 +3912,7 @@ mod tests {
         // 0x3f000080 0x3eff0000 0x3f7f807f is N = (0,-1,0), T = (0,0,-1),
         // B = (1,0,0); bytes x=0x80 y=0x00 z=0x80 etc.
         let mesh = static_mesh([0x3f000080, 0x3eff0000, 0x3f7f807f], 28, &[(110, vec![0; 4]), (114, vec![0; 72])]);
-        let out = geometry(&mesh).unwrap();
+        let out = geometry(&mesh, SourceBuild::V069d).unwrap();
         let v = &out[12..40];
         assert_eq!(&v[12..16], &[0x80, 0x00, 0x80, 0x7f]);
         assert_eq!(&v[16..20], &[0x00, 0x80, 0x7f, 0xff]);
@@ -3513,14 +3921,14 @@ mod tests {
         // Vertex chunk + index chunk only.
         assert_eq!(out.len(), 8 + 4 + 28 + 8 + 10);
         // Vertex colour survives.
-        let vc = geometry(&static_mesh([0x3f000080, 0x3eff0000, 0x3f7f807f], 32, &[])).unwrap();
+        let vc = geometry(&static_mesh([0x3f000080, 0x3eff0000, 0x3f7f807f], 32, &[]), SourceBuild::V069d).unwrap();
         assert_eq!(&vc[12 + 28..12 + 32], &[1, 2, 3, 4]);
     }
 
     #[test]
     fn a_026_packed_basis_or_unknown_chunk_is_rejected() {
-        assert!(geometry(&static_mesh([0x7f7f007f, 0xff7e7f00, 0xfffe7f7e], 28, &[])).is_err());
-        assert!(geometry(&static_mesh([0x3f000080, 0x3eff0000, 0x3f7f807f], 28, &[(77, vec![0; 4])])).is_err());
+        assert!(geometry(&static_mesh([0x7f7f007f, 0xff7e7f00, 0xfffe7f7e], 28, &[]), SourceBuild::V069d).is_err());
+        assert!(geometry(&static_mesh([0x3f000080, 0x3eff0000, 0x3f7f807f], 28, &[(77, vec![0; 4])]), SourceBuild::V069d).is_err());
     }
 
     #[test]
@@ -3885,7 +4293,7 @@ mod tests {
             probe_classes: Vec::new(), ambient_lights: false,
             donor_mode: "d".into(), loading_screen_id: None, matte_water_probe: None,
         };
-        let scene = convert_scene(&donor, &template, &spec, &BTreeMap::new()).unwrap();
+        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let zones: Vec<_> = objects.iter().filter(|o| kind(o) == "resupply_zone").collect();
         assert_eq!(zones.iter().map(|z| integer(z, "team").unwrap()).collect::<Vec<_>>(), vec![0, 1]);
@@ -3907,5 +4315,121 @@ mod tests {
         assert!(matches!(scene.project.named("victory_item_spawn_points"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(matches!(scene.project.named("temporary_render_visuals"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(scene.project.named("levelmap_min").is_none());
+    }
+
+    #[test]
+    fn a_0_46c2_mesh_keeps_its_basis_and_loses_its_statistics() {
+        // 0.46c2 packs the basis as 0.26 does: bytes z, y, x, alpha.
+        let mesh = static_mesh([0x7f80_0080, 0xff7f_8000, 0xffff_807f], 28, &[(110, vec![0; 4]), (113, vec![0; 72])]);
+        let out = geometry(&mesh, SourceBuild::V046c2).unwrap();
+        assert_eq!(&out[12..8 + 4 + 28], &mesh[12..8 + 4 + 28], "vertices untouched");
+        assert_eq!(out.len(), 8 + 4 + 28 + 8 + 10, "vertex and index chunks only");
+        assert!(geometry(&static_mesh([0; 3], 28, &[(77, vec![0; 4])]), SourceBuild::V046c2).is_err());
+    }
+
+    #[test]
+    fn a_0_46c2_material_reads_with_the_0_69d_names() {
+        let field = |v: ConfigValue| named(vec![("value", v), ("is_model_parameter", ConfigValue::Boolean(true))]);
+        let mut root = named(vec![("material", named(vec![("g_stage", named(vec![("effect", named(vec![
+            ("effect_id", ConfigValue::String("g_stage_default".into())),
+            ("texture_diffuse", field(ConfigValue::String("tiled/metal/metal_truba".into()))),
+            ("texture_normal", field(ConfigValue::String("tiled/metal/metal_truba_nmap".into()))),
+            ("use_nmap", field(ConfigValue::Boolean(true))),
+            ("texture_roughness", field(ConfigValue::String("tiled/metal/metal_truba_spec".into()))),
+            ("use_troughness", field(ConfigValue::Boolean(true))),
+            ("constant_roughness_max", field(ConfigValue::Float(0.6))),
+        ]))]))]))]);
+        vocabulary_046(&mut root);
+        let effect = g_stage(&root).unwrap().named("effect").unwrap();
+        assert_eq!(text(effect, "t_albedo"), Some("tiled/metal/metal_truba"));
+        assert_eq!(text(effect, "t_normal"), Some("tiled/metal/metal_truba_nmap"));
+        assert!(flag(effect, "use_t_normal") && flag(effect, "use_t_smoothness"));
+        assert_eq!(text(effect, "t_smoothness"), Some("tiled/metal/metal_truba_spec"));
+        assert_eq!(number(effect, "max_smoothness"), Some(0.6));
+        assert_eq!(text(effect, "texture_diffuse"), Some("tiled/metal/metal_truba"), "0.26 names kept");
+    }
+
+    #[test]
+    fn a_0_46c2_lod_table_becomes_a_list() {
+        let mut settings = named(vec![("lod_hierrarchy", named(vec![
+            ("LOD0", named(vec![("surfaces", named(vec![("bushsg", ConfigValue::String(String::new()))]))])),
+            ("LOD1", named(vec![("surfaces", ConfigValue::Indexed(vec![ConfigValue::String("lod1_bushsg".into())]))])),
+        ]))]);
+        lod_lists(&mut settings);
+        assert_eq!(surface_lods(&settings), BTreeMap::from([("bushsg".to_owned(), 0), ("lod1_bushsg".to_owned(), 1)]));
+    }
+
+    #[test]
+    fn a_lobby_is_a_client_project_with_its_own_vegetation_folder() {
+        let obj = |fields: Vec<(&str, ConfigValue)>| named(fields);
+        let tf = |p: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))];
+        let with = |mut base: Vec<(&'static str, ConfigValue)>, more: Vec<(&'static str, ConfigValue)>| { base.extend(more); obj(base) };
+        let model = |name: &str, p: [f32; 3]| with(tf(p), vec![("model_name", ConfigValue::String(name.into()))]);
+        let template = obj(vec![
+            ("project_name", ConfigValue::String("lobby_scene".into())),
+            ("client_objects", ConfigValue::Indexed(vec![
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment".into())), ("properties", obj(vec![("sun_angle", ConfigValue::Float(90.0)), ("sun_position_azimut", ConfigValue::Float(1.0))]))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment_probe".into())), ("geometry", ConfigValue::Integer(0)), ("radius", ConfigValue::Float(15.3)), ("diffuse_multiplier", ConfigValue::Float(2.6)), ("texture", ConfigValue::String("environment_probes/lobby_scene/probe_day".into()))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("ambient_light".into())), ("color", ConfigValue::Integer(0)), ("intensity", ConfigValue::Integer(1)), ("radius", ConfigValue::Float(3.0))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("decal".into()))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("light".into())), ("light_type", ConfigValue::Integer(1)), ("intensity", ConfigValue::Integer(2))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("vegetation".into())), ("layers", ConfigValue::Indexed(vec![obj(vec![
+                    ("name", ConfigValue::String("default".into())), ("wind_factor", ConfigValue::Integer(1)), ("model_def", ConfigValue::Indexed(vec![])),
+                ])]))]),
+            ])),
+        ]);
+        let donor = obj(vec![
+            ("render_visuals", ConfigValue::Indexed(vec![model("level/lobby/hangar_lobby", [0.0; 3]), model("level/new_year_event/snow_event_level1", [1.0; 3])])),
+            ("collision_objects", ConfigValue::Indexed(vec![])),
+            ("client_objects", ConfigValue::Indexed(vec![
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment".into())), ("sun_elevation", ConfigValue::Integer(55)), ("sun_azimuth", ConfigValue::Integer(150))]),
+                with(tf([1.3, 3.0, 3.5]), vec![("game_object_type", ConfigValue::String("environment_probe".into())), ("full_name", ConfigValue::String("environment_and_lights/environment_probe".into())),
+                    ("geometry", ConfigValue::Integer(1)), ("radius", ConfigValue::Integer(9)), ("diffuse_multiplier", ConfigValue::Integer(1)),
+                    ("texture", ConfigValue::String("environment_probes/lobby_scene/probe_day_default_1".into()))]),
+                with(tf([2.0, 2.6, 0.0]), vec![("game_object_type", ConfigValue::String("ambient_light".into())), ("full_name", ConfigValue::String("lights/ambient_light(38)".into())), ("intensity", ConfigValue::Float(1.3)), ("color", ConfigValue::Float3([1.0, 0.5, 0.0]))]),
+                with(tf([0.0, 1.8, 0.0]), vec![("game_object_type", ConfigValue::String("light".into())), ("full_name", ConfigValue::String("lights/point_light(6)".into())), ("intensity", ConfigValue::Float(0.8))]),
+                with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("vegetation".into())), ("full_name", ConfigValue::String("vegetation".into())), ("layers", ConfigValue::Indexed(vec![obj(vec![
+                    ("name", ConfigValue::String("green".into())), ("filename", ConfigValue::String("vegetation/green.veg".into())),
+                    ("model_def", ConfigValue::Indexed(vec![obj(vec![("name", ConfigValue::String("level/03/flora/pra_big_01".into()))])])),
+                ])]))]),
+            ])),
+        ]);
+        let lobby = LobbySpec {
+            donor_project: "projects/lobby_scene/day/client_project".into(), template_project: "projects/lobby_scene/day/client_project".into(),
+            output_project: "lobby_scene/hangar_046".into(), vegetation_folder: "hangar_046".into(), probes: LobbyProbes::Donor,
+            exclude_models: vec!["level/new_year_event/".into()],
+        };
+        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
+        assert!(scene.project.named("server_objects").is_none(), "no server project");
+        assert_eq!(string(&scene.project, "project_name"), Some("lobby_scene"));
+        assert_eq!(scene.models, BTreeSet::from(["level/lobby/hangar_lobby".to_owned()]), "the excluded model is left out");
+        assert_eq!(scene.vegetation_files, BTreeMap::from([("vegetation/green.veg".to_owned(), "vegetation/hangar_046/green.veg".to_owned())]));
+        let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
+        let veg = objects.iter().find(|o| kind(o) == "vegetation").unwrap();
+        assert_eq!(string(&array(veg.named("layers").unwrap()).unwrap()[0], "filename"), Some("vegetation/hangar_046/green.veg"));
+        let probes: Vec<_> = objects.iter().filter(|o| kind(o) == "environment_probe").collect();
+        assert_eq!(probes.len(), 1, "the donor's volumes only, no global probe");
+        assert_eq!(string(probes[0], "texture"), Some("environment_probes/lobby_scene/probe_day_default_1"));
+        assert_eq!(integer(probes[0], "geometry"), Some(1));
+        assert_eq!(real(probes[0], "diffuse_multiplier"), Some(1.0), "the donor's multiplier");
+        assert!(scene.probe_textures.contains("environment_probes/lobby_scene/probe_day_default_1"));
+        let ambient = objects.iter().find(|o| kind(o) == "ambient_light").unwrap();
+        assert_eq!(real(ambient, "intensity"), Some(1.3), "0.46c2 intensities are 0.26's");
+        assert_eq!(integer(ambient, "color"), Some(packed_colour([1.0, 0.5, 0.0])));
+        let light = objects.iter().find(|o| kind(o) == "light").unwrap();
+        assert_eq!(real(light, "intensity"), Some(0.8));
+        let env = objects.iter().find(|o| kind(o) == "environment").unwrap();
+        assert_eq!(real(env.named("properties").unwrap(), "sun_angle"), Some(55.0));
+    }
+
+    #[test]
+    fn a_manifest_ports_one_map_or_one_lobby() {
+        let lobby = r#""lobby": {"donor_project": "d", "template_project": "t", "output_project": "lobby_scene/x", "vegetation_folder": "x", "probes": {"template": {"native": "p"}}}"#;
+        let manifest = |body: &str| format!(r#"{{"source_build": "0.69d", "donor_fingerprint": "f", "target_sha256": "t", {body}"game_material_names": {{}}, "material_templates": {{}}, "roughness_scale": 0.2}}"#);
+        let m: Manifest = serde_json::from_str(&manifest(&format!("{lobby}, "))).unwrap();
+        assert!(matches!(m.port().unwrap(), Port::Lobby(LobbySpec { probes: LobbyProbes::Template { .. }, .. })));
+        assert_eq!(m.namespace(), "ported/v069d");
+        let none: Manifest = serde_json::from_str(&manifest("")).unwrap();
+        assert!(none.port().is_err());
     }
 }
