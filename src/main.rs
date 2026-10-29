@@ -257,6 +257,25 @@ enum Command {
         #[arg(long)]
         preserve_lobby: bool,
     },
+    /// Build the STK2 lobby scene as a 0.26g lobby project, a content pack
+    /// (pack.json and files/) in a new folder.
+    #[command(name = "build-stk2-lobby-026")]
+    BuildStk2Lobby026 {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The folder holding the extracted `STK2/xr2-*/resources` trees the
+        /// manifest names.
+        #[arg(long)]
+        stk2_root: PathBuf,
+        /// The 0.26g resources.db (templates; the pack's paths must be new).
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+        /// Scratch space for the texture conversions.
+        #[arg(long)]
+        work: PathBuf,
+    },
     /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
     BuildSurvarium021Maps {
         #[arg(long)]
@@ -1179,6 +1198,28 @@ fn main() -> Result<()> {
             println!("files={}", record.files.len());
             println!("armor_dict_ids={:?}", record.armor_dict_ids);
             println!("bundle={}", output.display());
+        }
+        Command::BuildStk2Lobby026 {
+            manifest,
+            stk2_root,
+            target_db,
+            output,
+            work,
+        } => {
+            let report = vostok_resource_porter::stk2_lobby_026::build(
+                &vostok_resource_porter::stk2_lobby_026::BuildOptions {
+                    manifest: &manifest,
+                    stk2_root: &stk2_root,
+                    target_db: &target_db,
+                    output: &output,
+                    work: &work,
+                },
+            )?;
+            println!("files={}", report.files);
+            for (name, p) in &report.spots {
+                println!("spot {name} {:.3} {:.3} {:.3}", p[0], p[1], p[2]);
+            }
+            println!("pack.json sha256={}", report.manifest_sha256);
         }
         Command::BuildStk2Content {
             manifest,

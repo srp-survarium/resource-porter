@@ -122,6 +122,19 @@ vostok-port pack patch --base-db /path/to/retail-026g/resources.db \
 
 See [content packs](docs/content-packs.md).
 
+The STK2 lobby scene (the blockpost hut of STK2's own `lobby_scene`) is
+made straight as a pack, a lobby project of its own
+(`src/stk2_lobby_026.rs` says what it makes and how):
+
+```sh
+vostok-port build-stk2-lobby-026 --manifest ports/stk2-lobby-to-026g.json \
+  --stk2-root /path/to/extracted --target-db /path/to/retail-026g/resources.db \
+  --output .work/lobby-stk2-1 --work .work/lobby-stk2-tex
+```
+
+`--stk2-root` holds the files the manifest names under `STK2/xr2-*`
+(extracted from `STK2.7z`); ImageMagick (`magick`) converts the textures.
+
 Compose multiple bundles before applying. The first bundle wins shared paths:
 
 ```sh
