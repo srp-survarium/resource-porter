@@ -8,9 +8,16 @@
     "output_project": "lobby_scene/camp_069",
     "vegetation_folder": "camp_069",
     "probes": {
-      "template": {
-        "native": "environment_and_lights/probes/environment_probe"
+      "baked": {
+        "diffuse_scale": 0.5
       }
+    },
+    "photometric_lights": {
+      "lux": 0.006,
+      "lumen": 0.015,
+      "fill": 0.02,
+      "shadow": 0.25,
+      "max": 2.0
     },
     "exclude_models": [
       "level/new_year_event/",
