@@ -11,7 +11,7 @@
 //! starts from a native 0.26 one and takes only values whose meaning is the
 //! same in both builds. Native shader permutations therefore never change.
 //! What has no 0.26 equivalent keeps the native look of the template map.
-use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild};
+use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
@@ -250,6 +250,16 @@ pub struct MapSpec {
     /// water's sky probe, with local reflections off.
     #[serde(default)]
     pub matte_water_probe: Option<String>,
+    /// `mode.match_making_params.map_id`, the level number the lobby keys
+    /// names, room tiles and play counts by; default the template's. A port
+    /// of a map 0.26 already has (0.69d Rudnya over level_01) takes its own.
+    #[serde(default)]
+    pub level_id: Option<u8>,
+    /// `mode.ui.map_name`: a key the target's dictionaries already have (the
+    /// server's content adds it), instead of the donor's key with its texts
+    /// copied in. For a map whose donor key 0.26 uses for another map.
+    #[serde(default)]
+    pub map_name: Option<String>,
 }
 
 /// A lobby scene: the project the lobby menu loads behind the character (0.26
@@ -2094,12 +2104,15 @@ pub fn convert_scene(
 
     let ambient_template = first_template(template, "ambient_light")?;
     let decal_template = first_template(template, "decal")?;
-    let light_template = templates_of(template, "light")
-        .into_iter()
-        .find(|l| integer(l, "light_type") == Some(1))
-        .or_else(|| templates_of(template, "light").into_iter().next())
-        .context("template has no light")?
-        .clone();
+    // Asked for only when the donor has lights (native Rudnya has none).
+    let light_template = || {
+        templates_of(template, "light")
+            .into_iter()
+            .find(|l| integer(l, "light_type") == Some(1))
+            .or_else(|| templates_of(template, "light").into_iter().next())
+            .cloned()
+            .context("template has no light")
+    };
     // Only maps have resupply zones (a lobby's template has none).
     let resupply_template = || first_template(template, "resupply_zone");
     let collision_geometry_template = || {
@@ -2186,7 +2199,7 @@ pub fn convert_scene(
                 count("decal");
             }
             "light" => {
-                let mut l = light_template.clone();
+                let mut l = light_template()?;
                 place(&mut l, object, &full_name)?;
                 copy_shared(
                     &mut l,
@@ -3823,32 +3836,20 @@ pub fn build(
         let mut mode = cfg(&mut target, &spec.template_mode)?;
         mode.set_path("mode.name", ConfigValue::String(spec.mode_name.trim_end_matches(".options").into()))?;
         mode.set_path("mode.match_making_params.map_name", ConfigValue::String(spec.output_project.clone()))?;
-        // The donor's own map name, its strings added to 0.26 localization below.
-        let donor_mode = cfg(&mut donor, &spec.donor_mode)?;
-        let name_key = string(&donor_mode, "mode.ui.map_name").or_else(|| donor_mode.named("mode").and_then(|m| m.named("ui")).and_then(|u| string(u, "map_name"))).context("donor mode has no ui.map_name")?.to_owned();
-        mode.set_path("mode.ui.map_name", ConfigValue::String(name_key.clone()))?;
+        if let Some(level) = spec.level_id {
+            mode.set_path("mode.match_making_params.map_id", ConfigValue::Integer(level.into()))?;
+            notes.push(format!("level number (match_making_params.map_id): {level}"));
+        }
         if let Some(id) = spec.loading_screen_id {
             mode.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(id.into()))?;
             notes.push(format!("loading screen: slot {id} of lobby_menu.swf (the UI bundle puts the donor's image there)"));
         }
-        let mut added_strings = Vec::new();
-        for path in target.paths_with_prefix("localization/").filter(|p| p.ends_with("/localization")).map(str::to_owned).collect::<Vec<_>>() {
-            let mut strings = cfg(&mut target, &path)?;
-            let ConfigValue::Named(entries) = strings.named("strings").context("localization without strings")? else { bail!("{path}: strings is not a table") };
-            if entries.iter().any(|e| e.name == name_key) {
-                continue;
-            }
-            // The same language from the donor, else its English text.
-            let donor_path = if donor.is_file(&path) { path.clone() } else { "localization/english/localization".to_owned() };
-            let donor_strings = cfg(&mut donor, &donor_path)?;
-            let text = donor_strings.named("strings").and_then(|s| string(s, &name_key)).with_context(|| format!("{donor_path} has no {name_key}"))?.to_owned();
-            let Some(ConfigValue::Named(entries)) = strings.named_mut("strings") else { unreachable!() };
-            entries.push(NamedValue { name: name_key.clone(), value: ConfigValue::String(text) });
-            emit(output, &path, &BinaryConfig { root: strings }.to_bytes()?, &format!("0.26g localization + {name_key} from {donor_path}"), &mut files)?;
-            added_strings.push(path.split('/').nth(1).unwrap_or("").to_owned());
+        if let Some(name_key) = &spec.map_name {
+            mode.set_path("mode.ui.map_name", ConfigValue::String(name_key.clone()))?;
+            notes.push(format!("map name: {name_key}, its texts the target's dictionaries'"));
+        } else {
+            add_donor_map_name(&mut mode, spec, &mut donor, &mut target, output, &mut files, &mut notes)?;
         }
-        ensure!(!added_strings.is_empty() || target.is_file("localization/english/localization"), "no localization to extend");
-        notes.push(format!("map name: the donor's {name_key} added to 0.26 localization ({})", added_strings.join(", ")));
         let mode_path = format!("gameplay/game_modes/{}", spec.mode_name);
         ensure!(!target.contains(&mode_path), "mode exists");
         emit(output, &mode_path, &BinaryConfig { root: mode }.to_bytes()?, "0.26g mode template", &mut files)?;
@@ -3864,14 +3865,24 @@ pub fn build(
     let record = Record {
         format_version: 1,
         asset_id: match &port {
-            Port::Map(_) => "retail-v069d-duga-to-026g".into(),
+            Port::Map(spec) => format!("retail-{}-{}-to-026g", m.source_build.prefix(), spec.output_project.replace('/', "-")),
             Port::Lobby(l) => format!("retail-{}-{}-to-026g", m.source_build.prefix(), l.output_project.replace('/', "-")),
         },
         donor_build: m.source_build.label().into(),
         target_build: "0.26g0-2777".into(),
         target_db_sha256: m.target_sha256.clone(),
         server_project_fallback: None,
-        maps: Vec::new(),
+        // The server learns the map from this (the content pack's `server.maps`).
+        maps: match &port {
+            Port::Map(spec) => vec![Map {
+                id: spec.id,
+                level: spec.level.clone(),
+                weather: "day".into(),
+                environment_look: Default::default(),
+                native_ambient_fill: false,
+            }],
+            Port::Lobby(_) => Vec::new(),
+        },
         files,
         converted_materials: converted_materials.iter().map(|(k, v)| (k.clone(), v.template.clone())).collect(),
         shared_dependencies: native_models.iter().map(|m| format!("models/{m}.model")).collect(),
@@ -3889,6 +3900,43 @@ pub fn build(
     };
     serde_json::to_writer_pretty(fs::File::create(output.join("scene-summary.json"))?, &summary)?;
     Ok(record)
+}
+
+/// The donor's own map name (`ui.map_name`) on the mode, its texts added to
+/// every 0.26 localization that lacks the key.
+fn add_donor_map_name(
+    mode: &mut ConfigValue,
+    spec: &MapSpec,
+    donor: &mut ResourceDb,
+    target: &mut ResourceDb,
+    output: &Path,
+    files: &mut Vec<BuiltFile>,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    {
+        let donor_mode = cfg(donor, &spec.donor_mode)?;
+        let name_key = string(&donor_mode, "mode.ui.map_name").or_else(|| donor_mode.named("mode").and_then(|m| m.named("ui")).and_then(|u| string(u, "map_name"))).context("donor mode has no ui.map_name")?.to_owned();
+        mode.set_path("mode.ui.map_name", ConfigValue::String(name_key.clone()))?;
+        let mut added_strings = Vec::new();
+        for path in target.paths_with_prefix("localization/").filter(|p| p.ends_with("/localization")).map(str::to_owned).collect::<Vec<_>>() {
+            let mut strings = cfg(target, &path)?;
+            let ConfigValue::Named(entries) = strings.named("strings").context("localization without strings")? else { bail!("{path}: strings is not a table") };
+            if entries.iter().any(|e| e.name == name_key) {
+                continue;
+            }
+            // The same language from the donor, else its English text.
+            let donor_path = if donor.is_file(&path) { path.clone() } else { "localization/english/localization".to_owned() };
+            let donor_strings = cfg(donor, &donor_path)?;
+            let text = donor_strings.named("strings").and_then(|s| string(s, &name_key)).with_context(|| format!("{donor_path} has no {name_key}"))?.to_owned();
+            let Some(ConfigValue::Named(entries)) = strings.named_mut("strings") else { unreachable!() };
+            entries.push(NamedValue { name: name_key.clone(), value: ConfigValue::String(text) });
+            emit(output, &path, &BinaryConfig { root: strings }.to_bytes()?, &format!("0.26g localization + {name_key} from {donor_path}"), files)?;
+            added_strings.push(path.split('/').nth(1).unwrap_or("").to_owned());
+        }
+        ensure!(!added_strings.is_empty() || target.is_file("localization/english/localization"), "no localization to extend");
+        notes.push(format!("map name: the donor's {name_key} added to 0.26 localization ({})", added_strings.join(", ")));
+    }
+    Ok(())
 }
 
 fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>, ns: &str) {
@@ -4389,7 +4437,7 @@ mod tests {
             output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: [0.0; 3],
             global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
             probe_classes: Vec::new(), ambient_lights: false,
-            donor_mode: "d".into(), loading_screen_id: None, matte_water_probe: None,
+            donor_mode: "d".into(), loading_screen_id: None, matte_water_probe: None, level_id: None, map_name: None,
         };
         let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
