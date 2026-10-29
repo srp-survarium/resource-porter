@@ -1,0 +1,216 @@
+{
+  "template_project": "projects/lobby_scene/day/client_project",
+  "static_templates": {
+    "settings": "models/level/lobby/base.model/settings",
+    "render_properties": "models/level/lobby/base.model/render/export_properties",
+    "surface_properties": "models/level/lobby/base.model/render/conc_low_s/export_properties"
+  },
+  "texture_options_template": "textures/tiled/concrete/concrete_01.options",
+  "srp_lobby": {
+    "weapon_spot": "weapon",
+    "weapon_view": 1.5708
+  },
+  "pack": {
+    "id": "lobby-stk2-bunker",
+    "version": "1",
+    "description": "the STK2 bomb shelter (2011-12 scenario a03_bomb_shelter: its octagonal store room with the gas-mask pile, shelves, crates and beds, and the vaults beside it) as a 0.26g lobby project, projects/lobby_scene/stk2_bunker, lit by STK2's own lights, sun and post-process"
+  },
+  "target_project": "projects/lobby_scene/stk2_bunker/client_project",
+  "model_prefix": "level/stk2_bunker",
+  "material_prefix": "ported/stk2/lobby_bunker",
+  "texture_prefix": "ported/stk2/lobby_bunker",
+  "textures_dir": "resources/sources/textures",
+  "more_texture_dirs": [
+    "STK2/xr2-prog/resources/sources/textures"
+  ],
+  "fallback_template": "tiled/concrete/concrete_01",
+  "max_texture_size": 512,
+  "texture_caps": [
+    {
+      "prefix": "props/",
+      "max": 256
+    }
+  ],
+  "scene": {
+    "character": [
+      37.49,
+      -4.37,
+      -24.41
+    ],
+    "view_yaw": 1.5708
+  },
+  "slices": [
+    {
+      "name": "main",
+      "project": "resources/sources/projects/scenario/a03_bomb_shelter/project.xprj",
+      "composites": "resources/sources/library/composite/composite.library",
+      "model_roots": [
+        "resources",
+        "STK2/xr2-prog/resources",
+        "STK2/xr2-dsgn/resources"
+      ],
+      "box_min": [
+        28.0,
+        -5.0,
+        -31.0
+      ],
+      "box_max": [
+        48.0,
+        0.5,
+        -8.0
+      ],
+      "exclude": [
+        "item/weapon/",
+        "actors/",
+        "character/",
+        "pine_",
+        "generic/tower_electric/"
+      ],
+      "lights": {
+        "point_template": "point_light(5)",
+        "spot_template": "spot_light(1)",
+        "intensity_scale": 2.0
+      },
+      "collision": true
+    }
+  ],
+  "material_roots": [
+    "resources/sources",
+    "STK2/xr2-prog/resources/sources"
+  ],
+  "material_rules": [
+    {
+      "bases": [
+        "volumetric_cone"
+      ],
+      "then": {
+        "kind": "hidden"
+      }
+    },
+    {
+      "bases": [
+        "forward_lighting",
+        "glass",
+        "forward_glass",
+        "glass_forward"
+      ],
+      "then": {
+        "kind": "native",
+        "material": "tiled/window/glass_tile_forward"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "alpha_test": true,
+      "two_sided": true,
+      "then": {
+        "kind": "converted",
+        "template": "tiled/roof/roof_03_alpha_2side"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "alpha_test": true,
+      "then": {
+        "kind": "converted",
+        "template": "tiled/trash/trash_concrete_alpha"
+      }
+    },
+    {
+      "bases": [
+        "concrete_decal",
+        "decal",
+        "decal_default"
+      ],
+      "then": {
+        "kind": "converted",
+        "template": "tiled/trash/trash_concrete_alpha"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "two_sided": true,
+      "then": {
+        "kind": "converted",
+        "template": "props/box/props_boxes_wood"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "then": {
+        "kind": "converted",
+        "template": "tiled/concrete/concrete_01"
+      }
+    }
+  ],
+  "objects": [
+    {
+      "from": "track"
+    },
+    {
+      "from": "environment_day"
+    },
+    {
+      "from": "sun",
+      "set": {
+        "intensity": 0.0
+      }
+    },
+    {
+      "from": "background"
+    },
+    {
+      "from": "lobby_room_tone"
+    },
+    {
+      "from": "point_light(5)",
+      "name": "character_fill",
+      "set": {
+        "position": [
+          0.0,
+          1.7,
+          -1.2
+        ],
+        "color": [
+          1.0,
+          0.92,
+          0.82
+        ],
+        "intensity": 1.0,
+        "range": 3.5,
+        "attenuation_power": 2.0,
+        "is_cast_shadow": false,
+        "layer": "default"
+      }
+    }
+  ],
+  "spots": {
+    "character": [
+      37.49,
+      -4.37,
+      -24.41
+    ],
+    "weapon": [
+      39.0,
+      -3.0,
+      -26.4
+    ],
+    "artefact": [
+      38.59,
+      -3.76,
+      -22.95
+    ]
+  },
+  "environment": {
+    "object": "environment_day",
+    "post_process": "resources/sources/material_instances/post_process/default_post_process.material"
+  }
+}

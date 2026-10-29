@@ -2,7 +2,7 @@
   "pack": {
     "id": "lobby-stk2",
     "version": "1",
-    "description": "the STK2 (2011-12) lobby scene as a 0.26g lobby project, projects/lobby_scene/stk2_blockpost: the a02 blockpost guard hut, its sentry bunk, mattress, stool and campfire (STK2 models and textures), a flat grass ground, 0.26g's sky, sun, probe, lobby sounds and the native bonfire flame"
+    "description": "the STK2 (2011-12) lobby scene as a 0.26g lobby project, projects/lobby_scene/stk2_blockpost: the a02 blockpost guard hut, its sentry bunk, mattress, stool and campfire (STK2 models and textures), a flat grass ground, STK2's own lights and post-process (0.26g's sky behind it), the lobby's sounds and the native bonfire flame"
   },
   "template_project": "projects/lobby_scene/day/client_project",
   "target_project": "projects/lobby_scene/stk2_blockpost/client_project",
@@ -18,7 +18,11 @@
   "texture_options_template": "textures/tiled/concrete/concrete_01.options",
   "max_texture_size": 1024,
   "scene": {
-    "character": [2.0896555, 1.107366, 27.1056606],
+    "character": [
+      2.0896555,
+      1.107366,
+      27.1056606
+    ],
     "view_yaw": -1.5707963
   },
   "models": [
@@ -26,14 +30,22 @@
       "name": "blockpost",
       "archive": "STK2/xr2-dsgn/resources/exported/models/location/a02_blockpost/blockpost.model",
       "settings": "STK2/xr2-prog/resources/sources/models/location/a02_blockpost/blockpost.model/settings",
-      "position": [2.6896555423736572, 0.088260471820831299, 27.655660629272461],
+      "position": [
+        2.6896555423736572,
+        0.0882604718208313,
+        27.65566062927246
+      ],
       "collision": true
     },
     {
       "name": "sentry_a",
       "archive": "STK2/xr2-prog/resources/exported/models/props/furniture/sentry_a.model",
       "settings": "STK2/xr2-prog/resources/sources/models/props/furniture/sentry_a.model/settings",
-      "position": [5.2723426818847656, 1.1073660850524902, 26.225276947021484],
+      "position": [
+        5.272342681884766,
+        1.1073660850524902,
+        26.225276947021484
+      ],
       "yaw": 1.5811034,
       "collision": true
     },
@@ -41,21 +53,33 @@
       "name": "mattress_01",
       "archive": "STK2/xr2-prog/resources/exported/models/props/furniture/mattress_01.model",
       "settings": "STK2/xr2-prog/resources/sources/models/props/furniture/mattress_01.model/settings",
-      "position": [3.8730893135070801, 1.1073658466339111, 29.460472106933594],
+      "position": [
+        3.87308931350708,
+        1.1073658466339111,
+        29.460472106933594
+      ],
       "collision": true
     },
     {
       "name": "stool",
       "archive": "STK2/xr2-prog/resources/exported/models/props/furniture/stool.model",
       "settings": "STK2/xr2-prog/resources/sources/models/props/furniture/stool.model/settings",
-      "position": [4.4000215530395508, 1.1073659658432007, 27.573366165161133],
+      "position": [
+        4.400021553039551,
+        1.1073659658432007,
+        27.573366165161133
+      ],
       "collision": true
     },
     {
       "name": "campfire",
       "archive": "STK2/xr2-prog/resources/exported/models/props/fire/campfire.model",
       "settings": "STK2/xr2-prog/resources/sources/models/props/fire/campfire.model/settings",
-      "position": [2.8292150497436523, 1.1073659658432007, 27.803840637207031]
+      "position": [
+        2.8292150497436523,
+        1.1073659658432007,
+        27.80384063720703
+      ]
     }
   ],
   "ground": {
@@ -150,75 +174,129 @@
     }
   },
   "objects": [
-    { "from": "track" },
-    { "from": "environment_day" },
-    { "from": "sun" },
     {
-      "from": "point_light",
-      "set": { "position": [1.672, 2.3, -0.643] }
+      "from": "track"
     },
-    { "from": "point_light(2)" },
-    { "from": "point_light(4)" },
-    { "from": "point_light(5)" },
     {
-      "from": "environment_probe",
-      "position": [2.6896555, 2.4, 27.6556606]
+      "from": "environment_day"
+    },
+    {
+      "from": "sun",
+      "set": {
+        "intensity": 0.0
+      }
     },
     {
       "from": "stove_fire",
       "name": "campfire_flame",
-      "position": [2.8292150497436523, 1.1073659658432007, 27.803840637207031],
-      "set": { "lib_name": "fx/lights/bonfire", "rotation": [0.0, 0.0, 0.0] }
-    },
-    {
-      "from": "point_light(5)",
-      "name": "campfire_light",
-      "position": [2.8330259323120117, 1.6598503589630127, 27.812213897705078],
+      "position": [
+        2.8292150497436523,
+        1.1073659658432007,
+        27.80384063720703
+      ],
       "set": {
-        "color": [1.0, 0.6, 0.3],
-        "intensity": 3.0,
-        "range": 6.0,
-        "attenuation_power": 2.0,
-        "layer": "default"
+        "lib_name": "fx/lights/bonfire",
+        "rotation": [
+          0.0,
+          0.0,
+          0.0
+        ]
       }
-    },
-    {
-      "from": "point_light(5)",
-      "name": "ceiling_light",
-      "position": [2.7997851371765137, 3.0477626323699951, 28.305841445922852],
-      "set": {
-        "color": [0.8, 0.85, 1.0],
-        "intensity": 0.5,
-        "range": 5.0,
-        "attenuation_power": 2.0,
-        "layer": "default"
-      }
-    },
-    {
-      "from": "ambient_light(4)",
-      "name": "hut_fill_east",
-      "position": [4.2, 1.2, 27.65],
-      "set": { "radius": 3.0 }
-    },
-    {
-      "from": "ambient_light(4)",
-      "name": "hut_fill_west",
-      "position": [1.0, 1.2, 27.65],
-      "set": { "radius": 3.0 }
     },
     {
       "from": "fire",
-      "position": [2.8292150497436523, 1.6, 27.803840637207031]
+      "position": [
+        2.8292150497436523,
+        1.6,
+        27.80384063720703
+      ]
     },
-    { "from": "background" },
-    { "from": "lobby_room_tone" }
+    {
+      "from": "background"
+    },
+    {
+      "from": "lobby_room_tone"
+    },
+    {
+      "from": "point_light(5)",
+      "name": "character_fill",
+      "set": {
+        "position": [
+          0.0,
+          1.7,
+          -1.2
+        ],
+        "color": [
+          1.0,
+          0.92,
+          0.82
+        ],
+        "intensity": 1.0,
+        "range": 3.5,
+        "attenuation_power": 2.0,
+        "is_cast_shadow": false,
+        "layer": "default"
+      }
+    }
   ],
-  "srp_lobby": { "weapon_spot": "weapon", "weapon_view": 0.0 },
+  "srp_lobby": {
+    "weapon_spot": "weapon",
+    "weapon_view": 0.0
+  },
   "spots": {
-    "character": [2.0896555, 1.107366, 27.1056606],
-    "camera_default_eye": [0.1296555, 2.307366, 27.1056606],
-    "weapon": [4.6397, 2.6574, 26.2057],
-    "artefact": [4.4000215530395508, 1.6074, 27.573366165161133],
-    "artefact_counter": [4.8897, 2.3074, 25.6057]
+    "character": [
+      2.0896555,
+      1.107366,
+      27.1056606
+    ],
+    "camera_default_eye": [
+      0.1296555,
+      2.307366,
+      27.1056606
+    ],
+    "weapon": [
+      4.6397,
+      2.6574,
+      26.2057
+    ],
+    "artefact": [
+      4.400021553039551,
+      1.6074,
+      27.573366165161133
+    ],
+    "artefact_counter": [
+      4.8897,
+      2.3074,
+      25.6057
+    ]
+  },
+  "slices": [
+    {
+      "name": "lights",
+      "project": "STK2/xr2-prog/resources/sources/projects/lobby_scene/project.xprj",
+      "composites": "STK2/xr2-prog/resources/sources/library/composite/composite.library",
+      "model_roots": [],
+      "box_min": [
+        -60,
+        -10,
+        0
+      ],
+      "box_max": [
+        60,
+        20,
+        60
+      ],
+      "geometry": false,
+      "lights": {
+        "point_template": "point_light(5)",
+        "spot_template": "spot_light(1)",
+        "sun_template": "sun",
+        "intensity_scale": 2.0
+      }
+    }
+  ],
+  "environment": {
+    "object": "environment_day",
+    "post_process": "STK2/xr2-prog/resources/sources/material_instances/post_process/default_post_process.material"
   }
 }

@@ -275,6 +275,9 @@ enum Command {
         /// Scratch space for the texture conversions.
         #[arg(long)]
         work: PathBuf,
+        /// Only write the STK2 textures needed to this file (nothing made).
+        #[arg(long)]
+        list_textures: Option<PathBuf>,
     },
     /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
     BuildSurvarium021Maps {
@@ -1205,6 +1208,7 @@ fn main() -> Result<()> {
             target_db,
             output,
             work,
+            list_textures,
         } => {
             let report = vostok_resource_porter::stk2_lobby_026::build(
                 &vostok_resource_porter::stk2_lobby_026::BuildOptions {
@@ -1213,6 +1217,7 @@ fn main() -> Result<()> {
                     target_db: &target_db,
                     output: &output,
                     work: &work,
+                    list_textures: list_textures.as_deref(),
                 },
             )?;
             println!("files={}", report.files);

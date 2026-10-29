@@ -132,8 +132,14 @@ vostok-port build-stk2-lobby-026 --manifest ports/stk2-lobby-to-026g.json \
   --output .work/lobby-stk2-1 --work .work/lobby-stk2-tex
 ```
 
-`--stk2-root` holds the files the manifest names under `STK2/xr2-*`
-(extracted from `STK2.7z`); ImageMagick (`magick`) converts the textures.
+`--stk2-root` holds the files the manifest names: `STK2/xr2-*` (extracted
+from `STK2.7z`) and `resources/` (from the later `stk_2.7z`); ImageMagick
+(`magick`, and Pillow for the run-length TGAs it refuses) converts the
+textures. The same command makes the Bar (`ports/stk2-bar-lobby-to-026g.json`)
+and the bomb shelter (`ports/stk2-bunker-lobby-to-026g.json`): a `slice` takes
+the objects of an STK2 project inside a box, merged into one model, with the
+project's lights and its environment's post-process; `--list-textures` says
+which source textures a manifest needs before they are extracted.
 
 Compose multiple bundles before applying. The first bundle wins shared paths:
 

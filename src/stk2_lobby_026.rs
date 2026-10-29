@@ -76,14 +76,44 @@ pub struct LobbyManifest {
     pub static_templates: StaticTemplates,
     /// The STK2 source textures' folder, relative to the STK2 root.
     pub textures_dir: String,
+    /// More texture folders, looked in after it.
+    #[serde(default)]
+    pub more_texture_dirs: Vec<String>,
+    /// The template of a model surface that names only its diffuse texture
+    /// (an exported model without source settings) when no material
+    /// instance binds that texture.
+    #[serde(default)]
+    pub fallback_template: Option<String>,
     /// A native `.options` the made textures' options are cloned from.
     pub texture_options_template: String,
     pub max_texture_size: u32,
+    /// Smaller caps for textures under a prefix (`props/`, ...): the
+    /// first that matches.
+    #[serde(default)]
+    pub texture_caps: Vec<TextureCap>,
     pub scene: SceneSpec,
+    #[serde(default)]
     pub models: Vec<ModelSpec>,
-    pub ground: GroundSpec,
+    /// Corners of STK2 projects, each merged into one model.
+    #[serde(default)]
+    pub slices: Vec<SliceSpec>,
+    #[serde(default)]
+    pub ground: Option<GroundSpec>,
     /// Keyed by the STK2 material instance name the models' settings use.
+    #[serde(default)]
     pub materials: BTreeMap<String, MaterialSpec>,
+    /// For a material `materials` does not name: the first rule matching
+    /// its STK2 base material and flags.
+    #[serde(default)]
+    pub material_rules: Vec<MaterialRule>,
+    /// Where an STK2 material instance named by a model is looked for (its
+    /// `material_instances/<name>.material`, or `.material.orig`), in order.
+    #[serde(default)]
+    pub material_roots: Vec<String>,
+    /// The STK2 environment's post-process mapped onto the 0.26g
+    /// environment object.
+    #[serde(default)]
+    pub environment: Option<EnvironmentSpec>,
     /// Client objects of the project, in order: kept or cloned from the
     /// template's (by name).
     pub objects: Vec<ObjectSpec>,
@@ -94,6 +124,107 @@ pub struct LobbyManifest {
     /// The project's root `srp_lobby` table, which skhid-srp's lobby
     /// patches read (patch 45's weapon spot and view).
     pub srp_lobby: SrpLobbySpec,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TextureCap {
+    pub prefix: String,
+    pub max: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SliceSpec {
+    /// The merged model is `<model_prefix>/<name>`.
+    pub name: String,
+    /// The STK2 `project.xprj` and the composite library, relative to the
+    /// STK2 root.
+    pub project: String,
+    pub composites: String,
+    /// The `resources` trees the objects' models are looked for in, in
+    /// order (`<root>/exported/models/<lib>.model`,
+    /// `<root>/sources/models/<lib>.model/settings`).
+    pub model_roots: Vec<String>,
+    /// The STK2 world box kept: objects' triangles with a corner inside it,
+    /// lights inside it.
+    pub box_min: [f32; 3],
+    pub box_max: [f32; 3],
+    /// Library name prefixes left out (weapons on tables, static
+    /// characters, ...).
+    #[serde(default)]
+    pub exclude: Vec<String>,
+    /// The project's lights inside the box as copies of a template light.
+    #[serde(default)]
+    pub lights: Option<SliceLights>,
+    /// Give the camera ray the kept objects' collision.
+    #[serde(default)]
+    pub collision: bool,
+    /// Take the objects' models (false: only the lights).
+    #[serde(default = "yes")]
+    pub geometry: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvironmentSpec {
+    /// The template project's environment object (kept by `objects`).
+    pub object: String,
+    /// The STK2 project environment's `post_effect` material instance,
+    /// relative to the STK2 root; its base material is read from
+    /// `<...>/materials/` beside its `material_instances/`.
+    pub post_process: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SliceLights {
+    /// The template project's client objects the lights are cloned from:
+    /// point, sphere and box lights as the point template, spot lights as
+    /// the spot template (point when absent), the sun as the sun template
+    /// (the project's sun left out when absent).
+    pub point_template: String,
+    #[serde(default)]
+    pub spot_template: Option<String>,
+    #[serde(default)]
+    pub sun_template: Option<String>,
+    #[serde(default = "one")]
+    pub intensity_scale: f32,
+    #[serde(default = "one")]
+    pub range_scale: f32,
+}
+
+fn one() -> f32 {
+    1.0
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialRule {
+    /// STK2 base materials (`concrete`, `wood`, ...); `*` any.
+    pub bases: Vec<String>,
+    #[serde(default)]
+    pub alpha_test: Option<bool>,
+    #[serde(default)]
+    pub two_sided: Option<bool>,
+    pub then: RuleTarget,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RuleTarget {
+    Converted {
+        template: String,
+    },
+    Native {
+        material: String,
+    },
+    /// The surfaces are left out.
+    Hidden,
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,9 +277,15 @@ pub struct ModelSpec {
     /// The object's placement in the STK2 project.
     pub position: [f32; 3],
     /// Same convention as [`SceneSpec::view_yaw`] (the project's
-    /// `rotation = (-pi, r, -pi)` is the yaw `pi - r`).
+    /// `rotation = (-pi, r, -pi)` is the yaw `pi + r`).
     #[serde(default)]
     pub yaw: f32,
+    /// Or the project's rotation and scale as they are (the engine's
+    /// `create_scale * create_rotation * create_translation`).
+    #[serde(default)]
+    pub rotation: Option<[f32; 3]>,
+    #[serde(default)]
+    pub scale: Option<[f32; 3]>,
     /// Give the camera ray the model's low collision mesh.
     #[serde(default)]
     pub collision: bool,
@@ -184,6 +321,8 @@ pub enum MaterialSpec {
     },
     /// A native material, as it is.
     Native { material: String },
+    /// The surfaces are left out.
+    Hidden,
 }
 
 #[derive(Debug, Deserialize)]
@@ -202,47 +341,129 @@ pub struct ObjectSpec {
     pub set: BTreeMap<String, Json>,
 }
 
-/// A yaw about +y then a translation: `p' = rot(yaw) p + t`.
+/// An affine move in the engine's row-vector form: `p' = p m + t` (the
+/// rows of `m` are the images of x, y and z); normals go by `n`, the
+/// inverse transpose of `m`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Rigid {
-    yaw: f32,
-    translation: [f32; 3],
+    m: [[f32; 3]; 3],
+    n: [[f32; 3]; 3],
+    t: [f32; 3],
+}
+
+fn mul3(a: [[f32; 3]; 3], b: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
+    let mut out = [[0.0; 3]; 3];
+    for (row, a_row) in out.iter_mut().zip(a) {
+        for (column, value) in row.iter_mut().enumerate() {
+            *value = a_row[0] * b[0][column] + a_row[1] * b[1][column] + a_row[2] * b[2][column];
+        }
+    }
+    out
+}
+
+fn row_times(v: [f32; 3], m: [[f32; 3]; 3]) -> [f32; 3] {
+    [0, 1, 2].map(|c| v[0] * m[0][c] + v[1] * m[1][c] + v[2] * m[2][c])
+}
+
+/// The angles the engine's `create_rotation` makes `m` (rows) from; `m`
+/// a rotation.
+fn euler_of(m: [[f32; 3]; 3]) -> [f32; 3] {
+    let y = m[0][2].clamp(-1.0, 1.0).asin();
+    if m[0][2].abs() < 0.999_99 {
+        [(-m[1][2]).atan2(m[2][2]), y, (-m[0][1]).atan2(m[0][0])]
+    } else {
+        // gimbal: x and z turn about the same axis; all of it on x
+        [m[1][0].atan2(m[1][1]), y, 0.0]
+    }
 }
 
 impl Rigid {
+    /// A yaw about +y (`x' = x cos + z sin`, `z' = -x sin + z cos`), then
+    /// a translation.
+    fn yaw(yaw: f32, translation: [f32; 3]) -> Rigid {
+        let (s, c) = yaw.sin_cos();
+        let m = [[c, 0.0, -s], [0.0, 1.0, 0.0], [s, 0.0, c]];
+        Rigid {
+            m,
+            n: m,
+            t: translation,
+        }
+    }
+
+    /// An STK2 project object's transform: the engine's
+    /// `create_scale(scale) * create_rotation(rotation) *
+    /// create_translation(position)` (vostok `base_project.cpp`, the
+    /// matrix of `math_float4x4_inline.h`).
+    fn stk2(position: [f32; 3], rotation: [f32; 3], scale: [f32; 3]) -> Result<Rigid> {
+        ensure!(
+            scale.iter().all(|s| s.is_finite() && s.abs() > 1e-6),
+            "scale {scale:?} is degenerate"
+        );
+        let (xs, xc) = rotation[0].sin_cos();
+        let (ys, yc) = rotation[1].sin_cos();
+        let (zs, zc) = rotation[2].sin_cos();
+        let r = [
+            [yc * zc, -yc * zs, ys],
+            [ys * xs * zc + xc * zs, -xs * ys * zs + xc * zc, -xs * yc],
+            [-xc * ys * zc + xs * zs, xc * ys * zs + xs * zc, xc * yc],
+        ];
+        let m = [0, 1, 2].map(|i| r[i].map(|v| v * scale[i]));
+        let n = [0, 1, 2].map(|i| r[i].map(|v| v / scale[i]));
+        Ok(Rigid { m, n, t: position })
+    }
+
     fn rotate(&self, v: [f32; 3]) -> [f32; 3] {
-        let (s, c) = self.yaw.sin_cos();
-        [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]
+        row_times(v, self.m)
+    }
+
+    fn normal(&self, v: [f32; 3]) -> [f32; 3] {
+        row_times(v, self.n)
     }
 
     fn apply(&self, p: [f32; 3]) -> [f32; 3] {
         let r = self.rotate(p);
-        [
-            r[0] + self.translation[0],
-            r[1] + self.translation[1],
-            r[2] + self.translation[2],
-        ]
+        [r[0] + self.t[0], r[1] + self.t[1], r[2] + self.t[2]]
+    }
+
+    /// Whether it mirrors (the triangles' turn must then be flipped).
+    fn mirrors(&self) -> bool {
+        let m = self.m;
+        let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+        det < 0.0
     }
 
     /// `outer` after `self`.
     fn then(self, outer: Rigid) -> Rigid {
         Rigid {
-            yaw: self.yaw + outer.yaw,
-            translation: outer.apply(self.translation),
+            m: mul3(self.m, outer.m),
+            n: mul3(self.n, outer.n),
+            t: outer.apply(self.t),
+        }
+    }
+
+    /// The inverse of a rotation and translation (`m` orthonormal).
+    fn inverse(&self) -> Rigid {
+        let mut m = [[0.0; 3]; 3];
+        for (r, row) in m.iter_mut().enumerate() {
+            for (c, value) in row.iter_mut().enumerate() {
+                *value = self.m[c][r];
+            }
+        }
+        let back = row_times(self.t, m);
+        Rigid {
+            m,
+            n: m,
+            t: [-back[0], -back[1], -back[2]],
         }
     }
 
     /// The scene's frame: the character at the origin, the view along +z.
     fn scene(spec: &SceneSpec) -> Rigid {
-        let turn = Rigid {
-            yaw: spec.view_yaw,
-            translation: [0.0; 3],
-        };
+        let turn = Rigid::yaw(spec.view_yaw, [0.0; 3]);
         let back = turn.rotate(spec.character);
-        Rigid {
-            yaw: spec.view_yaw,
-            translation: [-back[0], -back[1], -back[2]],
-        }
+        Rigid::yaw(spec.view_yaw, [-back[0], -back[1], -back[2]])
     }
 }
 
@@ -348,6 +569,9 @@ pub struct BuildOptions<'a> {
     pub output: &'a Path,
     /// Scratch space for the texture conversions.
     pub work: &'a Path,
+    /// Write the STK2 textures the materials need to this file, one a
+    /// line, and make nothing (to know what to extract).
+    pub list_textures: Option<&'a Path>,
 }
 
 /// What a build made, for the report.
@@ -373,36 +597,54 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
     let scene = Rigid::scene(&manifest.scene);
     let stk2 = Stk2Tree {
         root: options.stk2_root,
+        dry: options.list_textures.is_some(),
     };
 
-    // The materials every model needs, made once.
+    // What every model and slice needs: their surfaces' STK2 materials.
     let mut used_materials = BTreeSet::new();
     let mut models = Vec::new();
     for model in &manifest.models {
         let surfaces = stk2.model_surfaces(&model.settings)?;
-        for material in surfaces.values() {
-            used_materials.insert(material.clone());
-        }
+        used_materials.extend(surfaces.values().cloned());
         models.push((model, surfaces));
     }
-    used_materials.insert(manifest.ground.material.clone());
+    let mut slices = Vec::new();
+    for slice in &manifest.slices {
+        let objects = slice_objects(slice, &stk2, scene)?;
+        for object in &objects.models {
+            used_materials.extend(object.surfaces.values().cloned());
+        }
+        slices.push((slice, objects));
+    }
+    if let Some(ground) = &manifest.ground {
+        used_materials.insert(ground.material.clone());
+    }
     let mut textures = TextureMaker {
         stk2: &stk2,
         prefix: &manifest.texture_prefix,
         dir: &manifest.textures_dir,
+        more_dirs: &manifest.more_texture_dirs,
         max_size: manifest.max_texture_size,
+        caps: &manifest.texture_caps,
         work: options.work,
         options_template: parse(&mut target, &manifest.texture_options_template)?,
         made: BTreeMap::new(),
+        failed: Vec::new(),
     };
-    let mut material_names = BTreeMap::new();
-    let mut diffuse_of = BTreeMap::new();
+    // STK2 material -> the 0.26 material and its diffuse; absent: hidden.
+    let mut material_names: BTreeMap<String, Option<(String, String)>> = BTreeMap::new();
+    let mut rule_notes = Vec::new();
     for key in &used_materials {
-        let spec = manifest
-            .materials
-            .get(key)
-            .with_context(|| format!("no material spec for the STK2 material {key}"))?;
-        let (name, diffuse) = make_material(
+        let resolved;
+        let spec = match manifest.materials.get(key) {
+            Some(spec) => spec,
+            None => {
+                resolved = material_by_rule(key, &manifest, &stk2)?;
+                rule_notes.push(format!("{key}: {}", resolved.1));
+                &resolved.0
+            }
+        };
+        let made = make_material(
             key,
             spec,
             &manifest.material_prefix,
@@ -411,8 +653,32 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             &mut textures,
             &mut pack,
         )?;
-        material_names.insert(key.clone(), name);
-        diffuse_of.insert(key.clone(), diffuse.unwrap_or_default());
+        material_names.insert(
+            key.clone(),
+            made.map(|(name, diffuse)| (name, diffuse.unwrap_or_default())),
+        );
+    }
+
+    if let Some(list) = options.list_textures {
+        let names: BTreeSet<&str> = textures
+            .made
+            .keys()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let mut text = String::new();
+        for name in names {
+            text.push_str(name);
+            text.push('\n');
+        }
+        fs::write(list, text)?;
+        for note in &rule_notes {
+            eprintln!("material by rule {note}");
+        }
+        return Ok(BuildReport {
+            files: 0,
+            spots: BTreeMap::new(),
+            manifest_sha256: String::new(),
+        });
     }
 
     let templates = StaticModelTemplates {
@@ -424,28 +690,41 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
     let mut collisions = Vec::new();
     for (model, surfaces) in &models {
         let name = format!("{}/{}", manifest.model_prefix, model.name);
-        let placement = Rigid {
-            yaw: model.yaw,
-            translation: model.position,
+        let placement = match model.rotation {
+            Some(rotation) => {
+                ensure!(model.yaw == 0.0, "{}: a yaw and a rotation", model.name);
+                Rigid::stk2(model.position, rotation, model.scale.unwrap_or([1.0; 3]))?
+            }
+            None => {
+                ensure!(
+                    model.scale.is_none(),
+                    "{}: a scale without a rotation",
+                    model.name
+                );
+                Rigid::yaw(model.yaw, model.position)
+            }
         }
         .then(scene);
         let mut archive = ResourceDb::open(safe_join(options.stk2_root, &model.archive)?)
             .with_context(|| format!("opening {}", model.archive))?;
         let mut built = Vec::new();
         for (surface, material) in surfaces {
+            let Some((material_name, texture_name)) = material_names[material].clone() else {
+                continue;
+            };
             let vertices = archive.read(&format!("render/{surface}/vertices"))?;
             let indices = archive.read(&format!("render/{surface}/indices"))?;
             validate_static_geometry(&vertices, &indices, surface)?;
             let (mesh, bounds) = convert_surface(&vertices, &indices, placement, surface)?;
             built.push(BuiltSurface {
                 name: surface.clone(),
-                material: material_names[material].clone(),
+                material: material_name,
                 mesh,
                 bounds,
                 vertices: read_u32(&vertices, 0)?,
                 indices: read_u32(&indices, 0)?,
                 mesh_name: format!("|{}|{surface}", model.name),
-                texture_name: diffuse_of[material].clone(),
+                texture_name,
             });
         }
         let collision = if model.collision {
@@ -470,29 +749,72 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         }
     }
 
+    // The slices: each one merged model of its kept objects.
+    let mut slice_lights = Vec::new();
+    let mut slice_notes = Vec::new();
+    for (slice, objects) in &slices {
+        let name = format!("{}/{}", manifest.model_prefix, slice.name);
+        let made = write_slice(
+            &name,
+            slice,
+            objects,
+            &material_names,
+            &templates,
+            scene,
+            &mut pack,
+        )?;
+        slice_notes.push(format!(
+            "slice {}: {} objects kept of {} ({} without a model: {}), {} surfaces, {} vertices, {} lights",
+            slice.name,
+            made.objects,
+            objects.total,
+            objects.missing.len(),
+            objects.missing.join(", "),
+            made.surfaces,
+            made.vertices,
+            objects.lights.len()
+        ));
+        if made.surfaces > 0 {
+            visuals.push(name.clone());
+            if made.collision {
+                collisions.push(name);
+            }
+        }
+        if let Some(lights) = &slice.lights {
+            for light in &objects.lights {
+                slice_lights.push((lights, light.clone()));
+            }
+        }
+    }
+
     // The ground: one flat plane, the character in its middle.
-    let ground = &manifest.ground;
-    let ground_name = format!("{}/{}", manifest.model_prefix, ground.name);
-    let height = scene.apply([0.0, ground.height, 0.0])[1];
-    let (mesh, bounds, vertices, indices) = ground_plane(height, ground.half_size, ground.tile)?;
-    write_static_model(
-        &ground_name,
-        "generated: flat ground in place of the STK2 lobby terrain (four 64 m cells, height 0)",
-        &[BuiltSurface {
-            name: "ground_s".to_owned(),
-            material: material_names[&ground.material].clone(),
-            mesh,
-            bounds,
-            vertices,
-            indices,
-            mesh_name: format!("|{}|ground", ground.name),
-            texture_name: diffuse_of[&ground.material].clone(),
-        }],
-        None,
-        &templates,
-        &mut pack,
-    )?;
-    visuals.push(ground_name);
+    if let Some(ground) = &manifest.ground {
+        let ground_name = format!("{}/{}", manifest.model_prefix, ground.name);
+        let height = scene.apply([0.0, ground.height, 0.0])[1];
+        let (mesh, bounds, vertices, indices) =
+            ground_plane(height, ground.half_size, ground.tile)?;
+        let (material, texture_name) = material_names[&ground.material]
+            .clone()
+            .context("the ground's material is hidden")?;
+        write_static_model(
+            &ground_name,
+            "generated: flat ground in place of the STK2 lobby terrain (four 64 m cells, height 0)",
+            &[BuiltSurface {
+                name: "ground_s".to_owned(),
+                material,
+                mesh,
+                bounds,
+                vertices,
+                indices,
+                mesh_name: format!("|{}|ground", ground.name),
+                texture_name,
+            }],
+            None,
+            &templates,
+            &mut pack,
+        )?;
+        visuals.push(ground_name);
+    }
 
     // The project.
     let mut project = parse(&mut target, &manifest.template_project)?;
@@ -501,8 +823,21 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         &visuals,
         &collisions,
         &manifest.objects,
+        &slice_lights,
         scene,
     )?;
+    let mut environment_notes = Vec::new();
+    if let Some(environment) = &manifest.environment {
+        let values = material_values(&stk2, &environment.post_process)?;
+        let Some(ConfigValue::Indexed(objects)) = project.root.named_mut("client_objects") else {
+            bail!("the project has no client_objects");
+        };
+        let object = objects
+            .iter_mut()
+            .find(|o| matches!(o.named("name"), Some(ConfigValue::String(n)) if *n == environment.object))
+            .with_context(|| format!("no client object {:?} to take the post-process", environment.object))?;
+        environment_notes = apply_post_process(object, &values)?;
+    }
     let weapon = manifest
         .spots
         .get(&manifest.srp_lobby.weapon_spot)
@@ -558,7 +893,26 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             })
             .collect(),
         server: None,
-        notes: spot_notes(&manifest, &spots),
+        notes: spot_notes(&manifest, &spots)
+            .into_iter()
+            .chain(slice_notes)
+            .chain(
+                environment_notes
+                    .iter()
+                    .map(|n| format!("STK2 post-process without a 0.26g counterpart: {n}")),
+            )
+            .chain(
+                textures
+                    .failed
+                    .iter()
+                    .map(|f| format!("texture not read, left out: {f}")),
+            )
+            .chain(
+                rule_notes
+                    .into_iter()
+                    .map(|n| format!("material by rule {n}")),
+            )
+            .collect(),
     };
     let bytes = serde_json::to_vec_pretty(&pack_manifest)?;
     fs::write(options.output.join("pack.json"), &bytes)?;
@@ -589,6 +943,8 @@ fn spot_notes(manifest: &LobbyManifest, spots: &BTreeMap<String, [f32; 3]>) -> V
 
 struct Stk2Tree<'a> {
     root: &'a Path,
+    /// Only list the textures: every one is taken to be there.
+    dry: bool,
 }
 
 impl Stk2Tree<'_> {
@@ -611,28 +967,36 @@ impl Stk2Tree<'_> {
                 .with_context(|| format!("{settings}: {surface} has no material_name"))?;
             surfaces.insert(surface.to_owned(), material.replace('\\', "/"));
         }
-        let lod0 = lua_block(&text, "LOD0")
-            .and_then(|lod| lua_block(lod, "surfaces"))
-            .with_context(|| format!("{settings}: no LOD0 surfaces"))?;
-        let listed: BTreeSet<&str> = lua_children_flat(lod0).into_iter().collect();
-        let materials: BTreeSet<&str> = surfaces.keys().map(String::as_str).collect();
-        ensure!(
-            listed == materials,
-            "{settings}: LOD0 surfaces {listed:?} are not the material_settings {materials:?}"
-        );
+        // some settings list no LOD0: the material_settings are the surfaces
+        if let Some(lod0) = lua_block(&text, "LOD0").and_then(|lod| lua_block(lod, "surfaces")) {
+            let listed: BTreeSet<&str> = lua_children_flat(lod0).into_iter().collect();
+            let materials: BTreeSet<&str> = surfaces.keys().map(String::as_str).collect();
+            ensure!(
+                listed == materials,
+                "{settings}: LOD0 surfaces {listed:?} are not the material_settings {materials:?}"
+            );
+        }
         Ok(surfaces)
     }
 
     /// The source TGA and `.options` of an STK2 texture.
-    fn texture(&self, name: &str, dir: &str) -> Result<(PathBuf, String)> {
-        for extension in ["tga", "TGA"] {
-            let path = safe_join(self.root, &format!("{dir}/{name}.{extension}"))?;
-            if path.is_file() {
-                let options = self.text(&format!("{dir}/{name}.options"))?;
-                return Ok((path, options));
+    fn texture(&self, name: &str, dir: &str, more: &[String]) -> Result<(PathBuf, String)> {
+        for dir in std::iter::once(dir).chain(more.iter().map(String::as_str)) {
+            for extension in ["tga", "TGA"] {
+                let path = safe_join(self.root, &format!("{dir}/{name}.{extension}"))?;
+                if path.is_file() {
+                    let options = self
+                        .text(&format!("{dir}/{name}.options"))
+                        .unwrap_or_default();
+                    return Ok((path, options));
+                }
             }
         }
         bail!("STK2 texture {name}: no {dir}/{name}.tga")
+    }
+
+    fn has_texture(&self, name: &str, dir: &str, more: &[String]) -> bool {
+        self.dry || self.texture(name, dir, more).is_ok()
     }
 }
 
@@ -704,9 +1068,13 @@ struct TextureMaker<'a> {
     stk2: &'a Stk2Tree<'a>,
     prefix: &'a str,
     dir: &'a str,
+    more_dirs: &'a [String],
     max_size: u32,
+    caps: &'a [TextureCap],
     work: &'a Path,
     options_template: BinaryConfig,
+    /// Textures that could not be read (their surfaces left out).
+    failed: Vec<String>,
     /// STK2 texture and kind -> the made texture's name.
     made: BTreeMap<(String, TextureKindKey), String>,
 }
@@ -722,6 +1090,13 @@ fn kind_key(kind: TextureKind) -> TextureKindKey {
 }
 
 impl TextureMaker<'_> {
+    fn cap(&self, name: &str) -> u32 {
+        self.caps
+            .iter()
+            .find(|cap| name.starts_with(&cap.prefix))
+            .map_or(self.max_size, |cap| cap.max.min(self.max_size))
+    }
+
     /// The made texture's name (`<prefix>/<stk2 name>`), made once.
     fn make(&mut self, name: &str, kind: TextureKind, pack: &mut PackWriter) -> Result<String> {
         let key = (name.to_owned(), kind_key(kind));
@@ -733,19 +1108,86 @@ impl TextureMaker<'_> {
             self.made.values().all(|made| *made != target),
             "{name} is used both as colour and as data"
         );
-        let (source, source_options) = self.stk2.texture(name, self.dir)?;
+        if self.stk2.dry {
+            self.made.insert(key, target.clone());
+            return Ok(target);
+        }
+        let (source, source_options) = self.stk2.texture(name, self.dir, self.more_dirs)?;
         let stem = self.work.join(name.replace('/', "__"));
+        // a texture made before in the same work folder (same kind and
+        // size) is taken again: the conversions are the slow part
+        let cache = stem.with_extension(format!("k{}.c{}.cache", kind_key(kind), self.cap(name)));
+        let cache_format = cache.with_extension("format");
+        let (bytes, format, srgb) = if let (Ok(bytes), Ok(format)) =
+            (fs::read(&cache), fs::read_to_string(&cache_format))
+        {
+            let (format, srgb) = format.split_once(' ').context("bad texture cache")?;
+            (bytes, format.to_owned(), srgb == "1")
+        } else {
+            let (bytes, format, srgb) =
+                self.convert(name, &target, kind, &source, &source_options, &stem)?;
+            fs::write(&cache, &bytes)?;
+            fs::write(&cache_format, format!("{format} {}", u8::from(srgb)))?;
+            (bytes, format.to_owned(), srgb)
+        };
+        pack.write(&format!("textures/{target}.dds"), &bytes)?;
+        let mut options = self.options_template.clone();
+        options
+            .root
+            .set_path("options.srgb", ConfigValue::Integer(i32::from(srgb)))?;
+        options
+            .root
+            .set_path("options.format", ConfigValue::String(format))?;
+        pack.config(&format!("textures/{target}.options"), &options)?;
+        self.made.insert(key, target.clone());
+        Ok(target)
+    }
+
+    /// The texture's canonical DDS bytes, its options format and colour space.
+    fn convert(
+        &self,
+        name: &str,
+        target: &str,
+        kind: TextureKind,
+        source: &Path,
+        source_options: &str,
+        stem: &Path,
+    ) -> Result<(Vec<u8>, &'static str, bool)> {
         let scaled = stem.with_extension("scaled.tga");
-        magick(&[
-            source.as_os_str(),
-            "-resize".as_ref(),
-            format!("{0}x{0}>", self.max_size).as_ref(),
-            "-type".as_ref(),
-            "TrueColorAlpha".as_ref(),
-            "-compress".as_ref(),
-            "none".as_ref(),
-            scaled.as_os_str(),
-        ])?;
+        // some STK2 TGAs are run-length packed in a way ImageMagick refuses
+        // (Pillow reads them): those go through an unpacked copy
+        let unpacked = stem.with_extension("unpacked.tga");
+        let resize = |from: &Path| {
+            magick(&[
+                from.as_os_str(),
+                "-resize".as_ref(),
+                format!("{0}x{0}>", self.cap(name)).as_ref(),
+                "-type".as_ref(),
+                "TrueColorAlpha".as_ref(),
+                "-compress".as_ref(),
+                "none".as_ref(),
+                scaled.as_os_str(),
+            ])
+        };
+        if resize(source).is_err() {
+            let output = Command::new("python3")
+                .args([
+                    "-I",
+                    "-c",
+                    "import sys; from PIL import Image; Image.open(sys.argv[1]).save(sys.argv[2], compression=None)",
+                ])
+                .arg(source)
+                .arg(&unpacked)
+                .output()
+                .context("starting python3 (with Pillow) for a TGA ImageMagick refuses")?;
+            ensure!(
+                output.status.success(),
+                "{}: neither ImageMagick nor Pillow reads it: {}",
+                source.display(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+            resize(&unpacked)?;
+        }
         let has_alpha = tga_has_alpha(&scaled)?;
         let dds = stem.with_extension("dds");
         let (format, srgb) = match kind {
@@ -773,20 +1215,11 @@ impl TextureMaker<'_> {
                 )
             }
         };
-        let bytes = crate::duty_026::texture_dds(&fs::read(&dds)?, &target, srgb)?;
-        pack.write(&format!("textures/{target}.dds"), &bytes)?;
-        let mut options = self.options_template.clone();
-        options
-            .root
-            .set_path("options.srgb", ConfigValue::Integer(i32::from(srgb)))?;
-        options
-            .root
-            .set_path("options.format", ConfigValue::String(format.to_owned()))?;
-        pack.config(&format!("textures/{target}.options"), &options)?;
+        let bytes = crate::duty_026::texture_dds(&fs::read(&dds)?, target, srgb)?;
         fs::remove_file(&scaled)?;
         fs::remove_file(&dds)?;
-        self.made.insert(key, target.clone());
-        Ok(target)
+        let _ = fs::remove_file(&unpacked);
+        Ok((bytes, format, srgb))
     }
 }
 
@@ -819,7 +1252,7 @@ fn tga_has_alpha(path: &Path) -> Result<bool> {
 }
 
 /// The material's name in the models' settings, and the texture its
-/// diffuse slot binds.
+/// diffuse slot binds; `None` for a hidden one.
 fn make_material(
     key: &str,
     spec: &MaterialSpec,
@@ -828,14 +1261,15 @@ fn make_material(
     target: &mut ResourceDb,
     textures: &mut TextureMaker<'_>,
     pack: &mut PackWriter,
-) -> Result<(String, Option<String>)> {
+) -> Result<Option<(String, Option<String>)>> {
     let (template, source, explicit) = match spec {
+        MaterialSpec::Hidden => return Ok(None),
         MaterialSpec::Native { material } => {
             ensure!(
                 target.contains(&format!("material_instances/{material}.material")),
                 "{key}: native material {material} is not in the target"
             );
-            return Ok((material.clone(), None));
+            return Ok(Some((material.clone(), None)));
         }
         MaterialSpec::Converted {
             template,
@@ -844,6 +1278,12 @@ fn make_material(
         } => (template, source, textures),
     };
     let roles = material_textures(key, source.as_deref(), explicit, stk2)?;
+    // an instance with no diffuse of its own or its base's (a decal's
+    // projector, ...): its surfaces are left out
+    if !roles.contains_key("texture_diffuse") {
+        textures.failed.push(format!("{key}: no diffuse texture"));
+        return Ok(None);
+    }
     let mut material = parse(target, &format!("material_instances/{template}.material"))?;
     let effect = "material.g_stage.effect";
     let mut diffuse = None;
@@ -863,7 +1303,24 @@ fn make_material(
                 continue;
             }
         }
-        let made = textures.make(texture, *kind, pack)?;
+        // a texture the STK2 trees lack: a surface without its diffuse is
+        // left out, another slot keeps the template's binding
+        if !stk2.has_texture(texture, textures.dir, textures.more_dirs) {
+            if *slot == "texture_diffuse" {
+                return Ok(None);
+            }
+            continue;
+        }
+        let made = match textures.make(texture, *kind, pack) {
+            Ok(made) => made,
+            Err(error) => {
+                textures.failed.push(format!("{texture}: {error:#}"));
+                if *slot == "texture_diffuse" {
+                    return Ok(None);
+                }
+                continue;
+            }
+        };
         if *slot == "texture_diffuse" {
             diffuse = Some(made.clone());
         }
@@ -884,9 +1341,304 @@ fn make_material(
             )?;
         }
     }
-    let name = format!("{prefix}/{key}");
+    // `tex:<texture>` keys (a surface known by its texture) as a folder
+    let name = format!("{prefix}/{}", key.replace(':', "/"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
-    Ok((name, diffuse))
+    Ok(Some((name, diffuse)))
+}
+
+/// The spec of a material `materials` does not name: its STK2 instance
+/// (found in `material_roots`) read for its base material and flags, the
+/// first rule that matches. Also says why, for the pack's notes.
+fn material_by_rule(
+    key: &str,
+    manifest: &LobbyManifest,
+    stk2: &Stk2Tree<'_>,
+) -> Result<(MaterialSpec, String)> {
+    if key.is_empty() {
+        return Ok((MaterialSpec::Hidden, "no material -> hidden".to_owned()));
+    }
+    let key = match key.strip_prefix("tex:") {
+        None => key.to_owned(),
+        Some("") => return Ok((MaterialSpec::Hidden, "no texture -> hidden".to_owned())),
+        Some(texture) => match instance_with_diffuse(manifest, stk2, texture)? {
+            Some(instance) => instance,
+            None => {
+                let template = manifest.fallback_template.clone().with_context(|| {
+                    format!("{key}: no instance binds the texture and no fallback_template")
+                })?;
+                let mut textures = BTreeMap::new();
+                textures.insert("texture_diffuse".to_owned(), texture.to_owned());
+                let normal = format!("{texture}_nmap");
+                if stk2.has_texture(&normal, &manifest.textures_dir, &manifest.more_texture_dirs) {
+                    textures.insert("texture_normal".to_owned(), normal);
+                }
+                if !stk2.has_texture(texture, &manifest.textures_dir, &manifest.more_texture_dirs) {
+                    return Ok((
+                        MaterialSpec::Hidden,
+                        format!("{texture}: no source -> hidden"),
+                    ));
+                }
+                return Ok((
+                    MaterialSpec::Converted {
+                        template: template.clone(),
+                        source: None,
+                        textures,
+                    },
+                    format!("its texture alone -> {template}"),
+                ));
+            }
+        },
+    };
+    let key = key.as_str();
+    let source = manifest
+        .material_roots
+        .iter()
+        .flat_map(|root| {
+            ["material", "material.orig"]
+                .map(|ext| format!("{root}/material_instances/{key}.{ext}"))
+        })
+        .find(|path| safe_join(stk2.root, path).is_ok_and(|p| p.is_file()))
+        .with_context(|| format!("STK2 material {key}: no instance in the material roots"))?;
+    let text = stk2.text(&source)?;
+    let base = lua_string(&text, "base_material").unwrap_or("").to_owned();
+    let base_text = Path::new(&source)
+        .ancestors()
+        .find(|p| p.ends_with("material_instances"))
+        .map(|dir| {
+            dir.with_file_name("materials")
+                .join(format!("{base}.material"))
+        })
+        .and_then(|path| stk2.text(&path.to_string_lossy()).ok());
+    let flag = |name: &str| {
+        let own = lua_block(&text, name).and_then(|block| lua_bool(block, "value"));
+        own.or_else(|| {
+            base_text
+                .as_deref()
+                .and_then(|base| lua_block(base, name))
+                .and_then(|block| lua_bool(block, "value"))
+        })
+        .unwrap_or(false)
+    };
+    let (alpha_test, two_sided) = (flag("use_alpha_test"), flag("two_sided"));
+    let rule = manifest
+        .material_rules
+        .iter()
+        .find(|rule| {
+            (rule.bases.iter().any(|b| b == "*" || *b == base))
+                && rule.alpha_test.is_none_or(|v| v == alpha_test)
+                && rule.two_sided.is_none_or(|v| v == two_sided)
+        })
+        .with_context(|| {
+            format!(
+                "STK2 material {key} ({base}, alpha {alpha_test}, two-sided {two_sided}): no rule"
+            )
+        })?;
+    let why = format!("{base}, alpha {alpha_test}, two-sided {two_sided}");
+    Ok(match &rule.then {
+        RuleTarget::Converted { template } => (
+            MaterialSpec::Converted {
+                template: template.clone(),
+                source: Some(source),
+                textures: BTreeMap::new(),
+            },
+            format!("{why} -> {template}"),
+        ),
+        RuleTarget::Native { material } => (
+            MaterialSpec::Native {
+                material: material.clone(),
+            },
+            format!("{why} -> native {material}"),
+        ),
+        RuleTarget::Hidden => (MaterialSpec::Hidden, format!("{why} -> hidden")),
+    })
+}
+
+/// The first material instance (by name) of the roots whose own
+/// `texture_diffuse` is `texture`.
+fn instance_with_diffuse(
+    manifest: &LobbyManifest,
+    stk2: &Stk2Tree<'_>,
+    texture: &str,
+) -> Result<Option<String>> {
+    for root in &manifest.material_roots {
+        let dir = safe_join(stk2.root, &format!("{root}/material_instances"))?;
+        let mut paths = Vec::new();
+        collect_materials(&dir, &mut paths)?;
+        paths.sort();
+        for path in paths {
+            let Ok(text) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let text = text.replace('\r', "");
+            if material_role(&text, "texture_diffuse") == Some(Some(texture.to_owned())) {
+                let name = path
+                    .strip_prefix(&dir)?
+                    .to_string_lossy()
+                    .trim_end_matches(".orig")
+                    .trim_end_matches(".material")
+                    .replace('\\', "/");
+                return Ok(Some(name));
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn collect_materials(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Ok(());
+    };
+    // names the file system cannot give (a stray encoding) are skipped
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_materials(&path, out)?;
+        } else if path.extension().is_some_and(|e| e == "material") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// An STK2 material's `value = ...` leaves by the name of the table
+/// holding them (`environment_far_fog_color`, ...): its base material's
+/// first, its own over them.
+fn material_values(stk2: &Stk2Tree<'_>, instance: &str) -> Result<BTreeMap<String, String>> {
+    fn leaves(text: &str, out: &mut BTreeMap<String, String>) {
+        let mut stack: Vec<String> = Vec::new();
+        for line in text.lines() {
+            let depth = line.len() - line.trim_start_matches('\t').len();
+            let body = line.trim();
+            if let Some(name) = body
+                .strip_suffix(" = {")
+                .or_else(|| body.strip_suffix(" = create_property_table ( {"))
+            {
+                stack.truncate(depth);
+                stack.push(name.to_owned());
+            } else if let Some(value) = body
+                .strip_prefix("value = ")
+                .and_then(|v| v.strip_suffix(','))
+            {
+                if let Some(name) = stack.iter().rev().find(|n| *n != "__super_tables") {
+                    out.insert(name.clone(), value.to_owned());
+                }
+            } else if body.starts_with('}') {
+                stack.truncate(depth);
+            }
+        }
+    }
+    let text = stk2.text(instance)?;
+    let mut values = BTreeMap::new();
+    if let Some(base) = lua_string(&text, "base_material") {
+        let dir = Path::new(instance)
+            .ancestors()
+            .find(|p| p.ends_with("material_instances"))
+            .with_context(|| format!("{instance} is not under material_instances"))?
+            .with_file_name("materials");
+        let base_path = dir.join(format!("{base}.material"));
+        leaves(&stk2.text(&base_path.to_string_lossy())?, &mut values);
+    }
+    leaves(&text, &mut values);
+    Ok(values)
+}
+
+fn lua_number(value: &str) -> Option<f32> {
+    value.trim().parse().ok()
+}
+
+fn lua_float4(value: &str) -> Option<[f32; 4]> {
+    let inner = value.trim().strip_prefix("float4(")?.strip_suffix(')')?;
+    let parts: Vec<f32> = inner
+        .split(',')
+        .map(|p| p.trim().parse().ok())
+        .collect::<Option<_>>()?;
+    (parts.len() == 4).then(|| [parts[0], parts[1], parts[2], parts[3]])
+}
+
+/// The STK2 post-process onto a 0.26g environment object's `properties`:
+/// what has a counterpart is set, the effects STK2's post-process lacks are
+/// off; says what could not be mapped.
+fn apply_post_process(
+    object: &mut ConfigValue,
+    values: &BTreeMap<String, String>,
+) -> Result<Vec<String>> {
+    let mut notes = Vec::new();
+    let set = |object: &mut ConfigValue, key: &str, value: ConfigValue| -> Result<()> {
+        let path = format!("properties.{key}");
+        if crate::content_pack::value::value_at(object, &path).is_some() {
+            object.set_path(&path, value)?;
+        }
+        Ok(())
+    };
+    let get = |key: &str| values.get(key).map(String::as_str);
+    if let Some(color) = get("environment_far_fog_color").and_then(lua_float4) {
+        set(object, "mie_fog_color", ConfigValue::Float4(color))?;
+    }
+    for (from, to) in [
+        ("environment_near_fog_distance", "mie_fog_near_distance"),
+        ("environment_far_fog_distance", "mie_fog_far_distance"),
+        ("adaptation_speed", "eye_adaptation_speed"),
+        ("bloom_scale", "bloom_ratio"),
+    ] {
+        if let Some(v) = get(from).and_then(lua_number) {
+            set(object, to, ConfigValue::Float(v))?;
+        }
+    }
+    if let Some(color) = get("environment_sun_color").and_then(lua_float4) {
+        set(object, "sun_color", ConfigValue::Float4(color))?;
+    }
+    if get("enable_bloom") == Some("false") {
+        set(object, "bloom_intensity", ConfigValue::Float(0.0))?;
+    }
+    if get("use_color_grading_lut") != Some("true") {
+        set(
+            object,
+            "use_color_grading_texture",
+            ConfigValue::Boolean(false),
+        )?;
+    }
+    // effects STK2's post-process has no counterpart of: off
+    set(object, "image_grain_intensity", ConfigValue::Float(0.0))?;
+    set(object, "aberration_amount", ConfigValue::Float(0.0))?;
+    set(object, "vignette_effect_power", ConfigValue::Float(0.0))?;
+    set(object, "god_rays_intensity", ConfigValue::Float(0.0))?;
+    set(
+        object,
+        "use_dynamic_lens_flare",
+        ConfigValue::Boolean(false),
+    )?;
+    for key in [
+        "environment_ambient_color",
+        "environment_skylight_upper_color",
+        "environment_skylight_lower_power",
+        "environment_skylight_upper_power",
+        "tonemap_median",
+        "tonemap_bright_threshold",
+        "tonemap_darkness_threshold",
+        "frame_height_lights",
+        "frame_shadows",
+        "environment_shadow_transparency",
+        "bloom_max_color",
+        "dof_focus_distance",
+    ] {
+        if let Some(value) = get(key) {
+            notes.push(format!("{key} = {value}"));
+        }
+    }
+    Ok(notes)
+}
+
+fn lua_bool(text: &str, key: &str) -> Option<bool> {
+    let start = text.find(&format!("{key} = "))? + key.len() + 3;
+    let rest = &text[start..];
+    if rest.starts_with("true") {
+        Some(true)
+    } else if rest.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// The STK2 textures of a material by role: `explicit` first, then the
@@ -932,10 +1684,6 @@ fn material_textures(
             roles.insert((*role).to_owned(), texture);
         }
     }
-    ensure!(
-        roles.contains_key("texture_diffuse"),
-        "{key}: {source} has no diffuse texture"
-    );
     Ok(roles)
 }
 
@@ -956,43 +1704,169 @@ struct BuiltSurface {
     texture_name: String,
 }
 
-/// An STK2 surface (u32 n, n 56-byte vertices; u32 m, m u16 indices) as a
-/// 0.26g `converted_model` with its vertices moved by `placement`.
+/// Converted 0.26g vertices (28 bytes each) and their triangles.
+#[derive(Clone, Debug, Default)]
+struct Mesh {
+    vertices: Vec<[u8; VERTEX_SIZE]>,
+    positions: Vec<[f32; 3]>,
+    triangles: Vec<[u32; 3]>,
+}
+
+impl Mesh {
+    /// An STK2 surface (u32 n, n 56-byte vertices; u32 m, m u16 indices)
+    /// moved by `placement` (a mirroring one turns the triangles over).
+    fn stk2(vertices: &[u8], indices: &[u8], placement: Rigid, label: &str) -> Result<Mesh> {
+        let count = usize::try_from(read_u32(vertices, 0)?)?;
+        let bases = repaired_static_bases(vertices, indices, label)?;
+        let mut mesh = Mesh::default();
+        for (index, basis) in bases.iter().enumerate() {
+            let source = &vertices[4 + index * STK2_VERTEX_SIZE..][..STK2_VERTEX_SIZE];
+            let position = placement.apply(read_float3(source, 0)?);
+            let mut vertex = [0u8; VERTEX_SIZE];
+            for (axis, value) in position.iter().enumerate() {
+                vertex[axis * 4..axis * 4 + 4].copy_from_slice(&value.to_le_bytes());
+            }
+            let moved = [
+                placement.normal(basis[0]),
+                placement.rotate(basis[1]),
+                placement.rotate(basis[2]),
+            ];
+            for (slot, (vector, alpha)) in moved.iter().zip([127, 255, 255]).enumerate() {
+                vertex[12 + slot * 4..16 + slot * 4]
+                    .copy_from_slice(&packed_basis(*vector, alpha).to_le_bytes());
+            }
+            for (slot, offset) in [48, 52].into_iter().enumerate() {
+                vertex[24 + slot * 2..26 + slot * 2]
+                    .copy_from_slice(&half(read_f32(source, offset)?)?.to_le_bytes());
+            }
+            mesh.vertices.push(vertex);
+            mesh.positions.push(position);
+        }
+        let index_count = usize::try_from(read_u32(indices, 0)?)?;
+        let flip = placement.mirrors();
+        for triangle in 0..index_count / 3 {
+            let mut corners = [0u32; 3];
+            for (corner, value) in corners.iter_mut().enumerate() {
+                let at = 4 + (triangle * 3 + corner) * 2;
+                *value = u32::from(u16::from_le_bytes([indices[at], indices[at + 1]]));
+                ensure!(
+                    (*value as usize) < count,
+                    "{label}: index outside its vertices"
+                );
+            }
+            if flip {
+                corners.swap(1, 2);
+            }
+            mesh.triangles.push(corners);
+        }
+        Ok(mesh)
+    }
+
+    /// Only the triangles with a corner `inside`, their vertices
+    /// renumbered.
+    fn clipped(&self, inside: impl Fn([f32; 3]) -> bool) -> Mesh {
+        let mut out = Mesh::default();
+        let mut renumbered = vec![u32::MAX; self.vertices.len()];
+        for triangle in &self.triangles {
+            if !triangle.iter().any(|&i| inside(self.positions[i as usize])) {
+                continue;
+            }
+            let corners = triangle.map(|i| {
+                let slot = &mut renumbered[i as usize];
+                if *slot == u32::MAX {
+                    *slot = out.vertices.len() as u32;
+                    out.vertices.push(self.vertices[i as usize]);
+                    out.positions.push(self.positions[i as usize]);
+                }
+                *slot
+            });
+            out.triangles.push(corners);
+        }
+        out
+    }
+
+    fn append(&mut self, other: &Mesh) {
+        let base = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(&other.vertices);
+        self.positions.extend_from_slice(&other.positions);
+        self.triangles
+            .extend(other.triangles.iter().map(|t| t.map(|i| i + base)));
+    }
+
+    fn bounds(&self) -> Bounds {
+        let mut bounds = Bounds::empty();
+        for p in &self.positions {
+            bounds.add(*p);
+        }
+        bounds
+    }
+
+    /// Pieces of at most `limit` vertices (whole triangles).
+    fn split(&self, limit: usize) -> Vec<Mesh> {
+        let mut pieces = Vec::new();
+        let mut piece = Mesh::default();
+        let mut renumbered: BTreeMap<u32, u32> = BTreeMap::new();
+        for triangle in &self.triangles {
+            let new = triangle
+                .iter()
+                .filter(|i| !renumbered.contains_key(i))
+                .count();
+            if piece.vertices.len() + new > limit {
+                pieces.push(std::mem::take(&mut piece));
+                renumbered.clear();
+            }
+            let corners = triangle.map(|i| {
+                *renumbered.entry(i).or_insert_with(|| {
+                    piece.vertices.push(self.vertices[i as usize]);
+                    piece.positions.push(self.positions[i as usize]);
+                    (piece.vertices.len() - 1) as u32
+                })
+            });
+            piece.triangles.push(corners);
+        }
+        if !piece.triangles.is_empty() {
+            pieces.push(piece);
+        }
+        pieces
+    }
+
+    /// The 0.26g `converted_model`: the vertex block (3) and the u16 index
+    /// block (4).
+    fn encode(&self, label: &str) -> Result<Vec<u8>> {
+        let count = self.vertices.len();
+        ensure!(
+            count <= MAX_STATIC_SURFACE_VERTICES,
+            "{label}: {count} vertices, more than 0.26g loads ({MAX_STATIC_SURFACE_VERTICES})"
+        );
+        let indices = self.triangles.len() * 3;
+        let mut out = Vec::with_capacity(24 + count * VERTEX_SIZE + indices * 2);
+        push_u32(&mut out, 3);
+        push_u32(&mut out, u32::try_from(4 + count * VERTEX_SIZE)?);
+        push_u32(&mut out, u32::try_from(count)?);
+        for vertex in &self.vertices {
+            out.extend_from_slice(vertex);
+        }
+        push_u32(&mut out, 4);
+        push_u32(&mut out, u32::try_from(4 + indices * 2)?);
+        push_u32(&mut out, u32::try_from(indices)?);
+        for triangle in &self.triangles {
+            for &index in triangle {
+                out.extend_from_slice(&u16::try_from(index)?.to_le_bytes());
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// An STK2 surface as a 0.26g `converted_model` moved by `placement`.
 fn convert_surface(
     vertices: &[u8],
     indices: &[u8],
     placement: Rigid,
     label: &str,
 ) -> Result<(Vec<u8>, Bounds)> {
-    let count = usize::try_from(read_u32(vertices, 0)?)?;
-    ensure!(
-        count <= MAX_STATIC_SURFACE_VERTICES,
-        "{label}: {count} vertices, more than 0.26g loads ({MAX_STATIC_SURFACE_VERTICES})"
-    );
-    let bases = repaired_static_bases(vertices, indices, label)?;
-    let mut out = Vec::with_capacity(12 + count * VERTEX_SIZE + indices.len() + 8);
-    push_u32(&mut out, 3);
-    push_u32(&mut out, u32::try_from(4 + count * VERTEX_SIZE)?);
-    push_u32(&mut out, u32::try_from(count)?);
-    let mut bounds = Bounds::empty();
-    for (index, basis) in bases.iter().enumerate() {
-        let source = &vertices[4 + index * STK2_VERTEX_SIZE..][..STK2_VERTEX_SIZE];
-        let position = placement.apply(read_float3(source, 0)?);
-        bounds.add(position);
-        for value in position {
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        for (vector, alpha) in basis.iter().zip([127, 255, 255]) {
-            push_u32(&mut out, packed_basis(placement.rotate(*vector), alpha));
-        }
-        for offset in [48, 52] {
-            out.extend_from_slice(&half(read_f32(source, offset)?)?.to_le_bytes());
-        }
-    }
-    push_u32(&mut out, 4);
-    push_u32(&mut out, u32::try_from(indices.len())?);
-    out.extend_from_slice(indices);
-    Ok((out, bounds))
+    let mesh = Mesh::stk2(vertices, indices, placement, label)?;
+    Ok((mesh.encode(label)?, mesh.bounds()))
 }
 
 /// A collision vertex chunk (0x19, float3s) moved by `placement`.
@@ -1189,6 +2063,7 @@ fn replace_project(
     visuals: &[String],
     collisions: &[String],
     objects: &[ObjectSpec],
+    slice_lights: &[(&SliceLights, SliceLight)],
     scene: Rigid,
 ) -> Result<()> {
     let identity = |lib: ConfigValue, extra: Vec<NamedValue>| {
@@ -1279,6 +2154,62 @@ fn replace_project(
         }
         made.push(object);
     }
+    for (index, (spec, light)) in slice_lights.iter().enumerate() {
+        let template = match light.kind {
+            LightKind::Point => Some(&spec.point_template),
+            LightKind::Spot => spec.spot_template.as_ref().or(Some(&spec.point_template)),
+            LightKind::Sun => spec.sun_template.as_ref(),
+        };
+        let Some(template) = template else {
+            continue;
+        };
+        let mut object = by_name(template)
+            .with_context(|| format!("the template project has no client object {template:?}"))?
+            .clone();
+        let name = match light.kind {
+            LightKind::Sun => "sun".to_owned(),
+            _ => format!("stk2_light_{index:03}"),
+        };
+        ensure!(
+            names.insert(name.clone()),
+            "two client objects named {name:?}"
+        );
+        object.set_path("name", ConfigValue::String(name.clone()))?;
+        object.set_path(
+            "full_name",
+            ConfigValue::String(format!("stk2_lobby/{}", light.source)),
+        )?;
+        object.set_path("position", ConfigValue::Float3(light.position))?;
+        object.set_path("rotation", ConfigValue::Float3(light.rotation))?;
+        object.set_path("color", ConfigValue::Float3(light.color))?;
+        object.set_path(
+            "intensity",
+            ConfigValue::Float(light.intensity * spec.intensity_scale),
+        )?;
+        if light.kind != LightKind::Sun {
+            object.set_path("range", ConfigValue::Float(light.range * spec.range_scale))?;
+            object.set_path(
+                "attenuation_power",
+                ConfigValue::Float(light.attenuation_power),
+            )?;
+        }
+        object.set_path("is_cast_shadow", ConfigValue::Boolean(light.cast_shadow))?;
+        object.set_path(
+            "diffuse_influence_factor",
+            ConfigValue::Float(light.influence[0]),
+        )?;
+        object.set_path(
+            "specular_influence_factor",
+            ConfigValue::Float(light.influence[1]),
+        )?;
+        if let Some([umbra, penumbra, falloff]) = light.cone {
+            object.set_path("spot_umbra_angle", ConfigValue::Float(umbra))?;
+            object.set_path("spot_penumbra_angle", ConfigValue::Float(penumbra))?;
+            object.set_path("spot_falloff", ConfigValue::Float(falloff))?;
+        }
+        object.set_path("layer", ConfigValue::String("default".to_owned()))?;
+        made.push(object);
+    }
     project
         .root
         .set_path("client_objects", ConfigValue::Indexed(made))?;
@@ -1292,6 +2223,332 @@ fn replace_project(
         ]),
     )?;
     Ok(())
+}
+
+/// A kept object of a slice: its model, surfaces and placement in the
+/// lobby frame.
+struct SliceModel {
+    library: String,
+    archive: PathBuf,
+    surfaces: BTreeMap<String, String>,
+    placement: Rigid,
+}
+
+/// A project light inside a slice's box, in the lobby frame.
+#[derive(Clone, Debug)]
+pub(crate) struct SliceLight {
+    source: String,
+    kind: LightKind,
+    position: [f32; 3],
+    /// Euler angles in the lobby frame (the engine's create_rotation).
+    rotation: [f32; 3],
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    attenuation_power: f32,
+    cast_shadow: bool,
+    /// How much it lights the diffuse and the specular (STK2's sun lights
+    /// a scene's every surface unshadowed through these).
+    influence: [f32; 2],
+    /// Spot cone fields as authored (umbra, penumbra, falloff).
+    cone: Option<[f32; 3]>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LightKind {
+    Point,
+    Spot,
+    Sun,
+}
+
+struct SliceObjects {
+    models: Vec<SliceModel>,
+    lights: Vec<SliceLight>,
+    /// solid visuals of the project
+    total: usize,
+    /// libraries with no exported model in the roots
+    missing: Vec<String>,
+}
+
+/// The project's solid visuals (composites' children too) whose model is
+/// found and not excluded, and its point, spot and sphere lights inside the
+/// box. Whether an object's triangles fall in the box is the mesh's to
+/// tell (write_slice clips them).
+fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result<SliceObjects> {
+    let (objects, _) = crate::stk2_project::parse_project_with_composite_lights(
+        &safe_join(stk2.root, &slice.project)?,
+        &safe_join(stk2.root, &slice.composites)?,
+    )?;
+    let inside = |p: [f32; 3]| (0..3).all(|a| p[a] >= slice.box_min[a] && p[a] <= slice.box_max[a]);
+    let mut out = SliceObjects {
+        models: Vec::new(),
+        lights: Vec::new(),
+        total: 0,
+        missing: Vec::new(),
+    };
+    let mut missing = BTreeSet::new();
+    for object in &objects {
+        match object.kind.as_str() {
+            "solid_visual" if slice.geometry => {
+                out.total += 1;
+                let Some(library) = &object.library_name else {
+                    continue;
+                };
+                if slice
+                    .exclude
+                    .iter()
+                    .any(|prefix| library.starts_with(prefix))
+                {
+                    continue;
+                }
+                let archive = slice.model_roots.iter().find_map(|root| {
+                    let archive = safe_join(
+                        stk2.root,
+                        &format!("{root}/exported/models/{library}.model"),
+                    )
+                    .ok()?;
+                    archive.is_file().then_some(archive)
+                });
+                let Some(archive) = archive else {
+                    missing.insert(library.clone());
+                    continue;
+                };
+                let settings = slice.model_roots.iter().find_map(|root| {
+                    let settings = format!("{root}/sources/models/{library}.model/settings");
+                    safe_join(stk2.root, &settings)
+                        .ok()?
+                        .is_file()
+                        .then_some(settings)
+                });
+                // without its source settings a surface is known by the
+                // diffuse texture its export names: `tex:<texture>`
+                let surfaces = match settings {
+                    Some(settings) => stk2.model_surfaces(&settings),
+                    None => crate::stk2_content::discover_static_model_surface_textures(&archive)
+                        .map(|surfaces| {
+                            surfaces
+                                .into_iter()
+                                .map(|(surface, texture)| {
+                                    let texture = texture.canonical.unwrap_or_default();
+                                    (surface, format!("tex:{texture}"))
+                                })
+                                .collect()
+                        }),
+                };
+                // an archive the reader refuses is reported, not fatal
+                let surfaces = match surfaces {
+                    Ok(surfaces) => surfaces,
+                    Err(error) => {
+                        missing.insert(format!("{library} ({error:#})"));
+                        continue;
+                    }
+                };
+                out.models.push(SliceModel {
+                    library: library.clone(),
+                    archive,
+                    surfaces,
+                    placement: Rigid::stk2(object.position, object.rotation, object.scale)?
+                        .then(scene),
+                });
+            }
+            "light" => {
+                use crate::stk2_project::ProjectProperty as P;
+                let number = |key: &str, default: f32| match object.properties.get(key) {
+                    Some(P::Float(v)) => *v,
+                    Some(P::Integer(v)) => *v as f32,
+                    _ => default,
+                };
+                // 0 point, 2 box, 5 sphere: points; 1 spot; 4 the sun (kept
+                // wherever it is: it lights the whole scene)
+                let kind = match number("light_type", 0.0) as i32 {
+                    0 | 2 | 5 => LightKind::Point,
+                    1 => LightKind::Spot,
+                    4 => LightKind::Sun,
+                    _ => continue,
+                };
+                if kind != LightKind::Sun && !inside(object.position) {
+                    continue;
+                }
+                let color = match object.properties.get("color") {
+                    Some(P::Float3(c)) => *c,
+                    _ => [1.0; 3],
+                };
+                let turned = Rigid::stk2(object.position, object.rotation, [1.0; 3])?.then(scene);
+                out.lights.push(SliceLight {
+                    source: object.id.clone(),
+                    kind,
+                    position: scene.apply(object.position),
+                    rotation: euler_of(turned.m),
+                    color,
+                    intensity: number("intensity", 1.0),
+                    range: number("range", 5.0),
+                    attenuation_power: number("attenuation_power", 2.0),
+                    cast_shadow: matches!(
+                        object.properties.get("is_cast_shadow"),
+                        Some(P::Boolean(true))
+                    ),
+                    influence: [
+                        number("diffuse_influence_factor", 1.0),
+                        number("specular_influence_factor", 1.0),
+                    ],
+                    cone: (kind == LightKind::Spot).then(|| {
+                        [
+                            number("spot_umbra_angle", 0.393),
+                            number("spot_penumbra_angle", 0.785),
+                            number("spot_falloff", 2.0),
+                        ]
+                    }),
+                });
+            }
+            _ => {}
+        }
+    }
+    out.missing = missing.into_iter().collect();
+    Ok(out)
+}
+
+struct SliceMade {
+    objects: usize,
+    surfaces: usize,
+    vertices: usize,
+    collision: bool,
+}
+
+/// One model of a slice's objects: their surfaces clipped to the box and
+/// merged by material (in pieces the 0.26g loader takes), and their low
+/// collision clipped the same way.
+fn write_slice(
+    name: &str,
+    slice: &SliceSpec,
+    objects: &SliceObjects,
+    material_names: &BTreeMap<String, Option<(String, String)>>,
+    templates: &StaticModelTemplates,
+    scene: Rigid,
+    pack: &mut PackWriter,
+) -> Result<SliceMade> {
+    // the box is the STK2 world's: a point is moved back to test it
+    let back = scene.inverse();
+    let in_box = |p: [f32; 3]| {
+        let w = back.apply(p);
+        (0..3).all(|a| w[a] >= slice.box_min[a] && w[a] <= slice.box_max[a])
+    };
+    let mut merged: BTreeMap<String, Mesh> = BTreeMap::new();
+    let mut collision_positions: Vec<[f32; 3]> = Vec::new();
+    let mut collision_triangles: Vec<[u32; 3]> = Vec::new();
+    let mut kept = 0;
+    for object in &objects.models {
+        let mut archive = ResourceDb::open(&object.archive)
+            .with_context(|| format!("opening {}", object.archive.display()))?;
+        let mut any = false;
+        for (surface, material) in &object.surfaces {
+            if material_names[material].is_none() {
+                continue;
+            }
+            let label = format!("{}:{surface}", object.library);
+            let (Ok(vertices), Ok(indices)) = (
+                archive.read(&format!("render/{surface}/vertices")),
+                archive.read(&format!("render/{surface}/indices")),
+            ) else {
+                continue;
+            };
+            validate_static_geometry(&vertices, &indices, &label)?;
+            let mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            let clipped = mesh.clipped(in_box);
+            if clipped.triangles.is_empty() {
+                continue;
+            }
+            any = true;
+            merged.entry(material.clone()).or_default().append(&clipped);
+        }
+        if !any {
+            continue;
+        }
+        kept += 1;
+        if slice.collision
+            && let (Ok(vertices), Ok(indices)) = (
+                archive.read("collision/vertices"),
+                archive.read("collision/indices"),
+            )
+        {
+            validate_stk2_collision(&vertices, &indices, &object.library)?;
+            let count = usize::try_from(read_u32(&vertices, 4)?)? / 12;
+            let base = collision_positions.len() as u32;
+            for i in 0..count {
+                collision_positions
+                    .push(object.placement.apply(read_float3(&vertices, 8 + i * 12)?));
+            }
+            let index_count = usize::try_from(read_u32(&indices, 4)?)? / 4;
+            for t in 0..index_count / 3 {
+                let mut corners = [0u32; 3];
+                for (c, value) in corners.iter_mut().enumerate() {
+                    *value = read_u32(&indices, 8 + (t * 3 + c) * 4)? + base;
+                }
+                if object.placement.mirrors() {
+                    corners.swap(1, 2);
+                }
+                collision_triangles.push(corners);
+            }
+        }
+    }
+    let mut built = Vec::new();
+    let mut vertices = 0;
+    for (index, (material, mesh)) in merged.iter().enumerate() {
+        let (material_name, texture_name) = material_names[material]
+            .clone()
+            .expect("hidden materials are not merged");
+        for (piece_index, piece) in mesh.split(MAX_STATIC_SURFACE_VERTICES).iter().enumerate() {
+            let surface = format!("m{index:03}_{piece_index}_s");
+            vertices += piece.vertices.len();
+            built.push(BuiltSurface {
+                name: surface.clone(),
+                material: material_name.clone(),
+                mesh: piece.encode(&surface)?,
+                bounds: piece.bounds(),
+                vertices: u32::try_from(piece.vertices.len())?,
+                indices: u32::try_from(piece.triangles.len() * 3)?,
+                mesh_name: format!("|{}|{material}", slice.name),
+                texture_name: texture_name.clone(),
+            });
+        }
+    }
+    let collision = if collision_triangles.is_empty() {
+        None
+    } else {
+        let mut v = Vec::new();
+        push_u32(&mut v, 0x19);
+        push_u32(&mut v, u32::try_from(collision_positions.len() * 12)?);
+        for p in &collision_positions {
+            for value in p {
+                v.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let mut i = Vec::new();
+        push_u32(&mut i, 0x1a);
+        push_u32(&mut i, u32::try_from(collision_triangles.len() * 12)?);
+        for t in &collision_triangles {
+            for value in t {
+                push_u32(&mut i, *value);
+            }
+        }
+        Some((v, i, collision_triangles.len()))
+    };
+    let has_collision = collision.is_some();
+    if !built.is_empty() {
+        write_static_model(
+            name,
+            &format!("STK2/{} (a corner, merged)", slice.project),
+            &built,
+            collision,
+            templates,
+            pack,
+        )?;
+    }
+    Ok(SliceMade {
+        objects: kept,
+        surfaces: built.len(),
+        vertices,
+        collision: has_collision && !built.is_empty(),
+    })
 }
 
 fn parse(db: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
@@ -1378,10 +2635,7 @@ mod tests {
 
     #[test]
     fn a_placement_then_the_scene_is_one_rigid_move() {
-        let object = Rigid {
-            yaw: 1.5811,
-            translation: [5.27, 1.1, 26.2],
-        };
+        let object = Rigid::yaw(1.5811, [5.27, 1.1, 26.2]);
         let scene = Rigid::scene(&SceneSpec {
             character: [2.0, 1.1, 27.0],
             view_yaw: -0.7,
@@ -1397,15 +2651,68 @@ mod tests {
         // sentry_a: rotation (-pi, -1.5605, -pi) in the project, local box
         // x -0.76..0.79, z -0.89..0.03; the project's world box x
         // 4.376..5.315, z 25.432..26.992.
-        let r = Rigid {
-            yaw: std::f32::consts::PI - 1.560_489_3,
-            translation: [5.272_343, 0.0, 26.225_277],
-        };
+        let r = Rigid::yaw(
+            std::f32::consts::PI - 1.560_489_3,
+            [5.272_343, 0.0, 26.225_277],
+        );
         let corners = [[-0.76, 0.0, -0.89], [0.79, 0.0, 0.03]];
         let a = r.apply(corners[0]);
         let b = r.apply(corners[1]);
         assert!((a[0].min(b[0]) - 4.38).abs() < 0.02);
         assert!((a[2].max(b[2]) - 26.99).abs() < 0.02);
+    }
+
+    #[test]
+    fn the_engine_rotation_is_the_sentry_yaw_and_turns_back_into_its_angles() {
+        // the project's (-pi, r, -pi) is the yaw pi + r
+        let r = -1.560_489_3_f32;
+        let engine = Rigid::stk2(
+            [0.0; 3],
+            [-std::f32::consts::PI, r, -std::f32::consts::PI],
+            [1.0; 3],
+        )
+        .unwrap();
+        let yaw = Rigid::yaw(std::f32::consts::PI + r, [0.0; 3]);
+        for p in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.3, -0.2, 0.9]] {
+            assert!(near(engine.apply(p), yaw.apply(p)));
+        }
+        for angles in [[0.3, -0.7, 1.1], [-1.2, 0.4, -2.5], [0.0, 1.0, 0.0]] {
+            let m = Rigid::stk2([0.0; 3], angles, [1.0; 3]).unwrap().m;
+            let back = Rigid::stk2([0.0; 3], euler_of(m), [1.0; 3]).unwrap().m;
+            for (a, b) in m.iter().zip(back) {
+                assert!(near(*a, b));
+            }
+        }
+    }
+
+    #[test]
+    fn a_scaled_mirror_turns_normals_by_the_inverse_and_flips_triangles() {
+        let r = Rigid::stk2([1.0, 2.0, 3.0], [0.0; 3], [2.0, 1.0, -1.0]).unwrap();
+        assert!(r.mirrors());
+        assert!(near(r.apply([1.0, 1.0, 1.0]), [3.0, 3.0, 2.0]));
+        // a normal across x keeps its direction (scaled the other way)
+        assert!(near(r.normal([1.0, 0.0, 0.0]), [0.5, 0.0, 0.0]));
+        assert!(near(r.normal([0.0, 0.0, 1.0]), [0.0, 0.0, -1.0]));
+    }
+
+    #[test]
+    fn a_mesh_is_clipped_to_whole_triangles_and_split_under_the_limit() {
+        let vertex = |x: f32| {
+            let mut v = [0u8; VERTEX_SIZE];
+            v[..4].copy_from_slice(&x.to_le_bytes());
+            v
+        };
+        let mesh = Mesh {
+            vertices: (0..6).map(|i| vertex(i as f32)).collect(),
+            positions: (0..6).map(|i| [i as f32, 0.0, 0.0]).collect(),
+            triangles: vec![[0, 1, 2], [3, 4, 5]],
+        };
+        let kept = mesh.clipped(|p| p[0] < 1.0);
+        assert_eq!(kept.triangles, vec![[0, 1, 2]]);
+        assert_eq!(kept.vertices.len(), 3);
+        let pieces = mesh.split(4);
+        assert_eq!(pieces.len(), 2);
+        assert!(pieces.iter().all(|p| p.vertices.len() == 3));
     }
 
     #[test]
@@ -1441,10 +2748,7 @@ mod tests {
         for i in [0u16, 2, 1] {
             indices.extend_from_slice(&i.to_le_bytes());
         }
-        let placement = Rigid {
-            yaw: std::f32::consts::FRAC_PI_2,
-            translation: [10.0, 0.0, 0.0],
-        };
+        let placement = Rigid::yaw(std::f32::consts::FRAC_PI_2, [10.0, 0.0, 0.0]);
         let (mesh, bounds) = convert_surface(&vertices, &indices, placement, "test").unwrap();
         assert_eq!(read_u32(&mesh, 0).unwrap(), 3);
         assert_eq!(read_u32(&mesh, 4).unwrap() as usize, 4 + 3 * VERTEX_SIZE);
@@ -1472,7 +2776,10 @@ mod tests {
         let text = "lod_hierrarchy = {\n\tLOD0 = {\n\t\tsurfaces = {\n\t\t\ta_s = \"\",\n\t\t\tb_s = \"\",\n\t\t}, -- surfaces\n\n\t}, -- LOD0\n\n} -- lod_hierrarchy\n\nmaterial_settings = {\n\ta_s = {\n\t\tmaterial_name = \"tiled/wood/x\",\n\t}, -- a_s\n\n\tb_s = {\n\t\tmaterial_name = \"props/y\",\n\t}, -- b_s\n\n} -- material_settings\n";
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("settings"), text).unwrap();
-        let tree = Stk2Tree { root: dir.path() };
+        let tree = Stk2Tree {
+            root: dir.path(),
+            dry: false,
+        };
         let surfaces = tree.model_surfaces("settings").unwrap();
         assert_eq!(surfaces["a_s"], "tiled/wood/x");
         assert_eq!(surfaces["b_s"], "props/y");
