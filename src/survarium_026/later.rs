@@ -635,6 +635,13 @@ fn plain_surface(name: &str) -> String {
     out
 }
 
+/// A texture name (or path) without whitespace: 0.69d has `tiled/floor/floor_plate_tile `,
+/// which skhid-srp's release tools (space-separated lists) cannot carry. Each
+/// whitespace character becomes `_`.
+fn plain_texture(name: &str) -> String {
+    name.chars().map(|c| if c.is_whitespace() { '_' } else { c }).collect()
+}
+
 /// A model file's path with its surface folder (`.model/render/<surface>/`) plain.
 fn plain_render_path(path: &str) -> String {
     let Some((model, rest)) = path.split_once(".model/render/") else { return path.to_owned() };
@@ -3075,6 +3082,7 @@ pub fn build(
         }
         let mut bytes = donor.read(path)?;
         let dest = plain_render_path(&level_files.get(path).cloned().unwrap_or_else(|| relocate(path)));
+        let dest = if dest.starts_with("textures/") { plain_texture(&dest) } else { dest };
         if path.ends_with("/converted_model") {
             bytes = geometry(&bytes, m.source_build).with_context(|| format!("repacking {path}"))?;
             let terrain = m.decimate_terrain.iter().any(|p| path.starts_with(&format!("models/{p}")));
@@ -3953,7 +3961,7 @@ fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>, n
                     if let Some(ConfigValue::String(s)) = slot {
                         let n = s.replace('\\', "/");
                         if donor_textures.contains(&n) {
-                            *s = format!("{ns}/{n}");
+                            *s = format!("{ns}/{}", plain_texture(&n));
                         }
                     }
                 } else {
