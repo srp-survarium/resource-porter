@@ -88,9 +88,23 @@ pub struct LobbyManifest {
     /// template's (by name).
     pub objects: Vec<ObjectSpec>,
     /// Named points (STK2 world) reported in the new frame, for the exe's
-    /// displays: nothing is built from them.
+    /// displays.
     #[serde(default)]
     pub spots: BTreeMap<String, [f32; 3]>,
+    /// The project's root `srp_lobby` table, which skhid-srp's lobby
+    /// patches read (patch 45's weapon spot and view).
+    pub srp_lobby: SrpLobbySpec,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SrpLobbySpec {
+    /// The spot (a key of `spots`) the weapon's middle floats at:
+    /// `srp_lobby.weapon`.
+    pub weapon_spot: String,
+    /// `srp_lobby.weapon_view`: the lobby camera's yaw looking at it
+    /// (forward = (-sin yaw, 0, cos yaw); 0 looks along +z).
+    pub weapon_view: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -489,6 +503,27 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         &manifest.objects,
         scene,
     )?;
+    let weapon = manifest
+        .spots
+        .get(&manifest.srp_lobby.weapon_spot)
+        .with_context(|| format!("srp_lobby: no spot {:?}", manifest.srp_lobby.weapon_spot))?;
+    ensure!(
+        manifest.srp_lobby.weapon_view.is_finite(),
+        "srp_lobby: weapon_view is not a number"
+    );
+    project.root.set_path(
+        "srp_lobby",
+        ConfigValue::Named(vec![
+            named(
+                "weapon",
+                ConfigValue::Float3(scene.apply(*weapon).map(|v| (v * 1000.0).round() / 1000.0)),
+            ),
+            named(
+                "weapon_view",
+                ConfigValue::Float(manifest.srp_lobby.weapon_view),
+            ),
+        ]),
+    )?;
     pack.config(&manifest.target_project, &project)?;
     pack.write(
         &format!("{}.lua", manifest.target_project),
@@ -545,6 +580,10 @@ fn spot_notes(manifest: &LobbyManifest, spots: &BTreeMap<String, [f32; 3]>) -> V
             p[0], p[1], p[2]
         ));
     }
+    notes.push(format!(
+        "the project's srp_lobby: weapon = spot {}, weapon_view = {}; one track object (the lobby plays it)",
+        manifest.srp_lobby.weapon_spot, manifest.srp_lobby.weapon_view
+    ));
     notes
 }
 

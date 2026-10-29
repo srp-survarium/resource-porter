@@ -150,6 +150,7 @@
     }
   },
   "objects": [
+    { "from": "track" },
     { "from": "environment_day" },
     { "from": "sun" },
     {
@@ -212,6 +213,7 @@
     { "from": "background" },
     { "from": "lobby_room_tone" }
   ],
+  "srp_lobby": { "weapon_spot": "weapon", "weapon_view": 0.0 },
   "spots": {
     "character": [2.0896555, 1.107366, 27.1056606],
     "camera_default_eye": [0.1296555, 2.307366, 27.1056606],
