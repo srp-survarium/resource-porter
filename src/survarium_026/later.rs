@@ -1881,8 +1881,6 @@ fn copy_shared(native: &mut ConfigValue, donor: &ConfigValue, fields: &[&str]) -
             (ConfigValue::Integer(_), ConfigValue::Float(v)) if v.fract() == 0.0 => {
                 ConfigValue::Integer(*v as i32)
             }
-            // 0.26 reads numbers of either encoding (its own projects mix them).
-            (ConfigValue::Integer(_), ConfigValue::Float(v)) => ConfigValue::Float(*v),
             (ConfigValue::Float(_), ConfigValue::Float(_))
             | (ConfigValue::Integer(_), ConfigValue::Integer(_))
             | (ConfigValue::Boolean(_), ConfigValue::Boolean(_))
@@ -2080,7 +2078,14 @@ pub fn convert_scene(
             {
                 environment_textures.insert(t.replace('\\', "/"));
             }
-            environment.set_path(&format!("properties.{field}"), value.clone())?;
+            // In the template's encoding where it has the field (skhid-srp's
+            // build-content keeps every key at 0.26g's type).
+            let value = match (environment.named("properties").and_then(|p| p.named(field)), value) {
+                (Some(ConfigValue::Integer(_)), ConfigValue::Float(v)) => ConfigValue::Integer(v.round() as i32),
+                (Some(ConfigValue::Float(_)), ConfigValue::Integer(v)) => ConfigValue::Float(*v as f32),
+                (_, v) => v.clone(),
+            };
+            environment.set_path(&format!("properties.{field}"), value)?;
             copied += 1;
         }
         notes.push(format!(
@@ -2181,6 +2186,13 @@ pub fn convert_scene(
                                 "affect_diffuse", "smart_attenuation", "use_parallax_correction", "priority", "cubemap_resolution_index",
                             ],
                         )?;
+                        // Fractional multipliers over the template's integer 1
+                        // (0.26g's own probes have them as floats).
+                        for field in ["diffuse_multiplier", "specular_multiplier", "ambient_multiplier"] {
+                            if let Some(v) = real(object, field) {
+                                p.set_path(field, ConfigValue::Float(v))?;
+                            }
+                        }
                         t
                     }
                     LobbyProbes::Baked { diffuse_scale } => {
@@ -2349,6 +2361,11 @@ pub fn convert_scene(
                         "static_shadows", "lighting_model", "shadow_map_size_index",
                     ],
                 )?;
+                // A fractional range over the template's integer one (0.26g's
+                // own lights have it as a float).
+                if let Some(range) = real(object, "range") {
+                    l.set_path("range", ConfigValue::Float(range))?;
+                }
                 if photometric {
                     // 0.69d photometric power (lumen); 0.26 intensity is unitless.
                     let power = real(object, "luminous_power").unwrap_or(30.0) * real(object, "intensity").unwrap_or(1.0);
