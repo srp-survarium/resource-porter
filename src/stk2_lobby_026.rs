@@ -1103,7 +1103,8 @@ impl TextureMaker<'_> {
         if let Some(done) = self.made.get(&key) {
             return Ok(done.clone());
         }
-        let target = format!("{}/{name}", self.prefix);
+        // a resource path keeps to names without spaces (STK2 has a few)
+        let target = format!("{}/{}", self.prefix, name.replace(' ', "_"));
         ensure!(
             self.made.values().all(|made| *made != target),
             "{name} is used both as colour and as data"
@@ -1342,7 +1343,7 @@ fn make_material(
         }
     }
     // `tex:<texture>` keys (a surface known by its texture) as a folder
-    let name = format!("{prefix}/{}", key.replace(':', "/"));
+    let name = format!("{prefix}/{}", key.replace(':', "/").replace(' ', "_"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
     Ok(Some((name, diffuse)))
 }
