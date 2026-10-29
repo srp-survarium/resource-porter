@@ -272,3 +272,11 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
   Year snow of volume 72's project; `native_materials` draws its window panes
   (`water/glass_water`) with 0.26's `tiled/window/glass`.
+* What skhid-srp's lobby choice (client patch 81, `srp-026g/docs/notes/lobby-scenes.md` there)
+  takes from a lobby project: the 0.26 lobby's camera `track` (copied; a project without one
+  is refused), the root `camera`, and the root table `srp_lobby` with `weapon` (where the
+  weapon floats in its upgrade window) and `weapon_view` (the camera's yaw there, 0.26
+  convention: forward = (-sin yaw, 0, cos yaw)), both from the manifest. The lobby camera's
+  distance is cut by a ray against the project's static collision; `camera_walls` adds
+  invisible boxes (0.26's unit primitive `editor/walker_collision`, scaled) where the walls'
+  own collision is open (the camp's windows and doorway).

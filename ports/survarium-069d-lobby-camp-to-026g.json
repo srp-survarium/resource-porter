@@ -15,6 +15,62 @@
     "exclude_models": [
       "level/new_year_event/",
       "generic/modular/terrain/snow/"
+    ],
+    "weapon": [
+      -1.6,
+      1.27,
+      3.255
+    ],
+    "weapon_view": 1.5708,
+    "camera_walls": [
+      {
+        "centre": [
+          -0.44,
+          1.405,
+          -1.60
+        ],
+        "half_extents": [
+          2.0,
+          1.405,
+          0.05
+        ]
+      },
+      {
+        "centre": [
+          -2.15,
+          1.405,
+          1.73
+        ],
+        "half_extents": [
+          0.05,
+          1.405,
+          3.85
+        ]
+      },
+      {
+        "centre": [
+          1.55,
+          1.405,
+          1.73
+        ],
+        "half_extents": [
+          0.05,
+          1.405,
+          3.85
+        ]
+      },
+      {
+        "centre": [
+          -0.44,
+          1.405,
+          5.58
+        ],
+        "half_extents": [
+          2.0,
+          1.405,
+          0.05
+        ]
+      }
     ]
   },
   "namespace": "ported/v069d_lobby",

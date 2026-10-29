@@ -278,7 +278,32 @@ pub struct LobbySpec {
     /// event's dressing).
     #[serde(default)]
     pub exclude_models: Vec<String>,
+    /// Where a weapon's middle floats in its upgrade window (skhid-srp's
+    /// client patch 45 reads the project's `srp_lobby.weapon`): in the clear
+    /// above a table.
+    pub weapon: [f32; 3],
+    /// The camera's yaw there, in the 0.26 lobby camera's convention
+    /// (forward = (-sin yaw, 0, cos yaw)): `atan2(-dx, dz)` of the direction
+    /// it looks along (`srp_lobby.weapon_view`).
+    pub weapon_view: f32,
+    /// Invisible walls for the lobby camera: its distance (1.5..4.6 m) is
+    /// cut by a ray against the project's static collision, so a wall whose
+    /// collision has an opening (a window, a doorway) lets the eye out of a
+    /// small room. Each is a box of 0.26's unit primitive
+    /// (`editor/walker_collision`) scaled to these half extents.
+    #[serde(default)]
+    pub camera_walls: Vec<CameraWall>,
 }
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CameraWall {
+    pub centre: [f32; 3],
+    pub half_extents: [f32; 3],
+}
+
+/// 0.26's unit box collision (half extents 1), scaled per instance.
+const UNIT_BOX_COLLISION: &str = "resources/models/editor/walker_collision.model/collision";
 
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -2374,15 +2399,41 @@ pub fn convert_scene(
             ])
         }
         // A lobby is a client project: no server objects.
-        Port::Lobby(_) => named(vec![
-            (
-                "project_name",
-                ConfigValue::String(string(template, "project_name").unwrap_or("lobby_scene").to_owned()),
-            ),
-            ("client_objects", ConfigValue::Indexed(objects)),
-            ("render_visuals", ConfigValue::Indexed(visuals)),
-            ("collision_objects", ConfigValue::Indexed(collisions)),
-        ]),
+        Port::Lobby(lobby) => {
+            // The lobby menu plays the project's camera track from the start
+            // and refuses a project without one: the 0.26 lobby's.
+            objects.push(first_template(template, "track")?);
+            count("track");
+            for wall in &lobby.camera_walls {
+                let [x, y, z] = wall.half_extents;
+                collisions.push(named(vec![
+                    ("lib_name", ConfigValue::String(format!("{UNIT_BOX_COLLISION}#[{x:.2}][{y:.2}][{z:.2}]"))),
+                    ("position", ConfigValue::Float3(wall.centre)),
+                    ("rotation", ConfigValue::Float3([0.0; 3])),
+                    ("scale", ConfigValue::Float3(wall.half_extents)),
+                    // The groups of the 0.26 lobby's static collision.
+                    ("cmask", ConfigValue::Integer(16)),
+                    ("cgroup", ConfigValue::Integer(8)),
+                ]));
+                count("camera_wall");
+            }
+            named(vec![
+                (
+                    "project_name",
+                    ConfigValue::String(string(template, "project_name").unwrap_or("lobby_scene").to_owned()),
+                ),
+                ("client_objects", ConfigValue::Indexed(objects)),
+                ("render_visuals", ConfigValue::Indexed(visuals)),
+                ("collision_objects", ConfigValue::Indexed(collisions)),
+                (
+                    "srp_lobby",
+                    named(vec![
+                        ("weapon", ConfigValue::Float3(lobby.weapon)),
+                        ("weapon_view", ConfigValue::Float(lobby.weapon_view)),
+                    ]),
+                ),
+            ])
+        }
     };
     if let Some(camera) = template.named("camera") {
         let mut camera = camera.clone();
@@ -4441,6 +4492,7 @@ mod tests {
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("vegetation".into())), ("layers", ConfigValue::Indexed(vec![obj(vec![
                     ("name", ConfigValue::String("default".into())), ("wind_factor", ConfigValue::Integer(1)), ("model_def", ConfigValue::Indexed(vec![])),
                 ])]))]),
+                with(tf([0.988, 0.0, -0.605]), vec![("game_object_type", ConfigValue::String("track".into())), ("cyclic", ConfigValue::Boolean(true))]),
             ])),
         ]);
         let donor = obj(vec![
@@ -4462,16 +4514,24 @@ mod tests {
         let lobby = LobbySpec {
             donor_project: "projects/lobby_scene/day/client_project".into(), template_project: "projects/lobby_scene/day/client_project".into(),
             output_project: "lobby_scene/hangar_046".into(), vegetation_folder: "hangar_046".into(), probes: LobbyProbes::Donor,
-            exclude_models: vec!["level/new_year_event/".into()],
+            exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
+            camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
+        let srp = scene.project.named("srp_lobby").unwrap();
+        assert_eq!(float3(srp, "weapon").unwrap(), [-9.9, 1.3, 6.95]);
+        assert_eq!(real(srp, "weapon_view"), Some(0.6545));
+        let walls = array(scene.project.named("collision_objects").unwrap()).unwrap();
+        assert_eq!(string(&walls[0], "lib_name"), Some("resources/models/editor/walker_collision.model/collision#[2.00][1.40][0.05]"));
+        assert_eq!(float3(&walls[0], "scale").unwrap(), [2.0, 1.4, 0.05]);
         assert_eq!(string(&scene.project, "project_name"), Some("lobby_scene"));
         assert_eq!(scene.models, BTreeSet::from(["level/lobby/hangar_lobby".to_owned()]), "the excluded model is left out");
         assert_eq!(scene.vegetation_files, BTreeMap::from([("vegetation/green.veg".to_owned(), "vegetation/hangar_046/green.veg".to_owned())]));
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let veg = objects.iter().find(|o| kind(o) == "vegetation").unwrap();
         assert_eq!(string(&array(veg.named("layers").unwrap()).unwrap()[0], "filename"), Some("vegetation/hangar_046/green.veg"));
+        assert_eq!(objects.iter().filter(|o| kind(o) == "track").count(), 1, "the template's camera track");
         let probes: Vec<_> = objects.iter().filter(|o| kind(o) == "environment_probe").collect();
         assert_eq!(probes.len(), 1, "the donor's volumes only, no global probe");
         assert_eq!(string(probes[0], "texture"), Some("environment_probes/lobby_scene/probe_day_default_1"));
@@ -4489,7 +4549,7 @@ mod tests {
 
     #[test]
     fn a_manifest_ports_one_map_or_one_lobby() {
-        let lobby = r#""lobby": {"donor_project": "d", "template_project": "t", "output_project": "lobby_scene/x", "vegetation_folder": "x", "probes": {"template": {"native": "p"}}}"#;
+        let lobby = r#""lobby": {"donor_project": "d", "template_project": "t", "output_project": "lobby_scene/x", "vegetation_folder": "x", "probes": {"template": {"native": "p"}}, "weapon": [0, 1, 0], "weapon_view": 0}"#;
         let manifest = |body: &str| format!(r#"{{"source_build": "0.69d", "donor_fingerprint": "f", "target_sha256": "t", {body}"game_material_names": {{}}, "material_templates": {{}}, "roughness_scale": 0.2}}"#);
         let m: Manifest = serde_json::from_str(&manifest(&format!("{lobby}, "))).unwrap();
         assert!(matches!(m.port().unwrap(), Port::Lobby(LobbySpec { probes: LobbyProbes::Template { .. }, .. })));
