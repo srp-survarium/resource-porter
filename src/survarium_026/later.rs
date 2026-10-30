@@ -1960,6 +1960,11 @@ const ENVIRONMENT_026: &[&str] = &[
     "wind_direction", "wind_strength",
 ];
 
+/// Environment fields the 0.26 lobby template leaves out that 0.26g's maps
+/// write as floats where 0.46c2 has integers (found by skhid-srp's
+/// build-content, which keeps every key at 0.26g's type).
+const ENVIRONMENT_FLOATS_026: &[&str] = &["wind_strength"];
+
 fn model_of_reference(reference: &str) -> String {
     let normalized = reference.replace('\\', "/");
     let base = normalized.split('#').next().unwrap();
@@ -2083,6 +2088,7 @@ pub fn convert_scene(
             let value = match (environment.named("properties").and_then(|p| p.named(field)), value) {
                 (Some(ConfigValue::Integer(_)), ConfigValue::Float(v)) => ConfigValue::Integer(v.round() as i32),
                 (Some(ConfigValue::Float(_)), ConfigValue::Integer(v)) => ConfigValue::Float(*v as f32),
+                (None, ConfigValue::Integer(v)) if ENVIRONMENT_FLOATS_026.contains(field) => ConfigValue::Float(*v as f32),
                 (_, v) => v.clone(),
             };
             environment.set_path(&format!("properties.{field}"), value)?;
