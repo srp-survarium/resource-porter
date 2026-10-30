@@ -290,13 +290,19 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
 * The view out of the windows (the 0.26 lobby camera orbits all the way round; 0.69d's was
   fixed). The camp's room is a floor 22.7 m over the donor's own background (level 02's
   apartment blocks `bg_house_1/2`, `bg_shop`, its billboard trees, a terrain patch):
-  * `probe_overrides` sets a donor probe by `full_name`: `order: "first"` (0.26 draws a
-    point's probes in the project's order, each over the ones before, so the outdoor box goes
-    before the room's probes, which then win inside the room: left out, every face outside
-    the sun was black and the fog made them flat slabs), `volume` (`{"box": {centre,
-    half_extents}}` or `{"sphere": {centre, radius}}`: the camp's box holds all the blocks),
+  * `probe_overrides` sets a donor probe by `full_name`: `volume` (`{"box": {centre,
+    half_extents}}` or `{"sphere": {centre, radius}}`: the camp's box holds all the blocks;
+    left out, every face outside the sun was black and the fog made them flat slabs),
     `diffuse_scale` and `saturation` in place of the lobby's baked ones (the outdoor sky
     irradiance is bluer than the room's).
+  * A lobby's box probes get `radius` 0.75 x their largest half-extent. 0.26g draws the
+    visible probes largest radius first, each over the ones before (stage_visibility's sort),
+    and equal radii in its probe tree's order, which changes from run to run with the order
+    the cubemaps load in. With every probe at the template's 15.3, the camp's outdoor box drew
+    after the room's probes in about half the runs: a bluish haze over the room's shadows.
+    0.10b's engine set this radius itself; 0.26g takes the project's, and a box's radius is
+    only that sort key (its volume is its scale). So the outdoor box draws first and the
+    room's probes, smaller, over it.
   * The donor lights its far blocks with outdoor ambient light boxes
     (`environment_and_lights/outdoor/`); the photometric scale made for the room left them
     at 0.15, so `light_overrides` sets them (0.26 does not apply the outdoor probe that far

@@ -402,22 +402,17 @@ pub struct ProbeOverride {
     /// The probe's volume in place of the donor's.
     #[serde(default)]
     pub volume: Option<ProbeVolume>,
-    /// Where it is drawn among the lobby's probes.
-    #[serde(default)]
-    pub order: ProbeOrder,
 }
 
-/// 0.26 draws a point's probes in the project's order, each over the ones
-/// before it.
-#[derive(Clone, Copy, Default, Deserialize, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProbeOrder {
-    /// The donor's order.
-    #[default]
-    Donor,
-    /// Before every other probe: an outdoor box around the room, which the
-    /// room's own probes then draw over.
-    First,
+/// The `radius` 0.26g draws a box probe by. Its visibility stage sorts the
+/// visible probes by radius, largest first, and each draws over the ones
+/// before it; probes of equal radius come in its probe tree's order, which
+/// changes from run to run with the order their cubemaps load in. A box's
+/// volume is its scale, and its radius is only that sort key: 0.10b's engine
+/// set it to 0.75 x the largest half-extent itself, 0.26g takes the
+/// project's. So the larger box draws first and the smaller ones over it.
+fn box_probe_radius(half_extents: [f32; 3]) -> f32 {
+    0.75 * half_extents.iter().cloned().fold(0.0, f32::max)
 }
 
 /// An environment probe's volume, in metres.
@@ -2533,18 +2528,16 @@ pub fn convert_scene(
                     }
                     None => {}
                 }
+                if integer(&p, "geometry") != Some(0) {
+                    let radius = box_probe_radius(float3(&p, "scale")?);
+                    p.set_path("radius", ConfigValue::Float(radius))?;
+                }
                 objects.push(p);
                 count("environment_probe");
             }
             ensure!(overridden_probes == lobby.probe_overrides.len(), "probe_overrides name a probe the donor does not have");
-            // 0.26 draws a point's probes in the project's order, each over
-            // the ones before it.
-            let draws_first = |o: &ConfigValue| {
-                string(o, "full_name")
-                    .and_then(|n| lobby.probe_overrides.get(n))
-                    .is_some_and(|o| matches!(o.order, ProbeOrder::First))
-            };
-            objects[first_probe..].sort_by_key(|o| !draws_first(o));
+            // In the order 0.26g draws them (box_probe_radius).
+            objects[first_probe..].sort_by(|a, b| real(b, "radius").unwrap_or(0.0).total_cmp(&real(a, "radius").unwrap_or(0.0)));
             notes.push(match &lobby.probes {
                 LobbyProbes::Donor => format!("environment probes: the donor's volumes and cubemaps ({} cubemaps)", probe_textures.len()),
                 LobbyProbes::Baked { diffuse_scale, .. } => format!(
@@ -5288,7 +5281,6 @@ mod tests {
             diffuse_scale: None,
             saturation: None,
             volume: Some(ProbeVolume::Box { centre: [-70.0, 0.0, 60.0], half_extents: [220.0, 40.0, 200.0] }),
-            order: ProbeOrder::First,
         };
         let lobby = |overrides: BTreeMap<String, ProbeOverride>| LobbySpec {
             donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
@@ -5303,6 +5295,9 @@ mod tests {
         assert_eq!(float3(probes[0], "position").unwrap(), [-70.0, 0.0, 60.0]);
         assert_eq!(float3(probes[0], "scale").unwrap(), [220.0, 40.0, 200.0]);
         assert_eq!(float3(probes[1], "scale").unwrap(), [2.2, 1.5, 4.2], "the others keep the donor's volume");
+        // 0.26g sorts by radius alone: equal radii would draw in a different order each run.
+        assert_eq!(real(probes[0], "radius"), Some(165.0), "0.75 x the largest half-extent");
+        assert_eq!(real(probes[1], "radius"), Some(0.75 * 4.2));
         let unknown = BTreeMap::from([("outdoor/environment_probe(9)".to_owned(), outdoor)]);
         assert!(convert_scene(&donor, &template, &Port::Lobby(lobby(unknown)), false, &BTreeMap::new()).is_err(), "an override must name a donor probe");
     }

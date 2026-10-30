@@ -19,7 +19,6 @@
     },
     "probe_overrides": {
       "environment_and_lights/outdoor/environment_probe": {
-        "order": "first",
         "volume": { "box": { "centre": [-70.0, 0.0, 60.0], "half_extents": [220.0, 40.0, 200.0] } },
         "diffuse_scale": 2.0,
         "saturation": 0.15
