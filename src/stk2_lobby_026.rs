@@ -141,8 +141,9 @@ pub struct LobbyManifest {
     /// field's type, 3 or 4 numbers a vector.
     #[serde(default)]
     pub environment_overrides: BTreeMap<String, Json>,
-    /// Converted lights (`stk2_light_<n>`, `sun`) set by eye; intensity 0
-    /// leaves the light out.
+    /// Converted lights set by eye, by their STK2 id (the project's guid,
+    /// `<guid>/<name>` in a composite; it stays as the box grows) or their
+    /// name (`stk2_light_<n>`, `sun`); intensity 0 leaves the light out.
     #[serde(default)]
     pub light_overrides: BTreeMap<String, LightOverride>,
     /// Environment probes of `objects` given cubemaps made here: 0.26g's
@@ -2371,6 +2372,7 @@ fn replace_project(
         }
         made.push(object);
     }
+    let mut sources = BTreeSet::new();
     for (index, (spec, light)) in slice_lights.iter().enumerate() {
         let template = match light.kind {
             LightKind::Point => Some(&spec.point_template),
@@ -2391,7 +2393,8 @@ fn replace_project(
             names.insert(name.clone()),
             "two client objects named {name:?}"
         );
-        let set = light_overrides.get(&name);
+        let set = light_overrides.get(&light.source).or_else(|| light_overrides.get(&name));
+        sources.insert(light.source.clone());
         if set.and_then(|o| o.intensity) == Some(0.0) {
             continue;
         }
@@ -2443,7 +2446,7 @@ fn replace_project(
         }
         made.push(object);
     }
-    if let Some(unknown) = light_overrides.keys().find(|k| !names.contains(*k)) {
+    if let Some(unknown) = light_overrides.keys().find(|k| !names.contains(*k) && !sources.contains(*k)) {
         bail!("light_overrides: no converted light {unknown:?}");
     }
     project
