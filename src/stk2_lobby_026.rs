@@ -135,6 +135,53 @@ pub struct LobbyManifest {
     /// under the weapon's spot), with their collision.
     #[serde(default)]
     pub native_props: Vec<NativeProp>,
+    /// Fields of the environment object's `properties` set after the STK2
+    /// post-process (0.26g has no counterpart of STK2's ambient colour or
+    /// tone curve, so the scene is balanced by eye): numbers become the
+    /// field's type, 3 or 4 numbers a vector.
+    #[serde(default)]
+    pub environment_overrides: BTreeMap<String, Json>,
+    /// Converted lights (`stk2_light_<n>`, `sun`) set by eye; intensity 0
+    /// leaves the light out.
+    #[serde(default)]
+    pub light_overrides: BTreeMap<String, LightOverride>,
+    /// Environment probes of `objects` given cubemaps made here: 0.26g's
+    /// diffuse light away from the lamps comes from probes (and ambient
+    /// lights), STK2's from the post-process's flat ambient colour.
+    #[serde(default)]
+    pub probe_cubes: Vec<ProbeCube>,
+    /// STK2 materials whose kept emission (a rule's or a material's
+    /// `emission`) is scaled further.
+    #[serde(default)]
+    pub emission_scale: BTreeMap<String, f32>,
+}
+
+/// A converted light's fields set by eye.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LightOverride {
+    #[serde(default)]
+    pub intensity: Option<f32>,
+    #[serde(default)]
+    pub range: Option<f32>,
+    #[serde(default)]
+    pub color: Option<[f32; 3]>,
+    #[serde(default)]
+    pub cast_shadow: Option<bool>,
+}
+
+/// The cubemaps of a probe in `objects`: radiance from a gradient over the
+/// directions' height (`up` straight up, `side` at the horizon, `down`
+/// straight down; linear colour, at most 1), and its `_diffuse` irradiance
+/// made from it. The probe's `diffuse_multiplier` sets the strength.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProbeCube {
+    /// The client object's name (an `environment_probe` of `objects`).
+    pub object: String,
+    pub up: [f32; 3],
+    pub side: [f32; 3],
+    pub down: [f32; 3],
 }
 
 /// An invisible box of the camera's collision: 0.26's unit box primitive
@@ -206,6 +253,20 @@ pub struct SliceSpec {
     /// Take the objects' models (false: only the lights).
     #[serde(default = "yes")]
     pub geometry: bool,
+    /// Surfaces of a library given another STK2 material: a lamp STK2
+    /// placed unlit (its plain material) lit by its own emissive variant,
+    /// so that it reads as the light source the scene's lights stand for.
+    #[serde(default)]
+    pub material_swaps: Vec<MaterialSwap>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialSwap {
+    /// The library (`props/light/lamp_street_04`).
+    pub lib: String,
+    pub from: String,
+    pub to: String,
 }
 
 fn yes() -> bool {
@@ -262,6 +323,11 @@ pub struct MaterialRule {
 pub enum RuleTarget {
     Converted {
         template: String,
+        /// Keep the STK2 material's emission (its colour and multiplier,
+        /// times this) on the converted one: 0.26g lights a lamp's glass
+        /// only through its emission.
+        #[serde(default)]
+        emission: Option<f32>,
     },
     Native {
         material: String,
@@ -361,6 +427,9 @@ pub enum MaterialSpec {
         source: Option<String>,
         #[serde(default)]
         textures: BTreeMap<String, String>,
+        /// As [`RuleTarget::Converted`]'s (it needs `source`).
+        #[serde(default)]
+        emission: Option<f32>,
     },
     /// A native material, as it is.
     Native { material: String },
@@ -690,6 +759,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         let made = make_material(
             key,
             spec,
+            &manifest.emission_scale,
             &manifest.material_prefix,
             &stk2,
             &mut target,
@@ -867,6 +937,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         &collisions,
         &manifest.objects,
         &slice_lights,
+        &manifest.light_overrides,
         scene,
     )?;
     let mut extra_notes = Vec::new();
@@ -883,6 +954,41 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             .find(|o| matches!(o.named("name"), Some(ConfigValue::String(n)) if *n == environment.object))
             .with_context(|| format!("no client object {:?} to take the post-process", environment.object))?;
         environment_notes = apply_post_process(object, &values)?;
+    }
+    if !manifest.environment_overrides.is_empty() {
+        let name = manifest
+            .environment
+            .as_ref()
+            .map(|e| e.object.as_str())
+            .context("environment_overrides without an environment")?;
+        let Some(ConfigValue::Indexed(objects)) = project.root.named_mut("client_objects") else {
+            bail!("the project has no client_objects");
+        };
+        let object = objects
+            .iter_mut()
+            .find(|o| matches!(o.named("name"), Some(ConfigValue::String(n)) if n == name))
+            .with_context(|| format!("no client object {name:?} for environment_overrides"))?;
+        for (field, value) in &manifest.environment_overrides {
+            let path = format!("properties.{field}");
+            let hint = crate::content_pack::value::value_at(object, &path)
+                .cloned()
+                .with_context(|| format!("environment_overrides: no field {field}"))?;
+            // a number over the template's integer stays fractional
+            let hint = match hint {
+                ConfigValue::Integer(v) => ConfigValue::Float(v as f32),
+                other => other,
+            };
+            let value = crate::content_pack::value::to_config(value, Some(&hint))
+                .with_context(|| format!("environment_overrides: {field}"))?;
+            object.set_path(&path, value)?;
+        }
+        extra_notes.push(format!(
+            "environment overrides (by eye, in the game): {}",
+            manifest.environment_overrides.keys().cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    for cube in &manifest.probe_cubes {
+        add_probe_cube(&mut project, cube, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
     }
     let weapon = manifest
         .spots
@@ -1301,16 +1407,18 @@ fn tga_has_alpha(path: &Path) -> Result<bool> {
 
 /// The material's name in the models' settings, and the texture its
 /// diffuse slot binds; `None` for a hidden one.
+#[allow(clippy::too_many_arguments)]
 fn make_material(
     key: &str,
     spec: &MaterialSpec,
+    emission_scale: &BTreeMap<String, f32>,
     prefix: &str,
     stk2: &Stk2Tree<'_>,
     target: &mut ResourceDb,
     textures: &mut TextureMaker<'_>,
     pack: &mut PackWriter,
 ) -> Result<Option<(String, Option<String>)>> {
-    let (template, source, explicit) = match spec {
+    let (template, source, explicit, emission) = match spec {
         MaterialSpec::Hidden => return Ok(None),
         MaterialSpec::Native { material } => {
             ensure!(
@@ -1323,7 +1431,8 @@ fn make_material(
             template,
             source,
             textures,
-        } => (template, source, textures),
+            emission,
+        } => (template, source, textures, emission),
     };
     let roles = material_textures(key, source.as_deref(), explicit, stk2)?;
     // an instance with no diffuse of its own or its base's (a decal's
@@ -1389,6 +1498,23 @@ fn make_material(
             )?;
         }
     }
+    if let Some(scale) = emission {
+        let source = source
+            .as_deref()
+            .with_context(|| format!("{key}: emission kept without an STK2 instance"))?;
+        let values = material_values(stk2, source)?;
+        let colour = values
+            .get("constant_emissive")
+            .and_then(|v| lua_float4(v))
+            .unwrap_or([1.0; 4]);
+        let multiplier = values
+            .get("constant_emissive_multiplier")
+            .and_then(|v| lua_number(v))
+            .unwrap_or(1.0);
+        let scale = scale * emission_scale.get(key).copied().unwrap_or(1.0);
+        set_emission(&mut material.root, colour, multiplier * scale, diffuse.as_deref())
+            .with_context(|| format!("{key}: emission"))?;
+    }
     // `tex:<texture>` keys (a surface known by its texture) as a folder
     let name = format!("{prefix}/{}", key.replace(':', "/").replace(' ', "_"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
@@ -1432,6 +1558,7 @@ fn material_by_rule(
                         template: template.clone(),
                         source: None,
                         textures,
+                        emission: None,
                     },
                     format!("its texture alone -> {template}"),
                 ));
@@ -1484,13 +1611,17 @@ fn material_by_rule(
         })?;
     let why = format!("{base}, alpha {alpha_test}, two-sided {two_sided}");
     Ok(match &rule.then {
-        RuleTarget::Converted { template } => (
+        RuleTarget::Converted { template, emission } => (
             MaterialSpec::Converted {
                 template: template.clone(),
                 source: Some(source),
                 textures: BTreeMap::new(),
+                emission: *emission,
             },
-            format!("{why} -> {template}"),
+            match emission {
+                Some(k) => format!("{why} -> {template}, its emission x{k}"),
+                None => format!("{why} -> {template}"),
+            },
         ),
         RuleTarget::Native { material } => (
             MaterialSpec::Native {
@@ -2116,6 +2247,7 @@ fn replace_project(
     collisions: &[String],
     objects: &[ObjectSpec],
     slice_lights: &[(&SliceLights, SliceLight)],
+    light_overrides: &BTreeMap<String, LightOverride>,
     scene: Rigid,
 ) -> Result<()> {
     let identity = |lib: ConfigValue, extra: Vec<NamedValue>| {
@@ -2198,10 +2330,23 @@ fn replace_project(
         if let Some(position) = spec.position {
             object.set_path("position", ConfigValue::Float3(scene.apply(position)))?;
         }
+        let ambient = matches!(object.named("lib_name"), Some(ConfigValue::String(l)) if l == "ambient_light");
         for (path, value) in &spec.set {
             let hint = crate::content_pack::value::value_at(&object, path).cloned();
-            let value = crate::content_pack::value::to_config(value, hint.as_ref())
-                .with_context(|| format!("{name}: {path}"))?;
+            let value = match (ambient, path.as_str(), value) {
+                // an ambient light's colour is one i32, red in the low byte
+                (true, "color", Json::Array(rgb)) => {
+                    let rgb: Vec<f32> = rgb
+                        .iter()
+                        .map(|v| v.as_f64().map(|v| v as f32))
+                        .collect::<Option<_>>()
+                        .filter(|v: &Vec<f32>| v.len() == 3)
+                        .with_context(|| format!("{name}: color is not 3 numbers"))?;
+                    ConfigValue::Integer(packed_colour([rgb[0], rgb[1], rgb[2]]))
+                }
+                _ => crate::content_pack::value::to_config(value, hint.as_ref())
+                    .with_context(|| format!("{name}: {path}"))?,
+            };
             object.set_path(path, value)?;
         }
         made.push(object);
@@ -2226,6 +2371,10 @@ fn replace_project(
             names.insert(name.clone()),
             "two client objects named {name:?}"
         );
+        let set = light_overrides.get(&name);
+        if set.and_then(|o| o.intensity) == Some(0.0) {
+            continue;
+        }
         object.set_path("name", ConfigValue::String(name.clone()))?;
         object.set_path(
             "full_name",
@@ -2256,7 +2405,26 @@ fn replace_project(
             object.set_path("spot_falloff", value)?;
         }
         object.set_path("layer", ConfigValue::String("default".to_owned()))?;
+        if let Some(set) = set {
+            if let Some(v) = set.intensity {
+                let value = number_like(&object, "intensity", v);
+                object.set_path("intensity", value)?;
+            }
+            if let Some(v) = set.range {
+                let value = number_like(&object, "range", v);
+                object.set_path("range", value)?;
+            }
+            if let Some(c) = set.color {
+                object.set_path("color", ConfigValue::Float3(c))?;
+            }
+            if let Some(v) = set.cast_shadow {
+                object.set_path("is_cast_shadow", ConfigValue::Boolean(v))?;
+            }
+        }
         made.push(object);
+    }
+    if let Some(unknown) = light_overrides.keys().find(|k| !names.contains(*k)) {
+        bail!("light_overrides: no converted light {unknown:?}");
     }
     project
         .root
@@ -2335,6 +2503,7 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
         missing: Vec::new(),
     };
     let mut missing = BTreeSet::new();
+    let mut swapped = vec![0usize; slice.material_swaps.len()];
     for object in &objects {
         match object.kind.as_str() {
             "solid_visual" if slice.geometry => {
@@ -2384,13 +2553,22 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
                         }),
                 };
                 // an archive the reader refuses is reported, not fatal
-                let surfaces = match surfaces {
+                let mut surfaces = match surfaces {
                     Ok(surfaces) => surfaces,
                     Err(error) => {
                         missing.insert(format!("{library} ({error:#})"));
                         continue;
                     }
                 };
+                for (k, swap) in slice.material_swaps.iter().enumerate() {
+                    if swap.lib != *library {
+                        continue;
+                    }
+                    for material in surfaces.values_mut().filter(|m| **m == swap.from) {
+                        material.clone_from(&swap.to);
+                        swapped[k] += 1;
+                    }
+                }
                 out.models.push(SliceModel {
                     library: library.clone(),
                     archive,
@@ -2406,11 +2584,12 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
                     Some(P::Integer(v)) => *v as f32,
                     _ => default,
                 };
-                // 0 point, 2 box, 5 sphere: points; 1 spot; 4 the sun (kept
-                // wherever it is: it lights the whole scene)
+                // 0 point, 2 box, 5 sphere: points; 1 spot, 6 plane spot
+                // (an area spot 0.26g lacks: a spot from its centre); 4 the
+                // sun (kept wherever it is: it lights the whole scene)
                 let kind = match number("light_type", 0.0) as i32 {
                     0 | 2 | 5 => LightKind::Point,
-                    1 => LightKind::Spot,
+                    1 | 6 => LightKind::Spot,
                     4 => LightKind::Sun,
                     _ => continue,
                 };
@@ -2450,6 +2629,9 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
             }
             _ => {}
         }
+    }
+    if let Some((swap, _)) = slice.material_swaps.iter().zip(&swapped).find(|(_, n)| **n == 0) {
+        bail!("slice {}: material swap {} {} -> {} meets no surface", slice.name, swap.lib, swap.from, swap.to);
     }
     out.missing = missing.into_iter().collect();
     Ok(out)
@@ -2597,6 +2779,148 @@ fn write_slice(
         vertices,
         collision: has_collision && !built.is_empty(),
     })
+}
+
+/// The 0.26 ambient light colour: an i32 with red in the low byte (A, B, G,
+/// R from the top), as resource-porter's later-scene lobbies found in a game
+/// (feat/lobby-scenes-046-069, c9940e1).
+fn packed_colour(rgb: [f32; 3]) -> i32 {
+    let c = |v: f32| ((v.clamp(0.0, 1.0) * 255.0).round() as u32) & 255;
+    (0xff00_0000 | (c(rgb[2]) << 16) | (c(rgb[1]) << 8) | c(rgb[0])) as i32
+}
+
+/// A converted material's emission on: its colour and multiplier, emitting
+/// the emissive texture the STK2 one bound, or else its diffuse.
+fn set_emission(
+    root: &mut ConfigValue,
+    colour: [f32; 4],
+    multiplier: f32,
+    diffuse: Option<&str>,
+) -> Result<()> {
+    let effect = "material.g_stage.effect";
+    for field in [
+        "use_emissive",
+        "texture_emissive",
+        "constant_emissive",
+        "constant_emissive_multiplier",
+    ] {
+        ensure!(
+            crate::content_pack::value::value_at(root, &format!("{effect}.{field}.value")).is_some(),
+            "the template has no {field}"
+        );
+    }
+    root.set_path(&format!("{effect}.use_emissive.value"), ConfigValue::Boolean(true))?;
+    let bound = matches!(
+        crate::content_pack::value::value_at(root, &format!("{effect}.texture_emissive.value")),
+        Some(ConfigValue::String(t)) if !t.is_empty()
+    );
+    if !bound {
+        let diffuse = diffuse.context("no texture to emit")?;
+        root.set_path(
+            &format!("{effect}.texture_emissive.value"),
+            ConfigValue::String(diffuse.to_owned()),
+        )?;
+    }
+    root.set_path(&format!("{effect}.constant_emissive.value"), ConfigValue::Float4(colour))?;
+    root.set_path(
+        &format!("{effect}.constant_emissive_multiplier.value"),
+        ConfigValue::Float(multiplier),
+    )?;
+    Ok(())
+}
+
+/// Radiance of a probe cube's gradient in direction `d`.
+fn gradient(cube: &ProbeCube, d: [f32; 3]) -> [f32; 3] {
+    let (t, end) = if d[1] >= 0.0 { (d[1], cube.up) } else { (-d[1], cube.down) };
+    std::array::from_fn(|c| cube.side[c] * (1.0 - t) + end[c] * t)
+}
+
+/// Size and mips of a made probe's radiance cubemap: 0.26g's smallest
+/// (its own are 128..512 px, their mips down to 4 px).
+const PROBE_CUBE_SIZE: usize = 128;
+const PROBE_CUBE_MIPS: usize = 6;
+
+/// A cubemap as 0.26g's compressor writes it: the header's linear size the
+/// whole payload, which ends in one zero byte.
+fn native_cube_dds(mut bytes: Vec<u8>) -> Vec<u8> {
+    bytes.push(0);
+    let payload = (bytes.len() - 128) as u32;
+    bytes[20..24].copy_from_slice(&payload.to_le_bytes());
+    bytes
+}
+
+/// A probe of the project given the cube's cubemaps: written beside the
+/// template probe's options as `environment_probes/<prefix>/<object>`.
+fn add_probe_cube(
+    project: &mut BinaryConfig,
+    cube: &ProbeCube,
+    prefix: &str,
+    target: &mut ResourceDb,
+    pack: &mut PackWriter,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    use crate::probe_bake::{Cube, cube_header, diffuse_of, direction, encode_026};
+    for c in [cube.up, cube.side, cube.down] {
+        ensure!(
+            c.iter().all(|v| (0.0..=1.0).contains(v)),
+            "probe cube {}: colours are 0..1 (the probe's diffuse_multiplier scales them)",
+            cube.object
+        );
+    }
+    let Some(ConfigValue::Indexed(objects)) = project.root.named_mut("client_objects") else {
+        bail!("the project has no client_objects");
+    };
+    let object = objects
+        .iter_mut()
+        .find(|o| matches!(o.named("name"), Some(ConfigValue::String(n)) if *n == cube.object))
+        .with_context(|| format!("probe cube: no client object {:?}", cube.object))?;
+    ensure!(
+        matches!(object.named("lib_name"), Some(ConfigValue::String(l)) if l == "environment_probe"),
+        "probe cube: {:?} is not an environment_probe",
+        cube.object
+    );
+    let Some(ConfigValue::String(native)) = object.named("texture").cloned() else {
+        bail!("probe cube: {:?} has no texture", cube.object);
+    };
+    let texture = format!("environment_probes/{prefix}/{}", cube.object);
+    object.set_path("texture", ConfigValue::String(texture.clone()))?;
+    if let Some(ConfigValue::Named(layers)) = object.named_mut("textures") {
+        for layer in layers {
+            layer.value = ConfigValue::String(texture.clone());
+        }
+    }
+    let faces = (0..6)
+        .map(|f| {
+            (0..PROBE_CUBE_MIPS)
+                .map(|m| {
+                    let n = (PROBE_CUBE_SIZE >> m).max(1);
+                    (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+                })
+                .collect()
+        })
+        .collect();
+    let radiance = Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces };
+    let diffuse = diffuse_of(&radiance);
+    let template = target.read(&format!("textures/{native}.dds"))?;
+    let template_diffuse = target.read(&format!("textures/{native}_diffuse.dds"))?;
+    pack.write(
+        &format!("textures/{texture}.dds"),
+        &native_cube_dds(encode_026(&radiance, &cube_header(&template, radiance.size, radiance.mips)?)?),
+    )?;
+    pack.write(
+        &format!("textures/{texture}_diffuse.dds"),
+        &native_cube_dds(encode_026(&diffuse, &cube_header(&template_diffuse, diffuse.size, diffuse.mips)?)?),
+    )?;
+    for suffix in ["", "_diffuse"] {
+        let options = parse(target, &format!("textures/{native}{suffix}.options"))?;
+        pack.config(&format!("textures/{texture}{suffix}.options"), &options)?;
+    }
+    let mean = crate::probe_bake::mean(&diffuse, 0);
+    notes.push(format!(
+        "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+        cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
+    ));
+    Ok(())
 }
 
 /// A number in the type the object already has there: an integer where
@@ -2948,6 +3272,67 @@ mod tests {
             material_role(base, "texture_normal"),
             Some(Some("props/fire/campfire_nmap".to_owned()))
         );
+    }
+
+    #[test]
+    fn an_ambient_colour_packs_red_in_the_low_byte() {
+        assert_eq!(packed_colour([1.0, 0.0, 0.0]) as u32, 0xff00_00ff);
+        assert_eq!(packed_colour([0.0, 0.0, 1.0]) as u32, 0xffff_0000);
+        // the classic lobby's bluish fill
+        let c = |v: u32| v as f32 / 255.0;
+        assert_eq!(packed_colour([c(0x6b), c(0x85), c(0xb3)]) as u32, 0xffb3_856b);
+        assert_eq!(packed_colour([2.0, -1.0, 0.5]) as u32, 0xff80_00ff);
+    }
+
+    #[test]
+    fn a_probe_gradient_runs_from_the_floor_to_the_sky() {
+        let cube = ProbeCube { object: String::new(), up: [0.1; 3], side: [0.2; 3], down: [0.4; 3] };
+        assert!(near(gradient(&cube, [0.0, 1.0, 0.0]), [0.1; 3]));
+        assert!(near(gradient(&cube, [1.0, 0.0, 0.0]), [0.2; 3]));
+        assert!(near(gradient(&cube, [0.0, -1.0, 0.0]), [0.4; 3]));
+        assert!(near(gradient(&cube, [0.0, -0.5, 0.866]), [0.3; 3]));
+    }
+
+    #[test]
+    fn a_cubemap_ends_as_the_compressor_writes_it() {
+        let mut bytes = vec![0u8; 128 + 16];
+        bytes[20..24].copy_from_slice(&16u32.to_le_bytes());
+        let out = native_cube_dds(bytes);
+        assert_eq!(out.len(), 128 + 17);
+        assert_eq!(u32::from_le_bytes(out[20..24].try_into().unwrap()), 17);
+        assert_eq!(out[out.len() - 1], 0);
+    }
+
+    #[test]
+    fn emission_needs_the_template_fields_and_emits_the_diffuse() {
+        let leaf = |v: ConfigValue| ConfigValue::Named(vec![named("value", v)]);
+        let effect = |texture: &str| {
+            ConfigValue::Named(vec![
+                named("use_emissive", leaf(ConfigValue::Boolean(false))),
+                named("texture_emissive", leaf(ConfigValue::String(texture.to_owned()))),
+                named("constant_emissive", leaf(ConfigValue::Float4([0.0, 0.0, 0.0, 1.0]))),
+                named("constant_emissive_multiplier", leaf(ConfigValue::Integer(1))),
+            ])
+        };
+        let material = |e: ConfigValue| {
+            ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named("g_stage", ConfigValue::Named(vec![named("effect", e)]))]),
+            )])
+        };
+        let at = |root: &ConfigValue, f: &str| {
+            crate::content_pack::value::value_at(root, &format!("material.g_stage.effect.{f}.value")).cloned()
+        };
+        let mut root = material(effect(""));
+        set_emission(&mut root, [1.0, 0.5, 0.1, 1.0], 6.0, Some("t/diffuse")).unwrap();
+        assert_eq!(at(&root, "use_emissive"), Some(ConfigValue::Boolean(true)));
+        assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/diffuse".into())));
+        assert_eq!(at(&root, "constant_emissive_multiplier"), Some(ConfigValue::Float(6.0)));
+        // an emissive mask the STK2 material bound is kept
+        let mut root = material(effect("t/mask"));
+        set_emission(&mut root, [1.0; 4], 1.0, Some("t/diffuse")).unwrap();
+        assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/mask".into())));
+        assert!(set_emission(&mut material(ConfigValue::Named(Vec::new())), [1.0; 4], 1.0, None).is_err());
     }
 
     #[test]
