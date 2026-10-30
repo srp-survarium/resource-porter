@@ -41,9 +41,7 @@ CENTRE = (85.5, 41)
 # Items drawn smaller than their slot's stock fill (the owner, 2026-10-30: the sneakers).
 SHRINK = {1866: 0.72}
 # The stock boots' icon pose (Zubr UM-4's), with a soft shadow to the left.
-# The stock boot icons show no shaft opening, and the donor shafts are black inside (STK2's
-# trousers covered them): for the icon only, each opening is closed with a cap of its rim's
-# colour, and the camera stands level.
+# The stock boot icons show no shaft opening; the camera stands level.
 BOOTS = {'yaw': 75, 'pitch': 2, 'together': .065,
          'shadow_offset': (-7, 1), 'shadow_blur': 4, 'shadow_strength': .45, 'shadow_colour': (20, 16, 12)}
 # Parts of a piece the icon leaves out, as UV boxes (u0, v0, u1, v1) of a surface.
@@ -93,65 +91,25 @@ def framed(picture, kind, shrink=1.0):
     return out
 
 
-def openings(points, faces):
-    """The boundary loops of a mesh (vertices welded by position), as vertex lists."""
-    key = {tuple(np.round(p, 4)): i for i, p in enumerate(points)}
-    weld = np.array([key[tuple(np.round(p, 4))] for p in points])
-    count = {}
-    for t in faces:
-        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
-            e = (min(weld[a], weld[b]), max(weld[a], weld[b]))
-            count[e] = count.get(e, 0) + 1
-    adjacent = {}
-    for (a, b), n in count.items():
-        if n == 1:
-            adjacent.setdefault(a, []).append(b)
-            adjacent.setdefault(b, []).append(a)
-    loops, seen = [], set()
-    for start in adjacent:
-        if start in seen:
-            continue
-        loop, stack = [], [start]
-        while stack:
-            v = stack.pop()
-            if v in seen:
-                continue
-            seen.add(v)
-            loop.append(v)
-            stack += adjacent[v]
-        loops.append(loop)
-    return loops
-
-
-def capped(surface, low=0.08):
-    """The openings of a surface (its boundary loops above `low` m) closed, each with a fan
-    of one colour: its rim's darker texels (the shadowed leather or cloth inside the rim)."""
-    points, uv, normals, faces, texture = surface
-    caps = []
-    for loop in openings(points, faces):
-        rim = points[loop]
-        if rim[:, 1].mean() < low or len(loop) < 6:
-            continue
-        centre = rim.mean(0)
-        # Around the opening in its own plane (a boot's is level, a glove's upright).
-        axes = np.linalg.svd(rim - centre)[2]
-        flat = (rim - centre) @ axes[:2].T
-        order = np.argsort(np.arctan2(flat[:, 1], flat[:, 0]))
-        ring = rim[order]
-        h, w = texture.shape[:2]
-        texels = texture[np.clip((uv[loop, 1] * h).astype(int), 0, h - 1), np.clip((uv[loop, 0] * w).astype(int), 0, w - 1)]
-        lum = texels.mean(1)
-        colour = texels[lum <= np.percentile(lum, 35)].mean(0)
-        pts = np.vstack([ring, centre])
-        n = len(ring)
-        tris = np.array([[i, (i + 1) % n, n] for i in range(n)] + [[(i + 1) % n, i, n] for i in range(n)])
-        caps.append((pts, np.zeros((n + 1, 2)), np.tile(axes[2], (n + 1, 1)), tris,
-                     np.ones((1, 1, 3)) * colour * 0.7))
-    return caps
-
-
 def boots_icon(surfaces, shrink=1.0):
-    surfaces = list(surfaces) + [c for s in surfaces for c in capped(s)]
+    # The shafts' black tops and insides (STK2's trousers covered them) are left out of the
+    # icon, as the gloves' wrists are: each boot above where its faces darker than
+    # GLOVE_BLACK (over 8 cm) begin.
+    kept = []
+    for points, uv, normals, faces, texture in surfaces:
+        h, w = texture.shape[:2]
+        lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
+                      np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
+        centre = points[faces].mean(1)
+        dark = (centre[:, 1] > 0.08) & (lum < GLOVE_BLACK)
+        keep = ~dark
+        # Each boot cut level where its black begins, so the top ends evenly, not in teeth.
+        for side in (centre[:, 0] > 0, centre[:, 0] < 0):
+            if (dark & side).sum() >= 4:
+                cut = np.percentile(centre[dark & side, 1], 10)
+                keep &= ~(side & (centre[:, 1] > cut))
+        kept.append((points, uv, normals, faces[keep], texture))
+    surfaces = kept
     moved = []
     for points, uv, normals, faces, texture in surfaces:
         points = points.copy()

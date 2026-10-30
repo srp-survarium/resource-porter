@@ -1210,7 +1210,13 @@ fn read_parts(
             bind,
             inputs,
         )?;
-        let (name, bytes, props) = read.surfaces.remove(0);
+        let (name, mut bytes, props) = read.surfaces.remove(0);
+        if let Some(&(_, above)) = STRAY_TROUSERS.iter().find(|(m, _)| *m == from) {
+            let before = parse_mesh(&bytes, 48, "boots")?.triangles.len();
+            bytes = drop_unpaired(&bytes, above)?;
+            let after = parse_mesh(&bytes, 48, "boots")?.triangles.len();
+            println!("{from}: {} faces of a trousers leg left in the boot dropped", before - after);
+        }
         match out.surfaces.iter_mut().find(|(n, _, _)| *n == name) {
             Some((_, joined, _)) => {
                 let both = Model {
@@ -1225,6 +1231,38 @@ fn read_parts(
         }
     }
     Ok(out)
+}
+
+/// Exported boots with a piece of the trousers in them: the loner's left
+/// boot carries the bottom of the camouflage pants' leg (a wrapped cuff up
+/// to 29 cm, on the pants' part of the map), cut from the legs with the
+/// boot; the right boot is a plain low shoe. Faces above this height (m)
+/// with no mirror image on the other boot are dropped.
+const STRAY_TROUSERS: &[(&str, f64)] = &[("neutral/neutral_03/neutral_03_boot", 0.13)];
+/// How close a face's mirror image must come to the other side's face (m).
+const MIRROR_MATCH: f64 = 0.01;
+
+/// `bytes` (48-byte vertices) without the faces above `above` that have no
+/// mirror image (across x = 0, within [`MIRROR_MATCH`]) among the faces on
+/// the other side.
+fn drop_unpaired(bytes: &[u8], above: f64) -> Result<Vec<u8>> {
+    let mesh = parse_mesh(bytes, 48, "boots")?;
+    let centre = |t: &[usize; 3]| -> [f64; 3] {
+        std::array::from_fn(|k| t.iter().map(|&i| mesh.positions[i][k]).sum::<f64>() / 3.0)
+    };
+    let centres: Vec<[f64; 3]> = mesh.triangles.iter().map(centre).collect();
+    let paired = |c: [f64; 3]| {
+        centres.iter().any(|o| {
+            o[0] * c[0] < 0.0 && {
+                let d = [o[0] + c[0], o[1] - c[1], o[2] - c[2]];
+                dot(d, d).sqrt() < MIRROR_MATCH
+            }
+        })
+    };
+    keep_triangles(bytes, |corners| {
+        let c: [f64; 3] = std::array::from_fn(|k| corners.iter().map(|(p, _)| p[k]).sum::<f64>() / 3.0);
+        c[1] <= above || paired(c)
+    })
 }
 
 /// The native body's torso variants (bare arms) and their material.
