@@ -322,6 +322,11 @@ pub struct PhotometricLights {
     /// ambient light (`type` 1, multiplier above 1: a fill that brightens
     /// the light under it); 0.26's only add.
     pub fill: f32,
+    /// The colour those fills add, in place of the donor's (a multiplying
+    /// light's colour tints the light under it; added as it is, 0.69d's
+    /// bluish camera fill turned the room blue).
+    #[serde(default)]
+    pub fill_colour: Option<[f32; 3]>,
     /// 0.26 ambient intensity (negative: it darkens) per unit below 1 of a
     /// multiplying 0.69d ambient light (multiplier below 1: painted contact
     /// shadow); 0 drops them.
@@ -353,7 +358,23 @@ pub enum LobbyProbes {
     /// 0.69d's volumes and cubemaps re-encoded for 0.26, each with a
     /// `_diffuse` cubemap made from its SH coefficients (see `probe_bake`);
     /// `diffuse_scale` takes the 0.69d probe's multiplier to 0.26's.
-    Baked { diffuse_scale: f32 },
+    Baked {
+        diffuse_scale: f32,
+        /// The baked irradiance's saturation (1: the SH's own colour; less
+        /// keeps a strong fill from turning the walls orange in 0.26, which
+        /// has no 0.69d filmic curve to desaturate it).
+        #[serde(default = "unit")]
+        saturation: f32,
+        /// The SH's bands above the constant one, scaled (1: as baked; less
+        /// lights the sides facing away from the window more evenly, as
+        /// 0.69d's bounce-lit shadows read).
+        #[serde(default = "unit")]
+        directionality: f32,
+    },
+}
+
+fn unit() -> f32 {
+    1.0
 }
 
 /// A 0.69d probe the build re-bakes for 0.26.
@@ -2225,14 +2246,14 @@ pub fn convert_scene(
                         )?;
                         // Fractional multipliers over the template's integer 1
                         // (0.26g's own probes have them as floats).
-                        for field in ["diffuse_multiplier", "specular_multiplier", "ambient_multiplier"] {
+                        for field in ["diffuse_multiplier", "specular_multiplier", "ambient_multiplier", "probe_side_width"] {
                             if let Some(v) = real(object, field) {
                                 p.set_path(field, ConfigValue::Float(v))?;
                             }
                         }
                         t
                     }
-                    LobbyProbes::Baked { diffuse_scale } => {
+                    LobbyProbes::Baked { diffuse_scale, .. } => {
                         // 0.69d boxes are its unit box scaled, as 0.26's.
                         let donor_texture = format!("environment_probes/{}", string(object, "texture").context("donor probe without texture")?.replace('\\', "/"));
                         let texture = donor_texture.clone();
@@ -2256,7 +2277,12 @@ pub fn convert_scene(
                         };
                         p.set_path("diffuse_multiplier", ConfigValue::Float(multiplier))?;
                         p.set_path("specular_multiplier", ConfigValue::Float(multiplier * specular))?;
-                        copy_shared(&mut p, object, &["probe_side_width", "priority"])?;
+                        copy_shared(&mut p, object, &["priority"])?;
+                        // The fade at the box's sides, in metres (the
+                        // template's integer 2 left a room's walls unlit).
+                        if let Some(w) = real(object, "probe_side_width") {
+                            p.set_path("probe_side_width", ConfigValue::Float(w))?;
+                        }
                         baked_probes.push(BakedProbe { full_name: full_name.to_owned(), donor_texture, texture: texture.clone(), sh });
                         texture
                     }
@@ -2277,7 +2303,7 @@ pub fn convert_scene(
             }
             notes.push(match &lobby.probes {
                 LobbyProbes::Donor => format!("environment probes: the donor's volumes and cubemaps ({} cubemaps)", probe_textures.len()),
-                LobbyProbes::Baked { diffuse_scale } => format!(
+                LobbyProbes::Baked { diffuse_scale, .. } => format!(
                     "environment probes: the donor's volumes; {} cubemaps re-encoded for 0.26 (RGBM, radiance rgb x a^2, to 0.26's divided-above-1 form) with a _diffuse cubemap from each probe's SH; diffuse multiplier = the probe's multiplier x {diffuse_scale}",
                     baked_probes.len()
                 ),
@@ -2349,7 +2375,7 @@ pub fn convert_scene(
                     // A multiplying one: a fill adds, a shadow takes away.
                     (true, Some(s)) if integer(object, "type") == Some(1) => {
                         let m = multiplying(object);
-                        if m >= 1.0 { (((m - 1.0) * s.fill).min(s.max), colour) } else { (-(1.0 - m) * s.shadow, [1.0; 3]) }
+                        if m >= 1.0 { (((m - 1.0) * s.fill).min(s.max), s.fill_colour.unwrap_or(colour)) } else { (-(1.0 - m) * s.shadow, [1.0; 3]) }
                     }
                     (true, Some(s)) => ((lux(object) * s.lux).min(s.max), colour),
                     (true, None) => (lux(object), colour),
@@ -4062,7 +4088,16 @@ pub fn build(
         for probe in &scene.baked_probes {
             let mut specular = super::probe_bake::decode_rgbm(&donor.read(&format!("textures/{}.dds", probe.donor_texture))?)
                 .with_context(|| format!("decoding {}", probe.donor_texture))?;
-            let (diffuse, peak) = super::probe_bake::diffuse_from_sh(&probe.sh);
+            let (saturation, directionality) = match &port {
+                Port::Lobby(LobbySpec { probes: LobbyProbes::Baked { saturation, directionality, .. }, .. }) => (*saturation, *directionality),
+                _ => (1.0, 1.0),
+            };
+            let mut sh = probe.sh;
+            for band in sh.iter_mut().skip(1) {
+                *band = band.map(|v| v * directionality);
+            }
+            let (mut diffuse, peak) = super::probe_bake::diffuse_from_sh(&sh);
+            super::probe_bake::saturate(&mut diffuse, saturation);
             // The cubemap's mean radiance is the SH's (stored over `peak`).
             let target_mean = super::probe_bake::mean(&diffuse, 0).map(|v| v * peak);
             let k = super::probe_bake::match_mean(&specular, target_mean);

@@ -186,6 +186,14 @@ pub fn diffuse_from_sh(sh: &[[f32; 3]; 9]) -> (Cube, f32) {
     (Cube { size, mips, faces }, peak)
 }
 
+/// Move every texel's colour towards its luminance (`k` 1 keeps it).
+pub fn saturate(cube: &mut Cube, k: f32) {
+    for t in cube.faces.iter_mut().flatten().flatten() {
+        let l = luminance(*t);
+        *t = t.map(|v| (l + (v - l) * k).max(0.0));
+    }
+}
+
 /// Scale a cubemap in place.
 pub fn scale(cube: &mut Cube, k: f32) {
     for t in cube.faces.iter_mut().flatten().flatten() {
