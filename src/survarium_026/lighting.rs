@@ -60,6 +60,19 @@ impl DonorProbe {
     }
 }
 
+/// 0.26's curve adapts to a frame's mean down to 0.05 (`complex_post_process_blend.ps`:
+/// its weight `4.5 / (10 min(max(mean, 0.05), 2) + 1)`) and only by the
+/// mean^-0.2 of its exposure below; 0.69d's auto exposure follows a view down
+/// to EV 6. A probe darker than that (an interior) takes back half the
+/// difference, at most x8, so rooms read as 0.69d shows them after its eyes
+/// adapt; open ground (the global probes) is unchanged.
+pub fn adaptation_gain(probe: &DonorProbe, scale: LightScale) -> f32 {
+    let k = probe.exposure() * scale.0 * 0.282_094_78;
+    let c = probe.sh[0];
+    let mean = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * k;
+    (0.05 / mean.max(1e-6)).max(1.0).sqrt().min(8.0)
+}
+
 /// 0.69d probe texel to capture-unit radiance.
 pub fn decode_069d(texel: [u8; 4]) -> [f32; 3] {
     let a = (texel[3] as f32 / 255.0).min(254.5 / 255.0);
@@ -375,5 +388,25 @@ mod light_tests {
         };
         let e = recipe.eval([0.0, 1.0, 0.0]);
         assert!((e[0] - 6.0).abs() < 1e-4, "{e:?}");
+    }
+}
+
+#[cfg(test)]
+mod adaptation_tests {
+    use super::*;
+
+    #[test]
+    fn interiors_take_back_half_their_darkness() {
+        let probe = |c0: f32| {
+            let mut sh = [[0.0; 3]; 9];
+            sh[0] = [c0; 3];
+            DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, sh }
+        };
+        let scale = LightScale(1.0 / 1.2 / 0.282_094_78);
+        // Mean 0.05 or brighter: unchanged.
+        assert_eq!(adaptation_gain(&probe(0.5), scale), 1.0);
+        // 16 times darker: x4; far darker: at most x8.
+        assert!((adaptation_gain(&probe(0.05 / 16.0), scale) - 4.0).abs() < 1e-3);
+        assert_eq!(adaptation_gain(&probe(1e-5), scale), 8.0);
     }
 }

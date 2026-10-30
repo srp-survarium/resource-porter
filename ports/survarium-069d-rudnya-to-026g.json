@@ -19,7 +19,9 @@
     "probes": {
       "donor": {
         "global": "environment_and_lights/probes/global",
-        "matte_water": "environment_and_lights/probes/swamp"
+        "matte_water": "environment_and_lights/probes/swamp",
+        "exposure_bias": 1.0,
+        "sun_saturation": 0.6
       }
     },
     "spawn_folder": "logic/modes/team_death_match/",

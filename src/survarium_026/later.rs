@@ -1832,6 +1832,10 @@ fn first_template(template: &ConfigValue, wanted: &str) -> Result<ConfigValue> {
         .with_context(|| format!("template project has no {wanted}"))
 }
 
+fn one() -> f32 {
+    1.0
+}
+
 /// A map's environment probes.
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
@@ -1859,6 +1863,16 @@ pub enum MapProbes {
         global: String,
         #[serde(default)]
         matte_water: Option<String>,
+        /// EV added to the outdoor exposure the scale is taken at (positive:
+        /// darker), matched to 0.69d's own frames: its grading and curve
+        /// show the same light darker than 0.26's.
+        #[serde(default)]
+        exposure_bias: f32,
+        /// Exponent on the sun's colour (1: 0.69d's transmittance as it is;
+        /// below 1 whiter): 0.69d's white balance and grading in AP1 show
+        /// its sunlight less orange than 0.26 shows the same colour.
+        #[serde(default = "one")]
+        sun_saturation: f32,
     },
 }
 
@@ -2276,8 +2290,8 @@ pub fn convert_scene(
     // probes then agree within a few percent, and 0.26's eye adaptation and
     // curve show sunlit and shaded grey as 0.69d's curve does.
     let light_scale = match port {
-        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => {
-            let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")?;
+        Port::Map(MapSpec { probes: MapProbes::Donor { exposure_bias, sun_saturation, .. }, .. }) => {
+            let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")? + exposure_bias;
             let scale = LightScale(1.0 / (1.2 * 2f32.powf(ev)));
             let sun = super::lighting::sun_radiance(
                 real(donor_environment, "sun_intensity_r2").context("sun_intensity_r2")?,
@@ -2287,7 +2301,8 @@ pub fn convert_scene(
             )
             .map(|v| v * scale.0);
             let intensity = sun.iter().cloned().fold(0.0, f32::max);
-            environment.set_path("properties.sun_color", ConfigValue::Float4([sun[0] / intensity, sun[1] / intensity, sun[2] / intensity, 1.0]))?;
+            let colour = sun.map(|v| (v / intensity).powf(*sun_saturation));
+            environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
             // 0.69d has no height-based ambient; 0.26's multiplies the
             // probes' light (purple below y 10 in native Rudnya).
@@ -2299,9 +2314,9 @@ pub fn convert_scene(
                 environment.set_path("properties.use_sky_clouds_lighting", ConfigValue::Boolean(false))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?} (saturation {sun_saturation}), intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
-                sun.map(|v| (v / intensity * 1000.0).round() / 1000.0)
+                colour.map(|v| (v * 1000.0).round() / 1000.0)
             ));
             Some((scale, ev))
         }
@@ -3505,7 +3520,8 @@ pub fn build(
             if !cubes.contains_key(&key) {
                 // 0.69d probes name their cube under `environment_probes/`.
                 let bytes = donor.read(&format!("textures/environment_probes/{}.dds", g.specular.texture))?;
-                let (cube, over) = super::lighting::specular_cube(&bytes, &g.specular, g.scale, g.specular_mip)?;
+                let gain = super::lighting::adaptation_gain(&g.specular, g.scale);
+                let (cube, over) = super::lighting::specular_cube(&bytes, &g.specular, LightScale(g.scale.0 * gain), g.specular_mip)?;
                 clamped += over;
                 cubes.insert(key.clone(), cube);
             }
@@ -3513,7 +3529,8 @@ pub fn build(
             let what = format!("0.69d probe {} re-encoded for 0.26 ({})", g.specular.texture, g.full_name);
             emit(output, &format!("{base}.dds"), &cubes[&key], &what, &mut files)?;
             emit(output, &format!("{base}.options"), &options, &what, &mut files)?;
-            let diffuse = super::lighting::diffuse_cube(&g.diffuse, g.scale);
+            let gain = super::lighting::adaptation_gain(&g.diffuse.base, g.scale);
+            let diffuse = super::lighting::diffuse_cube(&g.diffuse, LightScale(g.scale.0 * gain));
             emit(output, &format!("{base}_diffuse.dds"), &diffuse, &what, &mut files)?;
             emit(output, &format!("{base}_diffuse.options"), &diffuse_options, &what, &mut files)?;
             probe_textures.insert(g.texture.clone());
