@@ -25,6 +25,13 @@ struct Args {
     /// The bands' bundle overlay: its band models are posed too.
     #[arg(long)]
     overlay: Option<PathBuf>,
+    /// A folder of other models' surfaces to pose with the torso (the
+    /// Blackout tape's shells): each `--surface` is a `converted_model`
+    /// path under it, written to the same path under `--output`.
+    #[arg(long)]
+    surfaces_root: Option<PathBuf>,
+    #[arg(long = "surface", requires = "surfaces_root")]
+    surfaces: Vec<String>,
     /// The torso part's `base_model`.
     #[arg(long)]
     torso: String,
@@ -182,6 +189,14 @@ fn main() -> Result<()> {
         let overlay = a.overlay.as_ref().expect("filtered");
         let posed = pose_surface(&fs::read(overlay.join(&path))?, &bind, &pose)?;
         let dest = a.output.join(&path);
+        fs::create_dir_all(dest.parent().unwrap())?;
+        fs::write(dest, posed)?;
+        written += 1;
+    }
+    for path in &a.surfaces {
+        let root = a.surfaces_root.as_ref().expect("clap requires it");
+        let posed = pose_surface(&fs::read(root.join(path))?, &bind, &pose)?;
+        let dest = a.output.join(path);
         fs::create_dir_all(dest.parent().unwrap())?;
         fs::write(dest, posed)?;
         written += 1;

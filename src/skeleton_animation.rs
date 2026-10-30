@@ -647,7 +647,10 @@ impl Rig {
                         })?,
                 ),
                 Some(None) => None,
-                None => bail!("the skeleton does not name bind-pose bone {name}"),
+                // A bone the build added to the bind pose (skhid-srp's
+                // SrpHeadwear, which the exe parents itself) is not in the
+                // skeleton: no clip drives it, it keeps its rest frame.
+                None => None,
             };
             bones.push(RigBone {
                 name: name.clone(),
