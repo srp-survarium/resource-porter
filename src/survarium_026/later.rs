@@ -2536,8 +2536,19 @@ pub fn convert_scene(
                 count("environment_probe");
             }
             ensure!(overridden_probes == lobby.probe_overrides.len(), "probe_overrides name a probe the donor does not have");
-            // In the order 0.26g draws them (box_probe_radius).
+            // In the order 0.26g draws them (box_probe_radius), every radius
+            // its own: a box tying the one before it (equal largest
+            // half-extents) goes just below, so the donor's order decides.
             objects[first_probe..].sort_by(|a, b| real(b, "radius").unwrap_or(0.0).total_cmp(&real(a, "radius").unwrap_or(0.0)));
+            let mut above = f32::INFINITY;
+            for p in &mut objects[first_probe..] {
+                let mut radius = real(p, "radius").unwrap_or(0.0);
+                if radius >= above && integer(p, "geometry") != Some(0) {
+                    radius = above.next_down();
+                    p.set_path("radius", ConfigValue::Float(radius))?;
+                }
+                above = radius;
+            }
             notes.push(match &lobby.probes {
                 LobbyProbes::Donor => format!("environment probes: the donor's volumes and cubemaps ({} cubemaps)", probe_textures.len()),
                 LobbyProbes::Baked { diffuse_scale, .. } => format!(
@@ -5275,6 +5286,7 @@ mod tests {
                 named(vec![("game_object_type", ConfigValue::String("environment".into())), ("sun_elevation", ConfigValue::Integer(50)), ("sun_azimuth", ConfigValue::Integer(25))]),
                 probe("room_probe", [0.0, 1.4, 2.0], [2.2, 1.5, 4.2]),
                 probe("outdoor/environment_probe", [-18.8, 0.8, 25.7], [127.0, 25.0, 127.0]),
+                probe("window_probe", [-2.0, 1.4, 2.0], [0.5, 1.0, 4.2]),
             ])),
         ]);
         let outdoor = ProbeOverride {
@@ -5291,13 +5303,14 @@ mod tests {
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby(BTreeMap::from([("outdoor/environment_probe".to_owned(), outdoor)]))), false, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let probes: Vec<_> = objects.iter().filter(|o| kind(o) == "environment_probe").collect();
-        assert_eq!(probes.iter().map(|p| string(p, "full_name").unwrap()).collect::<Vec<_>>(), ["outdoor/environment_probe", "room_probe"], "the room's probe draws over the outdoor box");
+        assert_eq!(probes.iter().map(|p| string(p, "full_name").unwrap()).collect::<Vec<_>>(), ["outdoor/environment_probe", "room_probe", "window_probe"], "the room's probes draw over the outdoor box");
         assert_eq!(float3(probes[0], "position").unwrap(), [-70.0, 0.0, 60.0]);
         assert_eq!(float3(probes[0], "scale").unwrap(), [220.0, 40.0, 200.0]);
         assert_eq!(float3(probes[1], "scale").unwrap(), [2.2, 1.5, 4.2], "the others keep the donor's volume");
         // 0.26g sorts by radius alone: equal radii would draw in a different order each run.
         assert_eq!(real(probes[0], "radius"), Some(165.0), "0.75 x the largest half-extent");
         assert_eq!(real(probes[1], "radius"), Some(0.75 * 4.2));
+        assert_eq!(real(probes[2], "radius"), Some((0.75f32 * 4.2).next_down()), "a tie goes just below, in the donor's order");
         let unknown = BTreeMap::from([("outdoor/environment_probe(9)".to_owned(), outdoor)]);
         assert!(convert_scene(&donor, &template, &Port::Lobby(lobby(unknown)), false, &BTreeMap::new()).is_err(), "an override must name a donor probe");
     }

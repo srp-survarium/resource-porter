@@ -302,7 +302,8 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
     after the room's probes in about half the runs: a bluish haze over the room's shadows.
     0.10b's engine set this radius itself; 0.26g takes the project's, and a box's radius is
     only that sort key (its volume is its scale). So the outdoor box draws first and the
-    room's probes, smaller, over it.
+    room's probes, smaller, over it. A box whose radius ties the one before it (equal largest
+    half-extents: two of the hangar's) goes just below it, so the donor's order decides.
   * The donor lights its far blocks with outdoor ambient light boxes
     (`environment_and_lights/outdoor/`); the photometric scale made for the room left them
     at 0.15, so `light_overrides` sets them (0.26 does not apply the outdoor probe that far
