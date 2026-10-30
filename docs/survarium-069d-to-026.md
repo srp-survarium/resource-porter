@@ -279,4 +279,11 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   convention: forward = (-sin yaw, 0, cos yaw)), both from the manifest. The lobby camera's
   distance is cut by a ray against the project's static collision; `camera_walls` adds
   invisible boxes (0.26's unit primitive `editor/walker_collision`, scaled) where the walls'
-  own collision is open (the camp's windows and doorway).
+  own collision is open (the camp's windows and doorway), over the floor and under the
+  ceiling (the eye stops 0.15 m short of them, never on them) and around the props the eye
+  would get into (the camp's counters, pillows, cylinder, chandelier...): the boxes the
+  lobby audit of 2026-10-30 found (skhid-srp's lobby-scenes.md).
+* `native_props`: 0.26's own models placed in the lobby frame, `{lib, position, yaw}` (a
+  render visual and its collision, cgroup 8 / cmask 16, which the camera's ray meets): the
+  hangar has no table, so the stock `props/furniture/workbench_02` stands against its
+  sandbags under the weapon's spot.

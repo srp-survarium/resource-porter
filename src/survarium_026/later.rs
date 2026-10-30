@@ -293,6 +293,10 @@ pub struct LobbySpec {
     /// (`editor/walker_collision`) scaled to these half extents.
     #[serde(default)]
     pub camera_walls: Vec<CameraWall>,
+    /// 0.26's own models placed in the lobby (a workbench under the
+    /// weapon's spot), with their collision.
+    #[serde(default)]
+    pub native_props: Vec<NativeProp>,
     /// 0.69d lights in photometric units, as 0.26 intensities (required for
     /// a 0.69d lobby).
     #[serde(default)]
@@ -419,6 +423,18 @@ pub struct PhotometricLights {
 pub struct CameraWall {
     pub centre: [f32; 3],
     pub half_extents: [f32; 3],
+}
+
+/// A model of 0.26's own in the lobby frame, turned about y (the engine's
+/// create_rotation(0, yaw, 0)).
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeProp {
+    /// `models/<lib>.model`, as 0.26 has it.
+    pub lib: String,
+    pub position: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
 }
 
 /// 0.26's unit box collision (half extents 1), scaled per instance.
@@ -2944,6 +2960,46 @@ pub fn build(
     let donor_project = cfg(&mut donor, port.donor_project())?;
     eprintln!("Converting the scene...");
     let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &m.particle_replacements)?;
+    if let Port::Lobby(lobby) = &port {
+        for prop in &lobby.native_props {
+            let settings = format!("models/{}.model/settings", prop.lib);
+            ensure!(target.is_file(&settings), "native prop {}: {settings} is not in 0.26", prop.lib);
+            let collision = format!("models/{}.model/collision", prop.lib);
+            let has_collision =
+                ["vertices", "exported_primitives"].iter().any(|leaf| target.is_file(&format!("{collision}/{leaf}")));
+            let placed = |lib: String, extra: Vec<(&str, ConfigValue)>| {
+                let mut fields = vec![
+                    ("lib_name", ConfigValue::String(lib)),
+                    ("position", ConfigValue::Float3(prop.position)),
+                    ("rotation", ConfigValue::Float3([0.0, prop.yaw, 0.0])),
+                    ("scale", ConfigValue::Float3([1.0; 3])),
+                ];
+                fields.extend(extra);
+                named(fields)
+            };
+            let Some(ConfigValue::Indexed(visuals)) = scene.project.named_mut("render_visuals") else { bail!("no render_visuals") };
+            visuals.push(placed(prop.lib.clone(), Vec::new()));
+            if has_collision {
+                let Some(ConfigValue::Indexed(collisions)) = scene.project.named_mut("collision_objects") else {
+                    bail!("no collision_objects")
+                };
+                // the groups of the 0.26 lobby's prop collision, which its camera's ray meets
+                collisions.push(placed(
+                    format!("resources/{collision}"),
+                    vec![("cmask", ConfigValue::Integer(16)), ("cgroup", ConfigValue::Integer(8))],
+                ));
+            }
+            scene.notes.push(format!(
+                "native prop {} at ({:.2}, {:.2}, {:.2}), yaw {:.3}{}",
+                prop.lib,
+                prop.position[0],
+                prop.position[1],
+                prop.position[2],
+                prop.yaw,
+                if has_collision { ", with its collision" } else { "" }
+            ));
+        }
+    }
     let photometric_lights = match &port {
         Port::Lobby(l) => l.photometric_lights,
         Port::Map(_) => None,
@@ -5021,6 +5077,7 @@ mod tests {
             output_project: "lobby_scene/hangar_046".into(), vegetation_folder: "hangar_046".into(), probes: LobbyProbes::Donor,
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
+            native_props: Vec::new(),
             photometric_lights: None,
             environment_overrides: BTreeMap::new(),
             exclude_probes: Vec::new(),
