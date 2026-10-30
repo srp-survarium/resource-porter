@@ -258,6 +258,20 @@ pub struct SliceSpec {
     /// so that it reads as the light source the scene's lights stand for.
     #[serde(default)]
     pub material_swaps: Vec<MaterialSwap>,
+    /// Objects of the project put elsewhere (STK2 world), turned and
+    /// scaled as they are: a prop in the way of a camera's path.
+    #[serde(default)]
+    pub moves: Vec<ObjectMove>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObjectMove {
+    /// The object's id in the project (its guid).
+    pub id: String,
+    /// Why, for the notes.
+    pub what: String,
+    pub position: [f32; 3],
 }
 
 #[derive(Debug, Deserialize)]
@@ -887,6 +901,12 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             made.vertices,
             objects.lights.len()
         ));
+        for m in &slice.moves {
+            slice_notes.push(format!("slice {}: {} moved to {:?} (STK2 world): {}", slice.name, m.id, m.position, m.what));
+        }
+        for m in &slice.material_swaps {
+            slice_notes.push(format!("slice {}: {}'s {} drawn as {}", slice.name, m.lib, m.from, m.to));
+        }
         if made.surfaces > 0 {
             visuals.push(name.clone());
             if made.collision {
@@ -2504,6 +2524,7 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
     };
     let mut missing = BTreeSet::new();
     let mut swapped = vec![0usize; slice.material_swaps.len()];
+    let mut moved = vec![0usize; slice.moves.len()];
     for object in &objects {
         match object.kind.as_str() {
             "solid_visual" if slice.geometry => {
@@ -2569,12 +2590,18 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
                         swapped[k] += 1;
                     }
                 }
+                let position = match slice.moves.iter().position(|m| m.id == object.id) {
+                    Some(k) => {
+                        moved[k] += 1;
+                        slice.moves[k].position
+                    }
+                    None => object.position,
+                };
                 out.models.push(SliceModel {
                     library: library.clone(),
                     archive,
                     surfaces,
-                    placement: Rigid::stk2(object.position, object.rotation, object.scale)?
-                        .then(scene),
+                    placement: Rigid::stk2(position, object.rotation, object.scale)?.then(scene),
                 });
             }
             "light" => {
@@ -2632,6 +2659,9 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
     }
     if let Some((swap, _)) = slice.material_swaps.iter().zip(&swapped).find(|(_, n)| **n == 0) {
         bail!("slice {}: material swap {} {} -> {} meets no surface", slice.name, swap.lib, swap.from, swap.to);
+    }
+    if let Some((m, n)) = slice.moves.iter().zip(&moved).find(|(_, n)| **n != 1) {
+        bail!("slice {}: the move of {} ({}) meets {n} kept objects, not one", slice.name, m.id, m.what);
     }
     out.missing = missing.into_iter().collect();
     Ok(out)

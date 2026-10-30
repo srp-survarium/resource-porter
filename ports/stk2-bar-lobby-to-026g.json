@@ -12,8 +12,8 @@
   },
   "pack": {
     "id": "lobby-stk2-bar",
-    "version": "2",
-    "description": "the STK2 Bar's shooting gallery (2011-12 bar_shooting_gallery: its lower level, the gallery's lanes, targets, camouflage nets, bottle shelf and lamps) as a 0.26g lobby project, projects/lobby_scene/stk2_bar, lit by STK2's own lights, sun and post-process; the floor at the characters' feet (0.038 m up), the planks under the squad's right member left out, the stock workbench_02 in the back left corner with the weapon 0.40 m above it, camera boxes over the floor and the workbench"
+    "version": "3",
+    "description": "the STK2 Bar's shooting gallery (2011-12 bar_shooting_gallery: its lower level, the gallery's lanes, targets, camouflage nets, bottle shelf and lamps) as a 0.26g lobby project, projects/lobby_scene/stk2_bar, lit by STK2's own lights, sun and post-process; the floor at the characters' feet (0.038 m up), the planks under the squad's right member left out, the stock workbench_02 in the back left corner with the weapon 0.40 m above it, camera boxes over the floor and the workbench; @3 (made, not shipped: the owner dropped the Bar lobby on 2026-10-30): relit warm (a box probe of the hall, warm fills along it and at the gallery's sides, STK2's halogen work lamps restored as cool-white pools, the gallery's hot spot softened, a warm bounce on the character's back), the canister off the vent stack by the workbench (the upgrade table's flight) and a camera box over the bottle shelf"
   },
   "target_project": "projects/lobby_scene/stk2_bar/client_project",
   "model_prefix": "level/stk2_bar",
@@ -71,7 +71,18 @@
         "sun_template": "sun",
         "intensity_scale": 2.0
       },
-      "collision": true
+      "collision": true,
+      "moves": [
+        {
+          "id": "7e1ae790-15b9-42f0-b20a-22cc4635ae27",
+          "what": "canister_green_low(2), off the vent stack beside the workbench (in the upgrade table flight's way) onto the floor by its twin",
+          "position": [
+            100.35,
+            -3.208,
+            1.9
+          ]
+        }
+      ]
     }
   ],
   "material_roots": [
@@ -97,6 +108,16 @@
       "then": {
         "kind": "native",
         "material": "tiled/window/glass_tile_forward"
+      }
+    },
+    {
+      "bases": [
+        "emissive"
+      ],
+      "then": {
+        "kind": "converted",
+        "template": "tiled/concrete/concrete_01",
+        "emission": 1.0
       }
     },
     {
@@ -184,6 +205,148 @@
         "is_cast_shadow": false,
         "layer": "default"
       }
+    },
+    {
+      "from": "environment_probe",
+      "name": "room_probe",
+      "set": {
+        "position": [
+          -0.4,
+          1.6,
+          -6.2
+        ],
+        "probe_side_width": 0.1,
+        "diffuse_multiplier": 4.0,
+        "specular_multiplier": 0.5,
+        "ambient_multiplier": 0.2,
+        "geometry": 1,
+        "scale": [
+          4.3,
+          1.9,
+          10.6
+        ]
+      }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "hall_fill_0",
+      "set": {
+        "position": [
+          -0.4,
+          1.3,
+          -4.0
+        ],
+        "radius": 4.6,
+        "color": [
+          1.0,
+          0.84,
+          0.66
+        ],
+        "intensity": 0.55,
+        "side_width": 1.0,
+        "layer": "default"
+      }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "hall_fill_1",
+      "set": {
+        "position": [
+          -0.4,
+          1.3,
+          -8.5
+        ],
+        "radius": 4.6,
+        "color": [
+          1.0,
+          0.84,
+          0.66
+        ],
+        "intensity": 0.55,
+        "side_width": 1.0,
+        "layer": "default"
+      }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "hall_fill_2",
+      "set": {
+        "position": [
+          -0.4,
+          1.3,
+          -13.0
+        ],
+        "radius": 4.6,
+        "color": [
+          1.0,
+          0.84,
+          0.66
+        ],
+        "intensity": 0.55,
+        "side_width": 1.0,
+        "layer": "default"
+      }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "hall_side_fill",
+      "set": {
+        "position": [
+          2.6,
+          1.3,
+          -2.5
+        ],
+        "radius": 3.0,
+        "color": [
+          1.0,
+          0.84,
+          0.66
+        ],
+        "intensity": 0.4,
+        "side_width": 1.0,
+        "layer": "default"
+      }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "gallery_fill",
+      "set": {
+        "position": [
+          0.0,
+          1.5,
+          2.2
+        ],
+        "radius": 4.0,
+        "color": [
+          1.0,
+          0.86,
+          0.7
+        ],
+        "intensity": 0.3,
+        "side_width": 1.0,
+        "layer": "default"
+      }
+    },
+    {
+      "from": "point_light(5)",
+      "name": "gallery_bounce",
+      "set": {
+        "position": [
+          0.3,
+          2.0,
+          2.4
+        ],
+        "color": [
+          1.0,
+          0.8,
+          0.6
+        ],
+        "intensity": 1.0,
+        "range": 4.0,
+        "attenuation_power": 2.0,
+        "is_cast_shadow": false,
+        "layer": "default"
+      }
     }
   ],
   "spots": {
@@ -244,6 +407,64 @@
         0.47,
         0.57
       ]
+    },
+    {
+      "what": "the bottle shelf at the lanes' end",
+      "centre": [
+        -0.27,
+        0.95,
+        4.25
+      ],
+      "half_extents": [
+        1.75,
+        0.95,
+        0.4
+      ]
     }
-  ]
+  ],
+  "emission_scale": {
+    "fx/glow/yellow": 0.12
+  },
+  "probe_cubes": [
+    {
+      "object": "room_probe",
+      "up": [
+        0.14,
+        0.12,
+        0.1
+      ],
+      "side": [
+        0.22,
+        0.18,
+        0.14
+      ],
+      "down": [
+        0.3,
+        0.23,
+        0.16
+      ]
+    }
+  ],
+  "light_overrides": {
+    "stk2_light_007": {
+      "intensity": 2.6,
+      "range": 8.0
+    },
+    "stk2_light_012": {
+      "intensity": 1.2,
+      "range": 2.5
+    },
+    "stk2_light_006": {
+      "intensity": 2.2,
+      "range": 5.0
+    },
+    "stk2_light_009": {
+      "intensity": 2.2,
+      "range": 5.0
+    },
+    "stk2_light_011": {
+      "intensity": 2.2,
+      "range": 5.0
+    }
+  }
 }

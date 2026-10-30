@@ -148,6 +148,23 @@ inside the room and boxes around the props the eye would get into. Its
 collision (the Bar's workbench under the weapon's spot). skhid-srp's
 `lobby-scenes.md` says what a lobby project must give.
 
+Lighting (STK2 lit its rooms with a flat ambient colour and light
+propagation volumes, which 0.26g lacks): `objects` may clone the classic
+lobby's `environment_probe` and `ambient_light(4)`; `probe_cubes`
+(`{object, up, side, down}`) give such a probe cubemaps made from a
+floor-to-sky gradient and their irradiance (only box probes, `geometry` 1
+with `scale` its half extents, light anything in 0.26g). An ambient light's
+`color` may be three numbers (packed red-low, as 0.26g reads it); ambient
+lights light the room but not the character, which only real lights and
+probes reach. `light_overrides` (`{intensity, range, color, cast_shadow}` by
+converted name, `stk2_light_<n>`) and `environment_overrides` (the
+environment's fields, after the post-process) set what was balanced by eye.
+A material rule's `emission` keeps the STK2 material's emission
+(`emission_scale` per material scales it further); a slice's
+`material_swaps` (`{lib, from, to}`) give an unlit STK2 lamp its emissive
+variant, and its `moves` (`{id, what, position}`) put a project object
+elsewhere (a prop in a camera path's way).
+
 Compose multiple bundles before applying. The first bundle wins shared paths:
 
 ```sh
