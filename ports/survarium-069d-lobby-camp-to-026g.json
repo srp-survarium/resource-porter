@@ -19,10 +19,15 @@
         "model": "props/electric/lustra_patina",
         "surface": "lustra_patina_plafon_s",
         "material": "props/electric/lustra_patina_frame",
-        "colour": [1.0, 0.88, 0.72],
-        "multiplier": 2.2
+        "colour": [1.0, 0.95, 0.88],
+        "multiplier": 1.5,
+        "near": [[-0.24, -0.456, -0.14], [0.24, -0.456, -0.14]],
+        "radius": 0.2
       }
     ],
+    "emission_scale": {
+      "props/electric/notebook_modern_on": 0.12
+    },
     "light_overrides": {
       "room/lustra/point_light(4)": { "intensity": 0.5, "range": 2.0 },
       "room/lustra/point_light(5)": { "intensity": 0.5, "range": 2.0 },

@@ -314,6 +314,10 @@ pub struct LobbySpec {
     /// by eye: intensity and range. Intensity 0 leaves the light out.
     #[serde(default)]
     pub light_overrides: BTreeMap<String, LightOverride>,
+    /// Donor materials whose converted emission is scaled (0.26 has no
+    /// 0.69d exposure: a screen at 0.69d's 1 glows too hot).
+    #[serde(default)]
+    pub emission_scale: BTreeMap<String, f32>,
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -328,6 +332,49 @@ pub struct GlowingSurface {
     /// Emission colour and multiplier (0.26's bulb, props/light/lamp_lights_light: 8.4).
     pub colour: [f32; 3],
     pub multiplier: f32,
+    /// Only the surface's triangles within `radius` (model space) of these
+    /// points glow (the shades with a bulb behind them): they become a
+    /// surface of their own, `srp_glow_<surface>`; the rest keep the plain
+    /// material. Empty: the whole surface glows.
+    #[serde(default)]
+    pub near: Vec<[f32; 3]>,
+    #[serde(default)]
+    pub radius: f32,
+}
+
+/// The glowing part of a surface: its triangles whose centre lies within
+/// `radius` of a point, and the rest (both with the whole vertex buffer).
+fn split_mesh(bytes: &[u8], near: &[[f32; 3]], radius: f32) -> Result<(Vec<u8>, Vec<u8>)> {
+    let s = stride(bytes).context("not a static mesh")?;
+    let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
+    let size = u(4);
+    let at = 8 + size;
+    ensure!(u(at) == 4, "expected index chunk");
+    let n = u(at + 8);
+    let index = |k: usize| u16::from_le_bytes([bytes[at + 12 + 2 * k], bytes[at + 13 + 2 * k]]);
+    let position = |i: u16| -> [f32; 3] {
+        let o = 12 + i as usize * s;
+        std::array::from_fn(|c| f32::from_le_bytes(bytes[o + 4 * c..o + 4 * c + 4].try_into().unwrap()))
+    };
+    let (mut lit, mut rest) = (Vec::new(), Vec::new());
+    for t in 0..n / 3 {
+        let tri = [index(3 * t), index(3 * t + 1), index(3 * t + 2)];
+        let c: [f32; 3] = std::array::from_fn(|k| tri.iter().map(|&i| position(i)[k]).sum::<f32>() / 3.0);
+        let close = near.iter().any(|p| (0..3).map(|k| (c[k] - p[k]).powi(2)).sum::<f32>() <= radius * radius);
+        (if close { &mut lit } else { &mut rest }).extend_from_slice(&tri);
+    }
+    let mesh = |indices: &[u16]| -> Result<Vec<u8>> {
+        let mut b = bytes[..at].to_vec();
+        b.extend(4u32.to_le_bytes());
+        b.extend(u32::try_from(4 + indices.len() * 2)?.to_le_bytes());
+        b.extend(u32::try_from(indices.len())?.to_le_bytes());
+        for i in indices {
+            b.extend(i.to_le_bytes());
+        }
+        Ok(b)
+    };
+    ensure!(!lit.is_empty() && !rest.is_empty(), "glowing surface: the points select {} of {} triangles", lit.len() / 3, n / 3);
+    Ok((mesh(&lit)?, mesh(&rest)?))
 }
 
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
@@ -3489,6 +3536,25 @@ pub fn build(
                     }
                 }
             }
+            if let (Port::Lobby(lobby), Some((model_root, surface))) = (&port, path.strip_suffix("/converted_model").and_then(|p| p.split_once("/render/"))) {
+                if let Some(glow) = lobby.glowing_surfaces.iter().find(|g| !g.near.is_empty() && model_root == format!("models/{}.model", g.model) && g.surface == surface) {
+                    let (lit, rest) = split_mesh(&bytes, &glow.near, glow.radius).with_context(|| format!("splitting {path}"))?;
+                    let name = format!("srp_glow_{surface}");
+                    emit(output, &plain_render_path(&relocate(&format!("{model_root}/render/{name}/converted_model"))), &lit, "the glowing part of the surface", &mut files)?;
+                    let properties = donor.read(&format!("{model_root}/render/{surface}/export_properties"))?;
+                    let mut properties = BinaryConfig::parse(&properties)?;
+                    if properties.root.named("source").is_some() {
+                        let u = |o: usize| u32::from_le_bytes(lit[o..o + 4].try_into().unwrap()) as usize;
+                        let (vertices, indices) = (u(8), u(8 + u(4) + 8));
+                        properties.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                        properties.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                        properties.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
+                    }
+                    emit(output, &plain_render_path(&relocate(&format!("{model_root}/render/{name}/export_properties"))), &properties.to_bytes()?, source, &mut files)?;
+                    generated.entry(model_root.to_owned()).or_insert_with(Vec::new).push((0, surface.to_owned(), name));
+                    bytes = rest;
+                }
+            }
             converted_geometry.insert(path.clone());
             if let Some(s) = stride(&bytes) {
                 let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
@@ -3522,7 +3588,7 @@ pub fn build(
                         *name = material_dest(&first[0]);
                     } else if converted_materials.contains_key(&normalized) {
                         let glows = match &port {
-                            Port::Lobby(l) => l.glowing_surfaces.iter().any(|g| model_root == format!("models/{}.model", g.model) && g.surface == entry.name && g.material == normalized),
+                            Port::Lobby(l) => l.glowing_surfaces.iter().any(|g| g.near.is_empty() && model_root == format!("models/{}.model", g.model) && g.surface == entry.name && g.material == normalized),
                             Port::Map(_) => false,
                         };
                         *name = if glows { format!("{}_glow", material_dest(&normalized)) } else { material_dest(&normalized) };
@@ -3555,6 +3621,11 @@ pub fn build(
                     list.push(ConfigValue::String(name.clone()));
                 }
                 lods_generated += 1;
+            }
+            if let Port::Lobby(lobby) = &port {
+                for glow in lobby.glowing_surfaces.iter().filter(|g| !g.near.is_empty() && model_root == format!("models/{}.model", g.model)) {
+                    c.set_path(&format!("material_settings.srp_glow_{}.material_name", glow.surface), ConfigValue::String(format!("{}_glow", material_dest(&glow.material))))?;
+                }
             }
             let prefix = format!("{model_root}/render/");
             let mut actual: BTreeSet<String> = donor_files
@@ -3671,8 +3742,9 @@ pub fn build(
     if simplified_triangles.0 > 0 {
         notes.push(format!("authored LOD1/LOD2 surfaces simplified from {} to {} triangles (meshoptimizer, error bound {}, LOD2 {})", simplified_triangles.0, simplified_triangles.1, m.simplify.unwrap().max_error, m.simplify.unwrap().lod2_max_error.unwrap_or(m.simplify.unwrap().max_error)));
     }
-    if lods_generated > 0 {
-        notes.push(format!("{lods_generated} imported models without LODs above {} LOD0 triangles got generated LOD1/LOD2 surfaces", m.simplify.unwrap().generate_above));
+    // (the count includes models given a glowing surface, which have no simplify settings)
+    if let (true, Some(simplify)) = (lods_generated > 0, m.simplify) {
+        notes.push(format!("{lods_generated} imported models without LODs above {} LOD0 triangles got generated LOD1/LOD2 surfaces", simplify.generate_above));
     }
     if lod_switched > 0 {
         notes.push(format!("{lod_switched} imported models with LODs switch by distance {:?} m instead of projected size", m.lod_distances.unwrap()));
@@ -3685,6 +3757,13 @@ pub fn build(
     for (name, converted) in &converted_materials {
         let mut root = converted.root.clone();
         rewrite_textures(&mut root, &donor_textures, &ns);
+        if let Port::Lobby(lobby) = &port
+            && let Some(k) = lobby.emission_scale.get(name)
+        {
+            let effect = root.named("material").and_then(|m| m.named("g_stage")).and_then(|s| s.named("effect")).context("emission_scale: no g_stage")?;
+            let v = number(effect, "constant_emissive_multiplier").unwrap_or(1.0) * k;
+            set_effect(&mut root, "g_stage", "constant_emissive_multiplier", ConfigValue::Float(v))?;
+        }
         let dest = format!("material_instances/{}.material", material_dest(name));
         ensure!(!target.contains(&dest), "would overwrite native {dest}");
         emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("0.26g template {}", converted.template), &mut files)?;
@@ -4947,6 +5026,7 @@ mod tests {
             exclude_probes: Vec::new(),
             glowing_surfaces: Vec::new(),
             light_overrides: BTreeMap::new(),
+            emission_scale: BTreeMap::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
