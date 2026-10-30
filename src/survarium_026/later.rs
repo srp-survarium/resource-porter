@@ -305,6 +305,38 @@ pub struct LobbySpec {
     /// Donor probes (`full_name`) left out.
     #[serde(default)]
     pub exclude_probes: Vec<String>,
+    /// Surfaces that glow (0.69d lights a lamp's glass from the bulb inside;
+    /// 0.26 draws it with the material's emission): the surface gets a copy
+    /// of its converted material, `<material>_glow`, emitting its albedo.
+    #[serde(default)]
+    pub glowing_surfaces: Vec<GlowingSurface>,
+    /// Converted lights (`full_name`; a key ending in `/` is a folder) set
+    /// by eye: intensity and range. Intensity 0 leaves the light out.
+    #[serde(default)]
+    pub light_overrides: BTreeMap<String, LightOverride>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GlowingSurface {
+    /// The donor model (`props/electric/lustra_patina`).
+    pub model: String,
+    /// Its render surface.
+    pub surface: String,
+    /// The donor material the surface has.
+    pub material: String,
+    /// Emission colour and multiplier (0.26's bulb, props/light/lamp_lights_light: 8.4).
+    pub colour: [f32; 3],
+    pub multiplier: f32,
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LightOverride {
+    #[serde(default)]
+    pub intensity: Option<f32>,
+    #[serde(default)]
+    pub range: Option<f32>,
 }
 
 /// How a 0.69d lobby's photometric lights become 0.26's unitless ones.
@@ -1264,6 +1296,9 @@ pub fn donor_textures(root: &ConfigValue) -> Vec<String> {
                             "texture_vertex_blended_tiled_mask",
                         ],
                     );
+                    if flag(effect, "use_emission") && flag(effect, "use_t_emission") {
+                        visit(effect, &["t_emission"]);
+                    }
                     if text(effect, "effect_id") == Some("g_stage_terrain_layered") {
                         for layer in 0..5 {
                             visit(
@@ -1505,6 +1540,25 @@ pub fn convert_material(
                 if flag(effect, switch) {
                     notes.push(format!("{what} is not reproduced (template switch kept)"));
                 }
+            }
+            // Emission (a screen, a lit bulb): 0.69d's own texture and colour
+            // in 0.26's g_stage emission, from whichever stage has it.
+            let emission = ["g_stage", "forward"]
+                .iter()
+                .filter_map(|st| donor.named("material")?.named(st)?.named("effect"))
+                .find(|e| flag(e, "use_emission") && flag(e, "use_t_emission"));
+            if let Some(e) = emission
+                && let Some(t) = text(e, "t_emission")
+            {
+                let colour = match value_of(e, "emission_color") {
+                    Some(ConfigValue::Float4(c)) => *c,
+                    _ => [1.0; 4],
+                };
+                set_effect(&mut root, stage, "use_emissive", ConfigValue::Boolean(true))?;
+                set_effect(&mut root, stage, "texture_emissive", ConfigValue::String(t.replace('\\', "/")))?;
+                set_effect(&mut root, stage, "constant_emissive", ConfigValue::Float4(colour))?;
+                set_effect(&mut root, stage, "constant_emissive_multiplier", ConfigValue::Float(number(e, "emission_intensity").unwrap_or(1.0)))?;
+                notes.push(format!("emission: {t} as 0.26's g_stage emissive"));
             }
         }
     }
@@ -2847,6 +2901,34 @@ pub fn build(
         Port::Lobby(l) => l.photometric_lights,
         Port::Map(_) => None,
     };
+    if let Port::Lobby(lobby) = &port
+        && !lobby.light_overrides.is_empty()
+    {
+        let Some(ConfigValue::Indexed(objects)) = scene.project.named_mut("client_objects") else { bail!("no objects") };
+        let applies = |name: &str| {
+            lobby.light_overrides.iter().find(|(k, _)| if k.ends_with('/') { name.starts_with(k.as_str()) } else { name == k.as_str() }).map(|(_, o)| *o)
+        };
+        let mut used = 0;
+        objects.retain_mut(|o| {
+            if !matches!(kind(o), "light" | "ambient_light") {
+                return true;
+            }
+            let Some(over) = string(o, "full_name").and_then(|n| applies(n)) else { return true };
+            used += 1;
+            if over.intensity == Some(0.0) {
+                return false;
+            }
+            if let Some(v) = over.intensity {
+                let _ = o.set_path("intensity", ConfigValue::Float(v));
+            }
+            if let Some(r) = over.range {
+                let _ = o.set_path("range", ConfigValue::Float(r));
+            }
+            true
+        });
+        ensure!(used > 0, "light_overrides match no light");
+        scene.notes.push(format!("lights set by the manifest's light_overrides: {used}"));
+    }
     let ambient_scale = if m.photometric() && photometric_lights.is_none() {
         Some(calibrate_ambient(&mut scene.project, median_ambient(&template))?)
     } else {
@@ -3439,7 +3521,11 @@ pub fn build(
                     } else if let Some(first) = terrain_layers.get(&normalized) {
                         *name = material_dest(&first[0]);
                     } else if converted_materials.contains_key(&normalized) {
-                        *name = material_dest(&normalized);
+                        let glows = match &port {
+                            Port::Lobby(l) => l.glowing_surfaces.iter().any(|g| model_root == format!("models/{}.model", g.model) && g.surface == entry.name && g.material == normalized),
+                            Port::Map(_) => false,
+                        };
+                        *name = if glows { format!("{}_glow", material_dest(&normalized)) } else { material_dest(&normalized) };
                     } else if let Some(native) = m.native_materials.get(&normalized) {
                         *name = native.clone();
                     }
@@ -3602,6 +3688,20 @@ pub fn build(
         let dest = format!("material_instances/{}.material", material_dest(name));
         ensure!(!target.contains(&dest), "would overwrite native {dest}");
         emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("0.26g template {}", converted.template), &mut files)?;
+    }
+    if let Port::Lobby(lobby) = &port {
+        for glow in &lobby.glowing_surfaces {
+            let converted = converted_materials.get(&glow.material).with_context(|| format!("glowing surface: no converted material {}", glow.material))?;
+            let mut root = converted.root.clone();
+            rewrite_textures(&mut root, &donor_textures, &ns);
+            let albedo = effect_text(&root, "g_stage", "texture_diffuse").context("glowing surface: no diffuse texture")?;
+            set_effect(&mut root, "g_stage", "use_emissive", ConfigValue::Boolean(true))?;
+            set_effect(&mut root, "g_stage", "texture_emissive", ConfigValue::String(albedo))?;
+            set_effect(&mut root, "g_stage", "constant_emissive", ConfigValue::Float4([glow.colour[0], glow.colour[1], glow.colour[2], 1.0]))?;
+            set_effect(&mut root, "g_stage", "constant_emissive_multiplier", ConfigValue::Float(glow.multiplier))?;
+            let dest = format!("material_instances/{}_glow.material", material_dest(&glow.material));
+            emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("{} with its albedo emitted ({}'s {})", converted.template, glow.model, glow.surface), &mut files)?;
+        }
     }
     for (name, list) in &material_notes {
         for note in list {
@@ -4845,6 +4945,8 @@ mod tests {
             photometric_lights: None,
             environment_overrides: BTreeMap::new(),
             exclude_probes: Vec::new(),
+            glowing_surfaces: Vec::new(),
+            light_overrides: BTreeMap::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
