@@ -68,7 +68,8 @@ pub struct Manifest {
     /// Distance LOD switching (0.26 type 0: LOD0 below the first distance,
     /// LOD1 below the second, LOD2 below the third) for imported models with
     /// LODs. 0.69d authors most of them for projected size, which keeps big
-    /// structures at full detail across the map.
+    /// structures at full detail across the map. Without it they keep the
+    /// donor's switching and merge only with models alike.
     #[serde(default)]
     pub lod_distances: Option<[f32; 3]>,
     /// Model-name prefixes of regular-grid terrain whose render mesh keeps
@@ -3086,7 +3087,10 @@ pub fn build(
         if path.ends_with("/converted_model") {
             bytes = geometry(&bytes, m.source_build).with_context(|| format!("repacking {path}"))?;
             let terrain = m.decimate_terrain.iter().any(|p| path.starts_with(&format!("models/{p}")));
-            let locked = match (terrain, m.terrain_simplify) {
+            // Blend overlays (`*_vc`) keep every vertex: their vertex alpha
+            // gates the alpha test, and simplifying averages it away.
+            let decimate = terrain && !path.trim_end_matches("/converted_model").ends_with("_vc");
+            let locked = match (decimate, m.terrain_simplify) {
                 (true, Some(t)) => simplify_mesh_with(&bytes, t.ratio, t.max_error, meshopt::SimplifyOptions::LockBorder)?,
                 _ => None,
             };
@@ -3095,7 +3099,7 @@ pub fn build(
                 terrain_triangles.1 += triangles(&smaller);
                 decimated += 1;
                 bytes = smaller;
-            } else if terrain {
+            } else if decimate {
                 match decimate_grid(&bytes) {
                     Ok(Some(smaller)) => {
                         decimated += 1;
@@ -3578,7 +3582,7 @@ pub fn build(
         };
         let alone = |material: &str| matches!(category(material), Some(Category::Glass | Category::Water | Category::Terrain | Category::ProjectedDecal));
         let own_model = |material: &str| matches!(category(material), Some(Category::Foliage | Category::Grass));
-        let imported_distances = m.lod_distances.context("material clusters need lod_distances")?;
+        let imported_distances = m.lod_distances;
         let Some(ConfigValue::Indexed(visuals)) = scene.project.named_mut("render_visuals") else { bail!("no render visuals") };
         struct Prepared {
             settings: ConfigValue,
@@ -3658,8 +3662,9 @@ pub fn build(
             }
             let Some(p) = &prepared[&model] else { continue };
             let scale = float3(v, "scale")?;
-            // Larger instances merge only with models alike.
-            let own = p.own || p.radius * scale.iter().fold(0.0f32, |a, s| a.max(s.abs())) > cluster.max_member_radius;
+            // Larger instances, and models keeping the donor's own LOD
+            // distances, merge only with models alike.
+            let own = p.own || (p.distances.is_some() && m.lod_distances.is_none()) || p.radius * scale.iter().fold(0.0f32, |a, s| a.max(s.abs())) > cluster.max_member_radius;
             // Cells hold the instance's world bounding-box centre (some models
             // are authored far from their origin).
             let placement = Placement { position: float3(v, "position")?, rotation: float3(v, "rotation")?, scale };
@@ -3728,7 +3733,7 @@ pub fn build(
                 offered.push(member);
             }
             if group.is_empty() && distances.is_some() {
-                ensure!(distances == Some(imported_distances), "mixed cluster {cx},{cz} has non-imported LOD distances");
+                ensure!(distances == imported_distances, "mixed cluster {cx},{cz} has non-imported LOD distances");
             }
             let lods = distances.is_some();
             // Members whose LOD1 is their LOD0 (or LOD-less ones) let the cluster share it too.

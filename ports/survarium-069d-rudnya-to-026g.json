@@ -114,25 +114,9 @@
     "terrain_blend": "tiled/bricks/brick_02_burn_vc"
   },
   "roughness_scale": 0.2,
-  "lod_distances": [
-    12.0,
-    30.0,
-    1000.0
-  ],
   "decimate_terrain": [
     "level/01/terrain/"
   ],
-  "simplify": {
-    "lod1_ratio": 0.4,
-    "lod2_ratio": 0.15,
-    "min_triangles": 200,
-    "max_error": 0.04,
-    "lod2_max_error": 0.06,
-    "lod2_permissive": false,
-    "lod1_permissive": false,
-    "lock_borders": true,
-    "generate_above": 1500
-  },
   "ambient_sounds": {
     "project": "projects/level_01/day_4/client_project",
     "include": [
