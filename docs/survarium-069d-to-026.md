@@ -86,9 +86,9 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
 * **Scene**: render and collision instances keep their transforms
   (`model_name` -> `lib_name`). The environment, sky and post-process are the
   native template's (level_03 day TDM), lit from the 0.69d sun direction.
-  0.69d probes are encoded for its exposure pipeline and do not decode in
-  0.26; one native global probe covers the map and native indoor cubemaps fill
-  the 0.69d tunnel and building probe volumes. 0.69d ambient lights
+  Duga keeps native probes (`"probes": {"native": ...}`): one native global
+  probe covers the map and native indoor cubemaps fill the 0.69d tunnel and
+  building probe volumes. Rudnya converts the donor's own (see Rudnya). 0.69d ambient lights
   (photometric, shapes 0.26 lacks), sound environments, anomalies, artefacts,
   BR/CTP objects and winner points are dropped. Neutral resupply zones become
   one zone per team. Native ambient sound emitters come from level_07.
@@ -286,12 +286,45 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
 0.69d's Rudnya becomes 0.26g map **204** (mode 4, day), level number 14, project
 `v069d_level_01/day_4` (`ports/survarium-069d-rudnya-to-026g.json`). 0.26g already has a
 Rudnya (`level_01`) in the same coordinates (the team bases match within a few metres), so
-the port takes that map as its template: native Rudnya's sky, environment, global probe
-(-7.9, 18.1, -12.5; radius 1003.5) and its 24 ambient sound emitters, unmoved. The donor's
-69 probe volumes keep their placement on native level_01 cubemaps by folder (`atp`,
-`church` -> `indoor`, `school` -> `indoor(2)`, the houses and barns -> `indoor(1)`,
-`swamp`). The HUD key stays `level_01`, so native Rudnya's minimap draws it (same
-layout).
+the port takes that map as its template: native Rudnya's sky, clouds, fog and its 24 ambient
+sound emitters, unmoved. The HUD key stays `level_01`, so native Rudnya's minimap draws it
+(same layout).
+
+**Lit as 0.69d lights it** (`"probes": {"donor": ...}`, `survarium_026/lighting.rs`;
+the formulas come from both builds' shader disassembly):
+
+* One scale: 0.26 linear values are 0.69d's exposed values at its outdoor exposure, the auto
+  exposure's ceiling (`max_auto_exposure_value` 12.5, x 1/(1.2 * 2^12.5)), where a sunlit view
+  sits. At that scale the sky 0.26's own atmosphere draws and 0.69d's probes agree within a
+  few percent, and 0.26's eye adaptation and curve show sunlit and shaded grey as 0.69d's
+  curve does.
+* Sun: 0.69d's `sun_intensity_r2 / pi * solar irradiance * T`, T its atmosphere's
+  transmittance (Rayleigh x `air_density`, Mie x `air_turbidity`, ozone) at the sun's
+  elevation: for Rudnya colour (1, 0.758, 0.535), intensity 4.88 (native 2). 0.26 lights a
+  white surface with `sun_color * sun_intensity * N.L` (no 1/pi, as 0.69d).
+* Probes: all 69 donor volumes with their own cubemaps. 0.69d stores `rgb = s/m`,
+  `a = m/(1+m)` of `s = sqrt(L)` in capture units (scene = capture x 1.2 * 2^capture EV);
+  0.26 reads `L = 0.25 * (rgb/a)^2` (RGBD, written `e = 4L`, `m = max(1, e)`,
+  `rgb = sqrt(e/m)`, `a = sqrt(1/m)`). Every mip is re-encoded (both builds prefilter with
+  GGX). 0.26's `_diffuse` cube (16 texels, 3 mips) is evaluated from the probe's SH as
+  0.69d's `environment_probe.ps` does (E/pi with `directional_factor`). `specular_multiplier`
+  -1 (off) becomes 0. 0.26 has no sky light: the donor's `global` probe's cube is also the
+  map-wide sphere (radius 1003.5 at -7.9, 18.1, -12.5).
+* Ambient lights: 0.26's multiply the probe light through a UNORM target, so they can only
+  darken. 0.69d's 245 additive lights (lux) and its brightening multiplicative ones become
+  probe volumes of their shape, with their host probe's cube from mip 3 and an irradiance
+  cube holding 0.69d's light at their centre; 0.26 draws probes largest first, each over the
+  ones before by its falloff, so a volume holds the donor probe there plus every light drawn
+  so far (itself included) by their falloff there. The 10 darkening ones stay 0.26 ambient
+  lights. Height-based ambient (a multiply 0.69d has not) is off.
+* Materials: a metalness map (`_fmap`, as 0.26's metals name theirs) takes 0.26's
+  Fresnel-map template (`opaque_metal`: f0 0.04 to 1; 0.26 darkens the diffuse by f0 and
+  tints the specular by the albedo's hue above f0 0.5). `material_constants` sets the
+  ground's (`terrain_tiled/`) Fresnel to 0, as native Rudnya's.
+* Not reproduced: 0.69d's cirrus clouds (`sky/sky_test`) and turbid sky (0.26's atmosphere
+  and cumulus stay), its height fog and fog volumes, light shafts, colour grading, the
+  stronger eye adaptation indoors (0.69d's exposure follows the view down to EV 6), probe
+  parallax correction and specular fade, light shapes beyond sphere and box.
 
 **Sharp, as 0.69d draws it.** No `max_texture_size` or `texture_limits`: every imported
 texture keeps its full size and every mip (605 MiB, Duga's 1024-capped set was 651).
