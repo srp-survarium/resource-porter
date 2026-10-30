@@ -27,7 +27,8 @@
 //! - trousers over low boots (`data_full`) and tucked into medium and tall
 //!   boots (`data_medium`, `data_long`);
 //! - gloves inside every wrist-length sleeve; boots inside every full-length
-//!   trousers hem (low boots) or over every tucked trousers leg;
+//!   trousers hem (all three outfits' boots are worn so) or over every
+//!   tucked trousers leg;
 //! - the hood over the native head, as the knit cap is; it covers the mask
 //!   slot, as the stock helmets that cannot go over a mask do.
 //!
@@ -528,7 +529,10 @@ pub const NOVICE: Outfit = Outfit {
             hud: None,
             template: "gameplay/items/armour/boots/scavenger_boots_1.options",
             icon: [8, 9],
-            model_type: Some("data_medium"),
+            // 26 cm, but worn under the jeans as STK2 wore them: the top of
+            // the shaft is painted black where the jeans covered it, and
+            // tucked trousers would show it.
+            model_type: Some("data_full"),
             title: text(
                 "Novice's boots",
                 "Ботинки новичка",

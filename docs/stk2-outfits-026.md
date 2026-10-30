@@ -47,9 +47,11 @@ has the items, their stats and the owner's open questions.
   accessories first:
   - gloves (all wrist-length, `data_full`): the cuffs inside every stock
     wrist-length sleeve;
-  - boots: low ones (`data_full`: the sneakers, the loner's boots, one of which is low
-    and the other wrapped in a rag) inside every full-length hem; the Novice's
-    (`data_medium`, 26 cm) over every tucked `data_medium` leg;
+  - boots: all three outfits' are `data_full`, inside every full-length hem: the
+    sneakers, the loner's (one low shoe and one wrapped in a rag) and the Novice's
+    (26 cm, worn under the jeans as in STK2: the top of its shaft is painted black
+    where they covered it). A `data_medium` or `data_long` boot would be fitted over
+    every tucked leg of its class (`BOOTS_OVER_LEGS`);
   - trousers: `data_full` lengthened where the hem stands above 12 cm (the Novice's
     and the loner's end at 23-29 cm over their own boots: a gap over low boots), then
     the hems over every low boot; `data_medium` and `data_long` into every boot of the
