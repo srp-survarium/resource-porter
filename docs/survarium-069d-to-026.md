@@ -287,3 +287,25 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   render visual and its collision, cgroup 8 / cmask 16, which the camera's ray meets): the
   hangar has no table, so the stock `props/furniture/workbench_02` stands against its
   sandbags under the weapon's spot.
+* The view out of the windows (the 0.26 lobby camera orbits all the way round; 0.69d's was
+  fixed). The camp's room is a floor 22.7 m over the donor's own background (level 02's
+  apartment blocks `bg_house_1/2`, `bg_shop`, its billboard trees, a terrain patch):
+  * `probe_overrides` sets a donor probe by `full_name`: `order: "first"` (0.26 draws a
+    point's probes in the project's order, each over the ones before, so the outdoor box goes
+    before the room's probes, which then win inside the room: left out, every face outside
+    the sun was black and the fog made them flat slabs), `volume` (`{"box": {centre,
+    half_extents}}` or `{"sphere": {centre, radius}}`: the camp's box holds all the blocks),
+    `diffuse_scale` and `saturation` in place of the lobby's baked ones (the outdoor sky
+    irradiance is bluer than the room's).
+  * The donor lights its far blocks with outdoor ambient light boxes
+    (`environment_and_lights/outdoor/`); the photometric scale made for the room left them
+    at 0.15, so `light_overrides` sets them (0.26 does not apply the outdoor probe that far
+    out: the block at 88 m drew as a flat slab with it alone).
+  * `environment_overrides` gives the camp level 02 day's outdoor fog (rayleigh 15..300 m,
+    mie 40..1200 m): the lobby template's (rayleigh from 1 m to 185 m) is an interior's.
+  * `native_scenery`: 0.26's own models drawn outside, `{lib, position, yaw, scale}`, as
+    render visuals only (no collision, so the camera's ray never meets them): the camp's
+    overgrown yard (level 02's poplars, birches, willows, fruit and dead trees, bushes, the
+    yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
+    belts past the blocks, and level 02's own background terrain and tree rings (as the
+    school map has them, one transform for the four) for the horizon.

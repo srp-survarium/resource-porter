@@ -297,6 +297,10 @@ pub struct LobbySpec {
     /// weapon's spot), with their collision.
     #[serde(default)]
     pub native_props: Vec<NativeProp>,
+    /// 0.26's own models drawn outside the room (the view through its
+    /// windows): no collision, so the lobby camera's ray never meets them.
+    #[serde(default)]
+    pub native_scenery: Vec<NativeScenery>,
     /// 0.69d lights in photometric units, as 0.26 intensities (required for
     /// a 0.69d lobby).
     #[serde(default)]
@@ -309,6 +313,11 @@ pub struct LobbySpec {
     /// Donor probes (`full_name`) left out.
     #[serde(default)]
     pub exclude_probes: Vec<String>,
+    /// Donor probes (`full_name`) set by eye: an outdoor box's diffuse (a
+    /// lobby's `probes.baked.diffuse_scale` is the room's) and its box (one
+    /// that holds the scenery a free camera sees through the windows).
+    #[serde(default)]
+    pub probe_overrides: BTreeMap<String, ProbeOverride>,
     /// Surfaces that glow (0.69d lights a lamp's glass from the bulb inside;
     /// 0.26 draws it with the material's emission): the surface gets a copy
     /// of its converted material, `<material>_glow`, emitting its albedo.
@@ -383,6 +392,45 @@ fn split_mesh(bytes: &[u8], near: &[[f32; 3]], radius: f32) -> Result<(Vec<u8>, 
 
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct ProbeOverride {
+    /// In place of `probes.baked.diffuse_scale` for this probe.
+    #[serde(default)]
+    pub diffuse_scale: Option<f32>,
+    /// In place of `probes.baked.saturation` for this probe.
+    #[serde(default)]
+    pub saturation: Option<f32>,
+    /// The probe's volume in place of the donor's.
+    #[serde(default)]
+    pub volume: Option<ProbeVolume>,
+    /// Where it is drawn among the lobby's probes.
+    #[serde(default)]
+    pub order: ProbeOrder,
+}
+
+/// 0.26 draws a point's probes in the project's order, each over the ones
+/// before it.
+#[derive(Clone, Copy, Default, Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProbeOrder {
+    /// The donor's order.
+    #[default]
+    Donor,
+    /// Before every other probe: an outdoor box around the room, which the
+    /// room's own probes then draw over.
+    First,
+}
+
+/// An environment probe's volume, in metres.
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum ProbeVolume {
+    /// An axis-aligned box: its centre and half extents.
+    Box { centre: [f32; 3], half_extents: [f32; 3] },
+    Sphere { centre: [f32; 3], radius: f32 },
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct LightOverride {
     #[serde(default)]
     pub intensity: Option<f32>,
@@ -437,6 +485,46 @@ pub struct NativeProp {
     pub yaw: f32,
 }
 
+/// A model of 0.26's own drawn in the lobby frame, turned about y and
+/// scaled alike on every axis.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeScenery {
+    /// `models/<lib>.model`, as 0.26 has it.
+    pub lib: String,
+    pub position: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
+    #[serde(default = "unit_scale")]
+    pub scale: f32,
+}
+
+fn unit_scale() -> f32 {
+    1.0
+}
+
+
+/// The lobby's native scenery as render visuals only (no collision object:
+/// the lobby camera's ray stays inside the room). `exists` says whether 0.26
+/// has a resource.
+fn place_native_scenery(project: &mut ConfigValue, scenery: &[NativeScenery], exists: impl Fn(&str) -> bool) -> Result<String> {
+    let Some(ConfigValue::Indexed(visuals)) = project.named_mut("render_visuals") else { bail!("no render_visuals") };
+    let mut models = BTreeSet::new();
+    for item in scenery {
+        let settings = format!("models/{}.model/settings", item.lib);
+        ensure!(exists(&settings), "native scenery {}: {settings} is not in 0.26", item.lib);
+        ensure!(item.scale > 0.0 && item.scale.is_finite(), "native scenery {}: scale {}", item.lib, item.scale);
+        visuals.push(named(vec![
+            ("lib_name", ConfigValue::String(item.lib.clone())),
+            ("position", ConfigValue::Float3(item.position)),
+            ("rotation", ConfigValue::Float3([0.0, item.yaw, 0.0])),
+            ("scale", ConfigValue::Float3([item.scale; 3])),
+        ]));
+        models.insert(item.lib.as_str());
+    }
+    Ok(format!("native scenery: {} instances of {} 0.26 models outside the room, without collision", scenery.len(), models.len()))
+}
+
 /// 0.26's unit box collision (half extents 1), scaled per instance.
 const UNIT_BOX_COLLISION: &str = "resources/models/editor/walker_collision.model/collision";
 
@@ -480,6 +568,9 @@ pub struct BakedProbe {
     /// The 0.26 cubemap it becomes (likewise).
     pub texture: String,
     pub sh: [[f32; 3]; 9],
+    /// The baked irradiance's saturation (the lobby's, or the probe's
+    /// override).
+    pub saturation: f32,
 }
 
 /// What one manifest ports, parsed from its `map` / `lobby` keys.
@@ -2337,6 +2428,13 @@ pub fn convert_scene(
             .context("template has no such environment probe")?
             .clone();
             let native_texture = probe_texture(&native).context("template probe texture")?;
+            let first_probe = objects.len();
+            let mut overridden_probes = 0;
+            ensure!(
+                matches!(lobby.probes, LobbyProbes::Baked { .. })
+                    || lobby.probe_overrides.values().all(|o| o.diffuse_scale.is_none() && o.saturation.is_none()),
+                "probe_overrides: diffuse_scale and saturation set a baked probe (probes.baked)"
+            );
             for object in donor_objects.iter().filter(|o| kind(o) == "environment_probe") {
                 if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) {
                     continue;
@@ -2348,6 +2446,10 @@ pub fn convert_scene(
                 }
                 let mut p = native.clone();
                 place(&mut p, object, full_name)?;
+                let probe_override = lobby.probe_overrides.get(full_name).copied();
+                if probe_override.is_some() {
+                    overridden_probes += 1;
+                }
                 let texture = match &lobby.probes {
                     LobbyProbes::Donor => {
                         let t = string(object, "texture").context("donor probe without texture")?.replace('\\', "/");
@@ -2370,7 +2472,7 @@ pub fn convert_scene(
                         }
                         t
                     }
-                    LobbyProbes::Baked { diffuse_scale, .. } => {
+                    LobbyProbes::Baked { diffuse_scale, saturation, .. } => {
                         // 0.69d boxes are its unit box scaled, as 0.26's.
                         let donor_texture = format!("environment_probes/{}", string(object, "texture").context("donor probe without texture")?.replace('\\', "/"));
                         let texture = donor_texture.clone();
@@ -2387,6 +2489,7 @@ pub fn convert_scene(
                             p.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
                         }
                         // The build multiplies these by the baked cubemaps' scale.
+                        let diffuse_scale = probe_override.and_then(|o| o.diffuse_scale).unwrap_or(*diffuse_scale);
                         let multiplier = real(object, "multiplier").unwrap_or(1.0) * diffuse_scale;
                         let specular = match real(object, "specular_multiplier") {
                             Some(v) if v >= 0.0 => v,
@@ -2400,7 +2503,8 @@ pub fn convert_scene(
                         if let Some(w) = real(object, "probe_side_width") {
                             p.set_path("probe_side_width", ConfigValue::Float(w))?;
                         }
-                        baked_probes.push(BakedProbe { full_name: full_name.to_owned(), donor_texture, texture: texture.clone(), sh });
+                        let saturation = probe_override.and_then(|o| o.saturation).unwrap_or(*saturation);
+                        baked_probes.push(BakedProbe { full_name: full_name.to_owned(), donor_texture, texture: texture.clone(), sh, saturation });
                         texture
                     }
                     LobbyProbes::Template { .. } => {
@@ -2415,9 +2519,32 @@ pub fn convert_scene(
                     }
                 };
                 set_probe_texture(&mut p, &texture)?;
+                match probe_override.and_then(|o| o.volume) {
+                    Some(ProbeVolume::Box { centre, half_extents }) => {
+                        p.set_path("geometry", ConfigValue::Integer(1))?;
+                        p.set_path("position", ConfigValue::Float3(centre))?;
+                        p.set_path("scale", ConfigValue::Float3(half_extents))?;
+                    }
+                    Some(ProbeVolume::Sphere { centre, radius }) => {
+                        p.set_path("geometry", ConfigValue::Integer(0))?;
+                        p.set_path("position", ConfigValue::Float3(centre))?;
+                        p.set_path("radius", ConfigValue::Float(radius))?;
+                        p.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
+                    }
+                    None => {}
+                }
                 objects.push(p);
                 count("environment_probe");
             }
+            ensure!(overridden_probes == lobby.probe_overrides.len(), "probe_overrides name a probe the donor does not have");
+            // 0.26 draws a point's probes in the project's order, each over
+            // the ones before it.
+            let draws_first = |o: &ConfigValue| {
+                string(o, "full_name")
+                    .and_then(|n| lobby.probe_overrides.get(n))
+                    .is_some_and(|o| matches!(o.order, ProbeOrder::First))
+            };
+            objects[first_probe..].sort_by_key(|o| !draws_first(o));
             notes.push(match &lobby.probes {
                 LobbyProbes::Donor => format!("environment probes: the donor's volumes and cubemaps ({} cubemaps)", probe_textures.len()),
                 LobbyProbes::Baked { diffuse_scale, .. } => format!(
@@ -2999,6 +3126,12 @@ pub fn build(
                 if has_collision { ", with its collision" } else { "" }
             ));
         }
+    }
+    if let Port::Lobby(lobby) = &port
+        && !lobby.native_scenery.is_empty()
+    {
+        let note = place_native_scenery(&mut scene.project, &lobby.native_scenery, |p| target.is_file(p))?;
+        scene.notes.push(note);
     }
     let photometric_lights = match &port {
         Port::Lobby(l) => l.photometric_lights,
@@ -4323,10 +4456,11 @@ pub fn build(
         for probe in &scene.baked_probes {
             let mut specular = super::probe_bake::decode_rgbm(&donor.read(&format!("textures/{}.dds", probe.donor_texture))?)
                 .with_context(|| format!("decoding {}", probe.donor_texture))?;
-            let (saturation, directionality) = match &port {
-                Port::Lobby(LobbySpec { probes: LobbyProbes::Baked { saturation, directionality, .. }, .. }) => (*saturation, *directionality),
-                _ => (1.0, 1.0),
+            let directionality = match &port {
+                Port::Lobby(LobbySpec { probes: LobbyProbes::Baked { directionality, .. }, .. }) => *directionality,
+                _ => 1.0,
             };
+            let saturation = probe.saturation;
             let mut sh = probe.sh;
             for band in sh.iter_mut().skip(1) {
                 *band = band.map(|v| v * directionality);
@@ -5036,13 +5170,13 @@ mod tests {
         assert_eq!(surface_lods(&settings), BTreeMap::from([("bushsg".to_owned(), 0), ("lod1_bushsg".to_owned(), 1)]));
     }
 
-    #[test]
-    fn a_lobby_is_a_client_project_with_its_own_vegetation_folder() {
+    /// A native lobby project as the converter reads it: one object of each
+    /// kind it takes a template from.
+    fn lobby_template() -> ConfigValue {
         let obj = |fields: Vec<(&str, ConfigValue)>| named(fields);
         let tf = |p: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))];
         let with = |mut base: Vec<(&'static str, ConfigValue)>, more: Vec<(&'static str, ConfigValue)>| { base.extend(more); obj(base) };
-        let model = |name: &str, p: [f32; 3]| with(tf(p), vec![("model_name", ConfigValue::String(name.into()))]);
-        let template = obj(vec![
+        obj(vec![
             ("project_name", ConfigValue::String("lobby_scene".into())),
             ("client_objects", ConfigValue::Indexed(vec![
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment".into())), ("properties", obj(vec![("sun_angle", ConfigValue::Float(90.0)), ("sun_position_azimut", ConfigValue::Float(1.0))]))]),
@@ -5055,7 +5189,16 @@ mod tests {
                 ])]))]),
                 with(tf([0.988, 0.0, -0.605]), vec![("game_object_type", ConfigValue::String("track".into())), ("cyclic", ConfigValue::Boolean(true))]),
             ])),
-        ]);
+        ])
+    }
+
+    #[test]
+    fn a_lobby_is_a_client_project_with_its_own_vegetation_folder() {
+        let obj = |fields: Vec<(&str, ConfigValue)>| named(fields);
+        let tf = |p: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))];
+        let with = |mut base: Vec<(&'static str, ConfigValue)>, more: Vec<(&'static str, ConfigValue)>| { base.extend(more); obj(base) };
+        let model = |name: &str, p: [f32; 3]| with(tf(p), vec![("model_name", ConfigValue::String(name.into()))]);
+        let template = lobby_template();
         let donor = obj(vec![
             ("render_visuals", ConfigValue::Indexed(vec![model("level/lobby/hangar_lobby", [0.0; 3]), model("level/new_year_event/snow_event_level1", [1.0; 3])])),
             ("collision_objects", ConfigValue::Indexed(vec![])),
@@ -5078,9 +5221,11 @@ mod tests {
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
             native_props: Vec::new(),
+            native_scenery: Vec::new(),
             photometric_lights: None,
             environment_overrides: BTreeMap::new(),
             exclude_probes: Vec::new(),
+            probe_overrides: BTreeMap::new(),
             glowing_surfaces: Vec::new(),
             light_overrides: BTreeMap::new(),
             emission_scale: BTreeMap::new(),
@@ -5114,6 +5259,70 @@ mod tests {
         assert_eq!(real(light, "intensity"), Some(0.8));
         let env = objects.iter().find(|o| kind(o) == "environment").unwrap();
         assert_eq!(real(env.named("properties").unwrap(), "sun_angle"), Some(55.0));
+    }
+
+    #[test]
+    fn an_outdoor_probe_draws_first_in_its_own_box() {
+        let tf = |p: [f32; 3], s: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3(s))];
+        let probe = |name: &str, p: [f32; 3], s: [f32; 3]| {
+            let mut f = tf(p, s);
+            f.extend(vec![
+                ("game_object_type", ConfigValue::String("environment_probe".into())),
+                ("full_name", ConfigValue::String(name.into())),
+                ("geometry", ConfigValue::Integer(1)),
+                ("texture", ConfigValue::String("environment_probes/lobby_scene/probe".into())),
+            ]);
+            named(f)
+        };
+        let template = lobby_template();
+        let donor = named(vec![
+            ("render_visuals", ConfigValue::Indexed(vec![])),
+            ("collision_objects", ConfigValue::Indexed(vec![])),
+            ("client_objects", ConfigValue::Indexed(vec![
+                named(vec![("game_object_type", ConfigValue::String("environment".into())), ("sun_elevation", ConfigValue::Integer(50)), ("sun_azimuth", ConfigValue::Integer(25))]),
+                probe("room_probe", [0.0, 1.4, 2.0], [2.2, 1.5, 4.2]),
+                probe("outdoor/environment_probe", [-18.8, 0.8, 25.7], [127.0, 25.0, 127.0]),
+            ])),
+        ]);
+        let outdoor = ProbeOverride {
+            diffuse_scale: None,
+            saturation: None,
+            volume: Some(ProbeVolume::Box { centre: [-70.0, 0.0, 60.0], half_extents: [220.0, 40.0, 200.0] }),
+            order: ProbeOrder::First,
+        };
+        let lobby = |overrides: BTreeMap<String, ProbeOverride>| LobbySpec {
+            donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
+            probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
+            native_props: Vec::new(), native_scenery: Vec::new(), photometric_lights: None, environment_overrides: BTreeMap::new(),
+            exclude_probes: Vec::new(), probe_overrides: overrides, glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(),
+        };
+        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby(BTreeMap::from([("outdoor/environment_probe".to_owned(), outdoor)]))), false, &BTreeMap::new()).unwrap();
+        let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
+        let probes: Vec<_> = objects.iter().filter(|o| kind(o) == "environment_probe").collect();
+        assert_eq!(probes.iter().map(|p| string(p, "full_name").unwrap()).collect::<Vec<_>>(), ["outdoor/environment_probe", "room_probe"], "the room's probe draws over the outdoor box");
+        assert_eq!(float3(probes[0], "position").unwrap(), [-70.0, 0.0, 60.0]);
+        assert_eq!(float3(probes[0], "scale").unwrap(), [220.0, 40.0, 200.0]);
+        assert_eq!(float3(probes[1], "scale").unwrap(), [2.2, 1.5, 4.2], "the others keep the donor's volume");
+        let unknown = BTreeMap::from([("outdoor/environment_probe(9)".to_owned(), outdoor)]);
+        assert!(convert_scene(&donor, &template, &Port::Lobby(lobby(unknown)), false, &BTreeMap::new()).is_err(), "an override must name a donor probe");
+    }
+
+    #[test]
+    fn native_scenery_is_drawn_without_collision() {
+        let mut project = named(vec![("render_visuals", ConfigValue::Indexed(vec![])), ("collision_objects", ConfigValue::Indexed(vec![]))]);
+        let tree = NativeScenery { lib: "flora/poplar_04".into(), position: [-16.0, -22.673, 4.0], yaw: 1.0, scale: 1.8 };
+        let exists = |p: &str| p == "models/flora/poplar_04.model/settings";
+        let note = place_native_scenery(&mut project, std::slice::from_ref(&tree), exists).unwrap();
+        assert!(note.contains("1 instances of 1"));
+        let visuals = array(project.named("render_visuals").unwrap()).unwrap();
+        assert_eq!(string(&visuals[0], "lib_name"), Some("flora/poplar_04"));
+        assert_eq!(float3(&visuals[0], "rotation").unwrap(), [0.0, 1.0, 0.0]);
+        assert_eq!(float3(&visuals[0], "scale").unwrap(), [1.8; 3]);
+        assert!(array(project.named("collision_objects").unwrap()).unwrap().is_empty());
+        let missing = NativeScenery { lib: "flora/nothing".into(), ..tree.clone() };
+        assert!(place_native_scenery(&mut project, &[missing], exists).is_err());
+        let flat = NativeScenery { scale: 0.0, ..tree };
+        assert!(place_native_scenery(&mut project, &[flat], exists).is_err());
     }
 
     #[test]
