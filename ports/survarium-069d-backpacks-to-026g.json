@@ -1,0 +1,20 @@
+{
+  "asset_id": "backpacks-069d-to-026g",
+  "max_texture_size": 1024,
+  "pieces": [
+    {
+      "item": "leagues_back_2",
+      "model": "character/human/special_items/league_regeneration_back/league_regeneration_back",
+      "template_model": "character/human/black_market/black_market_raider_09_back",
+      "template_material": "characters/human/black_market_raider_09/black_market_raider_09_back",
+      "fit": "back"
+    },
+    {
+      "item": "leagues_back_5",
+      "model": "character/human/special_items/league_battle_back/league_battle_back",
+      "template_model": "character/human/renesanse/renesance_combat_back",
+      "template_material": "characters/human/renesance_combat/renesance_combat_back",
+      "fit": "back"
+    }
+  ]
+}

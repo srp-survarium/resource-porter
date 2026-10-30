@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use vostok_resource_porter::armor;
+use vostok_resource_porter::armour_069d;
 use vostok_resource_porter::config_patch;
 use vostok_resource_porter::dependency;
 use vostok_resource_porter::map_compare;
@@ -239,6 +240,25 @@ enum Command {
         donor_texture_dir: Option<PathBuf>,
         #[arg(long)]
         target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Bring 0.69d armour pieces (models, materials, textures) to the native
+    /// 0.26g player, at the donor's paths, measuring their fit (a manifest of
+    /// `ports/survarium-069d-*-to-026g.json`).
+    #[command(name = "build-armour-069d")]
+    BuildArmour069d {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The 0.69d resources the pieces use, extracted at their archive paths.
+        #[arg(long)]
+        source_root: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// Released `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "patch")]
+        patches: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
     },
@@ -1209,6 +1229,17 @@ fn main() -> Result<()> {
             println!("asset={}", record.asset_id);
             println!("files={}", record.files.len());
             println!("armor_dict_ids={:?}", record.armor_dict_ids);
+            println!("bundle={}", output.display());
+        }
+        Command::BuildArmour069d {
+            manifest,
+            source_root,
+            target_db,
+            patches,
+            output,
+        } => {
+            let manifest = armour_069d::Manifest::load(&manifest)?;
+            armour_069d::build(&manifest, &source_root, &target_db, &patches, &output)?;
             println!("bundle={}", output.display());
         }
         Command::BuildStk2Content {
