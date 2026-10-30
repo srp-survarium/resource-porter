@@ -321,12 +321,18 @@ the formulas come from both builds' shader disassembly):
   Fresnel-map template (`opaque_metal`: f0 0.04 to 1; 0.26 darkens the diffuse by f0 and
   tints the specular by the albedo's hue above f0 0.5). `material_constants` sets the
   ground's (`terrain_tiled/`) Fresnel to 0, as native Rudnya's.
-* Sky: the donor's clouds (`sky/sky_test`, imported; unlit, since 0.26 lights clouds with a
-  normal map the donor's have not) over 0.26's own atmosphere. The pond's mist is the
+* Sky: the donor's clouds (`sky/sky_test`, imported; lit through the template's cloud normal
+  map, since the donor's have none and 0.26 draws unlit clouds dark) over 0.26's own
+  atmosphere.
+* Matched to 0.69d's frames (the reference rig, same camera poses): `exposure_bias` 1 (the
+  scale at EV 13.5: 0.69d's grading and curve show the same light darker) and
+  `sun_saturation` 0.6 (the sun's colour (1, 0.847, 0.687): 0.69d's white balance and AP1
+  grading show its sunlight less orange). Interiors darker than 0.26's curve adapts to (a
+  frame mean of 0.05) take back half the difference, at most x8
+  (`lighting::adaptation_gain`), as 0.69d's exposure follows a view down to EV 6. The pond's mist is the
   donor's `volume_fog`, the same object in both builds.
 * Not reproduced: 0.69d's turbid sky (0.26's atmosphere stays), its height fog over the
-  whole map, light shafts, colour grading, the stronger eye adaptation indoors (0.69d's
-  exposure follows the view down to EV 6), probe parallax correction and specular fade,
+  whole map, light shafts, colour grading, probe parallax correction and specular fade,
   light shapes beyond sphere and box.
 
 **Sharp, as 0.69d draws it.** No `max_texture_size` or `texture_limits`: every imported

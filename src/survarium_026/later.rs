@@ -246,6 +246,11 @@ pub struct MapSpec {
     pub global_probe_radius: f32,
     /// What the probes draw.
     pub probes: MapProbes,
+    /// Native environment properties set over the template's, by name
+    /// (`properties.<name>`): 0.26 values tuned to the donor's frames where
+    /// the two builds' models differ (its turbid sky).
+    #[serde(default)]
+    pub environment: BTreeMap<String, f32>,
     /// Which donor respawn folder supplies the spawns (TDM).
     pub spawn_folder: String,
     /// Donor mode options whose `ui.map_name` names the map.
@@ -2307,11 +2312,10 @@ pub fn convert_scene(
             // 0.69d has no height-based ambient; 0.26's multiplies the
             // probes' light (purple below y 10 in native Rudnya).
             environment.set_path("properties.use_height_based_ambient", ConfigValue::Boolean(false))?;
-            // The donor's clouds (imported by the build), unlit: 0.26 lights
-            // its clouds with a normal map the donor's have not.
+            // The donor's clouds (imported by the build), lit through the
+            // template's cloud normal map: unlit, 0.26 draws them dark.
             if let Some(clouds) = string(donor_environment, "sky_clouds_texture") {
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
-                environment.set_path("properties.use_sky_clouds_lighting", ConfigValue::Boolean(false))?;
             }
             notes.push(format!(
                 "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?} (saturation {sun_saturation}), intensity {intensity:.3}; no height-based ambient",
@@ -2322,6 +2326,12 @@ pub fn convert_scene(
         }
         _ => None,
     };
+    if let Port::Map(map) = port {
+        for (name, value) in &map.environment {
+            environment.set_path(&format!("properties.{name}"), ConfigValue::Float(*value))?;
+            notes.push(format!("environment: {name} {value} (manifest)"));
+        }
+    }
     objects.push(environment);
     count("environment");
 
@@ -4945,7 +4955,7 @@ mod tests {
             id: 205, level: "level_11".into(), donor_project: "p".into(), template_project: "t".into(), template_mode: "m".into(),
             output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: [0.0; 3],
             global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
-            probes: MapProbes::Native { classes: Vec::new(), matte_water: None, ambient_lights: false },
+            probes: MapProbes::Native { classes: Vec::new(), matte_water: None, ambient_lights: false }, environment: BTreeMap::new(),
             donor_mode: "d".into(), loading_screen_id: None, level_id: None, map_name: None,
         };
         let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new()).unwrap();
