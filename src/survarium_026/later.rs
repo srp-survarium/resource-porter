@@ -2267,7 +2267,7 @@ pub fn convert_scene(
     environment.set_path("properties.sun_angle", ConfigValue::Float(elevation))?;
     environment.set_path("properties.sun_position_azimut", ConfigValue::Float(azimuth))?;
     notes.push(format!(
-        "environment: native {} sky, clouds, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its exposure, colour grading, light shafts and fog volumes have no 0.26 counterpart",
+        "environment: native {} sky, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its exposure, colour grading and light shafts have no 0.26 counterpart",
         port.template_project()
     ));
     // A donor-lit map: the sun in the probes' scale. 0.26 values are 0.69d's
@@ -2292,6 +2292,12 @@ pub fn convert_scene(
             // 0.69d has no height-based ambient; 0.26's multiplies the
             // probes' light (purple below y 10 in native Rudnya).
             environment.set_path("properties.use_height_based_ambient", ConfigValue::Boolean(false))?;
+            // The donor's clouds (imported by the build), unlit: 0.26 lights
+            // its clouds with a normal map the donor's have not.
+            if let Some(clouds) = string(donor_environment, "sky_clouds_texture") {
+                environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
+                environment.set_path("properties.use_sky_clouds_lighting", ConfigValue::Boolean(false))?;
+            }
             notes.push(format!(
                 "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
@@ -2704,6 +2710,22 @@ pub fn convert_scene(
                 w.set_path("points", object.named("points").context("wire_set without points")?.clone())?;
                 objects.push(w);
                 count("wire_set");
+            }
+            // Height fog in a box (the pond's mist): the same object and
+            // fields in both builds.
+            "volume_fog" if templates_of(template, "volume_fog").first().is_some() => {
+                let mut f = first_template(template, "volume_fog")?;
+                place(&mut f, object, &full_name)?;
+                copy_shared(
+                    &mut f,
+                    object,
+                    &[
+                        "color", "density", "density_offset", "direction", "height_falloff_offset", "near_density", "noise_scale", "speed",
+                        "transparency_multiplier", "wave_length",
+                    ],
+                )?;
+                objects.push(f);
+                count("volume_fog");
             }
             "collision_geometry" => {} // linked ones are added below
             "environment" => {}
@@ -3191,6 +3213,17 @@ pub fn build(
     let mut terrain_blend: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut terrain_mask: Option<((usize, usize, Vec<[u8; 4]>), f32)> = None;
     let mut textures = BTreeSet::new();
+    // A donor-lit map draws the donor's clouds (its cirrus, 0.26's cumulus
+    // bakes a sun glow in): the texture is imported.
+    if donor_lit {
+        let Some(ConfigValue::Indexed(objects)) = scene.project.named_mut("client_objects") else { bail!("no objects") };
+        let environment = objects.iter_mut().find(|o| kind(o) == "environment").context("no environment")?;
+        let clouds = environment.named("properties").and_then(|p| string(p, "sky_clouds_texture")).map(str::to_owned);
+        if let Some(t) = clouds.filter(|t| donor.is_file(&format!("textures/{t}.dds")) && !target.is_file(&format!("textures/{t}.dds"))) {
+            environment.set_path("properties.sky_clouds_texture", ConfigValue::String(format!("{ns}/{}", plain_texture(&t))))?;
+            textures.insert(t);
+        }
+    }
     // Probe cubemaps this build makes (`MapProbes::Donor`).
     let generated_textures: BTreeSet<String> = scene.generated_probes.iter().map(|g| format!("{ns}/{}", g.texture)).collect();
     let mut material_notes = BTreeMap::<String, Vec<String>>::new();
