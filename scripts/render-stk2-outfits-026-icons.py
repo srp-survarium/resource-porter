@@ -171,29 +171,87 @@ def boots_icon(surfaces, shrink=1.0):
     return out
 
 
-# The stock glove icons hold one hand's long axis 25-41 degrees above the horizontal (median
-# 32), the fingers down to the left and the back of the hand to the camera.
-GLOVE_ROLL = 33
+# The stock glove icons: one hand, the back of it square to the camera (the knuckle line in
+# the picture's plane), its long axis 25-41 degrees above the horizontal (median 32) with the
+# fingers down to the left.
+GLOVE_AXIS = 32.0
+# Texels darker than this at a glove's wrist end are its cuff's black band and inside, which
+# STK2 hid under the sleeve: the icon leaves those faces out, so the glove ends cleanly.
+GLOVE_BLACK = 0.06
 
 
-def leather(texture):
-    """A glove map with its flat black (the cuff's band STK2 hid under the sleeve, darker than
-    0.05) in the glove's own leather colour (the median of its texels 0.08-0.4), for the icon."""
-    lum = texture.mean(2)
-    body = texture[(lum > 0.08) & (lum < 0.4)]
-    out = texture.copy()
-    out[lum < 0.05] = np.median(body, 0) * 0.85
-    return out
+def camera_for(points, faces):
+    """(yaw, pitch, roll) of the renderer's camera that looks at the back of one hand square
+    on, the fingers on the picture at GLOVE_AXIS below the horizontal to the left."""
+    used = points[np.unique(faces)]
+    centre = used.mean(0)
+    _, _, axes = np.linalg.svd(used - centre)
+    along, across, normal = axes
+    if along[0] < 0:  # toward the fingertips (the +x hand)
+        along = -along
+    if normal[1] < 0:  # the back of the hand: up, the palms face down in the bind pose
+        normal = -normal
+    yaw = np.degrees(np.arctan2(normal[0], normal[2]))
+    pitch = np.degrees(np.arcsin(np.clip(normal[1], -1, 1)))
+    # The renderer's picture axes for that yaw and pitch, before roll.
+    y, p = np.radians([yaw, pitch])
+    toward = np.array([np.sin(y) * np.cos(p), np.sin(p), np.cos(y) * np.cos(p)])
+    right = np.cross([0, 1, 0], toward)
+    right /= np.linalg.norm(right)
+    up = np.cross(toward, right)
+    shown = np.degrees(np.arctan2(along @ up, along @ right))
+    # Rolling by r turns the picture's axes, so the fingers show at shown - r.
+    roll = shown - (180 + GLOVE_AXIS)
+    return yaw, pitch, roll
+
+
+def largest_piece(points, faces):
+    """The faces of the largest connected piece (vertices welded by position): what a cut
+    leaves of a glove, without the stray bits of its cuff."""
+    key = {}
+    weld = np.array([key.setdefault(tuple(np.round(p, 4)), i) for i, p in enumerate(points)])
+    parent = list(range(len(points)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for t in faces:
+        a, b, c = (root(weld[v]) for v in t)
+        parent[b] = a
+        parent[root(c)] = a
+    roots = np.array([root(weld[t[0]]) for t in faces])
+    values, counts = np.unique(roots, return_counts=True)
+    return faces[roots == values[counts.argmax()]]
+
+
+def silhouette_axis(picture):
+    """The long axis of a picture's opaque part, in degrees above the horizontal (0-180)."""
+    ys, xs = np.nonzero(np.asarray(picture)[:, :, 3] > 64)
+    d = np.stack([xs - xs.mean(), ys - ys.mean()], 1)
+    a = np.linalg.eigh(d.T @ d)[1][:, 1]
+    return np.degrees(np.arctan2(-a[1], a[0])) % 180
 
 
 def glove_icon(surfaces):
-    # One hand (the mesh's +x one), its back seen from above, the fingers to the left and a
-    # little down, as the stock glove icons show them.
-    one = [(points, uv, normals, faces[points[faces][:, :, 0].mean(1) > 0], leather(texture))
-           for points, uv, normals, faces, texture in surfaces]
-    # The wrist opening (black inside the cuff) closed for the icon, as the boots' shafts.
-    one = one + [c for s in one for c in capped(s, low=0.0)]
-    picture = renderer.render(as_meshes(one), 90, 80, roll=GLOVE_ROLL)
+    one = []
+    for points, uv, normals, faces, texture in surfaces:
+        faces = faces[points[faces][:, :, 0].mean(1) > 0]
+        h, w = texture.shape[:2]
+        lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
+                      np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
+        one.append((points, uv, normals, largest_piece(points, faces[lum >= GLOVE_BLACK]), texture))
+    yaw, pitch, roll = camera_for(one[0][0], np.vstack([f for _, _, _, f, _ in one]))
+    # The picture's long axis follows the outline (fingers, thumb), not the mesh's: settle it
+    # on the stock angle (rolling one degree more turns it one degree less).
+    for _ in range(3):
+        picture = renderer.render(as_meshes(one), yaw, pitch, roll=roll)
+        error = silhouette_axis(picture) - GLOVE_AXIS
+        error = (error + 90) % 180 - 90
+        if abs(error) < 0.5:
+            break
+        roll += error
     return framed(picture, 'gloves')
 
 

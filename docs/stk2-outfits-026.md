@@ -111,10 +111,11 @@ reproducible: the same inputs make the same packs byte for byte.
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
 boots 76, gloves 77, centred), the sneakers 28 % smaller (the owner). Boots are seen
 level with their shaft openings closed by a cap of the rim's darker colour, for the
-icon only: the donor shafts are black inside. Gloves: one hand, its back to the camera,
-its long axis 32 degrees above the horizontal with the fingers down to the left (the
-stock glove icons' median, 25-41), the wrist capped and the cuff's black band in the
-glove's leather colour.
+icon only: the donor shafts are black inside. Gloves: one hand, its back square to the
+camera (the hand's own plane, from its vertices), the outline's long axis settled on 32
+degrees above the horizontal with the fingers down to the left (the stock glove icons'
+median, 25-41); the cuff's black band and inside are left out of the icon (faces whose
+texels are darker than 0.06, and the stray bits that leaves), so the glove ends cleanly.
 
 ## Checked offline only
 
