@@ -16,47 +16,14 @@
       -12.458
     ],
     "global_probe_radius": 1003.5,
+    "probes": {
+      "donor": {
+        "global": "environment_and_lights/probes/global",
+        "matte_water": "environment_and_lights/probes/swamp"
+      }
+    },
     "spawn_folder": "logic/modes/team_death_match/",
     "donor_mode": "gameplay/game_modes/level_01_day_tdm.options",
-    "matte_water_probe": "environment_and_lights/light probes/indoor",
-    "probe_classes": [
-      {
-        "prefix": "environment_and_lights/probes/day/atp/",
-        "native": "environment_and_lights/light probes/atp(1)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/church/",
-        "native": "environment_and_lights/light probes/indoor"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/school/",
-        "native": "environment_and_lights/light probes/indoor(2)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/house_",
-        "native": "environment_and_lights/light probes/indoor(1)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/school_house_",
-        "native": "environment_and_lights/light probes/indoor(1)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/saray_",
-        "native": "environment_and_lights/light probes/indoor(1)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/paseka_house/",
-        "native": "environment_and_lights/light probes/indoor(1)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/day/bus_stop/",
-        "native": "environment_and_lights/light probes/indoor(1)"
-      },
-      {
-        "prefix": "environment_and_lights/probes/swamp",
-        "native": "environment_and_lights/light probes/swamp"
-      }
-    ],
     "level_id": 14,
     "map_name": "st_level_14_name",
     "loading_screen_id": 30
@@ -111,7 +78,8 @@
     "glass_cutout_vc": "tiled/window/window_brokengl_vc",
     "opaque_two_sided_vc": "tiled/floor/floor_plate_tile",
     "opaque_vc": "tiled/concrete/concrete_crack",
-    "terrain_blend": "tiled/bricks/brick_02_burn_vc"
+    "terrain_blend": "tiled/bricks/brick_02_burn_vc",
+    "opaque_metal": "props/box/props_boxes_metal"
   },
   "roughness_scale": 0.2,
   "decimate_terrain": [
@@ -145,5 +113,14 @@
   "namespace": "v069d_rudnya",
   "native_materials": {
     "generic/underground_black_mat": "tiled/concrete/concrete_black"
-  }
+  },
+  "material_constants": [
+    {
+      "prefix": "terrain_tiled/",
+      "g_stage": {
+        "constant_fresnel": 0.0,
+        "constant_fresnel_min": 0.0
+      }
+    }
+  ]
 }

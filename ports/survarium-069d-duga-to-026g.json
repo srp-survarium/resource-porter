@@ -16,24 +16,28 @@
       0.0
     ],
     "global_probe_radius": 300.0,
+    "probes": {
+      "native": {
+        "classes": [
+          {
+            "prefix": "env_and_lights/probes/tunnels/outer",
+            "native": "environment_and_lights/probes/door(5)"
+          },
+          {
+            "prefix": "env_and_lights/probes/tunnels",
+            "native": "environment_and_lights/probes/indoor"
+          },
+          {
+            "prefix": "env_and_lights/probes/buildings",
+            "native": "environment_and_lights/probes/indoor(1)"
+          }
+        ],
+        "matte_water": "environment_and_lights/probes/indoor"
+      }
+    },
     "spawn_folder": "logic/modes/tdm/spawns/",
     "donor_mode": "gameplay/game_modes/level_11_day_tdm.options",
-    "loading_screen_id": 24,
-    "matte_water_probe": "environment_and_lights/probes/indoor",
-    "probe_classes": [
-      {
-        "prefix": "env_and_lights/probes/tunnels/outer",
-        "native": "environment_and_lights/probes/door(5)"
-      },
-      {
-        "prefix": "env_and_lights/probes/tunnels",
-        "native": "environment_and_lights/probes/indoor"
-      },
-      {
-        "prefix": "env_and_lights/probes/buildings",
-        "native": "environment_and_lights/probes/indoor(1)"
-      }
-    ]
+    "loading_screen_id": 24
   },
   "game_material_names": {
     "cactus_slime": "mud",
