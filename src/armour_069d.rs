@@ -188,7 +188,7 @@ fn text(effect: &V, key: &str) -> Option<String> {
     }
 }
 
-fn effect(material: &BinaryConfig) -> Result<&V> {
+pub(crate) fn effect(material: &BinaryConfig) -> Result<&V> {
     material
         .root
         .named("material")
@@ -198,7 +198,7 @@ fn effect(material: &BinaryConfig) -> Result<&V> {
 }
 
 /// The g_stage switches a material turns on.
-fn switches(material: &BinaryConfig) -> Result<BTreeSet<String>> {
+pub(crate) fn switches(material: &BinaryConfig) -> Result<BTreeSet<String>> {
     let V::Named(fields) = effect(material)? else {
         bail!("g_stage effect is not a table");
     };
@@ -210,7 +210,7 @@ fn switches(material: &BinaryConfig) -> Result<BTreeSet<String>> {
 }
 
 /// The g_stage switch combinations the released character materials draw.
-fn released_combinations(target: &mut ResourceDb) -> Result<BTreeSet<BTreeSet<String>>> {
+pub(crate) fn released_combinations(target: &mut ResourceDb) -> Result<BTreeSet<BTreeSet<String>>> {
     let paths: Vec<String> = target
         .paths_with_prefix("material_instances/characters/")
         .filter(|p| p.ends_with(".material"))
@@ -227,7 +227,7 @@ fn released_combinations(target: &mut ResourceDb) -> Result<BTreeSet<BTreeSet<St
     Ok(out)
 }
 
-fn set(c: &mut BinaryConfig, path: &str, value: V) -> Result<()> {
+pub(crate) fn set(c: &mut BinaryConfig, path: &str, value: V) -> Result<()> {
     c.root.set_path(path, value)
 }
 
@@ -325,12 +325,24 @@ fn vertex_bounds(surface: &[u8]) -> Result<([f32; 3], [f32; 3])> {
 }
 
 /// A converted surface and the material it is drawn with.
-struct Surface {
-    name: String,
-    bytes: Vec<u8>,
-    material: String,
-    /// The donor's surface properties (mesh name, texture name).
-    donor_properties: BinaryConfig,
+pub(crate) struct Surface {
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub material: String,
+    /// What its properties say it was made from (`source.mesh_name`,
+    /// `source.texture_name`).
+    pub source_names: Vec<(&'static str, V)>,
+}
+
+/// The donor's surface properties' source names.
+fn source_names(properties: &BinaryConfig) -> Vec<(&'static str, V)> {
+    ["mesh_name", "texture_name"]
+        .into_iter()
+        .filter_map(|key| {
+            let value = properties.root.named("source")?.named(key)?;
+            Some((key, value.clone()))
+        })
+        .collect()
 }
 
 /// The piece's LOD0 surfaces in the four-bone layout; each may be skinned
@@ -376,10 +388,10 @@ fn convert_surfaces(source: &Path, piece: &Piece, native_pose: &[u8]) -> Result<
             name: name.clone(),
             bytes: to_026_four_bone(&parsed)?,
             material: material.clone(),
-            donor_properties: source_config(
+            source_names: source_names(&source_config(
                 source,
                 &format!("{root}/render/{name}/export_properties"),
-            )?,
+            )?),
         });
     }
     ensure!(!out.is_empty(), "{}: no LOD0 surface", piece.model);
@@ -530,18 +542,20 @@ fn named(entries: Vec<(String, V)>) -> V {
     )
 }
 
-/// The model folder: the template's bind pose, skeleton, settings and
-/// properties around the piece's surfaces.
-fn model_files(
+/// The model folder `model` (under `models/`, without `.skinned_model`): the
+/// template's bind pose, skeleton, settings and properties around the
+/// surfaces; `src_filename` is the scene the render properties name.
+pub(crate) fn model_files(
     out: &Writer<'_>,
     target: &mut ResourceDb,
-    source: &Path,
-    piece: &Piece,
+    model: &str,
+    template_model: &str,
     surfaces: &[Surface],
+    src_filename: Option<V>,
     files: &mut Vec<BuiltFile>,
 ) -> Result<()> {
-    let root = format!("models/{}.skinned_model", piece.model);
-    let template = format!("models/{}.skinned_model", piece.template_model);
+    let root = format!("models/{model}.skinned_model");
+    let template = format!("models/{template_model}.skinned_model");
     ensure!(
         target
             .paths_with_prefix(&format!("{root}/"))
@@ -634,15 +648,8 @@ fn model_files(
         }
         // 43 + bones a vertex: the four-bone layout.
         set(&mut props, "type", V::Integer(47))?;
-        for key in ["mesh_name", "texture_name"] {
-            if let Some(value) = surface
-                .donor_properties
-                .root
-                .named("source")
-                .and_then(|s| s.named(key))
-            {
-                set(&mut props, &format!("source.{key}"), value.clone())?;
-            }
+        for (key, value) in &surface.source_names {
+            set(&mut props, &format!("source.{key}"), value.clone())?;
         }
         set(&mut props, "bounding_box.min", V::Float3(stored_min))?;
         set(&mut props, "bounding_box.max", V::Float3(stored_max))?;
@@ -657,9 +664,8 @@ fn model_files(
         &format!("{template}/render/export_properties"),
         "template render properties",
     )?;
-    let donor_render = source_config(source, &format!("{root}/render/export_properties"))?;
-    if let Some(value) = donor_render.root.named("src_filename") {
-        set(&mut render, "src_filename", value.clone())?;
+    if let Some(value) = src_filename {
+        set(&mut render, "src_filename", value)?;
     }
     let (stored_min, stored_max) = stored_bounds(all_min, all_max);
     set(&mut render, "bounding_box.min", V::Float3(stored_min))?;
@@ -751,7 +757,7 @@ fn stride(surface: &[u8]) -> Result<usize> {
     Ok((read_u32(surface, 4)? - 4) / count)
 }
 
-fn surface_mesh(bytes: &[u8], label: &str) -> Result<Mesh> {
+pub(crate) fn surface_mesh(bytes: &[u8], label: &str) -> Result<Mesh> {
     parse_mesh(bytes, stride(bytes)?, label)
 }
 
@@ -953,7 +959,22 @@ pub fn build(
                 &mut files,
             )?);
         }
-        model_files(&out, &mut target, source, piece, &surfaces, &mut files)?;
+        let donor_render = source_config(
+            source,
+            &format!(
+                "models/{}.skinned_model/render/export_properties",
+                piece.model
+            ),
+        )?;
+        model_files(
+            &out,
+            &mut target,
+            &piece.model,
+            &piece.template_model,
+            &surfaces,
+            donor_render.root.named("src_filename").cloned(),
+            &mut files,
+        )?;
         let mut points = vec![];
         for surface in &surfaces {
             points.extend(surface_mesh(&surface.bytes, &surface.name)?.positions);

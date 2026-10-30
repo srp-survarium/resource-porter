@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use vostok_resource_porter::armor;
 use vostok_resource_porter::armour_069d;
+use vostok_resource_porter::armour_model;
 use vostok_resource_porter::config_patch;
 use vostok_resource_porter::dependency;
 use vostok_resource_porter::map_compare;
@@ -240,6 +241,24 @@ enum Command {
         donor_texture_dir: Option<PathBuf>,
         #[arg(long)]
         target_db: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Bring armour modelled for 0.26g (a skinned glTF binary and four PNG maps a piece) to
+    /// the native player, measuring its fit (a manifest of `ports/*-model-to-026g.json`).
+    #[command(name = "build-armour-model")]
+    BuildArmourModel {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The folder the manifest's meshes and maps are in.
+        #[arg(long)]
+        source_root: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// Released `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "patch")]
+        patches: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
     },
@@ -1229,6 +1248,17 @@ fn main() -> Result<()> {
             println!("asset={}", record.asset_id);
             println!("files={}", record.files.len());
             println!("armor_dict_ids={:?}", record.armor_dict_ids);
+            println!("bundle={}", output.display());
+        }
+        Command::BuildArmourModel {
+            manifest,
+            source_root,
+            target_db,
+            patches,
+            output,
+        } => {
+            let manifest = armour_model::Manifest::load(&manifest)?;
+            armour_model::build(&manifest, &source_root, &target_db, &patches, &output)?;
             println!("bundle={}", output.display());
         }
         Command::BuildArmour069d {

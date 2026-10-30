@@ -3,6 +3,7 @@ pub mod archive;
 pub mod army_026;
 pub mod armor;
 pub mod armour_069d;
+pub mod armour_model;
 pub mod bandit_026;
 pub mod body_fit;
 pub mod binary_config;

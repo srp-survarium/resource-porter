@@ -1,0 +1,23 @@
+{
+  "asset_id": "mountain-rucksack-model-to-026g",
+  "max_texture_size": 1024,
+  "pieces": [
+    {
+      "item": "mountain_rucksack",
+      "mesh": "rucksack.glb",
+      "maps": {
+        "diffuse": "rucksack_diffuse.png",
+        "normal": "rucksack_normal.png",
+        "gloss": "rucksack_gloss.png",
+        "fresnel": "rucksack_fresnel.png"
+      },
+      "model": "character/human/srp/mountain_rucksack/mountain_rucksack_back",
+      "surface": "mountain_rucksack_back_s",
+      "material": "characters/human/srp/mountain_rucksack/mountain_rucksack_back",
+      "texture": "character/human/srp/mountain_rucksack/mountain_rucksack_back",
+      "template_model": "character/human/renesanse/renesance_combat_back",
+      "template_material": "characters/human/renesance_combat/renesance_combat_back",
+      "fit": "back"
+    }
+  ]
+}
