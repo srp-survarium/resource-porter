@@ -7,15 +7,25 @@
     "template_project": "projects/lobby_scene/day/client_project",
     "output_project": "lobby_scene/camp_069",
     "vegetation_folder": "camp_069",
+    "environment_overrides": {
+      "sun_intensity": 5.0,
+      "sun_color": [1.0, 0.86, 0.68, 1.0]
+    },
+    "exclude_probes": [
+      "environment_and_lights/environment_probe",
+      "environment_and_lights/environment_probe(1)",
+      "environment_and_lights/environment_probe(2)",
+      "environment_and_lights/outdoor/environment_probe"
+    ],
     "probes": {
       "baked": {
-        "diffuse_scale": 0.5
+        "diffuse_scale": 0.9
       }
     },
     "photometric_lights": {
-      "lux": 0.006,
+      "lux": 0.004,
       "lumen": 0.015,
-      "fill": 0.02,
+      "fill": 0.005,
       "shadow": 0.25,
       "max": 2.0
     },

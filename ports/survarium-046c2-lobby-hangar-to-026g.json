@@ -7,6 +7,10 @@
     "template_project": "projects/lobby_scene/day/client_project",
     "output_project": "lobby_scene/hangar_046",
     "vegetation_folder": "hangar_046",
+    "environment_overrides": {
+      "sun_intensity": 7.0,
+      "environment_probes_diffuse_intensity_multiplier": 2.0
+    },
     "probes": "donor",
     "weapon": [
       -9.9,

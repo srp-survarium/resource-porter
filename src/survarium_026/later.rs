@@ -297,6 +297,14 @@ pub struct LobbySpec {
     /// a 0.69d lobby).
     #[serde(default)]
     pub photometric_lights: Option<PhotometricLights>,
+    /// Environment fields set after the conversion, by eye against the
+    /// donor's screenshots (0.26 has no 0.69d exposure or tone curve):
+    /// numbers become floats, 3 or 4 numbers a vector.
+    #[serde(default)]
+    pub environment_overrides: BTreeMap<String, serde_json::Value>,
+    /// Donor probes (`full_name`) left out.
+    #[serde(default)]
+    pub exclude_probes: Vec<String>,
 }
 
 /// How a 0.69d lobby's photometric lights become 0.26's unitless ones.
@@ -2098,6 +2106,25 @@ pub fn convert_scene(
             "environment: the donor's ({copied} fields of the 0.26 environment: sun {elevation}/{azimuth}, sky, clouds, fog, height ambient, colour grading, post-process)"
         ));
     }
+    if let Port::Lobby(lobby) = port {
+        for (field, value) in &lobby.environment_overrides {
+            let numbers = || value.as_array().map(|a| a.iter().filter_map(|v| v.as_f64()).map(|v| v as f32).collect::<Vec<_>>());
+            let v = match value {
+                serde_json::Value::Bool(b) => ConfigValue::Boolean(*b),
+                serde_json::Value::Number(n) => ConfigValue::Float(n.as_f64().context("number")? as f32),
+                serde_json::Value::String(t) => ConfigValue::String(t.clone()),
+                _ => match numbers().as_deref() {
+                    Some(&[a, b, c]) => ConfigValue::Float3([a, b, c]),
+                    Some(&[a, b, c, d]) => ConfigValue::Float4([a, b, c, d]),
+                    _ => bail!("environment override {field}: a bool, number, string or 3/4 numbers"),
+                },
+            };
+            environment.set_path(&format!("properties.{field}"), v)?;
+        }
+        if !lobby.environment_overrides.is_empty() {
+            notes.push(format!("environment overrides (by eye against the donor's screenshots): {}", lobby.environment_overrides.keys().cloned().collect::<Vec<_>>().join(", ")));
+        }
+    }
     objects.push(environment);
     count("environment");
 
@@ -2177,6 +2204,10 @@ pub fn convert_scene(
                     continue;
                 }
                 let full_name = string(object, "full_name").unwrap_or("environment_probe");
+                if lobby.exclude_probes.iter().any(|p| p == full_name) {
+                    *dropped.entry("environment_probe (the manifest's exclude_probes)".into()).or_default() += 1;
+                    continue;
+                }
                 let mut p = native.clone();
                 place(&mut p, object, full_name)?;
                 let texture = match &lobby.probes {
@@ -4777,6 +4808,8 @@ mod tests {
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
             photometric_lights: None,
+            environment_overrides: BTreeMap::new(),
+            exclude_probes: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
