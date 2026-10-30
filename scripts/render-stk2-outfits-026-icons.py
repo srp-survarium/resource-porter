@@ -39,7 +39,7 @@ FRAMES = {'torso': (81, 169), 'legs': (81, 95), 'boots': (76, 144), 'gloves': (7
           'back': (81, 105), 'helmet': (79, 110)}
 CENTRE = (85.5, 41)
 # Items drawn smaller than their slot's stock fill (the owner, 2026-10-30: the sneakers).
-SHRINK = {1866: 0.85}
+SHRINK = {1866: 0.72}
 # The stock boots' icon pose (Zubr UM-4's), with a soft shadow to the left.
 # The stock boot icons show no shaft opening, and the donor shafts are black inside (STK2's
 # trousers covered them): for the icon only, each opening is closed with a cap of its rim's
@@ -123,25 +123,30 @@ def openings(points, faces):
     return loops
 
 
-def capped(surface):
-    """The shaft openings of a boot surface (loops above 8 cm) closed, each with a fan of one
-    colour, its rim's."""
+def capped(surface, low=0.08):
+    """The openings of a surface (its boundary loops above `low` m) closed, each with a fan
+    of one colour: its rim's darker texels (the shadowed leather or cloth inside the rim)."""
     points, uv, normals, faces, texture = surface
     caps = []
     for loop in openings(points, faces):
         rim = points[loop]
-        if rim[:, 1].mean() < 0.08 or len(loop) < 6:
+        if rim[:, 1].mean() < low or len(loop) < 6:
             continue
         centre = rim.mean(0)
-        order = np.argsort(np.arctan2(rim[:, 2] - centre[2], rim[:, 0] - centre[0]))
+        # Around the opening in its own plane (a boot's is level, a glove's upright).
+        axes = np.linalg.svd(rim - centre)[2]
+        flat = (rim - centre) @ axes[:2].T
+        order = np.argsort(np.arctan2(flat[:, 1], flat[:, 0]))
         ring = rim[order]
         h, w = texture.shape[:2]
-        colour = texture[np.clip((uv[loop, 1] * h).astype(int), 0, h - 1), np.clip((uv[loop, 0] * w).astype(int), 0, w - 1)].mean(0)
+        texels = texture[np.clip((uv[loop, 1] * h).astype(int), 0, h - 1), np.clip((uv[loop, 0] * w).astype(int), 0, w - 1)]
+        lum = texels.mean(1)
+        colour = texels[lum <= np.percentile(lum, 35)].mean(0)
         pts = np.vstack([ring, centre])
         n = len(ring)
         tris = np.array([[i, (i + 1) % n, n] for i in range(n)] + [[(i + 1) % n, i, n] for i in range(n)])
-        caps.append((pts, np.zeros((n + 1, 2)), np.tile([0.0, 1.0, 0.0], (n + 1, 1)), tris,
-                     np.ones((1, 1, 3)) * colour * 0.8))
+        caps.append((pts, np.zeros((n + 1, 2)), np.tile(axes[2], (n + 1, 1)), tris,
+                     np.ones((1, 1, 3)) * colour * 0.7))
     return caps
 
 
@@ -166,13 +171,29 @@ def boots_icon(surfaces, shrink=1.0):
     return out
 
 
-GLOVE_ROLL = 50
+# The stock glove icons hold one hand's long axis 25-41 degrees above the horizontal (median
+# 32), the fingers down to the left and the back of the hand to the camera.
+GLOVE_ROLL = 33
+
+
+def leather(texture):
+    """A glove map with its flat black (the cuff's band STK2 hid under the sleeve, darker than
+    0.05) in the glove's own leather colour (the median of its texels 0.08-0.4), for the icon."""
+    lum = texture.mean(2)
+    body = texture[(lum > 0.08) & (lum < 0.4)]
+    out = texture.copy()
+    out[lum < 0.05] = np.median(body, 0) * 0.85
+    return out
 
 
 def glove_icon(surfaces):
     # One hand (the mesh's +x one), its back seen from above, the fingers to the left and a
     # little down, as the stock glove icons show them.
-    picture = renderer.render(as_meshes(surfaces, lambda tri: tri[:, :, 0].mean(1) > 0), 90, 80, roll=GLOVE_ROLL)
+    one = [(points, uv, normals, faces[points[faces][:, :, 0].mean(1) > 0], leather(texture))
+           for points, uv, normals, faces, texture in surfaces]
+    # The wrist opening (black inside the cuff) closed for the icon, as the boots' shafts.
+    one = one + [c for s in one for c in capped(s, low=0.0)]
+    picture = renderer.render(as_meshes(one), 90, 80, roll=GLOVE_ROLL)
     return framed(picture, 'gloves')
 
 

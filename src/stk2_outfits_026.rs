@@ -1275,7 +1275,6 @@ const BASE_LEGS: &str =
 /// (the Leather sleeveless jacket ends at 0.956); stock trousers end at 0.988
 /// to 1.04, the native legs at 1.035 to 1.043.
 const WAIST_TOP_MIN: f64 = 0.985;
-const WAIST_CLEARANCE: f64 = 0.003;
 
 /// The boundary edges of a converted surface, each as its triangle runs it
 /// (corners welded by position).
@@ -1305,76 +1304,140 @@ fn boundary(mesh: &Mesh) -> Vec<(usize, usize)> {
     out
 }
 
-/// Raises a trousers' waist whose top is under [`WAIST_TOP_MIN`] (the
-/// Novice jeans end at 0.937-0.964 where STK2's long jacket covered them;
-/// 0.26g's shorter jackets showed the open top, and the background through
-/// it): a band from the top edge up to the native legs' top ring (at the
-/// same angle around the body, [`WAIST_CLEARANCE`] out), each new vertex the
-/// edge vertex's with the native ring's skin, winding as the edge's
-/// triangle. Returns the triangles added and the old top, or `None`.
-fn close_waist(model: &mut Model, base_legs: &[u8]) -> Result<Option<(usize, f64)>> {
-    let (_, bytes, _) = &model.surfaces[0];
-    let mesh = parse_mesh(bytes, 48, "trousers")?;
-    let edges = boundary(&mesh);
-    let top: Vec<(usize, usize)> = edges.iter().copied().filter(|&(a, _)| mesh.positions[a][1] > 0.8).collect();
-    ensure!(!top.is_empty(), "trousers without an open top");
-    let highest = top.iter().map(|&(a, _)| mesh.positions[a][1]).fold(f64::NEG_INFINITY, f64::max);
-    if highest >= WAIST_TOP_MIN {
-        return Ok(None);
+/// A vertex's bones and weights (48-byte layout: four bone bytes at 12,
+/// three weights at 16, the fourth implied), as bone -> weight.
+fn skin_of(vertex: &[u8]) -> BTreeMap<u8, f64> {
+    let mut out = BTreeMap::new();
+    let mut rest = 1.0;
+    for k in 0..4 {
+        let w = if k < 3 {
+            let w = f64::from(f32::from_le_bytes(vertex[16 + k * 4..20 + k * 4].try_into().unwrap()));
+            rest -= w;
+            w
+        } else {
+            rest.max(0.0)
+        };
+        if w > 1e-6 {
+            *out.entry(vertex[12 + k]).or_insert(0.0) += w;
+        }
     }
-    let base_stride = (read_u32(base_legs, 4)? - 4) / read_u32(base_legs, 8)?;
-    ensure!(base_stride == 48, "native legs of another vertex layout");
-    let base = parse_mesh(base_legs, 48, "native legs")?;
-    let ring: Vec<usize> = {
-        let mut r: Vec<usize> = boundary(&base).into_iter().map(|(a, _)| a).filter(|&a| base.positions[a][1] > 0.9).collect();
-        r.sort_unstable();
-        r.dedup();
-        r
-    };
-    ensure!(ring.len() >= 8, "the native legs have no top ring");
-    let centre_z = ring.iter().map(|&i| base.positions[i][2]).sum::<f64>() / ring.len() as f64;
-    let angle = |p: [f64; 3]| p[0].atan2(p[2] - centre_z);
-    // The native ring by angle, to interpolate.
-    let mut by_angle: Vec<(f64, usize)> = ring.iter().map(|&i| (angle(base.positions[i]), i)).collect();
-    by_angle.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let at_angle = |t: f64| -> ([f64; 3], usize) {
-        let n = by_angle.len();
-        let k = by_angle.iter().position(|(a, _)| *a > t).unwrap_or(n);
-        let (lo, hi) = (by_angle[(k + n - 1) % n], by_angle[k % n]);
-        let span = (hi.0 - lo.0).rem_euclid(std::f64::consts::TAU).max(1e-9);
-        let f = ((t - lo.0).rem_euclid(std::f64::consts::TAU) / span).clamp(0.0, 1.0);
-        let (p, q) = (base.positions[lo.1], base.positions[hi.1]);
-        let mut x: [f64; 3] = std::array::from_fn(|k| p[k] + f * (q[k] - p[k]));
-        let (dx, dz) = (x[0], x[2] - centre_z);
-        let r = dx.hypot(dz).max(1e-6);
-        x[0] += dx / r * WAIST_CLEARANCE;
-        x[2] += dz / r * WAIST_CLEARANCE;
-        (x, if f < 0.5 { lo.1 } else { hi.1 })
-    };
+    out
+}
+
+/// Writes `skin` (its four strongest bones, normalised) into a vertex.
+fn set_skin(vertex: &mut [u8], skin: &BTreeMap<u8, f64>) {
+    let mut strongest: Vec<(u8, f64)> = skin.iter().map(|(b, w)| (*b, *w)).collect();
+    strongest.sort_by(|a, b| b.1.total_cmp(&a.1));
+    strongest.truncate(4);
+    let total: f64 = strongest.iter().map(|(_, w)| w).sum();
+    while strongest.len() < 4 {
+        strongest.push((strongest[0].0, 0.0));
+    }
+    for (k, (bone, w)) in strongest.iter().enumerate() {
+        vertex[12 + k] = *bone;
+        if k < 3 {
+            vertex[16 + k * 4..20 + k * 4].copy_from_slice(&((w / total) as f32).to_le_bytes());
+        }
+    }
+}
+
+fn mix(a: &BTreeMap<u8, f64>, b: &BTreeMap<u8, f64>, t: f64) -> BTreeMap<u8, f64> {
+    let mut out = BTreeMap::new();
+    for (bone, w) in a {
+        *out.entry(*bone).or_insert(0.0) += w * (1.0 - t);
+    }
+    for (bone, w) in b {
+        *out.entry(*bone).or_insert(0.0) += w * t;
+    }
+    out
+}
+
+/// The linear map from a displacement on a triangle's plane to its UV
+/// change, applied to `d` (its part along the triangle's normal dropped).
+fn uv_change(p: [[f64; 3]; 3], uv: [[f64; 2]; 3], d: [f64; 3]) -> [f64; 2] {
+    let (e1, e2) = (sub(p[1], p[0]), sub(p[2], p[0]));
+    let (a11, a12, a22) = (dot(e1, e1), dot(e1, e2), dot(e2, e2));
+    let det = a11 * a22 - a12 * a12;
+    if det.abs() < 1e-14 {
+        return [0.0; 2];
+    }
+    let (b1, b2) = (dot(d, e1), dot(d, e2));
+    let s = (a22 * b1 - a12 * b2) / det;
+    let t = (a11 * b2 - a12 * b1) / det;
+    std::array::from_fn(|k| s * (uv[1][k] - uv[0][k]) + t * (uv[2][k] - uv[0][k]))
+}
+
+/// Grows a surface (48-byte vertices) past its boundary edges `edges` (as
+/// their triangles run them) in `rows` rows: row k of edge vertex v at
+/// `place(v, k)` with the skin `skin(v, k)`, its normal and tangents v's,
+/// its UV the surface's own texture reflected across the edge (the UV the
+/// displacement from v would have, taken back into the surface), so the
+/// cloth runs on without a seam or a patch. Each new quad winds as the
+/// edge's triangle (and, `both_sides`, the other way too). Returns the new
+/// surface and the triangles added.
+fn grow(
+    bytes: &[u8],
+    edges: &[(usize, usize)],
+    rows: usize,
+    place: impl Fn(usize, usize) -> [f64; 3],
+    skin: impl Fn(usize, usize) -> BTreeMap<u8, f64>,
+    both_sides: bool,
+) -> Result<(Vec<u8>, usize, BTreeMap<(usize, usize), usize>)> {
+    let mesh = parse_mesh(bytes, 48, "surface")?;
     let n = mesh.positions.len();
-    let mut added: BTreeMap<usize, usize> = BTreeMap::new();
+    let uv_at = |i: usize| -> [f64; 2] {
+        [0, 4].map(|o| f64::from(f32::from_le_bytes(bytes[12 + i * 48 + 40 + o..12 + i * 48 + 44 + o].try_into().unwrap())))
+    };
+    // Each edge vertex's triangle: the one its boundary edge is on.
+    let mut triangle_of: BTreeMap<usize, [usize; 3]> = BTreeMap::new();
+    for &(a, b) in edges {
+        let t = *mesh
+            .triangles
+            .iter()
+            .find(|t| (0..3).any(|k| t[k] == a && t[(k + 1) % 3] == b))
+            .context("a boundary edge on no triangle")?;
+        triangle_of.entry(a).or_insert(t);
+        triangle_of.entry(b).or_insert(t);
+    }
     let mut vertices = bytes[12..12 + n * 48].to_vec();
-    for &(a, b) in &top {
-        for v in [a, b] {
-            if added.contains_key(&v) {
-                continue;
-            }
-            let (p, near) = at_angle(angle(mesh.positions[v]));
+    let mut index: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    for (&v, t) in &triangle_of {
+        let p = t.map(|i| mesh.positions[i]);
+        let uv = t.map(uv_at);
+        for k in 1..=rows {
+            let at = place(v, k);
+            let back = uv_change(p, uv, sub(at, mesh.positions[v]));
             let mut vertex = bytes[12 + v * 48..12 + (v + 1) * 48].to_vec();
-            for (k, value) in p.iter().enumerate() {
-                vertex[k * 4..k * 4 + 4].copy_from_slice(&(*value as f32).to_le_bytes());
+            for (c, value) in at.iter().enumerate() {
+                vertex[c * 4..c * 4 + 4].copy_from_slice(&(*value as f32).to_le_bytes());
             }
-            // The native ring's bones and weights.
-            vertex[12..28].copy_from_slice(&base_legs[12 + near * 48 + 12..12 + near * 48 + 28]);
-            added.insert(v, n + added.len());
+            set_skin(&mut vertex, &skin(v, k));
+            let own = uv_at(v);
+            for c in 0..2 {
+                let value = (own[c] - back[c]) as f32;
+                vertex[40 + c * 4..44 + c * 4].copy_from_slice(&value.to_le_bytes());
+                let rebased = f64::from(value) * 1024.0;
+                vertex[35 + c * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+            }
+            index.insert((v, k), n + vertices.len() / 48 - n);
             vertices.extend_from_slice(&vertex);
         }
     }
-    let mut triangles: Vec<[usize; 3]> = mesh.triangles.clone();
-    for &(a, b) in &top {
-        let (a2, b2) = (added[&a], added[&b]);
-        triangles.push([b, a, a2]);
-        triangles.push([b, a2, b2]);
+    let row = |v: usize, k: usize| if k == 0 { v } else { index[&(v, k)] };
+    let mut triangles = mesh.triangles.clone();
+    let mut added = 0;
+    for &(a, b) in edges {
+        for k in 0..rows {
+            let quad = [[row(b, k), row(a, k), row(a, k + 1)], [row(b, k), row(a, k + 1), row(b, k + 1)]];
+            for t in quad {
+                triangles.push(t);
+                added += 1;
+                if both_sides {
+                    triangles.push([t[0], t[2], t[1]]);
+                    added += 1;
+                }
+            }
+        }
     }
     let index_chunk = 12 + n * 48;
     let rest = index_chunk + 8 + read_u32(bytes, index_chunk + 4)?;
@@ -1391,63 +1454,318 @@ fn close_waist(model: &mut Model, base_legs: &[u8]) -> Result<Option<(usize, f64
             out.extend_from_slice(&u16::try_from(i)?.to_le_bytes());
         }
     }
-    out.extend_from_slice(bytes.get(rest..).context("truncated trousers")?);
-    model.surfaces[0].1 = out;
-    Ok(Some((top.len() * 2, highest)))
+    out.extend_from_slice(bytes.get(rest..).context("truncated surface")?);
+    Ok((out, added, index))
 }
 
-/// The stock Scavenger hood (892), whose cowl closes over the neck and the
-/// shoulders under every torso.
-const SCAVENGER_HOOD: &str =
-    "models/character/human/scavengers/scavengers_03_helmet.skinned_model/render/scavengers_03_helmet_s/converted_model";
-/// Its part below this height (m) is the cowl: the Novice hood ends at
-/// 1.50-1.55 over the cheeks and the nape, open at the bottom where STK2's
-/// collar covered it.
-const COWL_TOP: f64 = 1.58;
-/// A patch of the Novice hood's own canvas in its (cut) attachment map:
-/// (u, v) from and to; the cowl's UVs are laid on it at the hood's texel
-/// density, mirrored back and forth where the cowl is larger.
-const COWL_FABRIC: [f64; 4] = [0.40, 0.69, 0.52, 0.77];
-/// The hood's canvas: UV units a metre (measured on its back panel).
-const HOOD_UV_PER_METRE: f64 = 0.86;
-
-/// The hood (48-byte vertices) with the Scavenger hood's cowl joined to it,
-/// re-mapped onto the hood's canvas ([`COWL_FABRIC`]) and keeping the stock
-/// cowl's skin, so it follows the neck and shoulders as the stock hood's
-/// does; and the cowl's triangle count.
-fn add_cowl(hood: &[u8], scavenger: &[u8]) -> Result<(usize, Vec<u8>)> {
-    ensure!((read_u32(scavenger, 4)? - 4) / read_u32(scavenger, 8)? == 48, "the Scavenger hood has another vertex layout");
-    let mut cowl = keep_triangles(scavenger, |c| c.iter().all(|(p, _)| p[1] < COWL_TOP))?;
-    let mesh = parse_mesh(&cowl, 48, "cowl")?;
-    let centre_z = mesh.positions.iter().map(|p| p[2]).sum::<f64>() / mesh.positions.len() as f64;
-    let radius = mesh.positions.iter().map(|p| p[0].hypot(p[2] - centre_z)).sum::<f64>() / mesh.positions.len() as f64;
-    // Back and forth over [0, w): continuous, so no triangle spans a jump.
-    let fold = |x: f64, w: f64| {
-        let t = x.rem_euclid(2.0 * w);
-        if t < w { t } else { 2.0 * w - t }
-    };
-    let [u0, v0, u1, v1] = COWL_FABRIC;
-    for (i, p) in mesh.positions.iter().enumerate() {
-        let around = p[0].atan2(p[2] - centre_z) * radius;
-        let uv = [
-            u0 + fold((around + 1.0) * HOOD_UV_PER_METRE, u1 - u0),
-            v0 + fold((COWL_TOP - p[1]) * HOOD_UV_PER_METRE, v1 - v0),
-        ];
-        let v = 12 + i * 48;
-        for (k, value) in uv.iter().enumerate() {
-            let value = *value as f32;
-            cowl[v + 40 + k * 4..v + 44 + k * 4].copy_from_slice(&value.to_le_bytes());
-            let rebased = f64::from(value) * 1024.0;
-            cowl[v + 35 + k * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+/// A converted surface (48-byte vertices) with `vertices` and `triangles`
+/// added.
+fn append(bytes: &[u8], vertices: &[Vec<u8>], triangles: &[[usize; 3]]) -> Result<Vec<u8>> {
+    let mesh = parse_mesh(bytes, 48, "surface")?;
+    let n = mesh.positions.len();
+    let index_chunk = 12 + n * 48;
+    let rest = index_chunk + 8 + read_u32(bytes, index_chunk + 4)?;
+    let all: Vec<[usize; 3]> = mesh.triangles.iter().copied().chain(triangles.iter().copied()).collect();
+    let count = n + vertices.len();
+    let mut out = vec![];
+    out.extend_from_slice(&3_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + count * 48)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(count)?.to_le_bytes());
+    out.extend_from_slice(&bytes[12..index_chunk]);
+    for v in vertices {
+        out.extend_from_slice(v);
+    }
+    out.extend_from_slice(&4_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + all.len() * 6)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(all.len() * 3)?.to_le_bytes());
+    for t in &all {
+        for &i in t {
+            out.extend_from_slice(&u16::try_from(i)?.to_le_bytes());
         }
     }
-    let both = Model {
-        surfaces: vec![
-            ("hood".into(), hood.to_vec(), BinaryConfig { root: V::Named(vec![]) }),
-            ("cowl".into(), cowl, BinaryConfig { root: V::Named(vec![]) }),
-        ],
+    out.extend_from_slice(bytes.get(rest..).context("truncated surface")?);
+    Ok(out)
+}
+
+/// The height a raised waist reaches (m): the native legs' top ring, which
+/// every stock torso covers (it is drawn under any of them when no trousers
+/// are worn).
+const WAIST_TOP: f64 = 1.04;
+const WAIST_ROWS: usize = 3;
+
+/// Raises a trousers' waist whose top is under [`WAIST_TOP_MIN`] (the
+/// Novice jeans end at 0.937-0.964 where STK2's long jacket covered them;
+/// 0.26g's shorter jackets showed the open top, and the background through
+/// it): the top edge grows straight up to [`WAIST_TOP`] at the trousers' own
+/// width, its denim reflected up from below the edge, its skin blending into
+/// the native legs' top ring's. Returns the triangles added and the old top,
+/// or `None`.
+fn close_waist(model: &mut Model, base_legs: &[u8]) -> Result<Option<(usize, f64)>> {
+    let (_, bytes, _) = &model.surfaces[0];
+    let mesh = parse_mesh(bytes, 48, "trousers")?;
+    let top: Vec<(usize, usize)> = boundary(&mesh).into_iter().filter(|&(a, _)| mesh.positions[a][1] > 0.8).collect();
+    ensure!(!top.is_empty(), "trousers without an open top");
+    let highest = top.iter().map(|&(a, _)| mesh.positions[a][1]).fold(f64::NEG_INFINITY, f64::max);
+    if highest >= WAIST_TOP_MIN {
+        return Ok(None);
+    }
+    ensure!((read_u32(base_legs, 4)? - 4) / read_u32(base_legs, 8)? == 48, "native legs of another vertex layout");
+    let base = parse_mesh(base_legs, 48, "native legs")?;
+    let ring: Vec<usize> = {
+        let mut r: Vec<usize> = boundary(&base).into_iter().map(|(a, _)| a).filter(|&a| base.positions[a][1] > 0.9).collect();
+        r.sort_unstable();
+        r.dedup();
+        r
     };
-    Ok((mesh.triangles.len(), both.merged()?.0))
+    ensure!(ring.len() >= 8, "the native legs have no top ring");
+    let nearest = |p: [f64; 3]| -> usize {
+        *ring
+            .iter()
+            .min_by(|&&a, &&b| {
+                let d = |i: usize| (base.positions[i][0] - p[0]).hypot(base.positions[i][2] - p[2]);
+                d(a).total_cmp(&d(b))
+            })
+            .unwrap()
+    };
+    let positions = mesh.positions.clone();
+    let place = |v: usize, k: usize| {
+        let p = positions[v];
+        [p[0], p[1] + (WAIST_TOP - p[1]) * k as f64 / WAIST_ROWS as f64, p[2]]
+    };
+    let skin = |v: usize, k: usize| {
+        let own = skin_of(&bytes[12 + v * 48..12 + (v + 1) * 48]);
+        let near = nearest(positions[v]);
+        let native = skin_of(&base_legs[12 + near * 48..12 + (near + 1) * 48]);
+        mix(&own, &native, k as f64 / WAIST_ROWS as f64)
+    };
+    let (grown, added, _) = grow(bytes, &top, WAIST_ROWS, place, skin, false)?;
+    model.surfaces[0].1 = grown;
+    Ok(Some((added, highest)))
+}
+
+/// The stock Scavenger hood (892): how far down and how wide a hood's cowl
+/// comes over the neck and shoulders, and its skin there.
+const SCAVENGER_HOOD: &str =
+    "models/character/human/scavengers/scavengers_03_helmet.skinned_model/render/scavengers_03_helmet_s/converted_model";
+/// Below this the Scavenger hood is its cowl (m).
+const COWL_TOP: f64 = 1.58;
+const COWL_ROWS: usize = 4;
+/// Room the grown cowl leaves over the native neck (m).
+const COWL_CLEARANCE: f64 = 0.006;
+
+/// Where the cowl ends (m): at the collar line round the neck, a little
+/// lower in front (the Scavenger hood's comes to a point there).
+const COWL_BOTTOM: f64 = 1.47;
+const COWL_FRONT_DROP: f64 = 0.03;
+/// Segments of the panel that closes the grown cowl across the throat.
+const BRIDGE_SEGMENTS: usize = 8;
+
+/// The Novice hood (48-byte vertices) grown down over the neck and the
+/// shoulders, which STK2's collar covered. Its shell's bottom hem (the
+/// open edge whose normals face out; the lining's edge stays inside) grows
+/// in [`COWL_ROWS`] rows to the Scavenger hood's hem at its angle around the
+/// neck (the lowest point of its cowl there), kept [`COWL_CLEARANCE`] out of
+/// the native neck; the two flap tips are then joined across the throat, as
+/// the Scavenger hood's cowl closes there, with a seam down the middle.
+/// Every new vertex takes the hood's own canvas reflected across the edge it
+/// grows from (no patch and no break at the join), and its skin blends from
+/// the hood's into the Scavenger hood's hem's. Returns the new hood and the
+/// triangles added.
+fn grow_cowl(hood: &[u8], scavenger: &[u8], head: &[u8]) -> Result<(Vec<u8>, usize)> {
+    use crate::mask_fit::farthest_hit;
+    ensure!((read_u32(scavenger, 4)? - 4) / read_u32(scavenger, 8)? == 48, "the Scavenger hood has another vertex layout");
+    let mesh = parse_mesh(hood, 48, "hood")?;
+    let neck = parse_mesh(head, 40, "native head")?;
+    let stock = parse_mesh(scavenger, 48, "Scavenger hood")?;
+    let all_edges = boundary(&mesh);
+    ensure!(!all_edges.is_empty(), "the hood has no open edge");
+    let centre_z = all_edges.iter().map(|&(a, _)| mesh.positions[a][2]).sum::<f64>() / all_edges.len() as f64;
+    let angle = |p: [f64; 3]| p[0].atan2(p[2] - centre_z);
+    let radial = |p: [f64; 3]| {
+        let d = [p[0], 0.0, p[2] - centre_z];
+        let l = dot(d, d).sqrt().max(1e-9);
+        d.map(|c| c / l)
+    };
+    let normal = |i: usize| -> [f64; 3] {
+        let b = &hood[12 + i * 48 + 28..12 + i * 48 + 31];
+        [b[2], b[1], b[0]].map(|v| f64::from(v) / 127.5 - 1.0)
+    };
+    let faces_out = |i: usize| dot(normal(i), radial(mesh.positions[i])) > 0.2;
+    let edges: Vec<(usize, usize)> = all_edges.into_iter().filter(|&(a, b)| faces_out(a) && faces_out(b)).collect();
+    ensure!(!edges.is_empty(), "the hood's hem has no outward edge");
+    // The hem's two ends (by position: the flap tips).
+    let key = |p: [f64; 3]| p.map(|v| (v * 1e4).round() as i64);
+    let mut uses: BTreeMap<[i64; 3], (usize, usize)> = BTreeMap::new();
+    for &(a, b) in &edges {
+        for v in [a, b] {
+            uses.entry(key(mesh.positions[v])).or_insert((v, 0)).1 += 1;
+        }
+    }
+    let ends: Vec<usize> = uses.values().filter(|(_, n)| *n == 1).map(|(v, _)| *v).collect();
+    ensure!(ends.len() == 2, "the hood's outer hem is not one open chain ({} ends)", ends.len());
+    // The Scavenger hood's hem: its lowest cowl point in each sector.
+    const SECTORS: usize = 24;
+    let sector = |p: [f64; 3]| ((angle(p) + std::f64::consts::PI) / std::f64::consts::TAU * SECTORS as f64) as usize % SECTORS;
+    let mut hem: Vec<Option<usize>> = vec![None; SECTORS];
+    for (i, &p) in stock.positions.iter().enumerate() {
+        if p[1] < COWL_TOP {
+            let k = sector(p);
+            if hem[k].is_none_or(|j| p[1] < stock.positions[j][1]) {
+                hem[k] = Some(i);
+            }
+        }
+    }
+    let hem_at = |t: f64| -> Result<usize> {
+        let p = [t.sin(), 0.0, centre_z + t.cos()];
+        let k = sector(p);
+        (0..SECTORS)
+            .flat_map(|d| [hem[(k + d) % SECTORS], hem[(k + SECTORS - d) % SECTORS]])
+            .flatten()
+            .next()
+            .context("the Scavenger hood has no cowl")
+    };
+    // Out of the native neck, horizontally from the axis.
+    let clear = |mut x: [f64; 3]| {
+        let dir = radial(x);
+        let origin = [0.0, x[1], centre_z];
+        if let Some((t, _, _)) = farthest_hit(origin, dir, &neck.positions, &neck.triangles) {
+            if dot(sub(x, origin), dir) < t + COWL_CLEARANCE {
+                x[0] = dir[0] * (t + COWL_CLEARANCE);
+                x[2] = centre_z + dir[2] * (t + COWL_CLEARANCE);
+            }
+        }
+        x
+    };
+    let mut targets: BTreeMap<usize, (usize, [f64; 3])> = BTreeMap::new();
+    for &(a, b) in &edges {
+        for v in [a, b] {
+            let p = mesh.positions[v];
+            let t = angle(p);
+            let h = hem_at(t)?;
+            let q = stock.positions[h];
+            // Down round the neck to the collar line, hugging it (`clear`
+            // keeps it out of the native neck): under every jacket's collar,
+            // as the Scavenger hood's cowl is; its hem only lends the skin.
+            let _ = q;
+            let r = p[0].hypot(p[2] - centre_z);
+            let front = t.cos().max(0.0);
+            let y = (COWL_BOTTOM - COWL_FRONT_DROP * front).min(p[1] - 0.02);
+            targets.entry(v).or_insert((h, [t.sin() * r * 0.85, y, centre_z + t.cos() * r * 0.85]));
+        }
+    }
+    let positions = mesh.positions.clone();
+    let place = |v: usize, k: usize| {
+        let (p, q) = (positions[v], targets[&v].1);
+        let s = k as f64 / COWL_ROWS as f64;
+        clear(std::array::from_fn(|c| p[c] + s * (q[c] - p[c])))
+    };
+    let skin_at = |v: usize, k: usize| {
+        let own = skin_of(&hood[12 + v * 48..12 + (v + 1) * 48]);
+        let h = targets[&v].0;
+        mix(&own, &skin_of(&scavenger[12 + h * 48..12 + (h + 1) * 48]), k as f64 / COWL_ROWS as f64)
+    };
+    let (grown, mut added, index) = grow(hood, &edges, COWL_ROWS, place, skin_at, false)?;
+    // --- The throat: a panel from one flap tip's column to the other's ---
+    let row = |v: usize, k: usize| if k == 0 { v } else { index[&(v, k)] };
+    let g = parse_mesh(&grown, 48, "grown hood")?;
+    let uv_of = |i: usize| -> [f64; 2] {
+        [0, 4].map(|o| f64::from(f32::from_le_bytes(grown[12 + i * 48 + 40 + o..12 + i * 48 + 44 + o].try_into().unwrap())))
+    };
+    let tri_of = |v: usize| -> Result<[usize; 3]> {
+        mesh.triangles
+            .iter()
+            .find(|t| t.contains(&v))
+            .copied()
+            .context("a flap tip on no triangle")
+    };
+    let (mut l, mut r) = (ends[0], ends[1]);
+    if angle(mesh.positions[l]) > angle(mesh.positions[r]) {
+        std::mem::swap(&mut l, &mut r);
+    }
+    ensure!(angle(mesh.positions[l]) < 0.0 && angle(mesh.positions[r]) > 0.0, "the flap tips are not either side of the throat");
+    let mut vertices: Vec<Vec<u8>> = vec![];
+    let mut grid: BTreeMap<(usize, usize, bool), usize> = BTreeMap::new();
+    let half = BRIDGE_SEGMENTS / 2;
+    for k in 0..=COWL_ROWS {
+        let (pl, pr) = (g.positions[row(l, k)], g.positions[row(r, k)]);
+        let (tl, tr) = (angle(pl), angle(pr));
+        let (rl, rr) = (pl[0].hypot(pl[2] - centre_z), pr[0].hypot(pr[2] - centre_z));
+        for j in 1..BRIDGE_SEGMENTS {
+            let f = j as f64 / BRIDGE_SEGMENTS as f64;
+            let (t, rad, y) = (tl + f * (tr - tl), rl + f * (rr - rl), pl[1] + f * (pr[1] - pl[1]));
+            let at = clear([t.sin() * rad, y, centre_z + t.cos() * rad]);
+            // The middle twice: each half takes its own flap's canvas.
+            for side_left in [true, false] {
+                if (side_left && j > half) || (!side_left && j < half) {
+                    continue;
+                }
+                let tip = if side_left { l } else { r };
+                let src = row(tip, k);
+                let tri = tri_of(tip)?;
+                let p3 = tri.map(|i| mesh.positions[i]);
+                let uv3 = tri.map(|i| {
+                    [0, 4].map(|o| f64::from(f32::from_le_bytes(hood[12 + i * 48 + 40 + o..12 + i * 48 + 44 + o].try_into().unwrap())))
+                });
+                let back = uv_change(p3, uv3, sub(at, mesh.positions[tip]));
+                let own = uv_of(tip);
+                let mut vertex = grown[12 + src * 48..12 + (src + 1) * 48].to_vec();
+                for (c, value) in at.iter().enumerate() {
+                    vertex[c * 4..c * 4 + 4].copy_from_slice(&(*value as f32).to_le_bytes());
+                }
+                let h = hem_at(t)?;
+                set_skin(
+                    &mut vertex,
+                    &mix(
+                        &skin_of(&grown[12 + src * 48..12 + (src + 1) * 48]),
+                        &skin_of(&scavenger[12 + h * 48..12 + (h + 1) * 48]),
+                        k as f64 / COWL_ROWS as f64,
+                    ),
+                );
+                for c in 0..2 {
+                    let value = (own[c] - back[c]) as f32;
+                    vertex[40 + c * 4..44 + c * 4].copy_from_slice(&value.to_le_bytes());
+                    let rebased = f64::from(value) * 1024.0;
+                    vertex[35 + c * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+                }
+                grid.insert((k, j, side_left), g.positions.len() + vertices.len());
+                vertices.push(vertex);
+            }
+        }
+    }
+    let at = |k: usize, j: usize, left: bool| -> usize {
+        if j == 0 {
+            row(l, k)
+        } else if j == BRIDGE_SEGMENTS {
+            row(r, k)
+        } else if j == half {
+            grid[&(k, j, left)]
+        } else {
+            grid[&(k, j, j < half)]
+        }
+    };
+    let mut triangles = vec![];
+    for k in 0..COWL_ROWS {
+        for j in 0..BRIDGE_SEGMENTS {
+            let left = j < half;
+            let (a, b, c, d) = (at(k, j, left), at(k, j + 1, left), at(k + 1, j + 1, left), at(k + 1, j, left));
+            triangles.push([a, b, c]);
+            triangles.push([a, c, d]);
+        }
+    }
+    // Facing out, as the shell does.
+    let pos = |i: usize| if i < g.positions.len() { g.positions[i] } else {
+        let v = &vertices[i - g.positions.len()];
+        [0, 4, 8].map(|o| f64::from(f32::from_le_bytes(v[o..o + 4].try_into().unwrap())))
+    };
+    let t0 = triangles[0];
+    let n0 = crate::mask_fit::cross(sub(pos(t0[1]), pos(t0[0])), sub(pos(t0[2]), pos(t0[0])));
+    if dot(n0, radial(pos(t0[0]))) < 0.0 {
+        for t in &mut triangles {
+            t.swap(1, 2);
+        }
+    }
+    added += triangles.len();
+    Ok((append(&grown, &vertices, &triangles)?, added))
 }
 
 /// The lowest a full-length trousers hem should come over low boots (m):
@@ -1861,7 +2179,7 @@ pub fn build(
         let label = b.label();
         if let Some((added, from)) = close_waist(b.models.get_mut("").unwrap(), &base_legs)? {
             println!(
-                "{label}: the waist (its top at {:.0} mm, under the shortest jackets' hems) raised to the native legs' with a band of {added} triangles",
+                "{label}: the waist (its top at {:.0} mm, under the shortest jackets' hems) grown straight up to the native legs' top with {added} triangles",
                 from * 1000.0
             );
         }
@@ -2056,10 +2374,10 @@ pub fn build(
             r.2,
             r.3 * 1000.0
         );
-        let cowl = cx.view.read(SCAVENGER_HOOD)?;
-        let (n, joined) = add_cowl(&model.surfaces[0].1, &cowl)?;
-        model.surfaces[0].1 = joined;
-        println!("{label}: the Scavenger hood's cowl below {:.0} mm added under it ({n} triangles), in the hood's fabric", COWL_TOP * 1000.0);
+        let stock = cx.view.read(SCAVENGER_HOOD)?;
+        let (grown, n) = grow_cowl(&model.surfaces[0].1, &stock, &cx.head)?;
+        model.surfaces[0].1 = grown;
+        println!("{label}: grown down to the Scavenger hood's hem over the neck and shoulders and closed across the throat ({n} triangles)");
     }
 
     // --- The bundles ---

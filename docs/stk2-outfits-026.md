@@ -65,12 +65,17 @@ has the items, their stats and the owner's open questions.
     made for them. (Version 1 took the donor's forearms from `bandit_01_hand`; they
     stood through the gloves' cuffs in the game.)
   - the Novice jeans end at 0.937-0.964 m, where STK2's long jacket covered them; under
-    0.26g's shorter jackets the open top showed the background. A band from that edge
-    up to the native legs' top ring (1.04, every stock torso covers it) closes them
-    (`close_waist`, under 0.985 only; the other trousers end at 1.014 and 1.036);
-  - the hood's bottom was open where STK2's collar covered it: the stock Scavenger
-    hood's cowl (its part below 1.58 m, its own skin weights) is joined under it, laid
-    on the hood's canvas (`add_cowl`);
+    0.26g's shorter jackets the open top showed the background. The top edge grows
+    straight up to 1.04 m (the native legs' top ring, which every stock torso covers)
+    at the jeans' own width, its denim reflected up from below the edge and its skin
+    blending into the native ring's (`close_waist`, `grow`; under 0.985 only, the other
+    trousers end at 1.014 and 1.036);
+  - the hood's bottom was open where STK2's collar covered it: its shell's own bottom
+    hem grows down round the neck to the collar line (1.47 m, 1.44 in front), 6 mm off
+    the native neck, and the two flap tips are joined across the throat with a seam
+    down the middle; every new vertex takes the hood's canvas reflected across the edge
+    it grows from, and its skin blends into the stock Scavenger hood's hem's
+    (`grow_cowl`);
   - the hood covers the mask slot (as the Marauder, Molot and Zubr helmets do: its rim
     and flaps lie where every mask is) and is pushed out only where the native skull
     under it comes through (one point, 0.9 mm: 62 vertices, up to 5.3 mm);
@@ -104,9 +109,12 @@ reproducible: the same inputs make the same packs byte for byte.
 ## Icons
 
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
-boots 76, gloves 77, centred), the sneakers 15 % smaller (the owner). Boots are seen
-level with their shaft openings closed by a cap of the rim's colour, for the icon
-only: the donor shafts are black inside.
+boots 76, gloves 77, centred), the sneakers 28 % smaller (the owner). Boots are seen
+level with their shaft openings closed by a cap of the rim's darker colour, for the
+icon only: the donor shafts are black inside. Gloves: one hand, its back to the camera,
+its long axis 32 degrees above the horizontal with the fingers down to the left (the
+stock glove icons' median, 25-41), the wrist capped and the cuff's black band in the
+glove's leather colour.
 
 ## Checked offline only
 
