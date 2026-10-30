@@ -280,3 +280,42 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   distance is cut by a ray against the project's static collision; `camera_walls` adds
   invisible boxes (0.26's unit primitive `editor/walker_collision`, scaled) where the walls'
   own collision is open (the camp's windows and doorway).
+
+## Rudnya (0.69d level_01)
+
+0.69d's Rudnya becomes 0.26g map **204** (mode 4, day), level number 14, project
+`v069d_level_01/day_4` (`ports/survarium-069d-rudnya-to-026g.json`). 0.26g already has a
+Rudnya (`level_01`) in the same coordinates (the team bases match within a few metres), so
+the port takes that map as its template: native Rudnya's sky, environment, global probe
+(-7.9, 18.1, -12.5; radius 1003.5) and its 24 ambient sound emitters, unmoved. The donor's
+69 probe volumes keep their placement on native level_01 cubemaps by folder (`atp`,
+`church` -> `indoor`, `school` -> `indoor(2)`, the houses and barns -> `indoor(1)`,
+`swamp`). The HUD key stays `level_01`, so native Rudnya's minimap draws it (same
+layout).
+
+**Sharp, as 0.69d draws it.** No `max_texture_size` or `texture_limits`: every imported
+texture keeps its full size and every mip (605 MiB, Duga's 1024-capped set was 651).
+LOD0 and LOD-less surfaces keep their authored geometry (no `lod0_*`); only authored
+far LODs are simplified (110 k -> 52 k triangles) and terrain tiles beyond the error
+bound of 0.4 % (87 k -> 31 k). Imported models are 47 MiB of files in all. What 0.26
+cannot draw stays as before: metalness, parallax, detail maps, fuzziness (the notes of
+the bundle list each material).
+
+**What the builder learnt for it.**
+
+* `level_id` and `map_name` (map spec): a port of a map 0.26 has takes its own level
+  number (`match_making_params.map_id`; the lobby keys names, room tiles and play counts
+  by it) and a name key the target's dictionaries carry (skhid-srp's localization adds
+  `st_level_14_name`), instead of the donor's `st_level_01_name`, which is native
+  Rudnya's.
+* The record names the map (`maps`), so `pack from-bundle` declares it to the server
+  (`server.maps`); the asset id follows the output project.
+* The template's light is asked for only when the donor has lights (native Rudnya has
+  none).
+* `wood_tin` (a misspelt game material on `props/tool/ax`, in 0.69d's table under no
+  name) and the snow, slime, smoke and marker materials have 0.26 stand-ins;
+  `generic/underground_black_mat` (a flat black colour without a texture) is drawn with
+  native `tiled/concrete/concrete_black`.
+
+Spawns: the 405 respawn points of `logic/modes/team_death_match/` (team 0: 313 in four
+groups around (49..77, 32..54); team 1: 92 around (-34..-51, -83..-94)).
