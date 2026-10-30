@@ -150,9 +150,10 @@ pub struct Part {
     pub model: &'static str,
     pub surface: &'static str,
     pub map: &'static str,
-    /// Only the bare forearms of a hands model: the jacket's rolled-up
-    /// sleeves leave them out, and a torso item draws the arms down to the
-    /// gloves.
+    /// A jacket with its sleeves pushed up: below them the native forearms
+    /// show (the native body's torso variant of each glove class, with its
+    /// own skin material), as the stock torsos with bare arms draw them.
+    /// Every stock glove's cuff is made for them.
     pub forearms: bool,
 }
 
@@ -232,26 +233,20 @@ pub const BANDIT: Outfit = Outfit {
             kind: Kind::Torso,
             name: "torso",
             parts: &[
+                // The bomber's sleeves are pushed up: the native forearms
+                // under them. Not the donor hands model's (its forearm stood
+                // through every glove's cuff in the game).
                 Part {
                     model: "bandit/bandit_01/bandit_01_torso_s1",
                     surface: "bandit_01_torso_s",
                     map: "torso",
-                    forearms: false,
+                    forearms: true,
                 },
                 Part {
                     model: "bandit/bandit_01/bandit_01_torso_s1",
                     surface: "bandit_01_attach_s",
                     map: "attach",
                     forearms: false,
-                },
-                // The bomber's sleeves are pushed up: the forearms under them
-                // are the hands model's, without the watch and the bracelet
-                // (its attachment surface) and without the hands.
-                Part {
-                    model: "bandit/bandit_01/bandit_01_hand",
-                    surface: "bandit_01_torso_s",
-                    map: "torso",
-                    forearms: true,
                 },
             ],
             hud: None,
@@ -352,12 +347,14 @@ pub const NOVICE: Outfit = Outfit {
             black_band: None,
         },
         // The jeans' waist fades to black from v 0.424 to 0.517 (rows
-        // 869-1059 of 2048), where STK2's jacket covered them.
+        // 869-1059 of 2048), where STK2's jacket covered them; their top
+        // edge samples row 867, which the raised waist band repeats, so the
+        // paint starts at 866.
         Map {
             name: "legs",
             stem: "neutral/neutral_01_novice/neutral_01_novice_legs",
             finish: Finish::CLOTH,
-            black_band: Some([869.0 / 2048.0, 1060.0 / 2048.0]),
+            black_band: Some([866.0 / 2048.0, 1060.0 / 2048.0]),
         },
     ],
     pieces: &[
@@ -1192,7 +1189,7 @@ fn read_model(
 }
 
 /// A piece's surfaces from its parts, one per map: parts on one map are
-/// joined (the bomber and the forearms under it). With `model`, every part
+/// joined. With `model`, every part
 /// is read from that exported model instead (the gloves' `_hud` hands).
 fn read_parts(
     source: &Path,
@@ -1200,7 +1197,6 @@ fn read_parts(
     parts: &[Part],
     model: Option<&str>,
     bind: &[u8],
-    bones: &BTreeMap<String, [f64; 3]>,
     inputs: &mut BTreeMap<String, String>,
 ) -> Result<Model> {
     let mut out = Model { surfaces: vec![] };
@@ -1214,10 +1210,7 @@ fn read_parts(
             bind,
             inputs,
         )?;
-        let (name, mut bytes, props) = read.surfaces.remove(0);
-        if part.forearms {
-            bytes = forearms(&bytes, bones)?;
-        }
+        let (name, bytes, props) = read.surfaces.remove(0);
         match out.surfaces.iter_mut().find(|(n, _, _)| *n == name) {
             Some((_, joined, _)) => {
                 let both = Model {
@@ -1234,36 +1227,227 @@ fn read_parts(
     Ok(out)
 }
 
-/// How far past the wrist (the Hand bone, along the forearm) bare forearm
-/// skin is kept (m): into every glove, which [`trim_tucked`] then cuts.
-const FOREARM_PAST_WRIST: f64 = 0.01;
+/// The native body's torso variants (bare arms) and their material.
+const NATIVE_ARMS: &str = "forearms";
+const NATIVE_ARMS_MATERIAL: &str = "characters/human/base_character/base_character_torso";
+/// How far above the elbow (the ForeArm bone, along the forearm) the native
+/// forearms start (m): inside the pushed-up sleeve.
+const NATIVE_ARMS_FROM: f64 = 0.05;
 
-/// A hands model's triangles wholly on the forearms: up to
-/// [`FOREARM_PAST_WRIST`] past the Hand bone along ForeArm to Hand.
-fn forearms(hands: &[u8], bones: &BTreeMap<String, [f64; 3]>) -> Result<Vec<u8>> {
+/// The native body's forearms of the torso variant `suffix` ("" `_s1`,
+/// `_s2`, `_s3`: the arms the stock gloves of each class are made for),
+/// from [`NATIVE_ARMS_FROM`] to the wrist, as a surface.
+fn native_forearms(
+    view: &mut ResourceDb,
+    suffix: &str,
+    bones: &BTreeMap<String, [f64; 3]>,
+) -> Result<(String, Vec<u8>, BinaryConfig)> {
+    let variant = match suffix {
+        "" => "s1",
+        "_s2" => "s2",
+        "_s3" => "s3",
+        other => bail!("no native torso for variant {other}"),
+    };
+    let root = format!("models/character/human/base/base_character_torso_{variant}.skinned_model/render/base_character_torso_s");
+    let body = view.read(&format!("{root}/converted_model"))?;
+    let props = BinaryConfig::parse(&view.read(&format!("{root}/export_properties"))?)?;
     let mut axes = vec![];
     for side in ["Left", "Right"] {
-        let bone = |n: String| {
-            bones
-                .get(&n)
-                .copied()
-                .with_context(|| format!("no {n} bone"))
-        };
-        let (a, b) = (
-            bone(format!("{side}ForeArm"))?,
-            bone(format!("{side}Hand"))?,
-        );
+        let bone = |n: String| bones.get(&n).copied().with_context(|| format!("no {n} bone"));
+        let (a, b) = (bone(format!("{side}ForeArm"))?, bone(format!("{side}Hand"))?);
         let d = sub(b, a);
         let len = dot(d, d).sqrt();
-        axes.push((a[0].signum(), a, d.map(|v| v / len), len));
+        axes.push((a[0].signum(), a, d.map(|v| v / len)));
     }
-    keep_triangles(hands, |corners| {
-        axes.iter().any(|&(side, a, dir, len)| {
-            corners
-                .iter()
-                .all(|(p, _)| p[0] * side > 0.0 && dot(sub(*p, a), dir) < len + FOREARM_PAST_WRIST)
+    let arms = keep_triangles(&body, |corners| {
+        axes.iter().any(|&(side, a, dir)| {
+            corners.iter().all(|(p, _)| p[0] * side > 0.0 && dot(sub(*p, a), dir) > NATIVE_ARMS_FROM)
         })
-    })
+    })?;
+    Ok((NATIVE_ARMS.to_owned(), arms, props))
+}
+
+/// The native legs, whose top every stock torso covers (it is drawn under
+/// any of them when no trousers are worn).
+const BASE_LEGS: &str =
+    "models/character/human/base/base_character_legs_s1.skinned_model/render/base_character_legs_s/converted_model";
+/// A trousers top lower than this (m) shows under the shortest stock jackets
+/// (the Leather sleeveless jacket ends at 0.956); stock trousers end at 0.988
+/// to 1.04, the native legs at 1.035 to 1.043.
+const WAIST_TOP_MIN: f64 = 0.985;
+const WAIST_CLEARANCE: f64 = 0.003;
+
+/// The boundary edges of a converted surface, each as its triangle runs it
+/// (corners welded by position).
+fn boundary(mesh: &Mesh) -> Vec<(usize, usize)> {
+    let key = |p: [f64; 3]| p.map(|v| (v * 1e4).round() as i64);
+    // Each position's first vertex stands for it.
+    let mut first: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    let w: Vec<usize> = (0..mesh.positions.len())
+        .map(|i| *first.entry(key(mesh.positions[i])).or_insert(i))
+        .collect();
+    let mut count: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (w[t[k]], w[t[(k + 1) % 3]]);
+            *count.entry((a.min(b), a.max(b))).or_default() += 1;
+        }
+    }
+    let mut out = vec![];
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            if count[&(w[a].min(w[b]), w[a].max(w[b]))] == 1 {
+                out.push((a, b));
+            }
+        }
+    }
+    out
+}
+
+/// Raises a trousers' waist whose top is under [`WAIST_TOP_MIN`] (the
+/// Novice jeans end at 0.937-0.964 where STK2's long jacket covered them;
+/// 0.26g's shorter jackets showed the open top, and the background through
+/// it): a band from the top edge up to the native legs' top ring (at the
+/// same angle around the body, [`WAIST_CLEARANCE`] out), each new vertex the
+/// edge vertex's with the native ring's skin, winding as the edge's
+/// triangle. Returns the triangles added and the old top, or `None`.
+fn close_waist(model: &mut Model, base_legs: &[u8]) -> Result<Option<(usize, f64)>> {
+    let (_, bytes, _) = &model.surfaces[0];
+    let mesh = parse_mesh(bytes, 48, "trousers")?;
+    let edges = boundary(&mesh);
+    let top: Vec<(usize, usize)> = edges.iter().copied().filter(|&(a, _)| mesh.positions[a][1] > 0.8).collect();
+    ensure!(!top.is_empty(), "trousers without an open top");
+    let highest = top.iter().map(|&(a, _)| mesh.positions[a][1]).fold(f64::NEG_INFINITY, f64::max);
+    if highest >= WAIST_TOP_MIN {
+        return Ok(None);
+    }
+    let base_stride = (read_u32(base_legs, 4)? - 4) / read_u32(base_legs, 8)?;
+    ensure!(base_stride == 48, "native legs of another vertex layout");
+    let base = parse_mesh(base_legs, 48, "native legs")?;
+    let ring: Vec<usize> = {
+        let mut r: Vec<usize> = boundary(&base).into_iter().map(|(a, _)| a).filter(|&a| base.positions[a][1] > 0.9).collect();
+        r.sort_unstable();
+        r.dedup();
+        r
+    };
+    ensure!(ring.len() >= 8, "the native legs have no top ring");
+    let centre_z = ring.iter().map(|&i| base.positions[i][2]).sum::<f64>() / ring.len() as f64;
+    let angle = |p: [f64; 3]| p[0].atan2(p[2] - centre_z);
+    // The native ring by angle, to interpolate.
+    let mut by_angle: Vec<(f64, usize)> = ring.iter().map(|&i| (angle(base.positions[i]), i)).collect();
+    by_angle.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let at_angle = |t: f64| -> ([f64; 3], usize) {
+        let n = by_angle.len();
+        let k = by_angle.iter().position(|(a, _)| *a > t).unwrap_or(n);
+        let (lo, hi) = (by_angle[(k + n - 1) % n], by_angle[k % n]);
+        let span = (hi.0 - lo.0).rem_euclid(std::f64::consts::TAU).max(1e-9);
+        let f = ((t - lo.0).rem_euclid(std::f64::consts::TAU) / span).clamp(0.0, 1.0);
+        let (p, q) = (base.positions[lo.1], base.positions[hi.1]);
+        let mut x: [f64; 3] = std::array::from_fn(|k| p[k] + f * (q[k] - p[k]));
+        let (dx, dz) = (x[0], x[2] - centre_z);
+        let r = dx.hypot(dz).max(1e-6);
+        x[0] += dx / r * WAIST_CLEARANCE;
+        x[2] += dz / r * WAIST_CLEARANCE;
+        (x, if f < 0.5 { lo.1 } else { hi.1 })
+    };
+    let n = mesh.positions.len();
+    let mut added: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut vertices = bytes[12..12 + n * 48].to_vec();
+    for &(a, b) in &top {
+        for v in [a, b] {
+            if added.contains_key(&v) {
+                continue;
+            }
+            let (p, near) = at_angle(angle(mesh.positions[v]));
+            let mut vertex = bytes[12 + v * 48..12 + (v + 1) * 48].to_vec();
+            for (k, value) in p.iter().enumerate() {
+                vertex[k * 4..k * 4 + 4].copy_from_slice(&(*value as f32).to_le_bytes());
+            }
+            // The native ring's bones and weights.
+            vertex[12..28].copy_from_slice(&base_legs[12 + near * 48 + 12..12 + near * 48 + 28]);
+            added.insert(v, n + added.len());
+            vertices.extend_from_slice(&vertex);
+        }
+    }
+    let mut triangles: Vec<[usize; 3]> = mesh.triangles.clone();
+    for &(a, b) in &top {
+        let (a2, b2) = (added[&a], added[&b]);
+        triangles.push([b, a, a2]);
+        triangles.push([b, a2, b2]);
+    }
+    let index_chunk = 12 + n * 48;
+    let rest = index_chunk + 8 + read_u32(bytes, index_chunk + 4)?;
+    let mut out = vec![];
+    out.extend_from_slice(&3_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + vertices.len())?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(vertices.len() / 48)?.to_le_bytes());
+    out.extend_from_slice(&vertices);
+    out.extend_from_slice(&4_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + triangles.len() * 6)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(triangles.len() * 3)?.to_le_bytes());
+    for t in &triangles {
+        for &i in t {
+            out.extend_from_slice(&u16::try_from(i)?.to_le_bytes());
+        }
+    }
+    out.extend_from_slice(bytes.get(rest..).context("truncated trousers")?);
+    model.surfaces[0].1 = out;
+    Ok(Some((top.len() * 2, highest)))
+}
+
+/// The stock Scavenger hood (892), whose cowl closes over the neck and the
+/// shoulders under every torso.
+const SCAVENGER_HOOD: &str =
+    "models/character/human/scavengers/scavengers_03_helmet.skinned_model/render/scavengers_03_helmet_s/converted_model";
+/// Its part below this height (m) is the cowl: the Novice hood ends at
+/// 1.50-1.55 over the cheeks and the nape, open at the bottom where STK2's
+/// collar covered it.
+const COWL_TOP: f64 = 1.58;
+/// A patch of the Novice hood's own canvas in its (cut) attachment map:
+/// (u, v) from and to; the cowl's UVs are laid on it at the hood's texel
+/// density, mirrored back and forth where the cowl is larger.
+const COWL_FABRIC: [f64; 4] = [0.40, 0.69, 0.52, 0.77];
+/// The hood's canvas: UV units a metre (measured on its back panel).
+const HOOD_UV_PER_METRE: f64 = 0.86;
+
+/// The hood (48-byte vertices) with the Scavenger hood's cowl joined to it,
+/// re-mapped onto the hood's canvas ([`COWL_FABRIC`]) and keeping the stock
+/// cowl's skin, so it follows the neck and shoulders as the stock hood's
+/// does; and the cowl's triangle count.
+fn add_cowl(hood: &[u8], scavenger: &[u8]) -> Result<(usize, Vec<u8>)> {
+    ensure!((read_u32(scavenger, 4)? - 4) / read_u32(scavenger, 8)? == 48, "the Scavenger hood has another vertex layout");
+    let mut cowl = keep_triangles(scavenger, |c| c.iter().all(|(p, _)| p[1] < COWL_TOP))?;
+    let mesh = parse_mesh(&cowl, 48, "cowl")?;
+    let centre_z = mesh.positions.iter().map(|p| p[2]).sum::<f64>() / mesh.positions.len() as f64;
+    let radius = mesh.positions.iter().map(|p| p[0].hypot(p[2] - centre_z)).sum::<f64>() / mesh.positions.len() as f64;
+    // Back and forth over [0, w): continuous, so no triangle spans a jump.
+    let fold = |x: f64, w: f64| {
+        let t = x.rem_euclid(2.0 * w);
+        if t < w { t } else { 2.0 * w - t }
+    };
+    let [u0, v0, u1, v1] = COWL_FABRIC;
+    for (i, p) in mesh.positions.iter().enumerate() {
+        let around = p[0].atan2(p[2] - centre_z) * radius;
+        let uv = [
+            u0 + fold((around + 1.0) * HOOD_UV_PER_METRE, u1 - u0),
+            v0 + fold((COWL_TOP - p[1]) * HOOD_UV_PER_METRE, v1 - v0),
+        ];
+        let v = 12 + i * 48;
+        for (k, value) in uv.iter().enumerate() {
+            let value = *value as f32;
+            cowl[v + 40 + k * 4..v + 44 + k * 4].copy_from_slice(&value.to_le_bytes());
+            let rebased = f64::from(value) * 1024.0;
+            cowl[v + 35 + k * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+        }
+    }
+    let both = Model {
+        surfaces: vec![
+            ("hood".into(), hood.to_vec(), BinaryConfig { root: V::Named(vec![]) }),
+            ("cowl".into(), cowl, BinaryConfig { root: V::Named(vec![]) }),
+        ],
+    };
+    Ok((mesh.triangles.len(), both.merged()?.0))
 }
 
 /// The lowest a full-length trousers hem should come over low boots (m):
@@ -1410,7 +1594,6 @@ pub fn build(
                 piece.parts,
                 None,
                 &cx.bind,
-                &cx.bones,
                 &mut inputs,
             )?;
             let hud = piece
@@ -1422,7 +1605,6 @@ pub fn build(
                         piece.parts,
                         Some(hud),
                         &cx.bind,
-                        &cx.bones,
                         &mut inputs,
                     )
                 })
@@ -1673,9 +1855,16 @@ pub fn build(
         );
     }
     // Trousers: over low boots, into the others; cut deep inside them.
+    let base_legs = cx.view.read(BASE_LEGS)?;
     let mut all_legs: Vec<(String, Vec<u8>)> = stock_legs.values().flatten().cloned().collect();
     for b in built.iter_mut().filter(|b| b.piece.kind == Kind::Legs) {
         let label = b.label();
+        if let Some((added, from)) = close_waist(b.models.get_mut("").unwrap(), &base_legs)? {
+            println!(
+                "{label}: the waist (its top at {:.0} mm, under the shortest jackets' hems) raised to the native legs' with a band of {added} triangles",
+                from * 1000.0
+            );
+        }
         let base = b.models[""].clone();
         for &(table, suffix) in Kind::Legs.variants() {
             let class_boots = boots
@@ -1814,6 +2003,7 @@ pub fn build(
                 .with_context(|| format!("no {table} gloves"))?;
             let mut fitted = base.clone();
             let bare_forearms = b.piece.parts.iter().any(|p| p.forearms);
+            let native_arms = if bare_forearms { Some(native_forearms(&mut cx.view, suffix, &cx.bones)?) } else { None };
             if table == "data_full" && !bare_forearms {
                 let r = fitted.fit_merged(|g| {
                     crate::limb_fit::fit(g, class_gloves, &bind, &SLEEVES_OVER_CUFFS)
@@ -1842,6 +2032,10 @@ pub fn build(
                 println!("  sleeves end {:.0} mm along the forearm", at * 1000.0);
                 fitted = cut;
             }
+            if let Some(arms) = native_arms {
+                println!("{label}{suffix}: the native forearms ({} vertices)", read_u32(&arms.1, 8)?);
+                fitted.surfaces.push(arms);
+            }
             b.models.insert(suffix, fitted);
         }
     }
@@ -1862,6 +2056,10 @@ pub fn build(
             r.2,
             r.3 * 1000.0
         );
+        let cowl = cx.view.read(SCAVENGER_HOOD)?;
+        let (n, joined) = add_cowl(&model.surfaces[0].1, &cowl)?;
+        model.surfaces[0].1 = joined;
+        println!("{label}: the Scavenger hood's cowl below {:.0} mm added under it ({n} triangles), in the hood's fabric", COWL_TOP * 1000.0);
     }
 
     // --- The bundles ---
@@ -2050,7 +2248,14 @@ fn write_model(
                     field(
                         n,
                         V::Named(vec![
-                            field("material_name", s(format!("ported/{ns}/{n}"))),
+                            field(
+                                "material_name",
+                                s(if n == NATIVE_ARMS {
+                                    NATIVE_ARMS_MATERIAL.to_owned()
+                                } else {
+                                    format!("ported/{ns}/{n}")
+                                }),
+                            ),
                             field("used_in_portals", V::Boolean(false)),
                         ]),
                     )
@@ -2299,7 +2504,12 @@ fn write_bundle(
             // The model the item's icon shows: the piece as exported, with
             // its surfaces and the maps they are drawn with.
             "model": b.model_path(""),
-            "surfaces": b.models[""].surfaces.iter().map(|(n, _, _)| n.clone()).collect::<Vec<_>>(),
+            "surfaces": b.models[""]
+                .surfaces
+                .iter()
+                .map(|(n, _, _)| n.clone())
+                .filter(|n| n != NATIVE_ARMS)
+                .collect::<Vec<_>>(),
             "variants": b.models.keys().map(|k| b.model_path(k)).collect::<Vec<_>>(),
         }));
         item_configs.push(c.root.clone());

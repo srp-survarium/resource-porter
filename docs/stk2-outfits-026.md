@@ -31,7 +31,7 @@ has the items, their stats and the owner's open questions.
   the knit cap of `neutral_01_head`, the eyes and faces under the balaclavas
   (`bandit_01_head_0{1,2}`'s `head_s`).
 - Bare skin: `bandit_01_hand` and `hand_v2` (bare hands, one with a watch and a
-  bracelet on its attachment surface). The bomber takes only their forearms.
+  bracelet on its attachment surface).
 
 ## What the builder does
 
@@ -59,8 +59,18 @@ has the items, their stats and the owner's open questions.
   - jackets: the waist over every trousers, the collar over the native neck and every
     mask (the Novice jacket's settings), the sleeves over wrist-length gloves and into
     gauntlets (cut 3 cm past the deepest opening). The bomber's sleeves are pushed up:
-    its bare forearms (from `bandit_01_hand`, without the hands) go into every glove,
-    only cut;
+    below them each variant draws the native body's forearms
+    (`base_character_torso_s1`/`_s2`/`_s3` from 5 cm below the elbow, with the native
+    skin material), as the stock torsos with bare arms do: every stock glove's cuff is
+    made for them. (Version 1 took the donor's forearms from `bandit_01_hand`; they
+    stood through the gloves' cuffs in the game.)
+  - the Novice jeans end at 0.937-0.964 m, where STK2's long jacket covered them; under
+    0.26g's shorter jackets the open top showed the background. A band from that edge
+    up to the native legs' top ring (1.04, every stock torso covers it) closes them
+    (`close_waist`, under 0.985 only; the other trousers end at 1.014 and 1.036);
+  - the hood's bottom was open where STK2's collar covered it: the stock Scavenger
+    hood's cowl (its part below 1.58 m, its own skin weights) is joined under it, laid
+    on the hood's canvas (`add_cowl`);
   - the hood covers the mask slot (as the Marauder, Molot and Zubr helmets do: its rim
     and flaps lie where every mask is) and is pushed out only where the native skull
     under it comes through (one point, 0.9 mm: 62 vertices, up to 5.3 mm);
@@ -82,7 +92,7 @@ cargo run --release --example build-stk2-outfits-026 -- \
 python3 scripts/render-stk2-outfits-026-icons.py --bundle bundles/<outfit> \
     --maps bundles/textures-work --lobby-swf lobby_menu.swf --output icons-<outfit>
 vostok-port pack from-bundle --base-db resources.db --base-patch ... \
-    --bundle bundles/<outfit> --output stk2-<outfit>-1 --id stk2-<outfit> --version 1
+    --bundle bundles/<outfit> --output stk2-<outfit>-2 --id stk2-<outfit> --version 2
 ```
 
 `export` is the archive's `___surva_stk2_characters_port`; `stk2` holds STK2's
@@ -90,6 +100,13 @@ vostok-port pack from-bundle --base-db resources.db --base-patch ... \
 `lobby_menu.swf` is the released game's (patch 39's,
 `72c0cd0faf9a9bf0b27340c487d6885254c80aa19f94a39cc60480ee2bb5768e`). The build is
 reproducible: the same inputs make the same packs byte for byte.
+
+## Icons
+
+Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
+boots 76, gloves 77, centred), the sneakers 15 % smaller (the owner). Boots are seen
+level with their shaft openings closed by a cap of the rim's colour, for the icon
+only: the donor shafts are black inside.
 
 ## Checked offline only
 
