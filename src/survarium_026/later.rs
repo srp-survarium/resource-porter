@@ -269,6 +269,79 @@ pub struct MapSpec {
     /// copied in. For a map whose donor key 0.26 uses for another map.
     #[serde(default)]
     pub map_name: Option<String>,
+    /// Native objects every mode of the port carries, taken from a native
+    /// project as they are (the two maps share coordinates): native Rudnya's
+    /// swamp anomaly and its artefact spawners.
+    #[serde(default)]
+    pub native_objects: Option<NativeObjects>,
+    /// More modes of the map, each the ported scene with a native mode's
+    /// layout ([`ModeSpec`]).
+    #[serde(default)]
+    pub modes: Vec<ModeSpec>,
+    /// Published resources.db patches (sha256, in mount order) mounted over
+    /// the target to read the modes' native projects and options: a mode the
+    /// stock database lacks (skhid's Research) comes from one.
+    #[serde(default)]
+    pub published_patches: Vec<String>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeObjects {
+    pub project: String,
+    /// `full_name` prefixes of the client objects to copy.
+    pub include: Vec<String>,
+}
+
+/// A mode beside the port's own: the ported scene, plus what a native mode
+/// project of the same map has over the native template project (its props
+/// in every top-level array, by model and position; its client objects, by
+/// `full_name`), with that mode project's server objects (spawns, battery
+/// chargers, containers, stations) and its options.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeSpec {
+    /// `maps_dict` id.
+    pub id: u8,
+    pub native_project: String,
+    pub native_mode: String,
+    pub output_project: String,
+    pub mode_name: String,
+    /// Native props left out: they do not fit the ported geometry.
+    #[serde(default)]
+    pub drop: Vec<PlacedModel>,
+    /// Native client objects left out with them, by `full_name`.
+    #[serde(default)]
+    pub drop_objects: Vec<NamedObject>,
+    /// Native objects moved to fit the ported geometry, by `full_name`.
+    #[serde(default)]
+    pub moves: Vec<Move>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlacedModel {
+    /// The entry's `lib_name`.
+    pub model: String,
+    pub position: [f32; 3],
+    pub why: String,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedObject {
+    pub full_name: String,
+    pub why: String,
+}
+
+/// An object's `position` and its world-space parts' (`spawned_item`,
+/// `visual_geometry`) shifted by `by`.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Move {
+    pub full_name: String,
+    pub by: [f32; 3],
+    pub why: String,
 }
 
 /// A lobby scene: the project the lobby menu loads behind the character (0.26
@@ -3007,10 +3080,206 @@ fn relocate(path: &str, namespace: &str) -> String {
     format!("{family}/{namespace}/{tail}")
 }
 
+/// Where the modes' native projects and options are read: the target with
+/// the manifest's published patches mounted over it, each checked.
+fn mode_sources(target_path: &Path, expected: &[String], given: &[std::path::PathBuf]) -> Result<ResourceDb> {
+    ensure!(
+        expected.len() == given.len(),
+        "the manifest names {} published patches, {} given",
+        expected.len(),
+        given.len()
+    );
+    for (path, sha) in given.iter().zip(expected) {
+        check_hash(path, sha)?;
+    }
+    let volumes: Vec<std::path::PathBuf> = std::iter::once(target_path.to_path_buf()).chain(given.iter().cloned()).collect();
+    ResourceDb::open_split(&volumes)
+}
+
+fn path_value<'a>(config: &'a ConfigValue, path: &str) -> Option<&'a ConfigValue> {
+    path.split('.').try_fold(config, |config, key| config.named(key))
+}
+
+fn full_names(objects: &[ConfigValue]) -> BTreeSet<String> {
+    objects.iter().filter_map(|o| string(o, "full_name")).map(str::to_owned).collect()
+}
+
+/// The client objects of `source` whose `full_name` starts with one of
+/// `spec.include`, added to the scene as they are.
+fn add_native_objects(project: &mut ConfigValue, source: &ConfigValue, spec: &NativeObjects, notes: &mut Vec<String>) -> Result<()> {
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no objects") };
+    let taken = full_names(objects);
+    let native = array(source.named("client_objects").with_context(|| format!("{} has no client objects", spec.project))?)?;
+    let mut added = BTreeMap::<String, usize>::new();
+    for object in native {
+        let name = string(object, "full_name").unwrap_or("");
+        if !spec.include.iter().any(|prefix| name.starts_with(prefix.as_str())) {
+            continue;
+        }
+        ensure!(!taken.contains(name), "{name}: the scene has an object of that name");
+        objects.push(object.clone());
+        *added.entry(kind(object).to_owned()).or_default() += 1;
+    }
+    ensure!(!added.is_empty(), "no client object of {} starts with {:?}", spec.project, spec.include);
+    notes.push(format!("native objects of {} under {:?}, in every mode: {added:?}", spec.project, spec.include));
+    Ok(())
+}
+
+/// Shifts an object's `position` and its world-space parts'.
+fn shift(object: &mut ConfigValue, by: [f32; 3]) -> Result<()> {
+    let moved = |p: [f32; 3]| -> [f32; 3] { std::array::from_fn(|i| p[i] + by[i]) };
+    let p = float3(object, "position")?;
+    object.set_path("position", ConfigValue::Float3(moved(p)))?;
+    for part in ["spawned_item", "visual_geometry"] {
+        if let Some(part) = object.named_mut(part) {
+            let p = float3(part, "position")?;
+            part.set_path("position", ConfigValue::Float3(moved(p)))?;
+        }
+    }
+    Ok(())
+}
+
+/// The ported scene with a native mode's layout ([`ModeSpec`]); `template`
+/// is the native project the scene was made on (the map's team deathmatch).
+fn mode_project(scene: &ConfigValue, native: &ConfigValue, template: &ConfigValue, mode: &ModeSpec, notes: &mut Vec<String>) -> Result<ConfigValue> {
+    let mut project = scene.clone();
+    let ConfigValue::Named(fields) = native else { bail!("{} is not a project", mode.native_project) };
+    let mut added = BTreeMap::<String, usize>::new();
+    let mut dropped = vec![0_usize; mode.drop.len()];
+    let mut dropped_objects = 0;
+    let placed = |entry: &ConfigValue| (string(entry, "lib_name").map(str::to_owned), float3(entry, "position").ok().map(|p| p.map(f32::to_bits)));
+    for field in fields {
+        match (field.name.as_str(), &field.value) {
+            ("server_objects", value) => project.set_path("server_objects", value.clone())?,
+            ("client_objects", value) => {
+                let in_template = full_names(array(template.named("client_objects").context("template has no client objects")?)?);
+                let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no objects") };
+                let taken = full_names(objects);
+                for object in array(value)? {
+                    let name = string(object, "full_name").unwrap_or("");
+                    if in_template.contains(name) {
+                        continue;
+                    }
+                    if let Some(d) = mode.drop_objects.iter().find(|d| d.full_name == name) {
+                        notes.push(format!("{}: left out {name}: {}", mode.output_project, d.why));
+                        dropped_objects += 1;
+                        continue;
+                    }
+                    ensure!(!taken.contains(name), "{name}: the scene has an object of that name");
+                    objects.push(object.clone());
+                    *added.entry(format!("client {}", kind(object))).or_default() += 1;
+                }
+            }
+            (name, ConfigValue::Indexed(entries)) => {
+                let in_template: BTreeSet<_> = match template.named(name) {
+                    Some(list) => array(list)?.iter().map(placed).collect(),
+                    None => BTreeSet::new(),
+                };
+                let mut kept = Vec::new();
+                for entry in entries {
+                    if in_template.contains(&placed(entry)) {
+                        continue;
+                    }
+                    let lib = string(entry, "lib_name").unwrap_or("");
+                    let at = float3(entry, "position").unwrap_or([f32::NAN; 3]);
+                    if let Some(i) = mode.drop.iter().position(|d| {
+                        (lib == d.model || lib.starts_with(&format!("resources/models/{}.model/", d.model)))
+                            && d.position.iter().zip(at).all(|(a, b)| (a - b).abs() < 0.01)
+                    }) {
+                        dropped[i] += 1;
+                        continue;
+                    }
+                    kept.push(entry.clone());
+                }
+                if kept.is_empty() {
+                    continue;
+                }
+                *added.entry(name.to_owned()).or_default() += kept.len();
+                match project.named_mut(name) {
+                    Some(ConfigValue::Indexed(list)) => list.extend(kept),
+                    _ => project.set_path(name, ConfigValue::Indexed(kept))?,
+                }
+            }
+            _ => {}
+        }
+    }
+    for (d, n) in mode.drop.iter().zip(&dropped) {
+        ensure!(*n > 0, "{}: nothing of {} at {:?} to leave out", mode.native_project, d.model, d.position);
+        notes.push(format!("{}: left out {} at {:?} ({n} entries): {}", mode.output_project, d.model, d.position, d.why));
+    }
+    ensure!(dropped_objects == mode.drop_objects.len(), "{}: {} of the client objects to leave out found", mode.native_project, dropped_objects);
+    for m in &mode.moves {
+        let mut found = 0;
+        let mut visit = |objects: &mut Vec<ConfigValue>| -> Result<()> {
+            for object in objects.iter_mut().filter(|o| string(o, "full_name") == Some(m.full_name.as_str())) {
+                shift(object, m.by)?;
+                found += 1;
+            }
+            Ok(())
+        };
+        if let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") {
+            visit(objects)?;
+        }
+        if let Some(ConfigValue::Named(groups)) = project.named_mut("server_objects") {
+            for group in groups {
+                if let ConfigValue::Indexed(objects) = &mut group.value {
+                    visit(objects)?;
+                }
+            }
+        }
+        ensure!(found == 1, "{}: {} objects named {}", mode.output_project, found, m.full_name);
+        notes.push(format!("{}: moved {} by {:?}: {}", mode.output_project, m.full_name, m.by, m.why));
+    }
+    let server: BTreeMap<String, usize> = match project.named("server_objects") {
+        Some(ConfigValue::Named(groups)) => groups.iter().map(|g| (g.name.clone(), array(&g.value).map_or(0, <[_]>::len))).collect(),
+        _ => BTreeMap::new(),
+    };
+    notes.push(format!("{}: {}'s layout over the scene: added {added:?}; its server objects {server:?}", mode.output_project, mode.native_project));
+    Ok(project)
+}
+
+/// The manifest's `modes`: each one's project and options. The port's own
+/// options (`port_mode`) give every mode its level, loading screen and map
+/// name.
+fn emit_modes(
+    scene: &ConfigValue,
+    port_mode: &ConfigValue,
+    spec: &MapSpec,
+    sources: &mut ResourceDb,
+    output: &Path,
+    files: &mut Vec<BuiltFile>,
+    notes: &mut Vec<String>,
+) -> Result<Vec<(u8, String)>> {
+    let template = cfg(sources, &spec.template_project)?;
+    let mut registered = Vec::new();
+    for mode in &spec.modes {
+        let native = cfg(sources, &mode.native_project)?;
+        let project = mode_project(scene, &native, &template, mode, notes)?;
+        let project_path = format!("projects/{}/client_project", mode.output_project);
+        ensure!(!sources.contains(&project_path), "{project_path} exists");
+        let what = format!("the scene with the mode layout of {}", mode.native_project);
+        emit(output, &project_path, &BinaryConfig { root: project }.to_bytes()?, &what, files)?;
+        let mut options = cfg(sources, &mode.native_mode)?;
+        options.set_path("mode.name", ConfigValue::String(mode.mode_name.trim_end_matches(".options").into()))?;
+        options.set_path("mode.match_making_params.map_name", ConfigValue::String(mode.output_project.clone()))?;
+        for path in ["mode.match_making_params.map_id", "mode.ui.loading_screen_id", "mode.ui.map_name"] {
+            let value = path_value(port_mode, path).with_context(|| format!("the port's mode has no {path}"))?;
+            options.set_path(path, value.clone())?;
+        }
+        let mode_path = format!("gameplay/game_modes/{}", mode.mode_name);
+        ensure!(!sources.contains(&mode_path), "{mode_path} exists");
+        let what = format!("{} on the port's level and names", mode.native_mode);
+        emit(output, &mode_path, &BinaryConfig { root: options }.to_bytes()?, &what, files)?;
+        registered.push((mode.id, mode.mode_name.clone()));
+    }
+    Ok(registered)
+}
+
 pub fn build(
     manifest_path: &Path,
     donor_path: &Path,
     target_path: &Path,
+    published_patches: &[std::path::PathBuf],
     output: &Path,
 ) -> Result<Record> {
     let m: Manifest = serde_json::from_reader(fs::File::open(manifest_path)?)
@@ -3027,15 +3296,21 @@ pub fn build(
     check_hash(target_path, &m.target_sha256)?;
     let mut donor = ResourceDb::open(donor_path)?;
     let mut target = ResourceDb::open(target_path)?;
+    let mut mode_sources = match &port {
+        Port::Map(spec) if !spec.modes.is_empty() => Some(mode_sources(target_path, &spec.published_patches, published_patches)?),
+        _ => {
+            ensure!(published_patches.is_empty(), "published patches serve the manifest's `modes`; it has none");
+            None
+        }
+    };
 
     let mut dictionary = cfg(&mut target, DICTIONARY)?;
     if let Port::Map(spec) = &port {
         if let Some(ConfigValue::Indexed(entries)) = dictionary.named("maps_dict") {
-            for entry in entries {
+            for id in std::iter::once(spec.id).chain(spec.modes.iter().map(|mode| mode.id)) {
                 ensure!(
-                    integer(entry, "id") != Some(spec.id.into()),
-                    "map ID {} is already registered",
-                    spec.id
+                    !entries.iter().any(|entry| integer(entry, "id") == Some(id.into())),
+                    "map ID {id} is already registered"
                 );
             }
         } else {
@@ -4328,10 +4603,13 @@ pub fn build(
     // Scene references.
     let mut project = scene.project;
     rewrite_scene(&mut project, &donor_models, &converted_materials, &probe_textures, &ns)?;
+    if let Port::Map(MapSpec { native_objects: Some(native), .. }) = &port {
+        add_native_objects(&mut project, &cfg(&mut target, &native.project)?, native, &mut notes)?;
+    }
     let output_project = format!("projects/{}/client_project", port.output_project());
     ensure!(!target.contains(&output_project), "project exists");
     let what = format!("{} scene on 0.26g templates", m.source_build.label());
-    emit(output, &output_project, &BinaryConfig { root: project }.to_bytes()?, &what, &mut files)?;
+    emit(output, &output_project, &BinaryConfig { root: project.clone() }.to_bytes()?, &what, &mut files)?;
 
     if let Port::Map(spec) = &port {
         // Mode and registration.
@@ -4354,12 +4632,18 @@ pub fn build(
         }
         let mode_path = format!("gameplay/game_modes/{}", spec.mode_name);
         ensure!(!target.contains(&mode_path), "mode exists");
-        emit(output, &mode_path, &BinaryConfig { root: mode }.to_bytes()?, "0.26g mode template", &mut files)?;
+        emit(output, &mode_path, &BinaryConfig { root: mode.clone() }.to_bytes()?, "0.26g mode template", &mut files)?;
+        let mut registered = vec![(spec.id, spec.mode_name.clone())];
+        if let Some(sources) = &mut mode_sources {
+            registered.extend(emit_modes(&project, &mode, spec, sources, output, &mut files, &mut notes)?);
+        }
         let ConfigValue::Indexed(entries) = dictionary.named_mut("maps_dict").unwrap() else { unreachable!() };
-        entries.push(named(vec![
-            ("id", ConfigValue::Integer(spec.id.into())),
-            ("cfg_mode_name", ConfigValue::String(spec.mode_name.clone())),
-        ]));
+        for (id, mode_name) in registered {
+            entries.push(named(vec![
+                ("id", ConfigValue::Integer(id.into())),
+                ("cfg_mode_name", ConfigValue::String(mode_name)),
+            ]));
+        }
         emit(output, DICTIONARY, &BinaryConfig { root: dictionary }.to_bytes()?, "0.26g+additive-map-registration", &mut files)?;
     }
 
@@ -4376,13 +4660,16 @@ pub fn build(
         server_project_fallback: None,
         // The server learns the map from this (the content pack's `server.maps`).
         maps: match &port {
-            Port::Map(spec) => vec![Map {
-                id: spec.id,
-                level: spec.level.clone(),
-                weather: "day".into(),
-                environment_look: Default::default(),
-                native_ambient_fill: false,
-            }],
+            Port::Map(spec) => std::iter::once(spec.id)
+                .chain(spec.modes.iter().map(|mode| mode.id))
+                .map(|id| Map {
+                    id,
+                    level: spec.level.clone(),
+                    weather: "day".into(),
+                    environment_look: Default::default(),
+                    native_ambient_fill: false,
+                })
+                .collect(),
             Port::Lobby(_) => Vec::new(),
         },
         files,
@@ -4957,6 +5244,7 @@ mod tests {
             global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
             probes: MapProbes::Native { classes: Vec::new(), matte_water: None, ambient_lights: false }, environment: BTreeMap::new(),
             donor_mode: "d".into(), loading_screen_id: None, level_id: None, map_name: None,
+            native_objects: None, modes: Vec::new(), published_patches: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
@@ -5123,5 +5411,61 @@ mod tests {
         assert_eq!(m.namespace(), "ported/v069d");
         let none: Manifest = serde_json::from_str(&manifest("")).unwrap();
         assert!(none.port().is_err());
+    }
+
+    #[test]
+    fn a_mode_is_the_scene_with_the_native_mode_layout() {
+        let at = |p: [f32; 3]| ConfigValue::Float3(p);
+        let text = |t: &str| ConfigValue::String(t.into());
+        let prop = |lib: &str, p: [f32; 3]| named(vec![("lib_name", text(lib)), ("position", at(p))]);
+        let object = |name: &str| named(vec![("full_name", text(name)), ("game_object_type", text("wire_set")), ("position", at([0.0; 3]))]);
+        let project = |objects: Vec<ConfigValue>, visuals: Vec<ConfigValue>, server: ConfigValue| {
+            named(vec![
+                ("client_objects", ConfigValue::Indexed(objects)),
+                ("render_visuals", ConfigValue::Indexed(visuals)),
+                ("server_objects", server),
+            ])
+        };
+        let spawner = named(vec![
+            ("full_name", text("logic/vip/spawner")),
+            ("position", at([1.0, 2.0, 3.0])),
+            ("spawned_item", named(vec![("position", at([1.0, 2.5, 3.0]))])),
+        ]);
+        let tdm = named(vec![("respawn_points", ConfigValue::Indexed(vec![object("tdm spawn")]))]);
+        let battery = named(vec![
+            ("respawn_points", ConfigValue::Indexed(vec![object("battery spawn")])),
+            ("victory_item_spawners", ConfigValue::Indexed(vec![spawner])),
+        ]);
+        let scene = project(vec![object("donor/wire")], vec![prop("donor/house", [5.0; 3])], tdm.clone());
+        let template = project(vec![object("shared/wire")], vec![prop("cover", [0.0; 3])], tdm);
+        let native = project(
+            vec![object("shared/wire"), object("mode/wire"), object("mode/cable")],
+            vec![prop("cover", [0.0; 3]), prop("stand", [1.0; 3]), prop("transmitter", [2.0; 3])],
+            battery,
+        );
+        let mode = ModeSpec {
+            id: 206,
+            native_project: "n".into(),
+            native_mode: "m".into(),
+            output_project: "o/day_2".into(),
+            mode_name: "o.options".into(),
+            drop: vec![PlacedModel { model: "transmitter".into(), position: [2.0; 3], why: "floats".into() }],
+            drop_objects: vec![NamedObject { full_name: "mode/cable".into(), why: "hung from it".into() }],
+            moves: vec![Move { full_name: "logic/vip/spawner".into(), by: [0.0, 0.25, 0.0], why: "buried".into() }],
+        };
+        let mut notes = Vec::new();
+        let made = mode_project(&scene, &native, &template, &mode, &mut notes).unwrap();
+        let names = |list: &str| -> Vec<String> {
+            array(made.named(list).unwrap()).unwrap().iter().map(|o| string(o, "full_name").or(string(o, "lib_name")).unwrap().to_owned()).collect()
+        };
+        assert_eq!(names("client_objects"), ["donor/wire", "mode/wire"], "the template's objects and the dropped one stay out");
+        assert_eq!(names("render_visuals"), ["donor/house", "stand"]);
+        let server = made.named("server_objects").unwrap();
+        assert_eq!(string(&array(server.named("respawn_points").unwrap()).unwrap()[0], "full_name"), Some("battery spawn"));
+        let spawner = &array(server.named("victory_item_spawners").unwrap()).unwrap()[0];
+        assert_eq!(float3(spawner, "position").unwrap(), [1.0, 2.25, 3.0]);
+        assert_eq!(float3(spawner.named("spawned_item").unwrap(), "position").unwrap(), [1.0, 2.75, 3.0]);
+        let missing = ModeSpec { drop: vec![PlacedModel { model: "transmitter".into(), position: [9.0; 3], why: String::new() }], ..mode };
+        assert!(mode_project(&scene, &native, &template, &missing, &mut notes).is_err(), "a drop that matches nothing is an error");
     }
 }

@@ -28,7 +28,84 @@
     "donor_mode": "gameplay/game_modes/level_01_day_tdm.options",
     "level_id": 14,
     "map_name": "st_level_14_name",
-    "loading_screen_id": 30
+    "loading_screen_id": 30,
+    "native_objects": {
+      "project": "projects/level_01/day_4/client_project",
+      "include": [
+        "logic/swamp_anomaly/"
+      ]
+    },
+    "modes": [
+      {
+        "id": 216,
+        "native_project": "projects/level_01/day_2/client_project",
+        "native_mode": "gameplay/game_modes/level_01_day_2.options",
+        "output_project": "v069d_level_01/day_2",
+        "mode_name": "v069d_level_01_day_2.options",
+        "drop": [
+          {
+            "model": "item/quest/quest_stellage/transmitter/transmitter",
+            "position": [
+              -21.662,
+              26.217,
+              -83.262
+            ],
+            "why": "team 2's container stack: 3.4 m above 0.69d's ground, which lacks what it stood on (0.69d's own battery project leaves it out too)"
+          }
+        ],
+        "drop_objects": [
+          {
+            "full_name": "new_container/2/wire_set(6)",
+            "why": "the cable hung from that transmitter"
+          }
+        ],
+        "moves": [
+          {
+            "full_name": "logic/vip/mode_2/victory_item_spawner(30)",
+            "by": [
+              0.0,
+              0.22,
+              0.0
+            ],
+            "why": "its battery lay 0.12 m under the floor of 0.69d's shed_01: up onto it, 0.10 m above as on native Rudnya"
+          }
+        ]
+      },
+      {
+        "id": 217,
+        "native_project": "projects/level_01/day_3/client_project",
+        "native_mode": "gameplay/game_modes/level_01_day_3.options",
+        "output_project": "v069d_level_01/day_3",
+        "mode_name": "v069d_level_01_day_3.options",
+        "drop": [
+          {
+            "model": "item/quest/quest_stellage/transmitter/transmitter",
+            "position": [
+              -21.662,
+              26.217,
+              -83.262
+            ],
+            "why": "team 2's container stack: 3.4 m above 0.69d's ground, which lacks what it stood on (0.69d's own battery project leaves it out too)"
+          }
+        ],
+        "drop_objects": [
+          {
+            "full_name": "new_container/2/wire_set(6)",
+            "why": "the cable hung from that transmitter"
+          }
+        ]
+      },
+      {
+        "id": 218,
+        "native_project": "projects/level_01/day_5/client_project",
+        "native_mode": "gameplay/game_modes/level_01_day_5.options",
+        "output_project": "v069d_level_01/day_5",
+        "mode_name": "v069d_level_01_day_5.options"
+      }
+    ],
+    "published_patches": [
+      "ddcd540ab7135b821740170c7424a00a526de6597d6e06a2d1c1862f75642cd1"
+    ]
   },
   "game_material_names": {
     "cactus_slime": "mud",

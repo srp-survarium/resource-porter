@@ -282,6 +282,10 @@ enum Command {
         donor_db: PathBuf,
         #[arg(long)]
         target_db: PathBuf,
+        /// A published resources.db patch mounted over the target for the
+        /// manifest's `modes` (repeatable, in the manifest's order).
+        #[arg(long = "published-patch")]
+        published_patches: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
     },
@@ -1159,10 +1163,11 @@ fn main() -> Result<()> {
             manifest,
             donor_db,
             target_db,
+            published_patches,
             output,
         } => {
             let record = vostok_resource_porter::survarium_026::later::build(
-                &manifest, &donor_db, &target_db, &output,
+                &manifest, &donor_db, &target_db, &published_patches, &output,
             )?;
             println!(
                 "files={} materials={}",
