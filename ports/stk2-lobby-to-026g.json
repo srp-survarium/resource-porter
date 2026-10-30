@@ -1,8 +1,8 @@
 {
   "pack": {
     "id": "lobby-stk2",
-    "version": "1",
-    "description": "the STK2 (2011-12) lobby scene as a 0.26g lobby project, projects/lobby_scene/stk2_blockpost: the a02 blockpost guard hut, its sentry bunk, mattress, stool and campfire (STK2 models and textures), a flat grass ground, STK2's own lights and post-process (0.26g's sky behind it), the lobby's sounds and the native bonfire flame"
+    "version": "2",
+    "description": "the STK2 (2011-12) lobby scene as a 0.26g lobby project, projects/lobby_scene/stk2_blockpost: the a02 blockpost guard hut, its sentry bunk, mattress, stool and campfire (STK2 models and textures), a flat grass ground, STK2's own lights and post-process (0.26g's sky behind it), the lobby's sounds and the native bonfire flame; camera boxes keep the lobby camera inside the hut (its walls, floor, ceiling and doorway, the bunk, the stool, the campfire), the campfire moved clear of the squad's left member, the weapon 0.40 m above the bunk"
   },
   "template_project": "projects/lobby_scene/day/client_project",
   "target_project": "projects/lobby_scene/stk2_blockpost/client_project",
@@ -76,9 +76,9 @@
       "archive": "STK2/xr2-prog/resources/exported/models/props/fire/campfire.model",
       "settings": "STK2/xr2-prog/resources/sources/models/props/fire/campfire.model/settings",
       "position": [
-        2.8292150497436523,
+        3.7347,
         1.1073659658432007,
-        27.80384063720703
+        28.2487
       ]
     }
   ],
@@ -190,9 +190,9 @@
       "from": "stove_fire",
       "name": "campfire_flame",
       "position": [
-        2.8292150497436523,
+        3.7347,
         1.1073659658432007,
-        27.80384063720703
+        28.2487
       ],
       "set": {
         "lib_name": "fx/lights/bonfire",
@@ -206,9 +206,9 @@
     {
       "from": "fire",
       "position": [
-        2.8292150497436523,
+        3.7347,
         1.6,
-        27.80384063720703
+        28.2487
       ]
     },
     {
@@ -256,7 +256,7 @@
     ],
     "weapon": [
       4.6397,
-      2.6574,
+      2.7074,
       26.2057
     ],
     "artefact": [
@@ -298,5 +298,124 @@
   "environment": {
     "object": "environment_day",
     "post_process": "STK2/xr2-prog/resources/sources/material_instances/post_process/default_post_process.material"
-  }
+  },
+  "camera_boxes": [
+    {
+      "what": "the floor",
+      "centre": [
+        -0.55,
+        0.075,
+        0.61
+      ],
+      "half_extents": [
+        2.96,
+        0.075,
+        2.96
+      ]
+    },
+    {
+      "what": "the ceiling",
+      "centre": [
+        -0.55,
+        2.485,
+        0.61
+      ],
+      "half_extents": [
+        2.96,
+        0.075,
+        2.96
+      ]
+    },
+    {
+      "what": "the wall at -x",
+      "centre": [
+        -3.135,
+        1.28,
+        0.61
+      ],
+      "half_extents": [
+        0.075,
+        1.28,
+        2.96
+      ]
+    },
+    {
+      "what": "the wall at +x",
+      "centre": [
+        2.035,
+        1.28,
+        0.61
+      ],
+      "half_extents": [
+        0.075,
+        1.28,
+        2.96
+      ]
+    },
+    {
+      "what": "the wall at -z",
+      "centre": [
+        -0.55,
+        1.28,
+        -1.975
+      ],
+      "half_extents": [
+        2.96,
+        1.28,
+        0.075
+      ]
+    },
+    {
+      "what": "the wall at +z",
+      "centre": [
+        -0.55,
+        1.28,
+        3.195
+      ],
+      "half_extents": [
+        2.96,
+        1.28,
+        0.075
+      ]
+    },
+    {
+      "what": "the sentry bunk",
+      "centre": [
+        0.895,
+        1.25,
+        2.765
+      ],
+      "half_extents": [
+        0.875,
+        1.35,
+        0.565
+      ]
+    },
+    {
+      "what": "the campfire",
+      "centre": [
+        -1.15,
+        0.15,
+        1.65
+      ],
+      "half_extents": [
+        0.53,
+        0.25,
+        0.53
+      ]
+    },
+    {
+      "what": "the stool",
+      "centre": [
+        -0.465,
+        0.25,
+        2.315
+      ],
+      "half_extents": [
+        0.285,
+        0.35,
+        0.285
+      ]
+    }
+  ]
 }

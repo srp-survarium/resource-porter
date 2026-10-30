@@ -124,7 +124,50 @@ pub struct LobbyManifest {
     /// The project's root `srp_lobby` table, which skhid-srp's lobby
     /// patches read (patch 45's weapon spot and view).
     pub srp_lobby: SrpLobbySpec,
+    /// Invisible boxes in the lobby frame for the lobby camera's collision
+    /// ray alone: a cage inside the room's walls, floor and ceiling (the eye
+    /// stops short of them, never on them) and around the props the eye
+    /// would get into (skhid-srp lobby-scenes.md, "What a lobby project
+    /// must give").
+    #[serde(default)]
+    pub camera_boxes: Vec<CameraBox>,
+    /// The target build's own models placed in the lobby frame (a workbench
+    /// under the weapon's spot), with their collision.
+    #[serde(default)]
+    pub native_props: Vec<NativeProp>,
 }
+
+/// An invisible box of the camera's collision: 0.26's unit box primitive
+/// (`editor/walker_collision`, half extents 1), scaled, turned about y.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CameraBox {
+    /// What it keeps the eye from (for the notes).
+    pub what: String,
+    pub centre: [f32; 3],
+    pub half_extents: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
+}
+
+/// A model of the target build in the lobby frame.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeProp {
+    /// The model, `models/<lib>.model`, as the target has it.
+    pub lib: String,
+    pub position: [f32; 3],
+    /// Its turn about y (the engine's create_rotation(0, yaw, 0)).
+    #[serde(default)]
+    pub yaw: f32,
+}
+
+/// 0.26's unit box collision (half extents 1), scaled per instance.
+const UNIT_BOX_COLLISION: &str = "resources/models/editor/walker_collision.model/collision";
+/// The groups of the 0.26 lobby's prop collision, which the lobby camera's
+/// ray (group 10h, mask 8: 0x2844E4) meets.
+const PROP_COLLISION_MASK: i32 = 16;
+const PROP_COLLISION_GROUP: i32 = 8;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -826,6 +869,9 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         &slice_lights,
         scene,
     )?;
+    let mut extra_notes = Vec::new();
+    add_camera_boxes(&mut project, &manifest.camera_boxes, &mut extra_notes)?;
+    add_native_props(&mut project, &manifest.native_props, &mut target, &mut extra_notes)?;
     let mut environment_notes = Vec::new();
     if let Some(environment) = &manifest.environment {
         let values = material_values(&stk2, &environment.post_process)?;
@@ -896,6 +942,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         notes: spot_notes(&manifest, &spots)
             .into_iter()
             .chain(slice_notes)
+            .chain(extra_notes)
             .chain(
                 environment_notes
                     .iter()
@@ -2565,6 +2612,96 @@ fn number_like(object: &ConfigValue, path: &str, value: f32) -> ConfigValue {
 
 fn parse(db: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
     crate::weapon::parse_config(db, path, "template")
+}
+
+fn float3_of(v: [f32; 3]) -> ConfigValue {
+    ConfigValue::Float3(v.map(|x| (x * 1000.0).round() / 1000.0))
+}
+
+/// The camera boxes as collision objects of the project (the lobby frame).
+fn add_camera_boxes(project: &mut BinaryConfig, boxes: &[CameraBox], notes: &mut Vec<String>) -> Result<()> {
+    let Some(ConfigValue::Indexed(collisions)) = project.root.named_mut("collision_objects") else {
+        bail!("the project has no collision_objects");
+    };
+    for b in boxes {
+        ensure!(
+            b.half_extents.iter().all(|h| h.is_finite() && *h > 0.0) && b.centre.iter().all(|c| c.is_finite())
+                && b.yaw.is_finite(),
+            "camera box {:?}: a centre, a turn and half extents above 0",
+            b.what
+        );
+        let [x, y, z] = b.half_extents;
+        collisions.push(ConfigValue::Named(vec![
+            named("lib_name", ConfigValue::String(format!("{UNIT_BOX_COLLISION}#[{x:.2}][{y:.2}][{z:.2}]"))),
+            named("position", float3_of(b.centre)),
+            named("rotation", ConfigValue::Float3([0.0, b.yaw, 0.0])),
+            named("scale", ConfigValue::Float3(b.half_extents)),
+            named("cmask", ConfigValue::Integer(PROP_COLLISION_MASK)),
+            named("cgroup", ConfigValue::Integer(PROP_COLLISION_GROUP)),
+        ]));
+        notes.push(format!(
+            "camera box ({}): centre ({:.2}, {:.2}, {:.2}), half extents ({x:.2}, {y:.2}, {z:.2}), yaw {:.3}",
+            b.what, b.centre[0], b.centre[1], b.centre[2], b.yaw
+        ));
+    }
+    Ok(())
+}
+
+/// The target's own models placed in the lobby frame: a render visual each
+/// and its collision (the camera's ray meets it), the model checked there.
+fn add_native_props(
+    project: &mut BinaryConfig,
+    props: &[NativeProp],
+    target: &mut ResourceDb,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    for prop in props {
+        let settings = format!("models/{}.model/settings", prop.lib);
+        ensure!(target.is_file(&settings), "native prop {}: {settings} is not in the target", prop.lib);
+        let collision = format!("models/{}.model/collision", prop.lib);
+        let has_collision = ["vertices", "exported_primitives"]
+            .iter()
+            .any(|leaf| target.is_file(&format!("{collision}/{leaf}")));
+        let place = |extra: Vec<NamedValue>, lib: ConfigValue| {
+            let mut fields = vec![
+                named("rotation", ConfigValue::Float3([0.0, prop.yaw, 0.0])),
+                named("position", float3_of(prop.position)),
+                named("lib_name", lib),
+            ];
+            fields.extend(extra);
+            fields.push(named("scale", ConfigValue::Float3([1.0; 3])));
+            ConfigValue::Named(fields)
+        };
+        let Some(ConfigValue::Indexed(visuals)) = project.root.named_mut("render_visuals") else {
+            bail!("the project has no render_visuals");
+        };
+        visuals.push(place(
+            vec![named("visual_name", ConfigValue::String(prop.lib.clone()))],
+            ConfigValue::String(prop.lib.clone()),
+        ));
+        if has_collision {
+            let Some(ConfigValue::Indexed(collisions)) = project.root.named_mut("collision_objects") else {
+                bail!("the project has no collision_objects");
+            };
+            collisions.push(place(
+                vec![
+                    named("cmask", ConfigValue::Integer(PROP_COLLISION_MASK)),
+                    named("cgroup", ConfigValue::Integer(PROP_COLLISION_GROUP)),
+                ],
+                ConfigValue::String(format!("resources/{collision}")),
+            ));
+        }
+        notes.push(format!(
+            "native prop {} at ({:.2}, {:.2}, {:.2}), yaw {:.3}{}",
+            prop.lib,
+            prop.position[0],
+            prop.position[1],
+            prop.position[2],
+            prop.yaw,
+            if has_collision { ", with its collision" } else { ", no collision of its own" }
+        ));
+    }
+    Ok(())
 }
 
 fn named(name: &str, value: ConfigValue) -> NamedValue {

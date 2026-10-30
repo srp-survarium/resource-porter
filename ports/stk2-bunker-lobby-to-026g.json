@@ -12,8 +12,8 @@
   },
   "pack": {
     "id": "lobby-stk2-bunker",
-    "version": "1",
-    "description": "the STK2 bomb shelter (2011-12 scenario a03_bomb_shelter: its octagonal store room with the gas-mask pile, shelves, crates and beds, and the vaults beside it) as a 0.26g lobby project, projects/lobby_scene/stk2_bunker, lit by STK2's own lights, sun and post-process"
+    "version": "2",
+    "description": "the STK2 bomb shelter (2011-12 scenario a03_bomb_shelter: its octagonal store room with its shelves, crates and beds, and the vaults beside it) as a 0.26g lobby project, projects/lobby_scene/stk2_bunker, lit by STK2's own lights, sun and post-process; the character's spot 0.25 m clear of the crates and the leaf pile beside it left out (the squad's left member stood in it), camera boxes over the floor and around the props the lobby camera got into, the weapon 0.40 m above the metal boxes"
   },
   "target_project": "projects/lobby_scene/stk2_bunker/client_project",
   "model_prefix": "level/stk2_bunker",
@@ -35,7 +35,7 @@
     "character": [
       37.49,
       -4.37,
-      -24.41
+      -24.66
     ],
     "view_yaw": 1.5708
   },
@@ -64,7 +64,8 @@
         "actors/",
         "character/",
         "pine_",
-        "generic/tower_electric/"
+        "generic/tower_electric/",
+        "nature/leaf_pile/"
       ],
       "lights": {
         "point_template": "point_light(5)",
@@ -196,12 +197,12 @@
     "character": [
       37.49,
       -4.37,
-      -24.41
+      -24.66
     ],
     "weapon": [
-      39.0,
-      -3.0,
-      -26.4
+      38.49,
+      -2.92,
+      -26.46
     ],
     "artefact": [
       38.59,
@@ -212,5 +213,98 @@
   "environment": {
     "object": "environment_day",
     "post_process": "resources/sources/material_instances/post_process/default_post_process.material"
-  }
+  },
+  "camera_boxes": [
+    {
+      "what": "the floor",
+      "centre": [
+        0.0,
+        0.075,
+        0.0
+      ],
+      "half_extents": [
+        5.0,
+        0.075,
+        5.0
+      ]
+    },
+    {
+      "what": "the metal box at the left",
+      "centre": [
+        -1.84,
+        0.27,
+        0.005
+      ],
+      "half_extents": [
+        0.47,
+        0.37,
+        0.725
+      ]
+    },
+    {
+      "what": "the metal boxes at the front left",
+      "centre": [
+        -1.735,
+        0.525,
+        -1.44
+      ],
+      "half_extents": [
+        0.785,
+        0.625,
+        0.92
+      ]
+    },
+    {
+      "what": "the gas-mask crates and the shelf",
+      "centre": [
+        1.84,
+        1.155,
+        -1.355
+      ],
+      "half_extents": [
+        0.88,
+        1.255,
+        1.285
+      ]
+    },
+    {
+      "what": "the rusty barrels",
+      "centre": [
+        1.66,
+        0.445,
+        -1.835
+      ],
+      "half_extents": [
+        1.27,
+        0.545,
+        0.405
+      ]
+    },
+    {
+      "what": "the red barrel",
+      "centre": [
+        1.85,
+        0.305,
+        1.66
+      ],
+      "half_extents": [
+        0.43,
+        0.405,
+        0.57
+      ]
+    },
+    {
+      "what": "the cart",
+      "centre": [
+        0.6,
+        0.495,
+        2.575
+      ],
+      "half_extents": [
+        0.91,
+        0.595,
+        0.835
+      ]
+    }
+  ]
 }

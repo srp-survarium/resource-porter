@@ -140,6 +140,13 @@ and the bomb shelter (`ports/stk2-bunker-lobby-to-026g.json`): a `slice` takes
 the objects of an STK2 project inside a box, merged into one model, with the
 project's lights and its environment's post-process; `--list-textures` says
 which source textures a manifest needs before they are extracted.
+A manifest's `camera_boxes` (`{what, centre, half_extents, yaw}` in the lobby
+frame) are invisible boxes for the lobby camera's collision ray alone (0.26's
+unit primitive `editor/walker_collision`, scaled; cgroup 8, cmask 16): a cage
+inside the room and boxes around the props the eye would get into. Its
+`native_props` (`{lib, position, yaw}`) place 0.26's own models, with their
+collision (the Bar's workbench under the weapon's spot). skhid-srp's
+`lobby-scenes.md` says what a lobby project must give.
 
 Compose multiple bundles before applying. The first bundle wins shared paths:
 
