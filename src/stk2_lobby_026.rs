@@ -231,7 +231,8 @@ pub struct TextureCap {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SliceSpec {
-    /// The merged model is `<model_prefix>/<name>`.
+    /// The merged model is `<model_prefix>/<name>_v<pack version>` (a new
+    /// folder with each version: patches cannot take an old surface away).
     pub name: String,
     /// The STK2 `project.xprj` and the composite library, relative to the
     /// STK2 root.
@@ -885,7 +886,12 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
     let mut slice_lights = Vec::new();
     let mut slice_notes = Vec::new();
     for (slice, objects) in &slices {
-        let name = format!("{}/{}", manifest.model_prefix, slice.name);
+        // A slice's merged model is new with every pack version: its surfaces are
+        // numbered by material, so another version can have fewer or others, and a
+        // resources.db patch only adds files: a surface folder of an earlier
+        // version left in the same model fails the whole model's materials
+        // ("material not loaded: nomaterial", seen 2026-10-31, bunker @6 over @5).
+        let name = format!("{}/{}_v{}", manifest.model_prefix, slice.name, manifest.pack.version);
         let made = write_slice(
             &name,
             slice,
