@@ -2591,7 +2591,7 @@ pub fn convert_scene(
                     if !faded.is_empty() {
                         notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
                     }
-                    let lit = donor_lighting(&donor_probe_objects, &donor_objects, &spawns, global_name, map)?;
+                    let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, global_name, map)?;
                     // 0.26 draws probes largest first, each over the ones
                     // before it by its falloff (`environment_probe_lighting`
                     // blends with the weight in alpha). A volume's irradiance
@@ -2939,7 +2939,7 @@ pub fn convert_scene(
             }
             // Height fog in a box (the pond's mist): the same object and
             // fields in both builds.
-            "volume_fog" if templates_of(template, "volume_fog").first().is_some() => {
+            "volume_fog" if !templates_of(template, "volume_fog").is_empty() => {
                 let mut f = first_template(template, "volume_fog")?;
                 place(&mut f, object, &full_name)?;
                 copy_shared(
