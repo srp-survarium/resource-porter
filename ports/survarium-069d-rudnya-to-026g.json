@@ -21,7 +21,18 @@
         "global": "environment_and_lights/probes/global",
         "matte_water": "environment_and_lights/probes/swamp",
         "exposure_bias": 1.0,
-        "sun_saturation": 0.6
+        "sun_saturation": 0.6,
+        "area_gains": {
+          "environment_and_lights/probes/day/church/": 2.2,
+          "environment_and_lights/ambient_light/day/church/": 2.2,
+          "environment_and_lights/probes/day/atp/atp(4)": 1.8,
+          "environment_and_lights/probes/day/atp/atp(5)": 1.8,
+          "environment_and_lights/ambient_light/day/atp/ambient_light(6)": 1.8,
+          "environment_and_lights/ambient_light/day/atp/ambient_light(9)": 1.8,
+          "environment_and_lights/ambient_light/day/atp/ambient_light(14)": 1.8,
+          "environment_and_lights/probes/day/bus_stop/": 1.15,
+          "environment_and_lights/ambient_light/day/bus_stop/": 1.15
+        }
       }
     },
     "spawn_folder": "logic/modes/team_death_match/",

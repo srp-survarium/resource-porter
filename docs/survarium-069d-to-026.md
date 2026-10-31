@@ -346,7 +346,11 @@ the formulas come from both builds' shader disassembly):
   grading show its sunlight less orange). Interior probes darker than 0.03 are raised to
   it, at most x8 (`lighting::adaptation_gain`), as 0.69d's exposure follows a view down
   to EV 6 and shows its rooms alike (half the difference left the church at half 0.69d's
-  brightness). The pond's mist is the donor's `volume_fog`, the same object in both
+  brightness). Rooms 0.26's eye adaptation still shows darker than 0.69d's frames take a
+  diffuse gain by `full_name` prefix (`probes.donor.area_gains`, the longest prefix wins,
+  reflections unchanged), matched pose by pose: the church x2.2, the tractor station's
+  annex x1.8, the bus stop x1.15; the school, houses and tractor-station hall are left as
+  they are (already about 1.3x 0.69d). The pond's mist is the donor's `volume_fog`, the same object in both
   builds, and both draw it alike (the same shader, constants and back-face pass, which
   holds a camera inside: no wall or pop on entering).
 * Not reproduced: 0.69d's turbid sky (0.26's atmosphere stays), its height fog over the

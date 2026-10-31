@@ -2003,7 +2003,19 @@ pub enum MapProbes {
         /// its sunlight less orange than 0.26 shows the same colour.
         #[serde(default = "one")]
         sun_saturation: f32,
+        /// The diffuse light of the volumes whose `full_name` starts with a
+        /// key, times its value (the longest key wins): rooms that 0.26's
+        /// eye adaptation shows darker than 0.69d's frames whatever their
+        /// probes, matched to the reference rig pose by pose. Reflections
+        /// are unchanged.
+        #[serde(default)]
+        area_gains: BTreeMap<String, f32>,
     },
+}
+
+/// The `area_gains` factor for a volume (1 outside every area).
+fn area_gain(gains: &BTreeMap<String, f32>, full_name: &str) -> f32 {
+    gains.iter().filter(|(prefix, _)| full_name.starts_with(prefix.as_str())).max_by_key(|(prefix, _)| prefix.len()).map_or(1.0, |(_, g)| *g)
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -2044,6 +2056,8 @@ pub struct GeneratedProbe {
     pub specular_mip: usize,
     pub diffuse: DiffuseRecipe,
     pub scale: LightScale,
+    /// `area_gains` on the diffuse light alone.
+    pub diffuse_gain: f32,
 }
 
 /// One 0.26 probe volume of a donor-lit map.
@@ -2566,7 +2580,7 @@ pub fn convert_scene(
                         count("environment_probe");
                     }
                 }
-                MapProbes::Donor { global: global_name, .. } => {
+                MapProbes::Donor { global: global_name, area_gains, .. } => {
                     let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
                     let spawns = donor_spawn_positions(donor, map)?;
                     let faded: Vec<&str> = donor_objects
@@ -2597,6 +2611,7 @@ pub fn convert_scene(
                             specular_mip: v.specular_mip,
                             diffuse: v.diffuse.clone(),
                             scale,
+                            diffuse_gain: area_gain(area_gains, &v.full_name),
                         });
                     }
                     let ambient_template = first_template(template, "ambient_light")?;
@@ -2625,6 +2640,9 @@ pub fn convert_scene(
                         lit.light_volumes,
                         lit.darkeners.len()
                     ));
+                    if !area_gains.is_empty() {
+                        notes.push(format!("probe areas' diffuse light raised to 0.69d's frames (manifest area_gains): {area_gains:?}"));
+                    }
                     if !lit.dropped_darkeners.is_empty() {
                         notes.push(format!("darkening ambient lights shaped as cylinders, left out (0.26 has no cylinder; a box would cut straight-edged dark squares): {:?}", lit.dropped_darkeners));
                     }
@@ -3925,7 +3943,7 @@ pub fn build(
             emit(output, &format!("{base}.dds"), &cubes[&key], &what, &mut files)?;
             emit(output, &format!("{base}.options"), &options, &what, &mut files)?;
             let gain = super::lighting::adaptation_gain(&g.diffuse.base, g.scale);
-            let diffuse = super::lighting::diffuse_cube(&g.diffuse, LightScale(g.scale.0 * gain));
+            let diffuse = super::lighting::diffuse_cube(&g.diffuse, LightScale(g.scale.0 * gain * g.diffuse_gain));
             emit(output, &format!("{base}_diffuse.dds"), &diffuse, &what, &mut files)?;
             emit(output, &format!("{base}_diffuse.options"), &diffuse_options, &what, &mut files)?;
             probe_textures.insert(g.texture.clone());
@@ -4925,6 +4943,14 @@ fn rewrite_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn area_gains_take_the_longest_prefix() {
+        let gains: BTreeMap<String, f32> = [("a/day/church/".into(), 2.0), ("a/day/church/bell".into(), 3.0)].into_iter().collect();
+        assert_eq!(area_gain(&gains, "a/day/church/church(2)"), 2.0);
+        assert_eq!(area_gain(&gains, "a/day/church/bell(1)"), 3.0);
+        assert_eq!(area_gain(&gains, "a/day/school/indoor"), 1.0);
+    }
 
     fn static_mesh(basis: [u32; 3], stride: usize, extra: &[(u32, Vec<u8>)]) -> Vec<u8> {
         let mut b = Vec::new();
