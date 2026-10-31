@@ -1723,6 +1723,9 @@ fn uv_change(p: [[f64; 3]; 3], uv: [[f64; 2]; 3], d: [f64; 3]) -> [f64; 2] {
     std::array::from_fn(|k| s * (uv[1][k] - uv[0][k]) + t * (uv[2][k] - uv[0][k]))
 }
 
+/// A grown vertex's index by (the edge vertex it grew from, its row).
+type Rows = BTreeMap<(usize, usize), usize>;
+
 /// Grows a surface (48-byte vertices) past its boundary edges `edges` (as
 /// their triangles run them) in `rows` rows: row k of edge vertex v at
 /// `place(v, k)` with the skin `skin(v, k)`, its normal and tangents v's,
@@ -1738,7 +1741,7 @@ fn grow(
     place: impl Fn(usize, usize) -> [f64; 3],
     skin: impl Fn(usize, usize) -> BTreeMap<u8, f64>,
     both_sides: bool,
-) -> Result<(Vec<u8>, usize, BTreeMap<(usize, usize), usize>)> {
+) -> Result<(Vec<u8>, usize, Rows)> {
     let mesh = parse_mesh(bytes, 48, "surface")?;
     let n = mesh.positions.len();
     let uv_at = |i: usize| -> [f64; 2] {
@@ -2207,11 +2210,11 @@ fn grow_cowl(hood: &[u8], scavenger: &[u8], head: &[u8]) -> Result<(Vec<u8>, usi
     let clear = |mut x: [f64; 3]| {
         let dir = radial(x);
         let origin = [0.0, x[1], centre_z];
-        if let Some((t, _, _)) = farthest_hit(origin, dir, &neck.positions, &neck.triangles) {
-            if dot(sub(x, origin), dir) < t + COWL_CLEARANCE {
-                x[0] = dir[0] * (t + COWL_CLEARANCE);
-                x[2] = centre_z + dir[2] * (t + COWL_CLEARANCE);
-            }
+        if let Some((t, _, _)) = farthest_hit(origin, dir, &neck.positions, &neck.triangles)
+            && dot(sub(x, origin), dir) < t + COWL_CLEARANCE
+        {
+            x[0] = dir[0] * (t + COWL_CLEARANCE);
+            x[2] = centre_z + dir[2] * (t + COWL_CLEARANCE);
         }
         x
     };
