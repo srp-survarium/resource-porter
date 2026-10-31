@@ -123,6 +123,11 @@ to the stock 81 px (the width follows: 55-64 px opaque, the stock median 61). Th
 is measured: each stock trousers model rendered with the icon camera and its silhouette
 fitted to its icon's opaque body; of the 53 in the released atlas, the 27 that fit (IoU
 over 0.85) are cut at 0.30-0.50 m, median 0.40 m, the rig's knee being at 0.48-0.50 m.
+Every icon sits on the stock icons' faint black halo, even all round: measured on the
+released atlas (248 armour icons), outside the opaque body its alpha falls from 60 at 2 px
+to 34 at 4, 19 at 6, 10 at 8 and 4 at 10, which is the item's own alpha blurred (gaussian,
+sigma 5 px) at 0.6 of full strength; ours at 0.55, a shade fainter (56, 35, 19, 10, 4).
+The cells' top and bottom rows stay clear, cutting the halo there, as on stock.
 The inside of the open waist (the faces above 0.95 m that
 turn away from the camera) is left out of the trousers' icons: from the camera a little
 above the waist it showed, unlit, as a black band over the front. Boots are seen level,

@@ -132,6 +132,39 @@ def framed(picture, kind, shrink=1.0):
     return out
 
 
+# Every stock item icon sits on a faint black halo, even all round (no offset), the same in every
+# slot. Measured on the released atlas (248 armour icons), outside the opaque body its alpha
+# falls from 60 at 2 px to 34 at 4, 19 at 6, 10 at 8, 4 at 10 and 1 at 12, all black: the
+# item's own alpha blurred (gaussian, sigma 5 px) at 0.6 of full strength gives 61, 38, 21, 10,
+# 4, 2 on the stock bodies; ours at 0.55, a shade fainter. The atlas cells' top and bottom rows
+# stay clear, the halo cut there, as on stock.
+HALO_SIGMA = 5.0
+HALO_PEAK = 0.55
+
+
+def blurred(values, sigma):
+    """`values` (2-D) blurred by a gaussian of `sigma` px, the outside taken as 0."""
+    radius = int(4 * sigma + 0.5)
+    x = np.arange(-radius, radius + 1)
+    kernel = np.exp(-x * x / (2 * sigma * sigma))
+    kernel /= kernel.sum()
+    padded = np.pad(values, radius)
+    rows = np.apply_along_axis(lambda r: np.convolve(r, kernel, mode='valid'), 1, padded)
+    return np.apply_along_axis(lambda c: np.convolve(c, kernel, mode='valid'), 0, rows)
+
+
+def haloed(icon):
+    """`icon` over its halo: black, its alpha the item's own blurred, under the item."""
+    rgba = np.asarray(icon).astype(float) / 255
+    alpha = rgba[:, :, 3]
+    halo = blurred(alpha, HALO_SIGMA) * HALO_PEAK
+    out_alpha = alpha + halo * (1 - alpha)
+    rgb = rgba[:, :, :3] * (alpha / np.maximum(out_alpha, 1e-6))[:, :, None]
+    out = np.dstack([rgb, out_alpha])
+    out[[0, -1]] = 0
+    return Image.fromarray((out * 255).round().astype(np.uint8))
+
+
 # Boots drawn as first rendered (v1: the camera a little above, nothing left out or
 # recoloured): the owner's pick for the sneakers (2026-10-31), only smaller.
 AS_FIRST = {1866: 6}
@@ -398,6 +431,7 @@ def main():
             if kind == 'legs':
                 picture = cut_legs(picture, surfaces)
             icon = framed(picture, kind)
+        icon = haloed(icon)
         icon.save(a.output / f"{item['dict_id']}.png")
         rgba = np.asarray(icon)
         alpha = rgba[:, :, 3:4].astype(np.uint16)
