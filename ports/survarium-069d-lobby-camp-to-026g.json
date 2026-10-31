@@ -51,7 +51,7 @@
       "environment_and_lights/shadows/ambient_light(7)": { "intensity": 0.0 },
       "environment_and_lights/character_lights/point_light(3)": { "cast_shadow": false },
       "environment_and_lights/character_lights/point_light(10)": { "cast_shadow": false },
-      "environment_and_lights/character_lights/point_light(5)": { "shadow_map_size_index": 2 }
+      "environment_and_lights/character_lights/point_light(5)": { "cast_shadow": false }
     },
     "probes": {
       "baked": {
