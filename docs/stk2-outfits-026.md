@@ -111,14 +111,16 @@ reproducible: the same inputs make the same packs byte for byte.
 ## Icons
 
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
-boots 76, gloves 77, centred); the sneakers 28 % and the loner's shoes 20 % smaller (low
-shoes; the owner). Boots are seen level. Gloves: one hand, its back square to the camera
-(the hand's own plane, from its vertices), the outline's long axis settled on 32 degrees
-above the horizontal with the fingers down to the left (the stock glove icons' median,
-25-41). Every piece is whole up to its own top or cuff. The black STK2 painted where its
-trousers and sleeves covered them is handled for the icon only: faces whose texels are
-darker than 0.06 and that face into the piece (its lining, the inside of an opening) are
-left out; those of its outer surface take the colour of the faces around them on the mesh.
+boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Boots are seen level,
+whole up to their own tops: of their black faces (the shaft top STK2's trousers covered)
+those facing into the boot are left out and the outer ones take the colour of the faces
+around them on the mesh. The sneakers are drawn as first rendered (the camera 6 degrees
+above, nothing left out; the owner's pick), 28 % smaller. Gloves: one hand, its back
+square to the camera (the hand's own plane, from its vertices), the outline's long axis
+settled on 32 degrees above the horizontal with the fingers down to the left (the stock
+glove icons' median, 25-41); the faces wholly on the cuff's black end band or inside it
+(all three corners darker than 0.03) are left out, so the glove ends along an edge loop,
+and the faces part black at that edge take the colour of the glove around them.
 
 ## Checked offline only
 

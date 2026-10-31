@@ -91,37 +91,46 @@ def framed(picture, kind, shrink=1.0):
     return out
 
 
-def boots_icon(surfaces, shrink=1.0):
-    # Each boot whole up to its own top. Of the faces whose texels are black (the shaft top
-    # STK2's trousers covered): those facing into the boot (its lining) are left out, those
-    # of its outer surface keep their place and take the leather around the black.
-    kept = []
-    for points, uv, normals, faces, texture in surfaces:
-        h, w = texture.shape[:2]
-        lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
-                      np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
-        tri = points[faces]
-        middle = tri.mean(1)
-        normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-        inward = np.zeros(len(faces), bool)
-        for side in (middle[:, 0] > 0, middle[:, 0] <= 0):
-            if not side.any():
-                continue
-            axis = points[np.unique(faces[side])].mean(0)
-            radial = middle[side] - axis
-            radial[:, 1] = 0
-            inward[side] = (normal[side] * radial).sum(1) < 0
-        black = (lum < GLOVE_BLACK) & (middle[:, 1] > 0.08)
-        outer_black = black & ~inward
-        texture = neighbour_coloured(points, uv, faces, texture, lum, outer_black)
-        kept.append((points, uv, normals, faces[~(black & inward)], texture))
+# Boots drawn as first rendered (v1: the camera a little above, nothing left out or
+# recoloured): the owner's pick for the sneakers (2026-10-31), only smaller.
+AS_FIRST = {1866: 6}
+
+
+def boots_icon(surfaces, shrink=1.0, as_first=None):
+    if as_first is not None:
+        kept = list(surfaces)
+    else:
+        # Each boot whole up to its own top. Of the faces whose texels are black (the shaft top
+        # STK2's trousers covered): those facing into the boot (its lining) are left out, those
+        # of its outer surface keep their place and take the leather around the black.
+        kept = []
+        for points, uv, normals, faces, texture in surfaces:
+            h, w = texture.shape[:2]
+            lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
+                          np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
+            tri = points[faces]
+            middle = tri.mean(1)
+            normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            inward = np.zeros(len(faces), bool)
+            for side in (middle[:, 0] > 0, middle[:, 0] <= 0):
+                if not side.any():
+                    continue
+                axis = points[np.unique(faces[side])].mean(0)
+                radial = middle[side] - axis
+                radial[:, 1] = 0
+                inward[side] = (normal[side] * radial).sum(1) < 0
+            black = (lum < GLOVE_BLACK) & (middle[:, 1] > 0.08)
+            outer_black = black & ~inward
+            texture = neighbour_coloured(points, uv, faces, texture, lum, outer_black)
+            kept.append((points, uv, normals, faces[~(black & inward)], texture))
     surfaces = kept
     moved = []
     for points, uv, normals, faces, texture in surfaces:
         points = points.copy()
         points[:, 0] -= np.sign(points[:, 0]) * BOOTS['together']
         moved.append((points, uv, normals, faces, texture))
-    picture = renderer.render(as_meshes(moved), BOOTS['yaw'], BOOTS['pitch'], size=(CELL[0] * 8, CELL[1] * 8))
+    pitch = BOOTS['pitch'] if as_first is None else as_first
+    picture = renderer.render(as_meshes(moved), BOOTS['yaw'], pitch, size=(CELL[0] * 8, CELL[1] * 8))
     body = framed(picture, 'boots', shrink)
     shade = Image.new('L', CELL, 0)
     shade.paste(body.getchannel('A'), BOOTS['shadow_offset'])
@@ -226,31 +235,27 @@ def neighbour_coloured(points, uv, faces, texture, lum, paint):
     return out
 
 
+# A glove face whose three corners are all this dark lies wholly on the cuff's black end
+# band or inside the cuff (STK2 hid both under the sleeve).
+CUFF_BLACK = 0.03
+
+
 def glove_icon(surfaces):
-    """One glove, whole up to its cuff. Of the faces whose texels are black (STK2 hid the cuff
-    under the sleeve): those facing into the glove (its lining, the inside of the opening) are
-    left out; those of its outer surface keep their place and take the glove's colours around
-    the black (the band reads as part of the cuff)."""
+    """One glove up to its cuff. The faces wholly on the cuff's black end band or inside it
+    (all three corners black) are left out: the band is whole rows of the mesh, so the glove
+    ends along an edge loop, smooth, where its cloth ends. Faces part black at that edge take
+    the colour of the glove around them on the mesh."""
     one = []
     for points, uv, normals, faces, texture in surfaces:
         faces = faces[points[faces][:, :, 0].mean(1) > 0]
         h, w = texture.shape[:2]
+        corner = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
+                         np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2)
+        faces = largest_piece(points, faces[corner.max(1) >= CUFF_BLACK])
         lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
                       np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
-        black = lum < GLOVE_BLACK
-        used = points[np.unique(faces)]
-        centre = used.mean(0)
-        along = np.linalg.svd(used - centre)[2][0]
-        tri = points[faces]
-        middle = tri.mean(1)
-        offset = middle - centre
-        radial = offset - np.outer(offset @ along, along)
-        normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
-        inward = (normal * radial).sum(1) < 0
-        keep = ~(black & inward)
-        outer_black = black & ~inward
-        texture = neighbour_coloured(points, uv, faces, texture, lum, outer_black)
-        one.append((points, uv, normals, largest_piece(points, faces[keep]), texture))
+        texture = neighbour_coloured(points, uv, faces, texture, lum, lum < GLOVE_BLACK)
+        one.append((points, uv, normals, faces, texture))
     yaw, pitch, roll = camera_for(one[0][0], np.vstack([f for _, _, _, f, _ in one]))
     # The picture's long axis follows the outline (fingers, thumb), not the mesh's: settle it
     # on the stock angle (rolling one degree more turns it one degree less).
@@ -287,7 +292,7 @@ def main():
         surfaces = [surface(a.bundle, item['model'], name, a.maps, ns) for name in item['surfaces']]
         kind = item['category']
         if kind == 'boots':
-            icon = boots_icon(surfaces, SHRINK.get(item['dict_id'], 1.0))
+            icon = boots_icon(surfaces, SHRINK.get(item['dict_id'], 1.0), AS_FIRST.get(item['dict_id']))
         elif kind == 'gloves':
             icon = glove_icon(surfaces)
         else:
