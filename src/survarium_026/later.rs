@@ -342,6 +342,9 @@ pub struct LobbySpec {
     /// 0.69d exposure: a screen at 0.69d's 1 glows too hot).
     #[serde(default)]
     pub emission_scale: BTreeMap<String, f32>,
+    /// Parts of donor models' surfaces left out.
+    #[serde(default)]
+    pub removed_parts: Vec<RemovedPart>,
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -363,6 +366,18 @@ pub struct GlowingSurface {
     #[serde(default)]
     pub near: Vec<[f32; 3]>,
     #[serde(default)]
+    pub radius: f32,
+}
+
+/// Parts of a donor model's surfaces left out: the triangles whose centre
+/// lies within `radius` (model space) of a point (the camp door's hinge
+/// knuckles, which show on the jamb from the room).
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemovedPart {
+    pub model: String,
+    pub surfaces: Vec<String>,
+    pub near: Vec<[f32; 3]>,
     pub radius: f32,
 }
 
@@ -3821,6 +3836,12 @@ pub fn build(
                 }
             }
             if let (Port::Lobby(lobby), Some((model_root, surface))) = (&port, path.strip_suffix("/converted_model").and_then(|p| p.split_once("/render/"))) {
+                if let Some(part) = lobby.removed_parts.iter().find(|r| model_root == format!("models/{}.model", r.model) && r.surfaces.iter().any(|x| x == surface)) {
+                    let before = triangles(&bytes);
+                    let (_, rest) = split_mesh(&bytes, &part.near, part.radius).with_context(|| format!("removing a part of {path}"))?;
+                    notes.push(format!("{path}: {} of {before} triangles left out (removed_parts)", before - triangles(&rest)));
+                    bytes = rest;
+                }
                 if let Some(glow) = lobby.glowing_surfaces.iter().find(|g| !g.near.is_empty() && model_root == format!("models/{}.model", g.model) && g.surface == surface) {
                     let (lit, rest) = split_mesh(&bytes, &glow.near, glow.radius).with_context(|| format!("splitting {path}"))?;
                     let name = format!("srp_glow_{surface}");
@@ -5361,7 +5382,7 @@ mod tests {
             probe_overrides: BTreeMap::new(),
             glowing_surfaces: Vec::new(),
             light_overrides: BTreeMap::new(),
-            emission_scale: BTreeMap::new(),
+            emission_scale: BTreeMap::new(), removed_parts: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
@@ -5427,7 +5448,7 @@ mod tests {
             donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
             probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
             native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: BTreeMap::new(), photometric_lights: None, environment_overrides: BTreeMap::new(),
-            exclude_probes: Vec::new(), probe_overrides: overrides, glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(),
+            exclude_probes: Vec::new(), probe_overrides: overrides, glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(), removed_parts: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby(BTreeMap::from([("outdoor/environment_probe".to_owned(), outdoor)]))), false, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
@@ -5450,7 +5471,7 @@ mod tests {
             donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
             probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
             native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: turned, photometric_lights: None, environment_overrides: BTreeMap::new(),
-            exclude_probes: Vec::new(), probe_overrides: BTreeMap::new(), glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(),
+            exclude_probes: Vec::new(), probe_overrides: BTreeMap::new(), glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(), removed_parts: Vec::new(),
         };
         let donor = [-3.1411853, -1.4530003, -3.1411853];
         let port = Port::Lobby(spec(BTreeMap::from([("props/door/wood_door_02".to_owned(), [0.0, 1.6885923, 0.0])])));
