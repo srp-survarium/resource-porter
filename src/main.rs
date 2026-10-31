@@ -272,8 +272,9 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Bring a 0.69d map down to 0.26g (donor: a `.split` volume list).
-    #[command(name = "build-survarium-069d-map")]
+    /// Bring a 0.69d map, or a 0.69d or 0.46c2 lobby scene, down to 0.26g
+    /// (donor: a `.split` volume list; the manifest's `map` or `lobby` says which).
+    #[command(name = "build-survarium-069d-map", visible_alias = "build-survarium-later-scene")]
     BuildSurvarium069dMap {
         #[arg(long)]
         manifest: PathBuf,
