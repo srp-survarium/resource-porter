@@ -77,10 +77,12 @@ def as_meshes(surfaces, keep=None):
     return out
 
 
-# The stock trousers' icons show them from the waist down to the ankle, the feet and hems
-# below it cut off (the owner, 2026-10-31: "cut at the ankles"): the cut at this share of the
-# waist-to-floor height, then the whole fitted to the stock height.
-LEGS_KEEP = 0.93
+# Where the stock trousers' icons are cut: each stock trousers model rendered with this camera and
+# its silhouette fitted to its icon's opaque body (the 27 that fit, IoU over 0.85, of the 53 in
+# the released atlas) puts the cut at 0.30-0.50 m, median 0.40 m: a hand below the knee (the
+# rig's knee at 0.48-0.50 m), 0.62 of the waist-to-floor height (quartiles 0.59-0.63). Ours are
+# cut there, then fitted to the stock height.
+LEGS_KEEP = 0.62
 
 
 # Trousers are open at the waist: from a camera a little above it the inside of the back
@@ -100,7 +102,7 @@ def waist_inside_hidden(meshes, yaw, pitch):
 
 
 def cut_legs(picture, surfaces):
-    """Trousers cut at the ankle, as the stock icons show them: rows below LEGS_KEEP of the
+    """Trousers cut below the knee, as the stock icons show them: rows below LEGS_KEEP of the
     waist-to-floor height left out (the picture's rows follow the model's heights; the camera
     is nearly level)."""
     ys_model = np.concatenate([s[0][np.unique(s[3])][:, 1] for s in surfaces])

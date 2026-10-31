@@ -117,10 +117,13 @@ reproducible: the same inputs make the same packs byte for byte.
 ## Icons
 
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
-boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Trousers are shown as the
-stock ones are, from the waist down to the ankle: cut at 93 % of the waist-to-floor
-height, the feet and hems below it left out, the whole fitted to the stock 81 px (the
-width follows: 41-45 px). The inside of the open waist (the faces above 0.95 m that
+boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Trousers are cut as the
+stock ones are: a hand below the knee, at 0.62 of the waist-to-floor height, then fitted
+to the stock 81 px (the width follows: 55-64 px opaque, the stock median 61). The 0.62
+is measured: each stock trousers model rendered with the icon camera and its silhouette
+fitted to its icon's opaque body; of the 53 in the released atlas, the 27 that fit (IoU
+over 0.85) are cut at 0.30-0.50 m, median 0.40 m, the rig's knee being at 0.48-0.50 m.
+The inside of the open waist (the faces above 0.95 m that
 turn away from the camera) is left out of the trousers' icons: from the camera a little
 above the waist it showed, unlit, as a black band over the front. Boots are seen level,
 whole up to their own tops: of their black faces (the shaft top STK2's trousers covered)
