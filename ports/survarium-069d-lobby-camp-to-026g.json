@@ -45,7 +45,10 @@
       "room/lustra/ambient_light(1)": { "intensity": 0.4 },
       "room/lustra/shadow/": { "intensity": 0.0 },
       "environment_and_lights/outdoor/": { "intensity": 1.5 },
-      "environment_and_lights/character_lights/point_light(10)": { "cast_shadow": false }
+      "environment_and_lights/shadows/ambient_light(1)": { "intensity": 0.0 },
+      "environment_and_lights/shadows/ambient_light(5)": { "intensity": 0.0 },
+      "environment_and_lights/shadows/ambient_light(6)": { "intensity": 0.0 },
+      "environment_and_lights/shadows/ambient_light(7)": { "intensity": 0.0 }
     },
     "probes": {
       "baked": {
