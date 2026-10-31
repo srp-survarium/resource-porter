@@ -62,9 +62,12 @@ has the items, their stats and the owner's open questions.
     mask (the Novice jacket's settings), the sleeves over wrist-length gloves and into
     gauntlets (cut 3 cm past the deepest opening). The bomber's sleeves are pushed up:
     below them each variant draws the native body's forearms
-    (`base_character_torso_s1`/`_s2`/`_s3` from 5 cm below the elbow, with the native
-    skin material), as the stock torsos with bare arms do: every stock glove's cuff is
-    made for them. (Version 1 took the donor's forearms from `bandit_01_hand`; they
+    (`base_character_torso_s1`/`_s2`/`_s3` from 5 cm below the elbow): every stock
+    glove's cuff is made for them. They are drawn with the native hands' material and
+    mapped to the plain skin of its map (the back of the hand; along the arm down it,
+    round the arm across it and back, so no seam): the native torso's own map is its
+    red Christmas sweater, which showed under the sleeves in the owner's test
+    (2026-10-31). (Version 1 took the donor's forearms from `bandit_01_hand`; they
     stood through the gloves' cuffs in the game.)
   - the Novice jeans end at 0.937-0.964 m, where STK2's long jacket covered them; under
     0.26g's shorter jackets the open top showed the background. The top edge grows
@@ -81,16 +84,24 @@ has the items, their stats and the owner's open questions.
     down the middle; every new vertex takes the hood's canvas reflected across the edge
     it grows from, and its skin blends into the stock Scavenger hood's hem's
     (`grow_cowl`);
-  - the hood covers the mask slot (as the Marauder, Molot and Zubr helmets do: its rim
-    and flaps lie where every mask is) and is pushed out only where the native skull
-    under it comes through (one point, 0.9 mm: 62 vertices, up to 5.3 mm);
+  - the hood is pushed out where the native skull under it comes through (one point,
+    0.9 mm: 62 vertices, up to 5.3 mm), then, grown, over every mask (the owner,
+    2026-10-31: masks go under it): where a mask's point behind the face (above the
+    cowl's hem) comes through it or within 3 mm, up to 15 mm (868 points of 15 masks:
+    239 vertices, up to 16.7 mm; `fit_hood_over_masks`). The bulky helmet masks' neck
+    guards, hoses and filters, 30 to 62 mm out, are left: they stand as far out of the
+    stock Scavenger hood (31 to 57 mm; the 0.69 balaclavas 23 to 26 mm, which this hood
+    clears), and the build prints both;
   - the backpack is not fitted (its own two straps, from the export).
-- Items: each a stock piece of the same slot at the owner's level copied whole (stats,
-  level, price, drop weight, bonuses, card, sounds; the Novice's set level 4, the bandit's
-  and the loner's 6, `LEVELS` where no stock piece is at it), with the model, icon and
-  texts its own; no faction (0, the Independent traders': srp sells them nowhere, they
-  only drop); camouflage and decals off (no masks); the hood's `additional_model_slots`
-  `mask`.
+- Items: each copies a stock piece of its slot (card, sounds, modification masks), with
+  its own numbers over it (`Piece::stats`, the owner's, 2026-10-31: each inside the stock
+  range of its slot and level in the released game data, skhid-srp's stk2-outfits.md):
+  level, armour and isolation in every hit region (the loner's vest 60 on the chest and
+  back, 30 on the forearms) and as shown, weight, stock bonuses (`default_modifications`,
+  each checked against modifications.options), the dictionary's `base_cost` and the drop
+  weight. Model, icon and texts its own; no faction (0, the Independent traders': srp
+  sells them nowhere, they only drop); camouflage and decals off; no piece takes another
+  slot (`additional_model_slots` empty: masks go under the hood).
 
 ## Rebuild
 
@@ -145,5 +156,7 @@ edge take the colour of the glove around them.
 ## Checked offline only
 
 Bind-pose renders of every piece with stock pieces of each class (sleeves, cuffs, hems,
-shafts, waist, collar, backpack, hood). None of the fits has been seen in the game or
-through the animation clips.
+shafts, waist, collar, backpack, hood). The bomber and the hood with masks were also
+rendered in poses of the game's clips (aiming, crouching, sprinting):
+`examples/pose-stk2-outfits-026.rs` writes posed copies of any surfaces (bundle files or
+`db:` paths) through the player's rig (`stk2_outfits_026::pose_surfaces`).

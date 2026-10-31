@@ -104,18 +104,6 @@ impl Kind {
         }
     }
 
-    /// The profile slots a piece of this kind covers
-    /// (`data.additional_model_slots`): the hood covers the mask, as the
-    /// stock helmets that cannot go over one do (the Marauder helmet, the
-    /// Molot and Zubr helmets): its rim and cheek flaps lie on the face and
-    /// neck where every mask is.
-    fn covers(self) -> &'static [&'static str] {
-        match self {
-            Kind::Helmet => &["mask"],
-            _ => &[],
-        }
-    }
-
     /// The config tables of the variants the game draws, each with the
     /// model suffix built for it: the first is the piece as exported.
     fn variants(self) -> &'static [(&'static str, &'static str)] {
@@ -176,8 +164,41 @@ pub struct Piece {
     /// The trousers or sleeves the piece is worn with (boots and gloves);
     /// `None` keeps the template's.
     pub model_type: Option<&'static str>,
+    /// Its own numbers, over the template's.
+    pub stats: Stats,
     pub title: Text,
     pub description: Text,
+}
+
+/// A piece's numbers (the owner's, 2026-10-31), set over its template's:
+/// each inside the stock range of its slot and level in the released game
+/// data (stk2-outfits.md of skhid-srp, "Stats").
+pub struct Stats {
+    /// `parameters.item_level` and `match_making_level`.
+    pub level: i32,
+    /// `None`: a back piece, which has no hit regions.
+    pub protection: Option<Protection>,
+    /// kg: `parameters.weight` and the shown weight (prop 15).
+    pub weight: f32,
+    /// `default_modifications`: stock bonuses, by id in modifications.options.
+    pub bonuses: &'static [i32],
+    /// The dictionary's `base_cost` (repair is a share of it).
+    pub base_cost: i32,
+    pub drop_weight: i32,
+}
+
+/// Percent, as the shop shows it: armour against bullets, blades and
+/// blasts, isolation against fire, shock, toxins and radiation, in every hit
+/// region the template has.
+pub struct Protection {
+    pub armour: u8,
+    pub isolation: u8,
+    /// The forearms' armour where it is not the body's (a vest over a jacket).
+    pub forearms: Option<u8>,
+}
+
+const fn worn(armour: u8, isolation: u8) -> Option<Protection> {
+    Some(Protection { armour, isolation, forearms: None })
 }
 
 pub struct Outfit {
@@ -207,13 +228,6 @@ const fn text(
         polish,
     }
 }
-
-/// The owner's levels (2026-10-31): the Novice's set 4, the bandit's and
-/// the loner's 6. Each piece copies a stock piece of its slot at that
-/// level; these two have none at it (no back piece is level 4, no gloves
-/// level 6) and take the nearest one's numbers (the "Marodeur" container,
-/// level 3; the Rough gloves, level 5) at their own level.
-const LEVELS: &[(i32, i32)] = &[(1869, 4), (1876, 6)];
 
 /// No faction: the Independent traders' (the owner, 2026-10-31).
 const NO_FACTION: i32 = 0;
@@ -271,6 +285,8 @@ pub const BANDIT: Outfit = Outfit {
             template: "gameplay/items/armour/torso/edge_torso_1.options",
             icon: [1, 9],
             model_type: None,
+            // decent armour, low isolation (leather); a pocket.
+            stats: Stats { level: 6, protection: worn(55, 5), weight: 7.0, bonuses: &[1030], base_cost: 20900, drop_weight: 100 },
             title: text(
                 "Leather bomber jacket",
                 "Кожаный бомбер",
@@ -300,6 +316,8 @@ pub const BANDIT: Outfit = Outfit {
             template: "gameplay/items/armour/legs/edge_legs_1.options",
             icon: [2, 9],
             model_type: None,
+            // light and mobile: the level's least protection and weight.
+            stats: Stats { level: 6, protection: worn(50, 10), weight: 1.6, bonuses: &[1163, 1113], base_cost: 10450, drop_weight: 100 },
             title: text(
                 "Track pants",
                 "Спортивные штаны",
@@ -329,6 +347,8 @@ pub const BANDIT: Outfit = Outfit {
             template: "gameplay/items/armour/boots/edge_boots_1.options",
             icon: [3, 9],
             model_type: Some("data_full"),
+            // light and mobile: the level's least of everything; movement only.
+            stats: Stats { level: 6, protection: worn(50, 10), weight: 1.0, bonuses: &[1113], base_cost: 5230, drop_weight: 100 },
             title: text(
                 "Sneakers",
                 "Кроссовки",
@@ -393,6 +413,8 @@ pub const NOVICE: Outfit = Outfit {
             template: "gameplay/items/armour/helmet/scavenger_helmet_5.options",
             icon: [4, 9],
             model_type: None,
+            // light head armour and some isolation; no stock helmet has a bonus.
+            stats: Stats { level: 4, protection: worn(20, 20), weight: 1.0, bonuses: &[], base_cost: 8080, drop_weight: 120 },
             title: text(
                 "Novice's hood",
                 "Капюшон новичка",
@@ -432,6 +454,8 @@ pub const NOVICE: Outfit = Outfit {
             template: "gameplay/items/armour/torso/blackmarket_torso_5.options",
             icon: [19, 6],
             model_type: None,
+            // the level's top isolation and a pocket.
+            stats: Stats { level: 4, protection: worn(40, 30), weight: 8.0, bonuses: &[1030], base_cost: 12350, drop_weight: 120 },
             title: text(
                 "Novice's field jacket",
                 "Полевая куртка новичка",
@@ -461,6 +485,8 @@ pub const NOVICE: Outfit = Outfit {
             template: "gameplay/items/armour/torso/blackmarket_torso_5.options",
             icon: [5, 9],
             model_type: None,
+            // its belt pouches an ammo bag, paid for in isolation and weight.
+            stats: Stats { level: 4, protection: worn(40, 20), weight: 8.5, bonuses: &[1030, 1050], base_cost: 13650, drop_weight: 120 },
             title: text(
                 "Novice's field jacket with pouches",
                 "Полевая куртка новичка с подсумками",
@@ -490,6 +516,8 @@ pub const NOVICE: Outfit = Outfit {
             template: "gameplay/items/armour/back/bm_back_1.options",
             icon: [6, 9],
             model_type: None,
+            // capacity, as the level-3 and level-5 packs; the price between the level-3 and level-6 packs'.
+            stats: Stats { level: 4, protection: None, weight: 4.5, bonuses: &[1030, 1170], base_cost: 7920, drop_weight: 120 },
             title: text(
                 "Novice's backpack",
                 "Рюкзак новичка",
@@ -519,6 +547,8 @@ pub const NOVICE: Outfit = Outfit {
             template: "gameplay/items/armour/legs/scavenger_legs_3.options",
             icon: [7, 9],
             model_type: None,
+            // middling; pocket size.
+            stats: Stats { level: 4, protection: worn(40, 20), weight: 1.4, bonuses: &[1170], base_cost: 6180, drop_weight: 120 },
             title: text(
                 "Novice's jeans",
                 "Джинсы новичка",
@@ -551,6 +581,8 @@ pub const NOVICE: Outfit = Outfit {
             // the shaft is painted black where the jeans covered it, and
             // tucked trousers would show it.
             model_type: Some("data_full"),
+            // middling, sturdier than the Military boots.
+            stats: Stats { level: 4, protection: worn(35, 10), weight: 0.9, bonuses: &[1163], base_cost: 3090, drop_weight: 120 },
             title: text(
                 "Novice's boots",
                 "Ботинки новичка",
@@ -580,6 +612,8 @@ pub const NOVICE: Outfit = Outfit {
             template: "gameplay/items/armour/gloves/eq046_blackmarket_gloves_5.options",
             icon: [9, 9],
             model_type: Some("data_full"),
+            // light; bare fingertips search artefacts faster.
+            stats: Stats { level: 4, protection: worn(35, 25), weight: 0.35, bonuses: &[1133], base_cost: 2620, drop_weight: 120 },
             title: text(
                 "Novice's fingerless gloves",
                 "Беспалые перчатки новичка",
@@ -708,6 +742,8 @@ pub const LONER: Outfit = Outfit {
             template: "gameplay/items/armour/torso/renesanse_torso_8.options",
             icon: [10, 9],
             model_type: None,
+            // the most chest armour of the level-6 torsos; the sleeves the jacket's.
+            stats: Stats { level: 6, protection: Some(Protection { armour: 60, isolation: 5, forearms: Some(30) }), weight: 9.5, bonuses: &[1030], base_cost: 23100, drop_weight: 100 },
             title: text(
                 "Loner's jacket with vest",
                 "Куртка одиночки с разгрузкой",
@@ -757,6 +793,8 @@ pub const LONER: Outfit = Outfit {
             template: "gameplay/items/armour/legs/renesanse_legs_8.options",
             icon: [11, 9],
             model_type: None,
+            // pouch and holster an ammo bag, the nuts bag pocket size.
+            stats: Stats { level: 6, protection: worn(55, 15), weight: 1.9, bonuses: &[1050, 1170], base_cost: 11550, drop_weight: 100 },
             title: text(
                 "Loner's camo pants",
                 "Камуфляжные штаны одиночки",
@@ -786,6 +824,8 @@ pub const LONER: Outfit = Outfit {
             template: "gameplay/items/armour/boots/renesanse_boots_1.options",
             icon: [12, 9],
             model_type: Some("data_full"),
+            // middling, the level's medians.
+            stats: Stats { level: 6, protection: worn(55, 15), weight: 1.1, bonuses: &[1163], base_cost: 5780, drop_weight: 100 },
             title: text(
                 "Loner's boots",
                 "Ботинки одиночки",
@@ -815,6 +855,8 @@ pub const LONER: Outfit = Outfit {
             template: "gameplay/items/armour/gloves/scavenger_gloves_5.options",
             icon: [13, 9],
             model_type: Some("data_full"),
+            // light, a step above the level-5 gloves.
+            stats: Stats { level: 6, protection: worn(50, 15), weight: 0.3, bonuses: &[1143], base_cost: 5230, drop_weight: 100 },
             title: text(
                 "Loner's fingerless gloves",
                 "Беспалые перчатки одиночки",
@@ -1336,12 +1378,31 @@ fn mirrored_positions(mesh: &Mesh, kept: &[[usize; 3]], corners: &[([f64; 3], [f
     })
 }
 
-/// The native body's torso variants (bare arms) and their material.
+/// The native body's forearms (their shape: the stock gloves' cuffs are made
+/// for them), drawn with the native hands' skin: the native torso's own map
+/// is its sweater (red, a Christmas pattern), which showed under the
+/// bomber's pushed-up sleeves (the owner's test, 2026-10-31).
 const NATIVE_ARMS: &str = "forearms";
-const NATIVE_ARMS_MATERIAL: &str = "characters/human/base_character/base_character_torso";
+const NATIVE_ARMS_MATERIAL: &str = "characters/human/base_character/base_character_hand";
+const NATIVE_ARMS_TEXTURE: &str = "character/human/base_character/base_character_hand";
+/// The plain skin of the native hands' map the forearms are mapped to (u, v
+/// from and to): the back of the hand, above the knuckles, no veins or
+/// nails. Along the arm v runs down it; round the arm u runs across it and
+/// back (mirrored, so it has no seam).
+const NATIVE_ARMS_SKIN: [f64; 4] = [0.36, 0.10, 0.62, 0.40];
 /// How far above the elbow (the ForeArm bone, along the forearm) the native
 /// forearms start (m): inside the pushed-up sleeve.
 const NATIVE_ARMS_FROM: f64 = 0.05;
+
+/// Sets a 48-byte vertex's UV: the floats and their sub-texel bytes.
+fn set_uv(vertex: &mut [u8], uv: [f64; 2]) {
+    for (c, value) in uv.iter().enumerate() {
+        let value = *value as f32;
+        vertex[40 + c * 4..44 + c * 4].copy_from_slice(&value.to_le_bytes());
+        let rebased = f64::from(value) * 1024.0;
+        vertex[35 + c * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+    }
+}
 
 /// The native body's forearms of the torso variant `suffix` ("" `_s1`,
 /// `_s2`, `_s3`: the arms the stock gloves of each class are made for),
@@ -1366,13 +1427,37 @@ fn native_forearms(
         let (a, b) = (bone(format!("{side}ForeArm"))?, bone(format!("{side}Hand"))?);
         let d = sub(b, a);
         let len = dot(d, d).sqrt();
-        axes.push((a[0].signum(), a, d.map(|v| v / len)));
+        axes.push((a[0].signum(), a, d.map(|v| v / len), len));
     }
-    let arms = keep_triangles(&body, |corners| {
-        axes.iter().any(|&(side, a, dir)| {
+    let mut arms = keep_triangles(&body, |corners| {
+        axes.iter().any(|&(side, a, dir, _)| {
             corners.iter().all(|(p, _)| p[0] * side > 0.0 && dot(sub(*p, a), dir) > NATIVE_ARMS_FROM)
         })
     })?;
+    let [u0, v0, u1, v1] = NATIVE_ARMS_SKIN;
+    let count = read_u32(&arms, 8)? as usize;
+    for i in 0..count {
+        let o = 12 + i * 48;
+        let p: [f64; 3] = std::array::from_fn(|k| f64::from(f32::from_le_bytes(arms[o + k * 4..o + k * 4 + 4].try_into().unwrap())));
+        let &(_, a, dir, len) = axes
+            .iter()
+            .find(|(side, ..)| p[0] * side > 0.0)
+            .context("a forearm vertex on neither side")?;
+        let r = sub(p, a);
+        let along = (dot(r, dir) / len).clamp(0.0, 1.0);
+        // Round the arm: from the top (world up, square to the arm) to the
+        // bottom, either way.
+        let up = {
+            let u = sub([0.0, 1.0, 0.0], dir.map(|d| d * dir[1]));
+            let n = dot(u, u).sqrt();
+            u.map(|c| c / n)
+        };
+        let across = [dir[1] * up[2] - dir[2] * up[1], dir[2] * up[0] - dir[0] * up[2], dir[0] * up[1] - dir[1] * up[0]];
+        let round = dot(r, across).atan2(dot(r, up)).abs() / std::f64::consts::PI;
+        set_uv(&mut arms[o..o + 48], [u0 + round * (u1 - u0), v0 + along * (v1 - v0)]);
+    }
+    let mut props = props;
+    props.root.set_path("source.texture_name", V::String(NATIVE_ARMS_TEXTURE.to_owned()))?;
     Ok((NATIVE_ARMS.to_owned(), arms, props))
 }
 
@@ -2592,6 +2677,24 @@ pub fn build(
         let (grown, n) = grow_cowl(&model.surfaces[0].1, &stock, &cx.head)?;
         model.surfaces[0].1 = grown;
         println!("{label}: grown down to the Scavenger hood's hem over the neck and shoulders and closed across the throat ({n} triangles)");
+        {
+            let full = parse_mesh(&cx.head, 40, "native head")?;
+            let centre = crate::hat_fit::head_centre(&full, &bind)?;
+            println!("the stock Scavenger hood over the masks:");
+            report_mask_clashes(&parse_mesh(&stock, 48, "Scavenger hood")?, centre, &cx.masks, |p| {
+                p[1] > COWL_BOTTOM && (p[2] < HOOD_FACE_FROM || p[1] > HOOD_BROW)
+            });
+        }
+        let r = fit_hood_over_masks(&mut model.surfaces[0].1, &cx.head, &bind, &cx.masks)?;
+        println!(
+            "{label}: over {} mask surfaces: {} mask points through it or within {:.0} mm -> {}, pushed {} vertices up to {:.1} mm",
+            cx.masks.len(),
+            r.0,
+            HOOD_MASK_CLEARANCE * 1000.0,
+            r.1,
+            r.2,
+            r.3 * 1000.0
+        );
     }
 
     // --- The bundles ---
@@ -2625,11 +2728,104 @@ const HOOD_MAX_PUSH: f64 = 0.015;
 /// the skull points through it before and after, the vertices pushed and
 /// the farthest push (m).
 fn fit_hood(hood: &mut [u8], head: &[u8], bind_pose: &[u8]) -> Result<(usize, usize, usize, f64)> {
-    use crate::mask_fit::farthest_hit;
     let full = parse_mesh(head, 40, "native head")?;
     let centre = crate::hat_fit::head_centre(&full, bind_pose)?;
     let skull = parse_mesh(&head_under_hood(head)?, 40, "native skull")?;
-    let points: BTreeSet<usize> = skull.triangles.iter().flatten().copied().collect();
+    let points: Vec<[f64; 3]> = skull
+        .triangles
+        .iter()
+        .flatten()
+        .copied()
+        .collect::<BTreeSet<usize>>()
+        .into_iter()
+        .map(|i| skull.positions[i])
+        .collect();
+    push_out(hood, centre, &points, HOOD_CLEARANCE, HOOD_MAX_PUSH, "the native skull")
+}
+
+/// Room the hood leaves over a mask under it (m): masks go under the hood
+/// (the owner, 2026-10-31), as under the stock helmets that leave the mask
+/// free.
+const HOOD_MASK_CLEARANCE: f64 = 0.003;
+/// The farthest a mask's point is cleared (m). The bulky helmet masks' neck
+/// guards, hoses and filters stand 30 to 62 mm out of the hood at the neck
+/// and the sides; they stand as far out of the stock Scavenger hood (31 to
+/// 57 mm, and the 0.69 balaclavas 23 to 26 mm, which this hood clears), and
+/// clearing them would blow the hood up off the head, so they are left.
+const HOOD_MASK_REACH: f64 = 0.015;
+/// The farthest the hood may be pushed out over the masks (m).
+const HOOD_MASK_MAX_PUSH: f64 = 0.02;
+
+/// The hood (48-byte vertices, grown) pushed out over every mask where the
+/// mask is under it: its vertices behind the face (as [`head_under_hood`]'s,
+/// down to the cowl's hem) that come through the hood or within
+/// [`HOOD_MASK_CLEARANCE`] of it. The parts of a mask in front of the face
+/// show through the hood's opening and are left as they are.
+fn fit_hood_over_masks(
+    hood: &mut [u8],
+    head: &[u8],
+    bind_pose: &[u8],
+    masks: &[Shell],
+) -> Result<(usize, usize, usize, f64)> {
+    let full = parse_mesh(head, 40, "native head")?;
+    let centre = crate::hat_fit::head_centre(&full, bind_pose)?;
+    let under = |p: &[f64; 3]| p[1] > COWL_BOTTOM && (p[2] < HOOD_FACE_FROM || p[1] > HOOD_BROW);
+    let mesh = parse_mesh(hood, 48, "hood")?;
+    report_mask_clashes(&mesh, centre, masks, under);
+    let reach = |p: &[f64; 3]| {
+        let d = sub(*p, centre);
+        let r = dot(d, d).sqrt();
+        crate::mask_fit::farthest_hit(centre, d.map(|v| v / r), &mesh.positions, &mesh.triangles)
+            .is_none_or(|(t, _, _)| r + HOOD_MASK_CLEARANCE - t <= HOOD_MASK_REACH)
+    };
+    let points: Vec<[f64; 3]> = masks
+        .iter()
+        .flat_map(|m| m.mesh.positions.iter().copied())
+        .filter(|p| under(p) && reach(p))
+        .collect();
+    push_out(hood, centre, &points, HOOD_MASK_CLEARANCE, HOOD_MASK_MAX_PUSH, "the masks")
+}
+
+/// Prints, for each mask, its points under a hood (`under`) that stand out
+/// through `hood` (seen from `centre`) and the farthest.
+fn report_mask_clashes(hood: &Mesh, centre: [f64; 3], masks: &[Shell], under: impl Fn(&[f64; 3]) -> bool) {
+    for m in masks {
+        let mut worst = (0.0_f64, 0usize, [0.0; 3]);
+        for p in m.mesh.positions.iter().filter(|p| under(p)) {
+            let d = sub(*p, centre);
+            let r = dot(d, d).sqrt();
+            if let Some((t, _, _)) = crate::mask_fit::farthest_hit(centre, d.map(|v| v / r), &hood.positions, &hood.triangles) {
+                let pen = r - t;
+                if pen > 0.0 {
+                    worst.1 += 1;
+                    if pen > worst.0 {
+                        worst = (pen, worst.1, *p);
+                    }
+                }
+            }
+        }
+        if worst.1 > 0 {
+            println!(
+                "  {}: {} points through, up to {:.1} mm (at {:+.3} {:.3} {:+.3})",
+                m.label, worst.1, worst.0 * 1000.0, worst.2[0], worst.2[1], worst.2[2]
+            );
+        }
+    }
+}
+
+/// Pushes the hood (48-byte vertices) out from `centre` where one of
+/// `points` comes through it or within `clearance` of it, spreading each
+/// push to the neighbours; the points through it before and after, the
+/// vertices pushed and the farthest push (m).
+fn push_out(
+    hood: &mut [u8],
+    centre: [f64; 3],
+    points: &[[f64; 3]],
+    clearance: f64,
+    max_push_allowed: f64,
+    what: &str,
+) -> Result<(usize, usize, usize, f64)> {
+    use crate::mask_fit::farthest_hit;
     let mesh = parse_mesh(hood, 48, "hood")?;
     let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
     let mut positions = mesh.positions.clone();
@@ -2640,8 +2836,8 @@ fn fit_hood(hood: &mut [u8], head: &[u8], bind_pose: &[u8]) -> Result<(usize, us
     };
     let through = |positions: &[[f64; 3]], margin: f64| {
         let mut out = vec![];
-        for &q in &points {
-            let (dir, r) = ray(skull.positions[q]);
+        for &q in points {
+            let (dir, r) = ray(q);
             if let Some((t, tri, bary)) = farthest_hit(centre, dir, positions, &mesh.triangles) {
                 let pen = r + margin - t;
                 if pen > 0.0 {
@@ -2653,7 +2849,7 @@ fn fit_hood(hood: &mut [u8], head: &[u8], bind_pose: &[u8]) -> Result<(usize, us
     };
     let before = through(&positions, 0.0).len();
     for _ in 0..40 {
-        let found = through(&positions, HOOD_CLEARANCE);
+        let found = through(&positions, clearance);
         if found.iter().all(|(pen, _, _)| *pen < 0.0002) {
             break;
         }
@@ -2681,10 +2877,7 @@ fn fit_hood(hood: &mut [u8], head: &[u8], bind_pose: &[u8]) -> Result<(usize, us
         }
     }
     let after = through(&positions, 0.0).len();
-    ensure!(
-        after == 0,
-        "the native skull still comes through the hood at {after} points"
-    );
+    ensure!(after == 0, "{what} still come through the hood at {after} points");
     let mut pushed = BTreeSet::new();
     let mut max_push = 0.0_f64;
     for (i, p) in positions.iter().enumerate() {
@@ -2696,8 +2889,8 @@ fn fit_hood(hood: &mut [u8], head: &[u8], bind_pose: &[u8]) -> Result<(usize, us
         max_push = max_push.max(push);
     }
     ensure!(
-        max_push <= HOOD_MAX_PUSH,
-        "the hood had to be pushed {:.1} mm out",
+        max_push <= max_push_allowed,
+        "the hood had to be pushed {:.1} mm out over {what}",
         max_push * 1000.0
     );
     for (i, p) in positions.iter().enumerate() {
@@ -2888,6 +3081,71 @@ fn set_table(c: &mut BinaryConfig, table: &str, model_path: &str, model: &Model)
     Ok(())
 }
 
+const MODIFICATIONS: &str = "gameplay/items/modifications/modifications.options";
+
+/// Sets `stats` over a copied item config: level, protection in every hit
+/// region and the shown armour and isolation (props 6, 8), weight (and prop
+/// 15), bonuses, drop weight.
+fn set_stats(c: &mut BinaryConfig, stats: &Stats, bonuses: &[i32]) -> Result<()> {
+    for key in ["item_level", "match_making_level"] {
+        c.root.set_path(&format!("parameters.{key}"), V::Integer(stats.level))?;
+    }
+    c.root.set_path("parameters.weight", V::Float(stats.weight))?;
+    c.root.set_path("parameters.drop_weight", V::Integer(stats.drop_weight))?;
+    for id in stats.bonuses {
+        ensure!(bonuses.contains(id), "no stock bonus {id}");
+    }
+    c.root.set_path(
+        "default_modifications",
+        V::Indexed(stats.bonuses.iter().map(|&id| V::Integer(id)).collect()),
+    )?;
+    let mut shown = vec![(15, format!("{:.1}", stats.weight))];
+    match &stats.protection {
+        None => ensure!(
+            !matches!(c.root.named("hit_params"), Some(V::Named(regions)) if !regions.is_empty()),
+            "a piece with hit regions and no protection"
+        ),
+        Some(p) => {
+            let share = |percent: u8| V::Float(f32::from(percent) / 100.0);
+            c.root.set_path("parameters.armor", share(p.armour))?;
+            c.root.set_path("parameters.ano_armor", share(p.isolation))?;
+            let Some(V::Named(regions)) = c.root.named_mut("hit_params") else {
+                bail!("a protecting piece without hit regions")
+            };
+            for region in regions.iter_mut() {
+                let armour = match p.forearms {
+                    Some(forearms) if region.name.ends_with("_forearm") => forearms,
+                    _ => p.armour,
+                };
+                let Some(V::Named(kinds)) = region.value.named_mut("hit_types") else {
+                    bail!("hit region {} without hit types", region.name)
+                };
+                for kind in kinds.iter_mut() {
+                    let value = match kind.name.as_str() {
+                        "ranged" | "slash" | "explosive" => armour,
+                        "fire" | "shock" | "toxic" | "radiation" => p.isolation,
+                        other => bail!("hit type {other} of no known kind"),
+                    };
+                    kind.value.set_path("armor", share(value))?;
+                }
+            }
+            shown.push((6, p.armour.to_string()));
+            shown.push((8, p.isolation.to_string()));
+        }
+    }
+    let Some(V::Indexed(props)) = c.root.named_mut("ui_desc").and_then(|u| u.named_mut("props_list")) else {
+        bail!("no shown properties")
+    };
+    for (id, value) in shown {
+        let prop = props
+            .iter_mut()
+            .find(|p| p.named("prop_id") == Some(&V::Integer(id)))
+            .with_context(|| format!("no shown property {id}"))?;
+        prop.set_path("prop_value", s(&value))?;
+    }
+    Ok(())
+}
+
 fn write_bundle(
     cx: &mut Fitting,
     outfit: &Outfit,
@@ -2933,6 +3191,17 @@ fn write_bundle(
     let Some(V::Indexed(items)) = dictionary.root.named_mut("items_dict") else {
         bail!("expected the indexed items dictionary")
     };
+    let modifications = parse_config(&mut cx.view, MODIFICATIONS, "modifications")?;
+    let bonuses: Vec<i32> = match modifications.root.named("modifications") {
+        Some(V::Indexed(rows)) => rows
+            .iter()
+            .filter_map(|r| match r.named("id") {
+                Some(V::Integer(id)) => Some(*id),
+                _ => None,
+            })
+            .collect(),
+        _ => bail!("expected the indexed modifications"),
+    };
     let mut registration = vec![];
     let mut item_configs = vec![];
     let mut strings = vec![];
@@ -2977,13 +3246,9 @@ fn write_bundle(
         row.set_path("is_premium", V::Boolean(false))?;
         let mut c = parse_config(&mut cx.view, piece.template, "equipment")?;
         c.root.set_path("parameters.faction", V::Integer(outfit.faction))?;
-        if let Some(&(_, level)) = LEVELS.iter().find(|(id, _)| *id == piece.id) {
-            // No stock piece of the slot at this level: the nearest one's
-            // numbers, at the owner's level.
-            for key in ["item_level", "match_making_level"] {
-                c.root.set_path(&format!("parameters.{key}"), V::Integer(level))?;
-            }
-        }
+        set_stats(&mut c, &piece.stats, &bonuses)
+            .with_context(|| format!("{}: its stats", piece.name))?;
+        row.set_path("base_cost", V::Integer(piece.stats.base_cost))?;
         for &(table, suffix) in piece.kind.variants() {
             let model = &b.models[suffix];
             let model_path = b.model_path(suffix);
@@ -3003,7 +3268,10 @@ fn write_bundle(
         }
         c.root.set_path(
             "data.additional_model_slots",
-            V::Indexed(piece.kind.covers().iter().map(|slot| s(*slot)).collect()),
+            // No piece takes another slot: masks go under the hood (the
+            // owner, 2026-10-31), as under the stock helmets that leave the
+            // mask free.
+            V::Indexed(vec![]),
         )?;
         if let Some(V::Named(fields)) = c.root.named_mut("data") {
             fields.retain(|f| f.name != "decals");
@@ -3201,4 +3469,67 @@ mod tests {
         assert_eq!(model.surfaces[1].1[16..], b[16..]);
         assert_eq!(counts, [3, 3]);
     }
+}
+
+/// One surface to pose: its `converted_model` and its skinned model's
+/// `render/bind_pose`.
+pub struct PoseInput {
+    pub model: Vec<u8>,
+    pub bind_pose: Vec<u8>,
+}
+
+/// Copies of `surfaces` with their vertices skinned into a pose of the
+/// player's rig: the bind pose (`clip` `None`) or the clip under
+/// `animations/single/weapons/` at `at` (0 its start, 1 its end). For
+/// looking at fits in the game's poses.
+pub fn pose_surfaces(
+    db: &Path,
+    patches: &[PathBuf],
+    surfaces: &[PoseInput],
+    clip: Option<&str>,
+    at: f32,
+) -> Result<Vec<Vec<u8>>> {
+    use crate::skeleton_animation::{Clip, Rig};
+    let mut view = crate::novice_026::game_view(db, patches)?;
+    let bind_pose = view.read(
+        "models/character/human/base/base_character_head.skinned_model/render/bind_pose",
+    )?;
+    let rig = Rig::parse(&bind_pose, &view.read("animations/skeletons/scavengers_01.skeleton")?)?;
+    let bind = rig.rest();
+    let pose = match clip {
+        None => bind.clone(),
+        Some(name) => {
+            let path = format!("animations/single/weapons/{name}");
+            let clip = Clip::parse(
+                &view.read(&format!("{path}.b-spline"))?,
+                &view.read(&format!("{path}.bones_names"))?,
+            )
+            .with_context(|| path.clone())?;
+            rig.pose(&clip, clip.duration() * at.clamp(0.0, 1.0))
+        }
+    };
+    let names: Vec<String> = rig.bones.iter().map(|b| b.name.clone()).collect();
+    surfaces
+        .iter()
+        .map(|s| {
+            let count = read_u32(&s.model, 8)?;
+            let stride = (read_u32(&s.model, 4)? - 4) / count;
+            let mesh = parse_mesh(&s.model, stride as usize, "surface")?;
+            let posed = crate::hat_fit::Posed::new(&mesh, &s.model, &s.bind_pose, &names)?;
+            let skins: Vec<crate::mask_fit::Skin> = posed
+                .skins
+                .iter()
+                .map(|sk| sk.iter().map(|&(b, w)| (posed.bones[usize::from(b)], w)).collect())
+                .collect();
+            let at = crate::mask_fit::skin_positions(&mesh.positions, &skins, &bind, &pose)?;
+            let mut out = s.model.clone();
+            for (v, p) in at.iter().enumerate() {
+                let o = 12 + v * stride as usize;
+                for k in 0..3 {
+                    out[o + k * 4..o + k * 4 + 4].copy_from_slice(&(p[k] as f32).to_le_bytes());
+                }
+            }
+            Ok(out)
+        })
+        .collect()
 }
