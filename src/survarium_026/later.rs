@@ -72,6 +72,11 @@ pub struct Manifest {
     /// smoothness maps 0.26 only samples as a low-range gloss channel).
     #[serde(default)]
     pub texture_limits: BTreeMap<String, u32>,
+    /// Donor textures whose 0.26 namesake is the same image
+    /// (`native_same_image`) are drawn from 0.26's file, not imported: 0.69d
+    /// re-encoded most of the textures it kept from 0.26.
+    #[serde(default)]
+    pub reuse_native_textures: bool,
     /// Distance LOD switching (0.26 type 0: LOD0 below the first distance,
     /// LOD1 below the second, LOD2 below the third) for imported models with
     /// LODs. 0.69d authors most of them for projected size, which keeps big
@@ -1805,6 +1810,49 @@ fn decode_bc(bytes: &[u8]) -> Result<(usize, usize, Vec<[u8; 4]>)> {
         }
     }
     Ok((w, h, out))
+}
+
+/// Whether a donor texture shows the same image as 0.26's file: the same
+/// size, and per 4x4 block (one compressed block, whose mean colour a
+/// re-encode of the same source keeps) the mean RGBA within 2 levels on
+/// average, no channel's mean over the image moved by 1.5 or more, and 99% of
+/// blocks within 12 levels in every channel (an edit painted into a corner
+/// is not the same image). 0.69d re-encoded the textures it kept from 0.26:
+/// those differ by about 1 level, its retouched ones by 3 to 60.
+fn native_same_image(donor: &[u8], native: &[u8]) -> Result<bool> {
+    let (Ok((w, h, a)), Ok((nw, nh, b))) = (decode_bc(donor), decode_bc(native)) else {
+        return Ok(false);
+    };
+    if (w, h) != (nw, nh) {
+        return Ok(false);
+    }
+    let blocks = (w / 4) * (h / 4);
+    ensure!(blocks > 0, "empty texture");
+    let mut block_max = Vec::with_capacity(blocks);
+    let (mut sum, mut means) = (0.0f64, [0.0f64; 8]);
+    for by in 0..h / 4 {
+        for bx in 0..w / 4 {
+            let mut m = [0.0f32; 8];
+            for i in 0..16 {
+                let o = (by * 4 + i / 4) * w + bx * 4 + i % 4;
+                for c in 0..4 {
+                    m[c] += f32::from(a[o][c]) / 16.0;
+                    m[4 + c] += f32::from(b[o][c]) / 16.0;
+                }
+            }
+            let d: [f32; 4] = std::array::from_fn(|c| (m[c] - m[4 + c]).abs());
+            sum += f64::from(d.iter().sum::<f32>()) / 4.0;
+            block_max.push(d.iter().copied().fold(0.0f32, f32::max));
+            for (acc, v) in means.iter_mut().zip(m) {
+                *acc += f64::from(v);
+            }
+        }
+    }
+    let n = blocks as f64;
+    let shift = (0..4).map(|c| (means[c] - means[4 + c]).abs() / n).fold(0.0f64, f64::max);
+    block_max.sort_by(f32::total_cmp);
+    let p99 = block_max[(blocks - 1) * 99 / 100];
+    Ok(sum / n < 2.0 && shift < 1.5 && p99 < 12.0)
 }
 
 /// Layer weights of the 0.69d layered terrain at a mask texel: channels
@@ -3864,9 +3912,19 @@ pub fn build(
 
     // Textures: donor ones are imported, everything else must be native.
     let mut donor_textures = BTreeSet::new();
+    let mut native_textures = BTreeSet::new();
+    let mut native_texture_bytes = 0usize;
     for t in textures.iter().filter(|t| !generated_textures.contains(*t)) {
         let dds = format!("textures/{t}.dds");
         if donor.is_file(&dds) {
+            if m.reuse_native_textures && target.is_file(&dds) {
+                let bytes = donor.read(&dds)?;
+                if native_same_image(&bytes, &target.read(&dds)?).with_context(|| format!("comparing {dds} with 0.26's"))? {
+                    native_texture_bytes += bytes.len();
+                    native_textures.insert(t.clone());
+                    continue;
+                }
+            }
             donor_textures.insert(t.clone());
             donor_files.insert(dds);
             let options = format!("textures/{t}.options");
@@ -3876,6 +3934,13 @@ pub fn build(
         } else {
             ensure!(target.is_file(&dds), "texture {t} exists in neither build");
         }
+    }
+    if m.reuse_native_textures {
+        notes.push(format!(
+            "textures: {} drawn from 0.26's own file at the same path, the same image ({:.1} MiB not imported)",
+            native_textures.len(),
+            native_texture_bytes as f64 / (1024.0 * 1024.0)
+        ));
     }
     // Vegetation files are relative to the project's level directory.
     let donor_level_dir = parent_dir(parent_dir(port.donor_project()));
@@ -4249,7 +4314,7 @@ pub fn build(
     // Materials.
     for (name, converted) in &converted_materials {
         let mut root = converted.root.clone();
-        rewrite_textures(&mut root, &donor_textures, &ns);
+        rewrite_textures(&mut root, &donor_textures, &native_textures, &ns);
         let dest = format!("material_instances/{}.material", material_dest(name));
         ensure!(!target.contains(&dest), "would overwrite native {dest}");
         emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("0.26g template {}", converted.template), &mut files)?;
@@ -4856,7 +4921,9 @@ fn add_donor_map_name(
     Ok(())
 }
 
-fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>, ns: &str) {
+/// Imported textures move to the namespace; reused native ones keep their
+/// name, written with `/` as 0.26's own materials write it.
+fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>, native_textures: &BTreeSet<String>, ns: &str) {
     match root {
         ConfigValue::Named(fields) => {
             for field in fields {
@@ -4871,14 +4938,16 @@ fn rewrite_textures(root: &mut ConfigValue, donor_textures: &BTreeSet<String>, n
                         let n = s.replace('\\', "/");
                         if donor_textures.contains(&n) {
                             *s = format!("{ns}/{}", plain_texture(&n));
+                        } else if native_textures.contains(&n) {
+                            *s = n;
                         }
                     }
                 } else {
-                    rewrite_textures(&mut field.value, donor_textures, ns);
+                    rewrite_textures(&mut field.value, donor_textures, native_textures, ns);
                 }
             }
         }
-        ConfigValue::Indexed(values) => values.iter_mut().for_each(|v| rewrite_textures(v, donor_textures, ns)),
+        ConfigValue::Indexed(values) => values.iter_mut().for_each(|v| rewrite_textures(v, donor_textures, native_textures, ns)),
         _ => {}
     }
 }
@@ -5220,6 +5289,40 @@ mod tests {
         assert_eq!(&dds[20..24], &41u32.to_le_bytes());
         dds.pop();
         assert!(canonical_dds(&mut dds).is_err(), "a chain without the colour-space byte is refused");
+    }
+
+    /// An 8x8 DXT1 texture, each of its four blocks one flat 565 colour.
+    fn flat_dxt1(colours: [u16; 4]) -> Vec<u8> {
+        let mut dds = vec![0u8; 128];
+        dds[..4].copy_from_slice(b"DDS ");
+        dds[12..16].copy_from_slice(&8u32.to_le_bytes());
+        dds[16..20].copy_from_slice(&8u32.to_le_bytes());
+        dds[28..32].copy_from_slice(&1u32.to_le_bytes());
+        dds[84..88].copy_from_slice(b"DXT1");
+        for c in colours {
+            dds.extend(c.to_le_bytes());
+            dds.extend(c.to_le_bytes());
+            dds.extend([0u8; 4]);
+        }
+        dds
+    }
+
+    #[test]
+    fn native_textures_are_reused_only_for_the_same_image() {
+        let grey = 0x8410; // (16, 32, 16): 132, 130, 132
+        let base = flat_dxt1([grey; 4]);
+        assert!(native_same_image(&base, &base).unwrap());
+        // One step of green in one block: a re-encode's difference.
+        assert!(native_same_image(&flat_dxt1([grey, grey, grey, grey + 0x20]), &base).unwrap());
+        // A block repainted: an edit, though the average moves little.
+        assert!(!native_same_image(&flat_dxt1([grey, grey, grey, 0xffff]), &base).unwrap());
+        // The whole image a few levels brighter: a retouch.
+        assert!(!native_same_image(&flat_dxt1([grey + 0x0841; 4]), &base).unwrap());
+        // Another size is never the same file.
+        let mut wide = flat_dxt1([grey; 4]);
+        wide[16..20].copy_from_slice(&16u32.to_le_bytes());
+        wide.extend(flat_dxt1([grey; 4])[128..].to_vec());
+        assert!(!native_same_image(&wide, &base).unwrap());
     }
 
     #[test]
