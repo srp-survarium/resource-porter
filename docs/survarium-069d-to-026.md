@@ -272,6 +272,10 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
   Year snow of volume 72's project; `native_materials` draws its window panes
   (`water/glass_water`) with 0.26's `tiled/window/glass`.
+* `reuse_native_textures` (both manifests, as Rudnya's): a donor texture whose 0.26g
+  namesake is the same image (`native_same_image`) is drawn from 0.26g's file, not
+  imported. The hangar: 72 of 131 (13 byte for byte, 59 decode alike), 123.8 MiB; the
+  camp: 54 of 220 (50 of them re-encodes about 1 level apart), 59.3 MiB.
 * What skhid-srp's lobby choice (client patch 81, `srp-026g/docs/notes/lobby-scenes.md` there)
   takes from a lobby project: the 0.26 lobby's camera `track` (copied; a project without one
   is refused), the root `camera`, and the root table `srp_lobby` with `weapon` (where the
