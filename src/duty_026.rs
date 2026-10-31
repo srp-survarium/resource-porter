@@ -146,7 +146,7 @@ pub(crate) fn texture_dds(bytes: &[u8], name: &str, srgb: bool) -> Result<Vec<u8
 
 /// The supplied editor configs store name before data; database configs store
 /// data before name. Only visited nodes are swapped; string/float payloads stay put.
-fn editor_config(input: &[u8]) -> Result<BinaryConfig> {
+pub(crate) fn editor_config(input: &[u8]) -> Result<BinaryConfig> {
     fn visit(b: &mut [u8], at: usize, seen: &mut BTreeSet<usize>) -> Result<()> {
         ensure!(seen.insert(at), "cyclic editor config");
         let n = b.get(at..at + 24).context("truncated editor config node")?;
@@ -214,7 +214,7 @@ fn basis(f: &[f32; 9]) -> [[f32; 3]; 3] {
     }
     m
 }
-fn check_bind(source: &[u8], target: &[u8]) -> Result<usize> {
+pub(crate) fn check_bind(source: &[u8], target: &[u8]) -> Result<usize> {
     let s = bind_frames(source)?;
     let t = bind_frames(target)?;
     ensure!(
@@ -244,7 +244,7 @@ fn check_bind(source: &[u8], target: &[u8]) -> Result<usize> {
 
 /// Preserve all four influences, UVs and index ordering. A Y half-turn has
 /// positive determinant, so winding and tangent handedness do not change.
-fn rotate_mesh(input: &[u8], bones: usize) -> Result<(Vec<u8>, [f32; 3], [f32; 3], usize, usize)> {
+pub(crate) fn rotate_mesh(input: &[u8], bones: usize) -> Result<(Vec<u8>, [f32; 3], [f32; 3], usize, usize)> {
     ensure!(u32_at(input, 0)? == 3, "missing vertex chunk");
     let n = u32_at(input, 8)? as usize;
     let size = u32_at(input, 4)? as usize;

@@ -37,6 +37,7 @@ pub mod soc;
 pub mod soc_addon;
 pub mod static_basis_patch;
 pub mod stk2_content;
+pub mod stk2_outfits_026;
 pub mod stk2_project;
 pub mod survarium_026;
 pub mod target_native_map;
