@@ -82,9 +82,12 @@ has the items, their stats and the owner's open questions.
     and flaps lie where every mask is) and is pushed out only where the native skull
     under it comes through (one point, 0.9 mm: 62 vertices, up to 5.3 mm);
   - the backpack is not fitted (its own two straps, from the export).
-- Items: each a stock piece of the same slot and faction copied whole (stats, level,
-  price, drop weight, bonuses, card, sounds), with the model, icon and texts its own;
-  camouflage and decals off (no masks); the hood's `additional_model_slots` `mask`.
+- Items: each a stock piece of the same slot at the owner's level copied whole (stats,
+  level, price, drop weight, bonuses, card, sounds; the Novice's set level 4, the bandit's
+  and the loner's 6, `LEVELS` where no stock piece is at it), with the model, icon and
+  texts its own; no faction (0, the Independent traders': srp sells them nowhere, they
+  only drop); camouflage and decals off (no masks); the hood's `additional_model_slots`
+  `mask`.
 
 ## Rebuild
 
@@ -111,7 +114,9 @@ reproducible: the same inputs make the same packs byte for byte.
 ## Icons
 
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
-boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Boots are seen level,
+boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Trousers are cut as the
+stock ones are, from the waist down as far as gives the stock icons' width to height
+(77 by 81). Boots are seen level,
 whole up to their own tops: of their black faces (the shaft top STK2's trousers covered)
 those facing into the boot are left out and the outer ones take the colour of the faces
 around them on the mesh. The sneakers are drawn as first rendered (the camera 6 degrees
@@ -119,8 +124,9 @@ above, nothing left out; the owner's pick), 28 % smaller. Gloves: one hand, its 
 square to the camera (the hand's own plane, from its vertices), the outline's long axis
 settled on 32 degrees above the horizontal with the fingers down to the left (the stock
 glove icons' median, 25-41); the faces wholly on the cuff's black end band or inside it
-(all three corners darker than 0.03) are left out, so the glove ends along an edge loop,
-and the faces part black at that edge take the colour of the glove around them.
+(all three corners darker than 0.03) are left out, so the glove ends along an edge loop;
+flaps left at that end go and the edge itself is smoothed; the faces part black at that
+edge take the colour of the glove around them.
 
 ## Checked offline only
 

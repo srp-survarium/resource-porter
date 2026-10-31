@@ -34,8 +34,10 @@
 //!
 //! The fits see the released game's pieces and each other's, so any mix of
 //! the three outfits with stock equipment is fitted. Items copy a stock
-//! piece of the same slot and faction whole (stats, level, price, drop
-//! weight, bonuses, card), with only the model, icon and texts their own.
+//! piece of the same slot at their level whole (stats, level, price, drop
+//! weight, bonuses, card), with only the model, icon and texts their own,
+//! and no faction: they are the Independent traders', sold by no one, and
+//! only drop from matches (the owner, 2026-10-31).
 use crate::body_fit::{BodyFit, Cover};
 use crate::limb_fit::{Layer, LimbFit};
 use crate::localization_026::{LANGUAGES, Text, check_item_texts, set_string};
@@ -179,6 +181,9 @@ pub struct Outfit {
     pub key: &'static str,
     /// Namespace of its models, materials, textures, configs and texts.
     pub ns: &'static str,
+    /// `parameters.faction` of its items: 0, no faction (the Independent
+    /// traders', as the Novice's knit cap): srp sells gear of no faction
+    /// nowhere unless a named exception sells it, so they only drop.
     pub faction: i32,
     pub maps: &'static [Map],
     pub pieces: &'static [Piece],
@@ -200,13 +205,20 @@ const fn text(
     }
 }
 
-const BLACK_MARKET: i32 = 2;
-const SCAVENGERS: i32 = 1;
+/// The owner's levels (2026-10-31): the Novice's set 4, the bandit's and
+/// the loner's 6. Each piece copies a stock piece of its slot at that
+/// level; these two have none at it (no back piece is level 4, no gloves
+/// level 6) and take the nearest one's numbers (the "Marodeur" container,
+/// level 3; the Rough gloves, level 5) at their own level.
+const LEVELS: &[(i32, i32)] = &[(1869, 4), (1876, 6)];
+
+/// No faction: the Independent traders' (the owner, 2026-10-31).
+const NO_FACTION: i32 = 0;
 
 pub const BANDIT: Outfit = Outfit {
     key: "bandit",
     ns: "stk2_bandit_026",
-    faction: BLACK_MARKET,
+    faction: NO_FACTION,
     maps: &[
         Map {
             name: "torso",
@@ -250,7 +262,7 @@ pub const BANDIT: Outfit = Outfit {
                 },
             ],
             hud: None,
-            template: "gameplay/items/armour/torso/blackmarket_torso_2.options",
+            template: "gameplay/items/armour/torso/edge_torso_1.options",
             icon: [1, 9],
             model_type: None,
             title: text(
@@ -279,7 +291,7 @@ pub const BANDIT: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/legs/blackmarket_legs_2.options",
+            template: "gameplay/items/armour/legs/edge_legs_1.options",
             icon: [2, 9],
             model_type: None,
             title: text(
@@ -308,7 +320,7 @@ pub const BANDIT: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/boots/blackmarket_boots_1.options",
+            template: "gameplay/items/armour/boots/edge_boots_1.options",
             icon: [3, 9],
             model_type: Some("data_full"),
             title: text(
@@ -332,7 +344,7 @@ pub const BANDIT: Outfit = Outfit {
 pub const NOVICE: Outfit = Outfit {
     key: "novice",
     ns: "stk2_novice_026",
-    faction: SCAVENGERS,
+    faction: NO_FACTION,
     maps: &[
         Map {
             name: "torso",
@@ -369,7 +381,7 @@ pub const NOVICE: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/helmet/scavenger_helmet_3.options",
+            template: "gameplay/items/armour/helmet/scavenger_helmet_5.options",
             icon: [4, 9],
             model_type: None,
             title: text(
@@ -408,7 +420,7 @@ pub const NOVICE: Outfit = Outfit {
                 },
             ],
             hud: None,
-            template: "gameplay/items/armour/torso/scavenger_torso_1.options",
+            template: "gameplay/items/armour/torso/blackmarket_torso_5.options",
             icon: [19, 6],
             model_type: None,
             title: text(
@@ -437,7 +449,7 @@ pub const NOVICE: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/torso/scavenger_torso_1.options",
+            template: "gameplay/items/armour/torso/blackmarket_torso_5.options",
             icon: [5, 9],
             model_type: None,
             title: text(
@@ -466,7 +478,7 @@ pub const NOVICE: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/back/scavenger_back_1.options",
+            template: "gameplay/items/armour/back/bm_back_1.options",
             icon: [6, 9],
             model_type: None,
             title: text(
@@ -495,7 +507,7 @@ pub const NOVICE: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/legs/scavenger_legs_1.options",
+            template: "gameplay/items/armour/legs/scavenger_legs_3.options",
             icon: [7, 9],
             model_type: None,
             title: text(
@@ -524,7 +536,7 @@ pub const NOVICE: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/boots/scavenger_boots_1.options",
+            template: "gameplay/items/armour/boots/scavenger_boots_3.options",
             icon: [8, 9],
             // 26 cm, but worn under the jeans as STK2 wore them: the top of
             // the shaft is painted black where the jeans covered it, and
@@ -556,7 +568,7 @@ pub const NOVICE: Outfit = Outfit {
                 forearms: false,
             }],
             hud: Some("neutral/neutral_01/neutral_01_hand_hud"),
-            template: "gameplay/items/armour/gloves/scavenger_gloves_1.options",
+            template: "gameplay/items/armour/gloves/eq046_blackmarket_gloves_5.options",
             icon: [9, 9],
             model_type: Some("data_full"),
             title: text(
@@ -580,7 +592,7 @@ pub const NOVICE: Outfit = Outfit {
 pub const LONER: Outfit = Outfit {
     key: "loner",
     ns: "stk2_loner_026",
-    faction: SCAVENGERS,
+    faction: NO_FACTION,
     maps: &[
         Map {
             name: "torso",
@@ -675,7 +687,7 @@ pub const LONER: Outfit = Outfit {
                 },
             ],
             hud: None,
-            template: "gameplay/items/armour/torso/scavenger_torso_3.options",
+            template: "gameplay/items/armour/torso/renesanse_torso_8.options",
             icon: [10, 9],
             model_type: None,
             title: text(
@@ -724,7 +736,7 @@ pub const LONER: Outfit = Outfit {
                 },
             ],
             hud: None,
-            template: "gameplay/items/armour/legs/scavenger_legs_3.options",
+            template: "gameplay/items/armour/legs/renesanse_legs_8.options",
             icon: [11, 9],
             model_type: None,
             title: text(
@@ -753,7 +765,7 @@ pub const LONER: Outfit = Outfit {
                 forearms: false,
             }],
             hud: None,
-            template: "gameplay/items/armour/boots/scavenger_boots_3.options",
+            template: "gameplay/items/armour/boots/renesanse_boots_1.options",
             icon: [12, 9],
             model_type: Some("data_full"),
             title: text(
@@ -2841,13 +2853,14 @@ fn write_bundle(
         row.set_path("name", s(&name))?;
         row.set_path("is_premium", V::Boolean(false))?;
         let mut c = parse_config(&mut cx.view, piece.template, "equipment")?;
-        ensure!(
-            c.root.named("parameters").and_then(|p| p.named("faction"))
-                == Some(&V::Integer(outfit.faction)),
-            "{}: template {} is of another faction",
-            piece.name,
-            piece.template
-        );
+        c.root.set_path("parameters.faction", V::Integer(outfit.faction))?;
+        if let Some(&(_, level)) = LEVELS.iter().find(|(id, _)| *id == piece.id) {
+            // No stock piece of the slot at this level: the nearest one's
+            // numbers, at the owner's level.
+            for key in ["item_level", "match_making_level"] {
+                c.root.set_path(&format!("parameters.{key}"), V::Integer(level))?;
+            }
+        }
         for &(table, suffix) in piece.kind.variants() {
             let model = &b.models[suffix];
             let model_path = b.model_path(suffix);

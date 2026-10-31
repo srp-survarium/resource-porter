@@ -77,6 +77,22 @@ def as_meshes(surfaces, keep=None):
     return out
 
 
+# The stock trousers' icons show them from the waist down to about the knee or shin, cut at
+# the cell's bottom: the piece 77 by 81 pixels (the medians of the released atlas's 36).
+LEGS_ASPECT = 77 / 81
+
+
+def cut_legs(picture):
+    """Trousers cut as the stock icons show them: from the waist down as far as makes the
+    stock width to height (LEGS_ASPECT), the rest left out."""
+    alpha = np.asarray(picture)[:, :, 3]
+    ys, xs = np.nonzero(alpha)
+    bottom = ys.min() + int(round((xs.max() - xs.min() + 1) / LEGS_ASPECT))
+    out = np.asarray(picture).copy()
+    out[bottom:] = 0
+    return Image.fromarray(out)
+
+
 def framed(picture, kind, shrink=1.0):
     """`picture` cut to the piece and fitted into a cell as the stock icons of `kind` are."""
     alpha = np.asarray(picture)[:, :, 3]
@@ -240,6 +256,58 @@ def neighbour_coloured(points, uv, faces, texture, lum, paint):
 CUFF_BLACK = 0.03
 
 
+def trimmed_cuff(points, faces, reach=0.03):
+    """`faces` without the flaps left standing at the cuff's end: within `reach` of the end
+    (along the hand's long axis), a face with two or more open edges (a point or a lip on the
+    outline) goes, repeatedly, until the edge is a smooth run of faces."""
+    used = points[np.unique(faces)]
+    centre = used.mean(0)
+    along = np.linalg.svd(used - centre)[2][0]
+    if along[0] < 0:
+        along = -along
+    depth = (points - centre) @ along
+    end = depth[np.unique(faces)].min()
+    key = {}
+    weld = np.array([key.setdefault(tuple(np.round(p, 4)), i) for i, p in enumerate(points)])
+    while True:
+        count = {}
+        for t in faces:
+            for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+                e = (min(weld[a], weld[b]), max(weld[a], weld[b]))
+                count[e] = count.get(e, 0) + 1
+        open_edges = np.array([sum(count[(min(weld[a], weld[b]), max(weld[a], weld[b]))] == 1
+                                   for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0]))) for t in faces])
+        near = depth[faces].mean(1) < end + reach
+        flap = near & (open_edges >= 2)
+        if not flap.any():
+            break
+        faces = faces[~flap]
+    count = {}
+    for t in faces:
+        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+            e = (min(weld[a], weld[b]), max(weld[a], weld[b]))
+            count[e] = count.get(e, 0) + 1
+    # The cuff's edge itself smoothed (each open-edge vertex near the end drawn halfway to
+    # the middle of its two neighbours on the edge, three times): no corner stands out of
+    # the line. The points are this icon's copy.
+    rim = {}
+    for t in faces:
+        for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+            if count.get((min(weld[a], weld[b]), max(weld[a], weld[b]))) == 1 and \
+                    depth[a] < end + reach and depth[b] < end + reach:
+                rim.setdefault(weld[a], set()).add(weld[b])
+                rim.setdefault(weld[b], set()).add(weld[a])
+    for _ in range(3):
+        moved = {}
+        for v, nb in rim.items():
+            if len(nb) == 2:
+                a, b = sorted(nb)
+                moved[v] = 0.5 * points[v] + 0.25 * (points[a] + points[b])
+        for v, q in moved.items():
+            points[weld == v] = q
+    return faces
+
+
 def glove_icon(surfaces):
     """One glove up to its cuff. The faces wholly on the cuff's black end band or inside it
     (all three corners black) are left out: the band is whole rows of the mesh, so the glove
@@ -251,7 +319,8 @@ def glove_icon(surfaces):
         h, w = texture.shape[:2]
         corner = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
                          np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2)
-        faces = largest_piece(points, faces[corner.max(1) >= CUFF_BLACK])
+        points = points.copy()
+        faces = trimmed_cuff(points, largest_piece(points, faces[corner.max(1) >= CUFF_BLACK]))
         lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
                       np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
         texture = neighbour_coloured(points, uv, faces, texture, lum, lum < GLOVE_BLACK)
@@ -297,7 +366,10 @@ def main():
             icon = glove_icon(surfaces)
         else:
             yaw, pitch = VIEWS[kind]
-            icon = framed(renderer.render(as_meshes(surfaces), yaw, pitch, size=(CELL[0] * 6, CELL[1] * 6)), kind)
+            picture = renderer.render(as_meshes(surfaces), yaw, pitch, size=(CELL[0] * 6, CELL[1] * 6))
+            if kind == 'legs':
+                picture = cut_legs(picture)
+            icon = framed(picture, kind)
         icon.save(a.output / f"{item['dict_id']}.png")
         rgba = np.asarray(icon)
         alpha = rgba[:, :, 3:4].astype(np.uint16)
