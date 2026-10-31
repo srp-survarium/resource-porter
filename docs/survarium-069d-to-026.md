@@ -76,7 +76,13 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
   permutation. 0.69d `t_albedo`/`t_normal` map directly; smoothness feeds
   0.26's `t_roughness` channel (which the gbuffer pass reads as gloss) at
   `roughness_scale` 0.2, matching native value ranges. Metalness, parallax,
-  displacement, fuzziness and detail maps are not reproduced.
+  displacement, fuzziness and detail maps are not reproduced. A vertex-blend
+  material is told before an alpha-tested one (0.69d's
+  `alpha_test_consider_vertex_blend` lets the blended-in opaque layer close the
+  base's cut-outs: house_6's plaster over laths), and vertex-colour categories
+  keep `two_sided` (the templates `vertex_colour_two_sided`,
+  `vertex_blend_two_sided`, `vertex_blend_alpha_test[_two_sided]`; a manifest
+  without them falls back with a note).
   `verify_shader_variants.py --templates` proves each new material against
   the template it was built from.
 * **Terrain** (0.69d layered terrain, five layers and a 2048² blend mask)
@@ -302,7 +308,11 @@ the formulas come from both builds' shader disassembly):
   transmittance (Rayleigh x `air_density`, Mie x `air_turbidity`, ozone) at the sun's
   elevation: for Rudnya colour (1, 0.758, 0.535), intensity 4.88 (native 2). 0.26 lights a
   white surface with `sun_color * sun_intensity * N.L` (no 1/pi, as 0.69d).
-* Probes: all 69 donor volumes with their own cubemaps. 0.69d stores `rgb = s/m`,
+* Probes: all 69 donor volumes with their own cubemaps, each volume with its full
+  rotation (the church's floor lights lie on their side, the bus stop's probe turns
+  about every axis) and its diffuse light times its `multiplier` (0.69d's
+  `environment_probe.ps` scales the SH, not the reflections, by it: the church x2.5 to
+  x4, the tractor station's atp(1) x10). 0.69d stores `rgb = s/m`,
   `a = m/(1+m)` of `s = sqrt(L)` in capture units (scene = capture x 1.2 * 2^capture EV);
   0.26 reads `L = 0.25 * (rgb/a)^2` (RGBD, written `e = 4L`, `m = max(1, e)`,
   `rgb = sqrt(e/m)`, `a = sqrt(1/m)`). Every mip is re-encoded (both builds prefilter with
@@ -315,8 +325,14 @@ the formulas come from both builds' shader disassembly):
   probe volumes of their shape, with their host probe's cube from mip 3 and an irradiance
   cube holding 0.69d's light at their centre; 0.26 draws probes largest first, each over the
   ones before by its falloff, so a volume holds the donor probe there plus every light drawn
-  so far (itself included) by their falloff there. The 10 darkening ones stay 0.26 ambient
-  lights. Height-based ambient (a multiply 0.69d has not) is off.
+  so far (itself included) by their falloff there. The darkening ones stay 0.26 ambient
+  lights, at least x0.25 (0.69d's keep the reflections, 0.26's take them too: the tractor
+  station's black wall-top bands drew black), but cylinders are left out (0.26 has none;
+  their boxes cut straight-edged dark squares across the church's bell shaft). Lights
+  0.69d fades out (`fade_out_distance`) farther than every spawn is from them never show
+  in play and are left out (`ambient_light_chaes`, 430 m, over the power plant 456 m
+  away: kept, it lit the backdrop white into the haze). Height-based ambient (a multiply
+  0.69d has not) is off.
 * Materials: a metalness map (`_fmap`, as 0.26's metals name theirs) takes 0.26's
   Fresnel-map template (`opaque_metal`: f0 0.04 to 1; 0.26 darkens the diffuse by f0 and
   tints the specular by the albedo's hue above f0 0.5). `material_constants` sets the
@@ -327,10 +343,12 @@ the formulas come from both builds' shader disassembly):
 * Matched to 0.69d's frames (the reference rig, same camera poses): `exposure_bias` 1 (the
   scale at EV 13.5: 0.69d's grading and curve show the same light darker) and
   `sun_saturation` 0.6 (the sun's colour (1, 0.847, 0.687): 0.69d's white balance and AP1
-  grading show its sunlight less orange). Interiors darker than 0.26's curve adapts to (a
-  frame mean of 0.05) take back half the difference, at most x8
-  (`lighting::adaptation_gain`), as 0.69d's exposure follows a view down to EV 6. The pond's mist is the
-  donor's `volume_fog`, the same object in both builds.
+  grading show its sunlight less orange). Interior probes darker than 0.03 are raised to
+  it, at most x8 (`lighting::adaptation_gain`), as 0.69d's exposure follows a view down
+  to EV 6 and shows its rooms alike (half the difference left the church at half 0.69d's
+  brightness). The pond's mist is the donor's `volume_fog`, the same object in both
+  builds, and both draw it alike (the same shader, constants and back-face pass, which
+  holds a camera inside: no wall or pop on entering).
 * Not reproduced: 0.69d's turbid sky (0.26's atmosphere stays), its height fog over the
   whole map, light shafts, colour grading, probe parallax correction and specular fade,
   light shapes beyond sphere and box.
@@ -338,8 +356,11 @@ the formulas come from both builds' shader disassembly):
 **Sharp, as 0.69d draws it.** No `max_texture_size` or `texture_limits`: every imported
 texture keeps its full size and every mip (605 MiB, Duga's 1024-capped set was 651).
 LOD0 and LOD-less surfaces keep their authored geometry (no `lod0_*`); only authored
-far LODs are simplified (110 k -> 52 k triangles) and terrain tiles beyond the error
-bound of 0.4 % (87 k -> 31 k). Imported models are 47 MiB of files in all. What 0.26
+far LODs are simplified (110 k -> 52 k triangles). The terrain keeps every vertex:
+simplified tiles under full-density blend overlays (`*_vc`) left the overlays up to 2 m
+under or over the ground (1 075 overlay vertices more than 25 cm off, 94 without), the
+dark seams and holes along trenches and mounds; 35.6 MiB of geometry for TDM, 40.9 MiB
+for the charging-station mode (native maps 43-48). Imported models are 47 MiB of files in all. What 0.26
 cannot draw stays as before: metalness, parallax, detail maps, fuzziness (the notes of
 the bundle list each material).
 

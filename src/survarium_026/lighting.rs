@@ -33,6 +33,12 @@ pub struct DonorProbe {
     pub capture_exposure_value: f32,
     /// Weight of the SH bands 1-2 against band 0 (0.69d default 0.5).
     pub directional_factor: f32,
+    /// The probe's `multiplier` (default 1, at least 0): 0.69d scales its
+    /// diffuse light by it, not its reflections (`environment_probe.ps`
+    /// multiplies the SH by `m_material_parameters_5.z`, which
+    /// `update_probe_constants` fills with `max(multiplier, 0)`). Interiors
+    /// carry 1.5 to 10.
+    pub multiplier: f32,
     pub sh: [[f32; 3]; 9],
 }
 
@@ -40,6 +46,12 @@ impl DonorProbe {
     /// Capture units to 0.69d scene luminance.
     pub fn exposure(&self) -> f32 {
         1.2 * 2f32.powf(self.capture_exposure_value)
+    }
+
+    /// Capture units to the 0.69d scene luminance of its diffuse light: the
+    /// exposure and the probe's multiplier.
+    pub fn diffuse_scale(&self) -> f32 {
+        self.exposure() * self.multiplier
     }
 
     /// Outgoing radiance of a white Lambertian surface facing `n` (E / pi),
@@ -63,15 +75,22 @@ impl DonorProbe {
 /// 0.26's curve adapts to a frame's mean down to 0.05 (`complex_post_process_blend.ps`:
 /// its weight `4.5 / (10 min(max(mean, 0.05), 2) + 1)`) and only by the
 /// mean^-0.2 of its exposure below; 0.69d's auto exposure follows a view down
-/// to EV 6. A probe darker than that (an interior) takes back half the
-/// difference, at most x8, so rooms read as 0.69d shows them after its eyes
-/// adapt; open ground (the global probes) is unchanged.
+/// to EV 6, so its rooms show alike however dark their probes (the church's
+/// 0.006 and the school's 0.02 read the same in its frames). A probe darker
+/// than `ADAPTED` (an interior) is raised to it, at most x8; open ground (the
+/// global probes) is unchanged. Half the difference (the square root) left
+/// the darkest rooms, the church's, at half 0.69d's brightness.
 pub fn adaptation_gain(probe: &DonorProbe, scale: LightScale) -> f32 {
-    let k = probe.exposure() * scale.0 * 0.282_094_78;
+    let k = probe.diffuse_scale() * scale.0 * 0.282_094_78;
     let c = probe.sh[0];
     let mean = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * k;
-    (0.05 / mean.max(1e-6)).max(1.0).sqrt().min(8.0)
+    (ADAPTED / mean.max(1e-6)).clamp(1.0, 8.0)
 }
+
+/// The probe brightness interiors are raised to (`adaptation_gain`), matched
+/// to 0.69d's frames of the church, school, houses, bus stop and tractor
+/// station.
+const ADAPTED: f32 = 0.03;
 
 /// 0.69d probe texel to capture-unit radiance.
 pub fn decode_069d(texel: [u8; 4]) -> [f32; 3] {
@@ -146,7 +165,7 @@ mod tests {
     fn sh_band_zero_is_uniform() {
         let mut sh = [[0.0; 3]; 9];
         sh[0] = [1.0, 2.0, 3.0];
-        let p = DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, sh };
+        let p = DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, multiplier: 1.0, sh };
         let up = p.sh_eval([0.0, 1.0, 0.0]);
         let side = p.sh_eval([1.0, 0.0, 0.0]);
         assert_eq!(up, side);
@@ -170,8 +189,11 @@ pub enum Shape {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Volume {
     pub centre: [f32; 3],
-    /// Rotation about +y (radians); the scenes rotate volumes about y only.
-    pub yaw: f32,
+    /// The object's `rotation` (radians), Euler angles as both builds'
+    /// `create_rotation` takes them. The scenes tip volumes over too: the
+    /// church's floor lights lie on their side (x ~1.5), the bus stop's probe
+    /// turns about every axis.
+    pub rotation: [f32; 3],
     pub shape: Shape,
     /// Width of the falloff band inside the outer surface.
     pub side_width: f32,
@@ -187,10 +209,12 @@ impl Volume {
         }
     }
 
+    /// `p` in the volume's frame: the engine's row-vector transform
+    /// (`world = local * basis + centre`) inverted, the basis orthonormal.
     fn local(&self, p: [f32; 3]) -> [f32; 3] {
         let d = [p[0] - self.centre[0], p[1] - self.centre[1], p[2] - self.centre[2]];
-        let (s, c) = self.yaw.sin_cos();
-        [c * d[0] - s * d[2], d[1], s * d[0] + c * d[2]]
+        let b = crate::skeleton_animation::euler_to_basis(self.rotation);
+        std::array::from_fn(|i| b[i][0] * d[0] + b[i][1] * d[1] + b[i][2] * d[2])
     }
 
     /// 0.69d's falloff (`ambient_light_*.ps`, `environment_probe.ps`): per
@@ -267,7 +291,7 @@ pub struct DiffuseRecipe {
 
 impl DiffuseRecipe {
     pub fn eval(&self, n: [f32; 3]) -> [f32; 3] {
-        let k = self.base.exposure();
+        let k = self.base.diffuse_scale();
         let mut e = self.base.sh_eval(n).map(|v| v * k);
         for Term { light, at, weight } in &self.terms {
             let w = weight * light.facing(n, *at);
@@ -363,23 +387,36 @@ mod light_tests {
 
     #[test]
     fn falloff_and_order() {
-        let v = Volume { centre: [0.0; 3], yaw: 0.0, shape: Shape::Sphere { radius: 4.0 }, side_width: 2.0 };
+        let v = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: 4.0 }, side_width: 2.0 };
         assert_eq!(v.weight([1.0, 0.0, 0.0], 2.0), 1.0);
         assert!((v.weight([3.0, 0.0, 0.0], 2.0) - 0.25).abs() < 1e-5);
         assert_eq!(v.weight([5.0, 0.0, 0.0], 2.0), 0.0);
         let b = Volume { shape: Shape::Box { half: [3.0, 4.0, 12.0] }, ..v };
         assert_eq!(b.sort_radius(), 13.0);
         // Rotated a quarter turn, the long axis lies along x.
-        let r = Volume { yaw: std::f32::consts::FRAC_PI_2, ..b };
+        let r = Volume { rotation: [0.0, std::f32::consts::FRAC_PI_2, 0.0], ..b };
         assert!(r.contains([11.0, 0.0, 0.0]) && !r.contains([0.0, 0.0, 11.0]));
+        // Tipped a quarter turn about x, the tall axis (y) lies along z.
+        let tall = Volume { shape: Shape::Box { half: [1.0, 4.0, 1.0] }, ..v };
+        let tipped = Volume { rotation: [std::f32::consts::FRAC_PI_2, 0.0, 0.0], ..tall };
+        assert!(tall.contains([0.0, 3.5, 0.0]) && !tipped.contains([0.0, 3.5, 0.0]) && tipped.contains([0.0, 0.0, 3.5]));
+        // Any rotation: a point placed in the box's frame by the engine's
+        // row-vector transform is inside; the transposed placement is not.
+        let rotation = [0.3, 1.1, -0.7];
+        let basis = crate::skeleton_animation::euler_to_basis(rotation);
+        let local = [3.5, 0.2, -0.3];
+        let row: [f32; 3] = std::array::from_fn(|j| (0..3).map(|i| local[i] * basis[i][j]).sum());
+        let column: [f32; 3] = std::array::from_fn(|i| (0..3).map(|j| basis[i][j] * local[j]).sum());
+        let slab = Volume { rotation, shape: Shape::Box { half: [4.0, 0.5, 0.5] }, ..v };
+        assert!(slab.contains(row) && !slab.contains(column), "{row:?} {column:?}");
     }
 
     #[test]
     fn recipe_adds_and_multiplies_in_order() {
         let mut sh = [[0.0; 3]; 9];
         sh[0] = [1.0 / 0.282_094_78 / 1.2; 3];
-        let base = DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, sh };
-        let volume = Volume { centre: [0.0; 3], yaw: 0.0, shape: Shape::Sphere { radius: 4.0 }, side_width: 1.0 };
+        let base = DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, multiplier: 1.0, sh };
+        let volume = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: 4.0 }, side_width: 1.0 };
         let add = DonorLight { volume, effect: LightEffect::Add { radiance: [2.0; 3] }, attenuation_power: 2.0, facing: None };
         let mul = DonorLight { effect: LightEffect::Multiply { factor: [3.0; 3] }, ..add };
         let recipe = DiffuseRecipe {
@@ -396,17 +433,18 @@ mod adaptation_tests {
     use super::*;
 
     #[test]
-    fn interiors_take_back_half_their_darkness() {
+    fn interiors_are_raised_to_the_adapted_level() {
         let probe = |c0: f32| {
             let mut sh = [[0.0; 3]; 9];
             sh[0] = [c0; 3];
-            DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, sh }
+            DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, multiplier: 1.0, sh }
         };
         let scale = LightScale(1.0 / 1.2 / 0.282_094_78);
-        // Mean 0.05 or brighter: unchanged.
+        // At the adapted level or brighter: unchanged.
+        assert!((adaptation_gain(&probe(ADAPTED), scale) - 1.0).abs() < 1e-5);
         assert_eq!(adaptation_gain(&probe(0.5), scale), 1.0);
-        // 16 times darker: x4; far darker: at most x8.
-        assert!((adaptation_gain(&probe(0.05 / 16.0), scale) - 4.0).abs() < 1e-3);
+        // 4 times darker: x4; far darker: at most x8.
+        assert!((adaptation_gain(&probe(ADAPTED / 4.0), scale) - 4.0).abs() < 1e-3);
         assert_eq!(adaptation_gain(&probe(1e-5), scale), 8.0);
     }
 }

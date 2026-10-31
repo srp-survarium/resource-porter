@@ -156,14 +156,15 @@
     "alpha_test_two_sided_vc": "tiled/window/window_brokengl_vc",
     "glass_cutout_vc": "tiled/window/window_brokengl_vc",
     "opaque_two_sided_vc": "tiled/floor/floor_plate_tile",
+    "vertex_colour_two_sided": "tiled/floor/floor_plate_tile",
+    "vertex_blend_two_sided": "tiled/concrete/concrete_01_floor_burned_vc",
+    "vertex_blend_alpha_test": "tiled/stucco/stucco_wood_stucco_mask_03_vc",
+    "vertex_blend_alpha_test_two_sided": "tiled/stucco/stucco_wood_stucco_04_vc",
     "opaque_vc": "tiled/concrete/concrete_crack",
     "terrain_blend": "tiled/bricks/brick_02_burn_vc",
     "opaque_metal": "props/box/props_boxes_metal"
   },
   "roughness_scale": 0.2,
-  "decimate_terrain": [
-    "level/01/terrain/"
-  ],
   "ambient_sounds": {
     "project": "projects/level_01/day_4/client_project",
     "include": [
@@ -184,10 +185,6 @@
     "max_member_radius": 10.0,
     "model_cell": 32.0,
     "max_member_bytes": 65536
-  },
-  "terrain_simplify": {
-    "ratio": 0.05,
-    "max_error": 0.004
   },
   "namespace": "v069d_rudnya",
   "native_materials": {

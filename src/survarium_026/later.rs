@@ -1153,8 +1153,13 @@ pub fn canonical_dds(bytes: &mut [u8]) -> Result<()> {
 pub enum Category {
     Opaque,
     OpaqueTwoSided,
-    VertexColour,
-    VertexBlend,
+    /// Vertex-colour mesh drawing one texture.
+    VertexColour { two_sided: bool },
+    /// Vertex-colour mesh blending two textures by its vertex colour; with
+    /// `alpha_test`, the blend gates the cut-out (0.69d's
+    /// `alpha_test_consider_vertex_blend`: a blended-in opaque texture
+    /// closes the holes of the base one).
+    VertexBlend { two_sided: bool, alpha_test: bool },
     AlphaTest,
     AlphaTestTwoSided,
     Foliage,
@@ -1177,8 +1182,12 @@ impl Category {
         match self {
             Self::Opaque => "opaque",
             Self::OpaqueTwoSided => "opaque_two_sided",
-            Self::VertexColour => "vertex_colour",
-            Self::VertexBlend => "vertex_blend",
+            Self::VertexColour { two_sided: false } => "vertex_colour",
+            Self::VertexColour { two_sided: true } => "vertex_colour_two_sided",
+            Self::VertexBlend { two_sided: false, alpha_test: false } => "vertex_blend",
+            Self::VertexBlend { two_sided: true, alpha_test: false } => "vertex_blend_two_sided",
+            Self::VertexBlend { two_sided: false, alpha_test: true } => "vertex_blend_alpha_test",
+            Self::VertexBlend { two_sided: true, alpha_test: true } => "vertex_blend_alpha_test_two_sided",
             Self::AlphaTest => "alpha_test",
             Self::AlphaTestTwoSided => "alpha_test_two_sided",
             Self::Foliage => "foliage",
@@ -1189,6 +1198,23 @@ impl Category {
             Self::Decal => "decal",
             Self::ProjectedDecal => "projected_decal",
             Self::Terrain => "terrain",
+        }
+    }
+
+    /// The category drawn instead when a manifest names no template for
+    /// this one (manifests older than the two-sided and alpha-tested
+    /// vertex-colour templates), and what that loses.
+    fn fallback(self) -> Option<(Category, &'static str)> {
+        match self {
+            Self::VertexColour { two_sided: true } => Some((Self::VertexColour { two_sided: false }, "drawn one-sided")),
+            Self::VertexBlend { two_sided: true, alpha_test: false } => {
+                Some((Self::VertexBlend { two_sided: false, alpha_test: false }, "drawn one-sided"))
+            }
+            Self::VertexBlend { two_sided, alpha_test: true } => Some((
+                if two_sided { Self::AlphaTestTwoSided } else { Self::AlphaTest },
+                "cut out by its base texture alone, without the blend",
+            )),
+            _ => None,
         }
     }
 }
@@ -1255,14 +1281,17 @@ pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
     if alpha && (matches!(base, "flora" | "grass") || flag(effect, "use_t_translucency")) {
         return Ok(Category::Foliage);
     }
+    let blends = usage.vertex_colour
+        && text(effect, "texture_vertex_blended_diffuse").is_some()
+        && (flag(effect, "use_tiled_vertex_blended_mask") || flag(effect, "use_vertex_blended_normal"));
+    if blends {
+        return Ok(Category::VertexBlend { two_sided, alpha_test: alpha });
+    }
     if alpha {
         return Ok(if two_sided { Category::AlphaTestTwoSided } else { Category::AlphaTest });
     }
     if usage.vertex_colour {
-        let blends = text(effect, "texture_vertex_blended_diffuse").is_some()
-            && (flag(effect, "use_tiled_vertex_blended_mask")
-                || flag(effect, "use_vertex_blended_normal"));
-        return Ok(if blends { Category::VertexBlend } else { Category::VertexColour });
+        return Ok(Category::VertexColour { two_sided });
     }
     Ok(if two_sided { Category::OpaqueTwoSided } else { Category::Opaque })
 }
@@ -1365,9 +1394,8 @@ pub fn convert_material(
     roughness_scale: f32,
     default_normal: &str,
 ) -> Result<ConvertedMaterial> {
-    let category = categorize(donor, usage)?;
-    // Vertex-colour meshes need a template compiled for that vertex input.
-    let vc_key = format!("{}_vc", category.key());
+    let mut category = categorize(donor, usage)?;
+    let mut notes = Vec::new();
     // A metalness map (0.69d's `_fmap`, as 0.26's metals name theirs) takes
     // the category's `_metal` template where the manifest has one: 0.26's
     // Fresnel map, which darkens the diffuse by f0 and tints the specular by
@@ -1377,24 +1405,47 @@ pub fn convert_material(
         .filter(|e| flag(e, "use_t_metalness"))
         .and_then(|e| text(e, "t_metalness"))
         .map(str::to_owned);
-    let metal_key = format!("{}_metal", if usage.vertex_colour { vc_key.as_str() } else { category.key() });
-    let metal_template = metalness.as_ref().and_then(|_| templates.get(&metal_key));
-    let (template_path, template) = metal_template
-        .or_else(|| if usage.vertex_colour { templates.get(&vc_key) } else { None })
-        .or_else(|| templates.get(category.key()))
-        .with_context(|| format!("no template for category {}", category.key()))?;
+    // Vertex-colour meshes need a template compiled for that vertex input
+    // (`<category>_vc`).
+    let vc_key = |category: Category| format!("{}_vc", category.key());
+    let lookup = |category: Category| {
+        let metal_key = format!("{}_metal", if usage.vertex_colour { vc_key(category) } else { category.key().to_owned() });
+        let metal_template = metalness.as_ref().and_then(|_| templates.get(&metal_key));
+        metal_template
+            .map(|t| (t, true))
+            .or_else(|| if usage.vertex_colour { templates.get(&vc_key(category)) } else { None }.map(|t| (t, false)))
+            .or_else(|| templates.get(category.key()).map(|t| (t, false)))
+    };
+    let ((template_path, template), metal_template) = loop {
+        if let Some(found) = lookup(category) {
+            break found;
+        }
+        let (instead, loss) = category.fallback().with_context(|| format!("no template for category {}", category.key()))?;
+        notes.push(format!("the manifest names no {} template: {loss}", category.key()));
+        category = instead;
+    };
     if usage.vertex_colour {
         ensure!(
             matches!(
                 template.named("material").and_then(|m| m.named("g_stage")).and_then(|g| g.named("with_static_vertex_color_meshes")).map(|v| v.named("value").unwrap_or(v)),
                 Some(ConfigValue::Boolean(true))
-            ) || !matches!(category, Category::Opaque | Category::OpaqueTwoSided | Category::VertexColour | Category::VertexBlend | Category::AlphaTest | Category::AlphaTestTwoSided | Category::Foliage | Category::GlassCutout),
-            "template {template_path} for vertex-colour {} meshes is not compiled for them; declare {vc_key}",
-            category.key()
+            ) || !matches!(
+                category,
+                Category::Opaque
+                    | Category::OpaqueTwoSided
+                    | Category::VertexColour { .. }
+                    | Category::VertexBlend { .. }
+                    | Category::AlphaTest
+                    | Category::AlphaTestTwoSided
+                    | Category::Foliage
+                    | Category::GlassCutout
+            ),
+            "template {template_path} for vertex-colour {} meshes is not compiled for them; declare {}",
+            category.key(),
+            vc_key(category)
         );
     }
     let mut root = template.clone();
-    let mut notes = Vec::new();
     match category {
         Category::Decal | Category::ProjectedDecal => {
             let stage = stages(donor)
@@ -1496,13 +1547,14 @@ pub fn convert_material(
                     set_effect(&mut root, stage, "alpha_ref", ConfigValue::Float(r))?;
                 }
             }
-            if matches!(category, Category::VertexBlend | Category::VertexColour) {
+            if let Category::VertexBlend { .. } | Category::VertexColour { .. } = category {
+                let blends = matches!(category, Category::VertexBlend { .. });
                 let blend_diffuse = text(effect, "texture_vertex_blended_diffuse")
-                    .filter(|_| category == Category::VertexBlend)
+                    .filter(|_| blends)
                     .map(str::to_owned)
                     .unwrap_or_else(|| albedo.clone());
                 let blend_normal = text(effect, "texture_vertex_blended_normal")
-                    .filter(|_| category == Category::VertexBlend)
+                    .filter(|_| blends)
                     .map(str::to_owned)
                     .or_else(|| normal.clone())
                     .unwrap_or_else(|| default_normal.to_owned());
@@ -1516,7 +1568,7 @@ pub fn convert_material(
                 }
                 if effect_text(&root, stage, "texture_vertex_blended_tiled_mask").is_some() {
                     let mask = text(effect, "texture_vertex_blended_tiled_mask")
-                        .filter(|_| category == Category::VertexBlend)
+                        .filter(|_| blends)
                         .map(str::to_owned)
                         .unwrap_or_else(|| albedo.clone());
                     set_effect(&mut root, stage, "texture_vertex_blended_tiled_mask", ConfigValue::String(mask))?;
@@ -1534,7 +1586,7 @@ pub fn convert_material(
                 }
             }
             match (&metalness, metal_template) {
-                (Some(map), Some(_)) if effect_flag(&root, stage, "use_tfresnel") => {
+                (Some(map), true) if effect_flag(&root, stage, "use_tfresnel") => {
                     set_effect(&mut root, stage, "texture_fresnel", ConfigValue::String(map.clone()))?;
                     set_effect(&mut root, stage, "constant_fresnel_min", ConfigValue::Float(0.04))?;
                     set_effect(&mut root, stage, "constant_fresnel_max", ConfigValue::Float(1.0))?;
@@ -1974,6 +2026,7 @@ fn donor_probe(object: &ConfigValue) -> Result<DonorProbe> {
         texture,
         capture_exposure_value: real(object, "capture_exposure_value").unwrap_or(13.0),
         directional_factor: real(object, "directional_factor").unwrap_or(0.5),
+        multiplier: real(object, "multiplier").unwrap_or(1.0).max(0.0),
         sh,
     })
 }
@@ -2010,8 +2063,16 @@ struct DonorLighting {
     /// Darkening multiplicative lights: (full name, light, sRGB colour,
     /// attenuation power), which 0.26's ambient lights reproduce.
     darkeners: Vec<(String, DonorLight, [f32; 3], f32)>,
+    /// Darkening cylinders, left out (0.26 has no cylinder).
+    dropped_darkeners: Vec<String>,
     light_volumes: usize,
 }
+
+/// The least a darkening light leaves of the light under it. 0.69d's keep
+/// the probe's reflections (`affect_specular` false), so a black one (the
+/// tractor station's wall tops) shows dark grey there; 0.26's take the
+/// reflections with the diffuse and draw it black.
+const DARKENER_FLOOR: f32 = 0.25;
 
 /// A fill light's volume reuses its host probe's cube from this mip (32
 /// texels): its own cube only carries its irradiance.
@@ -2027,7 +2088,7 @@ fn donor_volume(object: &ConfigValue, side_width_field: &str) -> Result<Volume> 
     };
     Ok(Volume {
         centre: float3(object, "position")?,
-        yaw: float3(object, "rotation")?[1],
+        rotation: float3(object, "rotation")?,
         shape,
         side_width: real(object, side_width_field).unwrap_or(0.5),
     })
@@ -2055,12 +2116,18 @@ fn donor_light(object: &ConfigValue) -> Result<(DonorLight, [f32; 3])> {
 /// Put a 0.26 probe or ambient light on `volume`.
 fn place_volume(native: &mut ConfigValue, volume: &Volume, full_name: &str) -> Result<()> {
     native.set_path("position", ConfigValue::Float3(volume.centre))?;
-    native.set_path("rotation", ConfigValue::Float3([0.0, volume.yaw, 0.0]))?;
+    native.set_path("rotation", ConfigValue::Float3(volume.rotation))?;
     native.set_path("pivot", ConfigValue::Float3([0.0; 3]))?;
     let (geometry, scale, radius) = match volume.shape {
         Shape::Sphere { radius } => (0, [1.0; 3], radius),
         Shape::Box { half } => (1, half, volume.sort_radius()),
-        Shape::Cylinder { radius, half_height } => (1, [radius, half_height, radius], volume.sort_radius()),
+        // 0.26 has no cylinder: the box of the same footprint area (corners
+        // reach 1.25 radii, not the circumscribed square's 1.41), so a dark
+        // disk does not darken a square's corners round it.
+        Shape::Cylinder { radius, half_height } => {
+            let side = radius * std::f32::consts::PI.sqrt() / 2.0;
+            (1, [side, half_height, side], volume.sort_radius())
+        }
     };
     native.set_path("geometry", ConfigValue::Integer(geometry))?;
     native.set_path("scale", ConfigValue::Float3(scale))?;
@@ -2090,7 +2157,28 @@ fn plain_name(name: &str) -> String {
 /// 0.69d's light at its centre: the donor probe there (its own, or its
 /// host's) and every light drawn so far, itself included, by their falloff
 /// there; lights drawn later add themselves over it.
-fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], global: &str, map: &MapSpec) -> Result<DonorLighting> {
+/// The positions players start from: the donor's respawn points in the map's
+/// spawn folder.
+fn donor_spawn_positions(donor: &ConfigValue, map: &MapSpec) -> Result<Vec<[f32; 3]>> {
+    let respawns = donor.named("server_objects").and_then(|s| s.named("respawn_points")).context("donor has no respawn points")?;
+    array(respawns)?
+        .iter()
+        .filter(|s| string(s, "full_name").unwrap_or("").starts_with(&map.spawn_folder))
+        .map(|s| float3(s, "position"))
+        .collect()
+}
+
+/// 0.69d fades an ambient light out beyond its `fade_out_distance` from the
+/// camera; 0.26's volumes have no such fade. A light farther than that from
+/// every spawn (`ambient_light_chaes`, 430 m, over the power plant 456 m out)
+/// never shows in play, and kept it would light the backdrop for good.
+fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
+    let (Some(fade), Ok(at)) = (real(object, "fade_out_distance"), float3(object, "position")) else { return false };
+    let distance = |p: &[f32; 3]| ((0..3).map(|i| (p[i] - at[i]).powi(2)).sum::<f32>()).sqrt();
+    !spawns.is_empty() && spawns.iter().all(|s| distance(s) > fade)
+}
+
+fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f32; 3]], global: &str, map: &MapSpec) -> Result<DonorLighting> {
     enum Source {
         Probe(DonorProbe, f32),
         Light(DonorLight),
@@ -2100,7 +2188,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], global: &str
         .iter()
         .find(|o| string(o, "full_name") == Some(global))
         .with_context(|| format!("donor has no probe {global}"))?;
-    let map_wide = Volume { centre: map.global_probe_position, yaw: 0.0, shape: Shape::Sphere { radius: map.global_probe_radius }, side_width: 0.5 };
+    let map_wide = Volume { centre: map.global_probe_position, rotation: [0.0; 3], shape: Shape::Sphere { radius: map.global_probe_radius }, side_width: 0.5 };
     pending.push(("env_and_lights/probes/global".into(), map_wide, Source::Probe(donor_probe(global_object)?, 1.0)));
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
@@ -2109,13 +2197,20 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], global: &str
         pending.push((full_name, donor_volume(object, "probe_side_width")?, Source::Probe(donor_probe(object)?, specular)));
     }
     let mut darkeners = Vec::new();
+    let mut dropped_darkeners = Vec::new();
     for object in objects.iter().filter(|o| kind(o) == "ambient_light") {
-        if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) {
+        if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) || faded_out_in_play(object, spawns) {
             continue;
         }
         let full_name = string(object, "full_name").unwrap_or("ambient_light").to_owned();
         let (light, colour) = donor_light(object)?;
         match light.effect {
+            // 0.26 has no cylinder, and a darkening one's box cuts
+            // straight-edged dark squares across walls and ceilings (the
+            // church's bell shaft) where 0.69d's disk fades out round.
+            LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) && matches!(light.volume.shape, Shape::Cylinder { .. }) => {
+                dropped_darkeners.push(full_name);
+            }
             LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) => {
                 darkeners.push((full_name, light, colour, light.attenuation_power));
             }
@@ -2176,7 +2271,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], global: &str
         }
         volumes.push(lit);
     }
-    Ok(DonorLighting { volumes, darkeners, light_volumes })
+    Ok(DonorLighting { volumes, darkeners, dropped_darkeners, light_volumes })
 }
 
 /// Point every weather variant of a probe at one cubemap.
@@ -2473,7 +2568,16 @@ pub fn convert_scene(
                 }
                 MapProbes::Donor { global: global_name, .. } => {
                     let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
-                    let lit = donor_lighting(&donor_probe_objects, &donor_objects, global_name, map)?;
+                    let spawns = donor_spawn_positions(donor, map)?;
+                    let faded: Vec<&str> = donor_objects
+                        .iter()
+                        .filter(|o| kind(o) == "ambient_light" && faded_out_in_play(o, &spawns))
+                        .filter_map(|o| string(o, "full_name"))
+                        .collect();
+                    if !faded.is_empty() {
+                        notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
+                    }
+                    let lit = donor_lighting(&donor_probe_objects, &donor_objects, &spawns, global_name, map)?;
                     // 0.26 draws probes largest first, each over the ones
                     // before it by its falloff (`environment_probe_lighting`
                     // blends with the weight in alpha). A volume's irradiance
@@ -2496,13 +2600,16 @@ pub fn convert_scene(
                         });
                     }
                     let ambient_template = first_template(template, "ambient_light")?;
-                    for (full_name, light, colour, power) in &lit.darkeners {
+                    for (full_name, light, _, power) in &lit.darkeners {
                         let mut a = ambient_template.clone();
                         place_volume(&mut a, &light.volume, full_name)?;
                         let LightEffect::Multiply { factor } = light.effect else { unreachable!() };
-                        let intensity = (0..3).map(|c| factor[c] / colour[c].powf(2.2).max(1e-4)).fold(0.0f32, f32::max);
-                        a.set_path("color", ConfigValue::Integer(packed_colour(*colour)))?;
-                        a.set_path("intensity", ConfigValue::Float(intensity))?;
+                        // 0.26 multiplies by colour^2.2 * intensity: the
+                        // factor as a colour at intensity 1, never below
+                        // the floor.
+                        let shade = factor.map(|f| f.clamp(DARKENER_FLOOR, 1.0).powf(1.0 / 2.2));
+                        a.set_path("color", ConfigValue::Integer(packed_colour(shade)))?;
+                        a.set_path("intensity", ConfigValue::Float(1.0))?;
                         a.set_path("attenuation_power", ConfigValue::Float(*power))?;
                         a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
                         a.set_path("dot_normal", ConfigValue::Boolean(light.facing.is_some()))?;
@@ -2518,6 +2625,9 @@ pub fn convert_scene(
                         lit.light_volumes,
                         lit.darkeners.len()
                     ));
+                    if !lit.dropped_darkeners.is_empty() {
+                        notes.push(format!("darkening ambient lights shaped as cylinders, left out (0.26 has no cylinder; a box would cut straight-edged dark squares): {:?}", lit.dropped_darkeners));
+                    }
                 }
             }
         }
@@ -5188,10 +5298,63 @@ mod tests {
             )
         };
         let vc = Usage { vertex_colour: true, vegetation: false };
-        assert_eq!(categorize(&base(false, false), vc).unwrap(), Category::VertexColour);
+        assert_eq!(categorize(&base(false, false), vc).unwrap(), Category::VertexColour { two_sided: false });
+        assert_eq!(categorize(&base(false, true), vc).unwrap(), Category::VertexColour { two_sided: true });
+        // Alpha-tested without a blend: the base texture's alpha alone.
+        assert_eq!(categorize(&base(true, true), vc).unwrap(), Category::AlphaTestTwoSided);
         assert_eq!(categorize(&base(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
         assert_eq!(categorize(&base(false, true), Usage::default()).unwrap(), Category::OpaqueTwoSided);
         assert_eq!(categorize(&base(true, true), Usage { vertex_colour: false, vegetation: true }).unwrap(), Category::Grass);
+        // A blend keeps two-sidedness, and gates an alpha test (0.69d's
+        // stucco over laths: the blended-in plaster closes the gaps).
+        let blending = |alpha: bool, two: bool| {
+            let mut m = base(alpha, two);
+            for (k, v) in [
+                ("texture_vertex_blended_diffuse", ConfigValue::String("b".into())),
+                ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+            ] {
+                m.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+            }
+            m
+        };
+        assert_eq!(categorize(&blending(false, false), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: false });
+        assert_eq!(categorize(&blending(false, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: false });
+        assert_eq!(categorize(&blending(true, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: true });
+        assert_eq!(categorize(&blending(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
+    }
+
+    #[test]
+    fn vertex_colour_categories_without_their_template_fall_back_with_a_note() {
+        let donor = material(
+            vec![
+                ("effect_id", ConfigValue::String("g_stage_default".into())),
+                ("t_albedo", ConfigValue::String("tiled/a".into())),
+                ("use_alpha_test", ConfigValue::Boolean(true)),
+                ("two_sided", ConfigValue::Boolean(true)),
+                ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/b".into())),
+                ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+            ],
+            "dielectric",
+        );
+        let vc_template = |path: &str| {
+            let mut t = template(&[("use_alpha_test", true)]);
+            t.set_path("material.g_stage.effect.texture_vertex_blended_diffuse", named(vec![("value", ConfigValue::String("native/b".into()))]))
+                .unwrap();
+            t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+            (path.to_owned(), t)
+        };
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let mut templates = BTreeMap::from([("alpha_test_two_sided_vc".to_owned(), vc_template("tiled/window/window_brokengl_vc"))]);
+        let c = convert_material(&donor, vc, &templates, 0.2, "editor/default_nmap").unwrap();
+        assert_eq!(c.category, Category::AlphaTestTwoSided);
+        assert!(c.notes.iter().any(|n| n.contains("vertex_blend_alpha_test_two_sided")));
+        templates.insert("vertex_blend_alpha_test_two_sided".to_owned(), vc_template("tiled/stucco/stucco_wood_stucco_04_vc"));
+        let c = convert_material(&donor, vc, &templates, 0.2, "editor/default_nmap").unwrap();
+        assert_eq!(c.category, Category::VertexBlend { two_sided: true, alpha_test: true });
+        assert_eq!(c.template, "tiled/stucco/stucco_wood_stucco_04_vc");
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(text(e, "texture_vertex_blended_diffuse"), Some("tiled/b"));
+        assert!(c.notes.is_empty() || !c.notes.iter().any(|n| n.contains("names no")));
     }
 
     #[test]
