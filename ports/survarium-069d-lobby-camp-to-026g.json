@@ -71,6 +71,9 @@
       3.255
     ],
     "weapon_view": 1.5708,
+    "instance_rotations": {
+      "props/door/wood_door_02": [0.0, 1.6885923, 0.0]
+    },
     "native_scenery": [
       {"lib": "level/02/bkg_terrain", "position": [-77.0, -27.173, -50.0], "yaw": 0.0, "scale": 1.0},
       {"lib": "level/02/bkg_trees_02", "position": [-77.0, -27.173, -50.0], "yaw": 0.0, "scale": 1.0},
@@ -423,8 +426,5 @@
   },
   "native_materials": {
     "water/glass_water": "tiled/window/glass"
-  },
-  "two_sided_materials": [
-    "hq/door/wood_door_01"
-  ]
+  }
 }

@@ -55,12 +55,6 @@ pub struct Manifest {
     /// 0.69d's window panes made of a still-water material).
     #[serde(default)]
     pub native_materials: BTreeMap<String, String>,
-    /// Donor materials drawn two-sided, by donor name: one-sided panels the
-    /// 0.26 lobby camera, which orbits all the way round, sees from behind
-    /// (the camp's door leaves: 0.69d's fixed camera never did). An opaque
-    /// or alpha-tested material only.
-    #[serde(default)]
-    pub two_sided_materials: BTreeSet<String>,
     /// Native particles that stand in for 0.69d particles, by donor name.
     #[serde(default)]
     pub particle_replacements: BTreeMap<String, String>,
@@ -307,6 +301,12 @@ pub struct LobbySpec {
     /// windows): no collision, so the lobby camera's ray never meets them.
     #[serde(default)]
     pub native_scenery: Vec<NativeScenery>,
+    /// Donor models whose instances are turned to this rotation (x, y, z
+    /// radians) in place of the donor's: a prop 0.69d's fixed camera only
+    /// saw one way, which the 0.26 lobby camera's orbit shows the wrong way
+    /// round (the camp's double door, its leaves facing out of the room).
+    #[serde(default)]
+    pub instance_rotations: BTreeMap<String, [f32; 3]>,
     /// 0.69d lights in photometric units, as 0.26 intensities (required for
     /// a 0.69d lobby).
     #[serde(default)]
@@ -604,6 +604,13 @@ impl Port {
         match self {
             Self::Map(_) => false,
             Self::Lobby(l) => l.exclude_models.iter().any(|p| model.starts_with(p.as_str())),
+        }
+    }
+    /// An instance's rotation: the manifest's for its model, else the donor's.
+    fn rotation(&self, model: &str, donor: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Map(_) => donor,
+            Self::Lobby(l) => l.instance_rotations.get(model).copied().unwrap_or(donor),
         }
     }
 }
@@ -1371,16 +1378,6 @@ fn stages(root: &ConfigValue) -> Vec<String> {
 
 fn g_stage(root: &ConfigValue) -> Option<&ConfigValue> {
     root.named("material")?.named("g_stage")
-}
-
-/// The two-sided category of an opaque or alpha-tested one (a material
-/// `two_sided_materials` lists must be one of those).
-fn two_sided(category: Category) -> Result<Category> {
-    Ok(match category {
-        Category::Opaque | Category::OpaqueTwoSided => Category::OpaqueTwoSided,
-        Category::AlphaTest | Category::AlphaTestTwoSided => Category::AlphaTestTwoSided,
-        other => bail!("a {} material has no two-sided template", other.key()),
-    })
 }
 
 pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
@@ -2254,7 +2251,7 @@ pub fn convert_scene(
         visuals.push(named(vec![
             ("lib_name", ConfigValue::String(model.replace('\\', "/"))),
             ("position", ConfigValue::Float3(float3(visual, "position")?)),
-            ("rotation", ConfigValue::Float3(float3(visual, "rotation")?)),
+            ("rotation", ConfigValue::Float3(port.rotation(&model_of_reference(model), float3(visual, "rotation")?))),
             ("scale", ConfigValue::Float3(float3(visual, "scale")?)),
         ]));
         count("render_visual");
@@ -2269,7 +2266,7 @@ pub fn convert_scene(
         collisions.push(named(vec![
             ("lib_name", ConfigValue::String(model.replace('\\', "/"))),
             ("position", ConfigValue::Float3(float3(collision, "position")?)),
-            ("rotation", ConfigValue::Float3(float3(collision, "rotation")?)),
+            ("rotation", ConfigValue::Float3(port.rotation(&model_of_reference(model), float3(collision, "rotation")?))),
             ("scale", ConfigValue::Float3(float3(collision, "scale")?)),
             ("cmask", ConfigValue::Integer(integer(collision, "cmask").context("cmask")?)),
             ("cgroup", ConfigValue::Integer(integer(collision, "cgroup").context("cgroup")?)),
@@ -3533,13 +3530,6 @@ pub fn build(
         }
         let mut converted = convert_material(&root, *usage, &templates, m.roughness_scale, default_normal)
             .with_context(|| format!("converting {material}"))?;
-        if m.two_sided_materials.contains(material) {
-            // its own category's template, drawn from both sides
-            two_sided(converted.category).with_context(|| format!("{material}: two_sided_materials"))?;
-            converted.root.set_path("material.g_stage.effect.two_sided.value", ConfigValue::Boolean(true))
-                .with_context(|| format!("{material}: two_sided_materials"))?;
-            notes.push(format!("{material}: drawn two-sided (manifest)"));
-        }
         if converted.category == Category::Water {
             // 0.26's water reflects a fixed sky probe where its screen-space
             // reflection finds nothing: in the caves it drew bright flat sheets.
@@ -5059,9 +5049,6 @@ mod tests {
         assert_eq!(categorize(&base(false, false), vc).unwrap(), Category::VertexColour);
         assert_eq!(categorize(&base(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
         assert_eq!(categorize(&base(false, true), Usage::default()).unwrap(), Category::OpaqueTwoSided);
-        assert_eq!(two_sided(Category::Opaque).unwrap(), Category::OpaqueTwoSided);
-        assert_eq!(two_sided(Category::AlphaTest).unwrap(), Category::AlphaTestTwoSided);
-        assert!(two_sided(Category::Glass).is_err());
         assert_eq!(categorize(&base(true, true), Usage { vertex_colour: false, vegetation: true }).unwrap(), Category::Grass);
     }
 
@@ -5251,7 +5238,7 @@ mod tests {
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
             native_props: Vec::new(),
-            native_scenery: Vec::new(),
+            native_scenery: Vec::new(), instance_rotations: BTreeMap::new(),
             photometric_lights: None,
             environment_overrides: BTreeMap::new(),
             exclude_probes: Vec::new(),
@@ -5323,7 +5310,7 @@ mod tests {
         let lobby = |overrides: BTreeMap<String, ProbeOverride>| LobbySpec {
             donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
             probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
-            native_props: Vec::new(), native_scenery: Vec::new(), photometric_lights: None, environment_overrides: BTreeMap::new(),
+            native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: BTreeMap::new(), photometric_lights: None, environment_overrides: BTreeMap::new(),
             exclude_probes: Vec::new(), probe_overrides: overrides, glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby(BTreeMap::from([("outdoor/environment_probe".to_owned(), outdoor)]))), false, &BTreeMap::new()).unwrap();
@@ -5339,6 +5326,22 @@ mod tests {
         assert_eq!(real(probes[2], "radius"), Some((0.75f32 * 4.2).next_down()), "a tie goes just below, in the donor's order");
         let unknown = BTreeMap::from([("outdoor/environment_probe(9)".to_owned(), outdoor)]);
         assert!(convert_scene(&donor, &template, &Port::Lobby(lobby(unknown)), false, &BTreeMap::new()).is_err(), "an override must name a donor probe");
+    }
+
+    #[test]
+    fn a_turned_model_takes_its_rotation_and_the_others_keep_the_donors() {
+        let spec = |turned: BTreeMap<String, [f32; 3]>| LobbySpec {
+            donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
+            probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
+            native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: turned, photometric_lights: None, environment_overrides: BTreeMap::new(),
+            exclude_probes: Vec::new(), probe_overrides: BTreeMap::new(), glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(),
+        };
+        let donor = [-3.1411853, -1.4530003, -3.1411853];
+        let port = Port::Lobby(spec(BTreeMap::from([("props/door/wood_door_02".to_owned(), [0.0, 1.6885923, 0.0])])));
+        assert_eq!(port.rotation("props/door/wood_door_02", donor), [0.0, 1.6885923, 0.0]);
+        assert_eq!(port.rotation("props/door/wood_door_01", donor), donor);
+        assert_eq!(model_of_reference("resources/models/props/door/wood_door_02.model/collision"), "props/door/wood_door_02");
+        assert_eq!(Port::Lobby(spec(BTreeMap::new())).rotation("props/door/wood_door_02", donor), donor);
     }
 
     #[test]
