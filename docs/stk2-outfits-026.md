@@ -49,7 +49,8 @@ has the items, their stats and the owner's open questions.
     wrist-length sleeve;
   - boots: all three outfits' are `data_full`, inside every full-length hem: the
     sneakers, the loner's (low shoes: the export's left boot also carried the bottom of the
-    camo pants' leg, a wrapped cuff on the pants' part of the map, which is dropped) and the Novice's
+    camo pants' leg, a wrapped cuff on the pants' part of the map; it is replaced by the
+    right shoe mirrored, its bones swapped Left/Right) and the Novice's
     (26 cm, worn under the jeans as in STK2: the top of its shaft is painted black
     where they covered it). A `data_medium` or `data_long` boot would be fitted over
     every tucked leg of its class (`BOOTS_OVER_LEGS`);
@@ -110,13 +111,14 @@ reproducible: the same inputs make the same packs byte for byte.
 ## Icons
 
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
-boots 76, gloves 77, centred), the sneakers 28 % smaller (the owner). Boots are seen
-level, each cut for the icon where its black shaft top (STK2's trousers covered it)
-begins. Gloves: one hand, its back square to the
-camera (the hand's own plane, from its vertices), the outline's long axis settled on 32
-degrees above the horizontal with the fingers down to the left (the stock glove icons'
-median, 25-41); the cuff's black band and inside are left out of the icon (faces whose
-texels are darker than 0.06, and the stray bits that leaves), so the glove ends cleanly.
+boots 76, gloves 77, centred); the sneakers 28 % and the loner's shoes 20 % smaller (low
+shoes; the owner). Boots are seen level. Gloves: one hand, its back square to the camera
+(the hand's own plane, from its vertices), the outline's long axis settled on 32 degrees
+above the horizontal with the fingers down to the left (the stock glove icons' median,
+25-41). Every piece is whole up to its own top or cuff. The black STK2 painted where its
+trousers and sleeves covered them is handled for the icon only: faces whose texels are
+darker than 0.06 and that face into the piece (its lining, the inside of an opening) are
+left out; those of its outer surface take the colour of the faces around them on the mesh.
 
 ## Checked offline only
 

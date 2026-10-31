@@ -1211,11 +1211,11 @@ fn read_parts(
             inputs,
         )?;
         let (name, mut bytes, props) = read.surfaces.remove(0);
-        if let Some(&(_, above)) = STRAY_TROUSERS.iter().find(|(m, _)| *m == from) {
+        if let Some(&(_, clean)) = STRAY_TROUSERS.iter().find(|(m, _)| *m == from) {
             let before = parse_mesh(&bytes, 48, "boots")?.triangles.len();
-            bytes = drop_unpaired(&bytes, above)?;
+            bytes = mirror_side(&bytes, clean, bind)?;
             let after = parse_mesh(&bytes, 48, "boots")?.triangles.len();
-            println!("{from}: {} faces of a trousers leg left in the boot dropped", before - after);
+            println!("{from}: the boot with a trousers leg in it replaced by the other boot mirrored ({before} -> {after} faces)");
         }
         match out.surfaces.iter_mut().find(|(n, _, _)| *n == name) {
             Some((_, joined, _)) => {
@@ -1234,34 +1234,75 @@ fn read_parts(
 }
 
 /// Exported boots with a piece of the trousers in them: the loner's left
-/// boot carries the bottom of the camouflage pants' leg (a wrapped cuff up
-/// to 29 cm, on the pants' part of the map), cut from the legs with the
-/// boot; the right boot is a plain low shoe. Faces above this height (m)
-/// with no mirror image on the other boot are dropped.
-const STRAY_TROUSERS: &[(&str, f64)] = &[("neutral/neutral_03/neutral_03_boot", 0.13)];
-/// How close a face's mirror image must come to the other side's face (m).
-const MIRROR_MATCH: f64 = 0.01;
+/// boot (native -x) carries the bottom of the camouflage pants' leg (a
+/// wrapped cuff up to 29 cm, on the pants' part of the map), cut from the
+/// legs with the boot; the right boot (+x, the sign given) is the plain low
+/// shoe. The bad boot is replaced by the clean one mirrored, so it ends at
+/// the same finished collar.
+const STRAY_TROUSERS: &[(&str, f64)] = &[("neutral/neutral_03/neutral_03_boot", 1.0)];
 
-/// `bytes` (48-byte vertices) without the faces above `above` that have no
-/// mirror image (across x = 0, within [`MIRROR_MATCH`]) among the faces on
-/// the other side.
-fn drop_unpaired(bytes: &[u8], above: f64) -> Result<Vec<u8>> {
-    let mesh = parse_mesh(bytes, 48, "boots")?;
-    let centre = |t: &[usize; 3]| -> [f64; 3] {
-        std::array::from_fn(|k| t.iter().map(|&i| mesh.positions[i][k]).sum::<f64>() / 3.0)
-    };
-    let centres: Vec<[f64; 3]> = mesh.triangles.iter().map(centre).collect();
-    let paired = |c: [f64; 3]| {
-        centres.iter().any(|o| {
-            o[0] * c[0] < 0.0 && {
-                let d = [o[0] + c[0], o[1] - c[1], o[2] - c[2]];
-                dot(d, d).sqrt() < MIRROR_MATCH
-            }
+/// `bytes` (48-byte vertices) with its faces on the side opposite to
+/// `clean` (the sign of x) replaced by the `clean` side's faces mirrored
+/// across x = 0: positions and the basis' x flipped, each bone swapped for
+/// its Left/Right twin (by the bind pose's names), the winding reversed.
+fn mirror_side(bytes: &[u8], clean: f64, bind_pose: &[u8]) -> Result<Vec<u8>> {
+    let names: Vec<String> = crate::armor::bind_pose_origins(bind_pose, "bind pose")?
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let twin: Vec<u8> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let other = if let Some(r) = n.strip_prefix("Left") {
+                format!("Right{r}")
+            } else if let Some(r) = n.strip_prefix("Right") {
+                format!("Left{r}")
+            } else {
+                n.clone()
+            };
+            u8::try_from(names.iter().position(|m| *m == other).unwrap_or(i)).unwrap_or(u8::MAX)
         })
-    };
-    keep_triangles(bytes, |corners| {
-        let c: [f64; 3] = std::array::from_fn(|k| corners.iter().map(|(p, _)| p[k]).sum::<f64>() / 3.0);
-        c[1] <= above || paired(c)
+        .collect();
+    let mesh = parse_mesh(bytes, 48, "boots")?;
+    let centre = |t: &[usize; 3]| t.iter().map(|&i| mesh.positions[i][0]).sum::<f64>() / 3.0;
+    let kept: Vec<[usize; 3]> = mesh.triangles.iter().copied().filter(|t| centre(t) * clean > 0.0).collect();
+    let used: BTreeSet<usize> = kept.iter().flatten().copied().collect();
+    let n = mesh.positions.len();
+    let mut vertices: Vec<Vec<u8>> = vec![];
+    let mut index = BTreeMap::new();
+    for &v in &used {
+        let mut vertex = bytes[12 + v * 48..12 + (v + 1) * 48].to_vec();
+        let x = -f32::from_le_bytes(vertex[0..4].try_into()?);
+        vertex[0..4].copy_from_slice(&x.to_le_bytes());
+        for k in 0..4 {
+            vertex[12 + k] = *twin.get(usize::from(vertex[12 + k])).context("bone outside the bind pose")?;
+        }
+        // Packed basis bytes are B, G, R, A (Z, Y, X, auxiliary).
+        for offset in [28, 32, 36] {
+            vertex[offset + 2] = 255 - vertex[offset + 2];
+        }
+        index.insert(v, n + vertices.len());
+        vertices.push(vertex);
+    }
+    let mirrored: Vec<[usize; 3]> = kept.iter().map(|t| [index[&t[0]], index[&t[2]], index[&t[1]]]).collect();
+    // The clean side and its mirror only: the bad side's faces go.
+    let with = append(bytes, &vertices, &mirrored)?;
+    keep_triangles(&with, |corners| {
+        let x = corners.iter().map(|(p, _)| p[0]).sum::<f64>() / 3.0;
+        // Mirrored faces sit on the bad side; tell them by their vertices'
+        // place in the buffer is not possible here, so keep every face of
+        // the clean side and every face of the bad side that is a mirror.
+        x * clean > 0.0 || mirrored_positions(&mesh, &kept, corners)
+    })
+}
+
+/// Whether `corners` are a mirror image of one of `kept`'s faces.
+fn mirrored_positions(mesh: &Mesh, kept: &[[usize; 3]], corners: &[([f64; 3], [f64; 2]); 3]) -> bool {
+    let c: [f64; 3] = std::array::from_fn(|k| corners.iter().map(|(p, _)| p[k]).sum::<f64>() / 3.0);
+    kept.iter().any(|t| {
+        let o: [f64; 3] = std::array::from_fn(|k| t.iter().map(|&i| mesh.positions[i][k]).sum::<f64>() / 3.0);
+        (o[0] + c[0]).abs() < 1e-5 && (o[1] - c[1]).abs() < 1e-5 && (o[2] - c[2]).abs() < 1e-5
     })
 }
 

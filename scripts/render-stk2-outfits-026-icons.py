@@ -38,8 +38,8 @@ VIEWS = {'torso': (12, 4), 'legs': (8, 4), 'back': (200, 10), 'helmet': (25, 5)}
 FRAMES = {'torso': (81, 169), 'legs': (81, 95), 'boots': (76, 144), 'gloves': (77, 126),
           'back': (81, 105), 'helmet': (79, 110)}
 CENTRE = (85.5, 41)
-# Items drawn smaller than their slot's stock fill (the owner, 2026-10-30: the sneakers).
-SHRINK = {1866: 0.72}
+# Items drawn smaller than their slot's stock fill: the low shoes (the owner, 2026-10-30: the sneakers).
+SHRINK = {1866: 0.72, 1875: 0.8}
 # The stock boots' icon pose (Zubr UM-4's), with a soft shadow to the left.
 # The stock boot icons show no shaft opening; the camera stands level.
 BOOTS = {'yaw': 75, 'pitch': 2, 'together': .065,
@@ -92,23 +92,29 @@ def framed(picture, kind, shrink=1.0):
 
 
 def boots_icon(surfaces, shrink=1.0):
-    # The shafts' black tops and insides (STK2's trousers covered them) are left out of the
-    # icon, as the gloves' wrists are: each boot above where its faces darker than
-    # GLOVE_BLACK (over 8 cm) begin.
+    # Each boot whole up to its own top. Of the faces whose texels are black (the shaft top
+    # STK2's trousers covered): those facing into the boot (its lining) are left out, those
+    # of its outer surface keep their place and take the leather around the black.
     kept = []
     for points, uv, normals, faces, texture in surfaces:
         h, w = texture.shape[:2]
         lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
                       np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
-        centre = points[faces].mean(1)
-        dark = (centre[:, 1] > 0.08) & (lum < GLOVE_BLACK)
-        keep = ~dark
-        # Each boot cut level where its black begins, so the top ends evenly, not in teeth.
-        for side in (centre[:, 0] > 0, centre[:, 0] < 0):
-            if (dark & side).sum() >= 4:
-                cut = np.percentile(centre[dark & side, 1], 10)
-                keep &= ~(side & (centre[:, 1] > cut))
-        kept.append((points, uv, normals, faces[keep], texture))
+        tri = points[faces]
+        middle = tri.mean(1)
+        normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        inward = np.zeros(len(faces), bool)
+        for side in (middle[:, 0] > 0, middle[:, 0] <= 0):
+            if not side.any():
+                continue
+            axis = points[np.unique(faces[side])].mean(0)
+            radial = middle[side] - axis
+            radial[:, 1] = 0
+            inward[side] = (normal[side] * radial).sum(1) < 0
+        black = (lum < GLOVE_BLACK) & (middle[:, 1] > 0.08)
+        outer_black = black & ~inward
+        texture = neighbour_coloured(points, uv, faces, texture, lum, outer_black)
+        kept.append((points, uv, normals, faces[~(black & inward)], texture))
     surfaces = kept
     moved = []
     for points, uv, normals, faces, texture in surfaces:
@@ -192,14 +198,59 @@ def silhouette_axis(picture):
     return np.degrees(np.arctan2(-a[1], a[0])) % 180
 
 
+def neighbour_coloured(points, uv, faces, texture, lum, paint):
+    """`texture` with each face of `paint` (its texels black) given the colour of the faces
+    around it on the mesh that are not black (within 2.5 cm, else 5 cm), over the texels its
+    UV triangle covers: the band reads as the cloth or leather it belongs to."""
+    h, w = texture.shape[:2]
+    out = texture.copy()
+    middle = points[faces].mean(1)
+    corners = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
+                      np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(1)
+    known = lum >= GLOVE_BLACK
+    for f in np.nonzero(paint)[0]:
+        d = np.linalg.norm(middle - middle[f], axis=1)
+        for reach in (0.025, 0.05, 0.1):
+            near = known & (d < reach)
+            if near.any():
+                break
+        if not near.any():
+            continue
+        colour = np.median(corners[near], 0)
+        box = uv[faces[f]]
+        x0, y0 = np.floor(box.min(0) * [w, h]).astype(int) - 1
+        x1, y1 = np.ceil(box.max(0) * [w, h]).astype(int) + 1
+        region = out[max(y0, 0):min(y1, h), max(x0, 0):min(x1, w)]
+        dark = region.mean(2) < GLOVE_BLACK
+        region[dark] = colour
+    return out
+
+
 def glove_icon(surfaces):
+    """One glove, whole up to its cuff. Of the faces whose texels are black (STK2 hid the cuff
+    under the sleeve): those facing into the glove (its lining, the inside of the opening) are
+    left out; those of its outer surface keep their place and take the glove's colours around
+    the black (the band reads as part of the cuff)."""
     one = []
     for points, uv, normals, faces, texture in surfaces:
         faces = faces[points[faces][:, :, 0].mean(1) > 0]
         h, w = texture.shape[:2]
         lum = texture[np.clip((uv[faces][:, :, 1] * h).astype(int), 0, h - 1),
                       np.clip((uv[faces][:, :, 0] * w).astype(int), 0, w - 1)].mean(2).mean(1)
-        one.append((points, uv, normals, largest_piece(points, faces[lum >= GLOVE_BLACK]), texture))
+        black = lum < GLOVE_BLACK
+        used = points[np.unique(faces)]
+        centre = used.mean(0)
+        along = np.linalg.svd(used - centre)[2][0]
+        tri = points[faces]
+        middle = tri.mean(1)
+        offset = middle - centre
+        radial = offset - np.outer(offset @ along, along)
+        normal = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        inward = (normal * radial).sum(1) < 0
+        keep = ~(black & inward)
+        outer_black = black & ~inward
+        texture = neighbour_coloured(points, uv, faces, texture, lum, outer_black)
+        one.append((points, uv, normals, largest_piece(points, faces[keep]), texture))
     yaw, pitch, roll = camera_for(one[0][0], np.vstack([f for _, _, _, f, _ in one]))
     # The picture's long axis follows the outline (fingers, thumb), not the mesh's: settle it
     # on the stock angle (rolling one degree more turns it one degree less).
