@@ -61,14 +61,19 @@ has the items, their stats and the owner's open questions.
   - jackets: the waist over every trousers, the collar over the native neck and every
     mask (the Novice jacket's settings), the sleeves over wrist-length gloves and into
     gauntlets (cut 3 cm past the deepest opening). The bomber's sleeves are pushed up:
-    below them each variant draws the native body's forearms
-    (`base_character_torso_s1`/`_s2`/`_s3` from 5 cm below the elbow): every stock
-    glove's cuff is made for them. They are drawn with the native hands' material and
-    mapped to the plain skin of its map (the back of the hand; along the arm down it,
-    round the arm across it and back, so no seam): the native torso's own map is its
-    red Christmas sweater, which showed under the sleeves in the owner's test
-    (2026-10-31). (Version 1 took the donor's forearms from `bandit_01_hand`; they
-    stood through the gloves' cuffs in the game.)
+    below them each variant draws bare forearms grown from the native hands' wrist ring
+    (`base_character_full`'s hands, which every gloveless arm wears; their bones put on
+    the native rig's by name) up to 5 cm below the elbow in 8 rows, widening to 1.3 times
+    the wrist (31 mm round the arm's axis at the wrist, 40 at the top; the native sleeve
+    there is 57-62 mm): the first row is the ring's own vertices and weights, so the skin
+    goes on from the hand's; up the arm the skin blends into the native arm's. Drawn with
+    the hands' material, mapped to the plain skin of its map (the back of the hand; along
+    the arm down it, round the arm across it and back, so no seam). Every stock glove's
+    cuff, made over the native arm, covers them. (Version 1 took the donor's forearms from
+    `bandit_01_hand`: they stood through the gloves' cuffs in the game. Version 2 took the
+    native torso's forearms: its sweater's sleeves, a size too big for the hands, with the
+    sweater's waist faces below the hem, which the axis test let through; first drawn with
+    the sweater's map, then with skin, both seen in the owner's tests, 2026-10-31.)
   - the Novice jeans end at 0.937-0.964 m, where STK2's long jacket covered them; under
     0.26g's shorter jackets the open top showed the background. The top edge grows
     straight up to 1.04 m (the native legs' top ring, which every stock torso covers)

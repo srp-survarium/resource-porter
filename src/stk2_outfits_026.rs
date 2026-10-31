@@ -1378,21 +1378,32 @@ fn mirrored_positions(mesh: &Mesh, kept: &[[usize; 3]], corners: &[([f64; 3], [f
     })
 }
 
-/// The native body's forearms (their shape: the stock gloves' cuffs are made
-/// for them), drawn with the native hands' skin: the native torso's own map
-/// is its sweater (red, a Christmas pattern), which showed under the
-/// bomber's pushed-up sleeves (the owner's test, 2026-10-31).
+/// The bare forearms under the bomber's pushed-up sleeves: grown from the
+/// native hands' wrist ring (the hands every gloveless arm wears) up the arm,
+/// so the skin goes on from the hands' with their wrist's vertices and
+/// weights, and drawn with the hands' material. Not the native torso's
+/// forearms: those are its sweater's sleeves (its map a red Christmas
+/// pattern), a size too big for the hands (the owner's tests, 2026-10-31).
 const NATIVE_ARMS: &str = "forearms";
 const NATIVE_ARMS_MATERIAL: &str = "characters/human/base_character/base_character_hand";
-const NATIVE_ARMS_TEXTURE: &str = "character/human/base_character/base_character_hand";
+/// The native hands (`base_character_full`'s, in every no-glove kit).
+const NATIVE_HANDS: &str =
+    "models/character/human/base/base_character_full.skinned_model/render/base_character_hand_s";
+/// How far below the elbow (the ForeArm bone, along the forearm) the
+/// forearms end at the top (m): inside the pushed-up sleeve.
+const NATIVE_ARMS_FROM: f64 = 0.05;
+/// Rows from the wrist ring to the top.
+const NATIVE_ARMS_ROWS: usize = 8;
+/// How much thicker than the wrist the forearm grows at its top, at most;
+/// and at most this share of the native sleeve's thickness there (so it
+/// stays inside every sleeve made over the native arm).
+const NATIVE_ARMS_SWELL: f64 = 1.3;
+const NATIVE_ARMS_IN_SLEEVE: f64 = 0.9;
 /// The plain skin of the native hands' map the forearms are mapped to (u, v
 /// from and to): the back of the hand, above the knuckles, no veins or
 /// nails. Along the arm v runs down it; round the arm u runs across it and
 /// back (mirrored, so it has no seam).
 const NATIVE_ARMS_SKIN: [f64; 4] = [0.36, 0.10, 0.62, 0.40];
-/// How far above the elbow (the ForeArm bone, along the forearm) the native
-/// forearms start (m): inside the pushed-up sleeve.
-const NATIVE_ARMS_FROM: f64 = 0.05;
 
 /// Sets a 48-byte vertex's UV: the floats and their sub-texel bytes.
 fn set_uv(vertex: &mut [u8], uv: [f64; 2]) {
@@ -1404,13 +1415,54 @@ fn set_uv(vertex: &mut [u8], uv: [f64; 2]) {
     }
 }
 
-/// The native body's forearms of the torso variant `suffix` ("" `_s1`,
-/// `_s2`, `_s3`: the arms the stock gloves of each class are made for),
-/// from [`NATIVE_ARMS_FROM`] to the wrist, as a surface.
+/// A grown surface (48-byte vertices) with only what was grown: the
+/// triangles with a vertex from `n` on, and the vertices they use.
+fn grown_part(grown: &[u8], n: usize) -> Result<Vec<u8>> {
+    let mesh = parse_mesh(grown, 48, "grown surface")?;
+    let kept: Vec<[usize; 3]> = mesh.triangles.iter().copied().filter(|t| t.iter().any(|&i| i >= n)).collect();
+    ensure!(!kept.is_empty(), "nothing grown");
+    let mut remap = BTreeMap::new();
+    let mut order = vec![];
+    for &i in kept.iter().flatten() {
+        remap.entry(i).or_insert_with(|| {
+            order.push(i);
+            order.len() - 1
+        });
+    }
+    let index_chunk = 12 + mesh.positions.len() * 48;
+    let rest = index_chunk + 8 + read_u32(grown, index_chunk + 4)?;
+    let mut out = vec![];
+    out.extend_from_slice(&3_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + order.len() * 48)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(order.len())?.to_le_bytes());
+    for &i in &order {
+        out.extend_from_slice(&grown[12 + i * 48..12 + (i + 1) * 48]);
+    }
+    out.extend_from_slice(&4_u32.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(4 + kept.len() * 6)?.to_le_bytes());
+    out.extend_from_slice(&u32::try_from(kept.len() * 3)?.to_le_bytes());
+    for t in &kept {
+        for i in t {
+            out.extend_from_slice(&u16::try_from(remap[i])?.to_le_bytes());
+        }
+    }
+    out.extend_from_slice(grown.get(rest..).context("truncated surface")?);
+    Ok(out)
+}
+
+/// The bare forearms ([`NATIVE_ARMS`]) for the torso variant `suffix` (""
+/// `_s1`, `_s2`, `_s3`, whose native arm's skin they take up the arm), as a
+/// surface: per side, the native hands' wrist ring (its open edge nearest the
+/// elbow) grown in [`NATIVE_ARMS_ROWS`] rows to [`NATIVE_ARMS_FROM`] below the
+/// elbow, widening to [`NATIVE_ARMS_SWELL`] (within
+/// [`NATIVE_ARMS_IN_SLEEVE`] of the native sleeve); its first row the ring's
+/// own vertices (positions and weights), its skin then blending into the
+/// native arm's; mapped to [`NATIVE_ARMS_SKIN`].
 fn native_forearms(
     view: &mut ResourceDb,
     suffix: &str,
     bones: &BTreeMap<String, [f64; 3]>,
+    bind: &[u8],
 ) -> Result<(String, Vec<u8>, BinaryConfig)> {
     let variant = match suffix {
         "" => "s1",
@@ -1418,46 +1470,156 @@ fn native_forearms(
         "_s3" => "s3",
         other => bail!("no native torso for variant {other}"),
     };
-    let root = format!("models/character/human/base/base_character_torso_{variant}.skinned_model/render/base_character_torso_s");
-    let body = view.read(&format!("{root}/converted_model"))?;
-    let props = BinaryConfig::parse(&view.read(&format!("{root}/export_properties"))?)?;
+    let torso_model = format!("models/character/human/base/base_character_torso_{variant}.skinned_model");
+    let hands_model = NATIVE_HANDS.rsplit_once("/render/").unwrap().0;
+    ensure!(view.read(&format!("{torso_model}/render/bind_pose"))? == bind, "{torso_model}: another bind pose");
+    let body = view.read(&format!("{torso_model}/render/base_character_torso_s/converted_model"))?;
+    let mut hands = view.read(&format!("{NATIVE_HANDS}/converted_model"))?;
+    // The hands' rig lists the bones in another order: their weights are
+    // put on the native rig's bones by name (the bones stand in the same
+    // places).
+    {
+        let own = crate::armor::bind_pose_origins(&view.read(&format!("{hands_model}/render/bind_pose"))?, "native hands")?;
+        let native = crate::armor::bind_pose_origins(bind, "native rig")?;
+        let to: Vec<u8> = own
+            .iter()
+            .map(|(name, at)| {
+                let k = native.iter().position(|(n, _)| n == name).with_context(|| format!("the native rig has no {name}"))?;
+                let d = (0..3).map(|c| (native[k].1[c] - at[c]).abs()).fold(0.0_f32, f32::max);
+                ensure!(d < 1e-3, "the hands' {name} stands {:.1} mm off the native rig's", d * 1000.0);
+                Ok(u8::try_from(k)?)
+            })
+            .collect::<Result<_>>()?;
+        for i in 0..read_u32(&hands, 8)? as usize {
+            for k in 0..4 {
+                let b = &mut hands[12 + i * 48 + 12 + k];
+                *b = *to.get(usize::from(*b)).context("a hands' weight on no bone")?;
+            }
+        }
+    }
+    let props = BinaryConfig::parse(&view.read(&format!("{NATIVE_HANDS}/export_properties"))?)?;
+    ensure!((read_u32(&hands, 4)? - 4) / read_u32(&hands, 8)? == 48, "native hands of another vertex layout");
+    ensure!((read_u32(&body, 4)? - 4) / read_u32(&body, 8)? == 48, "native torso of another vertex layout");
+    let hand = parse_mesh(&hands, 48, "native hands")?;
+    let arm = parse_mesh(&body, 48, "native torso")?;
+    let n = hand.positions.len();
+    // Per side: (x sign, the elbow, the forearm's direction, its length).
     let mut axes = vec![];
     for side in ["Left", "Right"] {
-        let bone = |n: String| bones.get(&n).copied().with_context(|| format!("no {n} bone"));
+        let bone = |name: String| bones.get(&name).copied().with_context(|| format!("no {name} bone"));
         let (a, b) = (bone(format!("{side}ForeArm"))?, bone(format!("{side}Hand"))?);
         let d = sub(b, a);
         let len = dot(d, d).sqrt();
         axes.push((a[0].signum(), a, d.map(|v| v / len), len));
     }
-    let mut arms = keep_triangles(&body, |corners| {
-        axes.iter().any(|&(side, a, dir, _)| {
-            corners.iter().all(|(p, _)| p[0] * side > 0.0 && dot(sub(*p, a), dir) > NATIVE_ARMS_FROM)
+    let axis_of = |p: [f64; 3]| axes.iter().copied().find(|&(side, ..)| p[0] * side > 0.0);
+    let along = |p: [f64; 3]| axis_of(p).map(|(_, a, dir, _)| dot(sub(p, a), dir));
+    let offset = |p: [f64; 3]| {
+        let (_, a, dir, _) = axis_of(p).unwrap();
+        let t = dot(sub(p, a), dir);
+        sub(p, [0, 1, 2].map(|k| a[k] + dir[k] * t))
+    };
+    let boundary_edges = boundary(&hand);
+    let mut ring = vec![];
+    let mut scale = BTreeMap::new();
+    for &(side, _, _, len) in &axes {
+        let on_side: Vec<(usize, usize)> = boundary_edges
+            .iter()
+            .copied()
+            .filter(|&(x, y)| hand.positions[x][0] * side > 0.0 && hand.positions[y][0] * side > 0.0)
+            .collect();
+        let wrist = on_side
+            .iter()
+            .flat_map(|&(x, y)| [x, y])
+            .map(|v| along(hand.positions[v]).unwrap())
+            .fold(f64::INFINITY, f64::min);
+        let edges: Vec<(usize, usize)> = on_side
+            .into_iter()
+            .filter(|&(x, y)| [x, y].iter().all(|&v| along(hand.positions[v]).unwrap() < wrist + 0.02))
+            .collect();
+        ensure!(edges.len() >= 6, "the native hands have no wrist ring on side {side}");
+        let ring_radius = {
+            let r: Vec<f64> = edges.iter().map(|&(x, _)| { let o = offset(hand.positions[x]); dot(o, o).sqrt() }).collect();
+            r.iter().sum::<f64>() / r.len() as f64
+        };
+        let sleeve: Vec<f64> = arm
+            .positions
+            .iter()
+            .filter(|p| p[0] * side > 0.0 && (along(**p).unwrap() - NATIVE_ARMS_FROM).abs() < 0.015)
+            .map(|p| { let o = offset(*p); dot(o, o).sqrt() })
+            .filter(|r| *r < 0.08)
+            .collect();
+        ensure!(!sleeve.is_empty(), "no native sleeve at the forearms' top on side {side}");
+        let sleeve_radius = sleeve.iter().sum::<f64>() / sleeve.len() as f64;
+        let swell = NATIVE_ARMS_SWELL.min(NATIVE_ARMS_IN_SLEEVE * sleeve_radius / ring_radius);
+        println!(
+            "  native forearm {}: wrist ring {} edges, {:.1} mm round its axis at {:.0} mm from the elbow (the forearm {:.0} mm); \
+             the native sleeve {:.1} mm at the top; widened {swell:.2}",
+            if side == axes[0].0 { "left" } else { "right" },
+            edges.len(),
+            ring_radius * 1000.0,
+            wrist * 1000.0,
+            len * 1000.0,
+            sleeve_radius * 1000.0
+        );
+        scale.insert(side.to_bits(), swell);
+        ring.extend(edges);
+    }
+    let positions = hand.positions.clone();
+    let place = |v: usize, k: usize| {
+        let p = positions[v];
+        let (side, a, dir, _) = axis_of(p).unwrap();
+        let f = k as f64 / NATIVE_ARMS_ROWS as f64;
+        let t = along(p).unwrap();
+        let t = t + (NATIVE_ARMS_FROM - t) * f;
+        let o = offset(p).map(|c| c * (1.0 + (scale[&side.to_bits()] - 1.0) * f));
+        [0, 1, 2].map(|c| a[c] + dir[c] * t + o[c])
+    };
+    // The native arm's vertices on the forearm, for its skin up the arm.
+    let arm_points: Vec<usize> = (0..arm.positions.len())
+        .filter(|&i| {
+            let p = arm.positions[i];
+            axis_of(p).is_some_and(|(_, _, _, len)| {
+                let t = along(p).unwrap();
+                let o = offset(p);
+                t > 0.0 && t < len && dot(o, o).sqrt() < 0.08
+            })
         })
-    })?;
+        .collect();
+    ensure!(!arm_points.is_empty(), "the native torso has no forearms");
+    let skin = |v: usize, k: usize| {
+        let own = skin_of(&hands[12 + v * 48..12 + (v + 1) * 48]);
+        let at = place(v, k);
+        let near = *arm_points
+            .iter()
+            .min_by(|&&x, &&y| {
+                let d = |i: usize| { let e = sub(arm.positions[i], at); dot(e, e) };
+                d(x).total_cmp(&d(y))
+            })
+            .unwrap();
+        let native = skin_of(&body[12 + near * 48..12 + (near + 1) * 48]);
+        mix(&own, &native, (k as f64 / 2.0).min(1.0))
+    };
+    let (grown, _, _) = grow(&hands, &ring, NATIVE_ARMS_ROWS, place, skin, false)?;
+    let mut arms = grown_part(&grown, n)?;
     let [u0, v0, u1, v1] = NATIVE_ARMS_SKIN;
-    let count = read_u32(&arms, 8)? as usize;
-    for i in 0..count {
+    for i in 0..read_u32(&arms, 8)? as usize {
         let o = 12 + i * 48;
         let p: [f64; 3] = std::array::from_fn(|k| f64::from(f32::from_le_bytes(arms[o + k * 4..o + k * 4 + 4].try_into().unwrap())));
-        let &(_, a, dir, len) = axes
-            .iter()
-            .find(|(side, ..)| p[0] * side > 0.0)
-            .context("a forearm vertex on neither side")?;
-        let r = sub(p, a);
-        let along = (dot(r, dir) / len).clamp(0.0, 1.0);
+        let (_, _, dir, len) = axis_of(p).context("a forearm vertex on neither side")?;
+        let r = offset(p);
+        let t = (along(p).unwrap() / len).clamp(0.0, 1.0);
         // Round the arm: from the top (world up, square to the arm) to the
         // bottom, either way.
         let up = {
             let u = sub([0.0, 1.0, 0.0], dir.map(|d| d * dir[1]));
-            let n = dot(u, u).sqrt();
-            u.map(|c| c / n)
+            let m = dot(u, u).sqrt();
+            u.map(|c| c / m)
         };
         let across = [dir[1] * up[2] - dir[2] * up[1], dir[2] * up[0] - dir[0] * up[2], dir[0] * up[1] - dir[1] * up[0]];
         let round = dot(r, across).atan2(dot(r, up)).abs() / std::f64::consts::PI;
-        set_uv(&mut arms[o..o + 48], [u0 + round * (u1 - u0), v0 + along * (v1 - v0)]);
+        set_uv(&mut arms[o..o + 48], [u0 + round * (u1 - u0), v0 + t * (v1 - v0)]);
     }
-    let mut props = props;
-    props.root.set_path("source.texture_name", V::String(NATIVE_ARMS_TEXTURE.to_owned()))?;
     Ok((NATIVE_ARMS.to_owned(), arms, props))
 }
 
@@ -2620,7 +2782,7 @@ pub fn build(
                 .with_context(|| format!("no {table} gloves"))?;
             let mut fitted = base.clone();
             let bare_forearms = b.piece.parts.iter().any(|p| p.forearms);
-            let native_arms = if bare_forearms { Some(native_forearms(&mut cx.view, suffix, &cx.bones)?) } else { None };
+            let native_arms = if bare_forearms { Some(native_forearms(&mut cx.view, suffix, &cx.bones, &cx.bind)?) } else { None };
             if table == "data_full" && !bare_forearms {
                 let r = fitted.fit_merged(|g| {
                     crate::limb_fit::fit(g, class_gloves, &bind, &SLEEVES_OVER_CUFFS)
