@@ -437,6 +437,13 @@ pub struct LightOverride {
     pub intensity: Option<f32>,
     #[serde(default)]
     pub range: Option<f32>,
+    /// Whether it casts shadows (`is_cast_shadow`).
+    #[serde(default)]
+    pub cast_shadow: Option<bool>,
+    /// Its shadow map's size (`shadow_map_size_index`: 0 1024, 1 512, 2 256 texels; the
+    /// filter is a fixed 1-texel kernel, so a smaller map draws a wider, softer edge).
+    #[serde(default)]
+    pub shadow_map_size_index: Option<i32>,
 }
 
 /// How a 0.69d lobby's photometric lights become 0.26's unitless ones.
@@ -3176,6 +3183,12 @@ pub fn build(
             }
             if let Some(r) = over.range {
                 let _ = o.set_path("range", ConfigValue::Float(r));
+            }
+            if let Some(c) = over.cast_shadow {
+                let _ = o.set_path("is_cast_shadow", ConfigValue::Boolean(c));
+            }
+            if let Some(i) = over.shadow_map_size_index {
+                let _ = o.set_path("shadow_map_size_index", ConfigValue::Integer(i));
             }
             true
         });
