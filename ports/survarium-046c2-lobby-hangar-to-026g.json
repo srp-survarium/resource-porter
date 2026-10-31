@@ -202,6 +202,7 @@
   },
   "roughness_scale": 1.0,
   "max_texture_size": 2048,
+  "reuse_native_textures": true,
   "ambient_sounds": {
     "project": "projects/lobby_scene/day/client_project",
     "include": [

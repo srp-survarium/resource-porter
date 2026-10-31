@@ -39,10 +39,10 @@
       "props/electric/notebook_modern_on": 0.12
     },
     "light_overrides": {
-      "room/lustra/point_light(4)": { "intensity": 0.8, "range": 4.2 },
-      "room/lustra/point_light(5)": { "intensity": 0.8, "range": 4.2 },
-      "room/lustra/ambient_light": { "intensity": 0.0 },
-      "room/lustra/ambient_light(1)": { "intensity": 0.0 },
+      "room/lustra/point_light(4)": { "intensity": 0.5, "range": 2.0 },
+      "room/lustra/point_light(5)": { "intensity": 0.5, "range": 2.0 },
+      "room/lustra/ambient_light": { "intensity": 0.4 },
+      "room/lustra/ambient_light(1)": { "intensity": 0.4 },
       "room/lustra/shadow/": { "intensity": 0.0 },
       "environment_and_lights/outdoor/": { "intensity": 1.5 },
       "environment_and_lights/shadows/ambient_light(1)": { "intensity": 0.0 },
@@ -50,17 +50,22 @@
       "environment_and_lights/shadows/ambient_light(6)": { "intensity": 0.0 },
       "environment_and_lights/shadows/ambient_light(7)": { "intensity": 0.0 },
       "environment_and_lights/shadows/ambient_light(8)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(9)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(2)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(3)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(4)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(6)": { "intensity": 0.0 },
-      "environment_and_lights/character_lights/point_light(3)": { "cast_shadow": false },
-      "environment_and_lights/character_lights/point_light(10)": { "cast_shadow": false },
-      "environment_and_lights/character_lights/point_light(5)": { "shadow_map_size_index": 2 }
+      "environment_and_lights/shadows/ambient_light(9)": { "intensity": 0.0 }
     },
+    "removed_parts": [
+      {
+        "model": "props/door/wood_door_02",
+        "surfaces": ["wood_door_01_s", "lod1_wood_door_01_s"],
+        "near": [[-1.008, 0.279, 0.099], [-1.008, 1.869, 0.099], [1.011, 0.279, 0.099], [1.011, 1.869, 0.099]],
+        "radius": 0.078
+      },
+      {
+        "model": "props/door/wood_door_01",
+        "surfaces": ["wood_door_01_s", "lod1_wood_door_01_s"],
+        "near": [[-0.007, 0.279, 1.131], [-0.007, 1.869, 1.131]],
+        "radius": 0.078
+      }
+    ],
     "probes": {
       "baked": {
         "diffuse_scale": 0.45,
@@ -424,6 +429,7 @@
   },
   "roughness_scale": 0.2,
   "max_texture_size": 2048,
+  "reuse_native_textures": true,
   "ambient_sounds": {
     "project": "projects/lobby_scene/day/client_project",
     "include": [
