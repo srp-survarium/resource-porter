@@ -69,9 +69,12 @@ has the items, their stats and the owner's open questions.
   - the Novice jeans end at 0.937-0.964 m, where STK2's long jacket covered them; under
     0.26g's shorter jackets the open top showed the background. The top edge grows
     straight up to 1.04 m (the native legs' top ring, which every stock torso covers)
-    at the jeans' own width, its denim reflected up from below the edge and its skin
-    blending into the native ring's (`close_waist`, `grow`; under 0.985 only, the other
-    trousers end at 1.014 and 1.036);
+    at the jeans' own width: to 1.0 m its denim reflected up from below the edge and
+    its skin blending into the native ring's, the last 4 cm a waistband with the native
+    ring's skin, mapped to a strip of the map that is free (above the jeans, right of
+    the boots) and painted there: the jeans' calf denim a shade lighter, a stitched
+    seam along each edge and the belt line under it (`close_waist`, `grow`,
+    `paint_waistband`; under 0.985 only, the other trousers end at 1.014 and 1.036);
   - the hood's bottom was open where STK2's collar covered it: its shell's own bottom
     hem grows down round the neck to the collar line (1.47 m, 1.44 in front), 6 mm off
     the native neck, and the two flap tips are joined across the throat with a seam
@@ -114,9 +117,12 @@ reproducible: the same inputs make the same packs byte for byte.
 ## Icons
 
 Framed as the stock icons of each slot are (the released atlas's medians: 81 px high,
-boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Trousers are cut as the
-stock ones are, from the waist down as far as gives the stock icons' width to height
-(77 by 81). Boots are seen level,
+boots 76, gloves 77, centred); the loner's shoes 20 % smaller. Trousers are shown as the
+stock ones are, from the waist down to the ankle: cut at 93 % of the waist-to-floor
+height, the feet and hems below it left out, the whole fitted to the stock 81 px (the
+width follows: 41-45 px). The inside of the open waist (the faces above 0.95 m that
+turn away from the camera) is left out of the trousers' icons: from the camera a little
+above the waist it showed, unlit, as a black band over the front. Boots are seen level,
 whole up to their own tops: of their black faces (the shaft top STK2's trousers covered)
 those facing into the boot are left out and the outer ones take the colour of the faces
 around them on the mesh. The sneakers are drawn as first rendered (the camera 6 degrees

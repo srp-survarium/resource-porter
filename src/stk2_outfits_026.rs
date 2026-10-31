@@ -145,6 +145,9 @@ pub struct Map {
     /// jacket hid them; 0.26g's shorter jackets show them. They are painted
     /// over with the rows below, reflected across the band's lower edge.
     pub black_band: Option<[f64; 2]>,
+    /// A waistband painted into a free strip of the map ([`WAISTBAND_STRIP`]),
+    /// for trousers whose own top STK2 never textured (the Novice jeans).
+    pub waistband: bool,
 }
 
 /// One surface of an exported model, drawn with the map `map`.
@@ -225,18 +228,21 @@ pub const BANDIT: Outfit = Outfit {
             stem: "bandit/bandit_01/bandit_01_torso",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "attach",
             stem: "bandit/bandit_01/bandit_01_attach",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "legs",
             stem: "bandit/bandit_01/bandit_01_legs",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
     ],
     pieces: &[
@@ -351,12 +357,14 @@ pub const NOVICE: Outfit = Outfit {
             stem: "neutral/neutral_01_novice/neutral_01_novice_torso",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "attach",
             stem: "neutral/neutral_01_novice/neutral_01_novice_attach",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         // The jeans' waist fades to black from v 0.424 to 0.517 (rows
         // 869-1059 of 2048), where STK2's jacket covered them; their top
@@ -367,6 +375,7 @@ pub const NOVICE: Outfit = Outfit {
             stem: "neutral/neutral_01_novice/neutral_01_novice_legs",
             finish: Finish::CLOTH,
             black_band: Some([866.0 / 2048.0, 1060.0 / 2048.0]),
+            waistband: true,
         },
     ],
     pieces: &[
@@ -599,54 +608,63 @@ pub const LONER: Outfit = Outfit {
             stem: "neutral/neutral_01/neutral_torso",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "legs",
             stem: "neutral/neutral_01/neutral_legs",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "bag_01",
             stem: "neutral/neutral_01/neutral_bag_01",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "bag_02",
             stem: "neutral/neutral_01/neutral_bag_02",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "bag_03",
             stem: "neutral/neutral_01/neutral_bag_03",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "bag_04",
             stem: "neutral/neutral_01/neutral_bag_04",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "bag_05",
             stem: "neutral/neutral_01/neutral_bag_05",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "holster",
             stem: "neutral/neutral_01/neutral_legholster",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
         Map {
             name: "nuts",
             stem: "neutral/neutral_01/neutral_nuts",
             finish: Finish::CLOTH,
             black_band: None,
+            waistband: false,
         },
     ],
     pieces: &[
@@ -1582,6 +1600,16 @@ fn append(bytes: &[u8], vertices: &[Vec<u8>], triangles: &[[usize; 3]]) -> Resul
 /// every stock torso covers (it is drawn under any of them when no trousers
 /// are worn).
 const WAIST_TOP: f64 = 1.04;
+/// Where the waistband starts (m): the band below is the trousers' own
+/// denim, reflected up; the 4 cm above it the painted waistband.
+const WAISTBAND_FROM: f64 = 1.0;
+/// The strip of the (cut, 1024-texel) map the waistband is painted on and
+/// mapped to: (u, v) from and to; free in the Novice legs map (its
+/// top-right, above the jeans, beside the boots).
+const WAISTBAND_STRIP: [f64; 4] = [640.0 / 1024.0, 396.0 / 1024.0, 1.0, 430.0 / 1024.0];
+/// Plain denim the waistband is cut from (texels of the 1024 map: x, y,
+/// width, height): the jeans' calves, the least creased.
+const WAISTBAND_DENIM: [u32; 4] = [40, 860, 384, 34];
 const WAIST_ROWS: usize = 3;
 
 /// Raises a trousers' waist whose top is under [`WAIST_TOP_MIN`] (the
@@ -1621,7 +1649,7 @@ fn close_waist(model: &mut Model, base_legs: &[u8]) -> Result<Option<(usize, f64
     let positions = mesh.positions.clone();
     let place = |v: usize, k: usize| {
         let p = positions[v];
-        [p[0], p[1] + (WAIST_TOP - p[1]) * k as f64 / WAIST_ROWS as f64, p[2]]
+        [p[0], p[1] + (WAISTBAND_FROM - p[1]) * k as f64 / WAIST_ROWS as f64, p[2]]
     };
     let skin = |v: usize, k: usize| {
         let own = skin_of(&bytes[12 + v * 48..12 + (v + 1) * 48]);
@@ -1629,9 +1657,100 @@ fn close_waist(model: &mut Model, base_legs: &[u8]) -> Result<Option<(usize, f64
         let native = skin_of(&base_legs[12 + near * 48..12 + (near + 1) * 48]);
         mix(&own, &native, k as f64 / WAIST_ROWS as f64)
     };
-    let (grown, added, _) = grow(bytes, &top, WAIST_ROWS, place, skin, false)?;
-    model.surfaces[0].1 = grown;
+    let (grown, mut added, index) = grow(bytes, &top, WAIST_ROWS, place, skin, false)?;
+    // The waistband: its own vertices over the grown top edge (a seam, so
+    // the denim below keeps its UVs), up to WAIST_TOP, on the painted strip;
+    // its skin the native ring's.
+    let row = |v: usize| index[&(v, WAIST_ROWS)];
+    let g = parse_mesh(&grown, 48, "trousers")?;
+    let n = g.positions.len();
+    let mut vertices: Vec<Vec<u8>> = vec![];
+    let mut at: BTreeMap<(usize, bool), usize> = BTreeMap::new();
+    let [u0, v0, u1, v1] = WAISTBAND_STRIP;
+    for &(a, b) in &top {
+        for v in [a, b] {
+            for upper in [false, true] {
+                if at.contains_key(&(v, upper)) {
+                    continue;
+                }
+                let src = row(v);
+                let mut vertex = grown[12 + src * 48..12 + (src + 1) * 48].to_vec();
+                if upper {
+                    vertex[4..8].copy_from_slice(&(WAIST_TOP as f32).to_le_bytes());
+                }
+                let near = nearest(positions[v]);
+                set_skin(&mut vertex, &skin_of(&base_legs[12 + near * 48..12 + (near + 1) * 48]));
+                let u = f64::from(f32::from_le_bytes(bytes[12 + v * 48 + 40..12 + v * 48 + 44].try_into()?));
+                let uv = [u0 + u.clamp(0.0, 1.0) * (u1 - u0), if upper { v0 } else { v1 }];
+                for (c, value) in uv.iter().enumerate() {
+                    let value = *value as f32;
+                    vertex[40 + c * 4..44 + c * 4].copy_from_slice(&value.to_le_bytes());
+                    let rebased = f64::from(value) * 1024.0;
+                    vertex[35 + c * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
+                }
+                at.insert((v, upper), n + vertices.len());
+                vertices.push(vertex);
+            }
+        }
+    }
+    let triangles: Vec<[usize; 3]> = top
+        .iter()
+        .flat_map(|&(a, b)| {
+            let (la, lb, ua, ub) = (at[&(a, false)], at[&(b, false)], at[&(a, true)], at[&(b, true)]);
+            [[lb, la, ua], [lb, ua, ub]]
+        })
+        .collect();
+    added += triangles.len();
+    model.surfaces[0].1 = append(&grown, &vertices, &triangles)?;
     Ok(Some((added, highest)))
+}
+
+/// Paints the waistband into an uncompressed true-colour TGA (1024 square):
+/// the strip [`WAISTBAND_STRIP`] filled with [`WAISTBAND_DENIM`] stretched
+/// along it, a shade lighter than the jeans as a folded band catches the
+/// light, a stitched seam along each edge (a row of lighter dashes, 3
+/// texels in) and the belt line under it (its last 2 rows in shadow); on the
+/// normal map the denim's own normals and the seams a little raised.
+fn paint_waistband(path: &Path, normal: bool) -> Result<()> {
+    let mut b = fs::read(path)?;
+    ensure!(b.len() > 18 && b[2] == 2, "{}: not an uncompressed true-colour TGA", path.display());
+    let id = usize::from(b[0]);
+    let w = usize::from(u16::from_le_bytes([b[12], b[13]]));
+    let h = usize::from(u16::from_le_bytes([b[14], b[15]]));
+    let bpp = usize::from(b[16]) / 8;
+    ensure!(w == 1024 && h == 1024 && bpp >= 3, "{}: {w}x{h}x{bpp}, not the 1024 map", path.display());
+    let top_down = b[17] & 0x20 != 0;
+    let at = |x: usize, y: usize| 18 + id + ((if top_down { y } else { h - 1 - y }) * w + x) * bpp;
+    let [u0, v0, u1, v1] = WAISTBAND_STRIP;
+    let (x0, y0, x1, y1) = ((u0 * 1024.0) as usize, (v0 * 1024.0) as usize, (u1 * 1024.0) as usize, (v1 * 1024.0) as usize);
+    let [sx, sy, sw, sh] = WAISTBAND_DENIM.map(|v| v as usize);
+    let source: Vec<Vec<[u8; 3]>> = (0..sh)
+        .map(|j| (0..sw).map(|i| { let a = at(sx + i, sy + j); [b[a], b[a + 1], b[a + 2]] }).collect())
+        .collect();
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let i = (x - x0) * sw / (x1 - x0);
+            let j = (y - y0) * sh / (y1 - y0);
+            let mut px = source[j][i];
+            let edge = (y - y0 == 3 || y1 - 1 - y == 5) && (x - x0) % 6 < 4;
+            let belt_line = y1 - y <= 2;
+            if normal {
+                if edge {
+                    px = [255, 128, 128]; // BGR: a raised dash
+                }
+            } else if belt_line {
+                px = px.map(|c| (u32::from(c) / 2) as u8);
+            } else if edge {
+                px = px.map(|c| (u32::from(c) * 2).min(255) as u8);
+            } else {
+                px = px.map(|c| (u32::from(c) * 13 / 10).min(255) as u8);
+            }
+            let a = at(x, y);
+            b[a..a + 3].copy_from_slice(&px);
+        }
+    }
+    fs::write(path, b)?;
+    Ok(())
 }
 
 /// The stock Scavenger hood (892): how far down and how wide a hood's cowl
@@ -2172,6 +2291,10 @@ pub fn build(
                         "{} map {}: rows {r0}..{r1} painted over with the {band} below, reflected",
                         outfit.key, map.name
                     );
+                }
+                if map.waistband {
+                    paint_waistband(Path::new(&to), suffix == "_nmap")?;
+                    println!("{} map {}{suffix}: the waistband painted at {:?}", outfit.key, map.name, WAISTBAND_STRIP);
                 }
             }
             stems.insert((outfit.key, map.name), dest);

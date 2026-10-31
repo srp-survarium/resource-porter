@@ -35,7 +35,7 @@ VIEWS = {'torso': (12, 4), 'legs': (8, 4), 'back': (200, 10), 'helmet': (25, 5)}
 # How the stock icons of each slot fill their cell (the medians of the released atlas's stock
 # items: the item's height in pixels, centred at x 85.5, y 41), and the widest a piece may be
 # (the stock range's top); a piece is fitted to that height unless it would be wider.
-FRAMES = {'torso': (81, 169), 'legs': (81, 95), 'boots': (76, 144), 'gloves': (77, 126),
+FRAMES = {'torso': (81, 169), 'legs': (81, 77), 'boots': (76, 144), 'gloves': (77, 126),
           'back': (81, 105), 'helmet': (79, 110)}
 CENTRE = (85.5, 41)
 # Items drawn smaller than their slot's stock fill: the low shoes (the owner, 2026-10-30: the sneakers).
@@ -77,19 +77,42 @@ def as_meshes(surfaces, keep=None):
     return out
 
 
-# The stock trousers' icons show them from the waist down to about the knee or shin, cut at
-# the cell's bottom: the piece 77 by 81 pixels (the medians of the released atlas's 36).
-LEGS_ASPECT = 77 / 81
+# The stock trousers' icons show them from the waist down to the ankle, the feet and hems
+# below it cut off (the owner, 2026-10-31: "cut at the ankles"): the cut at this share of the
+# waist-to-floor height, then the whole fitted to the stock height.
+LEGS_KEEP = 0.93
 
 
-def cut_legs(picture):
-    """Trousers cut as the stock icons show them: from the waist down as far as makes the
-    stock width to height (LEGS_ASPECT), the rest left out."""
+# Trousers are open at the waist: from a camera a little above it the inside of the back
+# shows over the front band, unlit, as a black band where the stock icons show the belt line.
+WAIST_FROM = 0.95
+
+
+def waist_inside_hidden(meshes, yaw, pitch):
+    """The faces at the waist (above WAIST_FROM) that turn away from the camera left out."""
+    y, p = np.radians([yaw, pitch])
+    toward = np.array([np.sin(y) * np.cos(p), np.sin(p), np.cos(y) * np.cos(p)])
+    out = []
+    for points, uv, normals, faces, texture, used in meshes:
+        inside = (points[faces][:, :, 1].mean(1) > WAIST_FROM) & (normals[faces].mean(1) @ toward < 0)
+        out.append((points, uv, normals, faces[~inside], texture, used))
+    return out
+
+
+def cut_legs(picture, surfaces):
+    """Trousers cut at the ankle, as the stock icons show them: rows below LEGS_KEEP of the
+    waist-to-floor height left out (the picture's rows follow the model's heights; the camera
+    is nearly level)."""
+    ys_model = np.concatenate([s[0][np.unique(s[3])][:, 1] for s in surfaces])
+    top, bottom = ys_model.max(), ys_model.min()
+    cut = top * (1 - LEGS_KEEP)
+    if cut <= bottom:
+        return picture
     alpha = np.asarray(picture)[:, :, 3]
-    ys, xs = np.nonzero(alpha)
-    bottom = ys.min() + int(round((xs.max() - xs.min() + 1) / LEGS_ASPECT))
+    rows = np.nonzero(alpha.any(1))[0]
+    row = rows.min() + int(round((rows.max() - rows.min()) * (top - cut) / (top - bottom)))
     out = np.asarray(picture).copy()
-    out[bottom:] = 0
+    out[row:] = 0
     return Image.fromarray(out)
 
 
@@ -366,9 +389,12 @@ def main():
             icon = glove_icon(surfaces)
         else:
             yaw, pitch = VIEWS[kind]
-            picture = renderer.render(as_meshes(surfaces), yaw, pitch, size=(CELL[0] * 6, CELL[1] * 6))
+            meshes = as_meshes(surfaces)
             if kind == 'legs':
-                picture = cut_legs(picture)
+                meshes = waist_inside_hidden(meshes, yaw, pitch)
+            picture = renderer.render(meshes, yaw, pitch, size=(CELL[0] * 6, CELL[1] * 6))
+            if kind == 'legs':
+                picture = cut_legs(picture, surfaces)
             icon = framed(picture, kind)
         icon.save(a.output / f"{item['dict_id']}.png")
         rgba = np.asarray(icon)
