@@ -122,6 +122,49 @@ vostok-port pack patch --base-db /path/to/retail-026g/resources.db \
 
 See [content packs](docs/content-packs.md).
 
+The STK2 lobby scene (the blockpost hut of STK2's own `lobby_scene`) is
+made straight as a pack, a lobby project of its own
+(`src/stk2_lobby_026.rs` says what it makes and how):
+
+```sh
+vostok-port build-stk2-lobby-026 --manifest ports/stk2-lobby-to-026g.json \
+  --stk2-root /path/to/extracted --target-db /path/to/retail-026g/resources.db \
+  --output .work/lobby-stk2-1 --work .work/lobby-stk2-tex
+```
+
+`--stk2-root` holds the files the manifest names: `STK2/xr2-*` (extracted
+from `STK2.7z`) and `resources/` (from the later `stk_2.7z`); ImageMagick
+(`magick`, and Pillow for the run-length TGAs it refuses) converts the
+textures. The same command makes the Bar (`ports/stk2-bar-lobby-to-026g.json`)
+and the bomb shelter (`ports/stk2-bunker-lobby-to-026g.json`): a `slice` takes
+the objects of an STK2 project inside a box, merged into one model, with the
+project's lights and its environment's post-process; `--list-textures` says
+which source textures a manifest needs before they are extracted.
+A manifest's `camera_boxes` (`{what, centre, half_extents, yaw}` in the lobby
+frame) are invisible boxes for the lobby camera's collision ray alone (0.26's
+unit primitive `editor/walker_collision`, scaled; cgroup 8, cmask 16): a cage
+inside the room and boxes around the props the eye would get into. Its
+`native_props` (`{lib, position, yaw}`) place 0.26's own models, with their
+collision (the Bar's workbench under the weapon's spot). skhid-srp's
+`lobby-scenes.md` says what a lobby project must give.
+
+Lighting (STK2 lit its rooms with a flat ambient colour and light
+propagation volumes, which 0.26g lacks): `objects` may clone the classic
+lobby's `environment_probe` and `ambient_light(4)`; `probe_cubes`
+(`{object, up, side, down}`) give such a probe cubemaps made from a
+floor-to-sky gradient and their irradiance (only box probes, `geometry` 1
+with `scale` its half extents, light anything in 0.26g). An ambient light's
+`color` may be three numbers (packed red-low, as 0.26g reads it); ambient
+lights light the room but not the character, which only real lights and
+probes reach. `light_overrides` (`{intensity, range, color, cast_shadow}` by
+converted name, `stk2_light_<n>`) and `environment_overrides` (the
+environment's fields, after the post-process) set what was balanced by eye.
+A material rule's `emission` keeps the STK2 material's emission
+(`emission_scale` per material scales it further); a slice's
+`material_swaps` (`{lib, from, to}`) give an unlit STK2 lamp its emissive
+variant, and its `moves` (`{id, what, position}`) put a project object
+elsewhere (a prop in a camera path's way).
+
 Compose multiple bundles before applying. The first bundle wins shared paths:
 
 ```sh

@@ -48,6 +48,7 @@ struct CompositeChild {
     position: Option<[f32; 3]>,
     rotation: Option<[f32; 3]>,
     scale: [f32; 3],
+    properties: BTreeMap<String, ProjectProperty>,
 }
 
 type CompositeLibrary = BTreeMap<(String, String), CompositeChild>;
@@ -55,7 +56,7 @@ type CompositeLibrary = BTreeMap<(String, String), CompositeChild>;
 pub fn parse_project(path: &Path) -> Result<(Vec<ProjectObject>, ProjectParseReport)> {
     let text = fs::read_to_string(path)
         .with_context(|| format!("reading STK2 source project {}", path.display()))?;
-    parse_project_text(&text, None)
+    parse_project_text(&text, None, false)
         .with_context(|| format!("parsing STK2 source project {}", path.display()))
 }
 
@@ -77,13 +78,39 @@ pub fn parse_project_with_composites(
             composite_library_path.display()
         )
     })?;
-    parse_project_text(&text, Some(&library))
+    parse_project_text(&text, Some(&library), false)
+        .with_context(|| format!("parsing STK2 source project {}", path.display()))
+}
+
+/// As [`parse_project_with_composites`], and the composites' lights too
+/// (a lamp's light beside its model), their properties the library's with
+/// the instance's own over them.
+pub fn parse_project_with_composite_lights(
+    path: &Path,
+    composite_library_path: &Path,
+) -> Result<(Vec<ProjectObject>, ProjectParseReport)> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("reading STK2 source project {}", path.display()))?;
+    let library_text = fs::read_to_string(composite_library_path).with_context(|| {
+        format!(
+            "reading STK2 composite library {}",
+            composite_library_path.display()
+        )
+    })?;
+    let library = parse_composite_library(&library_text).with_context(|| {
+        format!(
+            "parsing STK2 composite library {}",
+            composite_library_path.display()
+        )
+    })?;
+    parse_project_text(&text, Some(&library), true)
         .with_context(|| format!("parsing STK2 source project {}", path.display()))
 }
 
 fn parse_project_text(
     text: &str,
     composite_library: Option<&CompositeLibrary>,
+    composite_lights: bool,
 ) -> Result<(Vec<ProjectObject>, ProjectParseReport)> {
     let lines: Vec<&str> = text.lines().collect();
     let objects_start = lines
@@ -106,7 +133,14 @@ fn parse_project_text(
         let end = find_entry_end(&lines, index + 1, 1)
             .with_context(|| format!("top-level object {id:?} has no closing line"))?;
         let block = &lines[index + 1..end];
-        parse_project_object(&id, block, composite_library, &mut objects, &mut report)?;
+        parse_project_object(
+            &id,
+            block,
+            composite_library,
+            composite_lights,
+            &mut objects,
+            &mut report,
+        )?;
         index = end + 1;
     }
     Ok((objects, report))
@@ -116,6 +150,7 @@ fn parse_project_object(
     id: &str,
     block: &[&str],
     composite_library: Option<&CompositeLibrary>,
+    composite_lights: bool,
     objects: &mut Vec<ProjectObject>,
     report: &mut ProjectParseReport,
 ) -> Result<()> {
@@ -124,7 +159,12 @@ fn parse_project_object(
     let kind = partial.kind.unwrap_or_else(|| "<missing>".into());
     *report.object_kinds.entry(kind.clone()).or_default() += 1;
 
-    if kind != "composite" {
+    // later editors save a composite instance without its type: its
+    // children table tells it (taken so only on the lights' path)
+    let untyped_composite = composite_lights
+        && kind == "<missing>"
+        && block.iter().any(|line| *line == "\t\tobjects = {");
+    if kind != "composite" && !untyped_composite {
         match (partial.position, partial.rotation, partial.scale) {
             (Some(position), Some(rotation), Some(scale)) => objects.push(ProjectObject {
                 id: id.to_owned(),
@@ -197,7 +237,8 @@ fn parse_project_object(
             .composite_child_kinds
             .entry(resolved.kind.clone())
             .or_default() += 1;
-        if resolved.kind != "solid_visual" {
+        let light = composite_lights && resolved.kind == "light";
+        if resolved.kind != "solid_visual" && !light {
             index = end + 1;
             continue;
         }
@@ -217,7 +258,13 @@ fn parse_project_object(
             position,
             rotation,
             scale: child_fields.scale.unwrap_or(resolved.scale),
-            properties: child_fields.properties,
+            properties: if light {
+                let mut properties = resolved.properties.clone();
+                properties.extend(child_fields.properties);
+                properties
+            } else {
+                child_fields.properties
+            },
         });
         index = end + 1;
     }
@@ -271,6 +318,7 @@ fn parse_composite_library(text: &str) -> Result<CompositeLibrary> {
                             position: fields.position,
                             rotation: fields.rotation,
                             scale,
+                            properties: fields.properties,
                         },
                     )
                     .is_some()
@@ -481,7 +529,7 @@ objects = {
 	}, -- two
 } -- objects
 "#;
-        let (objects, report) = parse_project_text(source, None).unwrap();
+        let (objects, report) = parse_project_text(source, None, false).unwrap();
         assert_eq!(objects.len(), 2);
         assert_eq!(objects[0].library_name.as_deref(), Some("props/box"));
         assert_eq!(objects[0].position, [1.0, 2.0, 3.0]);
@@ -527,9 +575,10 @@ objects = {
                 position: Some([100.0, 100.0, 100.0]),
                 rotation: Some([0.0, 0.0, 0.0]),
                 scale: [2.0, 2.0, 2.0],
+                properties: BTreeMap::new(),
             },
         );
-        let (objects, report) = parse_project_text(source, Some(&library)).unwrap();
+        let (objects, report) = parse_project_text(source, Some(&library), false).unwrap();
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].id, "parent/child");
         assert_eq!(objects[0].position, [10.0, 20.0, 30.0]);

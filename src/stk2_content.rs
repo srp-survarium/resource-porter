@@ -1932,7 +1932,11 @@ pub(crate) fn build_static_model_collision(
     Ok(())
 }
 
-fn validate_stk2_collision(vertices: &[u8], indices: &[u8], label: &str) -> Result<usize> {
+pub(crate) fn validate_stk2_collision(
+    vertices: &[u8],
+    indices: &[u8],
+    label: &str,
+) -> Result<usize> {
     let vertex_payload = validate_chunk(vertices, 0x19, 12, label)?;
     let index_payload = validate_chunk(indices, 0x1a, 4, label)?;
     let vertex_count = vertex_payload.len() / 12;
@@ -1974,7 +1978,7 @@ fn validate_chunk<'a>(
     Ok(&bytes[8..])
 }
 
-fn make_stk2_collision_face_data(triangle_count: usize) -> Result<Vec<u8>> {
+pub(crate) fn make_stk2_collision_face_data(triangle_count: usize) -> Result<Vec<u8>> {
     let dictionary = b"collisionSG\0";
     let dictionary_size = 2_usize
         .checked_add(dictionary.len())
@@ -2259,7 +2263,11 @@ fn lobby_visual_value(visual: &LobbyVisualSpec) -> ConfigValue {
     ])
 }
 
-fn validate_static_geometry(vertices: &[u8], indices: &[u8], surface: &str) -> Result<()> {
+pub(crate) fn validate_static_geometry(
+    vertices: &[u8],
+    indices: &[u8],
+    surface: &str,
+) -> Result<()> {
     let vertex_count = usize::try_from(read_u32(vertices, 0)?)?;
     if vertex_count == 0 {
         bail!("{surface}: static surface has no vertices");
@@ -2389,7 +2397,7 @@ fn convert_static_to_skinned(
     Ok(output)
 }
 
-fn repaired_static_bases(
+pub(crate) fn repaired_static_bases(
     vertices: &[u8],
     indices: &[u8],
     surface: &str,
@@ -2668,7 +2676,7 @@ fn geometry_bounds(vertices: &[u8]) -> Result<Bounds> {
     })
 }
 
-fn config_to_lua(root: &ConfigValue) -> Result<String> {
+pub(crate) fn config_to_lua(root: &ConfigValue) -> Result<String> {
     let ConfigValue::Named(values) = root else {
         bail!("lobby project root is not a named table");
     };
@@ -2764,7 +2772,7 @@ fn named(name: impl Into<String>, value: ConfigValue) -> NamedValue {
     }
 }
 
-fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
+pub(crate) fn packed_basis(mut vector: [f32; 3], alpha: u8) -> u32 {
     let length = (vector[0] * vector[0] + vector[1] * vector[1] + vector[2] * vector[2]).sqrt();
     if length > f32::EPSILON {
         for component in &mut vector {
