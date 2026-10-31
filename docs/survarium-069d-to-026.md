@@ -230,3 +230,89 @@ steep_walker.rs` lists every narrow walker face steeper than 55 degrees that
 rises over 2 m; in the TDM scene these are tree trunks, fence posts,
 pylon and antenna legs (3 420 faces, none on a ladder model), not climb
 routes, so no ramp or plank was added.
+
+## Lobby scenes (0.46c2 hangar, 0.69d tent camp)
+
+The same builder makes a lobby project when the manifest has `lobby` in
+place of `map` (`build-survarium-later-scene` is an alias of the command):
+
+```sh
+vostok-port build-survarium-later-scene \
+  --manifest ports/survarium-046c2-lobby-hangar-to-026g.json \
+  --donor-db v046c2.split --target-db "$TARGET_026_DB" --output "$BUNDLE"
+vostok-port build-survarium-later-scene \
+  --manifest ports/survarium-069d-lobby-camp-to-026g.json \
+  --donor-db donor-069d.split --target-db "$TARGET_026_DB" --output "$BUNDLE"
+vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
+  --bundle "$BUNDLE" --output <id>-<version> --id <id> --version <version>
+```
+
+* A lobby is a client project only (`projects/lobby_scene/<name>/client_project`):
+  no server objects, mode, dictionary row or localization. Its templates are
+  the 0.26 lobby's (`projects/lobby_scene/day`). Both donors put the lobby's
+  character where 0.26 does (`gameplay/lobby_menu.options`: `local_player` at
+  the origin, rotation 180), so the scene keeps the donor's coordinates.
+* Vegetation instance files go to `projects/lobby_scene/vegetation/<vegetation_folder>/`:
+  every lobby shares the level directory and the donors name theirs alike.
+* `namespace` (`ported/v046c2_lobby`, `ported/v069d_lobby`) keeps a lobby's
+  imported files apart from a map port of the same build.
+* **0.46c2** has 0.69d's 16-byte configs but 0.26's vertex basis (the same
+  mesh is byte-identical) and material vocabulary (`texture_diffuse`,
+  `use_nmap`, `texture_roughness` as gloss): `geometry` keeps the basis and
+  drops chunks 110/113, `vocabulary_046` adds the 0.69d names so materials
+  convert through the same templates (`roughness_scale` 1), a LOD's surface
+  table becomes a list (`lod_lists`), and an empty game material with id 0
+  becomes 0.26's 65535. Its lights are 0.26 intensities; its probes are
+  0.26's format (a cubemap and its `_diffuse`) and are imported
+  (`"probes": "donor"`). Wire sets are the same object and are kept.
+* **0.69d**: lux and lumen as for Duga, but the lobby keeps its ambient
+  lights: `type` 1 (multiplying, the painted contact shadows) is dropped,
+  spheres take radius x scale, and intensities are scaled to the 0.26 lobby's
+  median and capped at 3. Its probes keep their volumes on the 0.26 lobby's
+  cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
+  Year snow of volume 72's project; `native_materials` draws its window panes
+  (`water/glass_water`) with 0.26's `tiled/window/glass`.
+* What skhid-srp's lobby choice (client patch 81, `srp-026g/docs/notes/lobby-scenes.md` there)
+  takes from a lobby project: the 0.26 lobby's camera `track` (copied; a project without one
+  is refused), the root `camera`, and the root table `srp_lobby` with `weapon` (where the
+  weapon floats in its upgrade window) and `weapon_view` (the camera's yaw there, 0.26
+  convention: forward = (-sin yaw, 0, cos yaw)), both from the manifest. The lobby camera's
+  distance is cut by a ray against the project's static collision; `camera_walls` adds
+  invisible boxes (0.26's unit primitive `editor/walker_collision`, scaled) where the walls'
+  own collision is open (the camp's windows and doorway), over the floor and under the
+  ceiling (the eye stops 0.15 m short of them, never on them) and around the props the eye
+  would get into (the camp's counters, pillows, cylinder, chandelier...): the boxes the
+  lobby audit of 2026-10-30 found (skhid-srp's lobby-scenes.md).
+* `native_props`: 0.26's own models placed in the lobby frame, `{lib, position, yaw}` (a
+  render visual and its collision, cgroup 8 / cmask 16, which the camera's ray meets): the
+  hangar has no table, so the stock `props/furniture/workbench_02` stands against its
+  sandbags under the weapon's spot.
+* The view out of the windows (the 0.26 lobby camera orbits all the way round; 0.69d's was
+  fixed). The camp's room is a floor 22.7 m over the donor's own background (level 02's
+  apartment blocks `bg_house_1/2`, `bg_shop`, its billboard trees, a terrain patch):
+  * `probe_overrides` sets a donor probe by `full_name`: `volume` (`{"box": {centre,
+    half_extents}}` or `{"sphere": {centre, radius}}`: the camp's box holds all the blocks;
+    left out, every face outside the sun was black and the fog made them flat slabs),
+    `diffuse_scale` and `saturation` in place of the lobby's baked ones (the outdoor sky
+    irradiance is bluer than the room's).
+  * A lobby's box probes get `radius` 0.75 x their largest half-extent. 0.26g draws the
+    visible probes largest radius first, each over the ones before (stage_visibility's sort),
+    and equal radii in its probe tree's order, which changes from run to run with the order
+    the cubemaps load in. With every probe at the template's 15.3, the camp's outdoor box drew
+    after the room's probes in about half the runs: a bluish haze over the room's shadows.
+    0.10b's engine set this radius itself; 0.26g takes the project's, and a box's radius is
+    only that sort key (its volume is its scale). So the outdoor box draws first and the
+    room's probes, smaller, over it. A box whose radius ties the one before it (equal largest
+    half-extents: two of the hangar's) goes just below it, so the donor's order decides.
+  * The donor lights its far blocks with outdoor ambient light boxes
+    (`environment_and_lights/outdoor/`); the photometric scale made for the room left them
+    at 0.15, so `light_overrides` sets them (0.26 does not apply the outdoor probe that far
+    out: the block at 88 m drew as a flat slab with it alone).
+  * `environment_overrides` gives the camp level 02 day's outdoor fog (rayleigh 15..300 m,
+    mie 40..1200 m): the lobby template's (rayleigh from 1 m to 185 m) is an interior's.
+  * `native_scenery`: 0.26's own models drawn outside, `{lib, position, yaw, scale}`, as
+    render visuals only (no collision, so the camera's ray never meets them): the camp's
+    overgrown yard (level 02's poplars, birches, willows, fruit and dead trees, bushes, the
+    yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
+    belts past the blocks, and level 02's own background terrain and tree rings (as the
+    school map has them, one transform for the four) for the horizon.
