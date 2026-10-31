@@ -74,6 +74,16 @@ has the items, their stats and the owner's open questions.
     native torso's forearms: its sweater's sleeves, a size too big for the hands, with the
     sweater's waist faces below the hem, which the axis test let through; first drawn with
     the sweater's map, then with skin, both seen in the owner's tests, 2026-10-31.)
+  - the bomber is closed inside its hem (`close_hem`, `CLOSED_HEMS`): a short loose
+    jacket over a body it does not have (its own T-shirt ends 0.98-1.15 m up, its hem
+    0.92) showed the background from below, between the hem and the trousers (the
+    owner's test, 2026-10-31). A floor runs from the hem's inner side (6 mm above its
+    lowest point at each of 64 angles round the hip axis, found by rays) in to the native
+    hips, drawn both ways with the hem's leather; its outer ring takes the hem's skin, its
+    inner ring the hips'. Every trousers' top comes through it from below. Counted from
+    below (six views each, the aiming, sprinting and crouching poses, against a probe body
+    inside): the see-through pixels at the waist went from 27-669 to 0-35 with the
+    Loner's pants, the jeans, the track pants and three stock trousers;
   - the Novice jeans end at 0.937-0.964 m, where STK2's long jacket covered them; under
     0.26g's shorter jackets the open top showed the background. The top edge grows
     straight up to 1.04 m (the native legs' top ring, which every stock torso covers)

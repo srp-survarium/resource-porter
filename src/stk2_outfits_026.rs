@@ -2000,6 +2000,128 @@ fn paint_waistband(path: &Path, normal: bool) -> Result<()> {
     Ok(())
 }
 
+/// Jackets closed inside their hem: a short loose jacket over a body it
+/// does not have (the bomber: its own T-shirt ends 0.98 to 1.15 m up, its
+/// hem 0.92) shows through to the background from below, between the hem
+/// and the trousers (the owner's test, 2026-10-31: "not in the elbow, the
+/// waist").
+const CLOSED_HEMS: &[i32] = &[1864];
+/// Angles round the body the floor is made at.
+const HEM_ANGLES: usize = 64;
+/// How far above the hem's lowest point (at each angle) the floor runs (m),
+/// and how far inside the hem's inner side.
+const HEM_FLOOR_UP: f64 = 0.006;
+const HEM_FLOOR_IN: f64 = 0.001;
+
+/// Closes a jacket inside its hem ([`CLOSED_HEMS`]): a floor from the hem's
+/// inner side in to the native body (the native legs' hips), [`HEM_FLOOR_UP`]
+/// above the hem's lowest point at each of [`HEM_ANGLES`] angles round the
+/// body; every trousers' top comes through it from below, so from below
+/// nothing shows but the floor, dark with the hem's own leather (its UVs).
+/// Drawn both ways; its outer ring takes the hem's skin, its inner ring the
+/// native hips'. Returns the triangles added and the angles with no hem.
+fn close_hem(model: &mut Model, base_legs: &[u8], hip: [f64; 3]) -> Result<(usize, usize)> {
+    let (_, bytes, _) = &model.surfaces[0];
+    let jacket = parse_mesh(bytes, 48, "jacket")?;
+    let legs = parse_mesh(base_legs, 48, "native legs")?;
+    let lowest = jacket
+        .positions
+        .iter()
+        .filter(|p| p[0].abs() < 0.25)
+        .map(|p| p[1])
+        .fold(f64::INFINITY, f64::min);
+    // The jacket's body up to 25 cm above its lowest point (not the
+    // sleeves): its hem at each angle is its lowest there.
+    let hem: Vec<usize> = (0..jacket.positions.len())
+        .filter(|&i| jacket.positions[i][0].abs() < 0.22 && jacket.positions[i][1] < lowest + 0.25)
+        .collect();
+    ensure!(hem.len() > 16, "a jacket with no hem");
+    let centre = [hip[0], 0.0, hip[2]];
+    let angle = |p: [f64; 3]| (p[2] - centre[2]).atan2(p[0] - centre[0]);
+    let window = std::f64::consts::PI * 2.0 / HEM_ANGLES as f64;
+    let mut outer = vec![];
+    let mut inner = vec![];
+    let mut open = 0;
+    for k in 0..HEM_ANGLES {
+        let a = -std::f64::consts::PI + window * (k as f64 + 0.5);
+        let near = |p: [f64; 3]| {
+            let d = (angle(p) - a + std::f64::consts::PI).rem_euclid(2.0 * std::f64::consts::PI) - std::f64::consts::PI;
+            d.abs() < 2.0 * window
+        };
+        let Some(&low) = hem
+            .iter()
+            .filter(|&&i| near(jacket.positions[i]))
+            .min_by(|&&x, &&y| jacket.positions[x][1].total_cmp(&jacket.positions[y][1]))
+        else {
+            open += 1;
+            continue;
+        };
+        let y = jacket.positions[low][1] + HEM_FLOOR_UP;
+        let origin = [centre[0], y, centre[2]];
+        let dir = [a.cos(), 0.0, a.sin()];
+        // The hem's inner side: the jacket's nearest crossing of the ray out
+        // from the axis; the body: the native hips' farthest.
+        let hits = crate::mask_fit::ray_hits(origin, dir, &jacket.positions, &jacket.triangles);
+        let Some(r_hem) = hits.iter().map(|&(t, _)| t).filter(|&t| t < 0.4).reduce(f64::min) else {
+            open += 1;
+            continue;
+        };
+        let Some((r_body, tri, bary)) = crate::mask_fit::farthest_hit(origin, dir, &legs.positions, &legs.triangles) else {
+            open += 1;
+            continue;
+        };
+        let r_out = r_hem - HEM_FLOOR_IN;
+        let r_in = (r_body - 0.01).min(r_out - 0.01);
+        let at = |r: f64| [origin[0] + r * dir[0], y, origin[2] + r * dir[2]];
+        // The hem's vertex nearest the floor's outer end lends its leather
+        // (UVs, normal basis) and skin; the hips' triangle its skin inward.
+        let side = *hem
+            .iter()
+            .min_by(|&&x, &&y| {
+                let d = |i: usize| { let e = sub(jacket.positions[i], at(r_out)); dot(e, e) };
+                d(x).total_cmp(&d(y))
+            })
+            .unwrap();
+        let mut o = bytes[12 + side * 48..12 + (side + 1) * 48].to_vec();
+        let mut i = o.clone();
+        for (c, v) in at(r_out).iter().enumerate() {
+            o[c * 4..c * 4 + 4].copy_from_slice(&(*v as f32).to_le_bytes());
+        }
+        for (c, v) in at(r_in).iter().enumerate() {
+            i[c * 4..c * 4 + 4].copy_from_slice(&(*v as f32).to_le_bytes());
+        }
+        let mut hip_skin: BTreeMap<u8, f64> = BTreeMap::new();
+        for (&v, w) in legs.triangles[tri].iter().zip(bary) {
+            for (bone, x) in skin_of(&base_legs[12 + v * 48..12 + (v + 1) * 48]) {
+                *hip_skin.entry(bone).or_insert(0.0) += x * w;
+            }
+        }
+        set_skin(&mut i, &hip_skin);
+        outer.push(o);
+        inner.push(i);
+    }
+    ensure!(outer.len() * 2 > HEM_ANGLES, "the jacket's hem was found at {} of {HEM_ANGLES} angles", outer.len());
+    let n = jacket.positions.len();
+    let m = outer.len();
+    let mut vertices = vec![];
+    for k in 0..m {
+        vertices.push(outer[k].clone());
+        vertices.push(inner[k].clone());
+    }
+    let mut triangles = vec![];
+    for k in 0..m {
+        let j = (k + 1) % m;
+        let (o0, i0, o1, i1) = (n + 2 * k, n + 2 * k + 1, n + 2 * j, n + 2 * j + 1);
+        for t in [[o0, i0, o1], [i0, i1, o1]] {
+            triangles.push(t);
+            triangles.push([t[0], t[2], t[1]]);
+        }
+    }
+    let added = triangles.len();
+    model.surfaces[0].1 = append(bytes, &vertices, &triangles)?;
+    Ok((added, open))
+}
+
 /// The stock Scavenger hood (892): how far down and how wide a hood's cowl
 /// comes over the neck and shoulders, and its skin there.
 const SCAVENGER_HOOD: &str =
@@ -2776,6 +2898,12 @@ pub fn build(
             r.max_move * 1000.0
         );
         crate::novice_026::report_covers(&r.covers);
+        if CLOSED_HEMS.contains(&b.piece.id) {
+            let (rows, open) = close_hem(&mut base, &base_legs, bone("Hip")?)?;
+            println!(
+                "{label}: closed inside its hem down to the body ({rows} triangles both ways; {open} of {HEM_ANGLES} angles over no hem)"
+            );
+        }
         for &(table, suffix) in Kind::Torso.variants() {
             let class_gloves = gloves
                 .get(table)
