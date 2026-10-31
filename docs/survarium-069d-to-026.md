@@ -362,7 +362,7 @@ texture keeps its full size and every mip (605 MiB, Duga's 1024-capped set was 6
 none is larger than 0.26g's stock maps use for its kind (2048; terrain normal and gloss
 maps 1024). `reuse_native_textures`: 238 of the 463 are the same image as 0.26g's file at
 the same path (0.69d re-encoded what it kept: about 1 level apart, its retouched ones 3 to
-60) and are drawn from it, 345 MiB not imported; 260 MiB are imported.
+60) and are drawn from it, 345 MiB not imported; the other 225 (297 MiB) are imported.
 LOD0 and LOD-less surfaces keep their authored geometry (no `lod0_*`); only authored
 far LODs are simplified (110 k -> 52 k triangles). The terrain keeps every vertex:
 simplified tiles under full-density blend overlays (`*_vc`) left the overlays up to 2 m
