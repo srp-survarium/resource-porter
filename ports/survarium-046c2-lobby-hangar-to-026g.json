@@ -29,6 +29,112 @@
         "yaw": 3.927
       }
     ],
+    "exclude_models": [
+      "level/01/background/",
+      "flora/bush_s_line_3"
+    ],
+    "native_scenery": [
+      {
+        "lib": "flora/bush_s_005",
+        "position": [
+          -8.2,
+          -1.165,
+          -8.9
+        ],
+        "yaw": 0.4,
+        "scale": 1.6
+      },
+      {
+        "lib": "flora/bush_s_003",
+        "position": [
+          -6.6,
+          -1.212,
+          -8.8
+        ],
+        "yaw": 2.1,
+        "scale": 1.7
+      },
+      {
+        "lib": "flora/bush_s_005",
+        "position": [
+          -4.9,
+          -1.165,
+          -8.9
+        ],
+        "yaw": 4.0,
+        "scale": 1.5
+      },
+      {
+        "lib": "flora/bush_s_003",
+        "position": [
+          -3.3,
+          -1.212,
+          -8.8
+        ],
+        "yaw": 5.6,
+        "scale": 1.6
+      },
+      {
+        "lib": "flora/fruit/fruit_tree_04",
+        "position": [
+          -7.4,
+          0.111,
+          -11.6
+        ],
+        "yaw": 1.4,
+        "scale": 1.2
+      },
+      {
+        "lib": "flora/fruit/fruit_tree_05",
+        "position": [
+          -4.2,
+          0.206,
+          -11.8
+        ],
+        "yaw": 3.5,
+        "scale": 1.25
+      },
+      {
+        "lib": "flora2/birch_02_",
+        "position": [
+          -8.8,
+          1.056,
+          -13.6
+        ],
+        "yaw": 0.9,
+        "scale": 1.0
+      },
+      {
+        "lib": "flora2/birch_04_",
+        "position": [
+          -5.8,
+          1.198,
+          -13.9
+        ],
+        "yaw": 2.6,
+        "scale": 1.0
+      },
+      {
+        "lib": "flora2/birch_02_",
+        "position": [
+          -2.9,
+          0.961,
+          -13.4
+        ],
+        "yaw": 4.4,
+        "scale": 1.0
+      },
+      {
+        "lib": "flora/poplar_06",
+        "position": [
+          -6.9,
+          1.623,
+          -14.8
+        ],
+        "yaw": 1.7,
+        "scale": 1.0
+      }
+    ],
     "camera_walls": [
       {
         "centre": [

@@ -55,6 +55,12 @@ pub struct Manifest {
     /// 0.69d's window panes made of a still-water material).
     #[serde(default)]
     pub native_materials: BTreeMap<String, String>,
+    /// Donor materials drawn two-sided, by donor name: one-sided panels the
+    /// 0.26 lobby camera, which orbits all the way round, sees from behind
+    /// (the camp's door leaves: 0.69d's fixed camera never did). An opaque
+    /// or alpha-tested material only.
+    #[serde(default)]
+    pub two_sided_materials: BTreeSet<String>,
     /// Native particles that stand in for 0.69d particles, by donor name.
     #[serde(default)]
     pub particle_replacements: BTreeMap<String, String>,
@@ -1365,6 +1371,16 @@ fn stages(root: &ConfigValue) -> Vec<String> {
 
 fn g_stage(root: &ConfigValue) -> Option<&ConfigValue> {
     root.named("material")?.named("g_stage")
+}
+
+/// The two-sided category of an opaque or alpha-tested one (a material
+/// `two_sided_materials` lists must be one of those).
+fn two_sided(category: Category) -> Result<Category> {
+    Ok(match category {
+        Category::Opaque | Category::OpaqueTwoSided => Category::OpaqueTwoSided,
+        Category::AlphaTest | Category::AlphaTestTwoSided => Category::AlphaTestTwoSided,
+        other => bail!("a {} material has no two-sided template", other.key()),
+    })
 }
 
 pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
@@ -3517,6 +3533,13 @@ pub fn build(
         }
         let mut converted = convert_material(&root, *usage, &templates, m.roughness_scale, default_normal)
             .with_context(|| format!("converting {material}"))?;
+        if m.two_sided_materials.contains(material) {
+            // its own category's template, drawn from both sides
+            two_sided(converted.category).with_context(|| format!("{material}: two_sided_materials"))?;
+            converted.root.set_path("material.g_stage.effect.two_sided.value", ConfigValue::Boolean(true))
+                .with_context(|| format!("{material}: two_sided_materials"))?;
+            notes.push(format!("{material}: drawn two-sided (manifest)"));
+        }
         if converted.category == Category::Water {
             // 0.26's water reflects a fixed sky probe where its screen-space
             // reflection finds nothing: in the caves it drew bright flat sheets.
@@ -5036,6 +5059,9 @@ mod tests {
         assert_eq!(categorize(&base(false, false), vc).unwrap(), Category::VertexColour);
         assert_eq!(categorize(&base(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
         assert_eq!(categorize(&base(false, true), Usage::default()).unwrap(), Category::OpaqueTwoSided);
+        assert_eq!(two_sided(Category::Opaque).unwrap(), Category::OpaqueTwoSided);
+        assert_eq!(two_sided(Category::AlphaTest).unwrap(), Category::AlphaTestTwoSided);
+        assert!(two_sided(Category::Glass).is_err());
         assert_eq!(categorize(&base(true, true), Usage { vertex_colour: false, vegetation: true }).unwrap(), Category::Grass);
     }
 

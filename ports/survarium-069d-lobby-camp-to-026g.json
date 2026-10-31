@@ -423,5 +423,8 @@
   },
   "native_materials": {
     "water/glass_water": "tiled/window/glass"
-  }
+  },
+  "two_sided_materials": [
+    "hq/door/wood_door_01"
+  ]
 }
