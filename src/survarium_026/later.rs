@@ -437,6 +437,10 @@ pub struct LightOverride {
     pub intensity: Option<f32>,
     #[serde(default)]
     pub range: Option<f32>,
+    /// Whether it casts shadows (`is_cast_shadow`): a light low by a prop
+    /// throws the prop's shadow up the whole wall in 0.26 (the camp's sink).
+    #[serde(default)]
+    pub cast_shadow: Option<bool>,
 }
 
 /// How a 0.69d lobby's photometric lights become 0.26's unitless ones.
@@ -3176,6 +3180,9 @@ pub fn build(
             }
             if let Some(r) = over.range {
                 let _ = o.set_path("range", ConfigValue::Float(r));
+            }
+            if let Some(c) = over.cast_shadow {
+                let _ = o.set_path("is_cast_shadow", ConfigValue::Boolean(c));
             }
             true
         });
