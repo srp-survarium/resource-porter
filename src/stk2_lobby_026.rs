@@ -208,6 +208,10 @@ pub struct NativeProp {
     /// Its turn about y (the engine's create_rotation(0, yaw, 0)).
     #[serde(default)]
     pub yaw: f32,
+    /// Give the camera ray its collision, when it has one (false: drawn
+    /// only, as a bulb in a lamp's shade the eye should not stop on).
+    #[serde(default = "yes")]
+    pub collision: bool,
 }
 
 /// 0.26's unit box collision (half extents 1), scaled per instance.
@@ -3016,9 +3020,10 @@ fn add_native_props(
         let settings = format!("models/{}.model/settings", prop.lib);
         ensure!(target.is_file(&settings), "native prop {}: {settings} is not in the target", prop.lib);
         let collision = format!("models/{}.model/collision", prop.lib);
-        let has_collision = ["vertices", "exported_primitives"]
-            .iter()
-            .any(|leaf| target.is_file(&format!("{collision}/{leaf}")));
+        let has_collision = prop.collision
+            && ["vertices", "exported_primitives"]
+                .iter()
+                .any(|leaf| target.is_file(&format!("{collision}/{leaf}")));
         let place = |extra: Vec<NamedValue>, lib: ConfigValue| {
             let mut fields = vec![
                 named("rotation", ConfigValue::Float3([0.0, prop.yaw, 0.0])),
