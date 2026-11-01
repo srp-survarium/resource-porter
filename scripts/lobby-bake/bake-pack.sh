@@ -7,9 +7,9 @@
 #   <work>/scene.json   prep.py's
 #   <work>/pages, baked, baked.json, renders/traced-*   bake.py's
 #   <work>/renders/baked-*   show.py's: the views as the game would draw the bake
-# Drawing such a lobby from its bake (the pages on its models, its project
-# without the baked placements) is the builder's step, as
-# build-stk2-lobby-026 --bake-dir is for the STK2 lobbies (bake.sh).
+# The pack drawn from its bake: vostok-port draw-lobby-bake --pack <pack>
+# --bake-dir <work> (as build-stk2-lobby-026 --bake-dir is for the STK2
+# lobbies, bake.sh).
 # --gpu as bake.sh's.
 # Needs vostok-port on PATH (or VOSTOK_PORT), Python 3, Blender.
 set -euo pipefail
