@@ -141,9 +141,9 @@ impl ModuleKind {
     /// meshes share: `docs/weapons-026.md`).
     pub fn locator(self) -> &'static str {
         match self {
-            Self::Scope => "scope_point",
+            Self::Scope => "picatinny_scope_point",
             Self::FlashHider | Self::MuzzleBrake => "muzzle_point",
-            Self::Grip => "grip_point",
+            Self::Grip => "picatinny_grip_point",
         }
     }
 }

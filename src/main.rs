@@ -236,6 +236,17 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// A side view of a model's meshes (`<model>/render/*/converted_model`
+    /// of a folder): a weapon's verification render.
+    RenderWeapon {
+        /// The model folder (`.../<name>.skinned_model` or `.model`).
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long, default_value_t = 1200)]
+        width: usize,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Compare a weapon bundle with files players have (a patch), file by
     /// file; exits non-zero on an unexplained difference.
     CompareWeapons {
@@ -1268,6 +1279,28 @@ fn main() -> Result<()> {
                 "Built {}: {} files, {} reused from the target",
                 port.id, report.files, report.reused
             );
+        }
+        Command::RenderWeapon {
+            model,
+            width,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::modules::{Mesh, png, render_side};
+            let mut meshes = vec![];
+            for entry in std::fs::read_dir(model.join("render"))? {
+                let path = entry?.path().join("converted_model");
+                if path.is_file() {
+                    meshes.push(Mesh::parse(&std::fs::read(&path)?)?);
+                }
+            }
+            anyhow::ensure!(!meshes.is_empty(), "{} has no meshes", model.display());
+            let parts: Vec<_> = meshes
+                .iter()
+                .map(|m| (m.positions.as_slice(), m.triangles.as_slice(), [190u8, 190, 180]))
+                .collect();
+            let (w, h, rgba) = render_side(&parts, width)?;
+            std::fs::write(&output, png(w, h, &rgba)?)?;
+            println!("{}: {w}x{h}", output.display());
         }
         Command::CompareWeapons {
             bundle,
