@@ -216,6 +216,35 @@ def page_material(name, png, emission, alpha):
     return m
 
 
+def hybrid_material(name, albedo_png, indirect_png, emission, alpha):
+    """A hybrid page as the game draws it: its albedo lit (by direct light
+    alone: the caller renders without bounces, as the engine lights) plus its
+    indirect page times the multiplier."""
+    m, nt = _nodes(name)
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    uvn = nt.nodes.new("ShaderNodeUVMap")
+    uvn.uv_map = "tex"
+    alb = nt.nodes.new("ShaderNodeTexImage")
+    alb.image = image(albedo_png)
+    ind = nt.nodes.new("ShaderNodeTexImage")
+    ind.image = image(indirect_png)
+    for t in (alb, ind):
+        nt.links.new(uvn.outputs[0], t.inputs[0])
+    bsdf = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    nt.links.new(alb.outputs["Color"], bsdf.inputs["Color"])
+    em = nt.nodes.new("ShaderNodeEmission")
+    em.inputs["Strength"].default_value = emission
+    nt.links.new(ind.outputs["Color"], em.inputs["Color"])
+    add = nt.nodes.new("ShaderNodeAddShader")
+    nt.links.new(bsdf.outputs[0], add.inputs[0])
+    nt.links.new(em.outputs[0], add.inputs[1])
+    shader = add.outputs[0]
+    if alpha:
+        shader = _cut(nt, shader, alb.outputs["Alpha"], 0.25)
+    nt.links.new(shader, out.inputs[0])
+    return m
+
+
 def new_object(name, pos, nrm, uv, tris, material, matrix=None):
     me = bpy.data.meshes.new(name)
     tris = [t for t in tris if len(set(t)) == 3]
