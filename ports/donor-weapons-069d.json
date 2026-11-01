@@ -31,7 +31,7 @@
   },
   "ppsh_drum": {
    "rig": {
-    "live": "models/weapons/ppsh/ppsh.skinned_model"
+    "live_sights": "models/weapons/ppsh/ppsh.skinned_model"
    },
    "module_turns": {
     "ppsh_762x25_71_round_mag": 90.0

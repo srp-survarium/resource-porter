@@ -23,7 +23,7 @@
     "parameters.bullet_damage": 0.45,
     "parameters.bullet_pierce": 0.4,
     "parameters.weight": 2.9,
-    "parameters.reload_time": 3.167,
+    "parameters.reload_time": 3.2,
     "parameters.aim_time": 0.3,
     "parameters.base_dispersion": 0.3,
     "parameters.magazine_capacity": 30,
@@ -124,7 +124,8 @@
       257,
       "weapons/m4a1_m"
      ]
-    ]
+    ],
+    "parameters.movement_speed_modifier": 0
    },
    "from_template": [
     "breath_vibration",
@@ -147,7 +148,8 @@
    },
    "notes": [
     "FAMAS: 5.56x45 at the M4A1's damage, 0.69d0's 900 rpm and 3-round burst, reload 4.0 s (0.69d0's +33 % on the H&K); level 14 beside the H&K, Scavengers",
-    "on the live Ash-12 rig and clips, as 0.69d0, but its own reload (two clips, 0.26g state 314); the M4A1's firing sound"
+    "on the live Ash-12 rig and clips, as 0.69d0, but its own reload (two clips, 0.26g state 314); the M4A1's firing sound",
+    "movement 0, as its peers the M4A1 and the H&K 416 (the Ash-12 template's -5 % is a 12.7 mm gun's)"
    ]
   },
   {
@@ -256,7 +258,8 @@
      "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_fwd",
      "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_left",
      "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_right"
-    ]
+    ],
+    "parameters.aim_offset": 0.0
    },
    "from_template": [
     "breath_vibration",
@@ -277,7 +280,8 @@
     "Mauser M.712: an automatic pistol as the APS, 7.62x25's pierce, +17 % rate, half its magazine; the APS's level, Renaissance",
     "its own 0.69d0 rig and clips; the aimed shots (_calim) left out",
     "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
-    "death poses: the four on_site death clips the live Kedr, Kiparis and PP-2000 play (the APS's ak/on_site/death_fwd is in no archive)"
+    "death poses: the four on_site death clips the live Kedr, Kiparis and PP-2000 play (the APS's ak/on_site/death_fwd is in no archive)",
+    "aim_offset 0: its own 0.69d0 aim locator puts the sights within 2 px (the APS template's -0.1 is for the APS's model)"
    ]
   },
   {
@@ -335,7 +339,8 @@
    "notes": [
     "KS-23M: a pump as the Remington 870, 0.69d0's +7 % damage, chambering 0.75 s (+25 %), reload +5 %; level 7 with the Benelli and SPAS, Renaissance",
     "its own 0.69d0 rig and clips; the empty-chamber start (reload_finalround) left out; its 23x75R round is this port's ammo_items (2253), the 12x70 smallshot's twin as in 0.69d0, its icon the smallshot's",
-    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
+    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
+    "aim_offset 0.03, the Remington 870 template's: the 0.69d0 aim sits at the receiver's top, which filled the lower screen in ADS"
    ]
   },
   {
@@ -395,7 +400,8 @@
    },
    "notes": [
     "PPSH-41 \"Drum\": the PPSh-41 with 0.69d0's 71-round drum, reload +25 % (4.6 s), aim 0.3 s; level 2, Scavengers",
-    "on the live PPSh rig and clips but the drum's own reload (two clips, 0.26g state 314)"
+    "on the live PPSh rig and clips but the drum's own reload (two clips, 0.26g state 314)",
+    "the live PPSh's aim locator and aim_offset (0.01): its body is the live PPSh's mesh (live_sights rig)"
    ]
   }
  ],

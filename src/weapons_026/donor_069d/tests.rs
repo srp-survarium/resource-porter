@@ -206,3 +206,15 @@ fn shared_ak12_clips_convert_to_the_026g_bytes() {
         );
     }
 }
+
+#[test]
+fn a_live_body_takes_the_live_sights() {
+    let spec: Spec069 = serde_json::from_str(
+        r#"{"format_version": 1,
+            "guns": {"ppsh_drum": {"rig": {"live_sights": "models/weapons/ppsh/ppsh.skinned_model"}}}}"#,
+    )
+    .unwrap();
+    assert!(
+        matches!(&spec.guns["ppsh_drum"].rig, Rig::LiveSights(m) if m.ends_with("ppsh.skinned_model"))
+    );
+}

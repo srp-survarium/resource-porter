@@ -62,6 +62,12 @@ pub enum Rig {
     /// skeleton bone for bone (checked); the model takes its bind pose,
     /// skeleton file and hand locators.
     Live(String),
+    /// As [`Rig::Live`], on a body that is that live model's own mesh (the
+    /// Drum's PPSh): its `aim` locator is the live one's too. The live aim
+    /// carries the angle the live clips hold those sights at (the PPSh's
+    /// 0.015 rad of yaw); the donor's, written for 0.69d0's clips, put the
+    /// Drum's sights 6-7 px right of the screen's centre.
+    LiveSights(String),
     /// The donor's own skeleton and clips.
     Donor,
 }
@@ -562,7 +568,7 @@ impl Donor069 {
         // The bind pose shipped: the live model's for a live rig (its clips
         // are written for it), else the donor's.
         let (ship_bind, live_props, skeleton_file) = match &gun.rig {
-            Rig::Live(model) => {
+            Rig::Live(model) | Rig::LiveSights(model) => {
                 let live = target.read(&format!("{model}/render/bind_pose"))?;
                 let names: Vec<String> = bind_pose(&live)?.into_iter().map(|(n, _)| n).collect();
                 let ours: Vec<String> = bind.iter().map(|(n, _)| n.clone()).collect();
@@ -672,11 +678,18 @@ impl Donor069 {
             .iter()
             .find_map(|n| find(n).ok())
             .context("no handguard locator")?;
-        let mut locs = vec![
-            Locator {
+        let aim = match (&gun.rig, &live_props) {
+            (Rig::LiveSights(model), Some(live)) => locators(live)?
+                .into_iter()
+                .find(|l| l.name == "aim")
+                .with_context(|| format!("{model} has no aim locator"))?,
+            _ => Locator {
                 name: "aim".into(),
                 ..aim.clone()
             },
+        };
+        let mut locs = vec![
+            aim,
             Locator {
                 name: "barrel_point".into(),
                 rotation: [0.0; 3],
