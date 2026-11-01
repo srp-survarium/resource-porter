@@ -656,6 +656,7 @@ pub fn build<D: Donor>(
         for (path, value) in &a.set {
             super::config::set_typed(&mut cfg, path, value).with_context(|| a.name.clone())?;
         }
+        super::config::ammo_card(&mut cfg).with_context(|| a.name.clone())?;
         if let Some(icon) = &a.lobby_icon {
             cfg.set_path(
                 "ui_desc.icon",

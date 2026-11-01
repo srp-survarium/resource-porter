@@ -693,3 +693,50 @@ fn a_config_naming_a_missing_resource_is_refused() {
     let odd = t(vec![("data", t(vec![("strange", s("some/where"))]))]);
     assert!(resource_files(&odd).is_err());
 }
+
+#[test]
+fn a_new_rounds_card_shows_its_own_pack_and_weight() {
+    let row = |id: i32, v: &str| t(vec![("prop_value", s(v)), ("prop_id", V::Integer(id))]);
+    let mut cfg = t(vec![
+        (
+            "parameters",
+            t(vec![
+                ("clip_size", V::Integer(100)),
+                ("clip_weight", V::Float(1.0)),
+            ]),
+        ),
+        (
+            "ui_desc",
+            t(vec![(
+                "props_list",
+                list(vec![
+                    row(21, "100"),
+                    row(22, "100"),
+                    row(16, "30"),
+                    row(15, "0.3"),
+                ]),
+            )]),
+        ),
+    ]);
+    config::ammo_card(&mut cfg).unwrap();
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.2.prop_value")),
+        Some("100")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.3.prop_value")),
+        Some("1.0")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.0.prop_value")),
+        Some("100")
+    );
+}
+
+#[test]
+fn a_vector_set_stays_a_vector() {
+    let mut cfg = t(vec![("p", V::Float3([0.0, 0.0868, 0.178]))]);
+    config::set_typed(&mut cfg, "p", &serde_json::json!([0.0, 0.0824, 0.178])).unwrap();
+    assert_eq!(get(&cfg, "p"), Some(&V::Float3([0.0, 0.0824, 0.178])));
+    assert!(config::set_typed(&mut cfg, "p", &serde_json::json!([0.0, 1.0])).is_err());
+}

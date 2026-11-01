@@ -34,7 +34,7 @@
     "recoil.min_right_recoil": 1.03,
     "recoil.min_top_recoil": 1.81,
     "recoil.recoil_power": 0.8,
-    "particles.shoot": "fx/weapons/9x39"
+    "particles.shoot": "fx/weapons/ak_74"
    },
    "lobby_icon": {
     "row": 6,
@@ -48,8 +48,22 @@
    "notes": [
     "OTs-14 Groza: the Val scaled (donor x live Val / donor Val): its 9x39 damage and pierce, 700 rpm against the Val's 800, a faster aim and a tighter spread; the Val's level (13, Renaissance rank 8) and drops; between the Val (76,000) and the 9A-91 (84,000)",
     "balance: scripts/weapons/peer_scale.py by the val (0.31a2 and live, rev 40)",
-    "the muzzle flash fx/weapons/9x39 (the donor's names one no 0.26g archive has, or the UZI's, barely visible): the Val's"
-   ]
+    "the muzzle flash fx/weapons/ak_74 (the donor's fx/weapons/uzi is barely visible, the Val's 9x39 is a suppressed puff: the Groza is not suppressed)"
+   ],
+   "file_values": {
+    "models/weapons/ots14/ots14.skinned_model/render/export_properties": {
+     "locators.0.position": [
+      0.0,
+      0.0836,
+      0.17808
+     ],
+     "locators.0.rotation": [
+      -0.0123,
+      0.0,
+      0.0
+     ]
+    }
+   }
   },
   {
    "name": "scar_h",

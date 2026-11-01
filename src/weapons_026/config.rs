@@ -214,6 +214,19 @@ pub fn typed(value: &serde_json::Value, like: Option<&V>) -> Result<V> {
         (J::Number(n), None) => V::Float(n.as_f64().context("number")? as f32),
         (J::String(t), Some(V::String(_)) | None) => V::String(t.clone()),
         (J::Bool(b), Some(V::Boolean(_)) | None) => V::Boolean(*b),
+        // A vector stays a vector (a locator's position): never a table.
+        (J::Array(items), Some(V::Float2(_) | V::Float3(_) | V::Float4(_))) => {
+            let f: Vec<f32> = items
+                .iter()
+                .map(|i| i.as_f64().map(|x| x as f32).context("a vector of numbers"))
+                .collect::<Result<_>>()?;
+            match (like, f.as_slice()) {
+                (Some(V::Float2(_)), [a, b]) => V::Float2([*a, *b]),
+                (Some(V::Float3(_)), [a, b, c]) => V::Float3([*a, *b, *c]),
+                (Some(V::Float4(_)), [a, b, c, d]) => V::Float4([*a, *b, *c, *d]),
+                _ => bail!("{value}: another length than the template's vector"),
+            }
+        }
         (J::Array(items), _) => V::Indexed(
             items
                 .iter()
@@ -266,6 +279,48 @@ pub fn card_props(cfg: &V) -> Result<Vec<(i32, String)>> {
         // The native cards round the weight to 0.1 kg (the SKS's 3.75: 3.8).
         (15, fmt((num("weight")? * 10.0).round() / 10.0)),
     ])
+}
+
+/// An ammunition item's card from its own values: prop 16 (rounds in a
+/// pack) is `parameters.clip_size`, prop 15 (weight) `parameters.clip_weight`,
+/// as every native round's card has them; a new round on a native round's
+/// config would show the template's otherwise (a 100-round belt said 30).
+pub fn ammo_card(cfg: &mut V) -> Result<()> {
+    let num = |key: &str| -> Result<f32> {
+        match get(cfg, &format!("parameters.{key}")) {
+            Some(V::Float(f)) => Ok(*f),
+            Some(V::Integer(i)) => Ok(*i as f32),
+            other => bail!("parameters.{key} is {other:?}"),
+        }
+    };
+    // As the natives write it: 0.3, 1.5, and a whole kilogram 1.0.
+    let fmt = |v: f32| {
+        let t = format!("{v:.3}");
+        let t = t.trim_end_matches('0');
+        if t.ends_with('.') {
+            format!("{t}0")
+        } else {
+            t.to_owned()
+        }
+    };
+    let values = [
+        (16, format!("{}", num("clip_size")? as i32)),
+        (15, fmt(num("clip_weight")?)),
+    ];
+    let Some(V::Indexed(rows)) = cfg
+        .named_mut("ui_desc")
+        .and_then(|u| u.named_mut("props_list"))
+    else {
+        bail!("the round has no ui_desc.props_list");
+    };
+    for (id, value) in values {
+        let row = rows
+            .iter_mut()
+            .find(|r| r.named("prop_id") == Some(&V::Integer(id)))
+            .with_context(|| format!("the round's card has no prop {id}"))?;
+        row.set_path("prop_value", s(value))?;
+    }
+    Ok(())
 }
 
 /// The gun's config, and what the build did that 0.26g cannot take
