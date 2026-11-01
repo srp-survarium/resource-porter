@@ -1,0 +1,558 @@
+{
+ "format_version": 1,
+ "id": "weapons-046",
+ "donor_build": "0.46c2",
+ "weapons": [
+  {
+   "name": "mp5a1",
+   "dict_id": 2270,
+   "donor_item": "mp5a1",
+   "config": "gameplay/items/weapons/wpn_mp5a1.options",
+   "template": "gameplay/items/weapons/wpn_vityaz.options",
+   "base_cost": 15000,
+   "ammo": [
+    53,
+    71,
+    368
+   ],
+   "set": {
+    "parameters.faction": 2,
+    "parameters.item_level": 5,
+    "parameters.match_making_level": 5,
+    "parameters.drop_weight": 110,
+    "parameters.rounds_per_minute": 800,
+    "parameters.bullet_damage": 0.38,
+    "parameters.bullet_pierce": 0.2,
+    "parameters.stopping_power": 0.3,
+    "parameters.weight": 2.6,
+    "parameters.reload_time": 3.37,
+    "parameters.aim_time": 0.2,
+    "parameters.magazine_capacity": 30,
+    "parameters.fire_queue_types": [
+     -1,
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_mp5a1_name",
+    "ui_desc.text_descriptions.description": "st_mp5a1_description",
+    "parameters.type": "wpn_smg"
+   },
+   "from_template": [
+    "parameters.stamina_damage"
+   ],
+   "lobby_icon": {
+    "row": 1,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_15.png"
+   },
+   "kill_feed": {
+    "icon": 77,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_78.png"
+   },
+   "notes": [
+    "peer: Vityaz (9x19); muzzle_point 0.46c2/0.69d0 (0, 0.0401, -0.3579), fire_point -0.3735; no built-in device"
+   ]
+  },
+  {
+   "name": "svu_a",
+   "dict_id": 2271,
+   "donor_item": "svu_a",
+   "config": "gameplay/items/weapons/wpn_svu_a.options",
+   "template": "gameplay/items/weapons/wpn_svd.options",
+   "base_cost": 75000,
+   "ammo": [
+    148
+   ],
+   "set": {
+    "parameters.faction": 4,
+    "parameters.item_level": 15,
+    "parameters.match_making_level": 15,
+    "parameters.drop_weight": 40,
+    "parameters.rounds_per_minute": 333,
+    "parameters.bullet_damage": 0.93,
+    "parameters.bullet_pierce": 0.5,
+    "parameters.stopping_power": 0.6,
+    "parameters.weight": 4.4,
+    "parameters.reload_time": 3.1,
+    "parameters.aim_time": 0.35,
+    "parameters.magazine_capacity": 5,
+    "parameters.fire_queue_types": [
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_svu_a_name",
+    "ui_desc.text_descriptions.description": "st_svu_a_description",
+    "parameters.type": "wpn_aslt"
+   },
+   "from_template": [
+    "parameters.stamina_damage"
+   ],
+   "lobby_icon": {
+    "row": 2,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_12.png",
+    "erase": [
+     [
+      16,
+      8,
+      72,
+      33
+     ],
+     [
+      36,
+      33,
+      60,
+      35
+     ]
+    ]
+   },
+   "kill_feed": {
+    "icon": 75,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_76.png"
+   },
+   "notes": [
+    "peer: SVD; 0.46c2 type wpn_cara -> the SVD's wpn_aslt, single fire",
+    "muzzle_point (0, 0.0166, -0.4173), fire_point -0.5952: an 18 cm muzzle brake fused into the mesh (skip for muzzle devices)"
+   ]
+  },
+  {
+   "name": "l85a2",
+   "dict_id": 2272,
+   "donor_item": "l85a2",
+   "config": "gameplay/items/weapons/wpn_l85a2.options",
+   "template": "gameplay/items/weapons/wpn_m4a1.options",
+   "base_cost": 72000,
+   "ammo": [
+    2201
+   ],
+   "set": {
+    "parameters.faction": 1,
+    "parameters.item_level": 12,
+    "parameters.match_making_level": 12,
+    "parameters.drop_weight": 80,
+    "parameters.rounds_per_minute": 650,
+    "parameters.bullet_damage": 0.48,
+    "parameters.bullet_pierce": 0.32,
+    "parameters.stopping_power": 0.15,
+    "parameters.weight": 3.8,
+    "parameters.reload_time": 3.0,
+    "parameters.aim_time": 0.3,
+    "parameters.magazine_capacity": 30,
+    "parameters.fire_queue_types": [
+     -1,
+     1,
+     3
+    ],
+    "ui_desc.text_descriptions.name": "st_l85a2_name",
+    "ui_desc.text_descriptions.description": "st_l85a2_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage"
+   ],
+   "lobby_icon": {
+    "row": 3,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_19.png"
+   },
+   "kill_feed": {
+    "icon": 80,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_81.png"
+   },
+   "notes": [
+    "peer: M4A1 (5.56x45)",
+    "muzzle_point (0, 0.0700, -0.3486); 0.46c2 fire_point -0.4344 (its flash hider is in the mesh), 0.69d0's -0.3578 (enfieldl85a2_i05x28_muzzlebrake a module)"
+   ]
+  },
+  {
+   "name": "fort_401",
+   "dict_id": 2273,
+   "donor_item": "fort_401",
+   "config": "gameplay/items/weapons/wpn_fort_401.options",
+   "template": "gameplay/items/weapons/wpn_pkp_pecheneg.options",
+   "base_cost": 95000,
+   "ammo": [
+    2275
+   ],
+   "set": {
+    "parameters.faction": 4,
+    "parameters.item_level": 14,
+    "parameters.match_making_level": 14,
+    "parameters.drop_weight": 50,
+    "parameters.rounds_per_minute": 700,
+    "parameters.bullet_damage": 0.39,
+    "parameters.bullet_pierce": 0.45,
+    "parameters.stopping_power": 0.5,
+    "parameters.weight": 6.5,
+    "parameters.reload_time": 6.9,
+    "parameters.aim_time": 0.36,
+    "parameters.magazine_capacity": 100,
+    "parameters.fire_queue_types": [
+     -1,
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_fort_401_name",
+    "ui_desc.text_descriptions.description": "st_fort_401_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage"
+   ],
+   "lobby_icon": {
+    "row": 4,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_21.png"
+   },
+   "kill_feed": {
+    "icon": 79,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_80.png"
+   },
+   "notes": [
+    "peer: PKP Pecheneg; ammo: the 7.62x51 belt of 100 (2275, made of the live 7.62x51; a kit holds 3 bags, 10-round units starved the box), as the PKP takes its 7N13 belt",
+    "muzzle_point (0, 0.0632, -0.6210); 0.46c2 fire_point -0.6833 (its brake is in the mesh), 0.69d0's -0.6331 (fort401_i05x28_muzzlebrake a module)"
+   ]
+  },
+  {
+   "name": "jackhammer",
+   "dict_id": 2274,
+   "donor_item": "jackhammer",
+   "config": "gameplay/items/weapons/wpn_jackhammer.options",
+   "template": "gameplay/items/weapons/wpn_saiga_12.options",
+   "base_cost": 85000,
+   "ammo": [
+    2205,
+    72
+   ],
+   "set": {
+    "parameters.faction": 2,
+    "parameters.item_level": 13,
+    "parameters.match_making_level": 13,
+    "parameters.drop_weight": 70,
+    "parameters.rounds_per_minute": 300,
+    "parameters.bullet_damage": 0.93,
+    "parameters.bullet_pierce": 0.1,
+    "parameters.stopping_power": 0.8,
+    "parameters.weight": 4.6,
+    "parameters.reload_time": 2.56,
+    "parameters.aim_time": 0.3,
+    "parameters.magazine_capacity": 10,
+    "parameters.fire_queue_types": [
+     -1
+    ],
+    "ui_desc.text_descriptions.name": "st_jackhammer_name",
+    "ui_desc.text_descriptions.description": "st_jackhammer_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage"
+   ],
+   "lobby_icon": {
+    "row": 5,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_17.png"
+   },
+   "kill_feed": {
+    "icon": 78,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_79.png"
+   },
+   "notes": [
+    "peer: Saiga-12K; full auto only, as 0.46c2 (wpn_asgn as the Saiga)",
+    "no muzzle_point in 0.46c2 or 0.69d0; fire_point (0, 0.0707, -0.3510); no device"
+   ]
+  },
+  {
+   "name": "cz_75",
+   "dict_id": 2280,
+   "donor_item": "cz_75",
+   "config": "gameplay/items/weapons/wpn_cz_75.options",
+   "template": "gameplay/items/weapons/wpn_fort_17.options",
+   "base_cost": 13500,
+   "ammo": [
+    53,
+    71,
+    368
+   ],
+   "set": {
+    "parameters.faction": 4,
+    "parameters.item_level": 6,
+    "parameters.match_making_level": 6,
+    "parameters.drop_weight": 100,
+    "parameters.rounds_per_minute": 300,
+    "parameters.bullet_damage": 0.4,
+    "parameters.bullet_pierce": 0.2,
+    "parameters.stopping_power": 0.3,
+    "parameters.weight": 1.0,
+    "parameters.reload_time": 1.4,
+    "parameters.aim_time": 0.2,
+    "parameters.magazine_capacity": 16,
+    "parameters.fire_queue_types": [
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_cz_75_name",
+    "ui_desc.text_descriptions.description": "st_cz_75_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
+   ],
+   "lobby_icon": {
+    "row": 6,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_23.png",
+    "angle": 40
+   },
+   "kill_feed": {
+    "icon": 82,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_83.png"
+   },
+   "notes": [
+    "peer: Fort 17 (handling), the 9x19 SMGs (damage)",
+    "muzzle_point = fire_point (0.0062, 0.0401, -0.1564); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
+   ]
+  },
+  {
+   "name": "mp443",
+   "dict_id": 2281,
+   "donor_item": "mp443",
+   "config": "gameplay/items/weapons/wpn_mp443.options",
+   "template": "gameplay/items/weapons/wpn_fort_17.options",
+   "base_cost": 13500,
+   "ammo": [
+    53,
+    71,
+    368
+   ],
+   "set": {
+    "parameters.faction": 3,
+    "parameters.item_level": 6,
+    "parameters.match_making_level": 6,
+    "parameters.drop_weight": 100,
+    "parameters.rounds_per_minute": 300,
+    "parameters.bullet_damage": 0.4,
+    "parameters.bullet_pierce": 0.2,
+    "parameters.stopping_power": 0.3,
+    "parameters.weight": 0.95,
+    "parameters.reload_time": 1.4,
+    "parameters.aim_time": 0.2,
+    "parameters.magazine_capacity": 18,
+    "parameters.fire_queue_types": [
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_mp443_name",
+    "ui_desc.text_descriptions.description": "st_mp443_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
+   ],
+   "lobby_icon": {
+    "row": 7,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_22.png",
+    "angle": 40
+   },
+   "kill_feed": {
+    "icon": 83,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_84.png"
+   },
+   "notes": [
+    "peer: Fort 17",
+    "muzzle_point = fire_point (0, 0.0441, -0.1549); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
+   ]
+  },
+  {
+   "name": "beretta93r",
+   "dict_id": 2282,
+   "donor_item": "beretta93r",
+   "config": "gameplay/items/weapons/wpn_beretta93r.options",
+   "template": "gameplay/items/weapons/wpn_aps.options",
+   "base_cost": 14000,
+   "ammo": [
+    53,
+    71,
+    368
+   ],
+   "set": {
+    "parameters.faction": 4,
+    "parameters.item_level": 6,
+    "parameters.match_making_level": 6,
+    "parameters.drop_weight": 100,
+    "parameters.rounds_per_minute": 580,
+    "parameters.bullet_damage": 0.34,
+    "parameters.bullet_pierce": 0.2,
+    "parameters.stopping_power": 0.3,
+    "parameters.weight": 1.1,
+    "parameters.reload_time": 1.0,
+    "parameters.aim_time": 0.2,
+    "parameters.magazine_capacity": 20,
+    "parameters.fire_queue_types": [
+     3,
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_beretta93r_name",
+    "ui_desc.text_descriptions.description": "st_beretta93r_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
+   ],
+   "lobby_icon": {
+    "row": 8,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_24.png",
+    "angle": 40
+   },
+   "kill_feed": {
+    "icon": 84,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_85.png"
+   },
+   "notes": [
+    "peer: APS; three-round bursts and single shots (0.46c2's [3, 1])",
+    "muzzle_point = fire_point (0, 0.0445, -0.1792); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
+   ]
+  },
+  {
+   "name": "glock_17",
+   "dict_id": 2283,
+   "donor_item": "glock_17",
+   "config": "gameplay/items/weapons/wpn_glock_17.options",
+   "template": "gameplay/items/weapons/wpn_aps.options",
+   "base_cost": 15000,
+   "ammo": [
+    53,
+    71,
+    368
+   ],
+   "set": {
+    "parameters.faction": 3,
+    "parameters.item_level": 7,
+    "parameters.match_making_level": 7,
+    "parameters.drop_weight": 100,
+    "parameters.rounds_per_minute": 375,
+    "parameters.bullet_damage": 0.36,
+    "parameters.bullet_pierce": 0.2,
+    "parameters.stopping_power": 0.3,
+    "parameters.weight": 0.7,
+    "parameters.reload_time": 1.25,
+    "parameters.aim_time": 0.2,
+    "parameters.magazine_capacity": 17,
+    "parameters.fire_queue_types": [
+     -1,
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_glock_17_name",
+    "ui_desc.text_descriptions.description": "st_glock_17_description",
+    "parameters.base_rarity_level": 0
+   },
+   "from_template": [
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
+   ],
+   "lobby_icon": {
+    "row": 9,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_31.png",
+    "angle": 40
+   },
+   "kill_feed": {
+    "icon": 95,
+    "donor_png": null
+   },
+   "notes": [
+    "peer: APS; automatic and single (0.46c2's)",
+    "0.46c2 muzzle_point = fire_point (0, 0.0266, -0.1529); 0.69d0's glock_17_sandy has a barrel module and a clamp brake (grizzlygunworks_defcon1_i05x28_clamp_muzzlebrake), not in this mesh",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
+   ]
+  },
+  {
+   "name": "colt_m1911",
+   "dict_id": 2284,
+   "donor_item": "colt_m1911",
+   "config": "gameplay/items/weapons/wpn_colt_m1911.options",
+   "template": "gameplay/items/weapons/wpn_fort_17.options",
+   "base_cost": 4500,
+   "ammo": [
+    323
+   ],
+   "set": {
+    "parameters.faction": 2,
+    "parameters.item_level": 3,
+    "parameters.match_making_level": 3,
+    "parameters.drop_weight": 130,
+    "parameters.rounds_per_minute": 260,
+    "parameters.bullet_damage": 0.55,
+    "parameters.bullet_pierce": 0.25,
+    "parameters.stopping_power": 0.4,
+    "parameters.weight": 1.1,
+    "parameters.reload_time": 1.4,
+    "parameters.aim_time": 0.2,
+    "parameters.magazine_capacity": 7,
+    "parameters.fire_queue_types": [
+     1
+    ],
+    "ui_desc.text_descriptions.name": "st_colt_m1911_name",
+    "ui_desc.text_descriptions.description": "st_colt_m1911_description"
+   },
+   "from_template": [
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
+   ],
+   "lobby_icon": {
+    "row": 10,
+    "col": 6,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_35.png",
+    "angle": 40
+   },
+   "kill_feed": {
+    "icon": 82,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_83.png"
+   },
+   "notes": [
+    "peer: Fort 17 (handling), the UMP45 (.45 ACP damage)",
+    "muzzle_point = fire_point (0.0001, 0.0268, -0.1691); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
+   ]
+  }
+ ],
+ "ammo_items": [
+  {
+   "name": "ammo_7.62x51_belt",
+   "dict_id": 2275,
+   "config": "gameplay/items/weapons/ammo/ammo_7.62x51_belt.options",
+   "template": "gameplay/items/weapons/ammo/ammo_7.62x51.options",
+   "category": 21,
+   "base_cost": 300,
+   "set": {
+    "parameters.clip_size": 100,
+    "parameters.required_bags": 2,
+    "parameters.clip_weight": 2.5,
+    "parameters.item_level": 14,
+    "parameters.match_making_level": 14,
+    "parameters.rarity.0.0": 200,
+    "parameters.rarity.0.1": 500,
+    "ui_desc.text_descriptions.name": "st_ammo_762x51_belt_name",
+    "ui_desc.text_descriptions.description": "st_ammo_762x51_belt_description",
+    "ui_desc.ammo_indicator_name": "st_ammo_762x51_belt_name"
+   },
+   "lobby_icon": null
+  }
+ ]
+}

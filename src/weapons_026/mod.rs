@@ -28,6 +28,7 @@ pub mod clips;
 pub mod compare;
 pub mod config;
 pub mod donor;
+pub mod donor_046;
 pub mod icons;
 pub mod manifest;
 pub mod modules;

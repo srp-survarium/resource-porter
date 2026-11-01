@@ -119,15 +119,19 @@ pub struct LobbyIcon {
     /// The donor's icon image (a PNG no larger than a cell).
     #[serde(default)]
     pub donor_png: String,
-    /// An image of the port's own instead (a PNG, relative to the
-    /// manifest's folder): an item the donor has no icon for.
+    /// Degrees the donor's icon is turned by ([`super::donor::Donor::lobby_cell`]):
+    /// 0.46c2 draws its weapons diagonally (`None` there: a long gun's own axis).
     #[serde(default)]
-    pub file: Option<String>,
+    pub angle: Option<f32>,
     /// Rectangles of the finished cell made transparent, `[x0, y0, x1, y1)`
     /// in its pixels: a part the donor drew that the gun has not (the
     /// SVU's PSO-1, which 0.46c2 mounts and the port leaves out).
     #[serde(default)]
     pub erase: Vec<[u32; 4]>,
+    /// An image of the port's own instead (a PNG, relative to the
+    /// manifest's folder): an item the donor has no icon for.
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

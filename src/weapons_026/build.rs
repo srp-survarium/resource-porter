@@ -293,6 +293,17 @@ impl<D: Donor> Carry<'_, D> {
                 let name = skeleton.trim_start_matches("resources/").to_owned();
                 self.file(&format!("{name}.skeleton"))?;
             }
+        } else if path.ends_with(".raw_options") {
+            // The sound's loudness curve: a preset 0.26g lacks (0.46c2's
+            // `main_3rd_view_suppressed`, on the Beretta's and Glock's
+            // shutters) left the sound cook a null config, read at
+            // exe+0x62731 (`sound_spl`, `spl`, `volume`): every match with
+            // the CZ 75, Beretta, Glock or Colt crashed at load. It ships
+            // from the donor, or the port stops.
+            if let Some(preset) = super::resources::spl_preset(root) {
+                self.file(&super::resources::spl_file(preset))
+                    .with_context(|| format!("{path}: its SPL preset {preset}"))?;
+            }
         } else if path.ends_with(".composite_sound") || path.ends_with(".sound_collection") {
             let items =
                 get(root, "composite_sound.sound_items").or(get(root, "collection.sound_items"));
@@ -313,15 +324,28 @@ impl<D: Donor> Carry<'_, D> {
     }
 
     /// The clips and sounds an item config names.
-    fn states(&mut self, cfg: &V) -> Result<()> {
+    /// The clips and sounds `cfg` names. A clip the template names that no
+    /// archive has (the stock pistols' `on_site/death_fwd`) stays named, as
+    /// in the stock config, and is noted.
+    fn states(&mut self, cfg: &V, template: &V, notes: &mut Vec<String>) -> Result<()> {
         let mut strings = vec![];
         cfg.collect_strings(&mut strings);
+        let mut theirs = vec![];
+        template.collect_strings(&mut theirs);
         let clips: Vec<String> = strings
             .into_iter()
             .filter(|c| c.starts_with("resources/animations/"))
             .map(str::to_owned)
             .collect();
         for c in clips {
+            let path = format!("{}.b-spline", c.trim_start_matches("resources/"));
+            if theirs.contains(&c.as_str())
+                && !self.target.contains(&path)
+                && !self.donor.contains(&path)
+            {
+                notes.push(format!("{c}: the template's, which no archive has"));
+                continue;
+            }
             self.clip(&c)?;
         }
         let mut lists = vec![];
@@ -423,16 +447,51 @@ pub fn conform_material(donor: &V, template: &V) -> Result<V> {
                 );
             }
         }
+        // The template's switches: 0.26g draws only the switch combinations
+        // its own materials compile (a later build's combination hung the
+        // lobby, skhid-srp's equipment-046), so a donor material takes the
+        // native one's `use_*` values and keeps its own maps and constants.
         let effect = V::Named(
             dk.iter()
-                .filter(|f| tk.iter().any(|k| k.name == f.name))
-                .cloned()
+                .filter_map(|f| {
+                    let native = tk.iter().find(|k| k.name == f.name)?;
+                    let mut f = f.clone();
+                    if let (Some(V::Boolean(_)), Some(own @ V::Boolean(_))) =
+                        (f.value.named("value"), native.value.named("value"))
+                    {
+                        f.value.set_path("value", own.clone()).ok()?;
+                    }
+                    Some(f)
+                })
                 .collect(),
         );
         out.set_path(&format!("material.{stage}.effect"), effect)?;
     }
     ensure!(stages > 0, "material without an effect stage");
     Ok(out)
+}
+
+/// Keys skhid-srp's edit lists add to every weapon config (`weapon-camo-1`,
+/// `weapon-decals-1`; the card's properties are written anew): a template
+/// from the players' patches without them.
+const EDIT_KEYS: [(&str, &str); 3] = [
+    ("parameters", "camo_available"),
+    ("parameters", "decal_available"),
+    ("", "data"),
+];
+
+fn without_edit_keys(mut root: V) -> V {
+    for (table, key) in EDIT_KEYS {
+        let fields = if table.is_empty() {
+            Some(&mut root)
+        } else {
+            root.named_mut(table)
+        };
+        if let Some(V::Named(fields)) = fields {
+            fields.retain(|f| f.name != key);
+        }
+    }
+    root
 }
 
 /// The port's rows in `items_dict` (each its template's row with the gun's
@@ -615,7 +674,15 @@ pub fn build<D: Donor>(
     for w in &port.weapons {
         ensure!(!carry.target.contains(&w.config), "{} exists", w.config);
         let donor_cfg = carry.donor.item_config(&w.donor_item)?;
-        let template = parse_config(&mut stock, &w.template, "native template")?.root;
+        let template = if stock.contains(&w.template) {
+            parse_config(&mut stock, &w.template, "native template")?.root
+        } else {
+            // A gun only the patches have (patch 19's Saiga-12K, the one
+            // box-magazine wpn_asgn; its PKP and M4A1): its config without the
+            // keys skhid-srp's edit lists add to every weapon (they add them
+            // again).
+            without_edit_keys(parse_config(carry.target, &w.template, "template")?.root)
+        };
         let target: &ResourceDb = carry.target;
         let foreign = |clip: &str| -> bool {
             let path = clip.trim_start_matches("resources/");
@@ -636,7 +703,7 @@ pub fn build<D: Donor>(
             &foreign,
         )
         .with_context(|| w.name.clone())?;
-        report.notes.insert(w.config.clone(), notes);
+        let mut notes = notes;
         let model = string_of(get(&cfg, "object.model"))
             .context("object.model")?
             .to_owned();
@@ -645,7 +712,10 @@ pub fn build<D: Donor>(
             .context("object.skeleton")?
             .to_owned();
         carry.file(&format!("animations/skeletons/{skeleton}.skeleton"))?;
-        carry.states(&cfg).with_context(|| w.name.clone())?;
+        carry
+            .states(&cfg, &template, &mut notes)
+            .with_context(|| w.name.clone())?;
+        report.notes.insert(w.config.clone(), notes);
         configs.push((w, cfg));
     }
     let mut ammo_configs: Vec<(String, V)> = vec![];
@@ -767,7 +837,9 @@ pub fn build<D: Donor>(
             fs::write(
                 icons_dir.join(&name),
                 erase_rects(
-                    &cell_png(&carry.donor.read(&icon.donor_png)?)
+                    &carry
+                        .donor
+                        .lobby_cell(&icon.donor_png, icon.angle)
                         .with_context(|| icon.donor_png.clone())?,
                     &icon.erase,
                 )

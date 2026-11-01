@@ -1252,13 +1252,24 @@ fn main() -> Result<()> {
             target_patch,
             output,
         } => {
-            use vostok_resource_porter::weapons_026::{donor::ArchiveDonor, manifest::WeaponPort};
+            use vostok_resource_porter::weapons_026::{
+                build,
+                donor::{ArchiveDonor, DonorBuild},
+                donor_046::Donor046,
+                manifest::WeaponPort,
+            };
             let port = WeaponPort::load(&manifest)?;
-            let mut donor = ArchiveDonor::open(&donor, port.donor_build)?;
             let mut layers = vec![target_db];
             layers.extend(target_patch);
-            let report =
-                vostok_resource_porter::weapons_026::build(&port, &mut donor, &layers, &output)?;
+            let report = match port.donor_build {
+                DonorBuild::V046c2 => build(&port, &mut Donor046::open(&donor)?, &layers, &output)?,
+                other => build(
+                    &port,
+                    &mut ArchiveDonor::open(&donor, other)?,
+                    &layers,
+                    &output,
+                )?,
+            };
             for (config, notes) in &report.notes {
                 for note in notes {
                     println!("{config}: {note}");
