@@ -206,6 +206,16 @@ for k, page in enumerate(pages):
 if args.only_pack:
     sys.exit(0)
 
+# A page's chunks joined in one object: Cycles bakes the selected objects one
+# by one, each a scene update (the bunker's page of 119 chunks baked six
+# times slower than one of 12 holding as many texels).
+for page in pages:
+    page["chunks"] = len(page["objects"])
+    if len(page["objects"]) > 1:
+        select(page["objects"])
+        bpy.ops.object.join()
+        page["objects"] = [bpy.context.view_layer.objects.active]
+
 # --- bake ----------------------------------------------------------------------
 sc.cycles.samples = args.samples
 sc.render.bake.margin = 8
@@ -214,8 +224,8 @@ copies = {}
 for k, page in enumerate(pages):
     img = bpy.data.images.new(f"page_{k:02d}", page["size"], page["size"], float_buffer=True, alpha=True)
     page["image"] = img
-    for ob in page["objects"]:  # one material copy a page, the page its target
-        src = ob.data.materials[0]
+    for ob, slot in ((ob, slot) for ob in page["objects"] for slot in range(len(ob.data.materials))):
+        src = ob.data.materials[slot]  # one material copy a page, the page its target
         if (src.name, k) not in copies:
             m = src.copy()
             tn = m.node_tree.nodes.new("ShaderNodeTexImage")
@@ -225,7 +235,7 @@ for k, page in enumerate(pages):
             m.node_tree.links.new(uvb.outputs[0], tn.inputs[0])
             m.node_tree.nodes.active = tn
             copies[(src.name, k)] = m
-        ob.data.materials[0] = copies[(src.name, k)]
+        ob.data.materials[slot] = copies[(src.name, k)]
     select(page["objects"])
     t = time.time()
     bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
@@ -243,7 +253,7 @@ for k, page in enumerate(pages):
     aimg = bpy.data.images.new(f"alpha_{k:02d}", page["size"], page["size"], float_buffer=False)
     page["alpha_image"] = aimg
     saved = {}
-    for m in {ob.data.materials[0] for ob in page["objects"]}:
+    for m in {m for ob in page["objects"] for m in ob.data.materials}:
         nt = m.node_tree
         tex = next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is not page["image"])
         em = nt.nodes.new("ShaderNodeEmission")
@@ -340,7 +350,7 @@ for k, page in enumerate(pages):
         piece += 1
     baked["pages"].append({"name": f"page_{k:02d}", "png": f"pages/page_{k:02d}.png", "alpha": page["alpha"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],
-                           "chunks": len(page["objects"])})
+                           "chunks": page["chunks"]})
 baked["kept"] = kept
 baked["sources"] = {s["name"]: s["sha256"] for s in scene_json["surfaces"]}
 json.dump(baked, open(os.path.join(D, "baked.json"), "w"), indent=1)
