@@ -8,12 +8,12 @@
   "texture_options_template": "textures/tiled/concrete/concrete_01.options",
   "srp_lobby": {
     "weapon_spot": "weapon",
-    "weapon_view": 0.0
+    "weapon_view": 0.668
   },
   "pack": {
     "id": "lobby-stk2-bar",
-    "version": "4",
-    "description": "the STK2 Bar's shooting gallery (2011-12 bar_shooting_gallery: its lower level, the gallery's lanes, targets, camouflage nets, bottle shelf and lamps) as a 0.26g lobby project, projects/lobby_scene/stk2_bar, lit by STK2's own lights, sun and post-process; @2: the floor at the characters' feet (0.038 m up), the planks under the squad's right member left out, the stock workbench_02 in the back left corner with the weapon 0.40 m above it, camera boxes over the floor and the workbench; @3 (made, not shipped): relit warm (a box probe of the hall, warm fills along it and at the gallery's sides, STK2's halogen work lamps restored, the gallery's hot spot softened, a warm bounce on the character's back), the canister off the vent stack by the workbench (the upgrade table's flight) and a camera box over the bottle shelf; @4: the textures at their STK2 sources' full size (to 2048 px: up to @3 they were scaled to 512 px, the props' to 256); the merged model new with each version (level/stk2_bar/main_v4); lit the bomb shelter's way: no light casts a shadow (the gallery's spot, the hall's ceiling lamps and the halogen lamps cast them), the halogen lamps warm white (they were blue-white), the hall's three ceiling lamps warm and reaching 14 m (19.6: they lit the hall flat), STK2's blue sun left out (unshadowed, it tinted the whole room blue), the room probe's ambient 0.45 (0.2); a camera box under the hall's ceiling (the eye stopped on it at the wheel's far end and saw into the level above) and one over the carton boxes and shelf by the right wall"
+    "version": "5",
+    "description": "the STK2 Bar's shooting gallery (2011-12 bar_shooting_gallery: its lower level, the gallery's lanes, targets, camouflage nets, bottle shelf and lamps) as a 0.26g lobby project, projects/lobby_scene/stk2_bar, lit by STK2's own lights, sun and post-process; @2: the floor at the characters' feet (0.038 m up), the planks under the squad's right member left out, the stock workbench_02 in the back left corner with the weapon 0.40 m above it, camera boxes over the floor and the workbench; @3 (made, not shipped): relit warm (a box probe of the hall, warm fills along it and at the gallery's sides, STK2's halogen work lamps restored, the gallery's hot spot softened, a warm bounce on the character's back), the canister off the vent stack by the workbench (the upgrade table's flight) and a camera box over the bottle shelf; @4: the textures at their STK2 sources' full size (to 2048 px: up to @3 they were scaled to 512 px, the props' to 256); the merged model new with each version (level/stk2_bar/main_v4); lit the bomb shelter's way: no light casts a shadow (the gallery's spot, the hall's ceiling lamps and the halogen lamps cast them), the halogen lamps warm white (they were blue-white), the hall's three ceiling lamps warm and reaching 14 m (19.6: they lit the hall flat), STK2's blue sun left out (unshadowed, it tinted the whole room blue), the room probe's ambient 0.45 (0.2); a camera box under the hall's ceiling (the eye stopped on it at the wheel's far end and saw into the level above) and one over the carton boxes and shelf by the right wall; @5: the squad at the firing line (the owner: at the lanes' head they looked 'set there to be shot at'): the character on the shooters' plank floor by the stairs (STK2 (82.0, -3.109, -1.0)), the default view south-east along the sandbag wall and firing counter, the lanes and targets 18 m off to the left (chosen of three: straight downrange, north-east from the lounge, this one); the workbench left out, the weapon of an upgrade window 0.41 m above the firing counter, seen downrange (weapon_view 0.668); camera boxes re-made for the spot (the floor, under the ceiling, the sandbags and counter, the ammunition boxes, the back and south walls with the stairs' doorway, the television table, the chair); a dim warm fill at the foot of the stairs; the merged model level/stk2_bar/main_v5"
   },
   "target_project": "projects/lobby_scene/stk2_bar/client_project",
   "model_prefix": "level/stk2_bar",
@@ -27,11 +27,11 @@
   "max_texture_size": 2048,
   "scene": {
     "character": [
-      97.0,
-      -3.208,
-      0.6
+      82.0,
+      -3.109,
+      -1.0
     ],
-    "view_yaw": -1.5708
+    "view_yaw": -2.24
   },
   "slices": [
     {
@@ -205,9 +205,9 @@
       "name": "room_probe",
       "set": {
         "position": [
-          -0.4,
-          1.6,
-          -6.2
+          -7.028,
+          1.501,
+          5.661
         ],
         "probe_side_width": 0.1,
         "diffuse_multiplier": 4.0,
@@ -215,9 +215,9 @@
         "ambient_multiplier": 0.45,
         "geometry": 1,
         "scale": [
-          4.3,
+          9.948,
           1.9,
-          10.6
+          10.981
         ]
       }
     },
@@ -226,9 +226,9 @@
       "name": "hall_fill_0",
       "set": {
         "position": [
-          -0.4,
-          1.3,
-          -4.0
+          -8.393,
+          1.201,
+          7.387
         ],
         "radius": 4.6,
         "color": [
@@ -246,9 +246,9 @@
       "name": "hall_fill_1",
       "set": {
         "position": [
-          -0.4,
-          1.3,
-          -8.5
+          -5.601,
+          1.201,
+          3.857
         ],
         "radius": 4.6,
         "color": [
@@ -266,9 +266,9 @@
       "name": "hall_fill_2",
       "set": {
         "position": [
-          -0.4,
-          1.3,
-          -13.0
+          -2.809,
+          1.201,
+          0.328
         ],
         "radius": 4.6,
         "color": [
@@ -286,9 +286,9 @@
       "name": "hall_side_fill",
       "set": {
         "position": [
-          2.6,
-          1.3,
-          -2.5
+          -6.97,
+          1.201,
+          10.424
         ],
         "radius": 3.0,
         "color": [
@@ -306,9 +306,9 @@
       "name": "gallery_fill",
       "set": {
         "position": [
-          0.0,
-          1.5,
-          2.2
+          -11.925,
+          1.401,
+          12.498
         ],
         "radius": 4.0,
         "color": [
@@ -341,40 +341,49 @@
         "is_cast_shadow": false,
         "layer": "default"
       }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "stairs_fill",
+      "set": {
+        "position": [
+          2.957,
+          1.109,
+          0.936
+        ],
+        "radius": 2.2,
+        "color": [
+          1.0,
+          0.84,
+          0.66
+        ],
+        "intensity": 0.45,
+        "side_width": 1.0,
+        "layer": "default"
+      }
     }
   ],
   "spots": {
     "character": [
-      97.0,
-      -3.208,
-      0.6
+      82.0,
+      -3.109,
+      -1.0
     ],
     "weapon": [
-      100.15,
-      -1.968,
-      3.21
+      84.26,
+      -1.79,
+      1.4
     ],
     "artefact": [
-      101.2,
-      -1.92,
-      1.5
+      84.26,
+      -2.2,
+      2.3
     ]
   },
   "environment": {
     "object": "environment_day",
     "post_process": "resources/sources/material_instances/post_process/nick_postprocess_bar.material"
   },
-  "native_props": [
-    {
-      "lib": "props/furniture/workbench_02",
-      "position": [
-        -2.6,
-        0.0,
-        3.6
-      ],
-      "yaw": 0.0
-    }
-  ],
   "camera_boxes": [
     {
       "what": "the floor",
@@ -390,56 +399,101 @@
       ]
     },
     {
-      "what": "the workbench",
+      "what": "under the ceiling (2.97 m over the plank floor)",
       "centre": [
-        -2.61,
-        0.47,
-        3.15
+        0.0,
+        2.75,
+        0.0
       ],
       "half_extents": [
-        0.79,
-        0.47,
-        0.57
+        5.0,
+        0.07,
+        5.0
       ]
     },
     {
-      "what": "the bottle shelf at the lanes' end",
+      "what": "the sandbags and the firing counter, left of the squad (0.2 m over its top, so the eye stops before it, not on it)",
       "centre": [
-        -0.27,
-        0.95,
-        4.25
+        -2.722,
+        0.675,
+        0.62
       ],
       "half_extents": [
-        1.75,
-        0.95,
-        0.4
-      ]
+        0.575,
+        0.675,
+        4.05
+      ],
+      "yaw": 2.24
     },
     {
-      "what": "under the hall's ceiling (its collision at 3.07, with no margin the eye stopped on it and saw through into the level above)",
+      "what": "the green ammunition boxes behind the squad's right member",
       "centre": [
-        0.3,
-        2.925,
-        -0.6
+        1.128,
+        0.275,
+        2.04
       ],
       "half_extents": [
-        4.3,
-        0.145,
+        0.65,
+        0.275,
+        0.3
+      ],
+      "yaw": 2.24
+    },
+    {
+      "what": "the shooters' back wall (its collision has no margin)",
+      "centre": [
+        0.203,
+        1.5,
+        -2.836
+      ],
+      "half_extents": [
+        0.25,
+        1.5,
         4.2
-      ]
+      ],
+      "yaw": 2.24
     },
     {
-      "what": "the carton boxes and the shelf by the right wall",
+      "what": "the south wall and the stairs' doorway behind the squad",
       "centre": [
-        3.06,
-        0.77,
-        -1.85
+        2.212,
+        1.5,
+        1.112
       ],
       "half_extents": [
+        2.1,
+        1.5,
+        0.275
+      ],
+      "yaw": 2.24
+    },
+    {
+      "what": "the television table",
+      "centre": [
+        -2.2,
+        0.45,
+        -3.143
+      ],
+      "half_extents": [
+        0.75,
+        0.45,
+        0.675
+      ],
+      "yaw": 2.24
+    },
+    {
+      "what": "the leather chair",
+      "centre": [
+        -1.411,
         0.5,
-        0.78,
-        1.04
-      ]
+        -2.327
+      ],
+      "half_extents": [
+        0.6,
+        0.5,
+        0.6
+      ],
+      "yaw": 2.24
     }
   ],
   "emission_scale": {
