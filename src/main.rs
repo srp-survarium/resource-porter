@@ -236,6 +236,27 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// A 0.69d0 weapon port: `port-weapons` with 0.69d0 as the donor (its
+    /// guns' composed models, PBR materials) and its sidecar
+    /// (`ports/weapons-*.donor.json`: rigs, modules left out, new rounds).
+    #[command(name = "port-weapons-069d")]
+    PortWeapons069d {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The donor sidecar.
+        #[arg(long)]
+        donor_spec: PathBuf,
+        /// An archive of the 0.69d0 files the guns draw, with
+        /// `gameplay/game.options` (`scripts/weapons-069d-donor.py`).
+        #[arg(long)]
+        donor: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// A side view of a model's meshes (`<model>/render/*/converted_model`
     /// of a folder): a weapon's verification render.
     RenderWeapon {
@@ -1259,6 +1280,30 @@ fn main() -> Result<()> {
             layers.extend(target_patch);
             let report =
                 vostok_resource_porter::weapons_026::build(&port, &mut donor, &layers, &output)?;
+            for (config, notes) in &report.notes {
+                for note in notes {
+                    println!("{config}: {note}");
+                }
+            }
+            println!(
+                "Built {}: {} files, {} reused from the target",
+                port.id, report.files, report.reused
+            );
+        }
+        Command::PortWeapons069d {
+            manifest,
+            donor_spec,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::{donor_069d, manifest::WeaponPort};
+            let port = WeaponPort::load(&manifest)?;
+            let spec = donor_069d::Spec069::load(&donor_spec)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report = donor_069d::build_069d(&port, &spec, &donor, &layers, &output)?;
             for (config, notes) in &report.notes {
                 for note in notes {
                     println!("{config}: {note}");

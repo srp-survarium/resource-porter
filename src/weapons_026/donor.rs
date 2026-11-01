@@ -29,6 +29,10 @@ pub enum DonorBuild {
     V029a3,
     #[serde(rename = "0.31a2")]
     V031a2,
+    /// 0.69d0: items in `gameplay/game.options`, 16-byte configs, PBR
+    /// materials, attachment modules ([`super::donor_069d`]).
+    #[serde(rename = "0.69d0")]
+    V069d0,
 }
 
 /// What a build's configs mean, against 0.26g's.
@@ -91,11 +95,26 @@ pub const RULES_031A2: Rules = Rules {
     mesh_statistics: true,
 };
 
+/// 0.69d0 numbers its states as 0.31a2 (two-clip idle 312, reload 313 and
+/// fire 314 are 0.26g's 313, 314 and 315; grenade 315 is 316), and its
+/// melee 324 is 0.26g's 321 (its clips are the shared `weapons/base` set,
+/// so a port keeps the template's melee). Its states' parameters keep
+/// 0.26g's names; stamina damage is a port's `set`.
+pub const RULES_069D0: Rules = Rules {
+    state_types: &[(312, 313), (313, 314), (314, 315), (315, 316), (324, 321)],
+    same_state_types_up_to: 311,
+    renames: &[],
+    scaled: &[],
+    clips_12_byte_events: true,
+    mesh_statistics: false,
+};
+
 impl DonorBuild {
     pub fn rules(self) -> &'static Rules {
         match self {
             Self::V029a3 => &RULES_029A3,
             Self::V031a2 => &RULES_031A2,
+            Self::V069d0 => &RULES_069D0,
         }
     }
 }

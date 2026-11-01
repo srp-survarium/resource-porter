@@ -1,0 +1,68 @@
+{
+ "format_version": 1,
+ "guns": {
+  "akmsu": {
+   "rig": {
+    "live": "models/weapons/ak74u.skinned_model"
+   },
+   "separable": [
+    "akmsu_m24x15_muzzlebrake"
+   ]
+  },
+  "famas": {
+   "rig": {
+    "live": "models/weapons/ash_12/ash_12.skinned_model"
+   },
+   "separable": [
+    "famas_default_muzzlebrake"
+   ]
+  },
+  "g3a3": {
+   "rig": "donor",
+   "separable": [
+    "g3a3_default_muzzlebrake"
+   ]
+  },
+  "mauser": {
+   "rig": "donor"
+  },
+  "ks_23": {
+   "rig": "donor"
+  },
+  "ppsh_drum": {
+   "rig": {
+    "live": "models/weapons/ppsh/ppsh.skinned_model"
+   },
+   "module_turns": {
+    "ppsh_762x25_71_round_mag": 90.0
+   }
+  }
+ },
+ "rounds": [
+  {
+   "name": "ammo_23mm_r",
+   "dict_id": 2253,
+   "config": "gameplay/items/weapons/ammo/ammo_23mm_r.options",
+   "template": "ammo_12mm_buck",
+   "base_cost": 20,
+   "set": {
+    "parameters.damage": 0.2,
+    "data.k_damage": 0.2,
+    "parameters.arp": 0.2,
+    "data.k_arp": 0.2,
+    "parameters.buckshot": 10,
+    "data.buck_shot": 10,
+    "parameters.clip_size": 15,
+    "parameters.clip_weight": 0.6,
+    "ui_desc.ammo_indicator_name": "st_srp_ammo069_23mm_r_name",
+    "ui_desc.text_descriptions.name": "st_srp_ammo069_23mm_r_name",
+    "ui_desc.text_descriptions.description": "st_srp_ammo069_23mm_r_desc"
+   },
+   "icon": [
+    22,
+    4
+   ],
+   "icon_like": "ammo_12mm_buck"
+  }
+ ]
+}

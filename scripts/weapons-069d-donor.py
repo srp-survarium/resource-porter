@@ -118,6 +118,8 @@ def sound(kind, name):
 for g in guns:
     c = cfg[g]
     model(sv(c['object.model']))
+    # The kill log icon of its ui_desc.combat_log_icon (icon_<n + 1>.png).
+    add(f"flash_movies/textures/ui_icons/log/icon_{int(sv(c['ui_desc.combat_log_icon'])) + 1}.png")
     add(f"animations/skeletons/{sv(c['object.skeleton'])}.skeleton")
     for k, v in c.items():
         if re.match(r'(bundled|default)_modules\[\d+\]\.module$', k):

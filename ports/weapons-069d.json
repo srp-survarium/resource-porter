@@ -1,0 +1,386 @@
+{
+ "format_version": 1,
+ "id": "weapons-069",
+ "donor_build": "0.69d0",
+ "weapons": [
+  {
+   "name": "akmsu",
+   "dict_id": 2290,
+   "donor_item": "akmsu",
+   "config": "gameplay/items/weapons/wpn_akmsu.options",
+   "template": "gameplay/items/weapons/wpn_ak_74u.options",
+   "base_cost": 19000,
+   "ammo": [
+    81,
+    218
+   ],
+   "set": {
+    "parameters.faction": 3,
+    "parameters.item_level": 6,
+    "parameters.match_making_level": 6,
+    "parameters.drop_weight": 100,
+    "parameters.rounds_per_minute": 625,
+    "parameters.bullet_damage": 0.45,
+    "parameters.bullet_pierce": 0.4,
+    "parameters.weight": 2.9,
+    "parameters.reload_time": 3.167,
+    "parameters.aim_time": 0.3,
+    "parameters.base_dispersion": 0.3,
+    "parameters.magazine_capacity": 30,
+    "parameters.min_damage_distance": 40,
+    "parameters.max_damage_distance": 15,
+    "parameters.fire_queue_types": [
+     -1,
+     1
+    ],
+    "ui_desc.icon": [
+     17,
+     5
+    ],
+    "ui_desc.text_descriptions.name": "st_srp_weapon069_akmsu_name",
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_akmsu_desc",
+    "states.fire.sounds.first_view": [
+     [
+      257,
+      "weapons/akm_n"
+     ]
+    ],
+    "states.fire.sounds.third_view": [
+     [
+      257,
+      "weapons/akm_n_m"
+     ]
+    ]
+   },
+   "from_template": [
+    "breath_vibration",
+    "dispersion",
+    "parameters",
+    "particles",
+    "recoil",
+    "recoil_animations",
+    "weapon_affinities",
+    "user_animations",
+    "states.show",
+    "states.hide",
+    "states.idle",
+    "states.fire",
+    "states.reload"
+   ],
+   "lobby_icon": null,
+   "kill_feed": {
+    "icon": 96,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_97.png"
+   },
+   "notes": [
+    "AKMSU: the AKM's round and damage, 0.69d0's +4 % rate, the AKS-74U's short-barrel spread and falloff; the AKM's level and seller",
+    "on the live AK rig: the AKS-74U's clips and reload sounds, 0.69d0's AKM firing sound (weapons/akm_n, 0.26g's AKM's)"
+   ]
+  },
+  {
+   "name": "famas",
+   "dict_id": 2291,
+   "donor_item": "famas",
+   "config": "gameplay/items/weapons/wpn_famas.options",
+   "template": "gameplay/items/weapons/wpn_ash_12.options",
+   "base_cost": 100000,
+   "ammo": [
+    2201
+   ],
+   "set": {
+    "parameters.faction": 1,
+    "parameters.item_level": 14,
+    "parameters.match_making_level": 14,
+    "parameters.drop_weight": 70,
+    "parameters.rounds_per_minute": 900,
+    "parameters.bullet_damage": 0.5,
+    "parameters.bullet_pierce": 0.32,
+    "parameters.weight": 3.4,
+    "parameters.reload_time": 4.0,
+    "parameters.aim_time": 0.3,
+    "parameters.base_dispersion": 0.2,
+    "parameters.magazine_capacity": 30,
+    "parameters.min_damage_distance": 50,
+    "parameters.max_damage_distance": 20,
+    "parameters.fire_queue_types": [
+     -1,
+     1,
+     3
+    ],
+    "ui_desc.icon": [
+     18,
+     5
+    ],
+    "ui_desc.text_descriptions.name": "st_srp_weapon069_famas_name",
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_famas_desc",
+    "states.fire.sounds.first_view": [
+     [
+      257,
+      "weapons/m4a1"
+     ]
+    ],
+    "states.fire.sounds.third_view": [
+     [
+      257,
+      "weapons/m4a1_m"
+     ]
+    ]
+   },
+   "from_template": [
+    "breath_vibration",
+    "dispersion",
+    "parameters",
+    "particles",
+    "recoil",
+    "recoil_animations",
+    "weapon_affinities",
+    "user_animations",
+    "states.show",
+    "states.hide",
+    "states.idle",
+    "states.fire"
+   ],
+   "lobby_icon": null,
+   "kill_feed": {
+    "icon": 97,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_98.png"
+   },
+   "notes": [
+    "FAMAS: 5.56x45 at the M4A1's damage, 0.69d0's 900 rpm and 3-round burst, reload 4.0 s (0.69d0's +33 % on the H&K); level 14 beside the H&K, Scavengers",
+    "on the live Ash-12 rig and clips, as 0.69d0, but its own reload (two clips, 0.26g state 314); the M4A1's firing sound"
+   ]
+  },
+  {
+   "name": "g3sg1",
+   "dict_id": 2292,
+   "donor_item": "g3a3",
+   "config": "gameplay/items/weapons/wpn_g3sg1.options",
+   "template": "gameplay/items/weapons/wpn_socom16.options",
+   "base_cost": 80000,
+   "ammo": [
+    52,
+    51
+   ],
+   "set": {
+    "parameters.faction": 2,
+    "parameters.item_level": 15,
+    "parameters.match_making_level": 15,
+    "parameters.drop_weight": 40,
+    "parameters.rounds_per_minute": 240,
+    "parameters.bullet_damage": 0.64,
+    "parameters.bullet_pierce": 0.4,
+    "parameters.weight": 5.2,
+    "parameters.reload_time": 3.2,
+    "parameters.aim_time": 0.3,
+    "parameters.base_dispersion": 0.2,
+    "parameters.magazine_capacity": 20,
+    "parameters.min_damage_distance": 100,
+    "parameters.max_damage_distance": 30,
+    "parameters.fire_queue_types": [
+     1,
+     3
+    ],
+    "ui_desc.icon": [
+     19,
+     5
+    ],
+    "ui_desc.text_descriptions.name": "st_srp_weapon069_g3sg1_name",
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_g3sg1_desc"
+   },
+   "from_template": [
+    "breath_vibration",
+    "dispersion",
+    "parameters",
+    "particles",
+    "recoil",
+    "recoil_animations",
+    "weapon_affinities",
+    "user_animations"
+   ],
+   "lobby_icon": null,
+   "kill_feed": {
+    "icon": 98,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_99.png"
+   },
+   "notes": [
+    "G3SG/1: 7.62x51 semi-auto as the SOCOM 16, 0.69d0's +6 % damage, -20 % rate and burst of 3; 20 rounds, the real gun's as in 0.69d0 (the owner, 2026-11-01); level 15, Black Market",
+    "its own 0.69d0 rig and clips"
+   ]
+  },
+  {
+   "name": "mauser_m712",
+   "dict_id": 2293,
+   "donor_item": "mauser",
+   "config": "gameplay/items/weapons/wpn_mauser_m712.options",
+   "template": "gameplay/items/weapons/wpn_aps.options",
+   "base_cost": 13000,
+   "ammo": [
+    50
+   ],
+   "set": {
+    "parameters.faction": 3,
+    "parameters.item_level": 6,
+    "parameters.match_making_level": 6,
+    "parameters.drop_weight": 100,
+    "parameters.rounds_per_minute": 580,
+    "parameters.bullet_damage": 0.35,
+    "parameters.bullet_pierce": 0.25,
+    "parameters.weight": 1.7,
+    "parameters.reload_time": 1.5,
+    "parameters.aim_time": 0.25,
+    "parameters.base_dispersion": 0.35,
+    "parameters.magazine_capacity": 10,
+    "parameters.min_damage_distance": 40,
+    "parameters.max_damage_distance": 15,
+    "parameters.fire_queue_types": [
+     -1,
+     1
+    ],
+    "ui_desc.icon": [
+     20,
+     5
+    ],
+    "ui_desc.text_descriptions.name": "st_srp_weapon069_mauser_m712_name",
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_mauser_m712_desc"
+   },
+   "from_template": [
+    "breath_vibration",
+    "dispersion",
+    "parameters",
+    "particles",
+    "recoil",
+    "recoil_animations",
+    "weapon_affinities",
+    "user_animations"
+   ],
+   "lobby_icon": null,
+   "kill_feed": {
+    "icon": 86,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_87.png"
+   },
+   "notes": [
+    "Mauser M.712: an automatic pistol as the APS, 7.62x25's pierce, +17 % rate, half its magazine; the APS's level, Renaissance",
+    "its own 0.69d0 rig and clips; the aimed shots (_calim) left out"
+   ]
+  },
+  {
+   "name": "ks_23m",
+   "dict_id": 2294,
+   "donor_item": "ks_23",
+   "config": "gameplay/items/weapons/wpn_ks_23m.options",
+   "template": "gameplay/items/weapons/wpn_rem_870.options",
+   "base_cost": 26000,
+   "ammo": [
+    2253
+   ],
+   "set": {
+    "parameters.faction": 3,
+    "parameters.item_level": 7,
+    "parameters.match_making_level": 7,
+    "parameters.drop_weight": 90,
+    "parameters.rounds_per_minute": 180,
+    "parameters.bullet_damage": 1.2,
+    "parameters.bullet_pierce": 0.1,
+    "parameters.weight": 3.7,
+    "parameters.reload_time": 1.7,
+    "parameters.aim_time": 0.25,
+    "parameters.base_dispersion": 1.8,
+    "parameters.magazine_capacity": 4,
+    "parameters.min_damage_distance": 30,
+    "parameters.max_damage_distance": 10,
+    "parameters.fire_queue_types": [
+     1
+    ],
+    "parameters.chamber_a_round_time": 0.75,
+    "ui_desc.icon": [
+     21,
+     5
+    ],
+    "ui_desc.text_descriptions.name": "st_srp_weapon069_ks_23m_name",
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_ks_23m_desc"
+   },
+   "from_template": [
+    "breath_vibration",
+    "dispersion",
+    "parameters",
+    "particles",
+    "recoil",
+    "recoil_animations",
+    "weapon_affinities",
+    "user_animations"
+   ],
+   "lobby_icon": null,
+   "kill_feed": {
+    "icon": 85,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_86.png"
+   },
+   "notes": [
+    "KS-23M: a pump as the Remington 870, 0.69d0's +7 % damage, chambering 0.75 s (+25 %), reload +5 %; level 7 with the Benelli and SPAS, Renaissance",
+    "its own 0.69d0 rig and clips; the empty-chamber start (reload_finalround) left out; its 23x75R round is the sidecar's"
+   ]
+  },
+  {
+   "name": "ppsh_drum",
+   "dict_id": 2295,
+   "donor_item": "ppsh_drum",
+   "config": "gameplay/items/weapons/wpn_ppsh_drum.options",
+   "template": "gameplay/items/weapons/wpn_ppsh.options",
+   "base_cost": 6000,
+   "ammo": [
+    50
+   ],
+   "set": {
+    "parameters.faction": 1,
+    "parameters.item_level": 2,
+    "parameters.match_making_level": 2,
+    "parameters.drop_weight": 120,
+    "parameters.rounds_per_minute": 1000,
+    "parameters.bullet_damage": 0.3,
+    "parameters.bullet_pierce": 0.25,
+    "parameters.weight": 3.9,
+    "parameters.reload_time": 4.6,
+    "parameters.aim_time": 0.3,
+    "parameters.base_dispersion": 0.4,
+    "parameters.magazine_capacity": 71,
+    "parameters.min_damage_distance": 40,
+    "parameters.max_damage_distance": 15,
+    "parameters.fire_queue_types": [
+     -1,
+     1
+    ],
+    "ui_desc.icon": [
+     22,
+     5
+    ],
+    "ui_desc.text_descriptions.name": "st_srp_weapon069_ppsh_drum_name",
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_ppsh_drum_desc"
+   },
+   "from_template": [
+    "breath_vibration",
+    "dispersion",
+    "parameters",
+    "particles",
+    "recoil",
+    "recoil_animations",
+    "weapon_affinities",
+    "user_animations",
+    "states.show",
+    "states.hide",
+    "states.idle",
+    "states.fire"
+   ],
+   "lobby_icon": null,
+   "kill_feed": {
+    "icon": 33,
+    "donor_png": null
+   },
+   "notes": [
+    "PPSH-41 \"Drum\": the PPSh-41 with 0.69d0's 71-round drum, reload +25 % (4.6 s), aim 0.3 s; level 2, Scavengers",
+    "on the live PPSh rig and clips but the drum's own reload (two clips, 0.26g state 314)"
+   ]
+  }
+ ],
+ "external_ammo": [
+  2253
+ ]
+}

@@ -12,7 +12,7 @@ fn main() -> anyhow::Result<()> {
     let rig = Rig::parse(&bind, &skeleton)?;
     let mut spline = db.read(&format!("{}.b-spline", a[3]))?;
     if a[4] == "069" {
-        spline = vostok_resource_porter::weapons_069d::convert::bspline_069_to_026(&spline)?;
+        spline = vostok_resource_porter::weapons_026::clips::events_12_to_16(&spline)?;
     }
     let clip = Clip::parse(&spline, &db.read(&format!("{}.bones_names", a[3]))?)?;
     let rest = rig.rest();
