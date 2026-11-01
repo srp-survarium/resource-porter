@@ -155,6 +155,12 @@ pub struct LobbyManifest {
     /// `emission`) is scaled further.
     #[serde(default)]
     pub emission_scale: BTreeMap<String, f32>,
+    /// STK2 materials whose surfaces are mapped anew from above (uv along
+    /// the lobby's x and z, this many uv a metre), for a tiled texture laid
+    /// over a surface STK2 mapped for something else (the bomb shelter's
+    /// vault overlay, one uv tile a bay for its stain).
+    #[serde(default)]
+    pub planar_uvs: BTreeMap<String, f32>,
 }
 
 /// A converted light's fields set by eye.
@@ -897,6 +903,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             slice,
             objects,
             &material_names,
+            &manifest.planar_uvs,
             &templates,
             scene,
             &mut pack,
@@ -1977,6 +1984,67 @@ impl Mesh {
         Ok(mesh)
     }
 
+    /// Its uvs projected from above: u along x, v along z, `density` uv a
+    /// metre, shifted by whole tiles to near 0 (for the half floats); the
+    /// tangent and binormal along x and z in each vertex's plane (its
+    /// normal the faces' around it).
+    fn map_from_above(&mut self, density: f32, label: &str) -> Result<()> {
+        let mut normals = vec![[0.0f32; 3]; self.vertices.len()];
+        for t in &self.triangles {
+            let [a, b, c] = t.map(|i| self.positions[i as usize]);
+            let (e1, e2) = (
+                [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+                [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+            );
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            for &i in t {
+                for (sum, value) in normals[i as usize].iter_mut().zip(n) {
+                    *sum += value;
+                }
+            }
+        }
+        let low = |axis: usize| {
+            self.positions
+                .iter()
+                .map(|p| p[axis] * density)
+                .fold(f32::INFINITY, f32::min)
+                .floor()
+        };
+        let (shift_u, shift_v) = (low(0), low(2));
+        for ((vertex, p), n) in self.vertices.iter_mut().zip(&self.positions).zip(&normals) {
+            let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            let n = if length > 0.0 {
+                n.map(|v| v / length)
+            } else {
+                [0.0, -1.0, 0.0]
+            };
+            // the axis less its part along the normal
+            let along = |axis: [f32; 3]| {
+                let d = axis[0] * n[0] + axis[1] * n[1] + axis[2] * n[2];
+                [axis[0] - d * n[0], axis[1] - d * n[1], axis[2] - d * n[2]]
+            };
+            for (slot, axis) in [(1, [1.0, 0.0, 0.0]), (2, [0.0, 0.0, 1.0])] {
+                vertex[12 + slot * 4..16 + slot * 4]
+                    .copy_from_slice(&packed_basis(along(axis), 255).to_le_bytes());
+            }
+            for (offset, value) in [
+                (24, p[0] * density - shift_u),
+                (26, p[2] * density - shift_v),
+            ] {
+                vertex[offset..offset + 2].copy_from_slice(
+                    &half(value)
+                        .with_context(|| format!("{label}: uv from above"))?
+                        .to_le_bytes(),
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Only the triangles with a corner `inside`, their vertices
     /// renumbered.
     fn clipped(&self, inside: impl Fn([f32; 3]) -> bool) -> Mesh {
@@ -2816,6 +2884,7 @@ fn write_slice(
     slice: &SliceSpec,
     objects: &SliceObjects,
     material_names: &BTreeMap<String, Option<(String, String)>>,
+    planar_uvs: &BTreeMap<String, f32>,
     templates: &StaticModelTemplates,
     scene: Rigid,
     pack: &mut PackWriter,
@@ -2846,7 +2915,10 @@ fn write_slice(
                 continue;
             };
             validate_static_geometry(&vertices, &indices, &label)?;
-            let mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            let mut mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            if let Some(density) = planar_uvs.get(material) {
+                mesh.map_from_above(*density, &label)?;
+            }
             let clipped = mesh.clipped(in_box);
             if clipped.triangles.is_empty() {
                 continue;
@@ -3407,6 +3479,32 @@ mod tests {
         assert_eq!(read_u32(&mesh, at).unwrap(), 4);
         assert_eq!(&mesh[at + 8..], &indices[..]);
         assert!(near(bounds.min, [10.0, 0.0, -1.0]));
+    }
+
+    #[test]
+    fn a_mesh_mapped_from_above_takes_x_and_z_at_the_density() {
+        // a flat triangle at x 3..5, z -1..1
+        let mut mesh = Mesh {
+            vertices: vec![[0u8; VERTEX_SIZE]; 3],
+            positions: vec![[3.0, 2.0, -1.0], [3.0, 2.0, 1.0], [5.0, 2.0, -1.0]],
+            triangles: vec![[0, 1, 2]],
+        };
+        mesh.map_from_above(0.5, "test").unwrap();
+        let uv = |i: usize| {
+            let v = &mesh.vertices[i];
+            [
+                u16::from_le_bytes([v[24], v[25]]),
+                u16::from_le_bytes([v[26], v[27]]),
+            ]
+        };
+        // u = 0.5 x less 1 (whole tiles), v = 0.5 z less -1
+        assert_eq!(uv(0), [half(0.5).unwrap(), half(0.5).unwrap()]);
+        assert_eq!(uv(1), [half(0.5).unwrap(), half(1.5).unwrap()]);
+        assert_eq!(uv(2), [half(1.5).unwrap(), half(0.5).unwrap()]);
+        // the tangent along x, the binormal along z
+        let slot = |s: usize| read_u32(&mesh.vertices[0], 12 + s * 4).unwrap();
+        assert_eq!(slot(1), packed_basis([1.0, 0.0, 0.0], 255));
+        assert_eq!(slot(2), packed_basis([0.0, 0.0, 1.0], 255));
     }
 
     #[test]
