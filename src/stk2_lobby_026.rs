@@ -247,6 +247,9 @@ struct BakedJson {
     /// The environment probes' radiance, path-traced from the probes.
     #[serde(default)]
     probes: Vec<BakedProbeJson>,
+    /// A hybrid bake's flat normal and roughness maps.
+    #[serde(default)]
+    flat: Option<BakedFlatJson>,
 }
 
 /// A probe's six faces (0.26g's order, `probe_bake::direction`'s texels),
@@ -262,8 +265,27 @@ struct BakedProbeJson {
 #[derive(Debug, Deserialize)]
 struct BakedPageJson {
     name: String,
-    png: PathBuf,
     alpha: bool,
+    #[serde(flatten)]
+    light: BakedLightJson,
+}
+
+/// What a page holds: the light a surface sends (drawn as emission on a black
+/// material), or its albedo (lit by the project's lights in the game) and
+/// the indirect light alone (emitted, a smaller page of the same layout).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum BakedLightJson {
+    Hybrid { albedo: PathBuf, indirect: PathBuf },
+    Radiance { png: PathBuf },
+}
+
+/// A hybrid bake's flat stand-ins for the template's normal and roughness
+/// maps, which would tile over the pages' layout.
+#[derive(Debug, Deserialize)]
+struct BakedFlatJson {
+    normal: PathBuf,
+    roughness: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -301,17 +323,34 @@ impl Bake {
         ensure!(json.emission.is_finite() && json.emission > 0.0, "the bake's emission is not positive");
         let version = &manifest.pack.version;
         let mut materials = BTreeMap::new();
+        let flat = match &json.flat {
+            Some(flat) => Some((
+                textures.make_page_as(&format!("baked_v{version}/flat_normal"), &dir.join(&flat.normal), TextureKind::Normal, false, pack)?,
+                textures.make_page_as(&format!("baked_v{version}/flat_roughness"), &dir.join(&flat.roughness), TextureKind::Linear, false, pack)?,
+            )),
+            None => None,
+        };
         for page in &json.pages {
-            let texture = textures.make_page(
-                &format!("baked_v{version}/{}", page.name),
-                &dir.join(&page.png),
-                page.alpha,
-                pack,
-            )?;
             let template = if page.alpha { &spec.alpha_template } else { &spec.template };
             let mut material = parse(target, &format!("material_instances/{template}.material"))?;
-            set_baked(&mut material.root, &texture, json.emission)
-                .with_context(|| format!("{template}: the baked material"))?;
+            let page_name = format!("baked_v{version}/{}", page.name);
+            let texture = match &page.light {
+                BakedLightJson::Radiance { png } => {
+                    let texture = textures.make_page(&page_name, &dir.join(png), page.alpha, pack)?;
+                    set_baked(&mut material.root, &texture, json.emission)
+                        .with_context(|| format!("{template}: the baked material"))?;
+                    texture
+                }
+                BakedLightJson::Hybrid { albedo, indirect } => {
+                    let (normal, roughness) =
+                        flat.as_ref().context("a hybrid page without the bake's flat maps")?;
+                    let texture = textures.make_page(&page_name, &dir.join(albedo), page.alpha, pack)?;
+                    let light = textures.make_page(&format!("{page_name}_indirect"), &dir.join(indirect), false, pack)?;
+                    set_hybrid(&mut material.root, &texture, &light, json.emission, normal, roughness)
+                        .with_context(|| format!("{template}: the hybrid material"))?;
+                    texture
+                }
+            };
             let name = format!("{}/baked_v{version}/{}", manifest.material_prefix, page.name);
             pack.config(&format!("material_instances/{name}.material"), &material)?;
             materials.insert(page.name.clone(), (name, texture));
@@ -482,6 +521,54 @@ fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_ba
         faces.push(levels);
     }
     Ok(crate::probe_bake::Cube { size, mips: PROBE_CUBE_MIPS, faces })
+}
+
+/// A hybrid page's material: the template lit as it is (its albedo the page's,
+/// its normal and roughness maps flat: theirs would tile over the page's
+/// layout), emitting the indirect page times `emission` on top of the
+/// project's lights (the emissive pass adds to the lit frame).
+fn set_hybrid(
+    root: &mut ConfigValue,
+    albedo: &str,
+    indirect: &str,
+    emission: f32,
+    normal: &str,
+    roughness: &str,
+) -> Result<()> {
+    let effect = "material.g_stage.effect";
+    for (field, value) in [
+        ("use_tdiffuse", ConfigValue::Boolean(true)),
+        ("texture_diffuse", ConfigValue::String(albedo.to_owned())),
+        ("constant_diffuse", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ("texture_normal", ConfigValue::String(normal.to_owned())),
+        ("texture_roughness", ConfigValue::String(roughness.to_owned())),
+        ("use_emissive", ConfigValue::Boolean(true)),
+        ("use_emissive_map", ConfigValue::Boolean(true)),
+        ("texture_emissive", ConfigValue::String(indirect.to_owned())),
+        ("constant_emissive", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ("constant_emissive_multiplier", ConfigValue::Float(emission)),
+    ] {
+        let path = format!("{effect}.{field}.value");
+        ensure!(
+            crate::content_pack::value::value_at(root, &path).is_some(),
+            "the template has no {field}"
+        );
+        root.set_path(&path, value)?;
+    }
+    // every other normal slot the template binds (detail, blended) flat too
+    for field in ["texture_detail_normal", "texture_alphablended_normal", "texture_vertex_blended_normal"] {
+        let path = format!("{effect}.{field}.value");
+        if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
+            root.set_path(&path, ConfigValue::String(normal.to_owned()))?;
+        }
+    }
+    for field in ["texture_specular_intensity", "texture_vertex_blended_specular"] {
+        let path = format!("{effect}.{field}.value");
+        if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
+            root.set_path(&path, ConfigValue::String(roughness.to_owned()))?;
+        }
+    }
+    Ok(())
 }
 
 /// A baked page's material: black (the g-buffer's albedo is the diffuse
@@ -1828,11 +1915,23 @@ impl TextureMaker<'_> {
     /// A baked page (`scripts/lobby-bake`, an sRGB PNG) as `<prefix>/<name>`:
     /// DXT5 when its alpha is an alpha test's, else DXT1.
     fn make_page(&mut self, name: &str, png: &Path, alpha: bool, pack: &mut PackWriter) -> Result<String> {
+        self.make_page_as(name, png, TextureKind::Colour, alpha, pack)
+    }
+
+    /// A baked image of `kind` as `<prefix>/<name>`.
+    fn make_page_as(
+        &mut self,
+        name: &str,
+        png: &Path,
+        kind: TextureKind,
+        alpha: bool,
+        pack: &mut PackWriter,
+    ) -> Result<String> {
         let target = format!("{}/{name}", self.prefix);
         let stem = self.work.join(name.replace('/', "__"));
         let options = if alpha { "\"DXT5\"" } else { "" };
         let (bytes, format, srgb) = self
-            .convert(&target, &target, TextureKind::Colour, png, options, &stem)
+            .convert(&target, &target, kind, png, options, &stem)
             .with_context(|| format!("the baked page {}", png.display()))?;
         self.write(&target, &bytes, format, srgb, pack)?;
         Ok(target)

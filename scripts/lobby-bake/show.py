@@ -13,7 +13,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_lights, add_props, log, new_object, new_scene, page_material,  # noqa: E402
+from common import (Materials, add_lights, add_props, hybrid_material, log, new_object, new_scene, page_material,  # noqa: E402
                     read_model, read_placed, render, views)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -36,7 +36,10 @@ baked = json.load(open(os.path.join(D, "baked.json")))
 
 new_scene(args.threads, args.gpu)
 materials = Materials()
-pages = {p["name"]: page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"])
+hybrid = "albedo" in baked["pages"][0]
+pages = {p["name"]: (hybrid_material(p["name"], os.path.join(D, p["albedo"]), os.path.join(D, p["indirect"]),
+                                     baked["emission"], p["alpha"]) if hybrid else
+                     page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"]))
          for p in baked["pages"]}
 for s in baked["surfaces"]:
     new_object(s["name"], *read_model(os.path.join(D, s["file"]))[:4], pages[s["page"]])
@@ -47,9 +50,12 @@ for s in scene_json["surfaces"]:
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 bpy_scene = __import__("bpy").context.scene
-bpy_scene.cycles.use_denoising = False
+bpy_scene.cycles.use_denoising = hybrid
+if hybrid:  # the engine lights the albedo directly; the bounce is the indirect page's
+    bpy_scene.cycles.max_bounces = 0
+    args.samples = max(args.samples, 128)
 wanted = [v for v in args.views.split(",") if v]
 for name, view in views(scene_json).items():
     if not wanted or name in wanted:
-        render(os.path.join(D, "renders"), f"baked-{name}.png", view, args.fov, args.samples, args.exposure)
+        render(os.path.join(D, "renders"), f"{'hybrid' if hybrid else 'baked'}-{name}.png", view, args.fov, args.samples, args.exposure)
 log("done")

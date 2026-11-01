@@ -35,9 +35,9 @@ from common import (Materials, add_decals, add_lights, add_props, log, new_objec
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
 ap.add_argument("scene")
-ap.add_argument("--near", type=float, default=128.0, help="texels a metre within --radius of the character's eye")
+ap.add_argument("--near", type=float, default=192.0, help="texels a metre within --radius of the character's eye")
 ap.add_argument("--far", type=float, default=32.0, help="texels a metre beyond it")
-ap.add_argument("--radius", type=float, default=7.0)
+ap.add_argument("--radius", type=float, default=8.0)
 ap.add_argument("--outside", type=float, default=4.0,
                 help="texels a metre outside the scene's box (the faces no view of the lobby reaches)")
 ap.add_argument("--page", type=int, default=2048, help="the largest page")
@@ -56,6 +56,10 @@ ap.add_argument("--only-render", action="store_true", help="the traced views onl
 ap.add_argument("--probe-samples", type=int, default=512)
 ap.add_argument("--probe-at", default="0,1.2,0", help="where the probes are traced (lobby frame): the character's chest; "
                 "a probe object's own place can be inside a prop (the bunker's room probe is in the gas-mask crates)")
+ap.add_argument("--hybrid", action="store_true",
+                help="pages of albedo (lit by the project's lights in the game) and of indirect light only "
+                     "(emitted, at a quarter of the size): the lamps' direct light, shadows and every "
+                     "dynamic light stay the engine's")
 ap.add_argument("--only-probes", action="store_true", help="the probes only (no renders, no bake)")
 ap.add_argument("--only-pack", action="store_true", help="lay out the pages and stop (no renders, no bake)")
 args = ap.parse_args(argv)
@@ -94,10 +98,12 @@ def in_zone(c):
     return any(all(min(z[0][k], z[1][k]) <= c[k] <= max(z[0][k], z[1][k]) for k in range(3)) for z in ZONES)
 
 
-def density_at(c):
+def density_at(c, nearest):
+    """A triangle's texels a metre: its centroid `c` outside the box, the
+    fewest; any corner (`nearest`, its distance) within --radius, near."""
     if BOX and not all(min(BOX[0][k], BOX[1][k]) <= c[k] <= max(BOX[0][k], BOX[1][k]) for k in range(3)):
         return args.outside
-    return args.near if (c - EYE).length < args.radius else args.far
+    return args.near if nearest < args.radius else args.far
 
 
 
@@ -119,7 +125,8 @@ for s in scene_json["surfaces"]:
         if in_zone(c):
             zone.append(t)
         else:
-            groups.setdefault(density_at(c), []).append(t)
+            # near when any corner is (a large wall triangle by the character is near)
+            groups.setdefault(density_at(c, min((mathutils.Vector(pos[i]) - EYE).length for i in t)), []).append(t)
     if zone:  # in the trace as it is; the porter keeps these faces of the surface unbaked
         new_object(s["name"] + "_unbaked", pos, nrm, uv, zone, mat, weights=weights)
     work = list(groups.items())
@@ -242,12 +249,21 @@ def select(objects):
     bpy.context.view_layer.objects.active = objects[0]
 
 
-# The page's islands are the model's own (its uv seams; STK2's props are laid
-# out on their atlases, its architecture tiles in long strips the chunks cut):
+# A chunk's islands: a prop's are its model's own (laid out on its atlas;
 # smart project cut the 14 000-face valves and the debris into thousands of
-# islands, each with its margin, and filled pages to 1 %.
-for ob, _, _, _ in chunks:
+# islands, each with its margin, and filled pages to 1 %); the architecture's,
+# few large faces whose own uvs tile and stretch (streaks on the pillars in
+# the game), smart project's.
+DENSE = 300.0  # faces a square metre above which a chunk is a prop
+for ob, _, area, _ in chunks:
     ob.data.uv_layers.active = ob.data.uv_layers.new(name="bake", do_init=True)
+    if len(ob.data.polygons) / max(area, 1e-6) < DENSE:
+        select([ob])
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.0, area_weight=0.0,
+                                 correct_aspect=True, scale_to_bounds=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
 for k, page in enumerate(pages):
     margin = 4.0 / page["size"]
     # every chunk's islands scaled to its metres
@@ -318,8 +334,25 @@ for k, page in enumerate(pages):
         ob.data.materials[slot] = copies[(src.name, k)]
     select(page["objects"])
     t = time.time()
-    bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
-                        margin=8, use_clear=True, target="IMAGE_TEXTURES")
+    if args.hybrid:
+        # the albedo, then the light that reached the surface after a bounce
+        # (times the albedo): the live lamps' direct light is the engine's
+        sc.cycles.samples = 4
+        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, margin=8, use_clear=True,
+                            target="IMAGE_TEXTURES")
+        small = max(page["size"] // 4, 128)
+        ind = bpy.data.images.new(f"indirect_{k:02d}", small, small, float_buffer=True, alpha=True)
+        page["indirect_image"] = ind
+        for m in {m for ob in page["objects"] for m in ob.data.materials}:
+            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is img).image = ind
+        sc.cycles.samples = args.samples
+        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"INDIRECT", "COLOR"}, margin=4, use_clear=True,
+                            target="IMAGE_TEXTURES")
+        for m in {m for ob in page["objects"] for m in ob.data.materials}:
+            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+    else:
+        bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
+                            margin=8, use_clear=True, target="IMAGE_TEXTURES")
     img.filepath_raw = os.path.join(D, "pages", f"page_{k:02d}.exr")
     img.file_format = "OPEN_EXR"
     img.save()
@@ -355,12 +388,17 @@ for k, page in enumerate(pages):
 # --- the multiplier and the 8-bit pages ----------------------------------------
 # One multiplier for every page: the 99.8th percentile of the baked radiance is
 # the texture's white (the hot spots by the bulbs clip above it).
+def pixels(img):
+    px = np.empty(img.size[0] * img.size[1] * 4, dtype=np.float32)
+    img.pixels.foreach_get(px)
+    return px.reshape(-1, 4)
+
+
 values = []
 for page in pages:
-    px = np.empty(page["size"] ** 2 * 4, dtype=np.float32)
-    page["image"].pixels.foreach_get(px)
-    page["px"] = px.reshape(-1, 4)
-    values.append(page["px"][page["px"][:, 3] > 0.5, :3].max(axis=1))
+    page["px"] = pixels(page["image"])
+    emitted = pixels(page["indirect_image"]) if args.hybrid else page["px"]
+    values.append(emitted[emitted[:, 3] > 0.5, :3].max(axis=1))
 allv = np.concatenate(values)
 emission = float(np.percentile(allv, 99.8))
 log(f"emission multiplier {emission:.3f} (radiance median {np.median(allv):.3f}, max {allv.max():.2f})")
@@ -371,23 +409,33 @@ def srgb(x):
     return np.where(x <= 0.0031308, 12.92 * x, 1.055 * np.power(x, 1 / 2.4) - 0.055)
 
 
-for k, page in enumerate(pages):
-    rgb = srgb(page["px"][:, :3] / emission)
-    a = np.ones(len(rgb), dtype=np.float32)
-    if page.get("alpha_image"):
-        apx = np.empty(page["size"] ** 2 * 4, dtype=np.float32)
-        page["alpha_image"].pixels.foreach_get(apx)
-        a = apx.reshape(-1, 4)[:, 0]
-    out = bpy.data.images.new(f"png_{k:02d}", page["size"], page["size"], alpha=True)
-    out.colorspace_settings.name = "Non-Color"  # written as they are: sRGB-encoded above
+def write_png(name, size, rgb, a):
+    out = bpy.data.images.new(name, size, size, alpha=True)
+    out.colorspace_settings.name = "Non-Color"  # written as they are: sRGB-encoded already
     out.pixels.foreach_set(np.concatenate([rgb, a[:, None]], axis=1).astype(np.float32).ravel())
-    out.filepath_raw = os.path.join(D, "pages", f"page_{k:02d}.png")
+    out.filepath_raw = os.path.join(D, "pages", f"{name}.png")
     out.file_format = "PNG"
     out.save()
+
+
+for k, page in enumerate(pages):
+    a = pixels(page["alpha_image"])[:, 0] if page.get("alpha_image") else np.ones(len(page["px"]), dtype=np.float32)
+    if args.hybrid:
+        write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3]), a)
+        ind = pixels(page["indirect_image"])
+        write_png(f"page_{k:02d}_indirect", page["indirect_image"].size[0], srgb(ind[:, :3] / emission),
+                  np.ones(len(ind), dtype=np.float32))
+    else:
+        write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3] / emission), a)
+if args.hybrid:  # the template's normal and roughness maps, flat (they would tile over the pages' layout)
+    write_png("flat_normal", 4, np.tile([[0.5, 0.5, 1.0]], (16, 1)), np.ones(16))
+    write_png("flat_roughness", 4, np.tile([[0.85, 0.85, 0.85]], (16, 1)), np.ones(16))
 
 # --- the baked surfaces as 0.26g models ----------------------------------------
 LIMIT = 35000  # stk2_lobby_026's MAX_STATIC_SURFACE_VERTICES, less a little
 baked = {"emission": emission, "pages": [], "surfaces": []}
+if args.hybrid:
+    baked["flat"] = {"normal": "pages/flat_normal.png", "roughness": "pages/flat_roughness.png"}
 for k, page in enumerate(pages):
     pos, nrm, uv, tris = [], [], [], []
     for ob in page["objects"]:
@@ -428,7 +476,9 @@ for k, page in enumerate(pages):
         baked["surfaces"].append({"name": name, "file": f"baked/{name}", "page": f"page_{k:02d}",
                                   "vertices": len(order), "triangles": len(ts)})
         piece += 1
-    baked["pages"].append({"name": f"page_{k:02d}", "png": f"pages/page_{k:02d}.png", "alpha": page["alpha"],
+    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png"} if args.hybrid \
+        else {"png": f"pages/page_{k:02d}.png"}
+    baked["pages"].append({"name": f"page_{k:02d}", **kind, "alpha": page["alpha"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],
                            "chunks": page["chunks"]})
 baked["kept"] = kept
