@@ -176,6 +176,34 @@ pub struct BakeSpec {
     /// shader permutations) the game is seen to draw.
     pub template: String,
     pub alpha_template: String,
+    // How the slice is traced: read by scripts/lobby-bake/prep.py only (its
+    // docstring has their meaning); the build takes the bake as it is made.
+    /// The views rendered: name -> [eye, target], lobby frame.
+    #[serde(default)]
+    pub views: BTreeMap<String, [[f32; 3]; 2]>,
+    /// The project's lights left out of the trace: names, or prefixes
+    /// ending in '/'.
+    #[serde(default)]
+    pub skip_lights: Vec<String>,
+    /// Where the texel density is highest (the character's chest).
+    #[serde(default)]
+    pub eye: Option<[f32; 3]>,
+    /// The space the lobby is seen in ([min, max]).
+    #[serde(default, rename = "box")]
+    pub seen: Option<[[f32; 3]; 2]>,
+    /// The environment's sun and a sky of this radiance.
+    #[serde(default)]
+    pub outdoor: Option<OutdoorSpec>,
+}
+
+/// A bake's outdoors (scripts/lobby-bake/prep.py): the environment's sun,
+/// times `sun_scale`, and a sky of radiance `sky` (0.26g light units).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutdoorSpec {
+    pub sky: [f32; 3],
+    #[serde(default)]
+    pub sun_scale: Option<f32>,
 }
 
 /// bake.py's `baked.json`.

@@ -44,21 +44,68 @@ def pack_basis(vec, alpha):
 
 
 def read_model(path):
-    """A converted_model in Blender's frame: positions, normals, uvs, triangles."""
+    """A converted_model in Blender's frame: positions, normals, uvs,
+    triangles and blend weights. Its vertices are 28 bytes, or 32 with a
+    colour after them (the 0.26 vertex-colour meshes: its alpha the weight
+    of the material's base layer over its vertex-blended one; else None)."""
     d = open(path, "rb").read()
-    tag, _, n = struct.unpack_from("<III", d, 0)
-    assert tag == 3, path
-    pos, nrm, uv = [], [], []
+    tag, size, n = struct.unpack_from("<III", d, 0)
+    assert tag == 3 and size - 4 in (28 * n, 32 * n), path
+    stride = (size - 4) // n if n else 28
+    pos, nrm, uv, weights = [], [], [], [] if stride == 32 else None
     for i in range(n):
-        x, y, z, pn, _, _, u, v = struct.unpack_from("<3f3I2H", d, 12 + 28 * i)
+        x, y, z, pn, _, _, u, v = struct.unpack_from("<3f3I2H", d, 12 + stride * i)
         pos.append(to_b((x, y, z)))
         nrm.append(to_b(unpack_basis(pn)))
         uv.append((half(u), 1.0 - half(v)))
-    o = 12 + 28 * n
+        if weights is not None:
+            weights.append(d[12 + stride * i + 31] / 255.0)
+    o = 12 + stride * n
     tag, _, m = struct.unpack_from("<III", d, o)
     assert tag == 4, path
     idx = struct.unpack_from(f"<{m}H", d, o + 12)
-    return pos, nrm, uv, [(idx[i], idx[i + 2], idx[i + 1]) for i in range(0, m, 3)]
+    return pos, nrm, uv, [(idx[i], idx[i + 2], idx[i + 1]) for i in range(0, m, 3)], weights
+
+
+_SWAP = mathutils.Matrix(((1, 0, 0), (0, 0, 1), (0, 1, 0)))
+
+
+def rotation(a):
+    """0.26g's Euler rotation of a placed object (row vectors: world = (v *
+    scale) * R + position; resource-porter's instance_rotation)."""
+    sx, cx = math.sin(a[0]), math.cos(a[0])
+    sy, cy = math.sin(a[1]), math.cos(a[1])
+    sz, cz = math.sin(a[2]), math.cos(a[2])
+    return mathutils.Matrix(((cy * cz, -cy * sz, sy),
+                             (sy * sx * cz + cx * sz, -sx * sy * sz + cx * cz, -sx * cy),
+                             (-cx * sy * cz + sx * sz, cx * sy * sz + sx * cz, cx * cy)))
+
+
+def placement(place):
+    """A placement (position, rotation, scale) as Blender's matrix."""
+    m = _SWAP @ rotation(place["rotation"]).transposed() @ mathutils.Matrix.Diagonal(place["scale"]) @ _SWAP
+    out = m.to_4x4()
+    out.translation = to_b(place["position"])
+    return out
+
+
+def direction(angles, local):
+    """A placed object's local direction (0.26g frame) in Blender's."""
+    return (_SWAP @ rotation(angles).transposed() @ mathutils.Vector(local)).normalized()
+
+
+def read_placed(surface):
+    """A scene surface's model where it is placed (scene.json's `place`)."""
+    pos, nrm, uv, tris, weights = read_model(surface["file"])
+    if "place" not in surface:
+        return pos, nrm, uv, tris, weights
+    m = placement(surface["place"])
+    n3 = m.to_3x3().inverted().transposed()
+    pos = [tuple(m @ mathutils.Vector(p)) for p in pos]
+    nrm = [tuple((n3 @ mathutils.Vector(n)).normalized()) for n in nrm]
+    if m.to_3x3().determinant() < 0:
+        tris = [(a, c, b) for a, b, c in tris]
+    return pos, nrm, uv, tris, weights
 
 
 def write_model(path, pos, nrm, uv, tris):
@@ -146,6 +193,9 @@ def lit_material(spec):
     texture times its colour, cut by its alpha test, and its emission."""
     m, nt = _nodes(spec["name"])
     out = nt.nodes.new("ShaderNodeOutputMaterial")
+    if spec.get("transparent"):  # glass and fx: drawn over the lit frame, seen through here
+        nt.links.new(nt.nodes.new("ShaderNodeBsdfTransparent").outputs[0], out.inputs[0])
+        return m
     uvn = nt.nodes.new("ShaderNodeUVMap")
     uvn.uv_map = "tex"
     bsdf = nt.nodes.new("ShaderNodeBsdfDiffuse")
@@ -154,7 +204,20 @@ def lit_material(spec):
         tex = nt.nodes.new("ShaderNodeTexImage")
         tex.image = image(spec["diffuse"])
         nt.links.new(uvn.outputs[0], tex.inputs[0])
-        nt.links.new(_multiply(nt, tex.outputs["Color"], spec["colour"]), bsdf.inputs["Color"])
+        colour = tex.outputs["Color"]
+        if spec.get("blended"):  # the base layer over the blended one by the vertex's weight
+            second = nt.nodes.new("ShaderNodeTexImage")
+            second.image = image(spec["blended"])
+            nt.links.new(uvn.outputs[0], second.inputs[0])
+            weight = nt.nodes.new("ShaderNodeAttribute")
+            weight.attribute_name = "blend"
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            nt.links.new(weight.outputs["Fac"], mix.inputs[0])
+            nt.links.new(second.outputs["Color"], mix.inputs[6])
+            nt.links.new(colour, mix.inputs[7])
+            colour = mix.outputs[2]
+        nt.links.new(_multiply(nt, colour, spec["colour"]), bsdf.inputs["Color"])
     else:
         bsdf.inputs["Color"].default_value = list(spec["colour"]) + [1.0]
     shader = bsdf.outputs[0]
@@ -199,7 +262,7 @@ def page_material(name, png, emission, alpha):
     return m
 
 
-def new_object(name, pos, nrm, uv, tris, material, matrix=None):
+def new_object(name, pos, nrm, uv, tris, material, matrix=None, weights=None):
     me = bpy.data.meshes.new(name)
     tris = [t for t in tris if len(set(t)) == 3]
     me.from_pydata(pos, [], tris)
@@ -210,6 +273,8 @@ def new_object(name, pos, nrm, uv, tris, material, matrix=None):
     layer.data.foreach_set("uv", [c for vi in loop_vi for c in uv[vi]])
     me.polygons.foreach_set("use_smooth", [True] * len(me.polygons))
     me.normals_split_custom_set_from_vertices(nrm)
+    if weights is not None:  # the blend weight a vertex-blended material reads
+        me.attributes.new("blend", "FLOAT", "POINT").data.foreach_set("value", weights)
     me.materials.append(material)
     ob = bpy.data.objects.new(name, me)
     if matrix is not None:
@@ -232,40 +297,82 @@ def add_props(scene_json, materials, skip):
     for p in scene_json["props"]:
         if any(k in p["visual"] for k in skip):
             continue
-        if tuple(p["rotation"]) != (0.0, 0.0, 0.0):
-            log("prop with a rotation, placed unrotated:", p["visual"])
-        m = mathutils.Matrix.Translation(to_b(p["position"]))
+        m = placement(p)
         for s in p["surfaces"]:
-            pos, nrm, uv, tris = read_model(s["file"])
-            new_object(p["visual"] + "/" + s["name"], pos, nrm, uv, tris, materials.lit(s["material"]), m)
+            pos, nrm, uv, tris, weights = read_model(s["file"])
+            new_object(p["visual"] + "/" + s["name"], pos, nrm, uv, tris, materials.lit(s["material"]), m, weights)
+
+
+def skipped(name, skip):
+    """A light named in `skip`: by its name, its last part, or a prefix
+    ending in '/' (a group of the project's lights)."""
+    return any(name == k or name.endswith("/" + k) or (k.endswith("/") and name.startswith(k)) for k in skip)
 
 
 def add_lights(scene_json, skip, match, bulb):
-    """Point lights matching the engine's at `match` metres (the engine: albedo
-    * I * colour * N.L * (1 - d^2/range^2)^power, point_light_accumulator.ps;
-    Cycles: albedo * P / (4 pi^2 d^2) * N.L): nearer brighter, further darker."""
+    """Point and spot lights matching the engine's at `match` metres (the
+    engine: albedo * I * colour * N.L * (1 - d^2/range^2)^power,
+    point_light_accumulator.ps; Cycles: albedo * P / (4 pi^2 d^2) * N.L):
+    nearer brighter, further darker. A spot shines along its local -y (the
+    engine turns its frame -90 degrees about x: lights_db.cpp fill_light),
+    full brightness inside its umbra, none past its penumbra. The sun
+    (scene.json's `sun`, the environment's) matches the engine's at every
+    distance (Cycles: albedo * S / pi * N.L), the sky is the world's
+    radiance (a matte surface under it sends albedo x sky)."""
     for l in scene_json["lights"]:
-        if l["name"] in skip or not l["intensity"]:
+        if skipped(l["name"], skip) or not l["intensity"] or l.get("enabled") is False:
             continue
+        # matched at `match`, or half its range for a short light (the
+        # engine's window is 0 at the range)
         r, p = l["range"], l["attenuation_power"]
-        window = max(1.0 - min(match * match / (r * r), 1.0), 1e-3) ** p
-        power = 4 * math.pi ** 2 * match * match * l["intensity"] * window
-        light = bpy.data.lights.new(l["name"], "POINT")
-        light.color = l["color"]
+        at = min(match, 0.5 * r)
+        window = max(1.0 - min(at * at / (r * r), 1.0), 1e-3) ** p
+        power = 4 * math.pi ** 2 * at * at * l["intensity"] * window
+        spot = l.get("light_type") == 1
+        light = bpy.data.lights.new(l["name"], "SPOT" if spot else "POINT")
+        light.color = l["color"][:3]
         light.energy = power
         light.shadow_soft_size = bulb
         lo = bpy.data.objects.new(l["name"], light)
         lo.location = to_b(l["position"])
+        if spot:
+            outer = min(l.get("spot_penumbra_angle") or math.pi, math.pi)
+            light.spot_size = outer
+            light.spot_blend = max(0.0, min(1.0, 1.0 - (l.get("spot_umbra_angle") or outer) / outer))
+            lo.rotation_euler = direction(l["rotation"], (0, -1, 0)).to_track_quat("-Z", "Y").to_euler()
         bpy.context.scene.collection.objects.link(lo)
-        log(f"light {l['name']}: {power:.0f} W (engine {l['intensity']} x {window:.2f} at {match} m)")
+        log(f"{'spot' if spot else 'light'} {l['name']}: {power:.0f} W (engine {l['intensity']} x {window:.2f} at {at} m)")
+    sun = scene_json.get("sun")
+    if sun and sun["intensity"] and not skipped("environment_sun", skip):
+        light = bpy.data.lights.new("environment_sun", "SUN")
+        light.color = sun["color"]
+        light.energy = math.pi * sun["intensity"]
+        light.angle = math.radians(1.0)
+        lo = bpy.data.objects.new("environment_sun", light)
+        lo.rotation_euler = mathutils.Vector(to_b(sun["to_sun"])).to_track_quat("Z", "Y").to_euler()
+        bpy.context.scene.collection.objects.link(lo)
+        log(f"sun: {light.energy:.2f} W/m2 (engine {sun['intensity']}), towards {sun['to_sun']}")
+    sky = scene_json.get("sky")
+    if sky and any(sky):
+        world = bpy.context.scene.world
+        if world.node_tree is None:
+            world.use_nodes = True
+        background = next(n for n in world.node_tree.nodes if n.type == "BACKGROUND")
+        background.inputs["Color"].default_value = list(sky) + [1.0]
+        background.inputs["Strength"].default_value = 1.0
+        log(f"sky: radiance {sky}")
 
 
-# The views rendered (0.26g lobby frame, the character at the origin): the stock
-# camera's, up at the store room's pendant (the owner's screenshot, 2026-11-01),
-# and across the room to the vaults.
+# The views rendered (0.26g lobby frame, the character at the origin): the
+# scene's own (the lobby's bake section), else the stock camera's, up at the
+# bunker store room's pendant (the owner's screenshot, 2026-11-01), and across
+# the room to the vaults.
 def views(scene_json):
     cp = scene_json["camera"]["position"]
     cd = scene_json["camera"]["direction"]
+    stock = (cp, [cp[i] + cd[i] for i in range(3)])
+    if scene_json.get("views"):
+        return {"stock": stock, **{k: tuple(v) for k, v in scene_json["views"].items()}}
     return {
         "stock": (cp, [cp[i] + cd[i] for i in range(3)]),
         "lamp": ((0.15, 1.35, -1.2), (-0.25, 2.75, 3.2)),

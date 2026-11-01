@@ -29,8 +29,8 @@ import mathutils
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_lights, add_props, log, new_object, new_scene, read_model,  # noqa: E402
-                    render, views, write_model)
+from common import (Materials, add_lights, add_props, log, new_object, new_scene, read_placed,  # noqa: E402
+                    render, to_b, views, write_model)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
@@ -38,6 +38,8 @@ ap.add_argument("scene")
 ap.add_argument("--near", type=float, default=128.0, help="texels a metre within --radius of the character's eye")
 ap.add_argument("--far", type=float, default=32.0, help="texels a metre beyond it")
 ap.add_argument("--radius", type=float, default=7.0)
+ap.add_argument("--outside", type=float, default=4.0,
+                help="texels a metre outside the scene's box (the faces no view of the lobby reaches)")
 ap.add_argument("--page", type=int, default=2048, help="the largest page")
 ap.add_argument("--samples", type=int, default=128)
 ap.add_argument("--render-samples", type=int, default=256)
@@ -70,24 +72,36 @@ def tri_area(pos, t):
     return 0.5 * (b - a).cross(c - a).length
 
 
-EYE = mathutils.Vector((0.0, 0.0, 1.2))  # the orbit's centre, Blender frame
+# the orbit's centre (the scene's `eye`, else the character's chest at the
+# origin) and the box the lobby is seen in (the scene's `box`), Blender frame
+EYE = mathutils.Vector(to_b(scene_json.get("eye", (0.0, 1.2, 0.0))))
+BOX = [mathutils.Vector(to_b(c)) for c in scene_json["box"]] if scene_json.get("box") else None
+
+
+def density_at(c):
+    if BOX and not all(min(BOX[0][k], BOX[1][k]) <= c[k] <= max(BOX[0][k], BOX[1][k]) for k in range(3)):
+        return args.outside
+    return args.near if (c - EYE).length < args.radius else args.far
+
+
+
 CAPACITY = args.page * args.page * 0.5
 skip_m = [s for s in args.skip_materials.split(",") if s]
 chunks = []  # (object, density, area, alpha)
 kept = []    # surfaces left as they are, still in the scene
 for s in scene_json["surfaces"]:
-    pos, nrm, uv, tris = read_model(s["file"])
+    pos, nrm, uv, tris, weights = read_placed(s)
     mat = materials.lit(s["material"])
-    if any(k in s["material"]["name"] for k in skip_m):
-        kept.append(new_object(s["name"], pos, nrm, uv, tris, mat))
+    if s["material"].get("transparent") or any(k in s["material"]["name"] for k in skip_m):
+        new_object(s["name"], pos, nrm, uv, tris, mat, weights=weights)
+        kept.append(s["name"])
         continue
     groups = {}
     for t in tris:
-        groups.setdefault((centroid(pos, t) - EYE).length < args.radius, []).append(t)
+        groups.setdefault(density_at(centroid(pos, t)), []).append(t)
     work = list(groups.items())
     while work:
-        near, ts = work.pop()
-        density = args.near if near else args.far
+        density, ts = work.pop()
         area = sum(tri_area(pos, t) for t in ts)
         cs = [centroid(pos, t) for t in ts]
         extent = [max(c[k] for c in cs) - min(c[k] for c in cs) for k in range(3)]
@@ -98,19 +112,21 @@ for s in scene_json["surfaces"]:
             axis = max(range(3), key=lambda k: extent[k])
             order = sorted(range(len(ts)), key=lambda i: cs[i][axis])
             mid = len(order) // 2
-            work.append((near, [ts[i] for i in order[:mid]]))
-            work.append((near, [ts[i] for i in order[mid:]]))
+            work.append((density, [ts[i] for i in order[:mid]]))
+            work.append((density, [ts[i] for i in order[mid:]]))
             continue
         used = sorted({i for t in ts for i in t})
         remap = {v: k for k, v in enumerate(used)}
-        ob = new_object(f"{s['name']}_{'n' if near else 'f'}{len(chunks)}", [pos[i] for i in used],
+        ob = new_object(f"{s['name']}_{int(density)}_{len(chunks)}", [pos[i] for i in used],
                         [nrm[i] for i in used], [uv[i] for i in used],
-                        [tuple(remap[i] for i in t) for t in ts], mat)
+                        [tuple(remap[i] for i in t) for t in ts], mat,
+                        weights=[weights[i] for i in used] if weights is not None else None)
         chunks.append((ob, density, area, s["material"]["alpha_test"]))
 log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
-    f"near {sum(a for _, d, a, _ in chunks if d == args.near):.0f} m2, far {sum(a for _, d, a, _ in chunks if d != args.near):.0f} m2")
+    ", ".join(f"{sum(a for _, d, a, _ in chunks if d == v):.0f} m2 at {v:g} texels/m"
+              for v in sorted({d for _, d, _, _ in chunks}, reverse=True)))
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
-add_lights(scene_json, [s for s in args.skip_lights.split(",") if s], args.match, args.bulb)
+add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 
 for name, view in views(scene_json).items() if not args.only_pack else ():
     render(os.path.join(D, "renders"), f"traced-{name}.png", view, args.fov, args.render_samples, args.exposure)
@@ -325,7 +341,7 @@ for k, page in enumerate(pages):
     baked["pages"].append({"name": f"page_{k:02d}", "png": f"pages/page_{k:02d}.png", "alpha": page["alpha"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],
                            "chunks": len(page["objects"])})
-baked["kept"] = [o.name for o in kept]
+baked["kept"] = kept
 baked["sources"] = {s["name"]: s["sha256"] for s in scene_json["surfaces"]}
 json.dump(baked, open(os.path.join(D, "baked.json"), "w"), indent=1)
 log(f"baked.json: {len(baked['surfaces'])} surfaces on {len(pages)} pages")

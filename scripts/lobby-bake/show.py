@@ -14,7 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (Materials, add_lights, add_props, log, new_object, new_scene, page_material,  # noqa: E402
-                    read_model, render, views)
+                    read_model, read_placed, render, views)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
@@ -38,12 +38,13 @@ materials = Materials()
 pages = {p["name"]: page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"])
          for p in baked["pages"]}
 for s in baked["surfaces"]:
-    new_object(s["name"], *read_model(os.path.join(D, s["file"])), pages[s["page"]])
+    new_object(s["name"], *read_model(os.path.join(D, s["file"]))[:4], pages[s["page"]])
 for s in scene_json["surfaces"]:
     if s["name"] in baked["kept"]:
-        new_object(s["name"], *read_model(s["file"]), materials.lit(s["material"]))
+        pos, nrm, uv, tris, weights = read_placed(s)
+        new_object(s["name"], pos, nrm, uv, tris, materials.lit(s["material"]), weights=weights)
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
-add_lights(scene_json, [s for s in args.skip_lights.split(",") if s], args.match, args.bulb)
+add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 bpy_scene = __import__("bpy").context.scene
 bpy_scene.cycles.use_denoising = False
 wanted = [v for v in args.views.split(",") if v]
