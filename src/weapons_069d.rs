@@ -38,19 +38,19 @@ use crate::weapon::{parse_config, prepare_empty_output, record_file, write_gener
 use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
 use convert::Skinned;
 
-const DICT: &str = "gameplay/db_static_dictionaries";
+pub(crate) const DICT: &str = "gameplay/db_static_dictionaries";
 const MATERIAL_TEMPLATE: &str = "material_instances/weapons/ak_12.material";
 const SETTINGS_TEMPLATE: &str = "models/weapons/ak_12/ak_12.skinned_model/settings";
 /// A native weapon's hands clip: the 0.26g player rig every hands clip drives.
 const NATIVE_HANDS_CLIP: &str =
     "animations/single/weapons/ak_12/player/stand/3rd_view/on_site/hands_only/reload.bones_names";
-const SOURCE: &str = "converted:0.69d0";
+pub(crate) const SOURCE: &str = "converted:0.69d0";
 /// The folder every new file goes under, after its kind's root.
 pub const NS: &str = "v069d";
 
 /// 0.69d weapon rigs keep their meshes rotated half a turn about Y from the
 /// frame their bind pose and locators are written in (x and z negated).
-fn mesh_from_bind(p: [f32; 3]) -> [f32; 3] {
+pub(crate) fn mesh_from_bind(p: [f32; 3]) -> [f32; 3] {
     [-p[0], p[1], -p[2]]
 }
 
@@ -475,37 +475,37 @@ pub fn gun(key: &str) -> Result<&'static Gun> {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-fn field(name: &str, value: V) -> NamedValue {
+pub(crate) fn field(name: &str, value: V) -> NamedValue {
     NamedValue {
         name: name.into(),
         value,
     }
 }
-fn s(v: impl Into<String>) -> V {
+pub(crate) fn s(v: impl Into<String>) -> V {
     V::String(v.into())
 }
-fn float3(v: Option<&V>) -> Result<[f32; 3]> {
+pub(crate) fn float3(v: Option<&V>) -> Result<[f32; 3]> {
     match v {
         Some(V::Float3(f)) => Ok(*f),
         other => bail!("expected a float3, found {other:?}"),
     }
 }
-fn string_of(v: Option<&V>) -> Result<&str> {
+pub(crate) fn string_of(v: Option<&V>) -> Result<&str> {
     match v {
         Some(V::String(s)) => Ok(s),
         other => bail!("expected a string, found {other:?}"),
     }
 }
-fn int_of(v: Option<&V>) -> Result<i32> {
+pub(crate) fn int_of(v: Option<&V>) -> Result<i32> {
     match v {
         Some(V::Integer(i)) => Ok(*i),
         other => bail!("expected an integer, found {other:?}"),
     }
 }
-fn at<'v>(root: &'v V, path: &str) -> Option<&'v V> {
+pub(crate) fn at<'v>(root: &'v V, path: &str) -> Option<&'v V> {
     path.split('.').try_fold(root, |v, k| v.named(k))
 }
-fn list(v: Option<&V>) -> &[V] {
+pub(crate) fn list(v: Option<&V>) -> &[V] {
     match v {
         Some(V::Indexed(items)) => items,
         _ => &[],
@@ -529,15 +529,15 @@ fn ns_clip(path: &str) -> Result<String> {
     Ok(format!("resources/animations/single/weapons/{NS}/{rest}"))
 }
 
-struct Out<'a> {
-    overlay: &'a Path,
-    work: &'a Path,
-    files: Vec<BuiltFile>,
-    written: BTreeSet<String>,
+pub(crate) struct Out<'a> {
+    pub(crate) overlay: &'a Path,
+    pub(crate) work: &'a Path,
+    pub(crate) files: Vec<BuiltFile>,
+    pub(crate) written: BTreeSet<String>,
 }
 
 impl Out<'_> {
-    fn raw(&mut self, path: &str, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn raw(&mut self, path: &str, bytes: &[u8]) -> Result<()> {
         ensure!(self.written.insert(path.into()), "{path} written twice");
         let dest = crate::archive::safe_join(self.overlay, path)?;
         fs::create_dir_all(dest.parent().unwrap())?;
@@ -545,7 +545,7 @@ impl Out<'_> {
         self.files.push(record_file(path, SOURCE, bytes));
         Ok(())
     }
-    fn config(&mut self, path: &str, root: V) -> Result<()> {
+    pub(crate) fn config(&mut self, path: &str, root: V) -> Result<()> {
         ensure!(self.written.insert(path.into()), "{path} written twice");
         write_generated_config(
             self.overlay,
@@ -555,15 +555,15 @@ impl Out<'_> {
             &mut self.files,
         )
     }
-    fn has(&self, path: &str) -> bool {
+    pub(crate) fn has(&self, path: &str) -> bool {
         self.written.contains(path)
     }
-    fn read(&self, path: &str) -> Result<Vec<u8>> {
+    pub(crate) fn read(&self, path: &str) -> Result<Vec<u8>> {
         Ok(fs::read(crate::archive::safe_join(self.overlay, path)?)?)
     }
 }
 
-fn donor_config(donor: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
+pub(crate) fn donor_config(donor: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
     let bytes = donor
         .read(path)
         .with_context(|| format!("reading donor {path}"))?;
@@ -571,7 +571,7 @@ fn donor_config(donor: &mut ResourceDb, path: &str) -> Result<BinaryConfig> {
 }
 
 /// A bind pose: per bone its name and translation.
-fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
+pub(crate) fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
     ensure!(b.len() >= 2, "bind pose shorter than its count");
     let n = usize::from(u16::from_le_bytes([b[0], b[1]]));
     let mut at = 2;
@@ -618,7 +618,7 @@ fn clip_bones(bytes: &[u8]) -> Result<Vec<String>> {
 
 /// 0.69d's item configs: `gameplay/game.options`.
 pub struct Game {
-    root: V,
+    pub(crate) root: V,
 }
 
 impl Game {
@@ -627,11 +627,11 @@ impl Game {
             root: donor_config(donor, "gameplay/game.options")?.root,
         })
     }
-    fn weapon(&self, key: &str) -> Result<&V> {
+    pub(crate) fn weapon(&self, key: &str) -> Result<&V> {
         at(&self.root, &format!("weapons.{key}"))
             .with_context(|| format!("0.69d has no weapons.{key}"))
     }
-    fn module(&self, id: &str) -> Result<&V> {
+    pub(crate) fn module(&self, id: &str) -> Result<&V> {
         at(&self.root, &format!("weapon_modules.{id}"))
             .with_context(|| format!("0.69d has no weapon_modules.{id}"))
     }
@@ -735,15 +735,15 @@ fn is_attachment(id: &str, model: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
-struct Locator {
-    name: String,
-    bone: String,
-    bone_idx: i32,
-    position: [f32; 3],
-    rotation: [f32; 3],
+pub(crate) struct Locator {
+    pub(crate) name: String,
+    pub(crate) bone: String,
+    pub(crate) bone_idx: i32,
+    pub(crate) position: [f32; 3],
+    pub(crate) rotation: [f32; 3],
 }
 
-fn locators(properties: &V) -> Result<Vec<Locator>> {
+pub(crate) fn locators(properties: &V) -> Result<Vec<Locator>> {
     list(properties.named("locators"))
         .iter()
         .map(|l| {
@@ -758,7 +758,7 @@ fn locators(properties: &V) -> Result<Vec<Locator>> {
         .collect()
 }
 
-fn locator_value(l: &Locator) -> V {
+pub(crate) fn locator_value(l: &Locator) -> V {
     // Native field order (the AK-12's).
     V::Named(vec![
         field("rotation", V::Float3(l.rotation)),
@@ -839,7 +839,7 @@ const ATTACH_LOCATORS: [&str; 6] = [
 ];
 
 /// A static model's LOD0 surfaces and their materials.
-fn lod0_surfaces(settings: &V, path: &str) -> Result<Vec<(String, String)>> {
+pub(crate) fn lod0_surfaces(settings: &V, path: &str) -> Result<Vec<(String, String)>> {
     let surfaces = list(at(settings, "lod_hierrarchy.LOD0.surfaces"));
     ensure!(!surfaces.is_empty(), "{path} has no LOD0 surface");
     surfaces
@@ -1169,7 +1169,7 @@ const MAP_ROLES: [(&str, &str, Option<convert::ToneCurve>); 4] = [
     ),
 ];
 
-fn build_material(
+pub(crate) fn build_material(
     name: &str,
     donor: &mut ResourceDb,
     target: &mut ResourceDb,

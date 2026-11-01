@@ -1,0 +1,585 @@
+{
+ "format_version": 1,
+ "id": "muzzle-devices",
+ "flash_hider_shoot": "fx/weapons/9x39",
+ "devices": [
+  {
+   "module": "aek919k_m12x1l_muzzlebrake",
+   "dict_id": 2601,
+   "base_cost": 4500,
+   "icon": [
+    1,
+    5
+   ]
+  },
+  {
+   "module": "aws_rapira_m24x15_muzzlebrake",
+   "dict_id": 2602,
+   "base_cost": 6000,
+   "icon": [
+    2,
+    5
+   ]
+  },
+  {
+   "module": "cncwarrior_rofh_m14x1l_firearrestor",
+   "dict_id": 2603,
+   "base_cost": 4500,
+   "icon": [
+    3,
+    5
+   ]
+  },
+  {
+   "module": "cncwarrior_rofh_m16x1l_firearrestor",
+   "dict_id": 2604,
+   "base_cost": 4500,
+   "icon": [
+    4,
+    5
+   ]
+  },
+  {
+   "module": "custom_01_m14x1l_clamp_muzzlebrake",
+   "dict_id": 2605,
+   "base_cost": 6000,
+   "icon": [
+    5,
+    5
+   ]
+  },
+  {
+   "module": "custom_01_m30x1_clamp_muzzlebrake",
+   "dict_id": 2606,
+   "base_cost": 6000,
+   "icon": [
+    6,
+    5
+   ]
+  },
+  {
+   "module": "custom_02_m14x1l_firearrestor",
+   "dict_id": 2607,
+   "base_cost": 4500,
+   "icon": [
+    7,
+    5
+   ]
+  },
+  {
+   "module": "custom_02_m24x15_firearrestor",
+   "dict_id": 2608,
+   "base_cost": 4500,
+   "icon": [
+    8,
+    5
+   ]
+  },
+  {
+   "module": "custom_03_m14x1l_clamp_firearrestor",
+   "dict_id": 2609,
+   "base_cost": 4500,
+   "icon": [
+    9,
+    5
+   ]
+  },
+  {
+   "module": "custom_04_i05x28_clamp_firearrestor",
+   "dict_id": 2610,
+   "base_cost": 4500,
+   "icon": [
+    10,
+    5
+   ]
+  },
+  {
+   "module": "custom_04_i06x24_clamp_firearrestor",
+   "dict_id": 2611,
+   "base_cost": 4500,
+   "icon": [
+    11,
+    5
+   ]
+  },
+  {
+   "module": "custom_04_m14x1l_clamp_firearrestor",
+   "dict_id": 2612,
+   "base_cost": 4500,
+   "icon": [
+    12,
+    5
+   ]
+  },
+  {
+   "module": "diamondhead_tbrake_i05x28_muzzlebrake",
+   "dict_id": 2613,
+   "base_cost": 6000,
+   "icon": [
+    13,
+    5
+   ]
+  },
+  {
+   "module": "diamondhead_tbrake_m14x1l_muzzlebrake",
+   "dict_id": 2614,
+   "base_cost": 6000,
+   "icon": [
+    14,
+    5
+   ]
+  },
+  {
+   "module": "grizzlygunworks_defcon1_i05x28_clamp_muzzlebrake",
+   "dict_id": 2615,
+   "base_cost": 6000,
+   "icon": [
+    15,
+    5
+   ]
+  },
+  {
+   "module": "grizzlygunworks_defcon1_m16x1l_clamp_muzzlebrake",
+   "dict_id": 2616,
+   "base_cost": 6000,
+   "icon": [
+    16,
+    5
+   ]
+  },
+  {
+   "module": "grizzlygunworks_defcon1_m30x1_clamp_muzzlebrake",
+   "dict_id": 2617,
+   "base_cost": 6000,
+   "icon": [
+    17,
+    5
+   ]
+  },
+  {
+   "module": "gunsru_custom_m22x075_muzzlebrake",
+   "dict_id": 2618,
+   "base_cost": 6000,
+   "icon": [
+    18,
+    5
+   ]
+  },
+  {
+   "module": "hartman_kochevnik_m22x075_muzzlebrake",
+   "dict_id": 2619,
+   "base_cost": 6000,
+   "icon": [
+    19,
+    5
+   ]
+  },
+  {
+   "module": "lantac_dragon_i05x28_muzzlebrake",
+   "dict_id": 2620,
+   "base_cost": 6000,
+   "icon": [
+    20,
+    5
+   ]
+  },
+  {
+   "module": "lantac_dragon_i06x24_muzzlebrake",
+   "dict_id": 2621,
+   "base_cost": 6000,
+   "icon": [
+    21,
+    5
+   ]
+  },
+  {
+   "module": "lantac_drakon_m14x1l_muzzlebrake",
+   "dict_id": 2622,
+   "base_cost": 6000,
+   "icon": [
+    22,
+    5
+   ]
+  },
+  {
+   "module": "manticorearms_nightbrake_i05x28_firearrestor",
+   "dict_id": 2623,
+   "base_cost": 4500,
+   "icon": [
+    23,
+    5
+   ]
+  },
+  {
+   "module": "manticorearms_nightbrake_i06x24_firearrestor",
+   "dict_id": 2624,
+   "base_cost": 4500,
+   "icon": [
+    1,
+    6
+   ]
+  },
+  {
+   "module": "manticorearms_nightbrake_m12x1l_firearrestor",
+   "dict_id": 2625,
+   "base_cost": 4500,
+   "icon": [
+    2,
+    6
+   ]
+  },
+  {
+   "module": "manticorearms_nightbrake_m141l_firearrestor",
+   "dict_id": 2626,
+   "base_cost": 4500,
+   "icon": [
+    3,
+    6
+   ]
+  },
+  {
+   "module": "redheat_ilgynagk01_m22x075_muzzlebrake",
+   "dict_id": 2627,
+   "base_cost": 6000,
+   "icon": [
+    4,
+    6
+   ]
+  },
+  {
+   "module": "redheat_krymske2_m24x15_firearrestor",
+   "dict_id": 2628,
+   "base_cost": 4500,
+   "icon": [
+    5,
+    6
+   ]
+  },
+  {
+   "module": "redheat_shturm_m14x1l_muzzlebrake",
+   "dict_id": 2629,
+   "base_cost": 6000,
+   "icon": [
+    6,
+    6
+   ]
+  },
+  {
+   "module": "redheat_shturm_m24x15_muzzlebrake",
+   "dict_id": 2630,
+   "base_cost": 6000,
+   "icon": [
+    7,
+    6
+   ]
+  },
+  {
+   "module": "spikestactical_dynacomp_m24x15_firearrestor",
+   "dict_id": 2631,
+   "base_cost": 4500,
+   "icon": [
+    8,
+    6
+   ]
+  },
+  {
+   "module": "taktikatula_saiga419_m22x075_firearrestor",
+   "dict_id": 2632,
+   "base_cost": 4500,
+   "icon": [
+    9,
+    6
+   ]
+  },
+  {
+   "module": "venometactical_antidote_m14x1l_firearrestor",
+   "dict_id": 2633,
+   "base_cost": 4500,
+   "icon": [
+    10,
+    6
+   ]
+  },
+  {
+   "module": "zenit_dtk2_m24x15_muzzlebrake",
+   "dict_id": 2634,
+   "base_cost": 6000,
+   "icon": [
+    11,
+    6
+   ]
+  },
+  {
+   "module": "zenit_dtk3_m24x15_muzzlebrake",
+   "dict_id": 2635,
+   "base_cost": 6000,
+   "icon": [
+    12,
+    6
+   ]
+  }
+ ],
+ "guns": [
+  {
+   "config": "gameplay/items/weapons/wpn_a545.options",
+   "donor": "a545",
+   "stock": "a545_m24x15_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74m.options",
+   "donor": "ak_74m",
+   "stock": "ak74_m24x15_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74n.options",
+   "donor": "ak_74n",
+   "stock": "ak74_m24x15_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74n_premium.options",
+   "donor": "ak_74n_premium",
+   "stock": "ak74_m24x15_camo_muzzlebrake",
+   "fits_like": "ak_74n"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_akmn.options",
+   "donor": "akmn",
+   "stock": "akm_m14x1l_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_akmn_premium.options",
+   "donor": "akmn_premium",
+   "stock": "akm_m14x1l_camo_muzzlebrake",
+   "fits_like": "akmn"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_akmn_premium_2.options",
+   "donor": "akmn_premium_2",
+   "stock": "akm_m14x1l_camo_st_muzzlebrake",
+   "fits_like": "akmn"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ash_12.options",
+   "donor": "ash_12",
+   "stock": "ash12_m24x15_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_fn_fnc.options",
+   "donor": "fn_fnc",
+   "stock": "fnfnc_i05x28_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_fn_p90.options",
+   "donor": "fn_p90",
+   "stock": "fnp90_m12x1l_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_hk416.options",
+   "donor": "hk416",
+   "stock": "hk416a5_i05x28_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_m4a1.options",
+   "donor": "m4a1",
+   "stock": "m4a1_i05x28_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_msbs_carbine.options",
+   "donor": "msbs_carbine",
+   "stock": "msbsradon_i05x28_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_pkp_pecheneg.options",
+   "donor": "pkp_pecheneg",
+   "stock": "pkp_pecheneg_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_pp2000.options",
+   "donor": "pp2000",
+   "stock": "pp2000_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_rpk.options",
+   "donor": "rpk",
+   "stock": "rpk_74_firearrestor"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_socom16.options",
+   "donor": "socom16",
+   "stock": "socom16_i06x24_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sr3m.options",
+   "donor": "sr3m",
+   "stock": "sr3m_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sr3m_premium.options",
+   "donor": "sr3m_premium",
+   "stock": "sr3m_camo_muzzlebrake",
+   "fits_like": "sr3m"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sv_98.options",
+   "donor": "sv_98",
+   "stock": "sv98_m30x1_barrelnut"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_svd.options",
+   "donor": "svd",
+   "stock": "svd_m14x1l_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_valmet.options",
+   "donor": "valmet",
+   "stock": "valmet_rk62_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vepr.options",
+   "donor": "vepr",
+   "stock": "vepr_m24x15_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vepr_12.options",
+   "donor": "vepr_12",
+   "stock": "vepr12_m12x075_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vepr_premium.options",
+   "donor": "vepr_premium",
+   "stock": "vepr_m24x15_camo_muzzlebrake",
+   "fits_like": "vepr"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vityaz.options",
+   "donor": "vityaz",
+   "stock": "pp_1901_vityaz_m14x1l_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vityaz_premium.options",
+   "donor": "vityaz_premium",
+   "stock": "pp_1901_vityaz_m14x1l_camo_muzzlebrake",
+   "fits_like": "vityaz"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_aek_919k.options",
+   "donor": "aek_919k"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74u.options",
+   "donor": "ak_74u",
+   "stock": "aks74u_m24x15_default_muzzlebrake",
+   "fit_tolerance_mm": 3.5,
+   "note": "the stock module lies 3.05 mm off our part (a slightly different version of it)"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74u_premium.options",
+   "donor": "ak_74u_premium",
+   "stock": "aks74u_m24x15_default_muzzlebrake",
+   "fits_like": "ak_74u",
+   "fit_tolerance_mm": 3.5,
+   "note": "the stock module lies 3.05 mm off our part (a slightly different version of it)"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_aps.options",
+   "donor": "aps"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_fort_17.options",
+   "donor": "fort_17"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_kedr.options",
+   "donor": "kedr"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_kiparis.options",
+   "donor": "kiparis"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_kiparis_premium.options",
+   "donor": "kiparis_premium",
+   "fits_like": "kiparis"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_mosin_nagant.options",
+   "donor": "mosin_nagant"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_mp7.options",
+   "donor": "mp7",
+   "stock": "hkmp7_muzzlebrake"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_mp_153.options",
+   "donor": "mp_153"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_pm.options",
+   "donor": "pm"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_rem_700.options",
+   "donor": "rem_700"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_rem_700_premium.options",
+   "donor": "rem_700_premium",
+   "fits_like": "rem_700"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_rem_870.options",
+   "donor": "rem_870"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_rpd.options",
+   "donor": "rpd"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_saiga_12.options",
+   "donor": "saiga_12",
+   "stock": "saiga12s_m22x075_barrelnut"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_saiga_12_premium.options",
+   "donor": "saiga_12_premium",
+   "stock": "saiga12s_m22x075_camo_barrelnut",
+   "fits_like": "saiga_12"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sks.options",
+   "donor": "sks"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sks_premium.options",
+   "donor": "sks_premium",
+   "fits_like": "sks"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sks_premium_2.options",
+   "donor": "sks_premium_2",
+   "fits_like": "sks"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_soc_vepr.options",
+   "donor": "soc_vepr"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sr2m.options",
+   "donor": "sr2m",
+   "stock": "sr2m_m14x1l_barrelnut"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_toz_122.options",
+   "donor": "toz_122"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_tt_33.options",
+   "donor": "tt_33"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ump45.options",
+   "donor": "ump45"
+  }
+ ]
+}

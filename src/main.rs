@@ -236,6 +236,26 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Port 0.69d0's muzzle devices (flash hiders, brakes) and fit them to
+    /// our guns from a manifest (`ports/muzzle-devices-069d.json`;
+    /// docs/muzzles-069d-026.md): a bundle for `pack from-bundle`, the guns'
+    /// edit list, the device texts and per-gun renders.
+    PortMuzzles {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// 0.69d0's files: a resources.db of them (the build's split
+        /// volumes extracted, `pack-donor-tree`).
+        #[arg(long)]
+        donor: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// The patches players have, in mount order.
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// A side view of a model's meshes (`<model>/render/*/converted_model`
     /// of a folder): a weapon's verification render.
     RenderWeapon {
@@ -1268,6 +1288,19 @@ fn main() -> Result<()> {
                 "Built {}: {} files, {} reused from the target",
                 port.id, report.files, report.reused
             );
+        }
+        Command::PortMuzzles {
+            manifest,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::muzzles_069d::{MuzzlePort, build};
+            let port = MuzzlePort::load(&manifest)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            build(&port, &donor, &layers, &output)?;
         }
         Command::RenderWeapon {
             model,

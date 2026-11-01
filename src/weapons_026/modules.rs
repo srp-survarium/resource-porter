@@ -104,6 +104,13 @@ impl Mesh {
         })
     }
 
+    /// Vertex `i`'s bytes (its position first, then its layout's own
+    /// fields).
+    pub fn vertex(&self, i: usize) -> &[u8] {
+        let at = 4 + i * self.stride;
+        &self.vertex_chunk[at..at + self.stride]
+    }
+
     /// The mesh with only `keep`'s triangles (the vertices stay, as does
     /// their skinning).
     pub fn with_triangles(&self, keep: &[[u16; 3]]) -> Vec<u8> {
@@ -220,6 +227,12 @@ pub type Part<'a> = (&'a [[f32; 3]], &'a [[u16; 3]], [u8; 3]);
 pub fn render_side(parts: &[Part], width: usize) -> Result<(usize, usize, Vec<u8>)> {
     let all = parts.iter().flat_map(|(p, _, _)| p.iter().copied());
     let b = Bounds::of(all).context("nothing to render")?;
+    render_side_in(parts, width, b)
+}
+
+/// [`render_side`] of the box `b` alone (what lies outside is clipped): views
+/// of one gun at one scale.
+pub fn render_side_in(parts: &[Part], width: usize, b: Bounds) -> Result<(usize, usize, Vec<u8>)> {
     let span_x = (b.max[2] - b.min[2]).max(1e-4);
     let span_y = (b.max[1] - b.min[1]).max(1e-4);
     let scale = (width - 2) as f32 / span_x;
@@ -364,15 +377,20 @@ pub fn module_config(module: &Module, template: &V) -> Result<V> {
 /// A module the kit may carry: a muzzle device is a flash hider or a brake,
 /// never a suppressor (by its model's name, as the builds name theirs).
 pub fn check_module(module: &Module) -> Result<()> {
-    let name = module.donor_model.to_ascii_lowercase();
-    if ["silencer", "suppressor", "pbs", "glush"]
-        .iter()
-        .any(|w| name.contains(w))
-    {
+    if is_suppressor(&module.donor_model) {
         bail!(
             "{}: suppressors are not ported (the owner, 2026-11-01)",
             module.name
         );
     }
     Ok(())
+}
+
+/// A model or module name that names a suppressor, as the builds name
+/// theirs: never ported (the owner, 2026-11-01).
+pub fn is_suppressor(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    ["silencer", "suppressor", "pbs", "glush"]
+        .iter()
+        .any(|w| name.contains(w))
 }

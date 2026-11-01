@@ -59,7 +59,9 @@ aimed models; a muzzle device's and a grip's kit keys, `data.srp_<slot>_model` a
 `picatinny_grip_point`, `picatinny_scope_point`: the donor's own, 0.69d0's where our mesh is
 retail's), the removal rule for a device built into a gun's mesh (`cut_builtin`: our triangles
 missing from the 0.69d0 base mesh inside the placed stock module), and a side render for checking.
-No suppressors: a module whose model names one is refused.
+No suppressors: a module whose model names one is refused. Muzzle devices themselves are
+`muzzles_069d`'s (`docs/muzzles-069d-026.md`): a device's modification adds `data.srp_muzzle_model`
+to the gun, which client patch 90 reads.
 
 ## The check against patch 19
 

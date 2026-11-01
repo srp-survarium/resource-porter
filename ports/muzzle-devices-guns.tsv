@@ -1,0 +1,55 @@
+# Our guns that take muzzle devices: item name, 0.69d0 weapon, the built-in module our mesh has (- none), the 0.69d0 weapon whose fits it takes (- its own), the fit tolerance in mm (- 3), a note.
+# Left out: kriss_vector (our mesh has its suppressor built in: 28 cm past 0.69d0's muzzle); a9_91 (our mesh has its suppressor built in: 34 cm past 0.69d0's muzzle); ak_12 (the AK-12 brake is fused to the barrel (0.69d0 too)); ak_12_premium (as the AK-12); mp7_silencer (an integral suppressor); neostead (no muzzle_point in 0.69d0); neostead_2 (no muzzle_point in 0.69d0); ppsh (no muzzle_point in 0.69d0 (its jacket is the barrel)); val (an integral suppressor); vepr_12_premium (its mesh is not 0.69d0s (the cut finds 12 triangles, 708 left past the muzzle)); vsk_94 (an integral suppressor); vsk_94_premium (an integral suppressor); vss (an integral suppressor); vss_premium (an integral suppressor); vssk (an integral suppressor); vssk_camo (an integral suppressor); vz58 (its brake is fused to the barrel); wpn_mp7_silencer_special (an integral suppressor, no 0.69d0 weapon); izh_27_lancaster, its premiums, magnum, toz_34, toz_66, winchester_1894 (no 0.69d0 device fits them); spas_12 (our barrel ends 72 mm short of 0.69d0's muzzle_point), benelli_m4 (21 mm short), uzi and its premiums (18 mm short)
+a_545	a545	a545_m24x15_muzzlebrake	-	-	
+ak_74m	ak_74m	ak74_m24x15_muzzlebrake	-	-	
+ak_74n	ak_74n	ak74_m24x15_muzzlebrake	-	-	
+ak_74n_premium	ak_74n_premium	ak74_m24x15_camo_muzzlebrake	ak_74n	-	
+akmn	akmn	akm_m14x1l_muzzlebrake	-	-	
+akmn_premium	akmn_premium	akm_m14x1l_camo_muzzlebrake	akmn	-	
+akmn_premium_2	akmn_premium_2	akm_m14x1l_camo_st_muzzlebrake	akmn	-	
+ash_12	ash_12	ash12_m24x15_muzzlebrake	-	-	
+fn_fnc	fn_fnc	fnfnc_i05x28_muzzlebrake	-	-	
+fn_p90	fn_p90	fnp90_m12x1l_muzzlebrake	-	-	
+hk416	hk416	hk416a5_i05x28_muzzlebrake	-	-	
+m4a1	m4a1	m4a1_i05x28_muzzlebrake	-	-	
+msbs_carbine	msbs_carbine	msbsradon_i05x28_muzzlebrake	-	-	
+pkp_pecheneg	pkp_pecheneg	pkp_pecheneg_muzzlebrake	-	-	
+pp2000	pp2000	pp2000_muzzlebrake	-	-	
+rpk	rpk	rpk_74_firearrestor	-	-	
+socom16	socom16	socom16_i06x24_muzzlebrake	-	-	
+sr3m	sr3m	sr3m_muzzlebrake	-	-	
+sr3m_premium	sr3m_premium	sr3m_camo_muzzlebrake	sr3m	-	
+sv_98	sv_98	sv98_m30x1_barrelnut	-	-	
+svd	svd	svd_m14x1l_muzzlebrake	-	-	
+valmet	valmet	valmet_rk62_muzzlebrake	-	-	
+vepr	vepr	vepr_m24x15_muzzlebrake	-	-	
+vepr_12	vepr_12	vepr12_m12x075_muzzlebrake	-	-	
+vepr_premium	vepr_premium	vepr_m24x15_camo_muzzlebrake	vepr	-	
+vityaz	vityaz	pp_1901_vityaz_m14x1l_muzzlebrake	-	-	
+vityaz_premium	vityaz_premium	pp_1901_vityaz_m14x1l_camo_muzzlebrake	vityaz	-	
+aek_919k	aek_919k	-	-	-	
+ak_74u	ak_74u	aks74u_m24x15_default_muzzlebrake	-	3.5	the stock module lies 3.05 mm off our part (a slightly different version of it)
+ak_74u_premium	ak_74u_premium	aks74u_m24x15_default_muzzlebrake	ak_74u	3.5	the stock module lies 3.05 mm off our part (a slightly different version of it)
+aps	aps	-	-	-	
+fort_17	fort_17	-	-	-	
+kedr	kedr	-	-	-	
+kiparis	kiparis	-	-	-	
+kiparis_premium	kiparis_premium	-	kiparis	-	
+mosin_nagant	mosin_nagant	-	-	-	
+mp7	mp7	hkmp7_muzzlebrake	-	-	
+mp_153	mp_153	-	-	-	
+pm	pm	-	-	-	
+rem_700	rem_700	-	-	-	
+rem_700_premium	rem_700_premium	-	rem_700	-	
+rem_870	rem_870	-	-	-	
+rpd	rpd	-	-	-	
+saiga_12	saiga_12	saiga12s_m22x075_barrelnut	-	-	
+saiga_12_premium	saiga_12_premium	saiga12s_m22x075_camo_barrelnut	saiga_12	-	
+sks	sks	-	-	-	
+sks_premium	sks_premium	-	sks	-	
+sks_premium_2	sks_premium_2	-	sks	-	
+soc_vepr	soc_vepr	-	-	-	
+sr2m	sr2m	sr2m_m14x1l_barrelnut	-	-	
+toz_122	toz_122	-	-	-	
+tt_33	tt_33	-	-	-	
+ump45	ump45	-	-	-	

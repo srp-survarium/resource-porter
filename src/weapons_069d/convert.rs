@@ -25,12 +25,12 @@
 
 use anyhow::{Context, Result, bail, ensure};
 
-fn u32_at(b: &[u8], at: usize) -> Result<u32> {
+pub(crate) fn u32_at(b: &[u8], at: usize) -> Result<u32> {
     Ok(u32::from_le_bytes(
         b.get(at..at + 4).context("truncated u32")?.try_into()?,
     ))
 }
-fn f32_at(b: &[u8], at: usize) -> Result<f32> {
+pub(crate) fn f32_at(b: &[u8], at: usize) -> Result<f32> {
     Ok(f32::from_bits(u32_at(b, at)?))
 }
 
@@ -201,7 +201,7 @@ const SKINNED_069_TWO_BONES: usize = 36;
 /// The 0.26g word of a 0.69d basis float. The normal's top byte is 127 on
 /// every stock 0.26g weapon; tangent and binormal top bytes vary there
 /// without a pattern and 0.69d stores none, so they take the static 255.
-fn basis_word(value: f32, alpha: u32) -> Result<u32> {
+pub(crate) fn basis_word(value: f32, alpha: u32) -> Result<u32> {
     ensure!(
         value.is_finite() && (0.0..1.0).contains(&value),
         "basis value {value} is not a 0.69d packed float"
@@ -211,7 +211,7 @@ fn basis_word(value: f32, alpha: u32) -> Result<u32> {
     Ok(alpha << 24 | packed)
 }
 
-fn half(bits: u16) -> f32 {
+pub(crate) fn half(bits: u16) -> f32 {
     let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
     let exp = i32::from((bits >> 10) & 0x1f);
     let frac = f32::from(bits & 0x3ff);
@@ -304,7 +304,7 @@ impl Skinned {
     }
 }
 
-fn chunks(b: &[u8]) -> Result<Vec<(u32, &[u8])>> {
+pub(crate) fn chunks(b: &[u8]) -> Result<Vec<(u32, &[u8])>> {
     let mut out = vec![];
     let mut at = 0;
     while at < b.len() {
@@ -319,7 +319,7 @@ fn chunks(b: &[u8]) -> Result<Vec<(u32, &[u8])>> {
     Ok(out)
 }
 
-fn vertex_chunk<'a>(chunks: &[(u32, &'a [u8])]) -> Result<(&'a [u8], usize)> {
+pub(crate) fn vertex_chunk<'a>(chunks: &[(u32, &'a [u8])]) -> Result<(&'a [u8], usize)> {
     let [(3, body), ..] = chunks else {
         bail!("mesh does not start with a vertex chunk");
     };
@@ -333,7 +333,7 @@ fn vertex_chunk<'a>(chunks: &[(u32, &'a [u8])]) -> Result<(&'a [u8], usize)> {
     Ok((&body[4..], stride))
 }
 
-fn index_chunk(chunks: &[(u32, &[u8])], vertices: usize) -> Result<Vec<u16>> {
+pub(crate) fn index_chunk(chunks: &[(u32, &[u8])], vertices: usize) -> Result<Vec<u16>> {
     let body = chunks
         .iter()
         .find(|(id, _)| *id == 4)
