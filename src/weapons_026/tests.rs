@@ -401,6 +401,7 @@ fn a_manifest_refuses_twice_used_ids_and_cells() {
         modules: vec![],
         external_ammo: vec![],
         ammo_items: vec![],
+        dir: PathBuf::new(),
     };
     port.check().unwrap();
     let mut second = weapon();
@@ -674,24 +675,20 @@ fn a_config_naming_a_missing_resource_is_refused() {
             "gameplay/items/weapons/common/rifles.user_animations",
         ]
     );
+    let none = std::collections::BTreeSet::new();
     let all_but_fx = |f: &str| f != "particles/fx/weapons/m4a1.particle";
-    let no_live = |_: &str, _: &str| false;
-    let error = check_resources("wpn_g", &cfg, &all_but_fx, &no_live)
+    let error = check_resources("wpn_g", &cfg, &all_but_fx, &none)
         .unwrap_err()
         .to_string();
     assert!(
         error.contains("particles.shoot: particles/fx/weapons/m4a1.particle"),
         "{error}"
     );
-    check_resources("wpn_g", &cfg, &|_| true, &no_live).unwrap();
-    // A missing name the live template has at the same key is the game's
-    // own (the stock pistols' death clips): kept; at another key it is not.
-    let live =
-        |k: &str, f: &str| k == "particles.shoot" && f == "particles/fx/weapons/m4a1.particle";
-    check_resources("wpn_g", &cfg, &all_but_fx, &live).unwrap();
-    let elsewhere =
-        |k: &str, f: &str| k == "object.model" && f == "particles/fx/weapons/m4a1.particle";
-    assert!(check_resources("wpn_g", &cfg, &all_but_fx, &elsewhere).is_err());
+    check_resources("wpn_g", &cfg, &|_| true, &none).unwrap();
+    // A reference the native configs already carry (missing in 0.26g too) is
+    // 0.26g's own: allowed; only a new missing one is refused.
+    let native = super::resources::native_references([&cfg]);
+    check_resources("wpn_g", &cfg, &|_| false, &native).unwrap();
     // A path under a key of no known kind is refused, not let through.
     let odd = t(vec![("data", t(vec![("strange", s("some/where"))]))]);
     assert!(resource_files(&odd).is_err());
@@ -863,4 +860,51 @@ fn an_empty_resource_name_is_refused() {
         resource_file("ui_desc.text_descriptions.name", "").unwrap(),
         None
     );
+}
+
+#[test]
+fn a_new_rounds_card_shows_its_own_pack_and_weight() {
+    let row = |id: i32, v: &str| t(vec![("prop_value", s(v)), ("prop_id", V::Integer(id))]);
+    let mut cfg = t(vec![
+        (
+            "parameters",
+            t(vec![
+                ("clip_size", V::Integer(100)),
+                ("clip_weight", V::Float(1.0)),
+            ]),
+        ),
+        (
+            "ui_desc",
+            t(vec![(
+                "props_list",
+                list(vec![
+                    row(21, "100"),
+                    row(22, "100"),
+                    row(16, "30"),
+                    row(15, "0.3"),
+                ]),
+            )]),
+        ),
+    ]);
+    config::ammo_card(&mut cfg).unwrap();
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.2.prop_value")),
+        Some("100")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.3.prop_value")),
+        Some("1.0")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.0.prop_value")),
+        Some("100")
+    );
+}
+
+#[test]
+fn a_vector_set_stays_a_vector() {
+    let mut cfg = t(vec![("p", V::Float3([0.0, 0.0868, 0.178]))]);
+    config::set_typed(&mut cfg, "p", &serde_json::json!([0.0, 0.0824, 0.178])).unwrap();
+    assert_eq!(get(&cfg, "p"), Some(&V::Float3([0.0, 0.0824, 0.178])));
+    assert!(config::set_typed(&mut cfg, "p", &serde_json::json!([0.0, 1.0])).is_err());
 }

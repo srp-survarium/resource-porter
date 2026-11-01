@@ -31,6 +31,9 @@ pub struct WeaponPort {
     /// size than the shared round's).
     #[serde(default)]
     pub ammo_items: Vec<AmmoItem>,
+    /// The manifest's folder (`file` icons are relative to it).
+    #[serde(skip)]
+    pub dir: std::path::PathBuf,
 }
 
 /// A new ammunition item: a native round's config (its ballistics) with the
@@ -114,6 +117,7 @@ pub struct LobbyIcon {
     pub row: u32,
     pub col: u32,
     /// The donor's icon image (a PNG no larger than a cell).
+    #[serde(default)]
     pub donor_png: String,
     /// Degrees the donor's icon is turned by ([`super::donor::Donor::lobby_cell`]):
     /// 0.46c2 draws its weapons diagonally (`None` there: a long gun's own axis).
@@ -124,6 +128,10 @@ pub struct LobbyIcon {
     /// SVU's PSO-1, which 0.46c2 mounts and the port leaves out).
     #[serde(default)]
     pub erase: Vec<[u32; 4]>,
+    /// An image of the port's own instead (a PNG, relative to the
+    /// manifest's folder): an item the donor has no icon for.
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -185,8 +193,9 @@ impl WeaponPort {
     pub fn load(path: &Path) -> Result<Self> {
         let text =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        let port: Self =
+        let mut port: Self =
             serde_json::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+        port.dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
         port.check()?;
         Ok(port)
     }

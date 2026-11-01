@@ -520,9 +520,7 @@
     "parameters.rarity.0.1": 500,
     "ui_desc.text_descriptions.name": "st_ammo_762x51_belt_name",
     "ui_desc.text_descriptions.description": "st_ammo_762x51_belt_description",
-    "ui_desc.ammo_indicator_name": "st_ammo_762x51_belt_name",
-    "ui_desc.props_list.2.prop_value": "100",
-    "ui_desc.props_list.3.prop_value": "2.5"
+    "ui_desc.ammo_indicator_name": "st_ammo_762x51_belt_name"
    },
    "lobby_icon": null
   }

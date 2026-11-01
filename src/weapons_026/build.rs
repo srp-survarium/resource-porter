@@ -658,11 +658,8 @@ pub fn build<D: Donor>(
         .map(|p| Ok(parse_config(&mut stock, &p, "native weapon")?.root))
         .collect::<Result<_>>()?;
     let schema = super::config::schema(&natives);
+    let mut native_refs = super::resources::native_references(&natives);
     let mut configs: Vec<(&Weapon, V)> = vec![];
-    // What each gun's template (a live config) names: a dangling name the
-    // live gun has too (the stock pistols' `on_site/death_fwd` death clips)
-    // is the game's own, which players run every day.
-    let mut live_names: BTreeMap<String, BTreeSet<(String, String)>> = BTreeMap::new();
     for w in &port.weapons {
         ensure!(!carry.target.contains(&w.config), "{} exists", w.config);
         let donor_cfg = carry.donor.item_config(&w.donor_item)?;
@@ -708,21 +705,17 @@ pub fn build<D: Donor>(
             .states(&cfg, &template, &mut notes)
             .with_context(|| w.name.clone())?;
         report.notes.insert(w.config.clone(), notes);
-        live_names.insert(
-            w.config.clone(),
-            super::resources::resource_files(&template)?
-                .into_iter()
-                .collect(),
-        );
         configs.push((w, cfg));
     }
     let mut ammo_configs: Vec<(String, V)> = vec![];
     for a in &port.ammo_items {
         ensure!(!carry.target.contains(&a.config), "{} exists", a.config);
         let mut cfg = parse_config(carry.target, &a.template, "native round")?.root;
+        native_refs.extend(super::resources::native_references([&cfg]));
         for (path, value) in &a.set {
             super::config::set_typed(&mut cfg, path, value).with_context(|| a.name.clone())?;
         }
+        super::config::ammo_card(&mut cfg).with_context(|| a.name.clone())?;
         if let Some(icon) = &a.lobby_icon {
             cfg.set_path(
                 "ui_desc.icon",
@@ -738,9 +731,7 @@ pub fn build<D: Donor>(
     for (w, cfg) in &configs {
         let (target, written) = (&*carry.target, &carry.written);
         let exists = |file: &str| target.contains(file) || written.contains(file);
-        let live = &live_names[&w.config];
-        let live_too = |key: &str, file: &str| live.contains(&(key.to_owned(), file.to_owned()));
-        super::resources::check_resources(&w.config, cfg, &exists, &live_too)?;
+        super::resources::check_resources(&w.config, cfg, &exists, &native_refs)?;
     }
     // Every clip a config names animates the skeleton it is played on.
     {
@@ -784,7 +775,7 @@ pub fn build<D: Donor>(
     for (path, cfg) in &ammo_configs {
         let (target, written) = (&*carry.target, &carry.written);
         let exists = |file: &str| target.contains(file) || written.contains(file);
-        super::resources::check_resources(path, cfg, &exists, &|_, _| false)?;
+        super::resources::check_resources(path, cfg, &exists, &native_refs)?;
         texts.extend(text_keys(cfg));
         if let Some(key) = string_of(get(cfg, "ui_desc.ammo_indicator_name")) {
             texts.insert(key.to_owned());
@@ -858,10 +849,15 @@ pub fn build<D: Donor>(
         if let Some(icon) = &a.lobby_icon {
             let symbol = "LobbyMenu_AmmoIcons";
             let name = format!("{symbol}-r{:02}c{:02}.png", icon.row, icon.col);
+            let image = match &icon.file {
+                Some(file) => {
+                    fs::read(port.dir.join(file)).with_context(|| format!("reading {file}"))?
+                }
+                None => carry.donor.read(&icon.donor_png)?,
+            };
             fs::write(
                 icons_dir.join(&name),
-                cell_png(&carry.donor.read(&icon.donor_png)?)
-                    .with_context(|| icon.donor_png.clone())?,
+                cell_png(&image).with_context(|| icon.donor_png.clone())?,
             )?;
             icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": icon.donor_png}));
         }
