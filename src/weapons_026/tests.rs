@@ -960,3 +960,35 @@ fn a_sounds_spl_preset_is_a_file_it_needs() {
     assert_eq!(spl_preset(&options("")), None);
     assert_eq!(spl_preset(&t(vec![])), None);
 }
+
+/// Kill feed icons: a new number belongs to one gun, an image of its own
+/// never replaces a live gun's, and a variant may share a live icon.
+#[test]
+fn kill_feed_icons_do_not_clash() {
+    use super::icons::check_kill_feed;
+    use std::collections::BTreeMap;
+    let feed = |icon: i32, png: Option<&str>| KillFeed {
+        icon,
+        donor_png: png.map(str::to_owned),
+    };
+    let live = BTreeMap::from([(33, vec!["wpn_ppsh.options".to_owned()])]);
+    let (cz, colt, drum) = (
+        feed(82, Some("icon_83.png")),
+        feed(99, None),
+        feed(33, None),
+    );
+    check_kill_feed(
+        &[("cz_75", &cz), ("colt_m1911", &colt), ("ppsh_drum", &drum)],
+        &live,
+    )
+    .unwrap();
+    let shared = feed(82, Some("icon_83.png"));
+    let error = check_kill_feed(&[("cz_75", &cz), ("colt_m1911", &shared)], &live)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("82 is cz_75's too"), "{error}");
+    let own_over_live = feed(33, Some("icon_34.png"));
+    assert!(check_kill_feed(&[("ppsh_drum", &own_over_live)], &live).is_err());
+    let twice = feed(99, None);
+    assert!(check_kill_feed(&[("colt_m1911", &colt), ("other", &twice)], &live).is_err());
+}

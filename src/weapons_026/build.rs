@@ -622,6 +622,29 @@ pub fn build<D: Donor>(
         .collect::<Result<_>>()?;
     let schema = super::config::schema(&natives);
     let mut native_refs = super::resources::native_references(&natives);
+    // Every weapon the players' files have (the stock database, the
+    // patches, the packs built under this one): their kill feed icons.
+    let mut live_icons: BTreeMap<i32, Vec<String>> = BTreeMap::new();
+    let target_weapons: Vec<String> = carry
+        .target
+        .paths_with_prefix("gameplay/items/weapons/wpn_")
+        .filter(|p| p.ends_with(".options"))
+        .map(str::to_owned)
+        .collect();
+    for path in target_weapons {
+        let cfg = parse_config(carry.target, &path, "weapon")?.root;
+        if let Some(V::Integer(icon)) = get(&cfg, "ui_desc.combat_log_icon") {
+            live_icons.entry(*icon).or_default().push(path);
+        }
+    }
+    super::icons::check_kill_feed(
+        &port
+            .weapons
+            .iter()
+            .map(|w| (w.name.as_str(), &w.kill_feed))
+            .collect::<Vec<_>>(),
+        &live_icons,
+    )?;
     let mut configs: Vec<(&Weapon, V)> = vec![];
     for w in &port.weapons {
         ensure!(!carry.target.contains(&w.config), "{} exists", w.config);

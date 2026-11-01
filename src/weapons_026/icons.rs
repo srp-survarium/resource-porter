@@ -4,6 +4,8 @@
 //! `CombatLogWeapon<icon>` bitmap, which skhid-srp's
 //! `scripts/kill-feed-icons` adds to the movie).
 
+use std::collections::BTreeMap;
+
 use anyhow::{Result, bail, ensure};
 
 use crate::content_pack::atlas::{CELL_HEIGHT, CELL_WIDTH};
@@ -165,4 +167,37 @@ pub fn erase_rects(png_bytes: &[u8], rects: &[[u32; 4]]) -> Result<Vec<u8>> {
             .write_image_data(&buf[..(w * h * 4) as usize])?;
     }
     Ok(out)
+}
+
+/// Refuses a port whose kill feed icons clash: a weapon with an image of its
+/// own (`donor_png`) takes a number no weapon of the players' files has
+/// (`live`: icon -> configs, the other ports' guns built under this one
+/// included), and a number new to the game belongs to one weapon of the
+/// port. A weapon may share a live gun's icon only without an image of its
+/// own (a variant of that gun: patch 19's premiums, the PPSh drum). The
+/// CZ 75 and the Colt M1911 both took 0.46c2's 82: the kill feed showed the
+/// CZ for the Colt.
+pub fn check_kill_feed(
+    port: &[(&str, &super::manifest::KillFeed)],
+    live: &BTreeMap<i32, Vec<String>>,
+) -> Result<()> {
+    let mut new: BTreeMap<i32, &str> = BTreeMap::new();
+    for (name, feed) in port {
+        if let Some(users) = live.get(&feed.icon) {
+            ensure!(
+                feed.donor_png.is_none(),
+                "{name}: kill feed icon {} is taken by {} (its image would replace theirs)",
+                feed.icon,
+                users.join(", ")
+            );
+            continue;
+        }
+        if let Some(other) = new.insert(feed.icon, name) {
+            bail!(
+                "{name}: kill feed icon {} is {other}'s too (give each gun its own)",
+                feed.icon
+            );
+        }
+    }
+    Ok(())
 }
