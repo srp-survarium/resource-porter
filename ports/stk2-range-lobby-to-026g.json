@@ -11,14 +11,14 @@
     "weapon_view": 0.0
   },
   "pack": {
-    "id": "lobby-stk2-house",
+    "id": "lobby-stk2-range",
     "version": "1",
-    "description": "the House: the upper floor of STK2's Bar building (2011-12 bar_shooting_gallery, the building of lobby-stk2-bar's shooting gallery) as a 0.26g lobby project, projects/lobby_scene/stk2_house; the room of the video 'Map Showcase [5] (House)': the hall under its hanging camouflage net (the owner's 'tent on top'), long trestle tables with benches, bottles and cups, the kitchen corner (gas cooker under its hood, sink, fridge, the bar cabinet) at its far end, the annex by the stairs (253 objects merged in one model, level/stk2_house/main_v1); the character on the open floor between the tables and the annex, the default view west down the hall; a copy of the annex's closed brown door in its open north doorway (a second slice, door_v1: the doorway looked out onto the roof landing and nothing below); STK2's unmapped faces mapped by projection (the kitchen partition's end); textures at their STK2 sources' full size (to 2048 px); lit as the bomb shelter: a box probe of the hall (warm-neutral gradient, ambient 0.45), warm ambient fills along the hall, the kitchen and the annex, a character fill and a back bounce, STK2's lamps with their fixtures (the watering-can lamp over the tables, the halogen work lamps) warm, its small lights over the tables soft and warm, no light casting a shadow, STK2's sun left out; camera boxes over the floor, under the net, around the watering-can lamp, the five tables near the character and the tub; the weapon of an upgrade window 0.42 m above the table behind the character's right, seen along +z; static characters (the Novice) and weapons left out"
+    "description": "the STK2 Bar's shooting gallery (2011-12 bar_shooting_gallery: its lower level, the gallery's lanes, targets, camouflage nets, bottle shelf and lamps) as a 0.26g lobby project, projects/lobby_scene/stk2_range, lit by STK2's own lights, sun and post-process; @2: the floor at the characters' feet (0.038 m up), the planks under the squad's right member left out, the stock workbench_02 in the back left corner with the weapon 0.40 m above it, camera boxes over the floor and the workbench; @3 (made, not shipped): relit warm (a box probe of the hall, warm fills along it and at the gallery's sides, STK2's halogen work lamps restored, the gallery's hot spot softened, a warm bounce on the character's back), the canister off the vent stack by the workbench (the upgrade table's flight) and a camera box over the bottle shelf; @4: the textures at their STK2 sources' full size (to 2048 px: up to @3 they were scaled to 512 px, the props' to 256); the merged model new with each version (level/stk2_bar/main_v4); lit the bomb shelter's way: no light casts a shadow (the gallery's spot, the hall's ceiling lamps and the halogen lamps cast them), the halogen lamps warm white (they were blue-white), the hall's three ceiling lamps warm and reaching 14 m (19.6: they lit the hall flat), STK2's blue sun left out (unshadowed, it tinted the whole room blue), the room probe's ambient 0.45 (0.2); a camera box under the hall's ceiling (the eye stopped on it at the wheel's far end and saw into the level above) and one over the carton boxes and shelf by the right wall; @5 (made, not shipped): the squad at the firing line (the owner: at the lanes' head they looked 'set there to be shot at'): the character on the shooters' plank floor by the stairs (STK2 (82.0, -3.109, -1.0)), the default view south-east along the sandbag wall and firing counter, the lanes and targets 18 m off to the left (chosen of three: straight downrange, north-east from the lounge, this one); the workbench left out, the weapon of an upgrade window 0.41 m above the firing counter, seen downrange (weapon_view 0.668); camera boxes re-made for the spot (the floor, under the ceiling, the sandbags and counter, the ammunition boxes, the back and south walls with the stairs' doorway, the television table, the chair); a dim warm fill at the foot of the stairs; the merged model level/stk2_bar/main_v5; @6: the owner's pick of the three spots (2026-11-01: 'r1 is good'): the character on the shooters' plank floor with the squad's backs to the sandbag wall and firing counter (STK2 (82.0, -3.109, 0.2)), the default view straight downrange (+x) over the counter, the lanes, the hall's lamps over them and the targets 18 m beyond; the weapon of an upgrade window 0.41 m above the firing counter behind the character's left, seen downrange (weapon_view 0); camera boxes for the spot (the floor, under the ceiling, the sandbags and counter to 0.2 m over its top, the ammunition boxes, the back and south walls with the stairs' doorway, the television table, the chair); the fill at the foot of the stairs kept; the merged model level/stk2_range/main_v1 (made as lobby-stk2-bar@1..6, projects/lobby_scene/stk2_bar, @6 the owner's R1 = this @1; renamed before release, when the owner named the upper floor the Bar)"
   },
-  "target_project": "projects/lobby_scene/stk2_house/client_project",
-  "model_prefix": "level/stk2_house",
-  "material_prefix": "ported/stk2/lobby_house",
-  "texture_prefix": "ported/stk2/lobby_house",
+  "target_project": "projects/lobby_scene/stk2_range/client_project",
+  "model_prefix": "level/stk2_range",
+  "material_prefix": "ported/stk2/lobby_range",
+  "texture_prefix": "ported/stk2/lobby_range",
   "textures_dir": "resources/sources/textures",
   "more_texture_dirs": [
     "STK2/xr2-prog/resources/sources/textures"
@@ -27,11 +27,11 @@
   "max_texture_size": 2048,
   "scene": {
     "character": [
-      94.3,
-      0.221,
-      -0.5
+      82.0,
+      -3.109,
+      0.2
     ],
-    "view_yaw": 1.5708
+    "view_yaw": -1.5708
   },
   "slices": [
     {
@@ -45,18 +45,19 @@
       ],
       "box_min": [
         77.0,
-        0.05,
-        -6.5
+        -3.6,
+        -7.0
       ],
       "box_max": [
-        101.5,
-        9.0,
+        102.5,
+        0.3,
         6.0
       ],
       "exclude": [
         "item/weapon/",
         "actors/",
-        "character/"
+        "character/",
+        "props/street/wood_planks"
       ],
       "lights": {
         "point_template": "point_light(5)",
@@ -64,70 +65,15 @@
         "sun_template": "sun",
         "intensity_scale": 2.0
       },
-      "collision": true
-    },
-    {
-      "name": "door",
-      "project": "resources/sources/projects/bar_shooting_gallery/project.xprj",
-      "composites": "resources/sources/library/composite/composite.library",
-      "model_roots": [
-        "resources",
-        "STK2/xr2-prog/resources",
-        "STK2/xr2-dsgn/resources"
-      ],
-      "box_min": [
-        98.6,
-        0.1,
-        1.0
-      ],
-      "box_max": [
-        100.4,
-        2.6,
-        1.6
-      ],
-      "exclude": [
-        "architecture/",
-        "actors/",
-        "character/",
-        "item/",
-        "lights/",
-        "test_object/",
-        "fx/",
-        "props/a",
-        "props/b",
-        "props/c",
-        "props/e",
-        "props/f",
-        "props/g",
-        "props/h",
-        "props/i",
-        "props/j",
-        "props/k",
-        "props/l",
-        "props/m",
-        "props/n",
-        "props/o",
-        "props/p",
-        "props/q",
-        "props/r",
-        "props/s",
-        "props/t",
-        "props/u",
-        "props/v",
-        "props/w",
-        "props/x",
-        "props/y",
-        "props/z"
-      ],
       "collision": true,
       "moves": [
         {
-          "id": "e9f81533-afa4-458a-af7f-1dee6a9f8a36",
-          "what": "a copy of the closed brown door of the annex's south doorway, in its open north doorway (out to the roof landing, the railing and the void below)",
+          "id": "7e1ae790-15b9-42f0-b20a-22cc4635ae27",
+          "what": "canister_green_low(2), off the vent stack beside the workbench (in the upgrade table flight's way) onto the floor by its twin",
           "position": [
-            98.93,
-            0.221,
-            1.25
+            100.35,
+            -3.208,
+            1.9
           ]
         }
       ]
@@ -259,9 +205,9 @@
       "name": "room_probe",
       "set": {
         "position": [
-          0.15,
-          1.849,
-          4.8
+          -0.8,
+          1.501,
+          8.8
         ],
         "probe_side_width": 0.1,
         "diffuse_multiplier": 4.0,
@@ -269,9 +215,9 @@
         "ambient_multiplier": 0.45,
         "geometry": 1,
         "scale": [
-          5.45,
-          1.85,
-          7.9
+          4.3,
+          1.9,
+          10.6
         ]
       }
     },
@@ -280,9 +226,9 @@
       "name": "hall_fill_0",
       "set": {
         "position": [
-          -0.0,
-          1.279,
-          -1.7
+          -0.8,
+          1.201,
+          11.0
         ],
         "radius": 4.6,
         "color": [
@@ -300,9 +246,9 @@
       "name": "hall_fill_1",
       "set": {
         "position": [
-          0.0,
-          1.279,
-          2.3
+          -0.8,
+          1.201,
+          6.5
         ],
         "radius": 4.6,
         "color": [
@@ -320,9 +266,9 @@
       "name": "hall_fill_2",
       "set": {
         "position": [
-          0.5,
-          1.279,
-          6.3
+          -0.8,
+          1.201,
+          2.0
         ],
         "radius": 4.6,
         "color": [
@@ -337,34 +283,14 @@
     },
     {
       "from": "ambient_light(4)",
-      "name": "kitchen_fill",
+      "name": "hall_side_fill",
       "set": {
         "position": [
-          3.0,
-          1.279,
-          10.3
+          2.2,
+          1.201,
+          12.5
         ],
         "radius": 3.0,
-        "color": [
-          1.0,
-          0.84,
-          0.66
-        ],
-        "intensity": 0.45,
-        "side_width": 1.0,
-        "layer": "default"
-      }
-    },
-    {
-      "from": "ambient_light(4)",
-      "name": "annex_fill",
-      "set": {
-        "position": [
-          -0.5,
-          1.279,
-          -4.9
-        ],
-        "radius": 2.6,
         "color": [
           1.0,
           0.84,
@@ -376,13 +302,33 @@
       }
     },
     {
-      "from": "point_light(5)",
-      "name": "back_bounce",
+      "from": "ambient_light(4)",
+      "name": "gallery_fill",
       "set": {
         "position": [
-          0.1,
-          1.979,
-          2.3
+          -0.4,
+          1.401,
+          17.2
+        ],
+        "radius": 4.0,
+        "color": [
+          1.0,
+          0.86,
+          0.7
+        ],
+        "intensity": 0.3,
+        "side_width": 1.0,
+        "layer": "default"
+      }
+    },
+    {
+      "from": "point_light(5)",
+      "name": "gallery_bounce",
+      "set": {
+        "position": [
+          0.3,
+          2.0,
+          2.4
         ],
         "color": [
           1.0,
@@ -395,23 +341,43 @@
         "is_cast_shadow": false,
         "layer": "default"
       }
+    },
+    {
+      "from": "ambient_light(4)",
+      "name": "stairs_fill",
+      "set": {
+        "position": [
+          4.1,
+          1.109,
+          -1.1
+        ],
+        "radius": 2.2,
+        "color": [
+          1.0,
+          0.84,
+          0.66
+        ],
+        "intensity": 0.45,
+        "side_width": 1.0,
+        "layer": "default"
+      }
     }
   ],
   "spots": {
     "character": [
-      94.3,
-      0.221,
-      -0.5
+      82.0,
+      -3.109,
+      0.2
     ],
     "weapon": [
-      92.0,
-      1.415,
-      1.25
+      84.26,
+      -1.79,
+      1.6
     ],
     "artefact": [
-      92.05,
-      0.995,
-      0.45
+      84.26,
+      -2.2,
+      2.6
     ]
   },
   "environment": {
@@ -433,108 +399,101 @@
       ]
     },
     {
-      "what": "under the camouflage net (its lowest within the wheel's reach about 2.35 m above the floor; the ceiling 3.7 m)",
+      "what": "under the ceiling (2.97 m over the plank floor)",
       "centre": [
         0.0,
-        2.5,
+        2.75,
         0.0
       ],
       "half_extents": [
         5.0,
-        0.15,
+        0.07,
         5.0
       ]
     },
     {
-      "what": "the watering-can lamp over the tables",
+      "what": "the sandbags and the firing counter, behind the squad (0.2 m over its top, so the eye stops before it, not on it)",
       "centre": [
-        0.975,
-        1.978,
-        2.641
+        -0.55,
+        0.675,
+        2.175
       ],
       "half_extents": [
-        0.207,
-        0.523,
-        0.241
-      ]
+        0.575,
+        0.675,
+        4.05
+      ],
+      "yaw": 1.5708
     },
     {
-      "what": "the table and bench behind the character's right (the weapon's)",
+      "what": "the green ammunition boxes right of the squad, by the stairs",
       "centre": [
-        1.822,
-        0.512,
-        2.242
+        3.35,
+        0.275,
+        0.9
       ],
       "half_extents": [
-        1.105,
-        0.542,
-        1.079
-      ]
+        0.65,
+        0.275,
+        0.3
+      ],
+      "yaw": 1.5708
     },
     {
-      "what": "the twin tables before the kitchen, the right one",
+      "what": "the shooters' back wall (its collision has no margin)",
       "centre": [
-        -1.08,
-        0.459,
-        5.119
+        -0.4,
+        1.5,
+        -2.35
       ],
       "half_extents": [
-        0.88,
-        0.489,
-        0.92
-      ]
+        0.25,
+        1.5,
+        4.2
+      ],
+      "yaw": 1.5708
     },
     {
-      "what": "the twin tables before the kitchen, the left one",
+      "what": "the south wall and the stairs' doorway, right of the squad",
       "centre": [
-        -1.248,
-        0.51,
-        3.439
+        3.625,
+        1.5,
+        -0.5
       ],
       "half_extents": [
-        1.158,
-        0.54,
-        0.954
-      ]
+        2.1,
+        1.5,
+        0.275
+      ],
+      "yaw": 1.5708
     },
     {
-      "what": "the table and bench behind the character's left",
+      "what": "the television table",
       "centre": [
-        -2.837,
-        0.512,
-        1.489
+        -2.475,
+        0.45,
+        -1.1
       ],
       "half_extents": [
-        1.17,
-        0.542,
-        1.255
-      ]
+        0.75,
+        0.45,
+        0.675
+      ],
+      "yaw": 1.5708
     },
     {
-      "what": "the table and bench behind the camera's right",
+      "what": "the leather chair",
       "centre": [
-        2.722,
-        0.457,
-        -1.811
+        -1.35,
+        0.5,
+        -0.95
       ],
       "half_extents": [
-        0.748,
-        0.487,
-        1.09
-      ]
-    },
-    {
-      "what": "the tub on its stool",
-      "centre": [
-        -0.911,
-        0.336,
-        1.946
+        0.6,
+        0.5,
+        0.6
       ],
-      "half_extents": [
-        0.49,
-        0.366,
-        0.447
-      ]
+      "yaw": 1.5708
     }
   ],
   "emission_scale": {
@@ -565,35 +524,33 @@
       "intensity": 0.0
     },
     "stk2_light_000": {
-      "intensity": 2.2,
-      "range": 3.2,
-      "color": [
-        1.0,
-        0.8,
-        0.56
-      ],
+      "cast_shadow": false
+    },
+    "stk2_light_007": {
+      "intensity": 2.6,
+      "range": 8.0,
       "cast_shadow": false
     },
     "stk2_light_001": {
+      "range": 14.0,
       "color": [
         1.0,
-        0.9,
-        0.78
+        0.86,
+        0.7
       ],
       "cast_shadow": false
     },
     "stk2_light_002": {
-      "range": 5.0,
+      "range": 14.0,
       "color": [
         1.0,
-        0.9,
-        0.78
+        0.86,
+        0.7
       ],
       "cast_shadow": false
     },
-    "stk2_light_004": {
-      "intensity": 2.4,
-      "range": 7.0,
+    "stk2_light_003": {
+      "range": 14.0,
       "color": [
         1.0,
         0.86,
@@ -602,31 +559,67 @@
       "cast_shadow": false
     },
     "stk2_light_005": {
-      "range": 3.5,
-      "cast_shadow": false
-    },
-    "stk2_light_006": {
-      "intensity": 1.8,
-      "range": 3.2,
       "color": [
         1.0,
-        0.8,
-        0.56
-      ],
-      "cast_shadow": false
-    },
-    "stk2_light_007": {
-      "intensity": 0.8,
-      "range": 3.0,
-      "color": [
-        1.0,
-        0.8,
-        0.56
+        0.9,
+        0.78
       ],
       "cast_shadow": false
     },
     "stk2_light_008": {
-      "range": 2.0,
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_010": {
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_006": {
+      "intensity": 2.2,
+      "range": 5.0,
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_009": {
+      "intensity": 2.2,
+      "range": 5.0,
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_011": {
+      "intensity": 2.2,
+      "range": 5.0,
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_012": {
+      "intensity": 1.2,
+      "range": 2.5,
+      "color": [
+        1.0,
+        0.92,
+        0.82
+      ],
       "cast_shadow": false
     }
   }
