@@ -675,14 +675,23 @@ fn a_config_naming_a_missing_resource_is_refused() {
         ]
     );
     let all_but_fx = |f: &str| f != "particles/fx/weapons/m4a1.particle";
-    let error = check_resources("wpn_g", &cfg, &all_but_fx)
+    let no_live = |_: &str, _: &str| false;
+    let error = check_resources("wpn_g", &cfg, &all_but_fx, &no_live)
         .unwrap_err()
         .to_string();
     assert!(
         error.contains("particles.shoot: particles/fx/weapons/m4a1.particle"),
         "{error}"
     );
-    check_resources("wpn_g", &cfg, &|_| true).unwrap();
+    check_resources("wpn_g", &cfg, &|_| true, &no_live).unwrap();
+    // A missing name the live template has at the same key is the game's
+    // own (the stock pistols' death clips): kept; at another key it is not.
+    let live =
+        |k: &str, f: &str| k == "particles.shoot" && f == "particles/fx/weapons/m4a1.particle";
+    check_resources("wpn_g", &cfg, &all_but_fx, &live).unwrap();
+    let elsewhere =
+        |k: &str, f: &str| k == "object.model" && f == "particles/fx/weapons/m4a1.particle";
+    assert!(check_resources("wpn_g", &cfg, &all_but_fx, &elsewhere).is_err());
     // A path under a key of no known kind is refused, not let through.
     let odd = t(vec![("data", t(vec![("strange", s("some/where"))]))]);
     assert!(resource_files(&odd).is_err());

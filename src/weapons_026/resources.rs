@@ -85,11 +85,17 @@ pub fn resource_files(cfg: &V) -> Result<Vec<(String, String)>> {
 }
 
 /// Refuses `cfg` when a resource it names is in neither the target nor the
-/// bundle (`exists`), listing every missing one.
-pub fn check_resources(name: &str, cfg: &V, exists: &dyn Fn(&str) -> bool) -> Result<()> {
+/// bundle (`exists`), listing every missing one; a name the live config it
+/// is made from has at the same key (`live_too`) is the game's own and kept.
+pub fn check_resources(
+    name: &str,
+    cfg: &V,
+    exists: &dyn Fn(&str) -> bool,
+    live_too: &dyn Fn(&str, &str) -> bool,
+) -> Result<()> {
     let missing: Vec<String> = resource_files(cfg)?
         .into_iter()
-        .filter(|(_, file)| !exists(file))
+        .filter(|(key, file)| !exists(file) && !live_too(key, file))
         .map(|(key, file)| format!("{key}: {file}"))
         .collect();
     if !missing.is_empty() {

@@ -385,7 +385,7 @@ pub fn weapon_config(
     }
     cfg.set_path("ui_desc.combat_log_icon", V::Integer(weapon.kill_feed.icon))?;
     for path in MODEL_PATHS {
-        if get(&donor, path).is_none() && get(&cfg, path).is_some() {
+        if rules.aim_offset_in_config && get(&donor, path).is_none() && get(&cfg, path).is_some() {
             remove_path(&mut cfg, path);
             notes.push(format!(
                 "{path}: the template's left out (the donor's model has none)"

@@ -50,6 +50,11 @@ pub struct Rules {
     pub clips_12_byte_events: bool,
     /// The build's meshes may carry chunk 110 (4-byte statistics).
     pub mesh_statistics: bool,
+    /// The build's weapon configs carry `parameters.aim_offset` where their
+    /// model needs one, so a donor without it means its model needs none
+    /// (0.29a3, 0.31a2). 0.46c2's configs have the key on no weapon (not on
+    /// its SVD, -0.11 in 0.26g): a port keeps the template's.
+    pub aim_offset_in_config: bool,
 }
 
 /// 0.29 and 0.31 spell two of 0.26g's parameters otherwise, keep stamina
@@ -79,6 +84,7 @@ pub const RULES_029A3: Rules = Rules {
     scaled: SCALED,
     clips_12_byte_events: true,
     mesh_statistics: false,
+    aim_offset_in_config: true,
 };
 
 /// 0.31a2 renumbered the state types above 311 down by one (its reload of
@@ -91,6 +97,7 @@ pub const RULES_031A2: Rules = Rules {
     scaled: SCALED,
     clips_12_byte_events: true,
     mesh_statistics: true,
+    aim_offset_in_config: true,
 };
 
 /// 0.46c2: 0.31a2's state types (its AK-12, PM, SVD, Saiga and the ten
@@ -105,6 +112,7 @@ pub const RULES_046C2: Rules = Rules {
     scaled: &[],
     clips_12_byte_events: true,
     mesh_statistics: true,
+    aim_offset_in_config: false,
 };
 
 impl DonorBuild {
