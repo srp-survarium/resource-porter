@@ -24,7 +24,7 @@ import sys
 LEAVES, DICT, GUNS, TABLE, OUT = sys.argv[1:6]
 only = set(sys.argv[6:])
 FIRST_DICT = 2601
-FIRST_COL, ROWS = 5, 23
+FIRST_COL, ROWS = 5, 22  # row 23 would cross the 2048-pixel bitmap (22 x 91 + 83)
 PRICE = {'brake': 6000, 'flash_hider': 4500}
 GROUPS = {'compensator_h', 'compensator_u', 'compensator_v', 'flash_hider', 'firearrestor', 'muzzle'}
 
