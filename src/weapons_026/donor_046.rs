@@ -4,8 +4,14 @@
 //! 0.46c2 is between 0.31a2 and 0.69d0: 36 `resources.NN.db` volumes (the
 //! last ones its patches), every item config inside `gameplay/game.options`,
 //! and every config in the later 16-byte value records; but its weapon
-//! models are complete (no module system yet) and in 0.26g's vertex layout.
-//! [`Donor046::read`] answers each path with the bytes 0.26g reads:
+//! models are in 0.26g's vertex layout. Most guns' skinned models are whole;
+//! a few carry parts as `upgrade_possibilities.default_attaches`, static
+//! models put at a locator (the MP5's forend, the L85A2's sight, forend and
+//! flash hider, the Fort-401's sight and brake, the SVU's brake, the Glock
+//! 17's frame, slide, barrel, magazine, sight and back plate): the donor
+//! serves such a model with those parts baked in as skinned surfaces
+//! ([`compose`]). [`Donor046::read`] answers each path with the bytes 0.26g
+//! reads:
 //!
 //! * configs (models' `settings`, `skeleton` and `export_properties`,
 //!   skeletons, `.bones_names`, materials, sounds, texture options): the same
@@ -57,6 +63,10 @@ pub const BARREL_MOUNT: &str = "barrel_mount_point";
 pub struct Donor046 {
     db: ResourceDb,
     weapons: BTreeMap<String, V>,
+    /// Models with their default parts baked in (`models/<m>.skinned_model`):
+    /// the files that differ from or add to the donor's, by path, in 0.26g's
+    /// layout, and the item they were composed for.
+    composed: BTreeMap<String, (String, BTreeMap<String, Vec<u8>>)>,
 }
 
 /// The volumes of a 0.46c2 game folder (`resources.00.db` ..), in mount
@@ -105,27 +115,64 @@ impl Donor046 {
             .iter()
             .map(|w| (w.name.clone(), w.value.clone()))
             .collect();
-        Ok(Self { db, weapons })
+        Ok(Self {
+            db,
+            weapons,
+            composed: BTreeMap::new(),
+        })
+    }
+
+    fn composed_file(&self, path: &str) -> Option<&Vec<u8>> {
+        self.composed
+            .iter()
+            .find(|(folder, _)| path.starts_with(folder.as_str()))
+            .and_then(|(_, (_, files))| files.get(path))
     }
 
     pub fn contains(&self, path: &str) -> bool {
-        self.db.contains(path)
+        self.composed_file(path).is_some() || self.db.contains(path)
     }
 
     pub fn is_file(&self, path: &str) -> bool {
-        self.db.is_file(path)
+        self.composed_file(path).is_some() || self.db.is_file(path)
     }
 
-    pub fn paths_with_prefix<'a>(&'a self, prefix: &'a str) -> impl Iterator<Item = &'a str> + 'a {
-        self.db.paths_with_prefix(prefix)
+    /// The files under `prefix`, sorted, the composed models' parts among them.
+    pub fn paths_with_prefix(&self, prefix: &str) -> Vec<String> {
+        let mut paths: std::collections::BTreeSet<String> = self
+            .db
+            .paths_with_prefix(prefix)
+            .filter(|p| self.db.is_file(p))
+            .map(str::to_owned)
+            .collect();
+        for (_, files) in self.composed.values() {
+            paths.extend(files.keys().filter(|p| p.starts_with(prefix)).cloned());
+        }
+        paths.into_iter().collect()
     }
 
-    /// A weapon's config (`weapons.<name>` of `gameplay/game.options`).
-    pub fn item_config(&self, name: &str) -> Result<V> {
-        self.weapons
+    /// A weapon's config (`weapons.<name>` of `gameplay/game.options`); its
+    /// model is composed with its default parts from then on.
+    pub fn item_config(&mut self, name: &str) -> Result<V> {
+        let config = self
+            .weapons
             .get(name)
             .cloned()
-            .with_context(|| format!("0.46c2 has no weapon {name}"))
+            .with_context(|| format!("0.46c2 has no weapon {name}"))?;
+        let Some(V::String(model)) = config.named("object").and_then(|o| o.named("model")) else {
+            bail!("{name}: no object.model");
+        };
+        let folder = format!("models/{model}.skinned_model/");
+        match self.composed.get(&folder) {
+            Some((item, _)) if item == name => {}
+            Some((item, _)) => bail!("{folder} is composed for {item} already, not {name}"),
+            None => {
+                let files = compose(self, &folder, &config)
+                    .with_context(|| format!("composing {name}'s model"))?;
+                self.composed.insert(folder, (name.to_owned(), files));
+            }
+        }
+        Ok(config)
     }
 
     /// The file at `path` as the donor has it (icons, for instance).
@@ -135,6 +182,9 @@ impl Donor046 {
 
     /// The file at `path` in 0.26g's layout (see the module docs).
     pub fn read(&mut self, path: &str) -> Result<Vec<u8>> {
+        if let Some(bytes) = self.composed_file(path) {
+            return Ok(bytes.clone());
+        }
         let bytes = self.db.read(path)?;
         native_layout(path, &bytes).with_context(|| format!("0.46c2 {path}"))
     }
@@ -445,6 +495,305 @@ fn bounds(px: &[[f32; 4]], w: usize, h: usize) -> Option<(usize, usize, usize, u
         }
     }
     (x1 > x0 && y1 > y0).then_some((x0, y0, x1, y1))
+}
+
+// ---------------------------------------------------------------------------
+// Default parts baked into the skinned model
+// ---------------------------------------------------------------------------
+
+/// A 0.46c2 static vertex: position, three packed basis words, half2 UV.
+const STATIC_046: usize = 28;
+/// A 0.26g skinned vertex: position, bone, three packed basis words, float2 UV.
+const SKINNED_026: usize = 36;
+
+/// A bone of a bind pose: its name and its origin in the rig's frame.
+fn bind_bones(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
+    let count = usize::from(u16::from_le_bytes(
+        b.get(..2).context("empty bind pose")?.try_into()?,
+    ));
+    let mut at = 2;
+    let mut bones = Vec::with_capacity(count);
+    for _ in 0..count {
+        let rest = b.get(at..).context("truncated bind pose")?;
+        let end = rest
+            .iter()
+            .position(|c| *c == 0)
+            .context("unterminated bone name")?;
+        let name = std::str::from_utf8(&rest[..end])?.to_owned();
+        at += end + 1;
+        let f = |k: usize| -> Result<f32> {
+            Ok(f32::from_le_bytes(
+                b.get(at + 4 * k..at + 4 * k + 4)
+                    .context("truncated bone")?
+                    .try_into()?,
+            ))
+        };
+        bones.push((name, [f(0)?, f(1)?, f(2)?]));
+        at += 36;
+    }
+    ensure!(at == b.len(), "bind pose: {} trailing bytes", b.len() - at);
+    Ok(bones)
+}
+
+/// The engine's model frame to the rig's, in which 0.46c2 (and 0.26g) store
+/// skinned vertices and bone origins: a half turn about the vertical (every
+/// bone of a weapon rig has the bind rotation (-pi, 0, -pi)).
+fn to_rig(p: [f32; 3]) -> [f32; 3] {
+    [-p[0], p[1], -p[2]]
+}
+
+/// A packed basis word (bytes x, y, z, w; 127 is 0) turned as [`to_rig`].
+fn basis_to_rig(word: [u8; 4]) -> [u8; 4] {
+    let neg = |b: u8| 254u8.saturating_sub(b);
+    [neg(word[0]), word[1], neg(word[2]), word[3]]
+}
+
+fn half(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exp = i32::from((bits >> 10) & 0x1f);
+    let frac = f32::from(bits & 0x3ff);
+    sign * match exp {
+        0 => frac * 2f32.powi(-24),
+        31 => f32::INFINITY,
+        _ => (1.0 + frac / 1024.0) * 2f32.powi(exp - 15),
+    }
+}
+
+/// A static part's surface as a skinned one of the gun: each vertex at the
+/// part's locator (`at`, the engine's frame, from the bone's origin `bone_origin`,
+/// the rig's frame), bound wholly to `bone`; the vertex and index chunks
+/// 0.26g reads. Returns the surface and its box (rig frame).
+pub fn static_part_to_skinned(
+    b: &[u8],
+    at: [f32; 3],
+    bone_origin: [f32; 3],
+    bone: u32,
+) -> Result<(Vec<u8>, [f32; 3], [f32; 3])> {
+    let chunks = mesh_chunks(b)?;
+    let n = u32::from_le_bytes(chunks.get(8..12).context("no vertex count")?.try_into()?) as usize;
+    let size = u32::from_le_bytes(chunks[4..8].try_into()?) as usize;
+    ensure!(
+        size == 4 + n * STATIC_046,
+        "not a 0.46c2 static surface ({size} bytes for {n} vertices)"
+    );
+    let vertices = &chunks[12..12 + n * STATIC_046];
+    let indices = &chunks[8 + size..];
+    let mut out = Vec::with_capacity(16 + n * SKINNED_026 + indices.len());
+    out.extend(3u32.to_le_bytes());
+    out.extend(u32::try_from(4 + n * SKINNED_026)?.to_le_bytes());
+    out.extend(u32::try_from(n)?.to_le_bytes());
+    let (mut lo, mut hi) = ([f32::INFINITY; 3], [f32::NEG_INFINITY; 3]);
+    for v in vertices.chunks_exact(STATIC_046) {
+        let p: [f32; 3] = std::array::from_fn(|k| {
+            f32::from_le_bytes(v[4 * k..4 * k + 4].try_into().unwrap()) + at[k]
+        });
+        let r = to_rig(p);
+        let q: [f32; 3] = std::array::from_fn(|k| r[k] + bone_origin[k]);
+        ensure!(q.iter().all(|c| c.is_finite()), "non-finite position");
+        for k in 0..3 {
+            lo[k] = lo[k].min(q[k]);
+            hi[k] = hi[k].max(q[k]);
+            out.extend(q[k].to_le_bytes());
+        }
+        out.extend(bone.to_le_bytes());
+        for k in 0..3 {
+            let word: [u8; 4] = v[12 + 4 * k..16 + 4 * k].try_into()?;
+            out.extend(basis_to_rig(word));
+        }
+        for k in 0..2 {
+            let uv = half(u16::from_le_bytes([v[24 + 2 * k], v[25 + 2 * k]]));
+            ensure!(uv.is_finite(), "non-finite UV");
+            out.extend(uv.to_le_bytes());
+        }
+    }
+    // The index chunk, as it is (u16 indices of the same vertices).
+    out.extend_from_slice(indices);
+    Ok((out, lo, hi))
+}
+
+fn locator<'a>(properties: &'a V, name: &str) -> Option<&'a V> {
+    let V::Indexed(locators) = properties.named("locators")? else {
+        return None;
+    };
+    locators.iter().find(|l| locator_name(l) == Some(name))
+}
+
+fn float3(v: Option<&V>) -> Option<[f32; 3]> {
+    match v {
+        Some(V::Float3(p)) => Some(*p),
+        _ => None,
+    }
+}
+
+fn named_string<'a>(v: &'a V, path: &[&str]) -> Option<&'a str> {
+    let mut at = v;
+    for part in path {
+        at = at.named(part)?;
+    }
+    match at {
+        V::String(s) => Some(s),
+        _ => None,
+    }
+}
+
+/// The model `folder` of `config` with the config's default parts
+/// (`upgrade_possibilities.default_attaches`: a static model each, at the
+/// locator `upgrade_possibilities.locators` names for its `locator_type`)
+/// baked in as skinned surfaces `<part>_<surface>` on the locator's bone;
+/// the files that change or are added, by path. A gun with no default parts
+/// gets none.
+pub fn compose(
+    donor: &mut Donor046,
+    folder: &str,
+    config: &V,
+) -> Result<BTreeMap<String, Vec<u8>>> {
+    let mut files = BTreeMap::new();
+    let Some(V::Named(parts)) = config
+        .named("upgrade_possibilities")
+        .and_then(|u| u.named("default_attaches"))
+    else {
+        return Ok(files);
+    };
+    if parts.is_empty() {
+        return Ok(files);
+    }
+    let locator_names = config
+        .named("upgrade_possibilities")
+        .and_then(|u| u.named("locators"));
+    let properties = BinaryConfig::parse(
+        &donor
+            .db
+            .read(&format!("{folder}render/export_properties"))?,
+    )?
+    .root;
+    let bones = bind_bones(&donor.db.read(&format!("{folder}render/bind_pose"))?)?;
+    let mut settings = BinaryConfig::parse(&donor.db.read(&format!("{folder}settings"))?)?.root;
+    let mut surfaces = vec![];
+    for part in parts {
+        let kind =
+            named_string(&part.value, &["locator_type"]).context("a part without locator_type")?;
+        let model =
+            named_string(&part.value, &["idle_model"]).context("a part without idle_model")?;
+        let locator_name = locator_names
+            .and_then(|l| l.named(kind))
+            .and_then(|l| named_string(l, &["name"]))
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{kind}_point"));
+        let at = locator(&properties, &locator_name)
+            .with_context(|| format!("{}: no locator {locator_name}", part.name))?;
+        ensure!(
+            float3(at.named("rotation")).is_some_and(|r| r.iter().all(|c| c.abs() < 1e-4)),
+            "{}: locator {locator_name} is turned",
+            part.name
+        );
+        let position = float3(at.named("position")).context("locator without position")?;
+        let bone_name = named_string(at, &["bone_name"]).context("locator without bone_name")?;
+        let bone = bones
+            .iter()
+            .position(|(name, _)| name == bone_name)
+            .with_context(|| {
+                format!("{locator_name}'s bone {bone_name} is not in the bind pose")
+            })?;
+        if let Some(V::Integer(index)) = at.named("bone_idx") {
+            ensure!(
+                *index as usize == bone,
+                "{locator_name}: bone_idx {index}, bind pose {bone}"
+            );
+        }
+        let static_folder = format!("models/{model}.model/");
+        let part_settings =
+            BinaryConfig::parse(&donor.db.read(&format!("{static_folder}settings"))?)?.root;
+        let Some(V::Indexed(lod0)) = part_settings
+            .named("lod_hierrarchy")
+            .and_then(|l| l.named("LOD0"))
+            .and_then(|l| l.named("surfaces"))
+        else {
+            bail!("{model}: no LOD0 surfaces");
+        };
+        for surface in lod0 {
+            let V::String(surface) = surface else {
+                bail!("{model}: a surface that is not a name");
+            };
+            let material = part_settings
+                .named("material_settings")
+                .and_then(|m| m.named(surface))
+                .and_then(|m| named_string(m, &["material_name"]))
+                .with_context(|| format!("{model}: {surface} has no material"))?
+                .to_owned();
+            let raw = donor
+                .db
+                .read(&format!("{static_folder}render/{surface}/converted_model"))?;
+            let (mesh, lo, hi) = static_part_to_skinned(&raw, position, bones[bone].1, bone as u32)
+                .with_context(|| format!("{model}: {surface}"))?;
+            let name = format!("{}_{surface}", part.name);
+            let vertices = u32::from_le_bytes(mesh[8..12].try_into()?) as i32;
+            let index_at = 8 + u32::from_le_bytes(mesh[4..8].try_into()?) as usize;
+            let indices = u32::from_le_bytes(mesh[index_at + 8..index_at + 12].try_into()?) as i32;
+            let surface_properties = V::Named(vec![
+                field(
+                    "bounding_box",
+                    V::Named(vec![
+                        field("min", V::Float3(lo)),
+                        field("max", V::Float3(hi)),
+                    ]),
+                ),
+                field("version", V::Integer(0)),
+                field("type", V::Integer(44)),
+                field(
+                    "source",
+                    V::Named(vec![
+                        field("mesh_name", V::String(format!("{model}|{surface}"))),
+                        field("indices", V::Integer(indices)),
+                        field("primitives", V::Integer(indices / 3)),
+                        field("texture_name", V::String(String::new())),
+                        field("vertices", V::Integer(vertices)),
+                    ]),
+                ),
+            ]);
+            files.insert(format!("{folder}render/{name}/converted_model"), mesh);
+            files.insert(
+                format!("{folder}render/{name}/export_properties"),
+                BinaryConfig {
+                    root: surface_properties,
+                }
+                .to_bytes()?,
+            );
+            surfaces.push((name, material));
+        }
+    }
+    // The model's settings: the parts' surfaces after its own, in LOD0.
+    let Some(V::Indexed(lod0)) = settings
+        .named_mut("lod_hierrarchy")
+        .and_then(|l| l.named_mut("LOD0"))
+        .and_then(|l| l.named_mut("surfaces"))
+    else {
+        bail!("{folder}settings: no LOD0 surfaces");
+    };
+    for (name, _) in &surfaces {
+        ensure!(!lod0.contains(&V::String(name.clone())), "{name} twice");
+        lod0.push(V::String(name.clone()));
+    }
+    let Some(V::Named(materials)) = settings.named_mut("material_settings") else {
+        bail!("{folder}settings: no material_settings");
+    };
+    for (name, material) in surfaces {
+        materials.push(field(
+            &name,
+            V::Named(vec![field("material_name", V::String(material))]),
+        ));
+    }
+    files.insert(
+        format!("{folder}settings"),
+        BinaryConfig { root: settings }.to_bytes()?,
+    );
+    Ok(files)
+}
+
+fn field(name: &str, value: V) -> crate::binary_config::NamedValue {
+    crate::binary_config::NamedValue {
+        name: name.into(),
+        value,
+    }
 }
 
 #[cfg(test)]
