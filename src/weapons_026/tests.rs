@@ -602,3 +602,118 @@ fn one_module_of_each_kind_gets_its_item_config() {
     let can = module("muzzle_brake", "srp_can", "weapons/modules/silencers/pbs_1");
     assert!(module_config(&can, &scope_template()).is_err());
 }
+
+/// The test gun's config with `reload_time` in the template and the donor,
+/// the donor's tactical time `tactical`, the manifest's `set` extra.
+fn reload_config(
+    tactical: Option<f32>,
+    set: serde_json::Value,
+    reload_kind: i32,
+) -> anyhow::Result<V> {
+    let mut template = template();
+    template
+        .set_path("parameters.reload_time", V::Float(3.17))
+        .unwrap();
+    let mut donor = donor();
+    donor
+        .set_path("parameters.reload_time", V::Float(4.0))
+        .unwrap();
+    donor
+        .set_path(
+            "states.reload",
+            rifle_state(reload_kind, "ots14/item/stand/3rd_view/reload_tactic"),
+        )
+        .unwrap();
+    if let Some(t) = tactical {
+        donor
+            .set_path("parameters.tactical_reload_time", V::Float(t))
+            .unwrap();
+    }
+    let mut weapon = weapon();
+    for (k, v) in set.as_object().unwrap() {
+        weapon.set.insert(k.clone(), v.clone());
+    }
+    let schema = schema([&template]);
+    weapon_config(&RULES_031A2, &weapon, &donor, &template, &schema, &|_| {
+        false
+    })
+    .map(|(cfg, _)| cfg)
+}
+
+#[test]
+fn a_two_clip_reload_takes_the_donors_tactical_ratio_on_its_own_reload_time() {
+    // A 0.69d0-like donor, 4.0 full and 3.0 tactical: its reload_time is the port's.
+    let cfg = reload_config(Some(3.0), serde_json::json!({}), 313).unwrap();
+    assert_eq!(
+        get(&cfg, "states.reload.state_type"),
+        Some(&V::Integer(314))
+    );
+    assert_eq!(get(&cfg, "parameters.reload_time"), Some(&V::Float(4.0)));
+    assert_eq!(
+        get(&cfg, "parameters.tactical_reload_time"),
+        Some(&V::Float(3.0))
+    );
+    // A balance that sets reload_time scales the tactical one with it: 3.17 x 0.75.
+    let cfg = reload_config(
+        Some(3.0),
+        serde_json::json!({"parameters.reload_time": 3.17}),
+        313,
+    )
+    .unwrap();
+    assert_eq!(
+        get(&cfg, "parameters.tactical_reload_time"),
+        Some(&V::Float(2.38))
+    );
+}
+
+#[test]
+fn a_donor_without_a_tactical_time_takes_retails_median_ratio() {
+    let cfg = reload_config(None, serde_json::json!({}), 313).unwrap();
+    assert_eq!(
+        get(&cfg, "parameters.tactical_reload_time"),
+        Some(&V::Float(3.0))
+    );
+    let cfg = reload_config(
+        None,
+        serde_json::json!({"parameters.reload_time": 2.0}),
+        313,
+    )
+    .unwrap();
+    assert_eq!(
+        get(&cfg, "parameters.tactical_reload_time"),
+        Some(&V::Float(1.5))
+    );
+}
+
+#[test]
+fn the_manifest_may_set_the_tactical_time() {
+    let cfg = reload_config(
+        Some(3.0),
+        serde_json::json!({"parameters.tactical_reload_time": 2.2}),
+        313,
+    )
+    .unwrap();
+    assert_eq!(
+        get(&cfg, "parameters.tactical_reload_time"),
+        Some(&V::Float(2.2))
+    );
+}
+
+#[test]
+fn a_one_clip_reload_has_no_tactical_time() {
+    // 0.31's 303 is 0.26g's 303: one clip.
+    let cfg = reload_config(Some(3.0), serde_json::json!({}), 303).unwrap();
+    assert_eq!(
+        get(&cfg, "states.reload.state_type"),
+        Some(&V::Integer(303))
+    );
+    assert!(get(&cfg, "parameters.tactical_reload_time").is_none());
+    assert!(
+        reload_config(
+            None,
+            serde_json::json!({"parameters.tactical_reload_time": 2.0}),
+            303
+        )
+        .is_err()
+    );
+}

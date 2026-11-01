@@ -354,9 +354,14 @@ pub fn weapon_config(
         )?;
     }
     cfg.set_path("ui_desc.combat_log_icon", V::Integer(weapon.kill_feed.icon))?;
-    for (path, value) in &weapon.set {
+    for (path, value) in weapon
+        .set
+        .iter()
+        .filter(|(p, _)| p.as_str() != TACTICAL_RELOAD_TIME)
+    {
         set_typed(&mut cfg, path, value)?;
     }
+    tactical_reload_time(&mut cfg, &donor, weapon, &mut notes)?;
     if let Some(V::Float(d)) = get(&cfg, "parameters.base_dispersion").cloned()
         && get(&cfg, "dispersion.base_dispersion").is_some()
     {
@@ -386,6 +391,78 @@ pub fn weapon_config(
         set_typed(&mut cfg, path, value)?;
     }
     Ok((cfg, notes))
+}
+
+/// skhid's exe patch 90 (docs/notes/tactical-reload.md): a two-clip reload
+/// (0.26g's state type 314, 0.31's and 0.69's 313) lasts
+/// `tactical_reload_time` with rounds left in the magazine and `reload_time`
+/// (the empty magazine's) without, as retail 0.69d0 times them.
+pub const TACTICAL_RELOAD_TIME: &str = "parameters.tactical_reload_time";
+const RELOAD_TIME: &str = "parameters.reload_time";
+const TWO_CLIP_RELOAD: i32 = 314;
+/// What a donor without a tactical time (0.29a3, 0.31a2: the key came between
+/// 0.31a2 and 0.46c2) takes: the median of 0.69d0's 81 two-clip guns'
+/// `tactical_reload_time / reload_time`.
+pub const RETAIL_TACTICAL_RATIO: f64 = 0.75;
+
+/// A number of the config, an integer or a float.
+fn number(v: Option<&V>) -> Option<f64> {
+    match v {
+        Some(V::Float(f)) => Some(f64::from(*f)),
+        Some(V::Integer(i)) => Some(f64::from(*i)),
+        _ => None,
+    }
+}
+
+/// The gun's `tactical_reload_time`: a two-clip reload's is the manifest's
+/// (`set`), or its `reload_time` (the port's balance) times the donor's
+/// tactical / full ratio, or [`RETAIL_TACTICAL_RATIO`] when the donor has
+/// none, to 0.01 s; a one-clip reload has none (the exe times only 314).
+fn tactical_reload_time(
+    cfg: &mut V,
+    donor: &V,
+    weapon: &Weapon,
+    notes: &mut Vec<String>,
+) -> Result<()> {
+    let two_clip = get(cfg, "states.reload.state_type") == Some(&V::Integer(TWO_CLIP_RELOAD));
+    if !two_clip {
+        if let Some(V::Named(parameters)) = cfg.named_mut("parameters") {
+            parameters.retain(|f| f.name != "tactical_reload_time");
+        }
+        ensure!(
+            !weapon.set.contains_key(TACTICAL_RELOAD_TIME),
+            "{TACTICAL_RELOAD_TIME}: the reload is not a two-clip one (state type {TWO_CLIP_RELOAD})"
+        );
+        return Ok(());
+    }
+    let time = match weapon.set.get(TACTICAL_RELOAD_TIME) {
+        Some(v) => v
+            .as_f64()
+            .with_context(|| format!("{TACTICAL_RELOAD_TIME}: {v} is no number"))?,
+        None => {
+            let Some(full) = number(get(cfg, RELOAD_TIME)) else {
+                notes.push(format!(
+                    "{TACTICAL_RELOAD_TIME}: none, the config has no {RELOAD_TIME}"
+                ));
+                return Ok(());
+            };
+            let ratio = match (
+                number(get(donor, TACTICAL_RELOAD_TIME)),
+                number(get(donor, RELOAD_TIME)),
+            ) {
+                (Some(t), Some(r)) if t > 0.0 && r > 0.0 => t / r,
+                _ => {
+                    notes.push(format!(
+                        "{TACTICAL_RELOAD_TIME}: the donor has none, {RELOAD_TIME} x {RETAIL_TACTICAL_RATIO} (0.69d0's median)"
+                    ));
+                    RETAIL_TACTICAL_RATIO
+                }
+            };
+            (full * ratio * 100.0).round() / 100.0
+        }
+    };
+    ensure!(time > 0.0, "{TACTICAL_RELOAD_TIME} {time}: no time");
+    cfg.set_path(TACTICAL_RELOAD_TIME, V::Float(time as f32))
 }
 
 fn donor_top_level(donor: &V) -> Vec<String> {
