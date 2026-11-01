@@ -88,7 +88,7 @@ impl Mesh {
         let indices = indices.context("no index chunk")?;
         let count = u32_at(&indices, 0)? as usize;
         ensure!(
-            count % 3 == 0 && indices.len() >= 4 + 2 * count,
+            count.is_multiple_of(3) && indices.len() >= 4 + 2 * count,
             "index chunk"
         );
         let index = |k: usize| u16::from_le_bytes([indices[4 + 2 * k], indices[5 + 2 * k]]);
