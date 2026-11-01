@@ -265,7 +265,8 @@ pub struct SliceSpec {
     #[serde(default)]
     pub material_swaps: Vec<MaterialSwap>,
     /// Objects of the project put elsewhere (STK2 world), turned and
-    /// scaled as they are: a prop in the way of a camera's path.
+    /// scaled as they are: a prop in the way of a camera's path, or a
+    /// light that goes with a moved prop (a composite's own light).
     #[serde(default)]
     pub moves: Vec<ObjectMove>,
 }
@@ -1930,6 +1931,7 @@ impl Mesh {
     /// An STK2 surface (u32 n, n 56-byte vertices; u32 m, m u16 indices)
     /// moved by `placement` (a mirroring one turns the triangles over).
     fn stk2(vertices: &[u8], indices: &[u8], placement: Rigid, label: &str) -> Result<Mesh> {
+        let (vertices, indices) = &unmapped_faces_projected(vertices, indices, label)?;
         let count = usize::try_from(read_u32(vertices, 0)?)?;
         let bases = repaired_static_bases(vertices, indices, label)?;
         let mut mesh = Mesh::default();
@@ -2094,6 +2096,126 @@ fn move_collision(vertices: &[u8], placement: Rigid) -> Result<Vec<u8>> {
     }
     out.extend_from_slice(&vertices[8 + size..]);
     Ok(out)
+}
+
+/// An STK2 surface (as [`Mesh::stk2`] reads it) with its unmapped faces
+/// mapped. STK2 left some faces of its level shells without a mapping: their
+/// corners share one uv or lie on one line of the texture (the bomb
+/// shelter's door sills and a floor strip by the store room's west arch,
+/// `(0, 1) (0, 1) (1, 1)`), so the face shows one row of texels stretched
+/// across it. Each gets corners of its own, its uvs projected along the
+/// axis it faces at the surface's median texel density (shifted by whole
+/// tiles to near 0, for the half-float uvs), their tangent and binormal
+/// along the projection's axes. A surface with none, or with no mapped face
+/// to take the density from, is returned as it is.
+fn unmapped_faces_projected(
+    vertices: &[u8],
+    indices: &[u8],
+    label: &str,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    let count = usize::try_from(read_u32(vertices, 0)?)?;
+    let index_count = usize::try_from(read_u32(indices, 0)?)?;
+    let corner = |t: usize, c: usize| -> Result<usize> {
+        let at = 4 + (t * 3 + c) * 2;
+        let index = usize::from(u16::from_le_bytes(
+            indices
+                .get(at..at + 2)
+                .context("truncated index")?
+                .try_into()?,
+        ));
+        ensure!(index < count, "{label}: index outside its vertices");
+        Ok(index)
+    };
+    let record = |i: usize| &vertices[4 + i * STK2_VERTEX_SIZE..][..STK2_VERTEX_SIZE];
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let mut unmapped = Vec::new();
+    let mut densities = Vec::new();
+    for t in 0..index_count / 3 {
+        let mut p = [[0.0f32; 3]; 3];
+        let mut uv = [[0.0f32; 2]; 3];
+        for c in 0..3 {
+            let source = record(corner(t, c)?);
+            p[c] = read_float3(source, 0)?;
+            uv[c] = [read_f32(source, 48)?, read_f32(source, 52)?];
+        }
+        let (e1, e2) = (sub(p[1], p[0]), sub(p[2], p[0]));
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let area = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if area <= 1e-8 {
+            continue;
+        }
+        let (a, b) = (
+            (uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1]),
+            (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1]),
+        );
+        if (a - b).abs() <= f32::EPSILON * (a.abs() + b.abs()) {
+            unmapped.push((t, n));
+        } else {
+            densities.push(((a - b).abs() / area).sqrt());
+        }
+    }
+    if unmapped.is_empty() || densities.is_empty() {
+        return Ok((vertices.to_vec(), indices.to_vec()));
+    }
+    densities.sort_by(f32::total_cmp);
+    let density = densities[densities.len() / 2];
+    let added = count + unmapped.len() * 3;
+    ensure!(
+        added <= usize::from(u16::MAX) + 1,
+        "{label}: {added} vertices with its unmapped faces' own, more than u16 indices reach"
+    );
+    let mut out_vertices = Vec::with_capacity(4 + added * STK2_VERTEX_SIZE);
+    push_u32(&mut out_vertices, u32::try_from(added)?);
+    out_vertices.extend_from_slice(&vertices[4..4 + count * STK2_VERTEX_SIZE]);
+    let mut out_indices = indices.to_vec();
+    for (k, (t, n)) in unmapped.iter().enumerate() {
+        // STK2 is y-up: floors and ceilings take x and z, walls their
+        // horizontal axis and -y (the texture upright)
+        let [x, y, z] = n.map(f32::abs);
+        let (u_axis, v_axis) = if y >= x && y >= z {
+            ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+        } else if x >= z {
+            ([0.0, 0.0, 1.0], [0.0, -1.0, 0.0])
+        } else {
+            ([1.0, 0.0, 0.0], [0.0, -1.0, 0.0])
+        };
+        let dot = |p: [f32; 3], axis: [f32; 3]| p[0] * axis[0] + p[1] * axis[1] + p[2] * axis[2];
+        let mut uvs = [[0.0f32; 2]; 3];
+        for (c, uv) in uvs.iter_mut().enumerate() {
+            let p = read_float3(record(corner(*t, c)?), 0)?;
+            *uv = [dot(p, u_axis) * density, dot(p, v_axis) * density];
+        }
+        let shift = [0, 1].map(|a| {
+            uvs.iter()
+                .map(|uv| uv[a])
+                .fold(f32::INFINITY, f32::min)
+                .floor()
+        });
+        for (c, uv) in uvs.iter().enumerate() {
+            let mut source = record(corner(*t, c)?).to_vec();
+            for (offset, value) in [
+                (24, u_axis[0]),
+                (28, u_axis[1]),
+                (32, u_axis[2]),
+                (36, v_axis[0]),
+                (40, v_axis[1]),
+                (44, v_axis[2]),
+                (48, uv[0] - shift[0]),
+                (52, uv[1] - shift[1]),
+            ] {
+                source[offset..offset + 4].copy_from_slice(&f32::to_le_bytes(value));
+            }
+            out_vertices.extend_from_slice(&source);
+            let at = 4 + (t * 3 + c) * 2;
+            out_indices[at..at + 2]
+                .copy_from_slice(&u16::try_from(count + k * 3 + c)?.to_le_bytes());
+        }
+    }
+    Ok((out_vertices, out_indices))
 }
 
 /// A square of `2 half` metres at `height`, about the origin, facing up,
@@ -2633,18 +2755,25 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
                     4 => LightKind::Sun,
                     _ => continue,
                 };
-                if kind != LightKind::Sun && !inside(object.position) {
+                let position = match slice.moves.iter().position(|m| m.id == object.id) {
+                    Some(k) => {
+                        moved[k] += 1;
+                        slice.moves[k].position
+                    }
+                    None => object.position,
+                };
+                if kind != LightKind::Sun && !inside(position) {
                     continue;
                 }
                 let color = match object.properties.get("color") {
                     Some(P::Float3(c)) => *c,
                     _ => [1.0; 3],
                 };
-                let turned = Rigid::stk2(object.position, object.rotation, [1.0; 3])?.then(scene);
+                let turned = Rigid::stk2(position, object.rotation, [1.0; 3])?.then(scene);
                 out.lights.push(SliceLight {
                     source: object.id.clone(),
                     kind,
-                    position: scene.apply(object.position),
+                    position: scene.apply(position),
                     rotation: euler_of(turned.m),
                     color,
                     intensity: number("intensity", 1.0),
@@ -3286,6 +3415,61 @@ mod tests {
         assert_eq!(read_u32(&mesh, at).unwrap(), 4);
         assert_eq!(&mesh[at + 8..], &indices[..]);
         assert!(near(bounds.min, [10.0, 0.0, -1.0]));
+    }
+
+    #[test]
+    fn unmapped_faces_get_corners_of_their_own_projected_at_the_surface_density() {
+        // a floor quad mapped at 0.5 uv a metre beside a wall triangle whose
+        // corners lie on one line of the texture (STK2's (0, 1) (0, 1) (1, 1))
+        let mut vertices = Vec::new();
+        let corners: [([f32; 3], [f32; 2]); 7] = [
+            ([0.0, 0.0, 0.0], [0.0, 0.0]),
+            ([2.0, 0.0, 0.0], [1.0, 0.0]),
+            ([2.0, 0.0, 2.0], [1.0, 1.0]),
+            ([0.0, 0.0, 2.0], [0.0, 1.0]),
+            ([3.0, 0.0, 5.0], [0.0, 1.0]),
+            ([3.0, 1.0, 5.0], [0.0, 1.0]),
+            ([3.0, 1.0, 6.0], [1.0, 1.0]),
+        ];
+        push_u32(&mut vertices, corners.len() as u32);
+        for (p, uv) in corners {
+            for v in p
+                .iter()
+                .chain(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0])
+                .chain(&uv)
+            {
+                vertices.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        let mut indices = Vec::new();
+        push_u32(&mut indices, 9);
+        for i in [0u16, 2, 1, 0, 3, 2, 4, 5, 6] {
+            indices.extend_from_slice(&i.to_le_bytes());
+        }
+        let (out_vertices, out_indices) =
+            unmapped_faces_projected(&vertices, &indices, "test").unwrap();
+        // the mapped triangles and their corners are as they were
+        assert_eq!(read_u32(&out_vertices, 0).unwrap(), 10);
+        assert_eq!(&out_vertices[4..4 + 7 * STK2_VERTEX_SIZE], &vertices[4..]);
+        assert_eq!(&out_indices[..4 + 12], &indices[..4 + 12]);
+        // the wall triangle takes three new corners; it faces x: u along z,
+        // v down y, 0.5 a metre, shifted by whole tiles to near 0
+        let new = |k: usize| &out_vertices[4 + (7 + k) * STK2_VERTEX_SIZE..][..STK2_VERTEX_SIZE];
+        let uvs: Vec<[f32; 2]> = (0..3)
+            .map(|k| [read_f32(new(k), 48).unwrap(), read_f32(new(k), 52).unwrap()])
+            .collect();
+        assert_eq!(uvs, vec![[0.5, 1.0], [0.5, 0.5], [1.0, 0.5]]);
+        assert!(near(read_float3(new(0), 24).unwrap(), [0.0, 0.0, 1.0]));
+        assert!(near(read_float3(new(0), 36).unwrap(), [0.0, -1.0, 0.0]));
+        let wall: Vec<u16> = (0..3)
+            .map(|c| u16::from_le_bytes([out_indices[16 + c * 2], out_indices[17 + c * 2]]))
+            .collect();
+        assert_eq!(wall, vec![7, 8, 9]);
+        // a surface with every face mapped is returned as it is
+        let mut mapped = indices[..4 + 12].to_vec();
+        mapped[..4].copy_from_slice(&6u32.to_le_bytes());
+        let same = unmapped_faces_projected(&vertices, &mapped, "test").unwrap();
+        assert_eq!(same, (vertices, mapped));
     }
 
     #[test]
