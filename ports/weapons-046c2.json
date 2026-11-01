@@ -287,7 +287,12 @@
     "ui_desc.text_descriptions.description": "st_cz_75_description"
    },
    "from_template": [
-    "parameters.stamina_damage"
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
    ],
    "lobby_icon": {
     "row": 6,
@@ -301,7 +306,8 @@
    },
    "notes": [
     "peer: Fort 17 (handling), the 9x19 SMGs (damage)",
-    "muzzle_point = fire_point (0.0062, 0.0401, -0.1564); no device"
+    "muzzle_point = fire_point (0.0062, 0.0401, -0.1564); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
    ]
   },
   {
@@ -336,7 +342,12 @@
     "ui_desc.text_descriptions.description": "st_mp443_description"
    },
    "from_template": [
-    "parameters.stamina_damage"
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
    ],
    "lobby_icon": {
     "row": 7,
@@ -350,7 +361,8 @@
    },
    "notes": [
     "peer: Fort 17",
-    "muzzle_point = fire_point (0, 0.0441, -0.1549); no device"
+    "muzzle_point = fire_point (0, 0.0441, -0.1549); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
    ]
   },
   {
@@ -386,7 +398,12 @@
     "ui_desc.text_descriptions.description": "st_beretta93r_description"
    },
    "from_template": [
-    "parameters.stamina_damage"
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
    ],
    "lobby_icon": {
     "row": 8,
@@ -400,7 +417,8 @@
    },
    "notes": [
     "peer: APS; three-round bursts and single shots (0.46c2's [3, 1])",
-    "muzzle_point = fire_point (0, 0.0445, -0.1792); no device"
+    "muzzle_point = fire_point (0, 0.0445, -0.1792); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
    ]
   },
   {
@@ -437,7 +455,12 @@
     "parameters.base_rarity_level": 0
    },
    "from_template": [
-    "parameters.stamina_damage"
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
    ],
    "lobby_icon": {
     "row": 9,
@@ -451,7 +474,8 @@
    },
    "notes": [
     "peer: APS; automatic and single (0.46c2's)",
-    "0.46c2 muzzle_point = fire_point (0, 0.0266, -0.1529); 0.69d0's glock_17_sandy has a barrel module and a clamp brake (grizzlygunworks_defcon1_i05x28_clamp_muzzlebrake), not in this mesh"
+    "0.46c2 muzzle_point = fire_point (0, 0.0266, -0.1529); 0.69d0's glock_17_sandy has a barrel module and a clamp brake (grizzlygunworks_defcon1_i05x28_clamp_muzzlebrake), not in this mesh",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
    ]
   },
   {
@@ -484,7 +508,12 @@
     "ui_desc.text_descriptions.description": "st_colt_m1911_description"
    },
    "from_template": [
-    "parameters.stamina_damage"
+    "parameters.stamina_damage",
+    "states.show.user_animations",
+    "states.fire.user_animations",
+    "states.reload.user_animations",
+    "states.hide.user_animations",
+    "states.idle.user_animations"
    ],
    "lobby_icon": {
     "row": 10,
@@ -498,7 +527,8 @@
    },
    "notes": [
     "peer: Fort 17 (handling), the UMP45 (.45 ACP damage)",
-    "muzzle_point = fire_point (0.0001, 0.0268, -0.1691); no device"
+    "muzzle_point = fire_point (0.0001, 0.0268, -0.1691); no device",
+    "first-person hands: the template's (the live pistols' tt33 hands_only clips): 0.46c2's pm hands_only clips are additive on 0.46c2's pistol base pose, not on 0.26g's (pistols_new.user_animations, a rifle pose), so they left the arms out of view and the gun at the rifle's Weapon bone (the MP-443's in-game look); the live tt33 clips move the right hand and the Weapon bone into a pistol grip"
    ]
   }
  ],
