@@ -63,7 +63,7 @@
    "set": {
     "parameters.aim_zoom_factor": 1.2,
     "parameters.bullet_damage": 0.59,
-    "parameters.bullet_pierce": 0.5,
+    "parameters.bullet_pierce": 0.4,
     "parameters.drop_weight": 40,
     "parameters.faction": 3,
     "parameters.item_level": 15,
@@ -91,7 +91,7 @@
     "donor_png": "flash_movies/textures/ui_icons/log/icon_72.png"
    },
    "notes": [
-    "FN SCAR-H: the M4A1 scaled: 7.62x51 at 625 rpm, 20 rounds, damage 0.59 (the SOCOM 16 on the same round: 0.6) and pierce 0.5 (as the SVD), its kick the M4A1's times the donor's; level 15 (the donor 2 above its M4A1), Renaissance rank 10, priced with the level-15 automatics (AK-12 115,000, PKP 125,000)",
+    "FN SCAR-H: the M4A1 scaled: 7.62x51 at 625 rpm, 20 rounds, damage 0.59 (the SOCOM 16 on the same round: 0.6) and pierce 0.4 (the SOCOM 16's: one round, one penetration; the owner, 2026-11-01), its kick the M4A1's times the donor's; level 15 (the donor 2 above its M4A1), Renaissance rank 10, priced with the level-15 automatics (AK-12 115,000, PKP 125,000)",
     "balance: scripts/weapons/peer_scale.py by the m4a1 (0.31a2 and live, rev 40)"
    ]
   },
