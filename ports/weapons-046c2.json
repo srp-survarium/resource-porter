@@ -88,7 +88,21 @@
    "lobby_icon": {
     "row": 2,
     "col": 6,
-    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_12.png"
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_12.png",
+    "erase": [
+     [
+      16,
+      8,
+      72,
+      33
+     ],
+     [
+      36,
+      33,
+      60,
+      35
+     ]
+    ]
    },
    "kill_feed": {
     "icon": 75,
@@ -419,7 +433,8 @@
      1
     ],
     "ui_desc.text_descriptions.name": "st_glock_17_name",
-    "ui_desc.text_descriptions.description": "st_glock_17_description"
+    "ui_desc.text_descriptions.description": "st_glock_17_description",
+    "parameters.base_rarity_level": 0
    },
    "from_template": [
     "parameters.stamina_damage"

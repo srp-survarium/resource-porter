@@ -50,10 +50,11 @@ pub struct Rules {
     pub clips_12_byte_events: bool,
     /// The build's meshes may carry chunk 110 (4-byte statistics).
     pub mesh_statistics: bool,
-    /// The build's weapon configs carry `parameters.aim_offset` where their
-    /// model needs one, so a donor without it means its model needs none
-    /// (0.29a3, 0.31a2). 0.46c2's configs have the key on no weapon (not on
-    /// its SVD, -0.11 in 0.26g): a port keeps the template's.
+    /// A donor config without `parameters.aim_offset` drops the template's
+    /// (it fits the template's model): 0.29a3, 0.31a2 and 0.46c2. 0.46c2's
+    /// configs have the key on no weapon, but its guns align by their own
+    /// `aim` locator: the template's offsets put the SVU's sight 30 px and
+    /// the Fort-401's front post 17 px low (the in-game look, 2026-11-01).
     pub aim_offset_in_config: bool,
 }
 
@@ -112,7 +113,7 @@ pub const RULES_046C2: Rules = Rules {
     scaled: &[],
     clips_12_byte_events: true,
     mesh_statistics: true,
-    aim_offset_in_config: false,
+    aim_offset_in_config: true,
 };
 
 impl DonorBuild {

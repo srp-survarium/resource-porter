@@ -119,6 +119,11 @@ pub struct LobbyIcon {
     /// 0.46c2 draws its weapons diagonally (`None` there: a long gun's own axis).
     #[serde(default)]
     pub angle: Option<f32>,
+    /// Rectangles of the finished cell made transparent, `[x0, y0, x1, y1)`
+    /// in its pixels: a part the donor drew that the gun has not (the
+    /// SVU's PSO-1, which 0.46c2 mounts and the port leaves out).
+    #[serde(default)]
+    pub erase: Vec<[u32; 4]>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

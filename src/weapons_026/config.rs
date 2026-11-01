@@ -23,7 +23,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use super::donor::Rules;
 use super::manifest::Weapon;
-use super::{field, get, s};
+use super::{field, get, s, string_of};
 use crate::{ConfigValue as V, NamedValue};
 
 /// Config paths taken from the template whatever the donor has.
@@ -392,6 +392,7 @@ pub fn weapon_config(
             ));
         }
     }
+    own_preview_item(&mut cfg, &mut notes)?;
     for (path, value) in &weapon.set {
         set_typed(&mut cfg, path, value)?;
     }
@@ -424,6 +425,30 @@ pub fn weapon_config(
         set_typed(&mut cfg, path, value)?;
     }
     Ok((cfg, notes))
+}
+
+/// The lobby holds the gun on the character with
+/// `user_animations_in_place.preview_item`, a clip of the gun's skeleton:
+/// the template's names its own gun's (the PKP's lobby idle on the
+/// Fort-401, the PM's idle on the CZ 75), which crashed the lobby in
+/// bone_matrices_computer::convert_to_object_matrices. The gun's own idle
+/// (its idle state's first item clip) takes its place.
+pub(crate) fn own_preview_item(cfg: &mut V, notes: &mut Vec<String>) -> Result<()> {
+    const KEY: &str = "user_animations_in_place.preview_item";
+    if get(cfg, KEY).is_none() {
+        return Ok(());
+    }
+    let idle = match get(cfg, "states.idle.animations") {
+        Some(V::Indexed(clips)) => clips.first().and_then(|c| string_of(Some(c))),
+        _ => None,
+    }
+    .context("preview_item: the idle state plays no item clip")?
+    .to_owned();
+    if string_of(get(cfg, KEY)) != Some(idle.as_str()) {
+        notes.push(format!("{KEY}: the gun's idle {idle}"));
+        cfg.set_path(KEY, s(&idle))?;
+    }
+    Ok(())
 }
 
 fn donor_top_level(donor: &V) -> Vec<String> {
