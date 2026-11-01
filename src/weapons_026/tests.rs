@@ -458,3 +458,128 @@ fn the_tool_gives_patch_19s_weapons() {
     let report = compare::compare(&out.join("overlay"), &mut reference, &known).unwrap();
     assert_eq!(report.unexplained().count(), 0, "{}", report.summary());
 }
+
+// --- Modules -------------------------------------------------------------
+
+/// A 0.26g mesh of `quads` (each two triangles), 36-byte vertices.
+fn mesh_bytes(quads: &[[[f32; 3]; 4]]) -> Vec<u8> {
+    let mut vertices = ((quads.len() * 4) as u32).to_le_bytes().to_vec();
+    let mut indices = ((quads.len() * 6) as u32).to_le_bytes().to_vec();
+    for (q, quad) in quads.iter().enumerate() {
+        for p in quad {
+            for c in p {
+                vertices.extend(c.to_le_bytes());
+            }
+            vertices.extend([0u8; 24]);
+        }
+        let b = (q * 4) as u16;
+        for i in [b, b + 1, b + 2, b, b + 2, b + 3] {
+            indices.extend(i.to_le_bytes());
+        }
+    }
+    [chunk(3, &vertices), chunk(4, &indices)].concat()
+}
+
+/// A quad across the barrel (x, y) at length `z`, `r` wide.
+fn ring(z: f32, r: f32) -> [[f32; 3]; 4] {
+    [[-r, -r, z], [r, -r, z], [r, r, z], [-r, r, z]]
+}
+
+fn module(kind: &str, name: &str, donor_model: &str) -> manifest::Module {
+    serde_json::from_value(serde_json::json!({
+        "name": name, "kind": kind, "dict_id": 2900,
+        "donor_model": donor_model, "model": format!("weapons/attach/{name}"),
+        "config": format!("gameplay/items/scopes/{name}.options"),
+        "template": "gameplay/items/scopes/scope_pso1.options", "base_cost": 9000,
+        "locator": null, "set": {}
+    }))
+    .unwrap()
+}
+
+#[test]
+fn a_built_in_brake_is_cut_and_a_device_placed_at_the_muzzle() {
+    use super::modules::{Mesh, cut_builtin, placed, placement};
+    // Our gun: a barrel (base) and a brake past it (z 0.50..0.58), as a
+    // 0.31a2 mesh with the device built in.
+    let barrel = [ring(0.0, 0.01), ring(0.25, 0.01), ring(0.5, 0.01)];
+    let brake = [ring(0.52, 0.015), ring(0.56, 0.015)];
+    let ours = Mesh::parse(&mesh_bytes(&[barrel.as_slice(), brake.as_slice()].concat())).unwrap();
+    let base = Mesh::parse(&mesh_bytes(&barrel)).unwrap();
+    // 0.69d0's stock brake module, origin at its rear, placed at muzzle_point.
+    let device = Mesh::parse(&mesh_bytes(&[ring(0.02, 0.015), ring(0.06, 0.015)])).unwrap();
+    let at = placement([0.0, 0.0, 0.5], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+    let (kept, cut) = cut_builtin(&ours, &base.positions, &placed(&device, at));
+    assert_eq!(cut, 4, "the brake's two quads");
+    assert_eq!(kept.len(), 6, "the barrel stays");
+    // A device elsewhere cuts nothing.
+    let (kept, cut) = cut_builtin(&ours, &base.positions, &placed(&device, [0.0, 0.3, 0.0]));
+    assert_eq!((kept.len(), cut), (10, 0));
+    // Written back: the same vertices, the kept triangles.
+    let bare = Mesh::parse(&ours.with_triangles(&kept)).unwrap();
+    assert_eq!(bare.positions, ours.positions);
+    assert_eq!(bare.triangles.len(), 10);
+}
+
+#[test]
+fn a_render_shows_the_gun_and_its_module() {
+    use super::modules::{Mesh, png, render_side};
+    let gun = Mesh::parse(&mesh_bytes(&[[
+        [0.0, -0.02, 0.0],
+        [0.0, -0.02, 0.5],
+        [0.0, 0.02, 0.5],
+        [0.0, 0.02, 0.0],
+    ]]))
+    .unwrap();
+    let (w, h, rgba) = render_side(&[(&gun.positions, &gun.triangles, [200, 200, 200])], 200).unwrap();
+    assert_eq!(w, 200);
+    let lit = rgba.chunks(4).filter(|p| p[3] == 255).count();
+    assert!(lit > w * h / 2, "{lit} of {}", w * h);
+    assert!(png(w, h, &rgba).unwrap().starts_with(b"\x89PNG"));
+}
+
+fn scope_template() -> V {
+    t(vec![
+        ("parameters", t(vec![("type", s("scope"))])),
+        (
+            "data",
+            t(vec![
+                ("idle_model", s("weapons/attach/pso1")),
+                ("aimed_model", s("weapons/attach/pso1_aim")),
+                ("fov_factor", V::Float(0.6)),
+            ]),
+        ),
+    ])
+}
+
+#[test]
+fn one_module_of_each_kind_gets_its_item_config() {
+    use super::modules::module_config;
+    // A scope: its views.
+    let mut scope = module("scope", "srp_scope_x", "weapons/modules/scopes/x");
+    scope.set.insert("data.fov_factor".into(), serde_json::json!(0.5));
+    let cfg = module_config(&scope, &scope_template()).unwrap();
+    assert_eq!(string_of(get(&cfg, "data.idle_model")), Some("weapons/attach/srp_scope_x"));
+    assert_eq!(get(&cfg, "data.fov_factor"), Some(&V::Float(0.5)));
+    // A muzzle brake: the kit's keys, at muzzle_point.
+    let brake = module(
+        "muzzle_brake",
+        "srp_brake_x",
+        "weapons/modules/muzzle_brakes/x_muzzlebrake",
+    );
+    let cfg = module_config(&brake, &scope_template()).unwrap();
+    assert_eq!(string_of(get(&cfg, "data.srp_muzzle_model")), Some("weapons/attach/srp_brake_x"));
+    assert_eq!(string_of(get(&cfg, "data.srp_locator")), Some("muzzle_point"));
+    assert_eq!(string_of(get(&cfg, "parameters.type")), Some("srp_muzl"));
+    // A grip.
+    let grip = module("grip", "srp_grip_x", "weapons/modules/foregrips/x");
+    let cfg = module_config(&grip, &scope_template()).unwrap();
+    assert_eq!(string_of(get(&cfg, "data.srp_grip_model")), Some("weapons/attach/srp_grip_x"));
+    assert_eq!(string_of(get(&cfg, "data.srp_locator")), Some("picatinny_grip_point"));
+    // No suppressors.
+    let can = module(
+        "muzzle_brake",
+        "srp_can",
+        "weapons/modules/silencers/pbs_1",
+    );
+    assert!(module_config(&can, &scope_template()).is_err());
+}

@@ -94,17 +94,36 @@ pub fn kill_feed_name(icon: i32) -> String {
     format!("kill-feed/CombatLogWeapon{icon}.png")
 }
 
-/// A kill log image as the hud takes it: a PNG, as the donor has it (the
-/// hud tints it per side; `make_weapon_icons.py` checks its size).
+/// A kill log image as the hud takes it: an 8-bit RGBA PNG, not interlaced
+/// (the hud build's bitmaps; 0.31a2's are palette images, interlaced), its
+/// pixels the donor's (the hud tints it per side).
 pub fn kill_feed_png(bytes: &[u8]) -> Result<Vec<u8>> {
-    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    let reader = decoder.read_info()?;
-    let info = reader.info();
-    ensure!(
-        info.width <= 256 && info.height <= 64,
-        "kill log image is {}x{}",
-        info.width,
-        info.height
-    );
-    Ok(bytes.to_vec())
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf)?;
+    ensure!(info.bit_depth == png::BitDepth::Eight, "kill log image is not 8-bit");
+    let (w, h) = (info.width as usize, info.height as usize);
+    ensure!(w <= 256 && h <= 64, "kill log image is {w}x{h}");
+    let rgba: Vec<u8> = match info.color_type {
+        png::ColorType::Rgba => buf[..w * h * 4].to_vec(),
+        png::ColorType::Rgb => buf[..w * h * 3]
+            .chunks(3)
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        png::ColorType::GrayscaleAlpha => buf[..w * h * 2]
+            .chunks(2)
+            .flat_map(|p| [p[0], p[0], p[0], p[1]])
+            .collect(),
+        other => bail!("kill log image colour type {other:?} after expansion"),
+    };
+    let mut out = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut out, w as u32, h as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header()?.write_image_data(&rgba)?;
+    }
+    Ok(out)
 }
