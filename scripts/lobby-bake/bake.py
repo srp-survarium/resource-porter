@@ -43,6 +43,8 @@ ap.add_argument("--outside", type=float, default=4.0,
 ap.add_argument("--page", type=int, default=2048, help="the largest page")
 ap.add_argument("--gpu", action="store_true", help="Cycles on the GPU (OptiX, else CUDA): Blender built with them")
 ap.add_argument("--samples", type=int, default=128)
+ap.add_argument("--indirect-samples", type=int, default=1024,
+                help="a hybrid's indirect pages (a quarter of the size: cheap; fewer leave fireflies)")
 ap.add_argument("--render-samples", type=int, default=256)
 ap.add_argument("--threads", type=int, default=12)
 ap.add_argument("--match", type=float, default=2.0, help="distance where a light matches the engine's")
@@ -376,7 +378,7 @@ for k, page in enumerate(pages):
         page["indirect_image"] = ind
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
             next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is img).image = ind
-        sc.cycles.samples = args.samples
+        sc.cycles.samples = args.indirect_samples
         bpy.ops.object.bake(type="DIFFUSE", pass_filter={"INDIRECT", "COLOR"}, margin=4, use_clear=True,
                             target="IMAGE_TEXTURES")
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
@@ -426,10 +428,26 @@ def pixels(img):
     return px.reshape(-1, 4)
 
 
+def quiet(px, size):
+    """An indirect page without its fireflies: each covered texel the median
+    of the covered texels round it (3 x 3; the light there varies slowly)."""
+    img = px.reshape(size, size, 4).copy()
+    covered = img[:, :, 3] > 0.5
+    rgb = np.where(covered[:, :, None], img[:, :, :3], np.nan)
+    padded = np.pad(rgb, ((1, 1), (1, 1), (0, 0)), constant_values=np.nan)
+    near = np.stack([padded[dy:dy + size, dx:dx + size] for dy in range(3) for dx in range(3)])
+    with np.errstate(all="ignore"):
+        median = np.nanmedian(near, axis=0)
+    img[:, :, :3] = np.where(covered[:, :, None], median, img[:, :, :3])
+    return img.reshape(-1, 4)
+
+
 values = []
 for page in pages:
+    if args.hybrid:
+        page["indirect_px"] = quiet(pixels(page["indirect_image"]), page["indirect_image"].size[0])
     page["px"] = pixels(page["image"])
-    emitted = pixels(page["indirect_image"]) if args.hybrid else page["px"]
+    emitted = page["indirect_px"] if args.hybrid else page["px"]
     values.append(emitted[emitted[:, 3] > 0.5, :3].max(axis=1))
 allv = np.concatenate(values)
 emission = float(np.percentile(allv, 99.8))
@@ -454,7 +472,7 @@ for k, page in enumerate(pages):
     a = pixels(page["alpha_image"])[:, 0] if page.get("alpha_image") else np.ones(len(page["px"]), dtype=np.float32)
     if args.hybrid:
         write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3]), a)
-        ind = pixels(page["indirect_image"])
+        ind = page["indirect_px"]
         write_png(f"page_{k:02d}_indirect", page["indirect_image"].size[0], srgb(ind[:, :3] / emission),
                   np.ones(len(ind), dtype=np.float32))
         gl = np.clip(pixels(page["gloss_image"])[:, :3], 0.0, 1.0)  # linear: the g-buffer's value
