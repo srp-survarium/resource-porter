@@ -276,6 +276,23 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// A live gun's animations of the listed states from a later build, the
+    /// same rig (`ports/animations-*.json`): a bundle for `pack from-bundle`.
+    #[command(name = "port-animation-set")]
+    PortAnimationSet {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The donor build: 0.29a3's `.split`; 0.69d0's archive of the files
+        /// the states and models name, with `gameplay/game.options`.
+        #[arg(long)]
+        donor: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// A side view of a model's meshes (`<model>/render/*/converted_model`
     /// of a folder): a weapon's verification render.
     RenderWeapon {
@@ -1361,6 +1378,20 @@ fn main() -> Result<()> {
                 }
             }
             println!("Built {}: {} guns", port.id, guns.len());
+        }
+        Command::PortAnimationSet {
+            manifest,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::animation_set;
+            let port = animation_set::AnimationPort::load(&manifest)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report = animation_set::build(&port, &donor, &layers, &output)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::RenderWeapon {
             model,

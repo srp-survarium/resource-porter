@@ -74,6 +74,14 @@ moved some guns in the hands: its hands' `Weapon` bone carries what 0.26g's clip
 `offset` bone). The 0.69d0 donor: the reload states' files, `scripts/weapons-069d-donor.py
 --reload`. skhid's packs: `tactical-clips-029`, `tactical-clips-069`.
 
+## Newer animations of a live gun
+
+`vostok-port port-animation-set` (`animation_set.rs`, `ports/animations-*.json`): a live config's
+listed states take a later build's clips of the same rig, under a renamed weapon folder, and its
+models the donor model's listed hand points (`*_idle`, bone index by our bind pose). Refused unless
+the clips drive 0.26g's rigs, the sound lists their events index are ours (or none live), and the
+new idle holds the gun where ours does. skhid's pack: `pkp-animations-069` (the PKP, 0.69d0).
+
 ## The check against patch 19
 
 `ports/weapons-029a3-patch19.json` is patch 19's 33 weapons read back as a manifest

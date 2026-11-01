@@ -37,6 +37,7 @@ pub mod icons;
 pub mod manifest;
 pub mod modules;
 pub mod resources;
+pub mod animation_set;
 pub mod tactical;
 
 pub use build::{BuildReport, build, conform_material, environment_layer};

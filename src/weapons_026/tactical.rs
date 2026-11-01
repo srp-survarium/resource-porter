@@ -123,7 +123,7 @@ pub struct Converted {
     pub notes: Vec<String>,
 }
 
-fn strings(v: Option<&V>) -> Result<Vec<String>> {
+pub(super) fn strings(v: Option<&V>) -> Result<Vec<String>> {
     match v {
         Some(V::Indexed(items)) => items
             .iter()
@@ -136,16 +136,16 @@ fn strings(v: Option<&V>) -> Result<Vec<String>> {
     }
 }
 
-fn bspline(name: &str) -> String {
+pub(super) fn bspline(name: &str) -> String {
     format!("{}.b-spline", name.trim_start_matches("resources/"))
 }
 
-fn bones_names(name: &str) -> String {
+pub(super) fn bones_names(name: &str) -> String {
     format!("{}.bones_names", name.trim_start_matches("resources/"))
 }
 
 /// A reload state's sound list of one view, as (kind, name) pairs.
-fn sound_list(state: &V, view: &str) -> Result<Vec<(i32, String)>> {
+pub(super) fn sound_list(state: &V, view: &str) -> Result<Vec<(i32, String)>> {
     match get(state, &format!("sounds.{view}")) {
         Some(V::Indexed(list)) => list
             .iter()
@@ -157,6 +157,8 @@ fn sound_list(state: &V, view: &str) -> Result<Vec<(i32, String)>> {
                 other => bail!("a sound entry {other:?}"),
             })
             .collect(),
+        // No sounds: an empty table (some stock states write one) or none.
+        None | Some(V::Named(_)) => Ok(vec![]),
         other => bail!("sounds.{view}: {other:?}"),
     }
 }
@@ -176,7 +178,7 @@ const PUT_AWAY: f32 = 1.0;
 /// The gun's parts in the hands' frame: the hands clip's `Weapon` bone
 /// (where the gun hangs) at `hands_time`, then the item clip's model-space
 /// frames at `item_time`.
-fn placement(
+pub(super) fn placement(
     rig: &Rig,
     (hands, hands_time): (&Clip, f32),
     (item, item_time): (&Clip, f32),
@@ -244,7 +246,11 @@ fn is_put_away(rig: &Rig, frames: &[Frame], i: usize) -> bool {
 /// `theirs`, by name. The hands' contact points (`*_hand_cont`, the IK
 /// targets) are left out; so is a part `theirs` puts away; one only `ours`
 /// puts away is infinitely far.
-fn part_distances(rig: &Rig, ours: &[Frame], theirs: &[Frame]) -> Vec<(String, f32, f32)> {
+pub(super) fn part_distances(
+    rig: &Rig,
+    ours: &[Frame],
+    theirs: &[Frame],
+) -> Vec<(String, f32, f32)> {
     let away = |frames: &[Frame], i: usize| is_put_away(rig, frames, i);
     rig.bones
         .iter()
