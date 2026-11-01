@@ -29,8 +29,8 @@ import mathutils
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_lights, add_props, log, new_object, new_scene, read_model,  # noqa: E402
-                    render, views, write_model)
+from common import (Materials, add_decals, add_lights, add_props, log, new_object, new_scene, read_placed,  # noqa: E402
+                    render, to_b, views, write_model)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
@@ -38,11 +38,13 @@ ap.add_argument("scene")
 ap.add_argument("--near", type=float, default=192.0, help="texels a metre within --radius of the character's eye")
 ap.add_argument("--far", type=float, default=32.0, help="texels a metre beyond it")
 ap.add_argument("--radius", type=float, default=8.0)
+ap.add_argument("--outside", type=float, default=4.0,
+                help="texels a metre outside the scene's box (the faces no view of the lobby reaches)")
 ap.add_argument("--page", type=int, default=2048, help="the largest page")
+ap.add_argument("--gpu", action="store_true", help="Cycles on the GPU (OptiX, else CUDA): Blender built with them")
 ap.add_argument("--samples", type=int, default=128)
 ap.add_argument("--render-samples", type=int, default=256)
 ap.add_argument("--threads", type=int, default=12)
-ap.add_argument("--gpu", action="store_true", help="Cycles on the GPU (OptiX, else CUDA): Blender built with them")
 ap.add_argument("--match", type=float, default=2.0, help="distance where a light matches the engine's")
 ap.add_argument("--bulb", type=float, default=0.03, help="light source radius, m")
 ap.add_argument("--skip-lights", default="sun,character_fill")
@@ -54,6 +56,8 @@ ap.add_argument("--only-render", action="store_true", help="the traced views onl
 ap.add_argument("--probe-samples", type=int, default=512)
 ap.add_argument("--probe-at", default="0,1.2,0", help="where the probes are traced (lobby frame): the character's chest; "
                 "a probe object's own place can be inside a prop (the bunker's room probe is in the gas-mask crates)")
+ap.add_argument("--indirect-scale", type=float, default=1.0,
+                help="a hybrid's indirect page brighter by this (the engine's lamps reach less far than the trace's)")
 ap.add_argument("--hybrid", action="store_true",
                 help="pages of albedo (lit by the project's lights in the game) and of indirect light only "
                      "(emitted, at a quarter of the size): the lamps' direct light, shadows and every "
@@ -79,25 +83,57 @@ def tri_area(pos, t):
     return 0.5 * (b - a).cross(c - a).length
 
 
-EYE = mathutils.Vector((0.0, 0.0, 1.2))  # the orbit's centre, Blender frame
+# the orbit's centre (the scene's `eye`, else the character's chest at the
+# origin) and the box the lobby is seen in (the scene's `box`), Blender frame
+EYE = mathutils.Vector(to_b(scene_json.get("eye", (0.0, 1.2, 0.0))))
+BOX = [mathutils.Vector(to_b(c)) for c in scene_json["box"]] if scene_json.get("box") else None
+
+
+# The zones left to the engine (the scene's `unbaked`: [min, max] boxes about
+# the squad's and the weapon's spots): their faces keep their lit materials,
+# so the engine's lights and the characters' shadows fall on them; the trace
+# sees them as they are.
+ZONES = [[mathutils.Vector(to_b(c)) for c in z] for z in scene_json.get("unbaked", [])]
+
+
+def in_zone(c):
+    return any(all(min(z[0][k], z[1][k]) <= c[k] <= max(z[0][k], z[1][k]) for k in range(3)) for z in ZONES)
+
+
+def density_at(c, nearest):
+    """A triangle's texels a metre: its centroid `c` outside the box, the
+    fewest; any corner (`nearest`, its distance) within --radius, near."""
+    if BOX and not all(min(BOX[0][k], BOX[1][k]) <= c[k] <= max(BOX[0][k], BOX[1][k]) for k in range(3)):
+        return args.outside
+    return args.near if nearest < args.radius else args.far
+
+
+
 CAPACITY = args.page * args.page * 0.5
 skip_m = [s for s in args.skip_materials.split(",") if s]
 chunks = []  # (object, density, area, alpha)
 kept = []    # surfaces left as they are, still in the scene
 for s in scene_json["surfaces"]:
-    pos, nrm, uv, tris = read_model(s["file"])
+    pos, nrm, uv, tris, weights = read_placed(s)
     mat = materials.lit(s["material"])
-    if any(k in s["material"]["name"] for k in skip_m):
-        kept.append(new_object(s["name"], pos, nrm, uv, tris, mat))
+    if s["material"].get("transparent") or any(k in s["material"]["name"] for k in skip_m):
+        new_object(s["name"], pos, nrm, uv, tris, mat, weights=weights)
+        kept.append(s["name"])
         continue
     groups = {}
+    zone = []
     for t in tris:
-        # near when any corner is (a large wall triangle by the character is near)
-        groups.setdefault(min((mathutils.Vector(pos[i]) - EYE).length for i in t) < args.radius, []).append(t)
+        c = centroid(pos, t)
+        if in_zone(c):
+            zone.append(t)
+        else:
+            # near when any corner is (a large wall triangle by the character is near)
+            groups.setdefault(density_at(c, min((mathutils.Vector(pos[i]) - EYE).length for i in t)), []).append(t)
+    if zone:  # in the trace as it is; the porter keeps these faces of the surface unbaked
+        new_object(s["name"] + "_unbaked", pos, nrm, uv, zone, mat, weights=weights)
     work = list(groups.items())
     while work:
-        near, ts = work.pop()
-        density = args.near if near else args.far
+        density, ts = work.pop()
         area = sum(tri_area(pos, t) for t in ts)
         cs = [centroid(pos, t) for t in ts]
         extent = [max(c[k] for c in cs) - min(c[k] for c in cs) for k in range(3)]
@@ -108,19 +144,23 @@ for s in scene_json["surfaces"]:
             axis = max(range(3), key=lambda k: extent[k])
             order = sorted(range(len(ts)), key=lambda i: cs[i][axis])
             mid = len(order) // 2
-            work.append((near, [ts[i] for i in order[:mid]]))
-            work.append((near, [ts[i] for i in order[mid:]]))
+            work.append((density, [ts[i] for i in order[:mid]]))
+            work.append((density, [ts[i] for i in order[mid:]]))
             continue
         used = sorted({i for t in ts for i in t})
         remap = {v: k for k, v in enumerate(used)}
-        ob = new_object(f"{s['name']}_{'n' if near else 'f'}{len(chunks)}", [pos[i] for i in used],
+        ob = new_object(f"{s['name']}_{int(density)}_{len(chunks)}", [pos[i] for i in used],
                         [nrm[i] for i in used], [uv[i] for i in used],
-                        [tuple(remap[i] for i in t) for t in ts], mat)
+                        [tuple(remap[i] for i in t) for t in ts], mat,
+                        weights=[weights[i] for i in used] if weights is not None else None)
         chunks.append((ob, density, area, s["material"]["alpha_test"]))
 log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
-    f"near {sum(a for _, d, a, _ in chunks if d == args.near):.0f} m2, far {sum(a for _, d, a, _ in chunks if d != args.near):.0f} m2")
+    ", ".join(f"{sum(a for _, d, a, _ in chunks if d == v):.0f} m2 at {v:g} texels/m"
+              for v in sorted({d for _, d, _, _ in chunks}, reverse=True)))
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
-add_lights(scene_json, [s for s in args.skip_lights.split(",") if s], args.match, args.bulb)
+add_decals(scene_json)  # into the pages: the baked pack leaves the decals out
+lights_seen = add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []),
+                         args.match, args.bulb)
 
 for name, view in views(scene_json).items() if not (args.only_pack or args.only_probes) else ():
     render(os.path.join(D, "renders"), f"traced-{name}.png", view, args.fov, args.render_samples, args.exposure)
@@ -267,7 +307,7 @@ if args.only_pack:
 
 # A page's chunks joined in one object: Cycles bakes the selected objects one
 # by one, each a scene update (the bunker's page of 119 chunks baked six
-# times slower than one of 12 holding as many texels; resource-porter #33).
+# times slower than one of 12 holding as many texels).
 for page in pages:
     page["chunks"] = len(page["objects"])
     if len(page["objects"]) > 1:
@@ -313,6 +353,32 @@ for k, page in enumerate(pages):
                             target="IMAGE_TEXTURES")
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
             next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+        # the sources' specular laid out as the page (roughness, intensity):
+        # flat stand-ins made wood and plaster shine in the game
+        page["gloss"] = {}
+        sc.cycles.samples = 1
+        for field in ("roughness", "specular"):
+            g = bpy.data.images.new(f"{field}_{k:02d}", small, small, float_buffer=True)
+            saved = {}
+            for m in {m for ob in page["objects"] for m in ob.data.materials}:
+                nt = m.node_tree
+                out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+                saved[m] = out.inputs[0].links[0].from_socket
+                em = nt.nodes.new("ShaderNodeEmission")
+                source = next((n for n in nt.nodes if n.label == f"srp_{field}"), None)
+                if source is not None:
+                    nt.links.new(source.outputs[0], em.inputs["Color"])
+                else:
+                    em.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0) if field == "roughness" else (0, 0, 0, 1)
+                nt.links.new(em.outputs[0], out.inputs[0])
+                next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is img).image = g
+            bpy.ops.object.bake(type="EMIT", margin=4, use_clear=True, target="IMAGE_TEXTURES")
+            for m, socket in saved.items():
+                nt = m.node_tree
+                nt.links.new(socket, next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL").inputs[0])
+                next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is g).image = img
+            page["gloss"][field] = g
+        sc.cycles.samples = args.samples
     else:
         bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
                             margin=8, use_clear=True, target="IMAGE_TEXTURES")
@@ -388,6 +454,9 @@ for k, page in enumerate(pages):
         ind = pixels(page["indirect_image"])
         write_png(f"page_{k:02d}_indirect", page["indirect_image"].size[0], srgb(ind[:, :3] / emission),
                   np.ones(len(ind), dtype=np.float32))
+        for field, g in page["gloss"].items():  # linear values, as the sources' maps
+            px = pixels(g)
+            write_png(f"page_{k:02d}_{field}", g.size[0], np.clip(px[:, :3], 0.0, 1.0), np.ones(len(px), dtype=np.float32))
     else:
         write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3] / emission), a)
 if args.hybrid:  # the template's normal and roughness maps, flat (they would tile over the pages' layout)
@@ -396,7 +465,8 @@ if args.hybrid:  # the template's normal and roughness maps, flat (they would ti
 
 # --- the baked surfaces as 0.26g models ----------------------------------------
 LIMIT = 35000  # stk2_lobby_026's MAX_STATIC_SURFACE_VERTICES, less a little
-baked = {"emission": emission, "pages": [], "surfaces": []}
+baked = {"emission": emission * (args.indirect_scale if args.hybrid else 1.0), "pages": [], "surfaces": [],
+         "lights": lights_seen}
 if args.hybrid:
     baked["flat"] = {"normal": "pages/flat_normal.png", "roughness": "pages/flat_roughness.png"}
 for k, page in enumerate(pages):
@@ -439,12 +509,15 @@ for k, page in enumerate(pages):
         baked["surfaces"].append({"name": name, "file": f"baked/{name}", "page": f"page_{k:02d}",
                                   "vertices": len(order), "triangles": len(ts)})
         piece += 1
-    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png"} if args.hybrid \
+    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png",
+            "roughness": f"pages/page_{k:02d}_roughness.png", "specular": f"pages/page_{k:02d}_specular.png"} \
+        if args.hybrid \
         else {"png": f"pages/page_{k:02d}.png"}
     baked["pages"].append({"name": f"page_{k:02d}", **kind, "alpha": page["alpha"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],
                            "chunks": page["chunks"]})
-baked["kept"] = [o.name for o in kept]
+baked["kept"] = kept
+baked["unbaked"] = scene_json.get("unbaked", [])
 baked["sources"] = {s["name"]: s["sha256"] for s in scene_json["surfaces"]}
 baked["probes"] = probes_made
 json.dump(baked, open(os.path.join(D, "baked.json"), "w"), indent=1)

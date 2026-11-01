@@ -14,15 +14,15 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import (Materials, add_lights, add_props, hybrid_material, log, new_object, new_scene, page_material,  # noqa: E402
-                    read_model, render, views)
+                    read_model, read_placed, render, views)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
 ap.add_argument("scene")
+ap.add_argument("--gpu", action="store_true")
 ap.add_argument("--fov", type=float, default=70.0)
 ap.add_argument("--samples", type=int, default=64)
 ap.add_argument("--threads", type=int, default=12)
-ap.add_argument("--gpu", action="store_true")
 ap.add_argument("--match", type=float, default=2.0)
 ap.add_argument("--bulb", type=float, default=0.03)
 ap.add_argument("--skip-lights", default="sun,character_fill")
@@ -42,12 +42,13 @@ pages = {p["name"]: (hybrid_material(p["name"], os.path.join(D, p["albedo"]), os
                      page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"]))
          for p in baked["pages"]}
 for s in baked["surfaces"]:
-    new_object(s["name"], *read_model(os.path.join(D, s["file"])), pages[s["page"]])
+    new_object(s["name"], *read_model(os.path.join(D, s["file"]))[:4], pages[s["page"]])
 for s in scene_json["surfaces"]:
     if s["name"] in baked["kept"]:
-        new_object(s["name"], *read_model(s["file"]), materials.lit(s["material"]))
+        pos, nrm, uv, tris, weights = read_placed(s)
+        new_object(s["name"], pos, nrm, uv, tris, materials.lit(s["material"]), weights=weights)
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
-add_lights(scene_json, [s for s in args.skip_lights.split(",") if s], args.match, args.bulb)
+add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 bpy_scene = __import__("bpy").context.scene
 bpy_scene.cycles.use_denoising = hybrid
 if hybrid:  # the engine lights the albedo directly; the bounce is the indirect page's

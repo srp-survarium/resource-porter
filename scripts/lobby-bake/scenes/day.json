@@ -1,0 +1,78 @@
+{
+ "_about": "The classic (stock) lobby, lobby_scene/day, has no porter build: its pack for prep.py is a folder holding files/projects/lobby_scene/day/client_project as players have it (the stock project with skhid's edit lists lobby-scene-2.json and lobby-scenes-1.json applied: vostok-port extract it from the live resources.db.patch_40) and the files of pack lobby-bulb@1 (level/lobby/bench_bulb); everything else is the stock resources.db's.",
+ "bake": {
+  "project": "lobby_scene/day",
+  "engine_lit": [
+   "props/light/lamp_on",
+   "props/light/plafon_lamp_on",
+   "props/light/barrel_stove_01_fire",
+   "flora/"
+  ],
+  "left_out": [],
+  "skip_lights": [
+   "sun"
+  ],
+  "box": [
+   [
+    -9.5,
+    -1.5,
+    -8.0
+   ],
+   [
+    7.5,
+    4.6,
+    11.0
+   ]
+  ],
+  "views": {
+   "bench": [
+    [
+     1.6,
+     1.6,
+     0.2
+    ],
+    [
+     4.6,
+     1.4,
+     3.6
+    ]
+   ],
+   "ceiling": [
+    [
+     0.0,
+     1.5,
+     0.0
+    ],
+    [
+     -2.5,
+     3.8,
+     2.5
+    ]
+   ],
+   "window": [
+    [
+     -2.0,
+     1.6,
+     1.5
+    ],
+    [
+     -6.5,
+     2.8,
+     2.0
+    ]
+   ]
+  },
+  "outdoor": {
+   "sky": [
+    0.8,
+    0.9,
+    1.1
+   ]
+  },
+  "tint": [
+   1.0,
+   0.96,
+   0.9
+  ]
+ }
+}

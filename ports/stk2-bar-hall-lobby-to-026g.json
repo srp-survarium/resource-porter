@@ -1,0 +1,969 @@
+{
+  "template_project": "projects/lobby_scene/day/client_project",
+  "static_templates": {
+    "settings": "models/level/lobby/base.model/settings",
+    "render_properties": "models/level/lobby/base.model/render/export_properties",
+    "surface_properties": "models/level/lobby/base.model/render/conc_low_s/export_properties"
+  },
+  "texture_options_template": "textures/tiled/concrete/concrete_01.options",
+  "srp_lobby": {
+    "weapon_spot": "weapon",
+    "weapon_view": 0.0
+  },
+  "pack": {
+    "id": "lobby-stk2-bar-hall",
+    "version": "2",
+    "description": "the Bar: the upper floor of STK2's Bar building (2011-12 bar_shooting_gallery, the building of lobby-stk2-range's shooting gallery) as a 0.26g lobby project, projects/lobby_scene/stk2_bar_hall; the room of the video 'Map Showcase [5] (House)': the hall under its hanging camouflage net (the owner's 'tent on top'), long trestle tables with benches, bottles and cups, the kitchen corner (gas cooker under its hood, sink, fridge, the bar cabinet) at its far end, the annex by the stairs (253 objects merged in one model, level/stk2_bar_hall/main_v1); the character on the open floor between the tables and the annex, the default view west down the hall; a copy of a closed grey door of the building in the annex's open north doorway (a second slice, door_v1: the doorway looked out onto the roof landing and nothing below); STK2's unmapped faces mapped by projection (the kitchen partition's end); textures at their STK2 sources' full size (to 2048 px); lit as the bomb shelter: a box probe of the hall (warm-neutral gradient, ambient 0.45), warm ambient fills along the hall, the kitchen and the annex, a character fill and a back bounce, STK2's lamps with their fixtures (the watering-can lamp over the tables, the halogen work lamps) warm, its small lights over the tables soft and warm, no light casting a shadow, STK2's sun left out; camera boxes over the floor, under the net, around the watering-can lamp, the five tables near the character and the tub; the weapon of an upgrade window 0.42 m above the table behind the character's right, seen along +z; static characters (the Novice) and weapons left out; the trees seen through the hall's high strip windows (the owner: they showed plain sky): 0.26's own poplars, fruit trees, spruces and a dead tree round the building, drawn only, three rows along each long wall (3.5..5, 8..11 and 15..21 m out, about 4 m apart, staggered), standing 1.7 m below the hall's floor (out of the windows' sight), so the slits show crowns and trunks with sky between and above them (made as lobby-stk2-house@1 and @2, projects/lobby_scene/stk2_house, and renamed before release: the owner, 2026-11-01, 'house we can rename to bar'); @2: drawn from a path-traced bake in the hybrid way (resource-porter scripts/lobby-bake --hybrid, Blender Cycles on the GPU: the surfaces' albedo, roughness and specular laid out on unique pages lit live by the lamps, their bounce light traced and emitted), the main lamps casting shadows (the watering-can lamp, the halogen work lamps, the hall's lamps over the tables), the lamps at 2700 K seen against a 5000 K white point (warm pools of light, the strip windows' daylight cool beside them; the trees outside traced for the light they shade), the pages emitted on a black unshiny material; the room probe's cubemaps traced from the bake at the character; the fills that stood in for a bounce left out (character_fill, hall_fill_0, hall_fill_1, hall_fill_2, kitchen_fill, annex_fill, back_bounce)"
+  },
+  "target_project": "projects/lobby_scene/stk2_bar_hall/client_project",
+  "model_prefix": "level/stk2_bar_hall",
+  "material_prefix": "ported/stk2/lobby_bar_hall",
+  "texture_prefix": "ported/stk2/lobby_bar_hall",
+  "textures_dir": "resources/sources/textures",
+  "more_texture_dirs": [
+    "STK2/xr2-prog/resources/sources/textures"
+  ],
+  "fallback_template": "tiled/concrete/concrete_01",
+  "max_texture_size": 2048,
+  "scene": {
+    "character": [
+      94.3,
+      0.221,
+      -0.5
+    ],
+    "view_yaw": 1.5708
+  },
+  "slices": [
+    {
+      "name": "main",
+      "project": "resources/sources/projects/bar_shooting_gallery/project.xprj",
+      "composites": "resources/sources/library/composite/composite.library",
+      "model_roots": [
+        "resources",
+        "STK2/xr2-prog/resources",
+        "STK2/xr2-dsgn/resources"
+      ],
+      "box_min": [
+        77.0,
+        0.05,
+        -6.5
+      ],
+      "box_max": [
+        101.5,
+        9.0,
+        6.0
+      ],
+      "exclude": [
+        "item/weapon/",
+        "actors/",
+        "character/"
+      ],
+      "lights": {
+        "point_template": "point_light(5)",
+        "spot_template": "spot_light(1)",
+        "sun_template": "sun",
+        "intensity_scale": 2.0
+      },
+      "collision": true
+    },
+    {
+      "name": "door",
+      "project": "resources/sources/projects/bar_shooting_gallery/project.xprj",
+      "composites": "resources/sources/library/composite/composite.library",
+      "model_roots": [
+        "resources",
+        "STK2/xr2-prog/resources",
+        "STK2/xr2-dsgn/resources"
+      ],
+      "box_min": [
+        98.6,
+        0.1,
+        1.0
+      ],
+      "box_max": [
+        100.4,
+        2.6,
+        1.6
+      ],
+      "exclude": [
+        "architecture/",
+        "actors/",
+        "character/",
+        "item/",
+        "lights/",
+        "test_object/",
+        "fx/",
+        "props/a",
+        "props/b",
+        "props/c",
+        "props/e",
+        "props/f",
+        "props/g",
+        "props/h",
+        "props/i",
+        "props/j",
+        "props/k",
+        "props/l",
+        "props/m",
+        "props/n",
+        "props/o",
+        "props/p",
+        "props/q",
+        "props/r",
+        "props/s",
+        "props/t",
+        "props/u",
+        "props/v",
+        "props/w",
+        "props/x",
+        "props/y",
+        "props/z"
+      ],
+      "collision": true,
+      "moves": [
+        {
+          "id": "271515ba-c114-4383-b713-71673a35491d",
+          "what": "a copy of the closed grey door of the gallery's west wall (turned the other way from the annex's brown door, so its face is the annex's side: one-sided, the brown door showed its back there and the sky through it), in the annex's open north doorway (out to the roof landing, the railing and nothing below)",
+          "position": [
+            100.17,
+            0.221,
+            1.25
+          ]
+        }
+      ]
+    }
+  ],
+  "material_roots": [
+    "resources/sources",
+    "STK2/xr2-prog/resources/sources"
+  ],
+  "material_rules": [
+    {
+      "bases": [
+        "volumetric_cone"
+      ],
+      "then": {
+        "kind": "hidden"
+      }
+    },
+    {
+      "bases": [
+        "forward_lighting",
+        "glass",
+        "forward_glass",
+        "glass_forward"
+      ],
+      "then": {
+        "kind": "native",
+        "material": "tiled/window/glass_tile_forward"
+      }
+    },
+    {
+      "bases": [
+        "emissive"
+      ],
+      "then": {
+        "kind": "converted",
+        "template": "tiled/concrete/concrete_01",
+        "emission": 1.0
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "alpha_test": true,
+      "two_sided": true,
+      "then": {
+        "kind": "converted",
+        "template": "tiled/roof/roof_03_alpha_2side"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "alpha_test": true,
+      "then": {
+        "kind": "converted",
+        "template": "tiled/trash/trash_concrete_alpha"
+      }
+    },
+    {
+      "bases": [
+        "concrete_decal",
+        "decal",
+        "decal_default"
+      ],
+      "then": {
+        "kind": "converted",
+        "template": "tiled/trash/trash_concrete_alpha"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "two_sided": true,
+      "then": {
+        "kind": "converted",
+        "template": "props/box/props_boxes_wood"
+      }
+    },
+    {
+      "bases": [
+        "*"
+      ],
+      "then": {
+        "kind": "converted",
+        "template": "tiled/concrete/concrete_01"
+      }
+    }
+  ],
+  "objects": [
+    {
+      "from": "track"
+    },
+    {
+      "from": "environment_day"
+    },
+    {
+      "from": "background"
+    },
+    {
+      "from": "lobby_room_tone"
+    },
+    {
+      "from": "environment_probe",
+      "name": "room_probe",
+      "set": {
+        "position": [
+          0.15,
+          1.849,
+          4.8
+        ],
+        "probe_side_width": 0.1,
+        "diffuse_multiplier": 4.0,
+        "specular_multiplier": 0.5,
+        "ambient_multiplier": 0.45,
+        "geometry": 1,
+        "scale": [
+          5.45,
+          1.85,
+          7.9
+        ]
+      }
+    }
+  ],
+  "spots": {
+    "character": [
+      94.3,
+      0.221,
+      -0.5
+    ],
+    "weapon": [
+      92.0,
+      1.415,
+      1.25
+    ],
+    "artefact": [
+      92.05,
+      0.995,
+      0.45
+    ]
+  },
+  "environment": {
+    "object": "environment_day",
+    "post_process": "resources/sources/material_instances/post_process/nick_postprocess_bar.material"
+  },
+  "camera_boxes": [
+    {
+      "what": "the floor",
+      "centre": [
+        0.0,
+        0.1,
+        0.0
+      ],
+      "half_extents": [
+        5.0,
+        0.1,
+        5.0
+      ]
+    },
+    {
+      "what": "under the camouflage net (its lowest within the wheel's reach about 2.35 m above the floor; the ceiling 3.7 m)",
+      "centre": [
+        0.0,
+        2.5,
+        0.0
+      ],
+      "half_extents": [
+        5.0,
+        0.15,
+        5.0
+      ]
+    },
+    {
+      "what": "the watering-can lamp over the tables",
+      "centre": [
+        0.975,
+        1.978,
+        2.641
+      ],
+      "half_extents": [
+        0.207,
+        0.523,
+        0.241
+      ]
+    },
+    {
+      "what": "the table and bench behind the character's right (the weapon's)",
+      "centre": [
+        1.822,
+        0.512,
+        2.242
+      ],
+      "half_extents": [
+        1.105,
+        0.542,
+        1.079
+      ]
+    },
+    {
+      "what": "the twin tables before the kitchen, the right one",
+      "centre": [
+        -1.08,
+        0.459,
+        5.119
+      ],
+      "half_extents": [
+        0.88,
+        0.489,
+        0.92
+      ]
+    },
+    {
+      "what": "the twin tables before the kitchen, the left one",
+      "centre": [
+        -1.248,
+        0.51,
+        3.439
+      ],
+      "half_extents": [
+        1.158,
+        0.54,
+        0.954
+      ]
+    },
+    {
+      "what": "the table and bench behind the character's left",
+      "centre": [
+        -2.837,
+        0.512,
+        1.489
+      ],
+      "half_extents": [
+        1.17,
+        0.542,
+        1.255
+      ]
+    },
+    {
+      "what": "the table and bench behind the camera's right",
+      "centre": [
+        2.722,
+        0.457,
+        -1.811
+      ],
+      "half_extents": [
+        0.748,
+        0.487,
+        1.09
+      ]
+    },
+    {
+      "what": "the tub on its stool",
+      "centre": [
+        -0.911,
+        0.336,
+        1.946
+      ],
+      "half_extents": [
+        0.49,
+        0.366,
+        0.447
+      ]
+    }
+  ],
+  "emission_scale": {
+    "fx/glow/yellow": 0.12
+  },
+  "probe_cubes": [
+    {
+      "object": "room_probe",
+      "up": [
+        0.14,
+        0.12,
+        0.1
+      ],
+      "side": [
+        0.22,
+        0.18,
+        0.14
+      ],
+      "down": [
+        0.3,
+        0.23,
+        0.16
+      ]
+    }
+  ],
+  "light_overrides": {
+    "sun": {
+      "intensity": 0.0
+    },
+    "stk2_light_000": {
+      "intensity": 2.2,
+      "range": 3.2,
+      "color": [
+        1.0,
+        0.8,
+        0.56
+      ],
+      "cast_shadow": true
+    },
+    "stk2_light_001": {
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_002": {
+      "range": 5.0,
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": true
+    },
+    "stk2_light_004": {
+      "intensity": 2.4,
+      "range": 7.0,
+      "color": [
+        1.0,
+        0.86,
+        0.7
+      ],
+      "cast_shadow": true
+    },
+    "stk2_light_005": {
+      "range": 3.5,
+      "cast_shadow": false
+    },
+    "stk2_light_006": {
+      "intensity": 1.8,
+      "range": 3.2,
+      "color": [
+        1.0,
+        0.8,
+        0.56
+      ],
+      "cast_shadow": true
+    },
+    "stk2_light_007": {
+      "intensity": 0.8,
+      "range": 3.0,
+      "color": [
+        1.0,
+        0.8,
+        0.56
+      ],
+      "cast_shadow": false
+    },
+    "stk2_light_008": {
+      "range": 2.0,
+      "cast_shadow": false
+    }
+  },
+  "native_props": [
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        10.14,
+        -1.72,
+        17.38
+      ],
+      "yaw": 5.8,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        10.06,
+        -1.72,
+        13.35
+      ],
+      "yaw": 3.69,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        10.07,
+        -1.72,
+        9.8
+      ],
+      "yaw": 3.96,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_03",
+      "position": [
+        9.44,
+        -1.72,
+        4.83
+      ],
+      "yaw": 1.91,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        10.51,
+        -1.72,
+        1.95
+      ],
+      "yaw": 4.35,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        10.77,
+        -1.72,
+        -1.97
+      ],
+      "yaw": 6.06,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        10.22,
+        -1.72,
+        -6.95
+      ],
+      "yaw": 0.99,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        15.39,
+        -1.72,
+        16.08
+      ],
+      "yaw": 0.37,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        14.53,
+        -1.72,
+        11.8
+      ],
+      "yaw": 0.19,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        15.12,
+        -1.72,
+        7.36
+      ],
+      "yaw": 5.29,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_03",
+      "position": [
+        15.72,
+        -1.72,
+        3.27
+      ],
+      "yaw": 3.14,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        15.17,
+        -1.72,
+        -0.96
+      ],
+      "yaw": 1.75,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        16.79,
+        -1.72,
+        -5.5
+      ],
+      "yaw": 5.28,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        14.75,
+        -1.72,
+        -9.03
+      ],
+      "yaw": 1.44,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        21.22,
+        -1.72,
+        16.64
+      ],
+      "yaw": 4.81,
+      "collision": false
+    },
+    {
+      "lib": "flora/old_suh/suhoe_01_",
+      "position": [
+        25.88,
+        -1.72,
+        12.46
+      ],
+      "yaw": 2.43,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        25.88,
+        -1.72,
+        7.57
+      ],
+      "yaw": 0.0,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_04",
+      "position": [
+        26.26,
+        -1.72,
+        4.76
+      ],
+      "yaw": 2.95,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        23.18,
+        -1.72,
+        -0.47
+      ],
+      "yaw": 0.46,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        25.47,
+        -1.72,
+        -3.91
+      ],
+      "yaw": 1.69,
+      "collision": false
+    },
+    {
+      "lib": "flora/old_suh/suhoe_01_",
+      "position": [
+        22.8,
+        -1.72,
+        -7.04
+      ],
+      "yaw": 6.05,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_03",
+      "position": [
+        -9.28,
+        -1.72,
+        16.89
+      ],
+      "yaw": 1.55,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        -9.19,
+        -1.72,
+        13.94
+      ],
+      "yaw": 5.01,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        -9.94,
+        -1.72,
+        9.82
+      ],
+      "yaw": 2.81,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -10.2,
+        -1.72,
+        5.79
+      ],
+      "yaw": 0.82,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_03",
+      "position": [
+        -9.27,
+        -1.72,
+        1.07
+      ],
+      "yaw": 2.64,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        -9.5,
+        -1.72,
+        -2.24
+      ],
+      "yaw": 6.1,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        -9.56,
+        -1.72,
+        -7.19
+      ],
+      "yaw": 5.56,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_03",
+      "position": [
+        -14.78,
+        -1.72,
+        15.76
+      ],
+      "yaw": 5.37,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -13.9,
+        -1.72,
+        11.07
+      ],
+      "yaw": 6.21,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        -14.37,
+        -1.72,
+        7.76
+      ],
+      "yaw": 4.85,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        -14.49,
+        -1.72,
+        3.57
+      ],
+      "yaw": 0.46,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        -15.35,
+        -1.72,
+        -0.04
+      ],
+      "yaw": 1.53,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_03",
+      "position": [
+        -14.72,
+        -1.72,
+        -4.86
+      ],
+      "yaw": 2.85,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -15.05,
+        -1.72,
+        -9.43
+      ],
+      "yaw": 3.61,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_04",
+      "position": [
+        -21.7,
+        -1.72,
+        15.71
+      ],
+      "yaw": 0.97,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -25.51,
+        -1.72,
+        11.65
+      ],
+      "yaw": 1.57,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        -25.04,
+        -1.72,
+        8.8
+      ],
+      "yaw": 5.91,
+      "collision": false
+    },
+    {
+      "lib": "flora/old_suh/suhoe_01_",
+      "position": [
+        -26.3,
+        -1.72,
+        4.79
+      ],
+      "yaw": 5.54,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        -23.13,
+        -1.72,
+        0.13
+      ],
+      "yaw": 0.65,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_04",
+      "position": [
+        -26.38,
+        -1.72,
+        -2.96
+      ],
+      "yaw": 1.5,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -22.14,
+        -1.72,
+        -8.03
+      ],
+      "yaw": 5.17,
+      "collision": false
+    }
+  ],
+  "bake": {
+    "slice": "main",
+    "template": "tiled/concrete/concrete_01",
+    "alpha_template": "tiled/roof/roof_03_alpha_2side",
+    "skip_lights": [
+      "sun"
+    ],
+    "lamp_kelvin": 2700,
+    "white_kelvin": 5000,
+    "views": {
+      "orbit30": [
+        [
+          2.3,
+          1.2,
+          -3.984
+        ],
+        [
+          0.0,
+          1.2,
+          0.0
+        ]
+      ],
+      "orbit180": [
+        [
+          0.0,
+          1.2,
+          4.6
+        ],
+        [
+          0.0,
+          1.2,
+          0.0
+        ]
+      ],
+      "up": [
+        [
+          0.0,
+          0.076,
+          -1.606
+        ],
+        [
+          0.0,
+          1.2,
+          0.0
+        ]
+      ]
+    },
+    "outdoor": {
+      "sky": [
+        0.9,
+        0.9,
+        0.9
+      ],
+      "sun_scale": 0.0
+    }
+  }
+}

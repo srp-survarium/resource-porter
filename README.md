@@ -135,10 +135,14 @@ vostok-port build-stk2-lobby-026 --manifest ports/stk2-lobby-to-026g.json \
 `--stk2-root` holds the files the manifest names: `STK2/xr2-*` (extracted
 from `STK2.7z`) and `resources/` (from the later `stk_2.7z`); ImageMagick
 (`magick`, and Pillow for the run-length TGAs it refuses) converts the
-textures. The same command makes the Bar (`ports/stk2-bar-lobby-to-026g.json`)
-and the bomb shelter (`ports/stk2-bunker-lobby-to-026g.json`): a `slice` takes
-the objects of an STK2 project inside a box, merged into one model, with the
-project's lights and its environment's post-process; `--list-textures` says
+textures. The same command makes the Shooting Range, the Bar's shooting gallery
+(`ports/stk2-range-lobby-to-026g.json`), the Bar, the building's upper floor
+(`ports/stk2-bar-hall-lobby-to-026g.json`), and the bomb shelter
+(`ports/stk2-bunker-lobby-to-026g.json`); the hut is made and not shipped. A
+`slice` takes the objects of an STK2 project inside a box, merged into one
+model, with the project's lights and its environment's post-process (a slice's
+`moves` put an object elsewhere: the Bar's second slice takes one closed door
+alone into an open doorway); `--list-textures` says
 which source textures a manifest needs before they are extracted.
 A manifest's `camera_boxes` (`{what, centre, half_extents, yaw}` in the lobby
 frame) are invisible boxes for the lobby camera's collision ray alone (0.26's
@@ -163,7 +167,8 @@ A material rule's `emission` keeps the STK2 material's emission
 (`emission_scale` per material scales it further); a slice's
 `material_swaps` (`{lib, from, to}`) give an unlit STK2 lamp its emissive
 variant, and its `moves` (`{id, what, position}`) put a project object
-elsewhere (a prop in a camera path's way).
+elsewhere (a prop in a camera path's way; a light too, as a composite's own
+light that goes with its moved prop).
 
 Compose multiple bundles before applying. The first bundle wins shared paths:
 

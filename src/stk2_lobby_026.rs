@@ -182,6 +182,52 @@ pub struct BakeSpec {
     /// shader permutations) the game is seen to draw.
     pub template: String,
     pub alpha_template: String,
+    // How the slice is traced: read by scripts/lobby-bake/prep.py only (its
+    // docstring has their meaning); the build takes the bake as it is made.
+    /// The views rendered: name -> [eye, target], lobby frame.
+    #[serde(default)]
+    pub views: BTreeMap<String, [[f32; 3]; 2]>,
+    /// The project's lights left out of the trace: names, or prefixes
+    /// ending in '/'.
+    #[serde(default)]
+    pub skip_lights: Vec<String>,
+    /// Where the texel density is highest (the character's chest).
+    #[serde(default)]
+    pub eye: Option<[f32; 3]>,
+    /// The space the lobby is seen in ([min, max]).
+    #[serde(default, rename = "box")]
+    pub seen: Option<[[f32; 3]; 2]>,
+    /// The environment's sun and a sky of this radiance.
+    #[serde(default)]
+    pub outdoor: Option<OutdoorSpec>,
+    /// Every light's colour multiplied by this.
+    #[serde(default)]
+    pub tint: Option<[f32; 3]>,
+    /// The project's lights given a black body's colour at this temperature.
+    #[serde(default)]
+    pub lamp_kelvin: Option<f32>,
+    /// The white point every source is seen against.
+    #[serde(default)]
+    pub white_kelvin: Option<f32>,
+    /// Some lights at another temperature: (part of the light's name,
+    /// kelvin), the first that matches.
+    #[serde(default)]
+    pub light_kelvin: Vec<(String, f32)>,
+    /// Zones ([min, max], lobby frame) whose faces are not baked: they keep
+    /// their lit materials, so the engine's lights, and the characters' and
+    /// the weapon's shadows, fall on them (a baked page takes no light).
+    #[serde(default)]
+    pub unbaked: Vec<[[f32; 3]; 2]>,
+}
+
+/// A bake's outdoors (scripts/lobby-bake/prep.py): the environment's sun,
+/// times `sun_scale`, and a sky of radiance `sky` (0.26g light units).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutdoorSpec {
+    pub sky: [f32; 3],
+    #[serde(default)]
+    pub sun_scale: Option<f32>,
 }
 
 /// bake.py's `baked.json`.
@@ -195,12 +241,27 @@ struct BakedJson {
     kept: Vec<String>,
     /// Each merged surface the bake was made of: its converted_model's sha256.
     sources: BTreeMap<String, String>,
+    /// The zones left unbaked, as the bake saw them.
+    #[serde(default)]
+    unbaked: Vec<[[f32; 3]; 2]>,
     /// The environment probes' radiance, path-traced from the probes.
     #[serde(default)]
     probes: Vec<BakedProbeJson>,
+    /// Each project light's colour and brightness as the bake traced it
+    /// (bake.py's lamp_kelvin, white point), by full name.
+    #[serde(default)]
+    lights: BTreeMap<String, BakedLightColour>,
     /// A hybrid bake's flat normal and roughness maps.
     #[serde(default)]
     flat: Option<BakedFlatJson>,
+}
+
+/// A project light as the bake saw it: its colour, its intensity times
+/// `intensity_scale`.
+#[derive(Debug, Deserialize)]
+struct BakedLightColour {
+    color: [f32; 3],
+    intensity_scale: f32,
 }
 
 /// A probe's six faces (0.26g's order, `probe_bake::direction`'s texels),
@@ -227,7 +288,16 @@ struct BakedPageJson {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum BakedLightJson {
-    Hybrid { albedo: PathBuf, indirect: PathBuf },
+    Hybrid {
+        albedo: PathBuf,
+        indirect: PathBuf,
+        /// The sources' roughness and specular intensity laid out as the
+        /// page (else the flat stand-in: wood and plaster shone).
+        #[serde(default)]
+        roughness: Option<PathBuf>,
+        #[serde(default)]
+        specular: Option<PathBuf>,
+    },
     Radiance { png: PathBuf },
 }
 
@@ -250,11 +320,13 @@ struct BakedSurfaceJson {
 /// ready to replace the slice's.
 struct Bake {
     slice: String,
+    unbaked: Vec<[[f32; 3]; 2]>,
     surfaces: Vec<BuiltSurface>,
     kept: BTreeSet<String>,
     sources: BTreeMap<String, String>,
     /// Probe object -> its traced radiance, in 0.26g light units.
     probes: BTreeMap<String, crate::probe_bake::Cube>,
+    lights: BTreeMap<String, BakedLightColour>,
 }
 
 impl Bake {
@@ -291,12 +363,19 @@ impl Bake {
                         .with_context(|| format!("{template}: the baked material"))?;
                     texture
                 }
-                BakedLightJson::Hybrid { albedo, indirect } => {
-                    let (normal, roughness) =
+                BakedLightJson::Hybrid { albedo, indirect, roughness, specular } => {
+                    let (normal, flat_roughness) =
                         flat.as_ref().context("a hybrid page without the bake's flat maps")?;
                     let texture = textures.make_page(&page_name, &dir.join(albedo), page.alpha, pack)?;
                     let light = textures.make_page(&format!("{page_name}_indirect"), &dir.join(indirect), false, pack)?;
-                    set_hybrid(&mut material.root, &texture, &light, json.emission, normal, roughness)
+                    let gloss = match (roughness, specular) {
+                        (Some(r), Some(s)) => Some((
+                            textures.make_page_as(&format!("{page_name}_roughness"), &dir.join(r), TextureKind::Linear, false, pack)?,
+                            textures.make_page_as(&format!("{page_name}_specular"), &dir.join(s), TextureKind::Linear, false, pack)?,
+                        )),
+                        _ => None,
+                    };
+                    set_hybrid(&mut material.root, &texture, &light, json.emission, normal, flat_roughness, gloss.as_ref())
                         .with_context(|| format!("{template}: the hybrid material"))?;
                     texture
                 }
@@ -330,12 +409,18 @@ impl Bake {
                 .with_context(|| format!("the bake: {}", probe.file.display()))?;
             probes.insert(probe.object.clone(), traced_cube(&bytes, probe.size, &probe.object)?);
         }
+        ensure!(
+            json.unbaked == spec.unbaked,
+            "the bake left other zones unbaked than the manifest's: bake the slice again"
+        );
         Ok(Bake {
             slice: spec.slice.clone(),
+            unbaked: json.unbaked,
             surfaces,
             kept: json.kept.into_iter().collect(),
             sources: json.sources,
             probes,
+            lights: json.lights,
         })
     }
 
@@ -360,10 +445,73 @@ impl Bake {
             self.sources.len(),
             built.len()
         );
+        let mut zones = Vec::new();
+        for surface in built.iter() {
+            if self.kept.contains(&surface.name) || self.unbaked.is_empty() {
+                continue;
+            }
+            if let Some(part) = triangles_in(surface, &self.unbaked)? {
+                zones.push(part);
+            }
+        }
         built.retain(|s| self.kept.contains(&s.name));
+        built.extend(zones);
         built.extend(self.surfaces.iter().cloned());
         Ok(())
     }
+}
+
+/// A surface's triangles whose centroid lies in one of the boxes, as a
+/// surface of their own (`<name>_unbaked`, the same material and vertex
+/// bytes); None when there are none. bake.py leaves the same triangles out
+/// of its pages (bake.py's in_zone).
+fn triangles_in(surface: &BuiltSurface, boxes: &[[[f32; 3]; 2]]) -> Result<Option<BuiltSurface>> {
+    let bytes = &surface.mesh;
+    let count = usize::try_from(read_u32(bytes, 8)?)?;
+    let at = 12 + count * VERTEX_SIZE;
+    let indices = usize::try_from(read_u32(bytes, at + 8)?)?;
+    let index = |i: usize| usize::from(u16::from_le_bytes([bytes[at + 12 + i * 2], bytes[at + 13 + i * 2]]));
+    let inside = |c: [f32; 3]| {
+        boxes.iter().any(|b| (0..3).all(|k| b[0][k].min(b[1][k]) <= c[k] && c[k] <= b[0][k].max(b[1][k])))
+    };
+    let mut remap = BTreeMap::new();
+    let mut order = Vec::new();
+    let mut triangles = Vec::new();
+    for t in (0..indices).step_by(3) {
+        let corners = [index(t), index(t + 1), index(t + 2)];
+        let point = |v: usize| read_float3(bytes, 12 + v * VERTEX_SIZE);
+        let (a, b, c) = (point(corners[0])?, point(corners[1])?, point(corners[2])?);
+        if !inside(std::array::from_fn(|k| (a[k] + b[k] + c[k]) / 3.0)) {
+            continue;
+        }
+        for v in corners {
+            let next = remap.len();
+            let new = *remap.entry(v).or_insert_with(|| {
+                order.push(v);
+                next
+            });
+            triangles.push(u16::try_from(new)?);
+        }
+    }
+    if triangles.is_empty() {
+        return Ok(None);
+    }
+    let mut mesh = Vec::new();
+    mesh.extend(3u32.to_le_bytes());
+    mesh.extend(u32::try_from(4 + order.len() * VERTEX_SIZE)?.to_le_bytes());
+    mesh.extend(u32::try_from(order.len())?.to_le_bytes());
+    for v in &order {
+        mesh.extend_from_slice(&bytes[12 + v * VERTEX_SIZE..12 + (v + 1) * VERTEX_SIZE]);
+    }
+    mesh.extend(4u32.to_le_bytes());
+    mesh.extend(u32::try_from(4 + triangles.len() * 2)?.to_le_bytes());
+    mesh.extend(u32::try_from(triangles.len())?.to_le_bytes());
+    for i in &triangles {
+        mesh.extend(i.to_le_bytes());
+    }
+    let label = format!("{}_unbaked", surface.name);
+    let (vertices, indices, bounds) = converted_model_shape(&mesh, &label)?;
+    Ok(Some(BuiltSurface { name: label, mesh, bounds, vertices, indices, ..surface.clone() }))
 }
 
 /// A traced probe's faces as a radiance cube of 0.26g's probe size, its
@@ -406,9 +554,12 @@ fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_ba
 }
 
 /// A hybrid page's material: the template lit as it is (its albedo the page's,
-/// its normal and roughness maps flat: theirs would tile over the page's
-/// layout), emitting the indirect page times `emission` on top of the
-/// project's lights (the emissive pass adds to the lit frame).
+/// its normal map flat: the template's would tile over the page's layout),
+/// emitting the indirect page times `emission` on top of the project's
+/// lights (the emissive pass adds to the lit frame). Its roughness and
+/// specular intensity: `gloss`, the sources' own laid out as the page, else
+/// the flat stand-in `roughness` for both.
+#[allow(clippy::too_many_arguments)]
 fn set_hybrid(
     root: &mut ConfigValue,
     albedo: &str,
@@ -416,6 +567,7 @@ fn set_hybrid(
     emission: f32,
     normal: &str,
     roughness: &str,
+    gloss: Option<&(String, String)>,
 ) -> Result<()> {
     let effect = "material.g_stage.effect";
     for (field, value) in [
@@ -443,6 +595,27 @@ fn set_hybrid(
         if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
             root.set_path(&path, ConfigValue::String(normal.to_owned()))?;
         }
+    }
+    if let Some((page_roughness, page_specular)) = gloss {
+        for (field, value) in [
+            ("use_troughness", ConfigValue::Boolean(true)),
+            ("texture_roughness", ConfigValue::String(page_roughness.clone())),
+            ("use_tspecular_intensity", ConfigValue::Boolean(true)),
+            ("texture_specular_intensity", ConfigValue::String(page_specular.clone())),
+            ("constant_specular_color", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ] {
+            let path = format!("{effect}.{field}.value");
+            ensure!(
+                crate::content_pack::value::value_at(root, &path).is_some(),
+                "the template has no {field}"
+            );
+            root.set_path(&path, value)?;
+        }
+        let path = format!("{effect}.texture_vertex_blended_specular.value");
+        if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
+            root.set_path(&path, ConfigValue::String(page_specular.clone()))?;
+        }
+        return Ok(());
     }
     for field in ["texture_specular_intensity", "texture_vertex_blended_specular"] {
         let path = format!("{effect}.{field}.value");
@@ -620,7 +793,8 @@ pub struct SliceSpec {
     #[serde(default)]
     pub material_swaps: Vec<MaterialSwap>,
     /// Objects of the project put elsewhere (STK2 world), turned and
-    /// scaled as they are: a prop in the way of a camera's path.
+    /// scaled as they are: a prop in the way of a camera's path, or a
+    /// light that goes with a moved prop (a composite's own light).
     #[serde(default)]
     pub moves: Vec<ObjectMove>,
 }
@@ -1481,6 +1655,32 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             "environment overrides (by eye, in the game): {}",
             manifest.environment_overrides.keys().cloned().collect::<Vec<_>>().join(", ")
         ));
+    }
+    if let Some(bake) = &bake {
+        // the live lights as the bake traced them: a hybrid's lamps light
+        // its pages in the game, so their colour is the trace's
+        let Some(ConfigValue::Indexed(objects)) = project.root.named_mut("client_objects") else {
+            bail!("the project has no client_objects");
+        };
+        let mut set = 0;
+        for object in objects.iter_mut() {
+            let Some(ConfigValue::String(full_name)) = object.named("full_name").cloned() else {
+                continue;
+            };
+            let Some(seen) = bake.lights.get(&full_name) else {
+                continue;
+            };
+            object.set_path("color", ConfigValue::Float3(seen.color))?;
+            let intensity = match object.named("intensity") {
+                Some(ConfigValue::Float(v)) => *v,
+                Some(ConfigValue::Integer(v)) => *v as f32,
+                _ => bail!("{full_name}: no intensity"),
+            };
+            object.set_path("intensity", ConfigValue::Float(intensity * seen.intensity_scale))?;
+            set += 1;
+        }
+        ensure!(set == bake.lights.len(), "the bake traced {} lights, the project has {set} of them", bake.lights.len());
+        extra_notes.push(format!("{set} lights at the bake's colours"));
     }
     for cube in &manifest.probe_cubes {
         let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object));
@@ -3320,18 +3520,25 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
                     4 => LightKind::Sun,
                     _ => continue,
                 };
-                if kind != LightKind::Sun && !inside(object.position) {
+                let position = match slice.moves.iter().position(|m| m.id == object.id) {
+                    Some(k) => {
+                        moved[k] += 1;
+                        slice.moves[k].position
+                    }
+                    None => object.position,
+                };
+                if kind != LightKind::Sun && !inside(position) {
                     continue;
                 }
                 let color = match object.properties.get("color") {
                     Some(P::Float3(c)) => *c,
                     _ => [1.0; 3],
                 };
-                let turned = Rigid::stk2(object.position, object.rotation, [1.0; 3])?.then(scene);
+                let turned = Rigid::stk2(position, object.rotation, [1.0; 3])?.then(scene);
                 out.lights.push(SliceLight {
                     source: object.id.clone(),
                     kind,
-                    position: scene.apply(object.position),
+                    position: scene.apply(position),
                     rotation: euler_of(turned.m),
                     color,
                     intensity: number("intensity", 1.0),
@@ -4181,6 +4388,45 @@ mod tests {
         set_emission(&mut root, [1.0; 4], 1.0, Some("t/diffuse")).unwrap();
         assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/mask".into())));
         assert!(set_emission(&mut material(ConfigValue::Named(Vec::new())), [1.0; 4], 1.0, None).is_err());
+    }
+
+    #[test]
+    fn an_unbaked_zone_keeps_its_triangles_and_their_vertex_bytes() {
+        // two triangles: one at x 0..1, one at x 10..11 (a vertex's position, then a marker byte)
+        let positions = [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [10.0, 0.0, 0.0], [11.0, 0.0, 0.0], [10.0, 0.0, 1.0]];
+        let mut mesh = Vec::new();
+        mesh.extend(3u32.to_le_bytes());
+        mesh.extend(u32::try_from(4 + positions.len() * VERTEX_SIZE).unwrap().to_le_bytes());
+        mesh.extend(u32::try_from(positions.len()).unwrap().to_le_bytes());
+        for (i, p) in positions.iter().enumerate() {
+            let mut v = [0u8; VERTEX_SIZE];
+            for (k, c) in p.iter().enumerate() {
+                v[k * 4..k * 4 + 4].copy_from_slice(&c.to_le_bytes());
+            }
+            v[24] = i as u8;
+            mesh.extend(v);
+        }
+        mesh.extend(4u32.to_le_bytes());
+        mesh.extend(16u32.to_le_bytes());
+        mesh.extend(6u32.to_le_bytes());
+        for i in [0u16, 1, 2, 3, 4, 5] {
+            mesh.extend(i.to_le_bytes());
+        }
+        let (vertices, indices, bounds) = converted_model_shape(&mesh, "test").unwrap();
+        let surface = BuiltSurface {
+            name: "floor".into(),
+            material: "m".into(),
+            mesh,
+            bounds,
+            vertices,
+            indices,
+            mesh_name: "x".into(),
+            texture_name: "t".into(),
+        };
+        let part = triangles_in(&surface, &[[[9.0, -1.0, -1.0], [12.0, 1.0, 2.0]]]).unwrap().unwrap();
+        assert_eq!((part.name.as_str(), part.material.as_str(), part.vertices, part.indices), ("floor_unbaked", "m", 3, 3));
+        assert_eq!(part.mesh[12 + 24], 3, "the zone's first vertex is the source's fourth, its bytes kept");
+        assert!(triangles_in(&surface, &[[[50.0, 0.0, 0.0], [60.0, 1.0, 1.0]]]).unwrap().is_none());
     }
 
     #[test]

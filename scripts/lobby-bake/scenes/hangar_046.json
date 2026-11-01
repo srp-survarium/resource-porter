@@ -1,0 +1,77 @@
+{
+ "bake": {
+  "project": "lobby_scene/hangar_046",
+  "engine_lit": [
+   "flora",
+   "level/03/flora",
+   "ported/v046c2_lobby/flora/"
+  ],
+  "left_out": [],
+  "outdoor": {
+   "sky": [
+    0.8,
+    0.9,
+    1.1
+   ]
+  },
+  "skip_lights": [
+   "sun",
+   "environment_and_lights/character_lights/"
+  ],
+  "box": [
+   [
+    -16.5,
+    -1.0,
+    -8.0
+   ],
+   [
+    5.5,
+    13.0,
+    39.5
+   ]
+  ],
+  "views": {
+   "hall": [
+    [
+     -1.0,
+     1.7,
+     1.0
+    ],
+    [
+     -8.0,
+     2.5,
+     20.0
+    ]
+   ],
+   "roof": [
+    [
+     0.0,
+     1.5,
+     2.0
+    ],
+    [
+     -6.0,
+     8.0,
+     14.0
+    ]
+   ],
+   "windows": [
+    [
+     -6.0,
+     1.6,
+     6.0
+    ],
+    [
+     4.0,
+     3.5,
+     10.0
+    ]
+   ]
+  },
+  "tint": [
+   1.0,
+   0.96,
+   0.9
+  ]
+ }
+}
