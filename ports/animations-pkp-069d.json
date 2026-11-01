@@ -9,7 +9,6 @@
    "states": [
     "idle",
     "fire",
-    "show",
     "hide",
     "reload"
    ],
