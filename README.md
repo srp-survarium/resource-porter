@@ -163,7 +163,8 @@ A material rule's `emission` keeps the STK2 material's emission
 (`emission_scale` per material scales it further); a slice's
 `material_swaps` (`{lib, from, to}`) give an unlit STK2 lamp its emissive
 variant, and its `moves` (`{id, what, position}`) put a project object
-elsewhere (a prop in a camera path's way).
+elsewhere (a prop in a camera path's way; a light too, as a composite's own
+light that goes with its moved prop).
 
 Compose multiple bundles before applying. The first bundle wins shared paths:
 

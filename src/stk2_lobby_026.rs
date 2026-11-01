@@ -466,7 +466,8 @@ pub struct SliceSpec {
     #[serde(default)]
     pub material_swaps: Vec<MaterialSwap>,
     /// Objects of the project put elsewhere (STK2 world), turned and
-    /// scaled as they are: a prop in the way of a camera's path.
+    /// scaled as they are: a prop in the way of a camera's path, or a
+    /// light that goes with a moved prop (a composite's own light).
     #[serde(default)]
     pub moves: Vec<ObjectMove>,
 }
@@ -2958,18 +2959,25 @@ fn slice_objects(slice: &SliceSpec, stk2: &Stk2Tree<'_>, scene: Rigid) -> Result
                     4 => LightKind::Sun,
                     _ => continue,
                 };
-                if kind != LightKind::Sun && !inside(object.position) {
+                let position = match slice.moves.iter().position(|m| m.id == object.id) {
+                    Some(k) => {
+                        moved[k] += 1;
+                        slice.moves[k].position
+                    }
+                    None => object.position,
+                };
+                if kind != LightKind::Sun && !inside(position) {
                     continue;
                 }
                 let color = match object.properties.get("color") {
                     Some(P::Float3(c)) => *c,
                     _ => [1.0; 3],
                 };
-                let turned = Rigid::stk2(object.position, object.rotation, [1.0; 3])?.then(scene);
+                let turned = Rigid::stk2(position, object.rotation, [1.0; 3])?.then(scene);
                 out.lights.push(SliceLight {
                     source: object.id.clone(),
                     kind,
-                    position: scene.apply(object.position),
+                    position: scene.apply(position),
                     rotation: euler_of(turned.m),
                     color,
                     intensity: number("intensity", 1.0),
