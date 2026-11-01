@@ -253,3 +253,21 @@ pub fn check_clip_skeletons(
     }
     Ok(())
 }
+
+/// The SPL preset (loudness curve) a sound's `.raw_options` names:
+/// `sounds/spl/<preset>.spl` must exist, or the sound cook reads a null
+/// config and the game crashes (exe+0x62731, a read of 0x108).
+pub fn spl_preset(raw_options: &V) -> Option<&str> {
+    match raw_options
+        .named("options")
+        .and_then(|o| o.named("spl_preset"))
+    {
+        Some(V::String(s)) if !s.is_empty() => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+/// The file of an SPL preset.
+pub fn spl_file(preset: &str) -> String {
+    format!("sounds/spl/{preset}.spl")
+}

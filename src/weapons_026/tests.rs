@@ -945,3 +945,18 @@ fn screen_shake_is_the_templates() {
     assert_eq!(cfg, template);
     assert_eq!(notes.len(), 2);
 }
+
+/// A sound's SPL preset is a file it needs (0.46c2's
+/// `main_3rd_view_suppressed`, which 0.26g lacks, crashed matches).
+#[test]
+fn a_sounds_spl_preset_is_a_file_it_needs() {
+    use super::resources::{spl_file, spl_preset};
+    let options = |p: &str| t(vec![("options", t(vec![("spl_preset", s(p))]))]);
+    assert_eq!(
+        spl_preset(&options("main_3rd_view_suppressed")),
+        Some("main_3rd_view_suppressed")
+    );
+    assert_eq!(spl_file("default"), "sounds/spl/default.spl");
+    assert_eq!(spl_preset(&options("")), None);
+    assert_eq!(spl_preset(&t(vec![])), None);
+}
