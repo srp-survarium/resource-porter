@@ -206,7 +206,7 @@
     "G3SG/1: 7.62x51 semi-auto as the SOCOM 16, 0.69d0's +6 % damage, -20 % rate and burst of 3; 20 rounds, the real gun's as in 0.69d0 (the owner, 2026-11-01); level 15, Black Market",
     "its own 0.69d0 rig and clips",
     "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
-    "its own round, 7.62x51 in 20-round magazines (2254, the sidecar's): the live 7.62x51's clip of 10 gives a default kit's three bags 30 rounds, under a magazine and a reload (40); as the RPD and the PKP have their belts"
+    "its round is weapons-031's 7.62x51 in clips of 20 (2254, shared with the SCAR-H): the live 7.62x51's clip of 10 gives a default kit's three bags 30 rounds, under a magazine and a reload (40)"
    ]
   },
   {
@@ -244,7 +244,19 @@
     ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_mauser_m712_name",
     "ui_desc.text_descriptions.description": "st_srp_weapon069_mauser_m712_desc",
-    "user_animations_in_place.preview_item": "resources/animations/single/weapons/mauser/item/stand/3rd_view/idle"
+    "user_animations_in_place.preview_item": "resources/animations/single/weapons/mauser/item/stand/3rd_view/idle",
+    "user_animations_in_place.death": [
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_back",
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_fwd",
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_left",
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_right"
+    ],
+    "user_animations_in_place.death_hud": [
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_back",
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_fwd",
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_left",
+     "resources/animations/single/weapons/ak/player/stand/3rd_view/death/on_site_right"
+    ]
    },
    "from_template": [
     "breath_vibration",
@@ -264,7 +276,8 @@
    "notes": [
     "Mauser M.712: an automatic pistol as the APS, 7.62x25's pierce, +17 % rate, half its magazine; the APS's level, Renaissance",
     "its own 0.69d0 rig and clips; the aimed shots (_calim) left out",
-    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
+    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
+    "death poses: the four on_site death clips the live Kedr, Kiparis and PP-2000 play (the APS's ak/on_site/death_fwd is in no archive)"
    ]
   },
   {
@@ -321,7 +334,7 @@
    },
    "notes": [
     "KS-23M: a pump as the Remington 870, 0.69d0's +7 % damage, chambering 0.75 s (+25 %), reload +5 %; level 7 with the Benelli and SPAS, Renaissance",
-    "its own 0.69d0 rig and clips; the empty-chamber start (reload_finalround) left out; its 23x75R round is the sidecar's",
+    "its own 0.69d0 rig and clips; the empty-chamber start (reload_finalround) left out; its 23x75R round is this port's ammo_items (2253), the 12x70 smallshot's twin as in 0.69d0, its icon the smallshot's",
     "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
    ]
   },
@@ -386,8 +399,29 @@
    ]
   }
  ],
- "external_ammo": [
-  2253,
-  2254
+ "external_ammo": [],
+ "ammo_items": [
+  {
+   "name": "ammo_23mm_r",
+   "dict_id": 2253,
+   "config": "gameplay/items/weapons/ammo/ammo_23mm_r.options",
+   "template": "gameplay/items/weapons/ammo/ammo_12mm_buck.options",
+   "category": null,
+   "base_cost": 20,
+   "set": {
+    "parameters.damage": 0.2,
+    "data.k_damage": 0.2,
+    "parameters.arp": 0.2,
+    "data.k_arp": 0.2,
+    "parameters.buckshot": 10,
+    "data.buck_shot": 10,
+    "parameters.clip_size": 15,
+    "parameters.clip_weight": 0.6,
+    "ui_desc.ammo_indicator_name": "st_srp_ammo069_23mm_r_name",
+    "ui_desc.text_descriptions.name": "st_srp_ammo069_23mm_r_name",
+    "ui_desc.text_descriptions.description": "st_srp_ammo069_23mm_r_desc"
+   },
+   "lobby_icon": null
+  }
  ]
 }

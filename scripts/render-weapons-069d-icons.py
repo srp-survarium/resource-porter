@@ -287,7 +287,7 @@ def main():
                 bg.convert('RGB').save(args.gallery / f'{key}-{name}.png')
     # New ammo: a live ammo's icon in a cell of its own (`icon_like`).
     _, _, ammo_argb = atlas(tags, AMMO_SYMBOL)
-    for ammo in listing['rounds']:
+    for ammo in listing.get('rounds', []):
         (r, c), (lr, lc) = ammo['icon'], ammo['icon_like']
         assert ammo_argb[cell(r, c)][:, :, 0].max() == 0, f'ammo icon cell {r},{c} is taken'
         px = ammo_argb[cell(lr, lc)].astype(float)

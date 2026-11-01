@@ -128,8 +128,7 @@ fn the_sidecar_parses() {
         r#"{"format_version": 1,
             "guns": {"akmsu": {"rig": {"live": "models/weapons/ak74u.skinned_model"},
                                "separable": ["akmsu_m24x15_muzzlebrake"]},
-                     "ppsh_drum": {"rig": "donor", "module_turns": {"ppsh_762x25_71_round_mag": 90.0}}},
-            "rounds": []}"#,
+                     "ppsh_drum": {"rig": "donor", "module_turns": {"ppsh_762x25_71_round_mag": 90.0}}}}"#,
     )
     .unwrap();
     assert!(matches!(spec.guns["akmsu"].rig, Rig::Live(_)));
@@ -152,8 +151,8 @@ fn the_069d_port_and_its_sidecar_agree() {
         // The batch's claimed ids (release 41): guns 2290..=2299.
         assert!((2290..=2299).contains(&w.dict_id), "{}", w.name);
     }
-    for r in &spec.rounds {
-        assert!((2253..=2259).contains(&r.dict_id), "{}", r.name);
+    for a in &port.ammo_items {
+        assert!((2253..=2259).contains(&a.dict_id), "{}", a.name);
     }
 }
 

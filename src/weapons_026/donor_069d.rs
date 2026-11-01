@@ -83,25 +83,6 @@ pub struct Gun069 {
     pub module_turns: BTreeMap<String, f32>,
 }
 
-/// A new round (an ammunition item no 0.26g weapon fires yet): a live
-/// round's config and dictionary row with its own values.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Round069 {
-    pub name: String,
-    pub dict_id: i32,
-    pub config: String,
-    /// The live round (`items_dict` name) its config and row start from.
-    pub template: String,
-    pub base_cost: i32,
-    /// Config values by dotted path, typed as the template has them.
-    pub set: BTreeMap<String, serde_json::Value>,
-    /// Its cell of `LobbyMenu_AmmoIcons`, and the live round whose icon it
-    /// takes (0.69d0 draws its 23 mm round with its 12/70 buckshot's).
-    pub icon: [u32; 2],
-    pub icon_like: String,
-}
-
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -109,8 +90,6 @@ pub struct Spec069 {
     pub format_version: u32,
     /// By the core manifest's `donor_item` (0.69d0's item name).
     pub guns: BTreeMap<String, Gun069>,
-    #[serde(default)]
-    pub rounds: Vec<Round069>,
 }
 
 impl Spec069 {
@@ -942,7 +921,7 @@ impl Donor for Donor069 {
 // ---------------------------------------------------------------------------
 
 /// Builds a 0.69d0 port: the core's bundle ([`super::build`]) from
-/// [`Donor069`], then the new rounds (`spec.rounds`: config, dictionary row),
+/// [`Donor069`] (new rounds are the core manifest's `ammo_items`), then
 /// `donor-069d.json` (each gun's modules, baked or left out, and its attach
 /// points for the weapon kit), `equipment.json`, `icons-069d.json` (what
 /// `scripts/render-weapons-069d-icons.py` renders), and the check that every
@@ -972,75 +951,6 @@ pub fn build_069d(
     let report = super::build(port, &mut donor, target_layers, output)?;
     let overlay = output.join("overlay");
     let mut target = ResourceDb::open_layers(target_layers)?;
-    let manifest_path = output.join("port-manifest.json");
-    let mut manifest: serde_json::Value = serde_json::from_slice(&fs::read(&manifest_path)?)?;
-
-    // The new rounds.
-    let dict_path = "gameplay/db_static_dictionaries";
-    let mut dict =
-        BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, dict_path)?)?)?.root;
-    let mut rounds = vec![];
-    for round in &spec.rounds {
-        let Some(V::Indexed(items)) = dict.named("items_dict") else {
-            bail!("items_dict is not indexed");
-        };
-        let template_row = items
-            .iter()
-            .find(|v| v.named("name") == Some(&s(&round.template)))
-            .with_context(|| format!("no {} row", round.template))?
-            .clone();
-        ensure!(
-            !items
-                .iter()
-                .any(|v| v.named("dict_id") == Some(&V::Integer(round.dict_id))
-                    || v.named("name") == Some(&s(&round.name))
-                    || v.named("cfg_name") == Some(&s(&round.config))),
-            "round {} ({}) is taken",
-            round.dict_id,
-            round.name
-        );
-        let template_cfg = string_of(template_row.named("cfg_name"))?.to_owned();
-        let mut cfg = parse_config(&mut target, &template_cfg, "live round")?.root;
-        for (key, value) in &round.set {
-            super::config::set_typed(&mut cfg, key, value)
-                .with_context(|| format!("{}: {key}", round.name))?;
-        }
-        cfg.set_path(
-            "ui_desc.icon",
-            V::Indexed(round.icon.iter().map(|v| V::Integer(*v as i32)).collect()),
-        )?;
-        let like_cfg = string_of(
-            items
-                .iter()
-                .find(|v| v.named("name") == Some(&s(&round.icon_like)))
-                .with_context(|| format!("no {} row", round.icon_like))?
-                .named("cfg_name"),
-        )?
-        .to_owned();
-        let icon_like = parse_config(&mut target, &like_cfg, "live round")?.root;
-        let like: Vec<i32> = list(get(&icon_like, "ui_desc.icon"))
-            .iter()
-            .map(|v| int_of(Some(v)))
-            .collect::<Result<_>>()?;
-        let mut row = template_row;
-        row.set_path("cfg_name", s(&round.config))?;
-        row.set_path("name", s(&round.name))?;
-        row.set_path("dict_id", V::Integer(round.dict_id))?;
-        row.set_path("base_cost", V::Integer(round.base_cost))?;
-        let Some(V::Indexed(items)) = dict.named_mut("items_dict") else {
-            unreachable!()
-        };
-        items.push(row);
-        write_file(&overlay, &mut manifest, &round.config, &encode(cfg)?)?;
-        rounds.push(serde_json::json!({
-            "name": round.name, "dict_id": round.dict_id,
-            "icon": round.icon, "icon_like": like,
-        }));
-    }
-    if !spec.rounds.is_empty() {
-        write_file(&overlay, &mut manifest, dict_path, &encode(dict)?)?;
-    }
-    fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
 
     // The record and the icons' list.
     let mut guns = serde_json::Map::new();
@@ -1077,13 +987,13 @@ pub fn build_069d(
     )?;
     fs::write(
         output.join("icons-069d.json"),
-        serde_json::to_vec_pretty(&serde_json::json!({"weapons": icons, "rounds": rounds}))?,
+        serde_json::to_vec_pretty(&serde_json::json!({"weapons": icons}))?,
     )?;
     let ids: Vec<serde_json::Value> = port
         .weapons
         .iter()
         .map(|w| w.dict_id)
-        .chain(spec.rounds.iter().map(|r| r.dict_id))
+        .chain(port.ammo_items.iter().map(|a| a.dict_id))
         .map(|id| serde_json::json!({"dict_id": id}))
         .collect();
     fs::write(
@@ -1142,27 +1052,6 @@ fn check_kit_ammo(
              under a magazine of {magazine} and a reload"
         );
     }
-    Ok(())
-}
-
-/// Writes `path` into the overlay and its row of the port manifest's files.
-fn write_file(
-    overlay: &Path,
-    manifest: &mut serde_json::Value,
-    path: &str,
-    bytes: &[u8],
-) -> Result<()> {
-    let dest = crate::archive::safe_join(overlay, path)?;
-    fs::create_dir_all(dest.parent().unwrap())?;
-    fs::write(&dest, bytes)?;
-    let row = serde_json::to_value(crate::weapon::record_file(path, "converted:0.69d0", bytes))?;
-    let files = manifest
-        .get_mut("files")
-        .and_then(serde_json::Value::as_array_mut)
-        .context("port-manifest.json has no files")?;
-    files.retain(|f| f.get("path").and_then(serde_json::Value::as_str) != Some(path));
-    files.push(row);
-    files.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
     Ok(())
 }
 
