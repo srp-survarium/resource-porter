@@ -30,7 +30,7 @@ use serde_json::json;
 
 use super::config::weapon_config;
 use super::donor::{Donor, is_config};
-use super::icons::{cell_png, kill_feed_name, kill_feed_png};
+use super::icons::{cell_png, erase_rects, kill_feed_name, kill_feed_png};
 use super::manifest::{Weapon, WeaponPort};
 use super::{field, get, s, string_of};
 use crate::manifest::BuiltFile;
@@ -674,6 +674,40 @@ pub fn build<D: Donor>(
         let exists = |file: &str| target.contains(file) || written.contains(file);
         super::resources::check_resources(&w.config, cfg, &exists, &native_refs)?;
     }
+    // Every clip a config names animates the skeleton it is played on.
+    {
+        let overlay = carry.overlay;
+        let target = &mut *carry.target;
+        let mut read = |path: &str| -> Result<Option<Vec<u8>>> {
+            let local = overlay.join(path);
+            if local.is_file() {
+                Ok(Some(fs::read(local)?))
+            } else if target.contains(path) {
+                Ok(Some(target.read(path)?))
+            } else {
+                Ok(None)
+            }
+        };
+        let player = super::resources::skeleton_bones(
+            &read(super::resources::PLAYER_SKELETON)?.context("the player's skeleton")?,
+        )?;
+        for (w, cfg) in &configs {
+            let skeleton = format!(
+                "animations/skeletons/{}.skeleton",
+                string_of(get(cfg, "object.skeleton")).context("object.skeleton")?
+            );
+            let gun = super::resources::skeleton_bones(
+                &read(&skeleton)?.with_context(|| skeleton.clone())?,
+            )
+            .with_context(|| skeleton.clone())?;
+            let mut bones_of = |path: &str| -> Result<Option<BTreeSet<String>>> {
+                read(path)?
+                    .map(|b| super::resources::clip_bones(&b))
+                    .transpose()
+            };
+            super::resources::check_clip_skeletons(&w.config, cfg, &gun, &player, &mut bones_of)?;
+        }
+    }
     let mut texts = BTreeSet::new();
     for (w, cfg) in &configs {
         texts.extend(text_keys(cfg));
@@ -732,8 +766,12 @@ pub fn build<D: Donor>(
             let name = format!("{symbol}-r{:02}c{:02}.png", icon.row, icon.col);
             fs::write(
                 icons_dir.join(&name),
-                cell_png(&carry.donor.read(&icon.donor_png)?)
-                    .with_context(|| icon.donor_png.clone())?,
+                erase_rects(
+                    &cell_png(&carry.donor.read(&icon.donor_png)?)
+                        .with_context(|| icon.donor_png.clone())?,
+                    &icon.erase,
+                )
+                .with_context(|| icon.donor_png.clone())?,
             )?;
             icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": icon.donor_png}));
         }
