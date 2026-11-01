@@ -66,9 +66,10 @@ No suppressors: a module whose model names one is refused.
 `ports/weapons-029a3-patch19.json` is patch 19's 33 weapons read back as a manifest
 (`scripts/weapons/patch19_manifest.py`: the porter's decisions, its ids, prices and balance, from
 patch 19); the tool ports them again from the 0.29a3 donor and `compare-weapons` compares the
-bundle with patch 19 file by file. Result (2026-11-01): 0 unexplained; 1,893 files identical or
-equivalent (102 clips differ only in the words the engine overwrites on load: patch 19 left the
-12-byte offsets unshifted), and every difference explained in
+bundle with patch 19 file by file. Result (2026-11-01): 0 unexplained; of 2,451 files 2,086 identical,
+150 equivalent (102 clips differ only in the words the engine overwrites on load: patch 19 left the
+12-byte offsets unshifted; 48 configs hold the same values encoded otherwise), and 215 differ, each
+explained in
 `ports/weapons-029a3-patch19.known.tsv` with the side that is right. Where the tool is right:
 0.26g's melee (patch 19 wrote k_damage 2 for the natives' 1.5). Where patch 19 is right: a bolt
 action's card rate, the Saiga skin's missing material, the shotguns' template. The rest are
