@@ -112,6 +112,15 @@ def material(src, name):
         # and the trace sees through it
         "transparent": not any(k.startswith("material.g_stage.") for k in v),
     }
+    # the specular the engine draws (a hybrid page keeps the source's, laid
+    # out as the page: bake.py's gloss pages)
+    texture = lambda use, field: (src.path(f"textures/{get(field)}.dds") if get(use, False) and get(field) else None)
+    out["roughness"] = {"texture": texture("use_troughness", "texture_roughness"),
+                        "constant": get("constant_roughness", 0.5)}
+    colour = get("constant_specular_color", [1, 1, 1, 1])[:3]
+    scale = get("constant_specular_color_multiplier", [1, 1, 1])
+    out["specular"] = {"texture": texture("use_tspecular_intensity", "texture_specular_intensity"),
+                       "constant": [colour[k] * scale[k] for k in range(3)]}
     if get("use_emissive", False):
         texture = get("texture_emissive", "") if get("use_emissive_map", False) else ""
         out["emission"] = {

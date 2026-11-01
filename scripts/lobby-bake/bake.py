@@ -56,6 +56,8 @@ ap.add_argument("--only-render", action="store_true", help="the traced views onl
 ap.add_argument("--probe-samples", type=int, default=512)
 ap.add_argument("--probe-at", default="0,1.2,0", help="where the probes are traced (lobby frame): the character's chest; "
                 "a probe object's own place can be inside a prop (the bunker's room probe is in the gas-mask crates)")
+ap.add_argument("--indirect-scale", type=float, default=1.0,
+                help="a hybrid's indirect page brighter by this (the engine's lamps reach less far than the trace's)")
 ap.add_argument("--hybrid", action="store_true",
                 help="pages of albedo (lit by the project's lights in the game) and of indirect light only "
                      "(emitted, at a quarter of the size): the lamps' direct light, shadows and every "
@@ -157,7 +159,8 @@ log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
               for v in sorted({d for _, d, _, _ in chunks}, reverse=True)))
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_decals(scene_json)  # into the pages: the baked pack leaves the decals out
-add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
+lights_seen = add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []),
+                         args.match, args.bulb)
 
 for name, view in views(scene_json).items() if not (args.only_pack or args.only_probes) else ():
     render(os.path.join(D, "renders"), f"traced-{name}.png", view, args.fov, args.render_samples, args.exposure)
@@ -350,6 +353,32 @@ for k, page in enumerate(pages):
                             target="IMAGE_TEXTURES")
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
             next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+        # the sources' specular laid out as the page (roughness, intensity):
+        # flat stand-ins made wood and plaster shine in the game
+        page["gloss"] = {}
+        sc.cycles.samples = 1
+        for field in ("roughness", "specular"):
+            g = bpy.data.images.new(f"{field}_{k:02d}", small, small, float_buffer=True)
+            saved = {}
+            for m in {m for ob in page["objects"] for m in ob.data.materials}:
+                nt = m.node_tree
+                out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+                saved[m] = out.inputs[0].links[0].from_socket
+                em = nt.nodes.new("ShaderNodeEmission")
+                source = next((n for n in nt.nodes if n.label == f"srp_{field}"), None)
+                if source is not None:
+                    nt.links.new(source.outputs[0], em.inputs["Color"])
+                else:
+                    em.inputs["Color"].default_value = (1.0, 1.0, 1.0, 1.0) if field == "roughness" else (0, 0, 0, 1)
+                nt.links.new(em.outputs[0], out.inputs[0])
+                next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is img).image = g
+            bpy.ops.object.bake(type="EMIT", margin=4, use_clear=True, target="IMAGE_TEXTURES")
+            for m, socket in saved.items():
+                nt = m.node_tree
+                nt.links.new(socket, next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL").inputs[0])
+                next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is g).image = img
+            page["gloss"][field] = g
+        sc.cycles.samples = args.samples
     else:
         bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
                             margin=8, use_clear=True, target="IMAGE_TEXTURES")
@@ -425,6 +454,9 @@ for k, page in enumerate(pages):
         ind = pixels(page["indirect_image"])
         write_png(f"page_{k:02d}_indirect", page["indirect_image"].size[0], srgb(ind[:, :3] / emission),
                   np.ones(len(ind), dtype=np.float32))
+        for field, g in page["gloss"].items():  # linear values, as the sources' maps
+            px = pixels(g)
+            write_png(f"page_{k:02d}_{field}", g.size[0], np.clip(px[:, :3], 0.0, 1.0), np.ones(len(px), dtype=np.float32))
     else:
         write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3] / emission), a)
 if args.hybrid:  # the template's normal and roughness maps, flat (they would tile over the pages' layout)
@@ -433,7 +465,8 @@ if args.hybrid:  # the template's normal and roughness maps, flat (they would ti
 
 # --- the baked surfaces as 0.26g models ----------------------------------------
 LIMIT = 35000  # stk2_lobby_026's MAX_STATIC_SURFACE_VERTICES, less a little
-baked = {"emission": emission, "pages": [], "surfaces": []}
+baked = {"emission": emission * (args.indirect_scale if args.hybrid else 1.0), "pages": [], "surfaces": [],
+         "lights": lights_seen}
 if args.hybrid:
     baked["flat"] = {"normal": "pages/flat_normal.png", "roughness": "pages/flat_roughness.png"}
 for k, page in enumerate(pages):
@@ -476,7 +509,9 @@ for k, page in enumerate(pages):
         baked["surfaces"].append({"name": name, "file": f"baked/{name}", "page": f"page_{k:02d}",
                                   "vertices": len(order), "triangles": len(ts)})
         piece += 1
-    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png"} if args.hybrid \
+    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png",
+            "roughness": f"pages/page_{k:02d}_roughness.png", "specular": f"pages/page_{k:02d}_specular.png"} \
+        if args.hybrid \
         else {"png": f"pages/page_{k:02d}.png"}
     baked["pages"].append({"name": f"page_{k:02d}", **kind, "alpha": page["alpha"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],

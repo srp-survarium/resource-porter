@@ -200,6 +200,16 @@ def _multiply(nt, colour_socket, colour):
     return mul.outputs[2]
 
 
+def _mix_multiply(nt, a, b):
+    mul = nt.nodes.new("ShaderNodeMix")
+    mul.data_type = "RGBA"
+    mul.blend_type = "MULTIPLY"
+    mul.inputs[0].default_value = 1.0
+    nt.links.new(a, mul.inputs[6])
+    nt.links.new(b, mul.inputs[7])
+    return mul.outputs[2]
+
+
 def _cut(nt, shader, alpha_socket, ref):
     cut = nt.nodes.new("ShaderNodeMath")
     cut.operation = "GREATER_THAN"
@@ -261,8 +271,34 @@ def lit_material(spec):
         nt.links.new(shader, add.inputs[0])
         nt.links.new(em.outputs[0], add.inputs[1])
         shader = add.outputs[0]
+    # the source's specular, for a hybrid page's gloss pages (bake.py emits
+    # them in turn): nodes labelled srp_roughness and srp_specular, unlinked
+    for field in ("roughness", "specular"):
+        if field not in spec:
+            continue
+        source = nt.nodes.new("ShaderNodeRGB")
+        constant = spec[field]["constant"]
+        source.outputs[0].default_value = (list(constant) if isinstance(constant, list) else [constant] * 3) + [1.0]
+        if spec[field]["texture"]:
+            t = nt.nodes.new("ShaderNodeTexImage")
+            t.image = image(spec[field]["texture"], colour=False)
+            nt.links.new(uvn.outputs[0], t.inputs[0])
+            if field == "specular":  # the texture's intensity times the constant colour
+                source = _mix_multiply(nt, t.outputs["Color"], source.outputs[0]).node
+            else:
+                source = t
+        source.label = f"srp_{field}"
     if spec["alpha_test"] and tex is not None:
         shader = _cut(nt, shader, tex.outputs["Alpha"], spec["alpha_ref"])
+    if not spec.get("two_sided"):
+        # the game culls a one-sided face's back: seen through from behind
+        # (a shell's or a window strip's back let no light in, wrongly)
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        mix = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(geo.outputs["Backfacing"], mix.inputs[0])
+        nt.links.new(shader, mix.inputs[1])
+        nt.links.new(nt.nodes.new("ShaderNodeBsdfTransparent").outputs[0], mix.inputs[2])
+        shader = mix.outputs[0]
     nt.links.new(shader, out.inputs[0])
     return m
 
@@ -430,6 +466,7 @@ def add_lights(scene_json, skip, match, bulb):
     distance (Cycles: albedo * S / pi * N.L), the sky is the world's
     radiance (a matte surface under it sends albedo x sky)."""
     lamp_colour, other_colour = light_colours(scene_json)
+    seen = {}  # each project light's colour and brightness factor, as traced
     for l in scene_json["lights"]:
         if skipped(l["name"], skip) or not l["intensity"] or l.get("enabled") is False:
             continue
@@ -444,6 +481,7 @@ def add_lights(scene_json, skip, match, bulb):
         colour, factor = lamp_colour(l["color"], l["name"])
         light.color = colour
         light.energy = power * factor
+        seen[l["name"]] = {"color": [round(c, 4) for c in colour], "intensity_scale": round(factor, 4)}
         light.shadow_soft_size = bulb
         lo = bpy.data.objects.new(l["name"], light)
         lo.location = to_b(l["position"])
@@ -473,6 +511,7 @@ def add_lights(scene_json, skip, match, bulb):
         background.inputs["Color"].default_value = other_colour(sky)[0] + [1.0]
         background.inputs["Strength"].default_value = 1.0
         log(f"sky: radiance {sky}")
+    return seen
 
 
 # The views rendered (0.26g lobby frame, the character at the origin): the

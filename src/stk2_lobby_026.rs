@@ -247,9 +247,21 @@ struct BakedJson {
     /// The environment probes' radiance, path-traced from the probes.
     #[serde(default)]
     probes: Vec<BakedProbeJson>,
+    /// Each project light's colour and brightness as the bake traced it
+    /// (bake.py's lamp_kelvin, white point), by full name.
+    #[serde(default)]
+    lights: BTreeMap<String, BakedLightColour>,
     /// A hybrid bake's flat normal and roughness maps.
     #[serde(default)]
     flat: Option<BakedFlatJson>,
+}
+
+/// A project light as the bake saw it: its colour, its intensity times
+/// `intensity_scale`.
+#[derive(Debug, Deserialize)]
+struct BakedLightColour {
+    color: [f32; 3],
+    intensity_scale: f32,
 }
 
 /// A probe's six faces (0.26g's order, `probe_bake::direction`'s texels),
@@ -276,7 +288,16 @@ struct BakedPageJson {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum BakedLightJson {
-    Hybrid { albedo: PathBuf, indirect: PathBuf },
+    Hybrid {
+        albedo: PathBuf,
+        indirect: PathBuf,
+        /// The sources' roughness and specular intensity laid out as the
+        /// page (else the flat stand-in: wood and plaster shone).
+        #[serde(default)]
+        roughness: Option<PathBuf>,
+        #[serde(default)]
+        specular: Option<PathBuf>,
+    },
     Radiance { png: PathBuf },
 }
 
@@ -305,6 +326,7 @@ struct Bake {
     sources: BTreeMap<String, String>,
     /// Probe object -> its traced radiance, in 0.26g light units.
     probes: BTreeMap<String, crate::probe_bake::Cube>,
+    lights: BTreeMap<String, BakedLightColour>,
 }
 
 impl Bake {
@@ -341,12 +363,19 @@ impl Bake {
                         .with_context(|| format!("{template}: the baked material"))?;
                     texture
                 }
-                BakedLightJson::Hybrid { albedo, indirect } => {
-                    let (normal, roughness) =
+                BakedLightJson::Hybrid { albedo, indirect, roughness, specular } => {
+                    let (normal, flat_roughness) =
                         flat.as_ref().context("a hybrid page without the bake's flat maps")?;
                     let texture = textures.make_page(&page_name, &dir.join(albedo), page.alpha, pack)?;
                     let light = textures.make_page(&format!("{page_name}_indirect"), &dir.join(indirect), false, pack)?;
-                    set_hybrid(&mut material.root, &texture, &light, json.emission, normal, roughness)
+                    let gloss = match (roughness, specular) {
+                        (Some(r), Some(s)) => Some((
+                            textures.make_page_as(&format!("{page_name}_roughness"), &dir.join(r), TextureKind::Linear, false, pack)?,
+                            textures.make_page_as(&format!("{page_name}_specular"), &dir.join(s), TextureKind::Linear, false, pack)?,
+                        )),
+                        _ => None,
+                    };
+                    set_hybrid(&mut material.root, &texture, &light, json.emission, normal, flat_roughness, gloss.as_ref())
                         .with_context(|| format!("{template}: the hybrid material"))?;
                     texture
                 }
@@ -391,6 +420,7 @@ impl Bake {
             kept: json.kept.into_iter().collect(),
             sources: json.sources,
             probes,
+            lights: json.lights,
         })
     }
 
@@ -524,9 +554,12 @@ fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_ba
 }
 
 /// A hybrid page's material: the template lit as it is (its albedo the page's,
-/// its normal and roughness maps flat: theirs would tile over the page's
-/// layout), emitting the indirect page times `emission` on top of the
-/// project's lights (the emissive pass adds to the lit frame).
+/// its normal map flat: the template's would tile over the page's layout),
+/// emitting the indirect page times `emission` on top of the project's
+/// lights (the emissive pass adds to the lit frame). Its roughness and
+/// specular intensity: `gloss`, the sources' own laid out as the page, else
+/// the flat stand-in `roughness` for both.
+#[allow(clippy::too_many_arguments)]
 fn set_hybrid(
     root: &mut ConfigValue,
     albedo: &str,
@@ -534,6 +567,7 @@ fn set_hybrid(
     emission: f32,
     normal: &str,
     roughness: &str,
+    gloss: Option<&(String, String)>,
 ) -> Result<()> {
     let effect = "material.g_stage.effect";
     for (field, value) in [
@@ -561,6 +595,27 @@ fn set_hybrid(
         if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
             root.set_path(&path, ConfigValue::String(normal.to_owned()))?;
         }
+    }
+    if let Some((page_roughness, page_specular)) = gloss {
+        for (field, value) in [
+            ("use_troughness", ConfigValue::Boolean(true)),
+            ("texture_roughness", ConfigValue::String(page_roughness.clone())),
+            ("use_tspecular_intensity", ConfigValue::Boolean(true)),
+            ("texture_specular_intensity", ConfigValue::String(page_specular.clone())),
+            ("constant_specular_color", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ] {
+            let path = format!("{effect}.{field}.value");
+            ensure!(
+                crate::content_pack::value::value_at(root, &path).is_some(),
+                "the template has no {field}"
+            );
+            root.set_path(&path, value)?;
+        }
+        let path = format!("{effect}.texture_vertex_blended_specular.value");
+        if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
+            root.set_path(&path, ConfigValue::String(page_specular.clone()))?;
+        }
+        return Ok(());
     }
     for field in ["texture_specular_intensity", "texture_vertex_blended_specular"] {
         let path = format!("{effect}.{field}.value");
@@ -1600,6 +1655,32 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             "environment overrides (by eye, in the game): {}",
             manifest.environment_overrides.keys().cloned().collect::<Vec<_>>().join(", ")
         ));
+    }
+    if let Some(bake) = &bake {
+        // the live lights as the bake traced them: a hybrid's lamps light
+        // its pages in the game, so their colour is the trace's
+        let Some(ConfigValue::Indexed(objects)) = project.root.named_mut("client_objects") else {
+            bail!("the project has no client_objects");
+        };
+        let mut set = 0;
+        for object in objects.iter_mut() {
+            let Some(ConfigValue::String(full_name)) = object.named("full_name").cloned() else {
+                continue;
+            };
+            let Some(seen) = bake.lights.get(&full_name) else {
+                continue;
+            };
+            object.set_path("color", ConfigValue::Float3(seen.color))?;
+            let intensity = match object.named("intensity") {
+                Some(ConfigValue::Float(v)) => *v,
+                Some(ConfigValue::Integer(v)) => *v as f32,
+                _ => bail!("{full_name}: no intensity"),
+            };
+            object.set_path("intensity", ConfigValue::Float(intensity * seen.intensity_scale))?;
+            set += 1;
+        }
+        ensure!(set == bake.lights.len(), "the bake traced {} lights, the project has {set} of them", bake.lights.len());
+        extra_notes.push(format!("{set} lights at the bake's colours"));
     }
     for cube in &manifest.probe_cubes {
         let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object));
