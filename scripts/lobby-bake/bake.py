@@ -29,7 +29,7 @@ import mathutils
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_lights, add_props, log, new_object, new_scene, read_model,  # noqa: E402
+from common import (Materials, add_lights, add_props, image, log, new_object, new_scene, read_model,  # noqa: E402
                     render, views, write_model)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -280,6 +280,10 @@ sc.cycles.samples = args.samples
 sc.render.bake.margin = 8
 sc.render.bake.margin_type = "EXTEND"
 copies = {}
+spec_of = {}  # a material (and its page copies) -> its 0.26g spec
+for s_ in scene_json["surfaces"] + [q for p in scene_json["props"] for q in p["surfaces"]]:
+    if s_["material"]["name"] in materials.made:
+        spec_of[materials.made[s_["material"]["name"]].name] = s_["material"]
 for k, page in enumerate(pages):
     img = bpy.data.images.new(f"page_{k:02d}", page["size"], page["size"], float_buffer=True, alpha=True)
     page["image"] = img
@@ -294,6 +298,7 @@ for k, page in enumerate(pages):
             m.node_tree.links.new(uvb.outputs[0], tn.inputs[0])
             m.node_tree.nodes.active = tn
             copies[(src.name, k)] = m
+            spec_of[m.name] = spec_of[src.name]
         ob.data.materials[slot] = copies[(src.name, k)]
     select(page["objects"])
     t = time.time()
@@ -313,6 +318,40 @@ for k, page in enumerate(pages):
                             target="IMAGE_TEXTURES")
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
             next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+        # the original materials' roughness laid on the page (their maps tile
+        # over their own uvs): the engine's specular as @10's
+        rough = bpy.data.images.new(f"roughness_{k:02d}", page["size"] // 2, page["size"] // 2, float_buffer=True)
+        page["roughness_image"] = rough
+        saved = {}
+        for m in {m for ob in page["objects"] for m in ob.data.materials}:
+            spec = spec_of[m.name]["roughness"]
+            nt = m.node_tree
+            out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+            saved[m] = out.inputs[0].links[0].from_socket
+            em = nt.nodes.new("ShaderNodeEmission")
+            if spec["texture"]:
+                uvn = nt.nodes.new("ShaderNodeUVMap")
+                uvn.uv_map = "tex"
+                rt = nt.nodes.new("ShaderNodeTexImage")
+                rt.image = image(spec["texture"], colour=False)
+                nt.links.new(uvn.outputs[0], rt.inputs[0])
+                sep = nt.nodes.new("ShaderNodeSeparateColor")
+                nt.links.new(rt.outputs["Color"], sep.inputs[0])
+                ramp = nt.nodes.new("ShaderNodeMapRange")
+                ramp.inputs["To Min"].default_value = spec["min"]
+                ramp.inputs["To Max"].default_value = spec["max"]
+                nt.links.new(sep.outputs[0], ramp.inputs["Value"])
+                nt.links.new(ramp.outputs[0], em.inputs["Color"])
+            else:
+                em.inputs["Color"].default_value = (spec["constant"],) * 3 + (1.0,)
+            nt.links.new(em.outputs[0], out.inputs[0])
+            next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is img).image = rough
+        sc.cycles.samples = 4
+        bpy.ops.object.bake(type="EMIT", margin=4, use_clear=True, target="IMAGE_TEXTURES")
+        for m, socket in saved.items():
+            nt = m.node_tree
+            nt.links.new(socket, next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL").inputs[0])
+            next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is rough).image = img
     else:
         bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
                             margin=8, use_clear=True, target="IMAGE_TEXTURES")
@@ -333,7 +372,11 @@ for k, page in enumerate(pages):
         nt = m.node_tree
         tex = next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is not page["image"])
         em = nt.nodes.new("ShaderNodeEmission")
-        nt.links.new(tex.outputs["Alpha"], em.inputs["Color"])
+        cut = nt.nodes.new("ShaderNodeMath")  # the cut itself, at the material's alpha_ref
+        cut.operation = "GREATER_THAN"
+        cut.inputs[1].default_value = spec_of[m.name]["alpha_ref"]
+        nt.links.new(tex.outputs["Alpha"], cut.inputs[0])
+        nt.links.new(cut.outputs[0], em.inputs["Color"])
         out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
         saved[m] = out.inputs[0].links[0].from_socket
         nt.links.new(em.outputs[0], out.inputs[0])
@@ -388,17 +431,18 @@ for k, page in enumerate(pages):
         ind = pixels(page["indirect_image"])
         write_png(f"page_{k:02d}_indirect", page["indirect_image"].size[0], srgb(ind[:, :3] / emission),
                   np.ones(len(ind), dtype=np.float32))
+        rgh = np.clip(pixels(page["roughness_image"])[:, :3], 0.0, 1.0)
+        write_png(f"page_{k:02d}_roughness", page["roughness_image"].size[0], rgh, np.ones(len(rgh), dtype=np.float32))
     else:
         write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3] / emission), a)
-if args.hybrid:  # the template's normal and roughness maps, flat (they would tile over the pages' layout)
+if args.hybrid:  # the template's normal map, flat (it would tile over the pages' layout)
     write_png("flat_normal", 4, np.tile([[0.5, 0.5, 1.0]], (16, 1)), np.ones(16))
-    write_png("flat_roughness", 4, np.tile([[0.85, 0.85, 0.85]], (16, 1)), np.ones(16))
 
 # --- the baked surfaces as 0.26g models ----------------------------------------
 LIMIT = 35000  # stk2_lobby_026's MAX_STATIC_SURFACE_VERTICES, less a little
 baked = {"emission": emission, "pages": [], "surfaces": []}
 if args.hybrid:
-    baked["flat"] = {"normal": "pages/flat_normal.png", "roughness": "pages/flat_roughness.png"}
+    baked["flat"] = {"normal": "pages/flat_normal.png"}
 for k, page in enumerate(pages):
     pos, nrm, uv, tris = [], [], [], []
     for ob in page["objects"]:
@@ -439,7 +483,8 @@ for k, page in enumerate(pages):
         baked["surfaces"].append({"name": name, "file": f"baked/{name}", "page": f"page_{k:02d}",
                                   "vertices": len(order), "triangles": len(ts)})
         piece += 1
-    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png"} if args.hybrid \
+    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png",
+            "roughness": f"pages/page_{k:02d}_roughness.png"} if args.hybrid \
         else {"png": f"pages/page_{k:02d}.png"}
     baked["pages"].append({"name": f"page_{k:02d}", **kind, "alpha": page["alpha"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],

@@ -182,6 +182,11 @@ pub struct BakeSpec {
     /// shader permutations) the game is seen to draw.
     pub template: String,
     pub alpha_template: String,
+    /// A hybrid's indirect pages emitted this much brighter than traced (the
+    /// lamps' engine falloff ends at their range, where the inverse square
+    /// still lights a far corner: the bounce stands in for both).
+    #[serde(default = "one")]
+    pub indirect_scale: f32,
 }
 
 /// bake.py's `baked.json`.
@@ -222,21 +227,21 @@ struct BakedPageJson {
 }
 
 /// What a page holds: the light a surface sends (drawn as emission on a black
-/// material), or its albedo (lit by the project's lights in the game) and
-/// the indirect light alone (emitted, a smaller page of the same layout).
+/// material), or its albedo (lit by the project's lights in the game), the
+/// indirect light alone (emitted, a smaller page of the same layout) and the
+/// original materials' roughness (the g-buffer's, laid on the page).
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum BakedLightJson {
-    Hybrid { albedo: PathBuf, indirect: PathBuf },
+    Hybrid { albedo: PathBuf, indirect: PathBuf, roughness: PathBuf },
     Radiance { png: PathBuf },
 }
 
-/// A hybrid bake's flat stand-ins for the template's normal and roughness
-/// maps, which would tile over the pages' layout.
+/// A hybrid bake's flat stand-in for the template's normal map, which would
+/// tile over the pages' layout.
 #[derive(Debug, Deserialize)]
 struct BakedFlatJson {
     normal: PathBuf,
-    roughness: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,16 +278,27 @@ impl Bake {
         ensure!(json.emission.is_finite() && json.emission > 0.0, "the bake's emission is not positive");
         let version = &manifest.pack.version;
         let mut materials = BTreeMap::new();
-        let flat = match &json.flat {
-            Some(flat) => Some((
-                textures.make_page_as(&format!("baked_v{version}/flat_normal"), &dir.join(&flat.normal), TextureKind::Normal, false, pack)?,
-                textures.make_page_as(&format!("baked_v{version}/flat_roughness"), &dir.join(&flat.roughness), TextureKind::Linear, false, pack)?,
-            )),
+        let flat_normal = match &json.flat {
+            Some(flat) => Some(textures.make_page_as(
+                &format!("baked_v{version}/flat_normal"),
+                &dir.join(&flat.normal),
+                TextureKind::Normal,
+                false,
+                pack,
+            )?),
             None => None,
         };
         for page in &json.pages {
             let template = if page.alpha { &spec.alpha_template } else { &spec.template };
             let mut material = parse(target, &format!("material_instances/{template}.material"))?;
+            if page.alpha {
+                // the page's alpha is the cut already made (0 or 1, at each
+                // material's own alpha_ref): halfway keeps its coverage down
+                // the mips; and no shadow (decals and the vault's overlay
+                // lie a centimetre over their surface: STK2's cast none)
+                material.root.set_path("material.g_stage.effect.alpha_ref.value", ConfigValue::Float(0.5))?;
+                material.root.set_path("material.g_stage.is_cast_shadow.value", ConfigValue::Boolean(false))?;
+            }
             let page_name = format!("baked_v{version}/{}", page.name);
             let texture = match &page.light {
                 BakedLightJson::Radiance { png } => {
@@ -291,12 +307,23 @@ impl Bake {
                         .with_context(|| format!("{template}: the baked material"))?;
                     texture
                 }
-                BakedLightJson::Hybrid { albedo, indirect } => {
-                    let (normal, roughness) =
-                        flat.as_ref().context("a hybrid page without the bake's flat maps")?;
+                BakedLightJson::Hybrid { albedo, indirect, roughness } => {
+                    let normal = flat_normal.as_ref().context("a hybrid page without the bake's flat normal")?;
                     let texture = textures.make_page(&page_name, &dir.join(albedo), page.alpha, pack)?;
                     let light = textures.make_page(&format!("{page_name}_indirect"), &dir.join(indirect), false, pack)?;
-                    set_hybrid(&mut material.root, &texture, &light, json.emission, normal, roughness)
+                    let roughness = textures.make_page_as(
+                        &format!("{page_name}_roughness"),
+                        &dir.join(roughness),
+                        TextureKind::Linear,
+                        false,
+                        pack,
+                    )?;
+                    ensure!(
+                        spec.indirect_scale.is_finite() && spec.indirect_scale > 0.0,
+                        "the bake's indirect_scale is not positive"
+                    );
+                    let emission = json.emission * spec.indirect_scale;
+                    set_hybrid(&mut material.root, &texture, &light, emission, normal, &roughness)
                         .with_context(|| format!("{template}: the hybrid material"))?;
                     texture
                 }
@@ -405,10 +432,12 @@ fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_ba
     Ok(crate::probe_bake::Cube { size, mips: PROBE_CUBE_MIPS, faces })
 }
 
-/// A hybrid page's material: the template lit as it is (its albedo the page's,
-/// its normal and roughness maps flat: theirs would tile over the page's
-/// layout), emitting the indirect page times `emission` on top of the
-/// project's lights (the emissive pass adds to the lit frame).
+/// A hybrid page's material: the template lit as it is (its albedo and
+/// roughness the page's, the original materials' laid on it; its specular
+/// the template's, as every converted material's; its normal maps flat:
+/// theirs would tile over the page's layout), emitting the indirect page
+/// times `emission` on top of the project's lights (the emissive pass adds
+/// to the lit frame).
 fn set_hybrid(
     root: &mut ConfigValue,
     albedo: &str,
@@ -424,6 +453,7 @@ fn set_hybrid(
         ("constant_diffuse", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
         ("texture_normal", ConfigValue::String(normal.to_owned())),
         ("texture_roughness", ConfigValue::String(roughness.to_owned())),
+        ("use_troughness", ConfigValue::Boolean(true)),
         ("use_emissive", ConfigValue::Boolean(true)),
         ("use_emissive_map", ConfigValue::Boolean(true)),
         ("texture_emissive", ConfigValue::String(indirect.to_owned())),
@@ -436,6 +466,17 @@ fn set_hybrid(
             "the template has no {field}"
         );
         root.set_path(&path, value)?;
+    }
+    // the page holds the roughness itself: the template's range 0..1, in the
+    // number type the template keeps there (roof_03's max is 0.3)
+    for (field, value) in [("constant_roughness_min", 0.0f32), ("constant_roughness_max", 1.0)] {
+        let path = format!("{effect}.{field}.value");
+        let typed = match crate::content_pack::value::value_at(root, &path) {
+            Some(ConfigValue::Integer(_)) => ConfigValue::Integer(value as i32),
+            Some(ConfigValue::Float(_)) => ConfigValue::Float(value),
+            _ => bail!("the template has no {field}"),
+        };
+        root.set_path(&path, typed)?;
     }
     // every other normal slot the template binds (detail, blended) flat too
     for field in ["texture_detail_normal", "texture_alphablended_normal", "texture_vertex_blended_normal"] {
@@ -805,6 +846,11 @@ pub enum MaterialSpec {
         /// As [`RuleTarget::Converted`]'s (it needs `source`).
         #[serde(default)]
         emission: Option<f32>,
+        /// Fields under `material.g_stage` set as the STK2 instance has them
+        /// (`effect.alpha_ref`, `is_cast_shadow`, ...): a number or a bool
+        /// in the template's own type there.
+        #[serde(default)]
+        set: BTreeMap<String, Json>,
     },
     /// A native material, as it is.
     Native { material: String },
@@ -1023,6 +1069,12 @@ const ROLES: &[(&str, &str, TextureKind, Option<&str>)] = &[
         "texture_emissive",
         TextureKind::Colour,
         Some("use_emissive_map"),
+    ),
+    (
+        "texture_roughness",
+        "texture_roughness",
+        TextureKind::Linear,
+        Some("use_troughness"),
     ),
 ];
 
@@ -1952,7 +2004,7 @@ fn make_material(
     textures: &mut TextureMaker<'_>,
     pack: &mut PackWriter,
 ) -> Result<Option<(String, Option<String>)>> {
-    let (template, source, explicit, emission) = match spec {
+    let (template, source, explicit, emission, set) = match spec {
         MaterialSpec::Hidden => return Ok(None),
         MaterialSpec::Native { material } => {
             ensure!(
@@ -1966,7 +2018,8 @@ fn make_material(
             source,
             textures,
             emission,
-        } => (template, source, textures, emission),
+            set,
+        } => (template, source, textures, emission, set),
     };
     let roles = material_textures(key, source.as_deref(), explicit, stk2)?;
     // an instance with no diffuse of its own or its base's (a decal's
@@ -2049,6 +2102,19 @@ fn make_material(
         set_emission(&mut material.root, colour, multiplier * scale, diffuse.as_deref())
             .with_context(|| format!("{key}: emission"))?;
     }
+    for (field, value) in set {
+        let path = format!("material.g_stage.{field}.value");
+        let hint = crate::content_pack::value::value_at(&material.root, &path)
+            .cloned()
+            .with_context(|| format!("{key}: the template has no {field}"))?;
+        let hint = match hint {
+            ConfigValue::Integer(v) if value.as_f64().is_some_and(|f| f.fract() != 0.0) => ConfigValue::Float(v as f32),
+            other => other,
+        };
+        let value = crate::content_pack::value::to_config(value, Some(&hint))
+            .with_context(|| format!("{key}: {field}"))?;
+        material.root.set_path(&path, value)?;
+    }
     // `tex:<texture>` keys (a surface known by its texture) as a folder
     let name = format!("{prefix}/{}", key.replace(':', "/").replace(' ', "_"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
@@ -2093,6 +2159,7 @@ fn material_by_rule(
                         source: None,
                         textures,
                         emission: None,
+                        set: BTreeMap::new(),
                     },
                     format!("its texture alone -> {template}"),
                 ));
@@ -2151,6 +2218,7 @@ fn material_by_rule(
                 source: Some(source),
                 textures: BTreeMap::new(),
                 emission: *emission,
+                set: BTreeMap::new(),
             },
             match emission {
                 Some(k) => format!("{why} -> {template}, its emission x{k}"),

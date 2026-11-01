@@ -69,6 +69,13 @@ def material(src, name):
         "two_sided": bool(get("two_sided", False)),
         "emission": None,
     }
+    rough = get("texture_roughness", "") if get("use_troughness", False) else ""
+    out["roughness"] = {  # the g-buffer's: min + (max - min) * texture.x, else the constant
+        "texture": src.path(f"textures/{rough}.dds") if rough else None,
+        "min": get("constant_roughness_min", 0.0),
+        "max": get("constant_roughness_max", 1.0),
+        "constant": get("constant_roughness", 0.5),
+    }
     if get("use_emissive", False):
         texture = get("texture_emissive", "") if get("use_emissive_map", False) else ""
         out["emission"] = {
