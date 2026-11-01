@@ -110,7 +110,7 @@ def main(pack, db, out):
         head, _, field = key.partition("].")
         if head.startswith("render_visuals["):
             visuals.setdefault(int(head[len("render_visuals["):]), {})[field] = value
-    scene = {"surfaces": [], "props": [], "lights": [], "camera": {
+    scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
     for _, v in sorted(visuals.items()):
         entry = {"visual": v["visual_name"], "position": v["position"], "rotation": v["rotation"],
@@ -119,13 +119,16 @@ def main(pack, db, out):
             scene["surfaces"].extend(entry["surfaces"])
         else:
             scene["props"].append(entry)
+    scene["probes"] = [{"name": o["name"], "position": o["position"]} for _, o in sorted(objects.items())
+                       if o.get("game_object_type") == "environment_probe"]
     for light in lights:
         scene["lights"].append({k: light.get(k) for k in (
             "name", "position", "rotation", "color", "intensity", "range", "attenuation_power",
             "light_type", "spot_umbra_angle", "spot_penumbra_angle", "is_cast_shadow")})
     with open(os.path.join(out, "scene.json"), "w") as f:
         json.dump(scene, f, indent=1)
-    print(f"scene: {len(scene['surfaces'])} surfaces, {len(scene['props'])} props, {len(scene['lights'])} lights")
+    print(f"scene: {len(scene['surfaces'])} surfaces, {len(scene['props'])} props, {len(scene['lights'])} lights,",
+          f"{len(scene['probes'])} probes")
 
 
 if __name__ == "__main__":

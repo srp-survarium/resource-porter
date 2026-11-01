@@ -7,7 +7,8 @@
 #   <work>/bake     scene.json (prep.py), the pages, baked models and baked.json
 #                   (bake.py), renders/ (traced-* path-traced, baked-* from the bake)
 #   <work>/pack     the pack drawn from the bake
-# Needs vostok-port on PATH (or VOSTOK_PORT), ImageMagick, Python 3, Blender.
+# Needs vostok-port on PATH (or VOSTOK_PORT), ImageMagick, Python 3, Blender (or BLENDER: a command;
+# for --gpu one built with OptiX or CUDA, as blender.org's).
 set -euo pipefail
 manifest=$1 stk2=$2 db=$3 work=$4
 shift 4
@@ -18,7 +19,10 @@ rm -rf "$work/lit" "$work/pack"
 "$port" build-stk2-lobby-026 --manifest "$manifest" --stk2-root "$stk2" --target-db "$db" \
     --output "$work/lit" --work "$work/textures" --lit
 VOSTOK_PORT=$port python3 "$here/prep.py" "$work/lit" "$db" "$work/bake"
-nice -n 19 blender -b --factory-startup --python "$here/bake.py" -- "$work/bake" "$@"
-nice -n 19 blender -b --factory-startup --python "$here/show.py" -- "$work/bake"
+blender=${BLENDER:-blender}
+show=()
+for a in "$@"; do [ "$a" = --gpu ] && show=(--gpu); done
+nice -n 19 $blender -b --factory-startup --python "$here/bake.py" -- "$work/bake" "$@"
+nice -n 19 $blender -b --factory-startup --python "$here/show.py" -- "$work/bake" "${show[@]}"
 "$port" build-stk2-lobby-026 --manifest "$manifest" --stk2-root "$stk2" --target-db "$db" \
     --output "$work/pack" --work "$work/textures" --bake-dir "$work/bake"

@@ -79,11 +79,28 @@ def write_model(path, pos, nrm, uv, tris):
 
 
 # --- the scene -----------------------------------------------------------------
-def new_scene(threads):
+def new_scene(threads, gpu=False):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
+    if gpu:  # OptiX, else CUDA; a Blender without them (nixpkgs') stops here
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+        for kind in ("OPTIX", "CUDA"):
+            try:
+                prefs.compute_device_type = kind
+            except TypeError:
+                continue
+            prefs.get_devices()
+            devices = [d for d in prefs.devices if d.type == kind]
+            if devices:
+                for d in prefs.devices:
+                    d.use = d.type == kind
+                sc.cycles.device = "GPU"
+                log(f"Cycles on {kind}: {', '.join(d.name for d in devices)}")
+                break
+        else:
+            raise SystemExit("--gpu: this Blender has no OptiX or CUDA device")
     sc.render.threads_mode = "FIXED"
     sc.render.threads = threads
     sc.cycles.use_denoising = True

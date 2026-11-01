@@ -22,6 +22,7 @@ ap.add_argument("scene")
 ap.add_argument("--fov", type=float, default=70.0)
 ap.add_argument("--samples", type=int, default=64)
 ap.add_argument("--threads", type=int, default=12)
+ap.add_argument("--gpu", action="store_true")
 ap.add_argument("--match", type=float, default=2.0)
 ap.add_argument("--bulb", type=float, default=0.03)
 ap.add_argument("--skip-lights", default="sun,character_fill")
@@ -33,7 +34,7 @@ D = args.scene
 scene_json = json.load(open(os.path.join(D, "scene.json")))
 baked = json.load(open(os.path.join(D, "baked.json")))
 
-new_scene(args.threads)
+new_scene(args.threads, args.gpu)
 materials = Materials()
 pages = {p["name"]: page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"])
          for p in baked["pages"]}

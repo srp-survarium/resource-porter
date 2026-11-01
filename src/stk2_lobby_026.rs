@@ -195,6 +195,19 @@ struct BakedJson {
     kept: Vec<String>,
     /// Each merged surface the bake was made of: its converted_model's sha256.
     sources: BTreeMap<String, String>,
+    /// The environment probes' radiance, path-traced from the probes.
+    #[serde(default)]
+    probes: Vec<BakedProbeJson>,
+}
+
+/// A probe's six faces (0.26g's order, `probe_bake::direction`'s texels),
+/// `size` texels a side, float32 RGB, row by row, without the lamps
+/// themselves (the project's lights light the character directly).
+#[derive(Debug, Deserialize)]
+struct BakedProbeJson {
+    object: String,
+    file: PathBuf,
+    size: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,6 +231,8 @@ struct Bake {
     surfaces: Vec<BuiltSurface>,
     kept: BTreeSet<String>,
     sources: BTreeMap<String, String>,
+    /// Probe object -> its traced radiance, in 0.26g light units.
+    probes: BTreeMap<String, crate::probe_bake::Cube>,
 }
 
 impl Bake {
@@ -270,11 +285,18 @@ impl Bake {
                 texture_name: texture.clone(),
             });
         }
+        let mut probes = BTreeMap::new();
+        for probe in &json.probes {
+            let bytes = fs::read(dir.join(&probe.file))
+                .with_context(|| format!("the bake: {}", probe.file.display()))?;
+            probes.insert(probe.object.clone(), traced_cube(&bytes, probe.size, &probe.object)?);
+        }
         Ok(Bake {
             slice: spec.slice.clone(),
             surfaces,
             kept: json.kept.into_iter().collect(),
             sources: json.sources,
+            probes,
         })
     }
 
@@ -303,6 +325,45 @@ impl Bake {
         built.extend(self.surfaces.iter().cloned());
         Ok(())
     }
+}
+
+/// A traced probe's faces as a radiance cube of 0.26g's probe size, its
+/// mips the averages of four texels.
+fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_bake::Cube> {
+    ensure!(size == PROBE_CUBE_SIZE, "probe {label}: {size} px, made probes are {PROBE_CUBE_SIZE}");
+    ensure!(bytes.len() == 6 * size * size * 12, "probe {label}: not six {size} px faces of float RGB");
+    let mut faces = Vec::new();
+    for face in 0..6 {
+        let mut levels: Vec<Vec<[f32; 3]>> = vec![
+            (0..size * size)
+                .map(|i| {
+                    let at = (face * size * size + i) * 12;
+                    std::array::from_fn(|c| f32::from_le_bytes(bytes[at + c * 4..at + c * 4 + 4].try_into().unwrap()))
+                })
+                .collect(),
+        ];
+        ensure!(
+            levels[0].iter().flatten().all(|v| v.is_finite() && *v >= 0.0),
+            "probe {label}: a texel is not a radiance"
+        );
+        for m in 1..PROBE_CUBE_MIPS {
+            let (n, up) = ((size >> m).max(1), (size >> (m - 1)).max(1));
+            let above = &levels[m - 1];
+            let level = (0..n * n)
+                .map(|i| {
+                    let (x, y) = (i % n * 2, i / n * 2);
+                    std::array::from_fn(|c| {
+                        (above[y * up + x][c] + above[y * up + x + 1][c] + above[(y + 1) * up + x][c]
+                            + above[(y + 1) * up + x + 1][c])
+                            / 4.0
+                    })
+                })
+                .collect();
+            levels.push(level);
+        }
+        faces.push(levels);
+    }
+    Ok(crate::probe_bake::Cube { size, mips: PROBE_CUBE_MIPS, faces })
 }
 
 /// A baked page's material: black (the g-buffer's albedo is the diffuse
@@ -899,9 +960,21 @@ impl PackWriter {
         self.write(path, &config.to_bytes()?)
     }
 
+    /// A file taken out, and the folders it leaves empty (a patch archive
+    /// refuses an empty folder).
     fn remove(&mut self, path: &str) -> Result<()> {
         ensure!(self.paths.remove(path), "{path}: not in the pack");
-        fs::remove_file(safe_join(&self.files, path)?).with_context(|| format!("removing {path}"))
+        let file = safe_join(&self.files, path)?;
+        fs::remove_file(&file).with_context(|| format!("removing {path}"))?;
+        let mut dir = file.parent();
+        while let Some(d) = dir.filter(|d| *d != self.files) {
+            if fs::read_dir(d)?.next().is_some() {
+                break;
+            }
+            fs::remove_dir(d)?;
+            dir = d.parent();
+        }
+        Ok(())
     }
 
     /// The materials under `material_prefix` no written model names, and the
@@ -1323,7 +1396,8 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         ));
     }
     for cube in &manifest.probe_cubes {
-        add_probe_cube(&mut project, cube, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
+        let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object));
+        add_probe_cube(&mut project, cube, traced, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
     }
     let weapon = manifest
         .spots
@@ -3421,6 +3495,7 @@ fn native_cube_dds(mut bytes: Vec<u8>) -> Vec<u8> {
 fn add_probe_cube(
     project: &mut BinaryConfig,
     cube: &ProbeCube,
+    traced: Option<&crate::probe_bake::Cube>,
     prefix: &str,
     target: &mut ResourceDb,
     pack: &mut PackWriter,
@@ -3456,17 +3531,36 @@ fn add_probe_cube(
             layer.value = ConfigValue::String(texture.clone());
         }
     }
-    let faces = (0..6)
-        .map(|f| {
-            (0..PROBE_CUBE_MIPS)
-                .map(|m| {
-                    let n = (PROBE_CUBE_SIZE >> m).max(1);
-                    (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+    let radiance = match traced {
+        // the engine multiplies the probe by its diffuse_multiplier: the
+        // traced radiance divided by it, so the character gets the bake's light
+        Some(traced) => {
+            let multiplier = match object.named("diffuse_multiplier") {
+                Some(ConfigValue::Float(v)) => *v,
+                Some(ConfigValue::Integer(v)) => *v as f32,
+                _ => bail!("probe cube: {:?} has no diffuse_multiplier", cube.object),
+            };
+            ensure!(multiplier > 0.0, "probe cube: {:?}'s diffuse_multiplier is not positive", cube.object);
+            let mut radiance = traced.clone();
+            for texel in radiance.faces.iter_mut().flatten().flatten() {
+                *texel = texel.map(|v| v / multiplier);
+            }
+            radiance
+        }
+        None => {
+            let faces = (0..6)
+                .map(|f| {
+                    (0..PROBE_CUBE_MIPS)
+                        .map(|m| {
+                            let n = (PROBE_CUBE_SIZE >> m).max(1);
+                            (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+                        })
+                        .collect()
                 })
-                .collect()
-        })
-        .collect();
-    let radiance = Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces };
+                .collect();
+            Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces }
+        }
+    };
     let diffuse = diffuse_of(&radiance);
     let template = target.read(&format!("textures/{native}.dds"))?;
     let template_diffuse = target.read(&format!("textures/{native}_diffuse.dds"))?;
@@ -3483,10 +3577,16 @@ fn add_probe_cube(
         pack.config(&format!("textures/{texture}{suffix}.options"), &options)?;
     }
     let mean = crate::probe_bake::mean(&diffuse, 0);
-    notes.push(format!(
-        "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
-        cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
-    ));
+    notes.push(match traced {
+        Some(_) => format!(
+            "probe {}: cubemaps path-traced from the bake (over its diffuse_multiplier); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+            cube.object, mean[0], mean[1], mean[2]
+        ),
+        None => format!(
+            "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+            cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
+        ),
+    });
     Ok(())
 }
 
