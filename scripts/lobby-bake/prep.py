@@ -24,6 +24,15 @@ stand in for a bounce); `views` ({name: [eye, target]}) the views rendered;
 a baked face outside it gets the fewest texels (bake.py --outside); `tint`
 ([r, g, b]) multiplies every light's colour, the sun's and the sky's (warmer
 light). Without a spec: the stk2 rule for slice "main".
+
+For a spec without `slice` (a pack drawn from its bake by `vostok-port
+draw-lobby-bake`), scene.json also records what that step checks: the
+project's sha256 and each baked surface's placement index, model, surface and
+file sha256. `bake_lights` (lights as the project's: name, position, color,
+intensity, range, attenuation_power) are traced but put in no project (a light
+inside a stove for its glow: the engine would light the stove's outside from
+it); the probes traced are those inside `box`, each at its own place or at
+`probe_at`'s ({name: point}); the others are left as the pack has them.
 """
 import hashlib
 import json
@@ -158,6 +167,12 @@ def to_sun(properties):
     return [-math.cos(az) * math.cos(el), math.sin(el), -math.sin(az) * math.cos(el)]
 
 
+def inside(spec, p):
+    """Whether a point is in the spec's `box` (everywhere without one)."""
+    box = spec.get("box")
+    return not box or all(min(box[0][k], box[1][k]) <= p[k] <= max(box[0][k], box[1][k]) for k in range(3))
+
+
 def main(pack, db, out, spec_file=None):
     os.makedirs(out, exist_ok=True)
     spec = json.load(open(spec_file)).get("bake") if spec_file else {"slice": "main"}
@@ -166,12 +181,16 @@ def main(pack, db, out, spec_file=None):
     src = Source(pack, db, out)
     folder = os.path.join(pack, "files/projects/lobby_scene")
     project_dir = next(d for d in sorted(os.listdir(folder)) if d != "vegetation")
-    project = leaves(["dump-config", "--file", os.path.join(folder, project_dir, "client_project")])
+    project_file = os.path.join(folder, project_dir, "client_project")
+    project = leaves(["dump-config", "--file", project_file])
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
     for field in ("views", "skip_lights", "eye", "box", "tint"):
         if spec.get(field):
             scene[field] = spec[field]
+    if "slice" not in spec:
+        scene["project"] = {"path": os.path.relpath(project_file, os.path.join(pack, "files")),
+                            "sha256": hashlib.sha256(open(project_file, "rb").read()).hexdigest()}
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])
     for k, v in enumerate(indexed(project, "render_visuals")):
         name = v.get("visual_name") or v["lib_name"]
@@ -193,7 +212,8 @@ def main(pack, db, out, spec_file=None):
             for s in surfaces:  # each placement's surfaces its own, on pages of their own
                 scene["surfaces"].append(dict(
                     s, name=f"{k:03d}_{name}/{s['name']}", place=place,
-                    sha256=hashlib.sha256((s["sha256"] + json.dumps(place)).encode()).hexdigest()))
+                    sha256=hashlib.sha256((s["sha256"] + json.dumps(place)).encode()).hexdigest(),
+                    source={"index": k, "visual": name, "surface": s["name"], "sha256": s["sha256"]}))
     for o in indexed(project, "client_objects"):
         kind = o.get("game_object_type")
         name = o.get("full_name") or o.get("name")
@@ -204,15 +224,22 @@ def main(pack, db, out, spec_file=None):
             scene["lights"].append(dict(light, name=name))
         elif kind == "decal" and o.get("projection_on_static_geometry", True):
             scene["decals"].append(decal(src, o))
-        elif kind == "environment_probe":
+        elif kind == "environment_probe" and "slice" in spec:
             # by its object name: build-stk2-lobby-026's probe_cubes name it so
             scene["probes"].append({"name": o["name"], "position": o["position"]})
+        elif kind == "environment_probe" and inside(spec, o["position"]):
+            # by its full name, which draw-lobby-bake finds it by
+            at = spec.get("probe_at", {}).get(name, o["position"])
+            scene["probes"].append({"name": name, "position": o["position"], "trace_at": at})
         elif kind == "environment" and "outdoor" in spec:
             properties = {f[len("properties."):]: value for f, value in o.items() if f.startswith("properties.")}
             outdoor = spec["outdoor"]
             scene["sun"] = {"to_sun": to_sun(properties), "color": properties["sun_color"][:3],
                             "intensity": properties["sun_intensity"] * outdoor.get("sun_scale", 1.0)}
             scene["sky"] = outdoor.get("sky", [0.0, 0.0, 0.0])
+    for l in spec.get("bake_lights", []):
+        scene["lights"].append(dict({"light_type": 0, "enabled": True, "is_cast_shadow": True},
+                                    **dict(l, name="bake_lights/" + l["name"])))
     with open(os.path.join(out, "scene.json"), "w") as f:
         json.dump(scene, f, indent=1)
     through = sorted({s["material"]["name"] for s in scene["surfaces"] if s["material"]["transparent"]})

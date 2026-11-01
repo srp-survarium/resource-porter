@@ -286,6 +286,37 @@ enum Command {
         #[arg(long)]
         lit: bool,
     },
+    /// A built lobby pack (any builder's, or a folder holding a stock
+    /// project) drawn from its path-traced bake (scripts/lobby-bake/bake-pack.sh):
+    /// the pages on one model, the baked placements, decals and inner ambient
+    /// boxes out of the project, the probes traced, unnamed files left out.
+    DrawLobbyBake {
+        /// The built pack: files/ (and pack.json).
+        #[arg(long)]
+        pack: PathBuf,
+        /// bake-pack.sh's folder (scene.json, baked.json, pages, baked, probes).
+        #[arg(long)]
+        bake_dir: PathBuf,
+        /// The stock 0.26g resources.db (templates, the files the pack has not).
+        #[arg(long)]
+        target_db: PathBuf,
+        /// An earlier `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "base-patch")]
+        base_patches: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+        /// Scratch space for the page conversions.
+        #[arg(long)]
+        work: PathBuf,
+        /// The new pack's id and version.
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        version: String,
+        /// Where the made files go: <prefix>/baked_v<version>/...
+        #[arg(long)]
+        prefix: String,
+    },
     /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
     BuildSurvarium021Maps {
         #[arg(long)]
@@ -1240,6 +1271,34 @@ fn main() -> Result<()> {
                 println!("spot {name} {:.3} {:.3} {:.3}", p[0], p[1], p[2]);
             }
             println!("pack.json sha256={}", report.manifest_sha256);
+        }
+        Command::DrawLobbyBake {
+            pack,
+            bake_dir,
+            target_db,
+            base_patches,
+            output,
+            work,
+            id,
+            version,
+            prefix,
+        } => {
+            use vostok_resource_porter::stk2_lobby_026::draw_pack;
+            let report = draw_pack::draw(&draw_pack::DrawOptions {
+                pack: &pack,
+                bake_dir: &bake_dir,
+                target_db: &target_db,
+                base_patches: &base_patches,
+                output: &output,
+                work: &work,
+                id: &id,
+                version: &version,
+                prefix: &prefix,
+            })?;
+            for note in &report.notes {
+                println!("note: {note}");
+            }
+            println!("files={}", report.files);
         }
         Command::BuildStk2Content {
             manifest,

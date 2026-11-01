@@ -54,7 +54,7 @@ ap.add_argument("--exposure", type=float, default=0.0)
 ap.add_argument("--fov", type=float, default=70.0, help="horizontal field of view, degrees")
 ap.add_argument("--only-render", action="store_true", help="the traced views only, no bake")
 ap.add_argument("--probe-samples", type=int, default=512)
-ap.add_argument("--probe-at", default="0,1.2,0", help="where the probes are traced (lobby frame): the character's chest; "
+ap.add_argument("--probe-at", default="0,1.2,0", help="where a probe without its own trace_at (prep.py) is traced (lobby frame): the character's chest; "
                 "a probe object's own place can be inside a prop (the bunker's room probe is in the gas-mask crates)")
 ap.add_argument("--only-probes", action="store_true", help="the probes only (no renders, no bake)")
 ap.add_argument("--only-pack", action="store_true", help="lay out the pages and stop (no renders, no bake)")
@@ -92,7 +92,7 @@ def density_at(c):
 
 CAPACITY = args.page * args.page * 0.5
 skip_m = [s for s in args.skip_materials.split(",") if s]
-chunks = []  # (object, density, area, alpha)
+chunks = []  # (object, density, area, alpha, two_sided)
 kept = []    # surfaces left as they are, still in the scene
 for s in scene_json["surfaces"]:
     pos, nrm, uv, tris, weights = read_placed(s)
@@ -126,10 +126,10 @@ for s in scene_json["surfaces"]:
                         [nrm[i] for i in used], [uv[i] for i in used],
                         [tuple(remap[i] for i in t) for t in ts], mat,
                         weights=[weights[i] for i in used] if weights is not None else None)
-        chunks.append((ob, density, area, s["material"]["alpha_test"]))
+        chunks.append((ob, density, area, s["material"]["alpha_test"], s["material"]["two_sided"]))
 log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
-    ", ".join(f"{sum(a for _, d, a, _ in chunks if d == v):.0f} m2 at {v:g} texels/m"
-              for v in sorted({d for _, d, _, _ in chunks}, reverse=True)))
+    ", ".join(f"{sum(c[2] for c in chunks if c[1] == v):.0f} m2 at {v:g} texels/m"
+              for v in sorted({c[1] for c in chunks}, reverse=True)))
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_decals(scene_json)  # into the pages: the baked pack leaves the decals out
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
@@ -166,15 +166,17 @@ if scene_json.get("probes") and not args.only_pack:
     sc.collection.objects.link(co)
     sc.camera = co
     for probe in scene_json["probes"]:
+        at = probe.get("trace_at") or [float(v) for v in args.probe_at.split(",")]
+        stem = probe["name"].replace("/", "__")
         out = np.zeros((6, PROBE_SIZE, PROBE_SIZE, 3), dtype=np.float32)
         for f, (fwd, right, up) in enumerate(FACES):
             x, y, z = (mathutils.Vector(to_b(v)) for v in (right, up, fwd))
             mirrored = mathutils.Matrix((x, y, -z)).transposed().determinant() < 0
             if mirrored:
                 x = -x
-            co.matrix_world = mathutils.Matrix.Translation(to_b([float(v) for v in args.probe_at.split(",")])) @ \
+            co.matrix_world = mathutils.Matrix.Translation(to_b(at)) @ \
                 mathutils.Matrix((x, y, -z)).transposed().to_4x4()
-            path = os.path.join(D, "probes", f"{probe['name']}_{f}.exr")
+            path = os.path.join(D, "probes", f"{stem}_{f}.exr")
             sc.render.filepath = path
             bpy.ops.render.render(write_still=True)
             im = bpy.data.images.load(path)
@@ -183,10 +185,10 @@ if scene_json.get("probes") and not args.only_pack:
             face = px.reshape(PROBE_SIZE, PROBE_SIZE, 4)[::-1, :, :3]  # Blender's rows run up
             out[f] = face[:, ::-1] if mirrored else face
             bpy.data.images.remove(im)
-        name = f"probes/{probe['name']}.f32"
+        name = f"probes/{stem}.f32"
         out.astype("<f4").tofile(os.path.join(D, name))
         probes_made.append({"object": probe["name"], "file": name, "size": PROBE_SIZE})
-        log(f"probe {probe['name']}: traced, mean radiance {out.mean(axis=(0, 1, 2))}")
+        log(f"probe {probe['name']}: traced at {at}, mean radiance {out.mean(axis=(0, 1, 2))}")
     for o in lights:
         o.visible_camera = True
     sc.render.resolution_x, sc.render.resolution_y = size_x, size_y
@@ -197,13 +199,15 @@ if args.only_probes:
 
 # --- pages ---------------------------------------------------------------------
 pages = []
-for ob, density, area, alpha in sorted(chunks, key=lambda c: -c[2] * c[1] * c[1]):
+# a page's material is alpha-tested or not, two-sided or not: its chunks' own
+for ob, density, area, alpha, two_sided in sorted(chunks, key=lambda c: -c[2] * c[1] * c[1]):
     need = area * density * density
     for page in pages:
-        if page["alpha"] == alpha and page["density"] == density and page["need"] + need <= CAPACITY:
+        if (page["alpha"], page["two_sided"], page["density"]) == (alpha, two_sided, density) \
+                and page["need"] + need <= CAPACITY:
             break
     else:
-        page = {"objects": [], "need": 0.0, "alpha": alpha, "density": density}
+        page = {"objects": [], "need": 0.0, "alpha": alpha, "two_sided": two_sided, "density": density}
         pages.append(page)
     page["objects"].append(ob)
     page["need"] += need
@@ -228,7 +232,7 @@ def select(objects):
 # out on their atlases, its architecture tiles in long strips the chunks cut):
 # smart project cut the 14 000-face valves and the debris into thousands of
 # islands, each with its margin, and filled pages to 1 %.
-for ob, _, _, _ in chunks:
+for ob, *_ in chunks:
     ob.data.uv_layers.active = ob.data.uv_layers.new(name="bake", do_init=True)
 for k, page in enumerate(pages):
     margin = 4.0 / page["size"]
@@ -411,6 +415,7 @@ for k, page in enumerate(pages):
                                   "vertices": len(order), "triangles": len(ts)})
         piece += 1
     baked["pages"].append({"name": f"page_{k:02d}", "png": f"pages/page_{k:02d}.png", "alpha": page["alpha"],
+                           "two_sided": page["two_sided"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],
                            "chunks": page["chunks"]})
 baked["kept"] = kept

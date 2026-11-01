@@ -48,6 +48,8 @@ use crate::stk2_content::{
     validate_static_geometry, validate_stk2_collision,
 };
 
+pub mod draw_pack;
+
 /// Largest static surface 0.26g loads (its loader copies the vertices
 /// through a 20-byte-per-vertex `_alloca` on a 1 MiB stack; native surfaces
 /// stop at 35,003 vertices).
@@ -243,6 +245,10 @@ struct BakedPageJson {
     name: String,
     png: PathBuf,
     alpha: bool,
+    /// Its surfaces' materials are two-sided (draw-lobby-bake draws it so;
+    /// a slice's pages take their template's).
+    #[serde(default)]
+    two_sided: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3537,7 +3543,7 @@ fn add_probe_cube(
     pack: &mut PackWriter,
     notes: &mut Vec<String>,
 ) -> Result<()> {
-    use crate::probe_bake::{Cube, cube_header, diffuse_of, direction, encode_026};
+    use crate::probe_bake::{Cube, direction};
     for c in [cube.up, cube.side, cube.down] {
         ensure!(
             c.iter().all(|v| (0.0..=1.0).contains(v)),
@@ -3552,37 +3558,9 @@ fn add_probe_cube(
         .iter_mut()
         .find(|o| matches!(o.named("name"), Some(ConfigValue::String(n)) if *n == cube.object))
         .with_context(|| format!("probe cube: no client object {:?}", cube.object))?;
-    ensure!(
-        matches!(object.named("lib_name"), Some(ConfigValue::String(l)) if l == "environment_probe"),
-        "probe cube: {:?} is not an environment_probe",
-        cube.object
-    );
-    let Some(ConfigValue::String(native)) = object.named("texture").cloned() else {
-        bail!("probe cube: {:?} has no texture", cube.object);
-    };
     let texture = format!("environment_probes/{prefix}/{}", cube.object);
-    object.set_path("texture", ConfigValue::String(texture.clone()))?;
-    if let Some(ConfigValue::Named(layers)) = object.named_mut("textures") {
-        for layer in layers {
-            layer.value = ConfigValue::String(texture.clone());
-        }
-    }
-    let radiance = match traced {
-        // the engine multiplies the probe by its diffuse_multiplier: the
-        // traced radiance divided by it, so the character gets the bake's light
-        Some(traced) => {
-            let multiplier = match object.named("diffuse_multiplier") {
-                Some(ConfigValue::Float(v)) => *v,
-                Some(ConfigValue::Integer(v)) => *v as f32,
-                _ => bail!("probe cube: {:?} has no diffuse_multiplier", cube.object),
-            };
-            ensure!(multiplier > 0.0, "probe cube: {:?}'s diffuse_multiplier is not positive", cube.object);
-            let mut radiance = traced.clone();
-            for texel in radiance.faces.iter_mut().flatten().flatten() {
-                *texel = texel.map(|v| v / multiplier);
-            }
-            radiance
-        }
+    let mean = match traced {
+        Some(traced) => set_probe_traced(object, traced, &texture, &mut |path| target.read(path), pack)?,
         None => {
             let faces = (0..6)
                 .map(|f| {
@@ -3594,25 +3572,10 @@ fn add_probe_cube(
                         .collect()
                 })
                 .collect();
-            Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces }
+            let radiance = Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces };
+            set_probe_cubemaps(object, &radiance, &texture, &mut |path| target.read(path), pack)?
         }
     };
-    let diffuse = diffuse_of(&radiance);
-    let template = target.read(&format!("textures/{native}.dds"))?;
-    let template_diffuse = target.read(&format!("textures/{native}_diffuse.dds"))?;
-    pack.write(
-        &format!("textures/{texture}.dds"),
-        &native_cube_dds(encode_026(&radiance, &cube_header(&template, radiance.size, radiance.mips)?)?),
-    )?;
-    pack.write(
-        &format!("textures/{texture}_diffuse.dds"),
-        &native_cube_dds(encode_026(&diffuse, &cube_header(&template_diffuse, diffuse.size, diffuse.mips)?)?),
-    )?;
-    for suffix in ["", "_diffuse"] {
-        let options = parse(target, &format!("textures/{native}{suffix}.options"))?;
-        pack.config(&format!("textures/{texture}{suffix}.options"), &options)?;
-    }
-    let mean = crate::probe_bake::mean(&diffuse, 0);
     notes.push(match traced {
         Some(_) => format!(
             "probe {}: cubemaps path-traced from the bake (over its diffuse_multiplier); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
@@ -3624,6 +3587,73 @@ fn add_probe_cube(
         ),
     });
     Ok(())
+}
+
+/// [`set_probe_cubemaps`] with a radiance path-traced from a bake: the
+/// engine multiplies the probe by its diffuse_multiplier, so the radiance is
+/// divided by it and the character gets the bake's light.
+fn set_probe_traced(
+    object: &mut ConfigValue,
+    traced: &crate::probe_bake::Cube,
+    texture: &str,
+    read: &mut dyn FnMut(&str) -> Result<Vec<u8>>,
+    pack: &mut PackWriter,
+) -> Result<[f32; 3]> {
+    let multiplier = match object.named("diffuse_multiplier") {
+        Some(ConfigValue::Float(v)) => *v,
+        Some(ConfigValue::Integer(v)) => *v as f32,
+        _ => bail!("probe {texture}: the object has no diffuse_multiplier"),
+    };
+    ensure!(multiplier > 0.0, "probe {texture}: the object's diffuse_multiplier is not positive");
+    let mut radiance = traced.clone();
+    for texel in radiance.faces.iter_mut().flatten().flatten() {
+        *texel = texel.map(|v| v / multiplier);
+    }
+    set_probe_cubemaps(object, &radiance, texture, read, pack)
+}
+
+/// An environment_probe object given `radiance`: its cubemap and diffuse
+/// cubemap written as `textures/<texture>` and `<texture>_diffuse`, headed
+/// and optioned as the object's own cubemaps (`read` gives their files), and
+/// the object pointed at them. Returns the diffuse's mean (irradiance over pi).
+fn set_probe_cubemaps(
+    object: &mut ConfigValue,
+    radiance: &crate::probe_bake::Cube,
+    texture: &str,
+    read: &mut dyn FnMut(&str) -> Result<Vec<u8>>,
+    pack: &mut PackWriter,
+) -> Result<[f32; 3]> {
+    use crate::probe_bake::{cube_header, diffuse_of, encode_026};
+    ensure!(
+        matches!(object.named("lib_name"), Some(ConfigValue::String(l)) if l == "environment_probe"),
+        "probe {texture}: not an environment_probe"
+    );
+    let Some(ConfigValue::String(native)) = object.named("texture").cloned() else {
+        bail!("probe {texture}: the object has no texture");
+    };
+    object.set_path("texture", ConfigValue::String(texture.to_owned()))?;
+    if let Some(ConfigValue::Named(layers)) = object.named_mut("textures") {
+        for layer in layers {
+            layer.value = ConfigValue::String(texture.to_owned());
+        }
+    }
+    let diffuse = diffuse_of(radiance);
+    let template = read(&format!("textures/{native}.dds"))?;
+    let template_diffuse = read(&format!("textures/{native}_diffuse.dds"))?;
+    pack.write(
+        &format!("textures/{texture}.dds"),
+        &native_cube_dds(encode_026(radiance, &cube_header(&template, radiance.size, radiance.mips)?)?),
+    )?;
+    pack.write(
+        &format!("textures/{texture}_diffuse.dds"),
+        &native_cube_dds(encode_026(&diffuse, &cube_header(&template_diffuse, diffuse.size, diffuse.mips)?)?),
+    )?;
+    for suffix in ["", "_diffuse"] {
+        let options = BinaryConfig::parse(&read(&format!("textures/{native}{suffix}.options"))?)
+            .with_context(|| format!("textures/{native}{suffix}.options"))?;
+        pack.config(&format!("textures/{texture}{suffix}.options"), &options)?;
+    }
+    Ok(crate::probe_bake::mean(&diffuse, 0))
 }
 
 /// A number in the type the object already has there: an integer where
