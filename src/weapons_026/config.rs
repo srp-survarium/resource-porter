@@ -211,7 +211,8 @@ pub fn set_typed(cfg: &mut V, path: &str, value: &serde_json::Value) -> Result<(
 
 /// The weapon card's properties, as the native rifles' (prop id, value):
 /// damage, pierce and stopping power x 100, aim time, dispersion, distance,
-/// rate of fire, weight. A bolt action's card shows another rate than its
+/// rate of fire, magazine (134, as the live cards have it), weight. A bolt
+/// action's card shows another rate than its
 /// `rounds_per_minute` (the Remington 700's 32 for 120): such a gun sets
 /// `ui_desc.props_list.6.prop_value` itself.
 pub fn card_props(cfg: &V) -> Result<Vec<(i32, String)>> {
@@ -235,6 +236,10 @@ pub fn card_props(cfg: &V) -> Result<Vec<(i32, String)>> {
         (2, fmt(num("base_dispersion")?)),
         (24, format!("{}", num("min_damage_distance")? as i32)),
         (4, format!("{}", num("rounds_per_minute")? as i32)),
+        // The magazine (134): the live guns have it after the rate of fire
+        // from weapon-balance-1, a record of patch 21 that a new pack's
+        // configs never pass through, so the port writes it itself.
+        (134, format!("{}", num("magazine_capacity")? as i32)),
         // The native cards round the weight to 0.1 kg (the SKS's 3.75: 3.8).
         (15, fmt((num("weight")? * 10.0).round() / 10.0)),
     ])

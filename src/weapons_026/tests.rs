@@ -220,6 +220,7 @@ fn template() -> V {
                 ("min_damage_distance", V::Integer(50)),
                 ("rounds_per_minute", V::Integer(650)),
                 ("weight", V::Float(3.4)),
+                ("magazine_capacity", V::Integer(30)),
                 ("stamina_damage", V::Integer(20)),
                 ("pain_health_modifier", V::Integer(0)),
                 ("degrade_per_match", V::Float(0.01)),
@@ -266,6 +267,7 @@ fn donor() -> V {
                 ("min_damage_distance", V::Integer(65)),
                 ("rounds_per_minute", V::Integer(700)),
                 ("weight", V::Float(2.75)),
+                ("magazine_capacity", V::Integer(20)),
                 ("stamina_damage", V::Float(0.3)),
                 ("health_modifier", V::Integer(4)),
                 ("degrade_per_match", V::Float(0.03)),
@@ -369,7 +371,10 @@ fn a_gun_takes_the_donors_states_on_026gs_types_and_keys() {
         .collect();
     assert_eq!(card[0], (1, "50".into()));
     assert_eq!(card[1], (3, "45".into()));
-    assert_eq!(card[7], (15, "2.7".into()));
+    // The magazine row the live cards have (134, after the rate of fire).
+    assert_eq!(card[6], (4, "700".into()));
+    assert_eq!(card[7], (134, "20".into()));
+    assert_eq!(card[8], (15, "2.7".into()));
 }
 
 #[test]
@@ -530,7 +535,8 @@ fn a_render_shows_the_gun_and_its_module() {
         [0.0, 0.02, 0.0],
     ]]))
     .unwrap();
-    let (w, h, rgba) = render_side(&[(&gun.positions, &gun.triangles, [200, 200, 200])], 200).unwrap();
+    let (w, h, rgba) =
+        render_side(&[(&gun.positions, &gun.triangles, [200, 200, 200])], 200).unwrap();
     assert_eq!(w, 200);
     let lit = rgba.chunks(4).filter(|p| p[3] == 255).count();
     assert!(lit > w * h / 2, "{lit} of {}", w * h);
@@ -556,9 +562,14 @@ fn one_module_of_each_kind_gets_its_item_config() {
     use super::modules::module_config;
     // A scope: its views.
     let mut scope = module("scope", "srp_scope_x", "weapons/modules/scopes/x");
-    scope.set.insert("data.fov_factor".into(), serde_json::json!(0.5));
+    scope
+        .set
+        .insert("data.fov_factor".into(), serde_json::json!(0.5));
     let cfg = module_config(&scope, &scope_template()).unwrap();
-    assert_eq!(string_of(get(&cfg, "data.idle_model")), Some("weapons/attach/srp_scope_x"));
+    assert_eq!(
+        string_of(get(&cfg, "data.idle_model")),
+        Some("weapons/attach/srp_scope_x")
+    );
     assert_eq!(get(&cfg, "data.fov_factor"), Some(&V::Float(0.5)));
     // A muzzle brake: the kit's keys, at muzzle_point.
     let brake = module(
@@ -567,19 +578,27 @@ fn one_module_of_each_kind_gets_its_item_config() {
         "weapons/modules/muzzle_brakes/x_muzzlebrake",
     );
     let cfg = module_config(&brake, &scope_template()).unwrap();
-    assert_eq!(string_of(get(&cfg, "data.srp_muzzle_model")), Some("weapons/attach/srp_brake_x"));
-    assert_eq!(string_of(get(&cfg, "data.srp_locator")), Some("muzzle_point"));
+    assert_eq!(
+        string_of(get(&cfg, "data.srp_muzzle_model")),
+        Some("weapons/attach/srp_brake_x")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "data.srp_locator")),
+        Some("muzzle_point")
+    );
     assert_eq!(string_of(get(&cfg, "parameters.type")), Some("srp_muzl"));
     // A grip.
     let grip = module("grip", "srp_grip_x", "weapons/modules/foregrips/x");
     let cfg = module_config(&grip, &scope_template()).unwrap();
-    assert_eq!(string_of(get(&cfg, "data.srp_grip_model")), Some("weapons/attach/srp_grip_x"));
-    assert_eq!(string_of(get(&cfg, "data.srp_locator")), Some("picatinny_grip_point"));
-    // No suppressors.
-    let can = module(
-        "muzzle_brake",
-        "srp_can",
-        "weapons/modules/silencers/pbs_1",
+    assert_eq!(
+        string_of(get(&cfg, "data.srp_grip_model")),
+        Some("weapons/attach/srp_grip_x")
     );
+    assert_eq!(
+        string_of(get(&cfg, "data.srp_locator")),
+        Some("picatinny_grip_point")
+    );
+    // No suppressors.
+    let can = module("muzzle_brake", "srp_can", "weapons/modules/silencers/pbs_1");
     assert!(module_config(&can, &scope_template()).is_err());
 }

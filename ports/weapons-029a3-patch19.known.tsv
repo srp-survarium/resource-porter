@@ -19,7 +19,7 @@ gameplay/items/weapons/wpn_izh_27_lancaster_premium_2.options	states.fire.user_a
 gameplay/items/weapons/wpn_mp7_silencer_special.options	user_animations_in_place.death*	either	the template's death poses (the donor's config has none, the MP7's have them); patch 19 left the key out (the game then plays the default poses)
 gameplay/items/weapons/wpn_rem_700_premium.options	ui_desc.props_list[6].prop_value	theirs	a bolt action's card rate is the native card's (32), not its rounds_per_minute (120); a port of a bolt action sets ui_desc.props_list.6.prop_value
 gameplay/items/weapons/wpn_vssk_camo.options	ui_desc.props_list[6].prop_value	theirs	a bolt action's card rate is the native card's (26), not its rounds_per_minute (250); a port of a bolt action sets ui_desc.props_list.6.prop_value
-gameplay/items/weapons/wpn_vssk_camo.options	ui_desc.props_list[7].prop_value	either	the weight printed 7 (the tool) or 7.0 (the VSSK's own card)
+gameplay/items/weapons/wpn_vssk_camo.options	ui_desc.props_list[8].prop_value	either	the weight printed 7 (the tool) or 7.0 (the VSSK's own card)
 material_instances/weapons/*.material	material.g_stage.effect.use_tspecular_power.value	either	patch 19's art retune: a specular power map on (the Vityaz's); the tool keeps the donor's material as its build drew it
 material_instances/weapons/*.material	material.g_stage.effect.texture_specular_power.value	either	patch 19's art retune: the Vityaz's specular power map for the donor's flat one
 material_instances/weapons/*.material	material.g_stage.effect.use_detail_nmap.value	either	patch 19's art retune: the shared detail normal map on
@@ -31,3 +31,5 @@ models/weapons/vsk_94/vsk_94_camo.skinned_model/render/*/converted_model	-	eithe
 models/weapons/sks_camo/*.skinned_model/render/export_properties	*	either	patch 19 rounded the SKS skin's bounding box and locators to 1 mm (written back through a text form); the same places within 0.5 mm
 models/weapons/saiga_12s/saiga_12s_camo.skinned_model/settings	material_settings.saiga_12s_blocker_sg.material_name	theirs	patch 19 fixed the donor's empty material of the Saiga skin's blocker (a surface drawn with no material): the comparison manifest should carry it as a file_values fix
 gameplay/db_static_dictionaries	items_dict[id 22*].is_premium	theirs	the comparison manifest marks premium items (premium): generator's job
+gameplay/items/weapons/wpn_*.options	ui_desc.props_list[7].*	ours	the card's magazine row (prop 134 = parameters/magazine_capacity, after the rate of fire), which the live guns carry since weapon-balance-1 (a record of patch 21, after patch 19): a new pack writes it itself; patch 19's files predate it, so its weight row sits one place earlier
+gameplay/items/weapons/wpn_*.options	ui_desc.props_list[8].*	ours	the weight row, one place later for the magazine row (prop 134) before it

@@ -103,7 +103,10 @@ pub fn kill_feed_png(bytes: &[u8]) -> Result<Vec<u8>> {
     let mut reader = decoder.read_info()?;
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf)?;
-    ensure!(info.bit_depth == png::BitDepth::Eight, "kill log image is not 8-bit");
+    ensure!(
+        info.bit_depth == png::BitDepth::Eight,
+        "kill log image is not 8-bit"
+    );
     let (w, h) = (info.width as usize, info.height as usize);
     ensure!(w <= 256 && h <= 64, "kill log image is {w}x{h}");
     let rgba: Vec<u8> = match info.color_type {
