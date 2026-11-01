@@ -228,6 +228,7 @@ fn template() -> V {
                 ("repair_cost_ratio", V::Float(0.1)),
                 ("available_modifications_mask", s("111")),
                 ("min_damage_amount", V::Float(0.6)),
+                ("aim_offset", V::Float(0.028)),
             ]),
         ),
         (
@@ -354,6 +355,8 @@ fn a_gun_takes_the_donors_states_on_026gs_types_and_keys() {
         Some(&V::Float(0.01))
     );
     assert!(get(&cfg, "parameters.faction_data").is_none());
+    // The template's aim offset fits its model, not the donor's.
+    assert!(get(&cfg, "parameters.aim_offset").is_none());
     assert!(get(&cfg, "compatible_ammo").is_none());
     assert_eq!(get(&cfg, "parameters.bullet_damage"), Some(&V::Float(0.5)));
     // Icons and the card from the final values.
@@ -397,6 +400,7 @@ fn a_manifest_refuses_twice_used_ids_and_cells() {
         weapons: vec![weapon()],
         modules: vec![],
         external_ammo: vec![],
+        ammo_items: vec![],
     };
     port.check().unwrap();
     let mut second = weapon();
@@ -601,4 +605,85 @@ fn one_module_of_each_kind_gets_its_item_config() {
     // No suppressors.
     let can = module("muzzle_brake", "srp_can", "weapons/modules/silencers/pbs_1");
     assert!(module_config(&can, &scope_template()).is_err());
+}
+
+// --- Resources a config names ------------------------------------------
+
+#[test]
+fn a_config_naming_a_missing_resource_is_refused() {
+    use super::resources::{check_resources, resource_files};
+    let cfg = t(vec![
+        (
+            "object",
+            t(vec![
+                ("model", s("weapons/g/g")),
+                ("skeleton", s("weapons/g/g")),
+            ]),
+        ),
+        (
+            "particles",
+            t(vec![
+                ("shoot", s("fx/weapons/m4a1")),
+                ("bullet_shells", s("shells/5_45x040")),
+            ]),
+        ),
+        (
+            "states",
+            t(vec![(
+                "fire",
+                t(vec![
+                    (
+                        "animations",
+                        list(vec![s("resources/animations/single/weapons/g/shoot")]),
+                    ),
+                    (
+                        "sounds",
+                        t(vec![(
+                            "first_view",
+                            list(vec![list(vec![V::Integer(257), s("weapons/g")])]),
+                        )]),
+                    ),
+                ]),
+            )]),
+        ),
+        (
+            "user_animations",
+            s("gameplay/items/weapons/common/rifles.user_animations"),
+        ),
+        (
+            "ui_desc",
+            t(vec![(
+                "text_descriptions",
+                t(vec![("name", s("st_g_name"))]),
+            )]),
+        ),
+    ]);
+    let files: Vec<String> = resource_files(&cfg)
+        .unwrap()
+        .into_iter()
+        .map(|(_, f)| f)
+        .collect();
+    assert_eq!(
+        files,
+        [
+            "models/weapons/g/g.skinned_model/settings",
+            "animations/skeletons/weapons/g/g.skeleton",
+            "particles/fx/weapons/m4a1.particle",
+            "animations/single/weapons/g/shoot.b-spline",
+            "sounds/composite/weapons/g.composite_sound",
+            "gameplay/items/weapons/common/rifles.user_animations",
+        ]
+    );
+    let all_but_fx = |f: &str| f != "particles/fx/weapons/m4a1.particle";
+    let error = check_resources("wpn_g", &cfg, &all_but_fx)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("particles.shoot: particles/fx/weapons/m4a1.particle"),
+        "{error}"
+    );
+    check_resources("wpn_g", &cfg, &|_| true).unwrap();
+    // A path under a key of no known kind is refused, not let through.
+    let odd = t(vec![("data", t(vec![("strange", s("some/where"))]))]);
+    assert!(resource_files(&odd).is_err());
 }
