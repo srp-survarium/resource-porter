@@ -437,7 +437,7 @@ pub fn conform_material(donor: &V, template: &V) -> Result<V> {
 
 /// The port's rows in `items_dict` (each its template's row with the gun's
 /// config, name, id and price) and one `items_compatibility` row a gun and
-/// round.
+/// round, `compatibility_<gun>_<round>` (srp and the game take any name).
 fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
     let V::Indexed(items) = dict.named_mut("items_dict").context("items_dict")? else {
         bail!("items_dict is not indexed");
@@ -480,12 +480,8 @@ fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
     else {
         bail!("items_compatibility is not a table");
     };
-    let mut next = compat
-        .iter()
-        .filter_map(|c| c.name.strip_prefix("compatibility_")?.parse::<u32>().ok())
-        .max()
-        .context("no compatibility rows")?
-        + 1;
+    // Each row named by its pair, not the next free number: packs made
+    // apart (each weapon batch its own) never take the same name.
     let mut added = vec![];
     for w in &port.weapons {
         for ammo in &w.ammo {
@@ -494,8 +490,8 @@ fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
                 "{}: no ammunition item {ammo}",
                 w.name
             );
-            let name = format!("compatibility_{next}");
-            next += 1;
+            let name = format!("compatibility_{}_{ammo}", w.dict_id);
+            ensure!(!compat.iter().any(|c| c.name == name), "{name} is taken");
             compat.push(field(
                 &name,
                 V::Named(vec![

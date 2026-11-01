@@ -22,18 +22,61 @@ pub fn cell_png(bytes: &[u8]) -> Result<Vec<u8>> {
         other => bail!("icon colour type {other:?} after expansion"),
     };
     let (w, h) = (info.width as usize, info.height as usize);
-    ensure!(
-        w <= CELL_WIDTH && h <= CELL_HEIGHT,
-        "icon is {w}x{h}, larger than a cell"
+    // Straight RGBA, then the opaque rows' bounds.
+    let rgba: Vec<[u8; 4]> = (0..w * h)
+        .map(|i| {
+            let p = &buf[i * channels..(i + 1) * channels];
+            [p[0], p[1], p[2], if channels == 4 { p[3] } else { 255 }]
+        })
+        .collect();
+    let row_empty = |y: usize| (0..w).all(|x| rgba[y * w + x][3] == 0);
+    let top = (0..h).find(|&y| !row_empty(y)).unwrap_or(0);
+    let bottom = (0..h).rev().find(|&y| !row_empty(y)).map_or(h, |y| y + 1);
+    let art_h = bottom - top;
+    // 0.31a2's icons are a cell and its 8-pixel gap (171x91); art taller
+    // than a cell is scaled down to it (area average), its aspect kept.
+    let scale = (CELL_HEIGHT as f32 / art_h as f32)
+        .min(CELL_WIDTH as f32 / w as f32)
+        .min(1.0);
+    let (nw, nh) = (
+        ((w as f32 * scale).round() as usize).max(1),
+        ((art_h as f32 * scale).round() as usize).max(1),
     );
-    let (x0, y0) = ((CELL_WIDTH - w) / 2, (CELL_HEIGHT - h) / 2);
+    ensure!(nw <= CELL_WIDTH && nh <= CELL_HEIGHT, "icon is {w}x{h}");
+    let (x0, y0) = ((CELL_WIDTH - nw) / 2, (CELL_HEIGHT - nh) / 2);
     let mut cell = vec![0u8; CELL_WIDTH * CELL_HEIGHT * 4];
-    for y in 0..h {
-        for x in 0..w {
-            let p = &buf[(y * w + x) * channels..(y * w + x + 1) * channels];
+    for y in 0..nh {
+        for x in 0..nw {
+            // The source area of this pixel, premultiplied average.
+            let (sx0, sx1) = (x as f32 / scale, (x + 1) as f32 / scale);
+            let (sy0, sy1) = (y as f32 / scale, (y + 1) as f32 / scale);
+            let mut acc = [0f32; 4];
+            let mut area = 0f32;
+            let mut sy = sy0.floor() as usize;
+            while (sy as f32) < sy1 && sy < art_h {
+                let wy = (sy1.min(sy as f32 + 1.0) - sy0.max(sy as f32)).max(0.0);
+                let mut sx = sx0.floor() as usize;
+                while (sx as f32) < sx1 && sx < w {
+                    let wx = (sx1.min(sx as f32 + 1.0) - sx0.max(sx as f32)).max(0.0);
+                    let p = rgba[(top + sy) * w + sx];
+                    let a = f32::from(p[3]) / 255.0;
+                    let k = wx * wy;
+                    for c in 0..3 {
+                        acc[c] += f32::from(p[c]) * a * k;
+                    }
+                    acc[3] += a * k;
+                    area += k;
+                    sx += 1;
+                }
+                sy += 1;
+            }
             let at = ((y0 + y) * CELL_WIDTH + x0 + x) * 4;
-            cell[at..at + 3].copy_from_slice(&p[..3]);
-            cell[at + 3] = if channels == 4 { p[3] } else { 255 };
+            if area > 0.0 && acc[3] > 0.0 {
+                for c in 0..3 {
+                    cell[at + c] = (acc[c] / acc[3]).round().clamp(0.0, 255.0) as u8;
+                }
+                cell[at + 3] = (acc[3] / area * 255.0).round().clamp(0.0, 255.0) as u8;
+            }
         }
     }
     let mut out = vec![];
