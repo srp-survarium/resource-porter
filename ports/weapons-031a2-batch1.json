@@ -90,11 +90,9 @@
     "parameters.stamina_damage": 20,
     "recoil.max_left_recoil": 1.75,
     "recoil.max_right_recoil": 2.1,
-    "recoil.max_shake_recoil": 3.0,
     "recoil.max_top_recoil": 3.04,
     "recoil.min_left_recoil": 0.88,
     "recoil.min_right_recoil": 1.4,
-    "recoil.min_shake_recoil": 2.4,
     "recoil.min_top_recoil": 2.47,
     "recoil.recoil_power": 0.88,
     "particles.shoot": "fx/weapons/ak_74"
@@ -138,11 +136,9 @@
     "parameters.stamina_damage": 15,
     "recoil.max_left_recoil": 2.62,
     "recoil.max_right_recoil": 2.1,
-    "recoil.max_shake_recoil": 1.2,
     "recoil.max_top_recoil": 2.47,
     "recoil.min_left_recoil": 1.31,
     "recoil.min_right_recoil": 1.05,
-    "recoil.min_shake_recoil": 0.6,
     "recoil.min_top_recoil": 2.28,
     "recoil.recoil_power": 0.88,
     "particles.shoot": "fx/weapons/ak_74"
