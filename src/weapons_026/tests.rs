@@ -776,6 +776,20 @@ fn preview_item_is_the_guns_own_idle() {
         ))
     );
     assert_eq!(notes.len(), 1);
+    // The gun's own lobby pose stays.
+    cfg.set_path(
+        "user_animations_in_place.preview_item",
+        s("resources/animations/single/weapons/g/item/stand/3rd_view/preview"),
+    )
+    .unwrap();
+    super::config::own_preview_item(&mut cfg, &mut notes).unwrap();
+    assert_eq!(
+        get(&cfg, "user_animations_in_place.preview_item"),
+        Some(&s(
+            "resources/animations/single/weapons/g/item/stand/3rd_view/preview"
+        ))
+    );
+    assert_eq!(notes.len(), 1);
     // A config without the key (no lobby pose) is left alone.
     let mut bare = t(vec![]);
     super::config::own_preview_item(&mut bare, &mut notes).unwrap();
