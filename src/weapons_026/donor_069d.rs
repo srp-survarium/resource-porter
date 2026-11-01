@@ -264,8 +264,8 @@ pub fn without_069d_only(v: &V) -> V {
                 .map(|f| field(&f.name, without_069d_only(&f.value)))
                 .collect(),
         ),
-        V::Indexed(items) => V::Indexed(
-            items
+        V::Indexed(items) => {
+            let mut kept: Vec<V> = items
                 .iter()
                 .filter(|item| match item {
                     V::String(s) => !drops_clip(s),
@@ -276,8 +276,23 @@ pub fn without_069d_only(v: &V) -> V {
                     _ => true,
                 })
                 .map(without_069d_only)
-                .collect(),
-        ),
+                .collect();
+            // A fire state's sound list is two halves, unsuppressed then
+            // suppressed; a gun without a suppressed sound repeats the
+            // first (the KS-23M's eight). 0.26g has no suppressors: the
+            // first half, as the live Remington 870's four. Every entry of
+            // an item config counts against the 16 KB the client rebuilds
+            // it in (srp's MAX_CONFIG_ENTRIES).
+            let half = kept.len() / 2;
+            if half > 0
+                && kept.len().is_multiple_of(2)
+                && kept.iter().all(|i| matches!(i, V::Indexed(p) if matches!(p.as_slice(), [V::Integer(_), V::String(_)])))
+                && kept[..half] == kept[half..]
+            {
+                kept.truncate(half);
+            }
+            V::Indexed(kept)
+        }
         other => other.clone(),
     }
 }

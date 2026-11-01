@@ -233,7 +233,8 @@ fn a_rename_moves_a_file_and_every_name_of_it() {
     );
     assert_eq!(r.donor_path("sounds/single/weapons/akm_nx.high.ogg"), None);
     assert_eq!(
-        r.donor_path("sounds/composite/weapons/akm_n_069.composite_sound").as_deref(),
+        r.donor_path("sounds/composite/weapons/akm_n_069.composite_sound")
+            .as_deref(),
         Some("sounds/composite/weapons/akm_n.composite_sound")
     );
     // The donor has everything but the template's clip.
@@ -291,4 +292,26 @@ fn a_rename_moves_a_file_and_every_name_of_it() {
             value: s("weapons/akm_n_069/layers/tail")
         }])
     );
+}
+
+#[test]
+fn a_repeated_suppressed_half_of_a_sound_list_goes() {
+    use crate::binary_config::ConfigValue as V;
+    let pair = |k: i32, n: &str| V::Indexed(vec![V::Integer(k), V::String(n.into())]);
+    let twice = V::Indexed(vec![
+        pair(257, "weapons/rem_870"),
+        pair(258, "weapons/remington_870/remington_870_reload_in"),
+        pair(257, "weapons/rem_870"),
+        pair(258, "weapons/remington_870/remington_870_reload_in"),
+    ]);
+    assert_eq!(
+        super::without_069d_only(&twice),
+        V::Indexed(vec![
+            pair(257, "weapons/rem_870"),
+            pair(258, "weapons/remington_870/remington_870_reload_in"),
+        ])
+    );
+    // A list whose halves differ stays whole.
+    let other = V::Indexed(vec![pair(257, "weapons/a"), pair(257, "weapons/b")]);
+    assert_eq!(super::without_069d_only(&other), other);
 }
