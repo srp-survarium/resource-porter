@@ -12,8 +12,8 @@
   },
   "pack": {
     "id": "lobby-stk2-house",
-    "version": "1",
-    "description": "the House: the upper floor of STK2's Bar building (2011-12 bar_shooting_gallery, the building of lobby-stk2-bar's shooting gallery) as a 0.26g lobby project, projects/lobby_scene/stk2_house; the room of the video 'Map Showcase [5] (House)': the hall under its hanging camouflage net (the owner's 'tent on top'), long trestle tables with benches, bottles and cups, the kitchen corner (gas cooker under its hood, sink, fridge, the bar cabinet) at its far end, the annex by the stairs (253 objects merged in one model, level/stk2_house/main_v1); the character on the open floor between the tables and the annex, the default view west down the hall; a copy of the annex's closed brown door in its open north doorway (a second slice, door_v1: the doorway looked out onto the roof landing and nothing below); STK2's unmapped faces mapped by projection (the kitchen partition's end); textures at their STK2 sources' full size (to 2048 px); lit as the bomb shelter: a box probe of the hall (warm-neutral gradient, ambient 0.45), warm ambient fills along the hall, the kitchen and the annex, a character fill and a back bounce, STK2's lamps with their fixtures (the watering-can lamp over the tables, the halogen work lamps) warm, its small lights over the tables soft and warm, no light casting a shadow, STK2's sun left out; camera boxes over the floor, under the net, around the watering-can lamp, the five tables near the character and the tub; the weapon of an upgrade window 0.42 m above the table behind the character's right, seen along +z; static characters (the Novice) and weapons left out"
+    "version": "2",
+    "description": "the House: the upper floor of STK2's Bar building (2011-12 bar_shooting_gallery, the building of lobby-stk2-bar's shooting gallery) as a 0.26g lobby project, projects/lobby_scene/stk2_house; the room of the video 'Map Showcase [5] (House)': the hall under its hanging camouflage net (the owner's 'tent on top'), long trestle tables with benches, bottles and cups, the kitchen corner (gas cooker under its hood, sink, fridge, the bar cabinet) at its far end, the annex by the stairs (253 objects merged in one model, level/stk2_house/main_v1); the character on the open floor between the tables and the annex, the default view west down the hall; a copy of the annex's closed brown door in its open north doorway (a second slice, door_v1: the doorway looked out onto the roof landing and nothing below); STK2's unmapped faces mapped by projection (the kitchen partition's end); textures at their STK2 sources' full size (to 2048 px); lit as the bomb shelter: a box probe of the hall (warm-neutral gradient, ambient 0.45), warm ambient fills along the hall, the kitchen and the annex, a character fill and a back bounce, STK2's lamps with their fixtures (the watering-can lamp over the tables, the halogen work lamps) warm, its small lights over the tables soft and warm, no light casting a shadow, STK2's sun left out; camera boxes over the floor, under the net, around the watering-can lamp, the five tables near the character and the tub; the weapon of an upgrade window 0.42 m above the table behind the character's right, seen along +z; static characters (the Novice) and weapons left out; @2: trees seen through the hall's high strip windows (the owner: they showed plain sky): 0.26's own poplars, fruit trees, spruces and a dead tree round the building, drawn only, three rows along each long wall (3.5..5, 8..11 and 15..21 m out, about 4 m apart, staggered), standing 1.7 m below the hall's floor (out of the windows' sight), so the slits show crowns and trunks with sky between and above them; the merged model level/stk2_house/main_v2"
   },
   "target_project": "projects/lobby_scene/stk2_house/client_project",
   "model_prefix": "level/stk2_house",
@@ -629,5 +629,427 @@
       "range": 2.0,
       "cast_shadow": false
     }
-  }
+  },
+  "native_props": [
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        10.14,
+        -1.72,
+        17.38
+      ],
+      "yaw": 5.8,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        10.06,
+        -1.72,
+        13.35
+      ],
+      "yaw": 3.69,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        10.07,
+        -1.72,
+        9.8
+      ],
+      "yaw": 3.96,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_03",
+      "position": [
+        9.44,
+        -1.72,
+        4.83
+      ],
+      "yaw": 1.91,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        10.51,
+        -1.72,
+        1.95
+      ],
+      "yaw": 4.35,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        10.77,
+        -1.72,
+        -1.97
+      ],
+      "yaw": 6.06,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        10.22,
+        -1.72,
+        -6.95
+      ],
+      "yaw": 0.99,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        15.39,
+        -1.72,
+        16.08
+      ],
+      "yaw": 0.37,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        14.53,
+        -1.72,
+        11.8
+      ],
+      "yaw": 0.19,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        15.12,
+        -1.72,
+        7.36
+      ],
+      "yaw": 5.29,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_03",
+      "position": [
+        15.72,
+        -1.72,
+        3.27
+      ],
+      "yaw": 3.14,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        15.17,
+        -1.72,
+        -0.96
+      ],
+      "yaw": 1.75,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        16.79,
+        -1.72,
+        -5.5
+      ],
+      "yaw": 5.28,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        14.75,
+        -1.72,
+        -9.03
+      ],
+      "yaw": 1.44,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        21.22,
+        -1.72,
+        16.64
+      ],
+      "yaw": 4.81,
+      "collision": false
+    },
+    {
+      "lib": "flora/old_suh/suhoe_01_",
+      "position": [
+        25.88,
+        -1.72,
+        12.46
+      ],
+      "yaw": 2.43,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        25.88,
+        -1.72,
+        7.57
+      ],
+      "yaw": 0.0,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_04",
+      "position": [
+        26.26,
+        -1.72,
+        4.76
+      ],
+      "yaw": 2.95,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        23.18,
+        -1.72,
+        -0.47
+      ],
+      "yaw": 0.46,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        25.47,
+        -1.72,
+        -3.91
+      ],
+      "yaw": 1.69,
+      "collision": false
+    },
+    {
+      "lib": "flora/old_suh/suhoe_01_",
+      "position": [
+        22.8,
+        -1.72,
+        -7.04
+      ],
+      "yaw": 6.05,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_03",
+      "position": [
+        -9.28,
+        -1.72,
+        16.89
+      ],
+      "yaw": 1.55,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        -9.19,
+        -1.72,
+        13.94
+      ],
+      "yaw": 5.01,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        -9.94,
+        -1.72,
+        9.82
+      ],
+      "yaw": 2.81,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -10.2,
+        -1.72,
+        5.79
+      ],
+      "yaw": 0.82,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_03",
+      "position": [
+        -9.27,
+        -1.72,
+        1.07
+      ],
+      "yaw": 2.64,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_05",
+      "position": [
+        -9.5,
+        -1.72,
+        -2.24
+      ],
+      "yaw": 6.1,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        -9.56,
+        -1.72,
+        -7.19
+      ],
+      "yaw": 5.56,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_03",
+      "position": [
+        -14.78,
+        -1.72,
+        15.76
+      ],
+      "yaw": 5.37,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -13.9,
+        -1.72,
+        11.07
+      ],
+      "yaw": 6.21,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        -14.37,
+        -1.72,
+        7.76
+      ],
+      "yaw": 4.85,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        -14.49,
+        -1.72,
+        3.57
+      ],
+      "yaw": 0.46,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_04",
+      "position": [
+        -15.35,
+        -1.72,
+        -0.04
+      ],
+      "yaw": 1.53,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_03",
+      "position": [
+        -14.72,
+        -1.72,
+        -4.86
+      ],
+      "yaw": 2.85,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -15.05,
+        -1.72,
+        -9.43
+      ],
+      "yaw": 3.61,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_04",
+      "position": [
+        -21.7,
+        -1.72,
+        15.71
+      ],
+      "yaw": 0.97,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -25.51,
+        -1.72,
+        11.65
+      ],
+      "yaw": 1.57,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_05",
+      "position": [
+        -25.04,
+        -1.72,
+        8.8
+      ],
+      "yaw": 5.91,
+      "collision": false
+    },
+    {
+      "lib": "flora/old_suh/suhoe_01_",
+      "position": [
+        -26.3,
+        -1.72,
+        4.79
+      ],
+      "yaw": 5.54,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        -23.13,
+        -1.72,
+        0.13
+      ],
+      "yaw": 0.65,
+      "collision": false
+    },
+    {
+      "lib": "flora/fruit/fruit_tree_04",
+      "position": [
+        -26.38,
+        -1.72,
+        -2.96
+      ],
+      "yaw": 1.5,
+      "collision": false
+    },
+    {
+      "lib": "flora/poplar_06",
+      "position": [
+        -22.14,
+        -1.72,
+        -8.03
+      ],
+      "yaw": 5.17,
+      "collision": false
+    }
+  ]
 }
