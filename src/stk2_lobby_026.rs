@@ -213,6 +213,11 @@ pub struct BakeSpec {
     /// kelvin), the first that matches.
     #[serde(default)]
     pub light_kelvin: Vec<(String, f32)>,
+    /// Zones ([min, max], lobby frame) whose faces are not baked: they keep
+    /// their lit materials, so the engine's lights, and the characters' and
+    /// the weapon's shadows, fall on them (a baked page takes no light).
+    #[serde(default)]
+    pub unbaked: Vec<[[f32; 3]; 2]>,
 }
 
 /// A bake's outdoors (scripts/lobby-bake/prep.py): the environment's sun,
@@ -236,6 +241,9 @@ struct BakedJson {
     kept: Vec<String>,
     /// Each merged surface the bake was made of: its converted_model's sha256.
     sources: BTreeMap<String, String>,
+    /// The zones left unbaked, as the bake saw them.
+    #[serde(default)]
+    unbaked: Vec<[[f32; 3]; 2]>,
     /// The environment probes' radiance, path-traced from the probes.
     #[serde(default)]
     probes: Vec<BakedProbeJson>,
@@ -269,6 +277,7 @@ struct BakedSurfaceJson {
 /// ready to replace the slice's.
 struct Bake {
     slice: String,
+    unbaked: Vec<[[f32; 3]; 2]>,
     surfaces: Vec<BuiltSurface>,
     kept: BTreeSet<String>,
     sources: BTreeMap<String, String>,
@@ -332,8 +341,13 @@ impl Bake {
                 .with_context(|| format!("the bake: {}", probe.file.display()))?;
             probes.insert(probe.object.clone(), traced_cube(&bytes, probe.size, &probe.object)?);
         }
+        ensure!(
+            json.unbaked == spec.unbaked,
+            "the bake left other zones unbaked than the manifest's: bake the slice again"
+        );
         Ok(Bake {
             slice: spec.slice.clone(),
+            unbaked: json.unbaked,
             surfaces,
             kept: json.kept.into_iter().collect(),
             sources: json.sources,
@@ -362,10 +376,73 @@ impl Bake {
             self.sources.len(),
             built.len()
         );
+        let mut zones = Vec::new();
+        for surface in built.iter() {
+            if self.kept.contains(&surface.name) || self.unbaked.is_empty() {
+                continue;
+            }
+            if let Some(part) = triangles_in(surface, &self.unbaked)? {
+                zones.push(part);
+            }
+        }
         built.retain(|s| self.kept.contains(&s.name));
+        built.extend(zones);
         built.extend(self.surfaces.iter().cloned());
         Ok(())
     }
+}
+
+/// A surface's triangles whose centroid lies in one of the boxes, as a
+/// surface of their own (`<name>_unbaked`, the same material and vertex
+/// bytes); None when there are none. bake.py leaves the same triangles out
+/// of its pages (bake.py's in_zone).
+fn triangles_in(surface: &BuiltSurface, boxes: &[[[f32; 3]; 2]]) -> Result<Option<BuiltSurface>> {
+    let bytes = &surface.mesh;
+    let count = usize::try_from(read_u32(bytes, 8)?)?;
+    let at = 12 + count * VERTEX_SIZE;
+    let indices = usize::try_from(read_u32(bytes, at + 8)?)?;
+    let index = |i: usize| usize::from(u16::from_le_bytes([bytes[at + 12 + i * 2], bytes[at + 13 + i * 2]]));
+    let inside = |c: [f32; 3]| {
+        boxes.iter().any(|b| (0..3).all(|k| b[0][k].min(b[1][k]) <= c[k] && c[k] <= b[0][k].max(b[1][k])))
+    };
+    let mut remap = BTreeMap::new();
+    let mut order = Vec::new();
+    let mut triangles = Vec::new();
+    for t in (0..indices).step_by(3) {
+        let corners = [index(t), index(t + 1), index(t + 2)];
+        let point = |v: usize| read_float3(bytes, 12 + v * VERTEX_SIZE);
+        let (a, b, c) = (point(corners[0])?, point(corners[1])?, point(corners[2])?);
+        if !inside(std::array::from_fn(|k| (a[k] + b[k] + c[k]) / 3.0)) {
+            continue;
+        }
+        for v in corners {
+            let next = remap.len();
+            let new = *remap.entry(v).or_insert_with(|| {
+                order.push(v);
+                next
+            });
+            triangles.push(u16::try_from(new)?);
+        }
+    }
+    if triangles.is_empty() {
+        return Ok(None);
+    }
+    let mut mesh = Vec::new();
+    mesh.extend(3u32.to_le_bytes());
+    mesh.extend(u32::try_from(4 + order.len() * VERTEX_SIZE)?.to_le_bytes());
+    mesh.extend(u32::try_from(order.len())?.to_le_bytes());
+    for v in &order {
+        mesh.extend_from_slice(&bytes[12 + v * VERTEX_SIZE..12 + (v + 1) * VERTEX_SIZE]);
+    }
+    mesh.extend(4u32.to_le_bytes());
+    mesh.extend(u32::try_from(4 + triangles.len() * 2)?.to_le_bytes());
+    mesh.extend(u32::try_from(triangles.len())?.to_le_bytes());
+    for i in &triangles {
+        mesh.extend(i.to_le_bytes());
+    }
+    let label = format!("{}_unbaked", surface.name);
+    let (vertices, indices, bounds) = converted_model_shape(&mesh, &label)?;
+    Ok(Some(BuiltSurface { name: label, mesh, bounds, vertices, indices, ..surface.clone() }))
 }
 
 /// A traced probe's faces as a radiance cube of 0.26g's probe size, its
@@ -4131,6 +4208,45 @@ mod tests {
         set_emission(&mut root, [1.0; 4], 1.0, Some("t/diffuse")).unwrap();
         assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/mask".into())));
         assert!(set_emission(&mut material(ConfigValue::Named(Vec::new())), [1.0; 4], 1.0, None).is_err());
+    }
+
+    #[test]
+    fn an_unbaked_zone_keeps_its_triangles_and_their_vertex_bytes() {
+        // two triangles: one at x 0..1, one at x 10..11 (a vertex's position, then a marker byte)
+        let positions = [[0.0f32, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [10.0, 0.0, 0.0], [11.0, 0.0, 0.0], [10.0, 0.0, 1.0]];
+        let mut mesh = Vec::new();
+        mesh.extend(3u32.to_le_bytes());
+        mesh.extend(u32::try_from(4 + positions.len() * VERTEX_SIZE).unwrap().to_le_bytes());
+        mesh.extend(u32::try_from(positions.len()).unwrap().to_le_bytes());
+        for (i, p) in positions.iter().enumerate() {
+            let mut v = [0u8; VERTEX_SIZE];
+            for (k, c) in p.iter().enumerate() {
+                v[k * 4..k * 4 + 4].copy_from_slice(&c.to_le_bytes());
+            }
+            v[24] = i as u8;
+            mesh.extend(v);
+        }
+        mesh.extend(4u32.to_le_bytes());
+        mesh.extend(16u32.to_le_bytes());
+        mesh.extend(6u32.to_le_bytes());
+        for i in [0u16, 1, 2, 3, 4, 5] {
+            mesh.extend(i.to_le_bytes());
+        }
+        let (vertices, indices, bounds) = converted_model_shape(&mesh, "test").unwrap();
+        let surface = BuiltSurface {
+            name: "floor".into(),
+            material: "m".into(),
+            mesh,
+            bounds,
+            vertices,
+            indices,
+            mesh_name: "x".into(),
+            texture_name: "t".into(),
+        };
+        let part = triangles_in(&surface, &[[[9.0, -1.0, -1.0], [12.0, 1.0, 2.0]]]).unwrap().unwrap();
+        assert_eq!((part.name.as_str(), part.material.as_str(), part.vertices, part.indices), ("floor_unbaked", "m", 3, 3));
+        assert_eq!(part.mesh[12 + 24], 3, "the zone's first vertex is the source's fourth, its bytes kept");
+        assert!(triangles_in(&surface, &[[[50.0, 0.0, 0.0], [60.0, 1.0, 1.0]]]).unwrap().is_none());
     }
 
     #[test]

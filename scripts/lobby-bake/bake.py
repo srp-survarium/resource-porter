@@ -83,6 +83,17 @@ EYE = mathutils.Vector(to_b(scene_json.get("eye", (0.0, 1.2, 0.0))))
 BOX = [mathutils.Vector(to_b(c)) for c in scene_json["box"]] if scene_json.get("box") else None
 
 
+# The zones left to the engine (the scene's `unbaked`: [min, max] boxes about
+# the squad's and the weapon's spots): their faces keep their lit materials,
+# so the engine's lights and the characters' shadows fall on them; the trace
+# sees them as they are.
+ZONES = [[mathutils.Vector(to_b(c)) for c in z] for z in scene_json.get("unbaked", [])]
+
+
+def in_zone(c):
+    return any(all(min(z[0][k], z[1][k]) <= c[k] <= max(z[0][k], z[1][k]) for k in range(3)) for z in ZONES)
+
+
 def density_at(c):
     if BOX and not all(min(BOX[0][k], BOX[1][k]) <= c[k] <= max(BOX[0][k], BOX[1][k]) for k in range(3)):
         return args.outside
@@ -102,8 +113,15 @@ for s in scene_json["surfaces"]:
         kept.append(s["name"])
         continue
     groups = {}
+    zone = []
     for t in tris:
-        groups.setdefault(density_at(centroid(pos, t)), []).append(t)
+        c = centroid(pos, t)
+        if in_zone(c):
+            zone.append(t)
+        else:
+            groups.setdefault(density_at(c), []).append(t)
+    if zone:  # in the trace as it is; the porter keeps these faces of the surface unbaked
+        new_object(s["name"] + "_unbaked", pos, nrm, uv, zone, mat, weights=weights)
     work = list(groups.items())
     while work:
         density, ts = work.pop()
@@ -414,6 +432,7 @@ for k, page in enumerate(pages):
                            "size": page["size"], "density": page["density"], "texels": page["need"],
                            "chunks": page["chunks"]})
 baked["kept"] = kept
+baked["unbaked"] = scene_json.get("unbaked", [])
 baked["sources"] = {s["name"]: s["sha256"] for s in scene_json["surfaces"]}
 baked["probes"] = probes_made
 json.dump(baked, open(os.path.join(D, "baked.json"), "w"), indent=1)

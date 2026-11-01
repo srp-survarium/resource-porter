@@ -25,7 +25,10 @@ a baked face outside it gets the fewest texels (bake.py --outside); `tint`
 ([r, g, b]) multiplies every light's colour, the sun's and the sky's (warmer
 light); `lamp_kelvin` gives every project light a black body's colour at that
 temperature (as bright as its own) and `white_kelvin` the white point every
-source is seen against (bake.py's light_colours). Without a spec: the stk2 rule for slice "main".
+source is seen against, `light_kelvin` some lights' own (bake.py's
+light_colours); `unbaked` ([[min, max], ...], lobby frame) the zones whose
+faces stay lit by the engine (under the squad and the weapon: their shadows).
+Without a spec: the stk2 rule for slice "main".
 """
 import hashlib
 import json
@@ -171,7 +174,8 @@ def main(pack, db, out, spec_file=None):
     project = leaves(["dump-config", "--file", os.path.join(folder, project_dir, "client_project")])
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
-    for field in ("views", "skip_lights", "eye", "box", "tint", "lamp_kelvin", "white_kelvin", "light_kelvin"):
+    for field in ("views", "skip_lights", "eye", "box", "tint", "lamp_kelvin", "white_kelvin", "light_kelvin",
+                  "unbaked"):
         if spec.get(field):
             scene[field] = spec[field]
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])
