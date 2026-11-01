@@ -36,7 +36,8 @@ zone's centre its box or radius holds (else its own place) or at `probe_at`'s ({
 point}); the others are left as the pack has them. `unbaked` ([{name, box:
 [min, max]}]) are the zones left to the engine (the characters' and the
 weapon's shadows fall only on what it lights): by default the squad's and
-the weapon's (zones.py). A baked surface is cut on them: the part inside is
+the weapon's (zones.py); none for a `hybrid` bake (bake.py --hybrid: its
+albedo pages are lit by the engine, shadows and all). A baked surface is cut on them: the part inside is
 traced as a prop and recorded in scene.json's `unbaked` (its file, None when
 the whole surface is inside) for draw-lobby-bake to keep drawn as it was.
 """
@@ -194,14 +195,15 @@ def main(pack, db, out, spec_file=None):
     project = leaves(["dump-config", "--file", project_file])
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
-    for field in ("views", "skip_lights", "eye", "box", "tint"):
+    for field in ("views", "skip_lights", "eye", "box", "tint", "hybrid"):
         if spec.get(field):
             scene[field] = spec[field]
     if "slice" not in spec:
         scene["project"] = {"path": os.path.relpath(project_file, os.path.join(pack, "files")),
                             "sha256": hashlib.sha256(open(project_file, "rb").read()).hexdigest()}
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])
-    zones = [] if "slice" in spec else spec.get("unbaked", zoning.default_zones(project))
+    # a hybrid bake's pages are lit by the engine (shadows and all): no zones
+    zones = [] if "slice" in spec or spec.get("hybrid") else spec.get("unbaked", zoning.default_zones(project))
     if zones:
         scene["unbaked"] = []
         scene["zones"] = zones

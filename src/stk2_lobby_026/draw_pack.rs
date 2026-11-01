@@ -3,8 +3,10 @@
 //! (`scripts/lobby-bake`, `bake-pack.sh`), whichever builder made the pack.
 //!
 //! What `build-stk2-lobby-026 --bake-dir` does inside the STK2 builder, done
-//! to the pack's files: the bake's pages become textures and black,
-//! unshiny materials that emit them (`set_baked`), the baked surfaces one
+//! to the pack's files: the bake's pages become textures and materials
+//! (black, unshiny and emitting the light, `set_baked`; or, a hybrid bake,
+//! the albedo lit by the project's lights and the indirect light emitted,
+//! `set_hybrid`), the baked surfaces one
 //! model at the lobby's origin, and the project loses the placements the bake
 //! holds (a placement with surfaces the engine still draws keeps those in a
 //! model of its own: glass and forward decals the bake left as they were, and
@@ -276,11 +278,41 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
         failed: Vec::new(),
     };
     let mut materials = BTreeMap::new();
+    // a hybrid bake's flat normal and roughness maps (the template's would
+    // tile over the pages' layout)
+    let flat = match &baked.flat {
+        Some(flat) => Some((
+            textures.make_page_as("flat_normal", &options.bake_dir.join(&flat.normal), TextureKind::Normal, false, &mut pack)?,
+            textures.make_page_as("flat_roughness", &options.bake_dir.join(&flat.roughness), TextureKind::Linear, false, &mut pack)?,
+        )),
+        None => None,
+    };
     for page in &baked.pages {
-        let texture = textures.make_page(&page.name, &options.bake_dir.join(&page.png), page.alpha, &mut pack)?;
         let template = if page.alpha { ALPHA_PAGE_TEMPLATE } else { PAGE_TEMPLATE };
         let mut material = parse(source.db, &format!("material_instances/{template}.material"))?;
-        set_baked(&mut material.root, &texture, baked.emission).with_context(|| format!("{template}: the baked material"))?;
+        let texture = match &page.light {
+            // the light the surfaces send, emitted by a black, unshiny material
+            BakedLightJson::Radiance { png } => {
+                let texture = textures.make_page(&page.name, &options.bake_dir.join(png), page.alpha, &mut pack)?;
+                set_baked(&mut material.root, &texture, baked.emission)
+                    .with_context(|| format!("{template}: the baked material"))?;
+                texture
+            }
+            // the albedo lit by the project's lights, the indirect light emitted
+            BakedLightJson::Hybrid { albedo, indirect } => {
+                let (normal, roughness) = flat.as_ref().context("a hybrid page without the bake's flat maps")?;
+                let texture = textures.make_page(&page.name, &options.bake_dir.join(albedo), page.alpha, &mut pack)?;
+                let light = textures.make_page(
+                    &format!("{}_indirect", page.name),
+                    &options.bake_dir.join(indirect),
+                    false,
+                    &mut pack,
+                )?;
+                set_hybrid(&mut material.root, &texture, &light, baked.emission, normal, roughness)
+                    .with_context(|| format!("{template}: the hybrid material"))?;
+                texture
+            }
+        };
         material
             .root
             .set_path("material.g_stage.effect.two_sided.value", ConfigValue::Boolean(page.two_sided))?;

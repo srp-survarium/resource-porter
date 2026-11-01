@@ -7,10 +7,13 @@ page times the multiplier and take no light; the merged surfaces left unbaked
 and the native props keep their lit materials under the bake's lights.
 Writes <scene dir>/renders/baked-<view>.png.
 
---engine draws what the engine lights as it would (roughly): the lights'
-direct light only, and an ambient of the probe traced at the first unbaked
-zone (its mean radiance times the albedo), no bounce; the baked surfaces as
-before. Its renders, engine-<view>.png, show the seam at the unbaked zones.
+A hybrid bake (albedo and indirect pages) is drawn as the engine would: the
+albedo lit by direct light alone (no bounce) plus the indirect page;
+hybrid-<view>.png. --engine draws what the engine lights as it would
+(roughly): the lights' direct light only, and an ambient of the probe traced
+at the first unbaked zone (its mean radiance times the albedo), no bounce;
+the baked surfaces as before. Its renders, engine-<view>.png, show the seam
+at the unbaked zones.
 """
 import argparse
 import json
@@ -20,8 +23,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np  # noqa: E402
 
-from common import (Materials, _multiply, add_lights, add_props, log, new_object, new_scene, page_material,  # noqa: E402
-                    read_model, read_placed, render, views)
+from common import (Materials, _multiply, add_lights, add_props, hybrid_material, log, new_object, new_scene,  # noqa: E402
+                    page_material, read_model, read_placed, render, views)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
@@ -44,7 +47,10 @@ baked = json.load(open(os.path.join(D, "baked.json")))
 
 new_scene(args.threads, args.gpu)
 materials = Materials()
-pages = {p["name"]: page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"])
+hybrid = "albedo" in baked["pages"][0]
+pages = {p["name"]: (hybrid_material(p["name"], os.path.join(D, p["albedo"]), os.path.join(D, p["indirect"]),
+                                     baked["emission"], p["alpha"]) if hybrid else
+                     page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"]))
          for p in baked["pages"]}
 for s in baked["surfaces"]:
     new_object(s["name"], *read_model(os.path.join(D, s["file"]))[:4], pages[s["page"]])
@@ -55,10 +61,13 @@ for s in scene_json["surfaces"]:
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 bpy_scene = __import__("bpy").context.scene
-bpy_scene.cycles.use_denoising = False
-prefix = "baked"
+bpy_scene.cycles.use_denoising = hybrid
+prefix = "hybrid" if hybrid else "baked"
+if hybrid:  # the engine lights the albedo directly; the bounce is the indirect page's
+    bpy_scene.cycles.max_bounces = 0
+    args.samples = max(args.samples, 128)
 if args.engine:
-    prefix = "engine"
+    prefix = "engine-hybrid" if hybrid else "engine"
     zones = scene_json.get("zones", [])
     centre = [(zones[0]["box"][0][k] + zones[0]["box"][1][k]) / 2 for k in range(3)] if zones else None
     traced = {p["name"]: p.get("trace_at") for p in scene_json.get("probes", [])}
