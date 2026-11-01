@@ -1347,7 +1347,7 @@ fn icons_of_two_atlases_of_one_movie_all_land() {
     for (name, fill) in [("w.png", 60u8), ("a.png", 90)] {
         let path = pack.join("icons").join(name);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        atlas::write_icon_png(&path, &icon(fill)).unwrap();
+        atlas::write_icon_png(&path, &icon(fill), atlas::EQUIPMENT_GRID).unwrap();
     }
     write(
         &pack,

@@ -179,7 +179,7 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
             let col = icon["col"].as_u64().context("icon without a col")? as u32;
             let bytes = fs::read(options.bundle.join(source))
                 .with_context(|| format!("reading {source}"))?;
-            atlas::read_icon_png(&options.bundle.join(source), false)
+            atlas::read_icon_png(&options.bundle.join(source), false, atlas::grid(&symbol)?)
                 .with_context(|| format!("{source} is not a lobby icon"))?;
             let name = format!("icons/{}", source.rsplit('/').next().unwrap());
             write_file(&options.output.join(&name), &bytes)?;
