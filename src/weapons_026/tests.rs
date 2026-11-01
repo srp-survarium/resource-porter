@@ -401,6 +401,7 @@ fn a_manifest_refuses_twice_used_ids_and_cells() {
         modules: vec![],
         external_ammo: vec![],
         ammo_items: vec![],
+        dir: PathBuf::new(),
     };
     port.check().unwrap();
     let mut second = weapon();
@@ -674,15 +675,20 @@ fn a_config_naming_a_missing_resource_is_refused() {
             "gameplay/items/weapons/common/rifles.user_animations",
         ]
     );
+    let none = std::collections::BTreeSet::new();
     let all_but_fx = |f: &str| f != "particles/fx/weapons/m4a1.particle";
-    let error = check_resources("wpn_g", &cfg, &all_but_fx)
+    let error = check_resources("wpn_g", &cfg, &all_but_fx, &none)
         .unwrap_err()
         .to_string();
     assert!(
         error.contains("particles.shoot: particles/fx/weapons/m4a1.particle"),
         "{error}"
     );
-    check_resources("wpn_g", &cfg, &|_| true).unwrap();
+    check_resources("wpn_g", &cfg, &|_| true, &none).unwrap();
+    // A reference the native configs already carry (missing in 0.26g too) is
+    // 0.26g's own: allowed; only a new missing one is refused.
+    let native = super::resources::native_references([&cfg]);
+    check_resources("wpn_g", &cfg, &|_| false, &native).unwrap();
     // A path under a key of no known kind is refused, not let through.
     let odd = t(vec![("data", t(vec![("strange", s("some/where"))]))]);
     assert!(resource_files(&odd).is_err());
