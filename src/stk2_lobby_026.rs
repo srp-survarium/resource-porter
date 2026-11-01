@@ -2879,6 +2879,7 @@ struct SliceMade {
 /// One model of a slice's objects: their surfaces clipped to the box and
 /// merged by material (in pieces the 0.26g loader takes), and their low
 /// collision clipped the same way.
+#[allow(clippy::too_many_arguments)]
 fn write_slice(
     name: &str,
     slice: &SliceSpec,
