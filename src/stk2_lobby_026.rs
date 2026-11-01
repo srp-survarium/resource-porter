@@ -261,7 +261,13 @@ struct BakedPageJson {
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum BakedLightJson {
-    Hybrid { albedo: PathBuf, indirect: PathBuf },
+    Hybrid {
+        albedo: PathBuf,
+        indirect: PathBuf,
+        /// The surfaces' own g-buffer gloss laid on the page (draw-lobby-bake).
+        #[serde(default)]
+        gloss: Option<PathBuf>,
+    },
     Radiance { png: PathBuf },
 }
 
@@ -325,7 +331,7 @@ impl Bake {
                         .with_context(|| format!("{template}: the baked material"))?;
                     texture
                 }
-                BakedLightJson::Hybrid { albedo, indirect } => {
+                BakedLightJson::Hybrid { albedo, indirect, .. } => {
                     let (normal, roughness) =
                         flat.as_ref().context("a hybrid page without the bake's flat maps")?;
                     let texture = textures.make_page(&page_name, &dir.join(albedo), page.alpha, pack)?;

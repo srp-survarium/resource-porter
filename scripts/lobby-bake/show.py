@@ -48,8 +48,9 @@ baked = json.load(open(os.path.join(D, "baked.json")))
 new_scene(args.threads, args.gpu)
 materials = Materials()
 hybrid = "albedo" in baked["pages"][0]
+indirect = baked["emission"] * scene_json.get("indirect_scale", 1.0)  # as draw-lobby-bake emits it
 pages = {p["name"]: (hybrid_material(p["name"], os.path.join(D, p["albedo"]), os.path.join(D, p["indirect"]),
-                                     baked["emission"], p["alpha"]) if hybrid else
+                                     indirect, p["alpha"]) if hybrid else
                      page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"]))
          for p in baked["pages"]}
 for s in baked["surfaces"]:

@@ -37,7 +37,12 @@ point}); the others are left as the pack has them. `unbaked` ([{name, box:
 [min, max]}]) are the zones left to the engine (the characters' and the
 weapon's shadows fall only on what it lights): by default the squad's and
 the weapon's (zones.py); none for a `hybrid` bake (bake.py --hybrid: its
-albedo pages are lit by the engine, shadows and all). A baked surface is cut on them: the part inside is
+albedo pages are lit by the engine, shadows and all). `lamp_kelvin` gives
+every warm or white point and spot light a black body's colour at that
+temperature, as bright as its own (scene.json's `relit`, which
+draw-lobby-bake sets in the project too); `drop_lights` (names, or prefixes
+ending in '/') leaves fills out of the trace and the project (`dropped_lights`);
+`indirect_scale` brightens a hybrid's indirect pages in the game. A baked surface is cut on them: the part inside is
 traced as a prop and recorded in scene.json's `unbaked` (its file, None when
 the whole surface is inside) for draw-lobby-bake to keep drawn as it was.
 """
@@ -118,6 +123,15 @@ def material(src, name):
         "alpha_ref": get("alpha_ref", 0.25),
         "two_sided": bool(get("two_sided", False)),
         "emission": None,
+        # the g-buffer's gloss (gbuffer_pass.ps: t_roughness's green between
+        # min_roughness and max_roughness, else the constant): a hybrid page
+        # carries it (bake.py)
+        "roughness": {
+            "texture": (src.path(f"textures/{get('texture_roughness')}.dds")
+                        if get("use_troughness", False) and get("texture_roughness") else None),
+            "min": get("min_roughness", 0.0), "max": get("max_roughness", 1.0),
+            "constant": get("constant_roughness", 0.5),
+        },
         # a second layer drawn where the vertices' weight leaves the first
         "blended": (src.path(f"textures/{get('texture_vertex_blended_diffuse')}.dds")
                     if get("use_vertex_blended_textures", False) and get("use_vertex_blended_diffuse", False)
@@ -177,6 +191,30 @@ def to_sun(properties):
     return [-math.cos(az) * math.cos(el), math.sin(el), -math.sin(az) * math.cos(el)]
 
 
+def blackbody(kelvin):
+    """A black body's colour at `kelvin` in linear sRGB (D65), its largest
+    channel 1: the Planckian locus's xy (Kim et al.'s cubic fit) at Y 1."""
+    t = kelvin
+    if t < 4000:
+        x = -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.179910
+    else:
+        x = -3.0258469e9 / t ** 3 + 2.1070379e6 / t ** 2 + 0.2226347e3 / t + 0.240390
+    if t < 2222:
+        y = -1.1063814 * x ** 3 - 1.34811020 * x ** 2 + 2.18555832 * x - 0.20219683
+    elif t < 4000:
+        y = -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x ** 3 - 5.87338670 * x ** 2 + 3.75112997 * x - 0.37001483
+    big_x, big_z = x / y, (1 - x - y) / y
+    rgb = (3.2406 * big_x - 1.5372 - 0.4986 * big_z, -0.9689 * big_x + 1.8758 + 0.0415 * big_z,
+           0.0557 * big_x - 0.2040 + 1.0570 * big_z)
+    return [c / max(rgb) for c in rgb]
+
+
+def luminance(c):
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
 def inside(spec, p):
     """Whether a point is in the spec's `box` (everywhere without one)."""
     box = spec.get("box")
@@ -195,7 +233,8 @@ def main(pack, db, out, spec_file=None):
     project = leaves(["dump-config", "--file", project_file])
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
-    for field in ("views", "skip_lights", "eye", "box", "tint", "hybrid"):
+    scene["dropped_lights"], scene["relit"] = [], {}
+    for field in ("views", "skip_lights", "eye", "box", "tint", "hybrid", "indirect_scale"):
         if spec.get(field):
             scene[field] = spec[field]
     if "slice" not in spec:
@@ -252,6 +291,17 @@ def main(pack, db, out, spec_file=None):
             light = {f: o.get(f) for f in (
                 "position", "rotation", "color", "intensity", "range", "attenuation_power", "light_type",
                 "spot_umbra_angle", "spot_penumbra_angle", "spot_falloff", "is_cast_shadow", "enabled")}
+            if any(name == p or (p.endswith("/") and name.startswith(p)) for p in spec.get("drop_lights", [])):
+                scene["dropped_lights"].append(name)  # out of the trace and the project
+                continue
+            colour = light["color"][:3]
+            if spec.get("lamp_kelvin") and light["light_type"] in (0, 1) and colour[0] >= colour[2]:
+                # a lamp (warm or white; a cool light stands for daylight and
+                # keeps its colour): a black body's colour, as bright as its own
+                warm = blackbody(spec["lamp_kelvin"])
+                light["intensity"] *= luminance(colour) / luminance(warm)
+                light["color"] = warm
+                scene["relit"][name] = {"color": warm, "intensity": light["intensity"]}
             scene["lights"].append(dict(light, name=name))
         elif kind == "decal" and o.get("projection_on_static_geometry", True):
             scene["decals"].append(decal(src, o))

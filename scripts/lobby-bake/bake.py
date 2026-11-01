@@ -29,7 +29,7 @@ import mathutils
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_decals, add_lights, add_props, log, new_object, new_scene, read_placed,  # noqa: E402
+from common import (Materials, add_decals, add_lights, add_props, image, log, new_object, new_scene, read_placed,  # noqa: E402
                     render, to_b, views, write_model)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -305,6 +305,49 @@ sc.cycles.samples = args.samples
 sc.render.bake.margin = 8
 sc.render.bake.margin_type = "EXTEND"
 copies = {}
+def bake_gloss(k, page, img):
+    """A hybrid page's gloss at half its size: each material's g-buffer gloss
+    (its t_roughness's green between min and max, else its constant, as
+    prep.py read it), so the page shines as the surfaces did."""
+    gloss = bpy.data.images.new(f"gloss_{k:02d}", max(page["size"] // 2, 64), max(page["size"] // 2, 64),
+                                float_buffer=True)
+    saved = {}
+    for m in {m for ob in page["objects"] for m in ob.data.materials}:
+        spec = json.loads(m.get("srp_roughness") or "null") or {"texture": None, "constant": 0.5}
+        nt = m.node_tree
+        out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+        saved[m] = out.inputs[0].links[0].from_socket
+        em = nt.nodes.new("ShaderNodeEmission")
+        if spec["texture"]:
+            uvn = nt.nodes.new("ShaderNodeUVMap")
+            uvn.uv_map = "tex"
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = image(spec["texture"], colour=False)
+            nt.links.new(uvn.outputs[0], tex.inputs[0])
+            sep = nt.nodes.new("ShaderNodeSeparateColor")
+            nt.links.new(tex.outputs["Color"], sep.inputs[0])
+            ramp = nt.nodes.new("ShaderNodeMapRange")
+            ramp.clamp = False
+            ramp.inputs["To Min"].default_value = spec["min"]
+            ramp.inputs["To Max"].default_value = spec["max"]
+            nt.links.new(sep.outputs["Green"], ramp.inputs["Value"])
+            nt.links.new(ramp.outputs[0], em.inputs["Color"])
+        else:
+            em.inputs["Color"].default_value = (spec["constant"],) * 3 + (1.0,)
+        nt.links.new(em.outputs[0], out.inputs[0])
+        target = next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is img)
+        target.image = gloss
+        nt.nodes.active = target
+    sc.cycles.samples = 4
+    bpy.ops.object.bake(type="EMIT", margin=4, use_clear=True, target="IMAGE_TEXTURES")
+    sc.cycles.samples = args.samples
+    for m, socket in saved.items():
+        nt = m.node_tree
+        nt.links.new(socket, next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL").inputs[0])
+        next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is gloss).image = img
+    return gloss
+
+
 for k, page in enumerate(pages):
     img = bpy.data.images.new(f"page_{k:02d}", page["size"], page["size"], float_buffer=True, alpha=True)
     page["image"] = img
@@ -338,6 +381,7 @@ for k, page in enumerate(pages):
                             target="IMAGE_TEXTURES")
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
             next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+        page["gloss_image"] = bake_gloss(k, page, img)
     else:
         bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
                             margin=8, use_clear=True, target="IMAGE_TEXTURES")
@@ -413,6 +457,8 @@ for k, page in enumerate(pages):
         ind = pixels(page["indirect_image"])
         write_png(f"page_{k:02d}_indirect", page["indirect_image"].size[0], srgb(ind[:, :3] / emission),
                   np.ones(len(ind), dtype=np.float32))
+        gl = np.clip(pixels(page["gloss_image"])[:, :3], 0.0, 1.0)  # linear: the g-buffer's value
+        write_png(f"page_{k:02d}_gloss", page["gloss_image"].size[0], gl, np.ones(len(gl), dtype=np.float32))
     else:
         write_png(f"page_{k:02d}", page["size"], srgb(page["px"][:, :3] / emission), a)
 if args.hybrid:  # the template's normal and roughness maps, flat (they would tile over the pages' layout)
@@ -464,7 +510,8 @@ for k, page in enumerate(pages):
         baked["surfaces"].append({"name": name, "file": f"baked/{name}", "page": f"page_{k:02d}",
                                   "vertices": len(order), "triangles": len(ts)})
         piece += 1
-    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png"} if args.hybrid \
+    kind = {"albedo": f"pages/page_{k:02d}.png", "indirect": f"pages/page_{k:02d}_indirect.png",
+            "gloss": f"pages/page_{k:02d}_gloss.png"} if args.hybrid \
         else {"png": f"pages/page_{k:02d}.png"}
     baked["pages"].append({"name": f"page_{k:02d}", **kind, "alpha": page["alpha"], "two_sided": page["two_sided"],
                            "size": page["size"], "density": page["density"], "texels": page["need"],

@@ -1,5 +1,6 @@
 """What bake.py and show.py share: 0.26g models in Blender, the materials,
 the lights in 0.26g's units, the views."""
+import json
 import math
 import os
 import struct
@@ -217,6 +218,7 @@ def lit_material(spec):
     """The 0.26g material as Cycles sees it: a matte surface of its diffuse
     texture times its colour, cut by its alpha test, and its emission."""
     m, nt = _nodes(spec["name"])
+    m["srp_roughness"] = json.dumps(spec.get("roughness"))  # bake.py's gloss page
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     if spec.get("transparent"):  # glass and fx: drawn over the lit frame, seen through here
         nt.links.new(nt.nodes.new("ShaderNodeBsdfTransparent").outputs[0], out.inputs[0])
@@ -263,6 +265,13 @@ def lit_material(spec):
         shader = add.outputs[0]
     if spec["alpha_test"] and tex is not None:
         shader = _cut(nt, shader, tex.outputs["Alpha"], spec["alpha_ref"])
+    if not spec.get("two_sided"):  # the game culls a one-sided face's back: light passes it
+        geo = nt.nodes.new("ShaderNodeNewGeometry")
+        back = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(geo.outputs["Backfacing"], back.inputs[0])
+        nt.links.new(shader, back.inputs[1])
+        nt.links.new(nt.nodes.new("ShaderNodeBsdfTransparent").outputs[0], back.inputs[2])
+        shader = back.outputs[0]
     nt.links.new(shader, out.inputs[0])
     return m
 

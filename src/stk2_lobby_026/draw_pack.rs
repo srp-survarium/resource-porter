@@ -73,7 +73,41 @@ struct SceneJson {
     seen: Option<[[f32; 3]; 2]>,
     #[serde(default)]
     zones: Vec<Named>,
+    /// The project's lights the trace and the project leave out (fills).
+    #[serde(default)]
+    dropped_lights: BTreeSet<String>,
+    /// Lights given another colour and intensity (a lamp's temperature).
+    #[serde(default)]
+    relit: BTreeMap<String, Relit>,
+    #[serde(default)]
+    lights: Vec<SceneLight>,
+    /// A hybrid's indirect pages emitted this much brighter.
+    #[serde(default = "one")]
+    indirect_scale: f32,
 }
+
+#[derive(Deserialize)]
+struct Relit {
+    color: [f32; 3],
+    intensity: f32,
+}
+
+/// A light of the trace; those prep.py added (`bake_lights/...`, a light in
+/// a stove) a hybrid's project gets too.
+#[derive(Deserialize)]
+struct SceneLight {
+    name: String,
+    position: [f32; 3],
+    color: Vec<f32>,
+    intensity: f32,
+    range: f32,
+    attenuation_power: f32,
+    #[serde(default)]
+    is_cast_shadow: bool,
+}
+
+/// The prefix of the lights prep.py adds to the trace (spec `bake_lights`).
+const BAKE_LIGHTS: &str = "bake_lights/";
 
 #[derive(Deserialize)]
 struct SceneProject {
@@ -280,13 +314,14 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
     let mut materials = BTreeMap::new();
     // a hybrid bake's flat normal and roughness maps (the template's would
     // tile over the pages' layout)
-    let flat = match &baked.flat {
-        Some(flat) => Some((
-            textures.make_page_as("flat_normal", &options.bake_dir.join(&flat.normal), TextureKind::Normal, false, &mut pack)?,
-            textures.make_page_as("flat_roughness", &options.bake_dir.join(&flat.roughness), TextureKind::Linear, false, &mut pack)?,
-        )),
+    let flat_normal = match &baked.flat {
+        Some(flat) => {
+            Some(textures.make_page_as("flat_normal", &options.bake_dir.join(&flat.normal), TextureKind::Normal, false, &mut pack)?)
+        }
         None => None,
     };
+    // the flat roughness only for a page without its own gloss
+    let mut flat_roughness: Option<String> = None;
     for page in &baked.pages {
         let template = if page.alpha { ALPHA_PAGE_TEMPLATE } else { PAGE_TEMPLATE };
         let mut material = parse(source.db, &format!("material_instances/{template}.material"))?;
@@ -299,8 +334,8 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
                 texture
             }
             // the albedo lit by the project's lights, the indirect light emitted
-            BakedLightJson::Hybrid { albedo, indirect } => {
-                let (normal, roughness) = flat.as_ref().context("a hybrid page without the bake's flat maps")?;
+            BakedLightJson::Hybrid { albedo, indirect, gloss } => {
+                let normal = flat_normal.as_ref().context("a hybrid page without the bake's flat maps")?;
                 let texture = textures.make_page(&page.name, &options.bake_dir.join(albedo), page.alpha, &mut pack)?;
                 let light = textures.make_page(
                     &format!("{}_indirect", page.name),
@@ -308,8 +343,40 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
                     false,
                     &mut pack,
                 )?;
-                set_hybrid(&mut material.root, &texture, &light, baked.emission, normal, roughness)
-                    .with_context(|| format!("{template}: the hybrid material"))?;
+                // the surfaces' own gloss, else the flat stand-in
+                let roughness = match gloss {
+                    Some(gloss) => textures.make_page_as(
+                        &format!("{}_gloss", page.name),
+                        &options.bake_dir.join(gloss),
+                        TextureKind::Linear,
+                        false,
+                        &mut pack,
+                    )?,
+                    None => match &flat_roughness {
+                        Some(made) => made.clone(),
+                        None => {
+                            let flat = baked.flat.as_ref().context("a hybrid page without the bake's flat maps")?;
+                            let made = textures.make_page_as(
+                                "flat_roughness",
+                                &options.bake_dir.join(&flat.roughness),
+                                TextureKind::Linear,
+                                false,
+                                &mut pack,
+                            )?;
+                            flat_roughness = Some(made.clone());
+                            made
+                        }
+                    },
+                };
+                set_hybrid(
+                    &mut material.root,
+                    &texture,
+                    &light,
+                    baked.emission * scene.indirect_scale,
+                    normal,
+                    &roughness,
+                )
+                .with_context(|| format!("{template}: the hybrid material"))?;
                 texture
             }
         };
@@ -419,8 +486,12 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
         _ => String::new(),
     };
     let before = objects.len();
-    let (mut decals_out, mut ambient_out) = (0, 0);
+    let (mut decals_out, mut ambient_out, mut lights_out) = (0, 0, 0);
     objects.retain(|o| match kind(o).as_str() {
+        "light" if scene.dropped_lights.contains(&full_name(o)) => {
+            lights_out += 1;
+            false
+        }
         "decal" if decals.contains(full_name(o).as_str()) => {
             decals_out += 1;
             false
@@ -432,10 +503,63 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
         _ => true,
     });
     ensure!(decals_out == decals.len(), "the bake painted {} decals, the project has {decals_out} of them", decals.len());
+    ensure!(
+        lights_out == scene.dropped_lights.len(),
+        "the bake left out {} lights, the project has {lights_out} of them",
+        scene.dropped_lights.len()
+    );
     notes.push(format!(
-        "{} client objects left out: the {decals_out} projected decals painted into the pages, the {ambient_out} ambient-light boxes inside the lobby (the trace's bounce and shadows stand for them)",
-        before - objects.len()
+        "{} client objects left out: the {decals_out} projected decals painted into the pages, the {ambient_out} ambient-light boxes inside the lobby (the trace's bounce and shadows stand for them), the {lights_out} fill lights the bake left out ({})",
+        before - objects.len(),
+        scene.dropped_lights.iter().cloned().collect::<Vec<_>>().join(", ")
     ));
+    for (name, relit) in &scene.relit {
+        let object = objects
+            .iter_mut()
+            .find(|o| kind(o) == "light" && full_name(o) == *name)
+            .with_context(|| format!("the bake relit light {name:?}, the project has none"))?;
+        object.set_path("color", ConfigValue::Float3(relit.color))?;
+        let intensity = number_like(object, "intensity", relit.intensity);
+        object.set_path("intensity", intensity)?;
+    }
+    if !scene.relit.is_empty() {
+        notes.push(format!("{} lamps given a black body's colour, as bright as before (the bake's)", scene.relit.len()));
+    }
+    let hybrid = baked.pages.iter().all(|p| matches!(p.light, BakedLightJson::Hybrid { .. }));
+    let added: Vec<&SceneLight> = scene.lights.iter().filter(|l| l.name.starts_with(BAKE_LIGHTS)).collect();
+    if hybrid && !added.is_empty() {
+        // the engine lights a hybrid's pages: a light only the trace had
+        // (in a stove) is the project's too, shadowed by what is round it
+        let template = objects
+            .iter()
+            .find(|o| kind(o) == "light" && matches!(o.named("light_type"), Some(ConfigValue::Integer(0))))
+            .context("a light to add, and no point light in the project to copy")?
+            .clone();
+        for light in &added {
+            let mut object = template.clone();
+            let name = light.name.trim_start_matches(BAKE_LIGHTS);
+            ensure!(light.color.len() >= 3, "light {}: no colour", light.name);
+            for (path, value) in [
+                ("name", ConfigValue::String(name.to_owned())),
+                ("full_name", ConfigValue::String(format!("environment_and_lights/baked/{name}"))),
+                ("position", ConfigValue::Float3(light.position)),
+                ("color", ConfigValue::Float3([light.color[0], light.color[1], light.color[2]])),
+                ("intensity", number_like(&template, "intensity", light.intensity)),
+                ("range", number_like(&template, "range", light.range)),
+                ("attenuation_power", number_like(&template, "attenuation_power", light.attenuation_power)),
+                ("is_cast_shadow", ConfigValue::Boolean(light.is_cast_shadow)),
+                ("enabled", ConfigValue::Boolean(true)),
+            ] {
+                object.set_path(path, value)?;
+            }
+            objects.push(object);
+        }
+        notes.push(format!(
+            "{} lights the trace had and the project had not added: {}",
+            added.len(),
+            added.iter().map(|l| l.name.trim_start_matches(BAKE_LIGHTS)).collect::<Vec<_>>().join(", ")
+        ));
+    }
     for probe in &baked.probes {
         let object = objects
             .iter_mut()
