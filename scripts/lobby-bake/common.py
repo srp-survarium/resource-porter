@@ -365,7 +365,10 @@ def light_colours(scene_json):
     temperature, as bright as its own colour; `white_kelvin` is the white
     point every source is seen against (a camera's white balance: a black
     body at that temperature is white, daylight bluer, a lamp warmer);
-    `tint` multiplies every colour. Each returns (colour, brightness factor)."""
+    `light_kelvin` ([[part of a light's name, kelvin], ...], the first that
+    matches) gives some lights another temperature (the Range's halogen work
+    lamps white beside its warm hall lamps); `tint` multiplies every colour.
+    Each returns (colour, brightness factor); lamp takes the light's name."""
     tint = scene_json.get("tint", [1.0, 1.0, 1.0])
     white = scene_json.get("white_kelvin")
     balance = [1.0, 1.0, 1.0]
@@ -376,10 +379,12 @@ def light_colours(scene_json):
         balance = [c * scale for c in balance]
     seen = lambda c: [c[k] * balance[k] * tint[k] for k in range(3)]
     lamp_k = scene_json.get("lamp_kelvin")
+    by_name = scene_json.get("light_kelvin", [])
 
-    def lamp(c):
-        if lamp_k:
-            out = seen(blackbody(lamp_k))
+    def lamp(c, name):
+        k = next((k for part, k in by_name if part in name), lamp_k)
+        if k:
+            out = seen(blackbody(k))
             return out, luminance(c[:3]) / luminance(out)
         return seen(c), 1.0
     return lamp, lambda c: (seen(c), 1.0)
@@ -407,7 +412,7 @@ def add_lights(scene_json, skip, match, bulb):
         power = 4 * math.pi ** 2 * at * at * l["intensity"] * window
         spot = l.get("light_type") == 1
         light = bpy.data.lights.new(l["name"], "SPOT" if spot else "POINT")
-        colour, factor = lamp_colour(l["color"])
+        colour, factor = lamp_colour(l["color"], l["name"])
         light.color = colour
         light.energy = power * factor
         light.shadow_soft_size = bulb

@@ -171,7 +171,7 @@ def main(pack, db, out, spec_file=None):
     project = leaves(["dump-config", "--file", os.path.join(folder, project_dir, "client_project")])
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
-    for field in ("views", "skip_lights", "eye", "box", "tint", "lamp_kelvin", "white_kelvin"):
+    for field in ("views", "skip_lights", "eye", "box", "tint", "lamp_kelvin", "white_kelvin", "light_kelvin"):
         if spec.get(field):
             scene[field] = spec[field]
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])

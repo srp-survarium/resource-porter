@@ -209,6 +209,10 @@ pub struct BakeSpec {
     /// The white point every source is seen against.
     #[serde(default)]
     pub white_kelvin: Option<f32>,
+    /// Some lights at another temperature: (part of the light's name,
+    /// kelvin), the first that matches.
+    #[serde(default)]
+    pub light_kelvin: Vec<(String, f32)>,
 }
 
 /// A bake's outdoors (scripts/lobby-bake/prep.py): the environment's sun,
