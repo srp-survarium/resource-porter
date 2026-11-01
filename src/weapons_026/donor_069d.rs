@@ -1068,6 +1068,8 @@ pub fn build_069d(
             "template": w.template,
         }));
         check_clips(&cfg, &overlay, &mut target).with_context(|| w.name.clone())?;
+        check_kit_ammo(w, &cfg, &dict_after(&overlay)?, &overlay, &mut target)
+            .with_context(|| w.name.clone())?;
     }
     fs::write(
         output.join("donor-069d.json"),
@@ -1089,6 +1091,58 @@ pub fn build_069d(
         serde_json::to_vec_pretty(&ids)?,
     )?;
     Ok(report)
+}
+
+/// The ammunition bags a default kit carries (the player's
+/// `ammo_bags_count`): a stack of a round fills `bags / required_bags`
+/// clips of it.
+pub const DEFAULT_AMMO_BAGS: i32 = 3;
+
+fn dict_after(overlay: &Path) -> Result<V> {
+    let path = crate::archive::safe_join(overlay, "gameplay/db_static_dictionaries")?;
+    Ok(BinaryConfig::parse(&fs::read(path)?)?.root)
+}
+
+/// A default kit carries at least a magazine and a reload's worth of each
+/// round the gun takes: `DEFAULT_AMMO_BAGS / required_bags x clip_size`
+/// rounds of it, at least twice the magazine.
+fn check_kit_ammo(
+    w: &super::manifest::Weapon,
+    cfg: &V,
+    dict: &V,
+    overlay: &Path,
+    target: &mut ResourceDb,
+) -> Result<()> {
+    let num = |v: Option<&V>| -> Result<i32> {
+        match v {
+            Some(V::Integer(i)) => Ok(*i),
+            Some(V::Float(f)) => Ok(*f as i32),
+            other => bail!("expected a number, found {other:?}"),
+        }
+    };
+    let magazine = num(get(cfg, "parameters.magazine_capacity"))?;
+    for ammo in &w.ammo {
+        let row = list(dict.named("items_dict"))
+            .iter()
+            .find(|v| v.named("dict_id") == Some(&V::Integer(*ammo)))
+            .with_context(|| format!("no item {ammo}"))?;
+        let path = string_of(row.named("cfg_name"))?;
+        let local = crate::archive::safe_join(overlay, path)?;
+        let round = if local.is_file() {
+            BinaryConfig::parse(&fs::read(local)?)?.root
+        } else {
+            parse_config(target, path, "round")?.root
+        };
+        let clip = num(get(&round, "parameters.clip_size"))?;
+        let bags = num(get(&round, "parameters.required_bags"))?.max(1);
+        let carried = DEFAULT_AMMO_BAGS / bags * clip;
+        ensure!(
+            carried >= 2 * magazine,
+            "a default kit carries {carried} rounds of {path} (clip {clip}, {bags} bags a clip): \
+             under a magazine of {magazine} and a reload"
+        );
+    }
+    Ok(())
 }
 
 /// Writes `path` into the overlay and its row of the port manifest's files.

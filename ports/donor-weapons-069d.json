@@ -63,6 +63,26 @@
     4
    ],
    "icon_like": "ammo_12mm_buck"
+  },
+  {
+   "name": "ammo_7.62x51_g3",
+   "dict_id": 2254,
+   "config": "gameplay/items/weapons/ammo/ammo_7.62x51_g3.options",
+   "template": "ammo_7.62x51",
+   "base_cost": 300,
+   "set": {
+    "parameters.clip_size": 20,
+    "parameters.clip_weight": 0.5,
+    "ui_desc.props_list.2.prop_value": "20",
+    "ui_desc.props_list.3.prop_value": "0.5",
+    "ui_desc.text_descriptions.name": "st_srp_ammo069_762x51_g3_name",
+    "ui_desc.text_descriptions.description": "st_srp_ammo069_762x51_g3_desc"
+   },
+   "icon": [
+    21,
+    4
+   ],
+   "icon_like": "ammo_7.62x51"
   }
  ]
 }

@@ -158,8 +158,7 @@
    "template": "gameplay/items/weapons/wpn_socom16.options",
    "base_cost": 80000,
    "ammo": [
-    52,
-    51
+    2254
    ],
    "set": {
     "parameters.faction": 2,
@@ -206,7 +205,8 @@
    "notes": [
     "G3SG/1: 7.62x51 semi-auto as the SOCOM 16, 0.69d0's +6 % damage, -20 % rate and burst of 3; 20 rounds, the real gun's as in 0.69d0 (the owner, 2026-11-01); level 15, Black Market",
     "its own 0.69d0 rig and clips",
-    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
+    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
+    "its own round, 7.62x51 in 20-round magazines (2254, the sidecar's): the live 7.62x51's clip of 10 gives a default kit's three bags 30 rounds, under a magazine and a reload (40); as the RPD and the PKP have their belts"
    ]
   },
   {
@@ -387,6 +387,7 @@
   }
  ],
  "external_ammo": [
-  2253
+  2253,
+  2254
  ]
 }
