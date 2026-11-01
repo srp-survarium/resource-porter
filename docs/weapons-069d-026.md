@@ -19,12 +19,10 @@ when those came from 0.31a2 (6dedabe), revived beside the core (#24) and then fo
 scripts/weapons-069d-donor.py <survey vostok-port> full069.split paths069.txt LIST akmsu famas g3a3 mauser ks_23 ppsh_drum
 vostok-port extract-bundle --db full069.split $(sed 's/^/--prefix /' LIST) --output TREE
 cargo run --release --example pack-donor-tree -- TREE/overlay donor.db
-# 2. The bundle over what packs are composed over (the stock db and skhid-srp's base patches),
-#    then its lobby icons.
+# 2. The bundle over what packs are composed over (the stock db and skhid-srp's base patches).
 vostok-port port-weapons-069d --manifest ports/weapons-069d.json \
   --donor-spec ports/donor-weapons-069d.json --donor donor.db \
   --target-db STOCK --target-patch resources.db.patch_12 ... --output B
-scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu.swf>
 ```
 
 ## What the donor does (0.69d0 only)
@@ -71,6 +69,7 @@ scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu
   builds ship with the same layout (`convert.rs`); the curves applied before to the DXT endpoints
   left the blocks they collapsed raw (raw metalness as Fresnel: 2 to 3 times stock).
 * **New rounds** are the core manifest's `ammo_items`.
-* **Icons.** `icons-069d.json` lists each gun's model and cell and each round's; the renderer
-  draws the converted meshes (right side, muzzle right, pistols at 0.6), exposure matched to
-  native rifle icons; a new round takes a live round's icon (`icon_like`).
+* **Icons.** Each gun's lobby cell is 0.69d0's own icon (`weapon_<y>_<x>.png` of its
+  `ui_desc.icon`) through the core's `lobby_icon`; 0.69d0 draws them diagonally in a 128x128
+  square, so the donor serves them level (mirrored, turned by the art's own axis, muzzle
+  right, `convert::level_lobby_icon`) and the core's `cell_png` fits them.

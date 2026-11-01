@@ -454,6 +454,139 @@ pub fn set_event_values(clip: &mut [u8], name: &str, values: &[u8]) -> Result<()
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Lobby icons
+// ---------------------------------------------------------------------------
+
+/// A 0.69d0 lobby icon (`weapon_<y>_<x>.png`: a 128x128 square, the gun
+/// drawn diagonally, muzzle up and to the left) as 0.26g draws its cells:
+/// level and muzzle right. Mirrored, then turned clockwise by the art's own
+/// angle (its principal axis, about 45 degrees), sampled bilinearly, and
+/// cropped to the art; the core's `cell_png` fits it into the cell.
+pub fn level_lobby_icon(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf)?;
+    ensure!(info.bit_depth == png::BitDepth::Eight, "icon is not 8-bit");
+    let channels = match info.color_type {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        other => bail!("icon colour type {other:?} after expansion"),
+    };
+    let (w, h) = (info.width as usize, info.height as usize);
+    // Premultiplied, mirrored.
+    let src: Vec<[f32; 4]> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (w - 1 - i % w, i / w);
+            let p = &buf[(y * w + x) * channels..(y * w + x + 1) * channels];
+            let a = if channels == 4 {
+                f32::from(p[3]) / 255.0
+            } else {
+                1.0
+            };
+            [
+                f32::from(p[0]) * a,
+                f32::from(p[1]) * a,
+                f32::from(p[2]) * a,
+                a,
+            ]
+        })
+        .collect();
+    // The art's principal axis (alpha-weighted).
+    let (mut sw, mut mx, mut my) = (0f64, 0f64, 0f64);
+    for (i, p) in src.iter().enumerate() {
+        let a = f64::from(p[3]);
+        sw += a;
+        mx += a * (i % w) as f64;
+        my += a * (i / w) as f64;
+    }
+    ensure!(sw > 0.0, "an empty icon");
+    let (mx, my) = (mx / sw, my / sw);
+    let (mut sxx, mut syy, mut sxy) = (0f64, 0f64, 0f64);
+    for (i, p) in src.iter().enumerate() {
+        let a = f64::from(p[3]);
+        let (dx, dy) = ((i % w) as f64 - mx, (i / w) as f64 - my);
+        sxx += a * dx * dx;
+        syy += a * dy * dy;
+        sxy += a * dx * dy;
+    }
+    // Screen coordinates (y down): the axis rises to the right at `-angle`.
+    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    ensure!(
+        (-60f64.to_radians()..=-30f64.to_radians()).contains(&angle),
+        "the icon's art lies at {:.0} degrees, not diagonally",
+        angle.to_degrees()
+    );
+    let turn = -angle; // clockwise on screen
+    let (s, c) = (turn.sin() as f32, turn.cos() as f32);
+    let side = ((w.max(h) as f32) * std::f32::consts::SQRT_2).ceil() as usize;
+    let (ox, oy) = (side as f32 / 2.0, side as f32 / 2.0);
+    let sample = |x: f32, y: f32| -> [f32; 4] {
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let mut out = [0f32; 4];
+        for (dx, dy, k) in [
+            (0, 0, (1.0 - fx) * (1.0 - fy)),
+            (1, 0, fx * (1.0 - fy)),
+            (0, 1, (1.0 - fx) * fy),
+            (1, 1, fx * fy),
+        ] {
+            let (xi, yi) = (x0 as i64 + dx, y0 as i64 + dy);
+            if xi < 0 || yi < 0 || xi >= w as i64 || yi >= h as i64 {
+                continue;
+            }
+            let p = src[yi as usize * w + xi as usize];
+            for (o, c) in out.iter_mut().zip(p) {
+                *o += c * k;
+            }
+        }
+        out
+    };
+    let mut turned = vec![[0f32; 4]; side * side];
+    for v in 0..side {
+        for u in 0..side {
+            // Inverse of the clockwise turn about the art's centre.
+            let (du, dv) = (u as f32 + 0.5 - ox, v as f32 + 0.5 - oy);
+            let x = du * c + dv * s + mx as f32;
+            let y = -du * s + dv * c + my as f32;
+            turned[v * side + u] = sample(x - 0.5, y - 0.5);
+        }
+    }
+    // Cropped to the art.
+    let opaque = |p: &[f32; 4]| p[3] > 2.0 / 255.0;
+    let rows: Vec<usize> = (0..side)
+        .filter(|&v| (0..side).any(|u| opaque(&turned[v * side + u])))
+        .collect();
+    let cols: Vec<usize> = (0..side)
+        .filter(|&u| (0..side).any(|v| opaque(&turned[v * side + u])))
+        .collect();
+    let (top, bottom) = (rows[0], rows[rows.len() - 1] + 1);
+    let (left, right) = (cols[0], cols[cols.len() - 1] + 1);
+    let (cw, ch) = (right - left, bottom - top);
+    let mut out_px = Vec::with_capacity(cw * ch * 4);
+    for v in top..bottom {
+        for u in left..right {
+            let p = turned[v * side + u];
+            let a = p[3].clamp(0.0, 1.0);
+            for c in &p[..3] {
+                let straight = if a > 0.0 { c / a } else { 0.0 };
+                out_px.push(straight.round().clamp(0.0, 255.0) as u8);
+            }
+            out_px.push((a * 255.0).round() as u8);
+        }
+    }
+    let mut out = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut out, cw as u32, ch as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header()?.write_image_data(&out_px)?;
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

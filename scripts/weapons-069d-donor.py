@@ -120,6 +120,8 @@ for g in guns:
     model(sv(c['object.model']))
     # The kill log icon of its ui_desc.combat_log_icon (icon_<n + 1>.png).
     add(f"flash_movies/textures/ui_icons/log/icon_{int(sv(c['ui_desc.combat_log_icon'])) + 1}.png")
+    # The lobby icon of its ui_desc.icon [x, y] (weapon_<y>_<x>.png).
+    add(f"flash_movies/textures/ui_icons/items/weapons/weapon_{int(sv(c['ui_desc.icon[1]']))}_{int(sv(c['ui_desc.icon[0]']))}.png")
     add(f"animations/skeletons/{sv(c['object.skeleton'])}.skeleton")
     for k, v in c.items():
         if re.match(r'(bundled|default)_modules\[\d+\]\.module$', k):

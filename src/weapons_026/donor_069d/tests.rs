@@ -315,3 +315,46 @@ fn a_repeated_suppressed_half_of_a_sound_list_goes() {
     let other = V::Indexed(vec![pair(257, "weapons/a"), pair(257, "weapons/b")]);
     assert_eq!(super::without_069d_only(&other), other);
 }
+
+#[test]
+fn a_diagonal_lobby_icon_comes_level_with_its_muzzle_right() {
+    // A 64x64 icon: a bar from (8, 8) (the muzzle, up left) to (55, 55),
+    // its muzzle end red.
+    let (w, h) = (64usize, 64usize);
+    let mut px = vec![0u8; w * h * 4];
+    for i in 8..56 {
+        for t in 0..3 {
+            let (x, y) = (i + t, i);
+            let at = (y * w + x) * 4;
+            px[at..at + 4].copy_from_slice(&if i < 16 {
+                [255, 0, 0, 255]
+            } else {
+                [0, 0, 255, 255]
+            });
+        }
+    }
+    let mut png_bytes = vec![];
+    {
+        let mut e = png::Encoder::new(&mut png_bytes, w as u32, h as u32);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        e.write_header().unwrap().write_image_data(&px).unwrap();
+    }
+    let out = super::convert::level_lobby_icon(&png_bytes).unwrap();
+    let mut d = png::Decoder::new(std::io::Cursor::new(&out[..]));
+    d.set_transformations(png::Transformations::EXPAND);
+    let mut r = d.read_info().unwrap();
+    let mut buf = vec![0; r.output_buffer_size()];
+    let info = r.next_frame(&mut buf).unwrap();
+    let (ow, oh) = (info.width as usize, info.height as usize);
+    assert!(ow > 4 * oh, "level: {ow}x{oh}");
+    // The red end is on the right.
+    let red_x: Vec<usize> = (0..ow * oh)
+        .filter(|&i| buf[i * 4 + 3] > 128 && buf[i * 4] > 200 && buf[i * 4 + 2] < 60)
+        .map(|i| i % ow)
+        .collect();
+    assert!(
+        !red_x.is_empty() && red_x.iter().all(|&x| x > ow / 2),
+        "{red_x:?}"
+    );
+}

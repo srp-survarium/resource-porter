@@ -967,6 +967,11 @@ impl Donor for Donor069 {
             .db
             .read(&source)
             .with_context(|| format!("reading donor {source}"))?;
+        // 0.69d0 draws its lobby icons diagonally; 0.26g's cells are level.
+        if path.starts_with("flash_movies/textures/ui_icons/items/weapons/") {
+            return convert::level_lobby_icon(&bytes)
+                .with_context(|| format!("levelling {source}"));
+        }
         if path.ends_with(".b-spline") {
             let mut clip =
                 clips::events_12_to_16(&bytes).with_context(|| format!("converting {source}"))?;
@@ -1011,8 +1016,7 @@ impl Donor for Donor069 {
 /// Builds a 0.69d0 port: the core's bundle ([`super::build`]) from
 /// [`Donor069`] (new rounds are the core manifest's `ammo_items`), then
 /// `donor-069d.json` (each gun's modules, baked or left out, and its attach
-/// points for the weapon kit), `equipment.json`, `icons-069d.json` (what
-/// `scripts/render-weapons-069d-icons.py` renders), and the check that every
+/// points for the weapon kit, its model), `equipment.json`, and the check that every
 /// carried clip drives its rig's bones.
 pub fn build_069d(
     port: &super::manifest::WeaponPort,
@@ -1040,31 +1044,21 @@ pub fn build_069d(
     let overlay = output.join("overlay");
     let mut target = ResourceDb::open_layers(target_layers)?;
 
-    // The record and the icons' list.
+    // The record.
     let mut guns = serde_json::Map::new();
-    let mut icons = vec![];
     for w in &port.weapons {
+        let cfg =
+            BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, &w.config)?)?)?.root;
+        let model = string_of(get(&cfg, "object.model"))?;
         guns.insert(
             w.name.clone(),
             serde_json::json!({
                 "donor_item": w.donor_item,
+                "model_root": format!("models/{model}.skinned_model"),
                 "modules": donor.modules().get(&w.donor_item),
                 "attach_points": donor.attach_points().get(&w.donor_item),
             }),
         );
-        let cfg =
-            BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, &w.config)?)?)?.root;
-        let model = string_of(get(&cfg, "object.model"))?;
-        let icon: Vec<i32> = list(get(&cfg, "ui_desc.icon"))
-            .iter()
-            .map(|v| int_of(Some(v)))
-            .collect::<Result<_>>()?;
-        icons.push(serde_json::json!({
-            "name": w.name,
-            "model_root": format!("models/{model}.skinned_model"),
-            "icon": icon,
-            "template": w.template,
-        }));
         check_clips(&cfg, &overlay, &mut target).with_context(|| w.name.clone())?;
         check_kit_ammo(w, &cfg, &dict_after(&overlay)?, &overlay, &mut target)
             .with_context(|| w.name.clone())?;
@@ -1072,10 +1066,6 @@ pub fn build_069d(
     fs::write(
         output.join("donor-069d.json"),
         serde_json::to_vec_pretty(&guns)?,
-    )?;
-    fs::write(
-        output.join("icons-069d.json"),
-        serde_json::to_vec_pretty(&serde_json::json!({"weapons": icons}))?,
     )?;
     let ids: Vec<serde_json::Value> = port
         .weapons
