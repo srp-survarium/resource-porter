@@ -155,8 +155,7 @@
    "template": "gameplay/items/weapons/wpn_pkp_pecheneg.options",
    "base_cost": 95000,
    "ammo": [
-    51,
-    52
+    2275
    ],
    "set": {
     "parameters.faction": 4,
@@ -191,7 +190,7 @@
     "donor_png": "flash_movies/textures/ui_icons/log/icon_80.png"
    },
    "notes": [
-    "peer: PKP Pecheneg; ammo 7.62x51 (live 51, 52), the rifle rounds",
+    "peer: PKP Pecheneg; ammo: the 7.62x51 belt of 100 (2275, made of the live 7.62x51), as the PKP takes its 7N13 belt",
     "muzzle_point (0, 0.0632, -0.6210); 0.46c2 fire_point -0.6833 (its brake is in the mesh), 0.69d0's -0.6331 (fort401_i05x28_muzzlebrake a module)"
    ]
   },
@@ -486,6 +485,30 @@
     "peer: Fort 17 (handling), the UMP45 (.45 ACP damage)",
     "muzzle_point = fire_point (0.0001, 0.0268, -0.1691); no device"
    ]
+  }
+ ],
+ "ammo": [
+  {
+   "name": "ammo_7.62x51_belt",
+   "dict_id": 2275,
+   "config": "gameplay/items/weapons/ammo/ammo_7.62x51_belt.options",
+   "round": "gameplay/items/weapons/ammo/ammo_7.62x51.options",
+   "template_row": "ammo_7.62x54_7n13",
+   "base_cost": 300,
+   "set": {
+    "parameters.clip_size": 100,
+    "parameters.clip_weight": 2.5,
+    "parameters.required_bags": 2,
+    "parameters.item_level": 14,
+    "parameters.match_making_level": 14,
+    "parameters.rarity.0.0": 200,
+    "parameters.rarity.0.1": 500,
+    "ui_desc.ammo_indicator_name": "st_srp_ammo_762x51_belt_name",
+    "ui_desc.text_descriptions.name": "st_srp_ammo_762x51_belt_name",
+    "ui_desc.text_descriptions.description": "st_srp_ammo_762x51_belt_description",
+    "ui_desc.props_list.2.prop_value": "100",
+    "ui_desc.props_list.3.prop_value": "2.5"
+   }
   }
  ]
 }
