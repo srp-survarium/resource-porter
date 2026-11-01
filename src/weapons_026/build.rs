@@ -293,6 +293,17 @@ impl<D: Donor> Carry<'_, D> {
                 let name = skeleton.trim_start_matches("resources/").to_owned();
                 self.file(&format!("{name}.skeleton"))?;
             }
+        } else if path.ends_with(".raw_options") {
+            // The sound's loudness curve: a preset 0.26g lacks (0.46c2's
+            // `main_3rd_view_suppressed`, on the Beretta's and Glock's
+            // shutters) left the sound cook a null config, read at
+            // exe+0x62731 (`sound_spl`, `spl`, `volume`): every match with
+            // the CZ 75, Beretta, Glock or Colt crashed at load. It ships
+            // from the donor, or the port stops.
+            if let Some(preset) = super::resources::spl_preset(root) {
+                self.file(&super::resources::spl_file(preset))
+                    .with_context(|| format!("{path}: its SPL preset {preset}"))?;
+            }
         } else if path.ends_with(".composite_sound") || path.ends_with(".sound_collection") {
             let items =
                 get(root, "composite_sound.sound_items").or(get(root, "collection.sound_items"));
