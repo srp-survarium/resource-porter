@@ -31,8 +31,14 @@ project's sha256 and each baked surface's placement index, model, surface and
 file sha256. `bake_lights` (lights as the project's: name, position, color,
 intensity, range, attenuation_power) are traced but put in no project (a light
 inside a stove for its glow: the engine would light the stove's outside from
-it); the probes traced are those inside `box`, each at its own place or at
-`probe_at`'s ({name: point}); the others are left as the pack has them.
+it); the probes traced are those inside `box`, each at the first unbaked
+zone's centre its box or radius holds (else its own place) or at `probe_at`'s ({name:
+point}); the others are left as the pack has them. `unbaked` ([{name, box:
+[min, max]}]) are the zones left to the engine (the characters' and the
+weapon's shadows fall only on what it lights): by default the squad's and
+the weapon's (zones.py). A baked surface is cut on them: the part inside is
+traced as a prop and recorded in scene.json's `unbaked` (its file, None when
+the whole surface is inside) for draw-lobby-bake to keep drawn as it was.
 """
 import hashlib
 import json
@@ -40,6 +46,9 @@ import math
 import os
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import zones as zoning  # noqa: E402
 
 PORT = os.environ.get("VOSTOK_PORT", "vostok-port")
 
@@ -192,6 +201,11 @@ def main(pack, db, out, spec_file=None):
         scene["project"] = {"path": os.path.relpath(project_file, os.path.join(pack, "files")),
                             "sha256": hashlib.sha256(open(project_file, "rb").read()).hexdigest()}
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])
+    zones = [] if "slice" in spec else spec.get("unbaked", zoning.default_zones(project))
+    if zones:
+        scene["unbaked"] = []
+        scene["zones"] = zones
+        os.makedirs(os.path.join(out, "zones"), exist_ok=True)
     for k, v in enumerate(indexed(project, "render_visuals")):
         name = v.get("visual_name") or v["lib_name"]
         if any(name.startswith(p) for p in left_out):
@@ -210,10 +224,25 @@ def main(pack, db, out, spec_file=None):
             scene["props"].append(dict(place, visual=name, surfaces=surfaces))
         else:
             for s in surfaces:  # each placement's surfaces its own, on pages of their own
-                scene["surfaces"].append(dict(
-                    s, name=f"{k:03d}_{name}/{s['name']}", place=place,
-                    sha256=hashlib.sha256((s["sha256"] + json.dumps(place)).encode()).hexdigest(),
-                    source={"index": k, "visual": name, "surface": s["name"], "sha256": s["sha256"]}))
+                source = {"index": k, "visual": name, "surface": s["name"], "sha256": s["sha256"]}
+                baked = dict(s, name=f"{k:03d}_{name}/{s['name']}", place=place,
+                             sha256=hashlib.sha256((s["sha256"] + json.dumps(place)).encode()).hexdigest(),
+                             source=source)
+                if zones and not s["material"]["transparent"] and "/fx/" not in s["material"]["name"]:
+                    part_in, part_out = zoning.split(open(s["file"], "rb").read(), place, zones)
+                    if part_in is not None:
+                        whole = part_out is None
+                        drawn = s["file"]
+                        if not whole:
+                            drawn = os.path.join(out, "zones", f"{k:03d}_{s['name']}_in")
+                            open(drawn, "wb").write(part_in)
+                            baked["file"] = os.path.join(out, "zones", f"{k:03d}_{s['name']}_out")
+                            open(baked["file"], "wb").write(part_out)
+                        scene["unbaked"].append(dict(source, file=None if whole else drawn))
+                        scene["props"].append(dict(place, visual=f"unbaked/{k:03d}", surfaces=[dict(s, file=drawn)]))
+                        if whole:
+                            continue
+                scene["surfaces"].append(baked)
     for o in indexed(project, "client_objects"):
         kind = o.get("game_object_type")
         name = o.get("full_name") or o.get("name")
@@ -228,8 +257,14 @@ def main(pack, db, out, spec_file=None):
             # by its object name: build-stk2-lobby-026's probe_cubes name it so
             scene["probes"].append({"name": o["name"], "position": o["position"]})
         elif kind == "environment_probe" and inside(spec, o["position"]):
-            # by its full name, which draw-lobby-bake finds it by
-            at = spec.get("probe_at", {}).get(name, o["position"])
+            # by its full name, which draw-lobby-bake finds it by; with zones,
+            # traced where the engine lights by it (the characters, the weapon):
+            # at the first zone's centre (the squad's before the weapon's) its
+            # box (position +- scale) or its radius holds
+            pos, half, radius = o["position"], o.get("scale") or [0.0] * 3, o.get("radius") or 0.0
+            held = [c for c in map(zoning.zone_centre, zones)
+                    if all(abs(c[i] - pos[i]) <= abs(half[i]) for i in range(3)) or math.dist(c, pos) <= radius]
+            at = spec.get("probe_at", {}).get(name, held[0] if held else pos)
             scene["probes"].append({"name": name, "position": o["position"], "trace_at": at})
         elif kind == "environment" and "outdoor" in spec:
             properties = {f[len("properties."):]: value for f, value in o.items() if f.startswith("properties.")}

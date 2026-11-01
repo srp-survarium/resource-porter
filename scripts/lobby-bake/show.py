@@ -6,6 +6,11 @@ The baked surfaces (baked.json's converted_models and 8-bit pages) emit their
 page times the multiplier and take no light; the merged surfaces left unbaked
 and the native props keep their lit materials under the bake's lights.
 Writes <scene dir>/renders/baked-<view>.png.
+
+--engine draws what the engine lights as it would (roughly): the lights'
+direct light only, and an ambient of the probe traced at the first unbaked
+zone (its mean radiance times the albedo), no bounce; the baked surfaces as
+before. Its renders, engine-<view>.png, show the seam at the unbaked zones.
 """
 import argparse
 import json
@@ -13,7 +18,9 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_lights, add_props, log, new_object, new_scene, page_material,  # noqa: E402
+import numpy as np  # noqa: E402
+
+from common import (Materials, _multiply, add_lights, add_props, log, new_object, new_scene, page_material,  # noqa: E402
                     read_model, read_placed, render, views)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -29,6 +36,7 @@ ap.add_argument("--skip-lights", default="sun,character_fill")
 ap.add_argument("--skip-props", default="_on")
 ap.add_argument("--exposure", type=float, default=0.0)
 ap.add_argument("--views", default="", help="comma-separated; all by default")
+ap.add_argument("--engine", action="store_true", help="what the engine lights: direct light and the probe's ambient")
 args = ap.parse_args(argv)
 D = args.scene
 scene_json = json.load(open(os.path.join(D, "scene.json")))
@@ -48,8 +56,40 @@ add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 bpy_scene = __import__("bpy").context.scene
 bpy_scene.cycles.use_denoising = False
+prefix = "baked"
+if args.engine:
+    prefix = "engine"
+    zones = scene_json.get("zones", [])
+    centre = [(zones[0]["box"][0][k] + zones[0]["box"][1][k]) / 2 for k in range(3)] if zones else None
+    traced = {p["name"]: p.get("trace_at") for p in scene_json.get("probes", [])}
+    ambient = [0.0, 0.0, 0.0]
+    for probe in baked.get("probes", []):
+        at = traced.get(probe["object"])
+        if centre and at and all(abs(at[k] - centre[k]) < 1e-6 for k in range(3)):
+            cube = np.fromfile(os.path.join(D, probe["file"]), dtype="<f4").reshape(-1, 3)
+            ambient = [float(v) for v in cube.mean(axis=0)]
+            log(f"engine: ambient {ambient} from probe {probe['object']}")
+            break
+    bpy_scene.cycles.max_bounces = 0
+    for m in materials.made.values():
+        nt = m.node_tree
+        bsdf = next((n for n in nt.nodes if n.type == "BSDF_DIFFUSE"), None)
+        if bsdf is None:
+            continue
+        colour = bsdf.inputs["Color"]
+        em = nt.nodes.new("ShaderNodeEmission")
+        if colour.links:
+            nt.links.new(_multiply(nt, colour.links[0].from_socket, ambient), em.inputs["Color"])
+        else:
+            em.inputs["Color"].default_value = [colour.default_value[k] * ambient[k] for k in range(3)] + [1.0]
+        add = nt.nodes.new("ShaderNodeAddShader")
+        targets = [link.to_socket for link in bsdf.outputs[0].links]
+        nt.links.new(bsdf.outputs[0], add.inputs[0])
+        nt.links.new(em.outputs[0], add.inputs[1])
+        for target in targets:
+            nt.links.new(add.outputs[0], target)
 wanted = [v for v in args.views.split(",") if v]
 for name, view in views(scene_json).items():
     if not wanted or name in wanted:
-        render(os.path.join(D, "renders"), f"baked-{name}.png", view, args.fov, args.samples, args.exposure)
+        render(os.path.join(D, "renders"), f"{prefix}-{name}.png", view, args.fov, args.samples, args.exposure)
 log("done")

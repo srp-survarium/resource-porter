@@ -6,8 +6,10 @@
 //! to the pack's files: the bake's pages become textures and black,
 //! unshiny materials that emit them (`set_baked`), the baked surfaces one
 //! model at the lobby's origin, and the project loses the placements the bake
-//! holds (a placement with surfaces the bake left as they were, glass and
-//! forward decals, keeps those in a model of their own), the projected decals
+//! holds (a placement with surfaces the engine still draws keeps those in a
+//! model of its own: glass and forward decals the bake left as they were, and
+//! the parts inside the unbaked zones, where the characters and the weapon
+//! cast their shadows: prep.py cut them out), the projected decals
 //! painted into the pages, and the ambient-light boxes inside the lobby (a
 //! bounce or a contact shadow the trace now makes); the probes the bake
 //! traced get its cubemaps. The pack's files nothing names any more are left
@@ -62,8 +64,13 @@ struct SceneJson {
     surfaces: Vec<SceneSurface>,
     #[serde(default)]
     decals: Vec<Named>,
+    /// The surfaces' parts inside the unbaked zones (prep.py).
+    #[serde(default)]
+    unbaked: Vec<UnbakedPart>,
     #[serde(default, rename = "box")]
     seen: Option<[[f32; 3]; 2]>,
+    #[serde(default)]
+    zones: Vec<Named>,
 }
 
 #[derive(Deserialize)]
@@ -88,17 +95,48 @@ struct SurfaceSource {
     sha256: String,
 }
 
+/// A surface's part the engine draws: the file prep.py cut (in the bake's
+/// folder), none for the whole surface.
+#[derive(Deserialize)]
+struct UnbakedPart {
+    #[serde(flatten)]
+    source: SurfaceSource,
+    file: Option<PathBuf>,
+}
+
 #[derive(Deserialize)]
 struct Named {
     name: String,
 }
 
-/// A placement the bake holds: its model's surfaces, and those it left as
-/// they are (drawn by the engine still).
+/// A placement the bake holds: its surfaces baked (whole or in part), and
+/// those, or their parts, the engine still draws.
 struct Placement {
     visual: String,
-    surfaces: BTreeSet<String>,
-    kept: BTreeSet<String>,
+    baked: BTreeSet<String>,
+    drawn: BTreeMap<String, Drawn>,
+}
+
+enum Drawn {
+    /// The model's own surface (glass, a forward decal, or one inside a zone).
+    Whole,
+    /// The part inside the unbaked zones: prep.py's file, in the bake's folder.
+    Part(PathBuf),
+}
+
+impl Placement {
+    /// What the engine still draws, if not the whole placement as it was.
+    fn engine_model(&self, index: usize, made: &str) -> Option<String> {
+        if self.baked.is_empty() || self.drawn.is_empty() {
+            return None;
+        }
+        Some(if self.drawn.values().all(|d| matches!(d, Drawn::Whole)) {
+            // the same surfaces of the same model: one model for every placement
+            format!("{made}/drawn/{}/{}", self.visual, self.drawn.keys().cloned().collect::<Vec<_>>().join("-"))
+        } else {
+            format!("{made}/drawn/{}_{index:03}", self.visual)
+        })
+    }
 }
 
 /// The input pack's files and the database under them.
@@ -177,14 +215,36 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
         );
         let placement = placements.entry(from.index).or_insert_with(|| Placement {
             visual: from.visual.clone(),
-            surfaces: BTreeSet::new(),
-            kept: BTreeSet::new(),
+            baked: BTreeSet::new(),
+            drawn: BTreeMap::new(),
         });
         ensure!(placement.visual == from.visual, "render_visuals[{}]: two models in the bake", from.index);
-        placement.surfaces.insert(from.surface.clone());
         if kept.contains(&surface.name) {
-            placement.kept.insert(from.surface.clone());
+            placement.drawn.insert(from.surface.clone(), Drawn::Whole);
+        } else {
+            placement.baked.insert(from.surface.clone());
         }
+    }
+    for part in &scene.unbaked {
+        let from = &part.source;
+        let file = format!("models/{}.model/render/{}/converted_model", from.visual, from.surface);
+        ensure!(
+            crate::content_pack::sha256_hex(&source.read(&file)?) == from.sha256,
+            "{file}: not the surface the bake was made of: bake the pack again"
+        );
+        let placement = placements.entry(from.index).or_insert_with(|| Placement {
+            visual: from.visual.clone(),
+            baked: BTreeSet::new(),
+            drawn: BTreeMap::new(),
+        });
+        ensure!(placement.visual == from.visual, "render_visuals[{}]: two models in the bake", from.index);
+        let drawn = part.file.as_ref().map_or(Drawn::Whole, |f| Drawn::Part(f.clone()));
+        ensure!(
+            placement.drawn.insert(from.surface.clone(), drawn).is_none(),
+            "render_visuals[{}]: {} drawn twice",
+            from.index,
+            from.surface
+        );
     }
 
     let version = options.version;
@@ -252,15 +312,14 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
     write_static_model(&lobby_model, "made by vostok-port draw-lobby-bake: a lobby's surfaces with their path-traced light", &surfaces, None, &templates, &mut pack)?;
 
     // A placement whose surfaces are all baked goes; one with surfaces the
-    // bake left (glass, forward decals) keeps those in a model of their own.
-    let mut kept_models = BTreeMap::new();
-    for placement in placements.values() {
-        if placement.kept.is_empty() || placement.kept == placement.surfaces || kept_models.contains_key(&placement.visual) {
-            continue;
+    // engine still draws keeps them in a model of their own.
+    let mut engine_models = BTreeSet::new();
+    for (index, placement) in &placements {
+        if let Some(name) = placement.engine_model(*index, &made)
+            && engine_models.insert(name.clone())
+        {
+            write_engine_model(&name, placement, options.bake_dir, &templates, &mut source, &mut pack)?;
         }
-        let name = format!("{made}/kept/{}", placement.visual);
-        write_kept_model(&name, placement, &templates, &mut source, &mut pack)?;
-        kept_models.insert(placement.visual.clone(), name);
     }
 
     // The project.
@@ -281,12 +340,12 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
             "render_visuals[{index}]: not {} as the bake saw it",
             placement.visual
         );
-        if placement.kept == placement.surfaces {
+        if placement.baked.is_empty() {
             new_visuals.push(visual);
-        } else if placement.kept.is_empty() {
+        } else if placement.drawn.is_empty() {
             removed += 1;
         } else {
-            let model = &kept_models[&placement.visual];
+            let model = placement.engine_model(index, &made).expect("a placement both baked and drawn");
             for field in ["lib_name", "visual_name"] {
                 if visual.named(field).is_some() {
                     visual.set_path(field, ConfigValue::String(model.clone()))?;
@@ -305,9 +364,10 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
     ]));
     project.root.set_path("render_visuals", ConfigValue::Indexed(new_visuals))?;
     notes.push(format!(
-        "drawn from a path-traced bake (scripts/lobby-bake, vostok-port draw-lobby-bake): {} pages, {} surfaces in {lobby_model}; {removed} placements baked away, {swapped} keeping their unbaked surfaces (glass, forward decals) in models of their own under {made}/kept",
+        "drawn from a path-traced bake (scripts/lobby-bake, vostok-port draw-lobby-bake): {} pages, {} surfaces in {lobby_model}; {removed} placements baked away, {swapped} keeping what the engine still draws (glass, forward decals, the parts in the unbaked zones: {}) in models of their own under {made}/drawn",
         baked.pages.len(),
-        surfaces.len()
+        surfaces.len(),
+        scene.zones.iter().map(|z| z.name.as_str()).collect::<Vec<_>>().join(", ")
     ));
 
     let decals: BTreeSet<&str> = scene.decals.iter().map(|d| d.name.as_str()).collect();
@@ -401,11 +461,13 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
     Ok(DrawReport { files: pack.paths.len(), notes })
 }
 
-/// A model of a placement's surfaces the bake left as they are: their files
-/// as the model has them, under the static template's settings.
-fn write_kept_model(
+/// A model of what the engine still draws of a placement: the model's own
+/// surfaces, or prep.py's parts of them in the unbaked zones (the surface's
+/// export properties with their counts), under the static template's settings.
+fn write_engine_model(
     name: &str,
     placement: &Placement,
+    bake_dir: &Path,
     templates: &StaticModelTemplates,
     source: &mut Source<'_>,
     pack: &mut PackWriter,
@@ -415,10 +477,30 @@ fn write_kept_model(
     let root = format!("models/{name}.model");
     pack.write(&format!("{root}/render/export_properties"), &source.read(&format!("{from}/render/export_properties"))?)?;
     let mut material_settings = Vec::new();
-    for surface in &placement.kept {
-        for path in source.under(&format!("{from}/render/{surface}")) {
-            let bytes = source.read(&path)?;
-            pack.write(&format!("{root}{}", &path[from.len()..]), &bytes)?;
+    for (surface, drawn) in &placement.drawn {
+        let folder = format!("{from}/render/{surface}");
+        match drawn {
+            Drawn::Whole => {
+                for path in source.under(&folder) {
+                    let bytes = source.read(&path)?;
+                    pack.write(&format!("{root}{}", &path[from.len()..]), &bytes)?;
+                }
+            }
+            Drawn::Part(file) => {
+                let mesh = fs::read(bake_dir.join(file)).with_context(|| format!("the bake: {}", file.display()))?;
+                let (vertices, indices) = (read_u32(&mesh, 8)?, {
+                    let at = 8 + usize::try_from(read_u32(&mesh, 4)?)?;
+                    read_u32(&mesh, at + 8)?
+                });
+                let mut properties = BinaryConfig::parse(&source.read(&format!("{folder}/export_properties"))?)?;
+                for (path, value) in [("source.vertices", vertices), ("source.indices", indices), ("source.primitives", indices / 3)] {
+                    if crate::content_pack::value::value_at(&properties.root, path).is_some() {
+                        properties.root.set_path(path, ConfigValue::Integer(i32::try_from(value)?))?;
+                    }
+                }
+                pack.write(&format!("{root}/render/{surface}/converted_model"), &mesh)?;
+                pack.config(&format!("{root}/render/{surface}/export_properties"), &properties)?;
+            }
         }
         let material = match crate::content_pack::value::value_at(
             &settings.root,
@@ -443,7 +525,7 @@ fn write_kept_model(
             "LOD0",
             ConfigValue::Named(vec![named(
                 "surfaces",
-                ConfigValue::Indexed(placement.kept.iter().map(|s| ConfigValue::String(s.clone())).collect()),
+                ConfigValue::Indexed(placement.drawn.keys().map(|s| ConfigValue::String(s.clone())).collect()),
             )]),
         )]),
     )?;

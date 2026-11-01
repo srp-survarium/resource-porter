@@ -350,9 +350,13 @@ def add_lights(scene_json, skip, match, bulb):
         if skipped(l["name"], skip) or not l["intensity"] or l.get("enabled") is False:
             continue
         # matched at `match`, or half its range for a short light (the
-        # engine's window is 0 at the range)
+        # engine's window is 0 at the range); with unbaked zones (prep.py),
+        # at the nearest zone's centre (a metre at least), so the engine's
+        # light on what it draws there meets the bake's at the seam
         r, p = l["range"], l["attenuation_power"]
-        at = min(match, 0.5 * r)
+        centres = [[(z["box"][0][k] + z["box"][1][k]) / 2 for k in range(3)] for z in scene_json.get("zones", [])]
+        near = max(1.0, min(math.dist(c, l["position"]) for c in centres)) if centres else match
+        at = min(near, 0.5 * r)
         window = max(1.0 - min(at * at / (r * r), 1.0), 1e-3) ** p
         power = 4 * math.pi ** 2 * at * at * l["intensity"] * window
         spot = l.get("light_type") == 1
