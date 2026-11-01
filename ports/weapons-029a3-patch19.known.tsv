@@ -1,0 +1,33 @@
+# Known differences of the tool's port of patch 19's 0.29a3 weapons (ports/weapons-029a3-patch19.json)
+# from patch 19's own files: path glob, key glob, which side is right (ours = the tool's, theirs =
+# patch 19's, either = both play the same or a free choice), why. `vostok-port compare-weapons` fails
+# on any difference this table does not explain. docs/weapons-026.md has the comparison's results.
+gameplay/items/weapons/wpn_*.options	melee.data.k_damage	ours	0.26g's melee (every native weapon: k_damage 1.5, a float); patch 19 wrote it as the integer 2 (the donor's field was an integer and took the native 1.5 rounded): its 21 new guns hit a third harder with the butt than any native gun
+gameplay/items/weapons/wpn_*.options	addons.mount	either	patch 19's scope system (#153) adds the weapon's rail kind for srp's scope fits; srp reads it from the fit variants, not the gun's config; a later edit, not the port's
+gameplay/items/weapons/wpn_aek_919k.options	parameters.available_modifications_mask	theirs	patch 19 left the fifth roll kind out for the AEK (the template's mask has it); a balance choice the port's manifest makes (set)
+gameplay/items/weapons/wpn_ak_12_premium.options	parameters.aim_offset	either	the donor's aim offset (0.26g reads aim_offset; the AK-12's own config has none), which patch 19 left out
+gameplay/items/weapons/wpn_uzi_premium_2.options	parameters.aim_offset	either	the donor's aim offset (0.26g reads aim_offset; the UZI's own config has none), which patch 19 left out
+gameplay/items/weapons/wpn_saiga_12*.options	parameters.aim_offset	either	the donor's aim offset (0.26g reads aim_offset), which patch 19 left out
+gameplay/items/weapons/wpn_saiga_12*.options	object.attach_point	either	the template's (the MP-153's) empty attach point; patch 19's template had none; an empty name attaches nowhere
+gameplay/items/weapons/wpn_vepr_12*.options	object.attach_point	either	the template's (the MP-153's) empty attach point; patch 19's template had none; an empty name attaches nowhere
+gameplay/items/weapons/wpn_saiga_12*.options	parameters.reload_*_time	either	the template's (a pump shotgun's) shell-reload times; only a shell reload state reads them, and these guns reload a magazine
+gameplay/items/weapons/wpn_vepr_12*.options	parameters.reload_*_time	either	the template's (a pump shotgun's) shell-reload times; only a shell reload state reads them, and these guns reload a magazine
+gameplay/items/weapons/wpn_saiga_12*.options	parameters.degrade_per_use	theirs	patch 19 took the durability of a rifle (0.0005), the tool its manifest's template's, the MP-153's (0.0012): the comparison manifest's template for a magazine shotgun should be a rifle's
+gameplay/items/weapons/wpn_vepr_12*.options	parameters.degrade_per_use	theirs	patch 19 took the durability of a rifle (0.0005), the tool its manifest's template's, the MP-153's (0.0012): the comparison manifest's template for a magazine shotgun should be a rifle's
+gameplay/items/weapons/wpn_neostead*.options	parameters.chamber_a_round_while_aiming	either	the donor's flag (0.26g reads it; the Remington 870 template has none), which patch 19 left out
+gameplay/items/weapons/wpn_izh_27_lancaster_premium_2.options	states.fire.user_animations*	either	a copy of the Lancaster takes the Lancaster's states (the tool); patch 19's fire state plays the hands' idle clip where the Lancaster plays its shot
+gameplay/items/weapons/wpn_mp7_silencer_special.options	user_animations_in_place.death*	either	the template's death poses (the donor's config has none, the MP7's have them); patch 19 left the key out (the game then plays the default poses)
+gameplay/items/weapons/wpn_rem_700_premium.options	ui_desc.props_list[6].prop_value	theirs	a bolt action's card rate is the native card's (32), not its rounds_per_minute (120); a port of a bolt action sets ui_desc.props_list.6.prop_value
+gameplay/items/weapons/wpn_vssk_camo.options	ui_desc.props_list[6].prop_value	theirs	a bolt action's card rate is the native card's (26), not its rounds_per_minute (250); a port of a bolt action sets ui_desc.props_list.6.prop_value
+gameplay/items/weapons/wpn_vssk_camo.options	ui_desc.props_list[7].prop_value	either	the weight printed 7 (the tool) or 7.0 (the VSSK's own card)
+material_instances/weapons/*.material	material.g_stage.effect.use_tspecular_power.value	either	patch 19's art retune: a specular power map on (the Vityaz's); the tool keeps the donor's material as its build drew it
+material_instances/weapons/*.material	material.g_stage.effect.texture_specular_power.value	either	patch 19's art retune: the Vityaz's specular power map for the donor's flat one
+material_instances/weapons/*.material	material.g_stage.effect.use_detail_nmap.value	either	patch 19's art retune: the shared detail normal map on
+material_instances/weapons/*.material	material.g_stage.effect.texture_detail_normal.value	either	patch 19's art retune: the shared detail normal map (det/weap_nmap)
+sounds/single/*.raw_options	options.pitch	either	0.29's pitch, which 0.26g's exe does not read (no "pitch" in it): left out by the tool, kept by patch 19; the sound plays the same
+sounds/single/*.raw_options	options.add_rms	either	0.29's add_rms, which 0.26g's exe does not read: left out by the tool, kept by patch 19
+models/weapons/*_camo*.skinned_model/render/*/converted_model	-	either	1 to 4 bytes of the packed vertex basis, 0xff and 0xfe swapped (one step of 1/255 in a tangent component), that patch 19 re-encoded; the shading is the same
+models/weapons/vsk_94/vsk_94_camo.skinned_model/render/*/converted_model	-	either	1 to 4 bytes of the packed vertex basis, 0xff and 0xfe swapped (one step of 1/255 in a tangent component), that patch 19 re-encoded; the shading is the same
+models/weapons/sks_camo/*.skinned_model/render/export_properties	*	either	patch 19 rounded the SKS skin's bounding box and locators to 1 mm (written back through a text form); the same places within 0.5 mm
+models/weapons/saiga_12s/saiga_12s_camo.skinned_model/settings	material_settings.saiga_12s_blocker_sg.material_name	theirs	patch 19 fixed the donor's empty material of the Saiga skin's blocker (a surface drawn with no material): the comparison manifest should carry it as a file_values fix
+gameplay/db_static_dictionaries	items_dict[id 22*].is_premium	theirs	the comparison manifest marks premium items (premium): generator's job

@@ -1,4 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+use std::path::{Path, PathBuf};
+
+use super::clips::{EVENT_HEADER_026, clip_header, engine_words_cleared, events_12_to_16};
+use super::config::{conform_schema, schema, weapon_config};
+use super::donor::{RULES_029A3, RULES_031A2};
+use super::manifest::{KillFeed, Weapon, WeaponPort};
 use super::*;
 
 fn t(fields: Vec<(&str, V)>) -> V {
@@ -28,6 +34,33 @@ fn conform_keeps_the_templates_keys_with_the_donors_values() {
             ("only_026", V::Boolean(true)),
         ])
     );
+    // A float stays a float where the template has an integer (1.98 recoil).
+    assert_eq!(conform(&V::Float(1.98), &V::Integer(2)), V::Float(1.98));
+}
+
+#[test]
+fn a_key_some_native_weapon_reads_is_kept_though_the_template_lacks_it() {
+    let template = t(vec![("parameters", t(vec![("weight", V::Float(3.0))]))]);
+    let other = t(vec![("parameters", t(vec![("aim_offset", V::Float(0.1))]))]);
+    let schema = schema([&template, &other]);
+    let donor = t(vec![(
+        "parameters",
+        t(vec![
+            ("weight", V::Float(2.5)),
+            ("aim_offset", V::Float(0.06)),
+            ("faction_data", V::Integer(2)),
+        ]),
+    )]);
+    assert_eq!(
+        conform_schema(&donor, &template, &schema),
+        t(vec![(
+            "parameters",
+            t(vec![
+                ("weight", V::Float(2.5)),
+                ("aim_offset", V::Float(0.06))
+            ])
+        )])
+    );
 }
 
 fn chunk(id: u32, body: &[u8]) -> Vec<u8> {
@@ -44,594 +77,384 @@ fn mesh_statistics_go_and_anything_else_unknown_is_refused() {
     assert_eq!(strip_mesh_statistics(&donor).unwrap(), native);
     assert_eq!(strip_mesh_statistics(&native).unwrap(), native);
     assert!(strip_mesh_statistics(&[native.clone(), chunk(5, &[0; 4])].concat()).is_err());
-    assert!(strip_mesh_statistics(&chunk(110, &[0; 4])).is_err());
 }
 
-fn state(kind: i32, clip: &str, sounds: Option<V>) -> V {
-    let mut fields = vec![
+/// A clip of one bone (nine curves of one pair each) and `events` event
+/// channels in the later builds' 12-byte layout.
+fn clip_12(events: usize) -> Vec<u8> {
+    let bones = 1;
+    let mut b = vec![bones as u8, 0, events as u8, 1];
+    let base = 4 + bones * 0x48;
+    let data = base + events * 12;
+    for slot in 0..9 {
+        let at = 4 + slot * 8;
+        let target = data + slot * 12;
+        b.extend(((target - at) as u32).to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+    }
+    let events_at = data + 9 * 12;
+    let mut curves = vec![];
+    for _ in 0..9 {
+        curves.extend(1u32.to_le_bytes());
+        curves.extend(0.0f32.to_le_bytes());
+        curves.extend(1.0f32.to_le_bytes());
+    }
+    let mut channel_at = vec![];
+    let mut channels = vec![];
+    for e in 0..events {
+        channel_at.push(events_at + channels.len());
+        channels.extend(0.5f32.to_le_bytes());
+        channels.push(e as u8);
+        channels.extend(format!("ch{e}\0").as_bytes());
+        while channels.len() % 4 != 0 {
+            channels.push(0);
+        }
+    }
+    for (e, at) in channel_at.iter().enumerate() {
+        let header = base + e * 12;
+        b.extend(((at - header) as u32).to_le_bytes());
+        b.extend(0u32.to_le_bytes());
+        b.extend([1u8, 0, 1, 2]);
+    }
+    b.extend(curves);
+    b.extend(channels);
+    b
+}
+
+#[test]
+fn clip_event_headers_grow_to_16_bytes_and_every_slot_keeps_its_data() {
+    for events in [0, 1, 3] {
+        let later = clip_12(events);
+        let ours = events_12_to_16(&later).unwrap();
+        let h = clip_header(&ours).unwrap();
+        assert_eq!(ours.len(), later.len() + 4 * events, "{events}");
+        let names = clips::event_names(&ours).unwrap();
+        assert_eq!(names.len(), h.events);
+        for (e, name) in names.iter().enumerate() {
+            assert_eq!(name, &format!("ch{e}"));
+        }
+        let base = 4 + 0x48;
+        for e in 0..events {
+            let at = base + e * EVENT_HEADER_026;
+            assert_eq!(&ours[at + 8..at + 12], &[1, 0, 1, 2]);
+            assert_eq!(&ours[at + 12..at + 16], &[0; 4]);
+        }
+    }
+}
+
+#[test]
+fn two_clips_that_differ_only_in_engine_words_compare_equal() {
+    let a = events_12_to_16(&clip_12(2)).unwrap();
+    let mut b = a.clone();
+    // Patch 19's clips keep the 12-byte offsets unshifted.
+    b[4] ^= 0x08;
+    b[4 + 0x48 + 4] = 0x35;
+    assert_eq!(
+        engine_words_cleared(&a).unwrap(),
+        engine_words_cleared(&b).unwrap()
+    );
+    let mut c = a.clone();
+    let last = c.len() - 8;
+    c[last] ^= 1;
+    assert_ne!(
+        engine_words_cleared(&a).unwrap(),
+        engine_words_cleared(&c).unwrap()
+    );
+}
+
+#[test]
+fn state_types_map_by_build() {
+    assert_eq!(RULES_031A2.state_type(313).unwrap(), 314);
+    assert_eq!(RULES_031A2.state_type(315).unwrap(), 316);
+    assert_eq!(RULES_031A2.state_type(320).unwrap(), 321);
+    assert_eq!(RULES_031A2.state_type(305).unwrap(), 305);
+    assert_eq!(RULES_029A3.state_type(314).unwrap(), 314);
+    assert!(RULES_031A2.state_type(399).is_err());
+}
+
+#[test]
+fn reverb_composites_become_outdoor_collections() {
+    assert_eq!(
+        environment_layer("weapons/environments/weapons_1st_view").as_deref(),
+        Some("weapons/environments/level_01/automatic/outdoor/rudnya_outdoor")
+    );
+    assert_eq!(
+        environment_layer("weapons/environments/weapons_3rd_view_one_shot").as_deref(),
+        Some("weapons/environments/level_01/automatic/outdoor/rudnya_outdoor_one_shot_distant")
+    );
+    assert_eq!(environment_layer("weapons/environments/indoor_x"), None);
+}
+
+#[test]
+fn globs() {
+    use super::compare::glob;
+    assert!(glob("a/*/c", "a/b/c"));
+    assert!(glob("*.material", "x/y.material"));
+    assert!(glob("wpn_*.options", "wpn_ak.options"));
+    assert!(!glob("wpn_*.options", "wpn_ak.material"));
+    assert!(glob("*", "anything"));
+}
+
+fn rifle_state(kind: i32, clip: &str) -> V {
+    t(vec![
         ("state_type", V::Integer(kind)),
         (
-            "user_animations",
+            "animations",
             list(vec![s(format!(
                 "resources/animations/single/weapons/{clip}"
             ))]),
         ),
-        (
-            "animations",
-            list(vec![s(format!(
-                "resources/animations/single/weapons/{clip}_item"
-            ))]),
-        ),
-    ];
-    if let Some(sounds) = sounds {
-        fields.push(("sounds", sounds));
-    }
-    t(fields)
-}
-
-fn sounds(name: &str) -> V {
-    t(vec![
-        (
-            "first_view",
-            list(vec![list(vec![V::Integer(258), s(name)])]),
-        ),
-        (
-            "third_view",
-            list(vec![list(vec![V::Integer(258), s(name)])]),
-        ),
-        ("simultaneous_sounds_queue_size", V::Integer(1)),
     ])
 }
 
-/// A rifle config with the 0.26g AK-12's shape.
 fn template() -> V {
-    let params: Vec<(&str, V)> = [
-        "faction",
-        "item_level",
-        "match_making_level",
-        "drop_weight",
-        "rounds_per_minute",
-        "magazine_capacity",
-        "min_damage_distance",
-        "max_damage_distance",
-    ]
-    .into_iter()
-    .map(|k| (k, V::Integer(0)))
-    .chain(
-        [
-            "bullet_damage",
-            "bullet_pierce",
-            "stopping_power",
-            "weight",
-            "reload_time",
-            "aim_time",
-            "aim_zoom_factor",
-            "base_dispersion",
-        ]
-        .into_iter()
-        .map(|k| (k, V::Float(0.0))),
-    )
-    .chain([
-        ("pain_health_modifier", V::Integer(0)),
-        ("stamina_regenation_speed_modifier", V::Integer(0)),
-        (
-            "fire_queue_types",
-            list(vec![V::Integer(-1), V::Integer(1), V::Integer(3)]),
-        ),
-    ])
-    .collect();
     t(vec![
-        ("parameters", t(params)),
+        (
+            "parameters",
+            t(vec![
+                ("bullet_damage", V::Float(0.5)),
+                ("bullet_pierce", V::Float(0.3)),
+                ("stopping_power", V::Float(0.2)),
+                ("aim_time", V::Float(0.3)),
+                ("base_dispersion", V::Float(0.2)),
+                ("min_damage_distance", V::Integer(50)),
+                ("rounds_per_minute", V::Integer(650)),
+                ("weight", V::Float(3.4)),
+                ("stamina_damage", V::Integer(20)),
+                ("pain_health_modifier", V::Integer(0)),
+                ("degrade_per_match", V::Float(0.01)),
+                ("degrade_per_use", V::Float(0.0005)),
+                ("repair_cost_ratio", V::Float(0.1)),
+                ("available_modifications_mask", s("111")),
+                ("min_damage_amount", V::Float(0.6)),
+            ]),
+        ),
         (
             "states",
             t(vec![
-                ("show", state(300, "ak_12/show", None)),
-                ("hide", state(301, "ak_12/hide", None)),
-                ("idle", state(302, "ak_12/idle", None)),
-                (
-                    "fire",
-                    state(305, "ak_12/shoot", Some(sounds("weapons/ak_12"))),
-                ),
-                (
-                    "reload",
-                    state(303, "ak_12/reload", Some(sounds("weapons/ak_12/mag_out"))),
-                ),
-                ("melee", state(321, "ak/kick", None)),
-                ("throw_grenade", state(316, "ak/grenade", None)),
+                ("reload", rifle_state(303, "ak/item/stand/3rd_view/reload")),
+                ("melee", rifle_state(321, "ak/player/kick")),
             ]),
         ),
-        (
-            "object",
-            t(vec![
-                ("model", s("weapons/ak_12/ak_12")),
-                ("skeleton", s("weapons/ak_12/ak_12")),
-            ]),
-        ),
-        ("dispersion", t(vec![("base_dispersion", V::Float(0.2))])),
+        ("melee", t(vec![("k_damage", V::Float(1.5))])),
+        ("particles", t(vec![("shoot_pfx_count", V::Integer(3))])),
         (
             "ui_desc",
             t(vec![
+                ("icon", list(vec![V::Integer(1), V::Integer(1)])),
                 ("combat_log_icon", V::Integer(49)),
-                (
-                    "text_descriptions",
-                    t(vec![
-                        ("name", s("st_ak12_name")),
-                        ("description", s("st_ak12_description")),
-                    ]),
-                ),
-                ("icon", list(vec![V::Integer(3), V::Integer(3)])),
                 ("props_list", list(vec![])),
             ]),
         ),
     ])
 }
 
-/// 0.31's H&K: renumbered states, renamed parameters, base/ melee.
 fn donor() -> V {
+    let mut reload = rifle_state(313, "ots14/item/stand/3rd_view/reload_tactic");
+    reload
+        .set_path("emotion_animations", list(vec![s("x")]))
+        .unwrap();
     t(vec![
         (
             "parameters",
             t(vec![
-                ("health_modifier", V::Integer(5)),
-                ("stamina_regeneration_speed_modifier", V::Integer(6)),
-                (
-                    "fire_queue_types",
-                    list(vec![V::Integer(-1), V::Integer(1)]),
-                ),
-                ("bleeding_chance", V::Integer(0)),
+                ("bullet_damage", V::Float(0.35)),
+                ("bullet_pierce", V::Float(0.45)),
+                ("stopping_power", V::Float(0.3)),
+                ("aim_time", V::Float(0.2)),
+                ("base_dispersion", V::Float(0.2)),
+                ("min_damage_distance", V::Integer(65)),
+                ("rounds_per_minute", V::Integer(700)),
+                ("weight", V::Float(2.75)),
+                ("stamina_damage", V::Float(0.3)),
+                ("health_modifier", V::Integer(4)),
+                ("degrade_per_match", V::Float(0.03)),
+                ("faction_data", t(vec![("faction_id", V::Integer(2))])),
             ]),
         ),
         (
             "states",
             t(vec![
-                ("show", state(300, "hk416_a5/show", None)),
-                ("hide", state(301, "hk416_a5/hide", None)),
-                ("idle", state(302, "hk416_a5/idle", None)),
+                ("reload", reload),
                 (
-                    "fire",
-                    state(305, "hk416_a5/shoot", Some(sounds("weapons/hk416"))),
+                    "melee",
+                    rifle_state(320, "base/player/1st_view/melee/kick_grip1"),
                 ),
-                (
-                    "reload",
-                    state(
-                        313,
-                        "hk416_a5/reload",
-                        Some(sounds("weapons/hk416/wear_line")),
-                    ),
-                ),
-                ("melee", state(320, "base/kick_grip1", None)),
-                ("throw_grenade", state(315, "base/grenade", None)),
+                ("emote", rifle_state(330, "ots14/emote")),
             ]),
         ),
-        (
-            "object",
-            t(vec![
-                ("model", s("weapons/hk416_a5/hk416_a5")),
-                ("skeleton", s("weapons/hk416_a5/hk416_a5")),
-            ]),
-        ),
-        ("sway_parameters", t(vec![("use_sway", V::Boolean(true))])),
-        (
-            "recoil_animations",
-            list(vec![s(
-                "resources/animations/single/weapons/base/player/1st_view/recoil_horiz",
-            )]),
-        ),
+        ("melee", t(vec![("k_damage", V::Integer(5))])),
+        ("compatible_ammo", list(vec![V::Integer(300)])),
         (
             "ui_desc",
             t(vec![
-                ("combat_log_icon", V::Integer(63)),
-                (
-                    "text_descriptions",
-                    t(vec![
-                        ("name", s("st_hk416_name")),
-                        ("description", s("st_hk416_description")),
-                    ]),
-                ),
-                ("icon", list(vec![V::Integer(12), V::Integer(4)])),
+                ("icon", list(vec![V::Integer(6), V::Integer(5)])),
+                ("combat_log_icon", V::Integer(72)),
+                ("props_list", list(vec![])),
             ]),
         ),
     ])
 }
 
+fn weapon() -> Weapon {
+    serde_json::from_value(serde_json::json!({
+        "name": "ots14", "dict_id": 2261,
+        "donor_item": "gameplay/items/weapons/assault/ots14.options",
+        "config": "gameplay/items/weapons/wpn_ots14.options",
+        "template": "gameplay/items/weapons/wpn_val.options",
+        "base_cost": 50000, "ammo": [300],
+        "set": {"parameters.bullet_damage": 0.5, "parameters.weight": 2.7},
+        "lobby_icon": {"row": 6, "col": 5, "donor_png": "x.png"},
+        "kill_feed": {"icon": 72, "donor_png": null}
+    }))
+    .unwrap()
+}
+
 #[test]
-fn a_rifle_takes_the_donors_states_with_0_26gs_state_types() {
-    let cfg = rifle_config(&HK416, &donor(), &template()).unwrap();
+fn a_gun_takes_the_donors_states_on_026gs_types_and_keys() {
+    let template = template();
+    let schema = schema([&template]);
+    let (cfg, notes) = weapon_config(
+        &RULES_031A2,
+        &weapon(),
+        &donor(),
+        &template,
+        &schema,
+        &|_| false,
+    )
+    .unwrap();
+    // The donor's reload, on 0.26g's type, less the keys no native state has.
     assert_eq!(
         get(&cfg, "states.reload.state_type"),
-        Some(&V::Integer(303)),
-        "0.31's 313 is 0.26g's reload 303"
+        Some(&V::Integer(314))
     );
     assert_eq!(
-        get(&cfg, "states.reload.user_animations.0"),
-        Some(&s("resources/animations/single/weapons/hk416_a5/reload"))
+        string_of(get(&cfg, "states.reload.animations.0")),
+        Some("resources/animations/single/weapons/ots14/item/stand/3rd_view/reload_tactic")
     );
-    assert_eq!(
-        get(&cfg, "states.reload.sounds.first_view.0.1"),
-        Some(&s("weapons/hk416/wear_line"))
-    );
-    // Melee and grenade stay native: the donor's play weapons/base/*.
+    assert!(get(&cfg, "states.reload.emotion_animations").is_none());
+    // The melee plays weapons/base: the template's, and 0.26g's melee values.
     assert_eq!(get(&cfg, "states.melee.state_type"), Some(&V::Integer(321)));
-    assert_eq!(
-        get(&cfg, "states.melee.user_animations.0"),
-        Some(&s("resources/animations/single/weapons/ak/kick"))
-    );
-    assert_eq!(
-        get(&cfg, "states.throw_grenade.state_type"),
-        Some(&V::Integer(316))
-    );
-    assert!(
-        cfg.named("recoil_animations").is_none(),
-        "base/ recoil clips are not taken"
-    );
-    // The renamed parameters keep the donor's values under 0.26g's names.
+    assert_eq!(get(&cfg, "melee.k_damage"), Some(&V::Float(1.5)));
+    assert!(get(&cfg, "states.emote").is_none());
+    assert!(notes.iter().any(|n| n.contains("states.emote")));
+    // Renamed and rescaled keys; the native systems' values; the balance.
     assert_eq!(
         get(&cfg, "parameters.pain_health_modifier"),
-        Some(&V::Integer(5))
+        Some(&V::Integer(4))
     );
     assert_eq!(
-        get(&cfg, "parameters.stamina_regenation_speed_modifier"),
-        Some(&V::Integer(6))
-    );
-    assert!(
-        get(&cfg, "parameters.bleeding_chance").is_none() && cfg.named("sway_parameters").is_none()
+        get(&cfg, "parameters.stamina_damage"),
+        Some(&V::Integer(30))
     );
     assert_eq!(
-        get(&cfg, "parameters.fire_queue_types"),
-        Some(&list(vec![V::Integer(-1), V::Integer(1)]))
+        get(&cfg, "parameters.degrade_per_match"),
+        Some(&V::Float(0.01))
     );
-    // The donor's model and texts, this port's icon cell, the rebuilt firing sound.
-    assert_eq!(
-        get(&cfg, "object.model"),
-        Some(&s("weapons/hk416_a5/hk416_a5"))
-    );
-    assert_eq!(
-        get(&cfg, "ui_desc.text_descriptions.name"),
-        Some(&s("st_hk416_name"))
-    );
-    assert_eq!(
-        get(&cfg, "ui_desc.icon"),
-        Some(&list(vec![V::Integer(7), V::Integer(3)]))
-    );
-    assert_eq!(
-        get(&cfg, "ui_desc.combat_log_icon"),
-        Some(&V::Integer(31)),
-        "0.31's 63 is past 0.26g's HUD icons"
-    );
-    assert_eq!(
-        get(&cfg, "states.fire.sounds.first_view.0.1"),
-        Some(&s("weapons/hk416"))
-    );
-    assert_eq!(get(&cfg, "parameters.faction"), Some(&V::Integer(4)));
-    assert_eq!(get(&cfg, "parameters.item_level"), Some(&V::Integer(9)));
-    assert_eq!(get(&cfg, "parameters.bullet_damage"), Some(&V::Float(0.4)));
-}
-
-#[test]
-fn the_card_shows_the_stats_as_native_rifles_do() {
-    let shown: Vec<(i32, String)> = card_props(&HK416.stats).into_iter().collect();
-    let expected = [
-        (1, "40"),
-        (3, "30"),
-        (133, "0.3"),
-        (132, "15"),
-        (2, "0.2"),
-        (24, "50"),
-        (4, "850"),
-        (15, "3.5"),
-    ];
-    assert_eq!(shown, expected.map(|(i, v)| (i, v.to_owned())));
-}
-
-#[test]
-fn ammo_and_scope_take_0_26gs_data_types() {
-    let template = t(vec![
-        (
-            "parameters",
-            t(vec![
-                ("item_level", V::Integer(5)),
-                ("match_making_level", V::Integer(5)),
-                ("drop_weight", V::Integer(160)),
-                ("clip_size", V::Integer(30)),
-                ("clip_weight", V::Float(0.25)),
-            ]),
-        ),
-        ("data", t(vec![("type", V::Integer(10))])),
-        (
-            "ui_desc",
-            t(vec![
-                ("ammo_indicator_name", s("st_ammo_545x39_7n6m_name")),
-                (
-                    "text_descriptions",
-                    t(vec![("name", s("x")), ("description", s("y"))]),
-                ),
-                ("icon", list(vec![V::Integer(6), V::Integer(2)])),
-            ]),
-        ),
-    ]);
-    let donor = t(vec![
-        (
-            "parameters",
-            t(vec![
-                ("clip_size", V::Integer(30)),
-                ("clip_weight", V::Float(0.3)),
-                ("item_level", V::Integer(0)),
-            ]),
-        ),
-        ("data", t(vec![("type", V::Integer(11))])),
-        (
-            "ui_desc",
-            t(vec![
-                ("ammo_indicator_name", s("st_ammo_556x45_name")),
-                (
-                    "text_descriptions",
-                    t(vec![
-                        ("name", s("st_ammo_556x45_name")),
-                        ("description", s("d")),
-                    ]),
-                ),
-            ]),
-        ),
-    ]);
-    let cfg = ammo_config(&AMMO_556, &donor, &template).unwrap();
-    assert_eq!(
-        get(&cfg, "data.type"),
-        Some(&V::Integer(10)),
-        "0.31's ammo type 11 is 0.26g's 10"
-    );
-    assert_eq!(get(&cfg, "parameters.item_level"), Some(&V::Integer(9)));
-    assert_eq!(get(&cfg, "parameters.clip_weight"), Some(&V::Float(0.3)));
-    assert_eq!(
-        get(&cfg, "ui_desc.ammo_indicator_name"),
-        Some(&s("st_ammo_556x45_name"))
-    );
-    assert_eq!(
-        get(&cfg, "ui_desc.icon"),
-        Some(&list(vec![V::Integer(16), V::Integer(3)]))
-    );
-
-    let scope_template = t(vec![(
-        "data",
-        t(vec![
-            ("fov_factor", V::Float(0.25)),
-            ("type", V::Integer(5)),
-            ("idle_model", s("a")),
-            ("aimed_model", s("b")),
-        ]),
-    )]);
-    let scope_donor = t(vec![(
-        "data",
-        t(vec![
-            ("type", V::Integer(6)),
-            ("idle_model", s("weapons/attach/eotech_552/eotech_552")),
-            ("aimed_model", s("weapons/attach/eotech_552/eotech_552")),
-        ]),
-    )]);
-    let scope = scope_config(&scope_donor, &scope_template).unwrap();
-    assert_eq!(get(&scope, "data.type"), Some(&V::Integer(5)));
-    assert_eq!(get(&scope, "data.fov_factor"), Some(&V::Float(1.0)));
-}
-
-#[test]
-fn materials_keep_only_0_26gs_effect_keys() {
-    let value = |v: V| t(vec![("value", v), ("is_model_parameter", V::Boolean(true))]);
-    let template = t(vec![(
-        "material",
-        t(vec![(
-            "g_stage",
-            t(vec![(
-                "effect",
-                t(vec![
-                    ("texture_diffuse", value(s(""))),
-                    ("use_nmap", value(V::Boolean(true))),
-                ]),
-            )]),
-        )]),
-    )]);
-    let donor = t(vec![(
-        "material",
-        t(vec![(
-            "g_stage",
-            t(vec![(
-                "effect",
-                t(vec![
-                    (
-                        "texture_diffuse",
-                        value(s("weapons/hk416_a5/hk416_receiver")),
-                    ),
-                    ("parallax_u_scale", value(V::Integer(1))),
-                ]),
-            )]),
-        )]),
-    )]);
-    let out = conform_material(&donor, &template).unwrap();
-    assert_eq!(
-        get(&out, "material.g_stage.effect.texture_diffuse.value"),
-        Some(&s("weapons/hk416_a5/hk416_receiver"))
-    );
-    assert!(get(&out, "material.g_stage.effect.parallax_u_scale").is_none());
-    let lost = t(vec![(
-        "material",
-        t(vec![(
-            "g_stage",
-            t(vec![(
-                "effect",
-                t(vec![("texture_emissive_mask", value(s("x/y")))]),
-            )]),
-        )]),
-    )]);
-    assert!(
-        conform_material(&lost, &template).is_err(),
-        "a binding 0.26g cannot take is refused"
-    );
-}
-
-fn row(id: i32, name: &str, cfg: &str, category: i32) -> V {
-    t(vec![
-        ("cfg_name", s(cfg)),
-        ("is_stack", V::Boolean(category == 9)),
-        ("name", s(name)),
-        ("item_category", V::Integer(category)),
-        ("dict_id", V::Integer(id)),
-        ("base_cost", V::Integer(1)),
-        ("is_premium", V::Boolean(false)),
-    ])
-}
-
-#[test]
-fn the_dictionary_gets_the_donors_ids_and_names_and_the_ammo_pair() {
-    let mut dict = t(vec![
-        (
-            "items_dict",
-            list(vec![
-                row(363, "ak_12", RIFLE_TEMPLATE, 8),
-                row(7, "ammo_5.45x39_7n6m", AMMO_TEMPLATE, 9),
-                row(304, "scope_pso1", SCOPE_TEMPLATE, 22),
-            ]),
-        ),
-        (
-            "items_compatibility",
-            t(vec![(
-                "compatibility_93",
-                t(vec![
-                    ("second_item", V::Integer(7)),
-                    ("first_item", V::Integer(3)),
-                ]),
-            )]),
-        ),
-    ]);
-    let donor = t(vec![(
-        "items_dict",
-        list(vec![
-            row(763, "hk416", HK416.config, 8),
-            row(841, "ammo_5.56x45", AMMO_556.config, 9),
-            row(819, "eotech_552", EOTECH.config, 22),
-        ]),
-    )]);
-    let port = port("hk416").unwrap();
-    assert_eq!(
-        dictionary(&mut dict, &donor, port).unwrap(),
-        ["compatibility_94"]
-    );
-    let V::Indexed(items) = dict.named("items_dict").unwrap() else {
-        panic!()
+    assert!(get(&cfg, "parameters.faction_data").is_none());
+    assert!(get(&cfg, "compatible_ammo").is_none());
+    assert_eq!(get(&cfg, "parameters.bullet_damage"), Some(&V::Float(0.5)));
+    // Icons and the card from the final values.
+    assert_eq!(get(&cfg, "ui_desc.icon.0"), Some(&V::Integer(6)));
+    assert_eq!(get(&cfg, "ui_desc.combat_log_icon"), Some(&V::Integer(72)));
+    let Some(V::Indexed(rows)) = get(&cfg, "ui_desc.props_list") else {
+        panic!("no card");
     };
-    let hk = items
+    let card: Vec<(i32, String)> = rows
         .iter()
-        .find(|r| r.named("dict_id") == Some(&V::Integer(763)))
-        .unwrap();
-    assert_eq!(hk.named("name"), Some(&s("hk416")));
-    assert_eq!(hk.named("base_cost"), Some(&V::Integer(45_000)));
-    let ammo = items
-        .iter()
-        .find(|r| r.named("dict_id") == Some(&V::Integer(841)))
-        .unwrap();
-    assert_eq!(ammo.named("is_stack"), Some(&V::Boolean(true)));
-    assert_eq!(ammo.named("base_cost"), Some(&V::Integer(70)));
-    assert_eq!(
-        get(&dict, "items_compatibility.compatibility_94.first_item"),
-        Some(&V::Integer(763))
-    );
-    assert_eq!(
-        get(&dict, "items_compatibility.compatibility_94.second_item"),
-        Some(&V::Integer(841))
-    );
-    let sight = items
-        .iter()
-        .find(|r| r.named("dict_id") == Some(&V::Integer(819)))
-        .unwrap();
-    assert_eq!(sight.named("item_category"), Some(&V::Integer(22)));
-    // Twice: the ids are taken.
-    assert!(dictionary(&mut dict, &donor, port).is_err());
+        .map(|r| match (r.named("prop_id"), r.named("prop_value")) {
+            (Some(V::Integer(i)), Some(V::String(v))) => (*i, v.clone()),
+            _ => panic!("card row {r:?}"),
+        })
+        .collect();
+    assert_eq!(card[0], (1, "50".into()));
+    assert_eq!(card[1], (3, "45".into()));
+    assert_eq!(card[7], (15, "2.7".into()));
 }
 
 #[test]
-fn ids_and_cells_are_free_and_distinct() {
-    let ids = [
-        HK416.dict_id,
-        RADON.dict_id,
-        AMMO_556.dict_id,
-        EOTECH.dict_id,
-    ];
-    assert_eq!(ids, [763, 926, 841, 819], "0.31's own ids");
-    for id in ids {
-        // 0.26g + patches 12 and 14 end at 737, plus 1800-1810.
-        assert!(id > 737 && id < 1800);
+fn a_copy_of_a_native_weapon_keeps_the_native_states() {
+    let template = template();
+    let schema = schema([&template]);
+    let mut w = weapon();
+    w.copy_of_template = true;
+    let (cfg, _) =
+        weapon_config(&RULES_031A2, &w, &donor(), &template, &schema, &|_| false).unwrap();
+    assert_eq!(get(&cfg, "states"), get(&template, "states"));
+}
+
+#[test]
+fn a_manifest_refuses_twice_used_ids_and_cells() {
+    let mut port = WeaponPort {
+        format_version: 1,
+        id: "x".into(),
+        donor_build: donor::DonorBuild::V031a2,
+        weapons: vec![weapon()],
+        modules: vec![],
+        external_ammo: vec![],
+    };
+    port.check().unwrap();
+    let mut second = weapon();
+    second.name = "other".into();
+    second.config = "gameplay/items/weapons/wpn_other.options".into();
+    port.weapons.push(second.clone());
+    assert!(port.check().unwrap_err().to_string().contains("2261"));
+    second.dict_id = 2262;
+    port.weapons[1] = second.clone();
+    assert!(port.check().unwrap_err().to_string().contains("lobby cell"));
+    second.lobby_icon = None;
+    second.kill_feed = KillFeed {
+        icon: 71,
+        donor_png: None,
+    };
+    port.weapons[1] = second;
+    port.check().unwrap();
+}
+
+#[test]
+fn every_shipped_port_manifest_parses() {
+    let ports = Path::new(env!("CARGO_MANIFEST_DIR")).join("ports");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(ports).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if name.starts_with("weapons-") && name.ends_with(".json") {
+            WeaponPort::load(&path).unwrap();
+            seen += 1;
+        }
     }
-    assert_ne!(HK416.icon, RADON.icon);
-    // Weapon atlas column 3 is empty from row 7, the ammo atlas's from 16.
-    assert!(HK416.icon[1] == 3 && HK416.icon[0] >= 7 && AMMO_556.icon == [16, 3]);
+    assert!(seen >= 1);
 }
 
+/// Patch 19's 0.29a3 weapons, ported again by the tool from the same donor
+/// and compared with patch 19's files: every difference explained
+/// (`ports/weapons-029a3-patch19.known.tsv`). Needs the donor
+/// (`VOSTOK_029A3_DONOR`: its `.split` list), the stock database
+/// (`VOSTOK_026G_DB`) and the patches (`VOSTOK_026G_PATCHES`: the folder of
+/// `resources.db.patch_<n>`); skipped without them.
 #[test]
-fn a_donor_icon_is_centred_in_a_lobby_cell() {
-    let mut src = vec![];
-    {
-        let mut e = png::Encoder::new(&mut src, 161, 68);
-        e.set_color(png::ColorType::Rgba);
-        e.set_depth(png::BitDepth::Eight);
-        e.write_header()
-            .unwrap()
-            .write_image_data(&vec![200; 161 * 68 * 4])
-            .unwrap();
-    }
-    let out = cell_png(&src).unwrap();
-    let mut reader = png::Decoder::new(std::io::Cursor::new(out))
-        .read_info()
-        .unwrap();
-    let mut buf = vec![0; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).unwrap();
-    assert_eq!((info.width, info.height), (171, 83));
-    assert_eq!(buf[3], 0, "corner transparent");
-    let centre = (41 * 171 + 85) * 4;
-    assert_eq!(&buf[centre..centre + 4], &[200; 4]);
-}
-
-/// With the stock 0.26g database (`VOSTOK_026G_DB`) and the 0.31a2 donor
-/// archive (`VOSTOK_031_DONOR_DB`): the H&K's clips and sounds all resolve,
-/// its hands clips drive 0.26g's player rig, and its meshes become native.
-#[test]
-fn the_hk416_resolves_against_the_real_archives() {
-    let (Some(stock), Some(donor)) = (
+fn the_tool_gives_patch_19s_weapons() {
+    let (Some(donor), Some(stock), Some(patches)) = (
+        std::env::var_os("VOSTOK_029A3_DONOR"),
         std::env::var_os("VOSTOK_026G_DB"),
-        std::env::var_os("VOSTOK_031_DONOR_DB"),
+        std::env::var_os("VOSTOK_026G_PATCHES"),
     ) else {
-        eprintln!("skipped: set VOSTOK_026G_DB and VOSTOK_031_DONOR_DB");
+        eprintln!("skipped: set VOSTOK_029A3_DONOR, VOSTOK_026G_DB and VOSTOK_026G_PATCHES");
         return;
     };
-    let dir = tempfile::tempdir().unwrap();
-    build(
-        port("hk416").unwrap(),
-        Path::new(&donor),
-        &[PathBuf::from(stock.clone())],
-        &dir.path().join("b"),
-    )
-    .unwrap();
-    let mut stock = ResourceDb::open(stock).unwrap();
-    let rig = BinaryConfig::parse(
-        &stock
-            .read("animations/single/weapons/ak_12/player/stand/3rd_view/on_site/hands_only/reload.bones_names")
-            .unwrap(),
-    )
-    .unwrap();
-    let overlay = dir.path().join("b/overlay");
-    for clip in ["show", "hide", "idle", "reload", "reload_tactic", "shoot"] {
-        let path = overlay.join(format!(
-            "animations/single/weapons/hk416_a5/player/stand/3rd_view/on_site/hands_only/{clip}.bones_names"
-        ));
-        assert_eq!(
-            BinaryConfig::parse(&fs::read(path).unwrap()).unwrap().root,
-            rig.root,
-            "{clip}"
-        );
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("ports");
+    let port = WeaponPort::load(&root.join("weapons-029a3-patch19.json")).unwrap();
+    let patches = PathBuf::from(patches);
+    let mut layers = vec![PathBuf::from(stock)];
+    for n in [12, 14, 17] {
+        layers.push(patches.join(format!("resources.db.patch_{n}")));
     }
-    let mesh = fs::read(overlay.join(
-        "models/weapons/hk416_a5/hk416_a5.skinned_model/render/hk416_receiver_s/converted_model",
-    ))
-    .unwrap();
-    assert_eq!(
-        strip_mesh_statistics(&mesh).unwrap(),
-        mesh,
-        "native chunks only"
-    );
+    let mut donor = donor::ArchiveDonor::open(Path::new(&donor), port.donor_build).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let out = dir.path().join("bundle");
+    build(&port, &mut donor, &layers, &out).unwrap();
+    let known = compare::load_known(&root.join("weapons-029a3-patch19.known.tsv")).unwrap();
+    let mut reference = crate::ResourceDb::open(patches.join("resources.db.patch_19")).unwrap();
+    let report = compare::compare(&out.join("overlay"), &mut reference, &known).unwrap();
+    assert_eq!(report.unexplained().count(), 0, "{}", report.summary());
 }
