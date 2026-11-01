@@ -185,7 +185,8 @@
      5
     ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_g3sg1_name",
-    "ui_desc.text_descriptions.description": "st_srp_weapon069_g3sg1_desc"
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_g3sg1_desc",
+    "user_animations_in_place.preview_item": "resources/animations/single/weapons/g3a3/item/stand/3rd_view/idle"
    },
    "from_template": [
     "breath_vibration",
@@ -204,7 +205,8 @@
    },
    "notes": [
     "G3SG/1: 7.62x51 semi-auto as the SOCOM 16, 0.69d0's +6 % damage, -20 % rate and burst of 3; 20 rounds, the real gun's as in 0.69d0 (the owner, 2026-11-01); level 15, Black Market",
-    "its own 0.69d0 rig and clips"
+    "its own 0.69d0 rig and clips",
+    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
    ]
   },
   {
@@ -241,7 +243,8 @@
      5
     ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_mauser_m712_name",
-    "ui_desc.text_descriptions.description": "st_srp_weapon069_mauser_m712_desc"
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_mauser_m712_desc",
+    "user_animations_in_place.preview_item": "resources/animations/single/weapons/mauser/item/stand/3rd_view/idle"
    },
    "from_template": [
     "breath_vibration",
@@ -260,7 +263,8 @@
    },
    "notes": [
     "Mauser M.712: an automatic pistol as the APS, 7.62x25's pierce, +17 % rate, half its magazine; the APS's level, Renaissance",
-    "its own 0.69d0 rig and clips; the aimed shots (_calim) left out"
+    "its own 0.69d0 rig and clips; the aimed shots (_calim) left out",
+    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
    ]
   },
   {
@@ -297,7 +301,8 @@
      5
     ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_ks_23m_name",
-    "ui_desc.text_descriptions.description": "st_srp_weapon069_ks_23m_desc"
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_ks_23m_desc",
+    "user_animations_in_place.preview_item": "resources/animations/single/weapons/ks_23/item/stand/3rd_view/idle"
    },
    "from_template": [
     "breath_vibration",
@@ -316,7 +321,8 @@
    },
    "notes": [
     "KS-23M: a pump as the Remington 870, 0.69d0's +7 % damage, chambering 0.75 s (+25 %), reload +5 %; level 7 with the Benelli and SPAS, Renaissance",
-    "its own 0.69d0 rig and clips; the empty-chamber start (reload_finalround) left out; its 23x75R round is the sidecar's"
+    "its own 0.69d0 rig and clips; the empty-chamber start (reload_finalround) left out; its 23x75R round is the sidecar's",
+    "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)"
    ]
   },
   {

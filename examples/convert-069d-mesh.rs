@@ -3,7 +3,10 @@
 //! inspection: `convert-069d-mesh <in> <bones> <out>`.
 fn main() -> anyhow::Result<()> {
     let a: Vec<String> = std::env::args().skip(1).collect();
-    let mesh = vostok_resource_porter::weapons_026::donor_069d::convert::skinned_069_to_026(&std::fs::read(&a[0])?, a[1].parse()?)?;
+    let mesh = vostok_resource_porter::weapons_026::donor_069d::convert::skinned_069_to_026(
+        &std::fs::read(&a[0])?,
+        a[1].parse()?,
+    )?;
     std::fs::write(&a[2], mesh.to_bytes()?)?;
     Ok(())
 }

@@ -313,15 +313,28 @@ impl<D: Donor> Carry<'_, D> {
     }
 
     /// The clips and sounds an item config names.
-    fn states(&mut self, cfg: &V) -> Result<()> {
+    /// The clips and sounds `cfg` names. A clip the template names that no
+    /// archive has (the stock pistols' `on_site/death_fwd`) stays named, as
+    /// in the stock config, and is noted.
+    fn states(&mut self, cfg: &V, template: &V, notes: &mut Vec<String>) -> Result<()> {
         let mut strings = vec![];
         cfg.collect_strings(&mut strings);
+        let mut theirs = vec![];
+        template.collect_strings(&mut theirs);
         let clips: Vec<String> = strings
             .into_iter()
             .filter(|c| c.starts_with("resources/animations/"))
             .map(str::to_owned)
             .collect();
         for c in clips {
+            let path = format!("{}.b-spline", c.trim_start_matches("resources/"));
+            if theirs.contains(&c.as_str())
+                && !self.target.contains(&path)
+                && !self.donor.contains(&path)
+            {
+                notes.push(format!("{c}: the template's, which no archive has"));
+                continue;
+            }
             self.clip(&c)?;
         }
         let mut lists = vec![];
@@ -610,7 +623,7 @@ pub fn build<D: Donor>(
             &foreign,
         )
         .with_context(|| w.name.clone())?;
-        report.notes.insert(w.config.clone(), notes);
+        let mut notes = notes;
         let model = string_of(get(&cfg, "object.model"))
             .context("object.model")?
             .to_owned();
@@ -619,7 +632,10 @@ pub fn build<D: Donor>(
             .context("object.skeleton")?
             .to_owned();
         carry.file(&format!("animations/skeletons/{skeleton}.skeleton"))?;
-        carry.states(&cfg).with_context(|| w.name.clone())?;
+        carry
+            .states(&cfg, &template, &mut notes)
+            .with_context(|| w.name.clone())?;
+        report.notes.insert(w.config.clone(), notes);
         configs.push((w, cfg));
     }
     let mut texts = BTreeSet::new();

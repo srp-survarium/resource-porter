@@ -3,8 +3,9 @@
 """Render the lobby icons of the ported 0.69d weapons from a built bundle.
 
 Requires numpy and Pillow. Reads the bundle's converted meshes and textures
-(the 0.26g files, after the albedo fit), its `port-manifest.json` (each item's
-model and icon cell) and the players' current `lobby_menu.swf` (the native
+(the 0.26g files, after the albedo fit), its `icons-069d.json` (each gun's
+model and icon cell, each new round's cell and the live round whose icon it takes;
+`vostok-port port-weapons-069d` writes it) and the players' current `lobby_menu.swf` (the native
 rifles' icons, for the exposure, and the cells, which must be empty). Writes
 each icon (right side, muzzle right, as the native weapons) as a
 straight-alpha PNG into `<bundle>/icons/` with `icons/icons.json`, which
@@ -256,7 +257,8 @@ def main():
     def cell(r, c):
         return (slice((r - 1) * PITCH, (r - 1) * PITCH + CELL_H), slice((c - 1) * CELL_W, c * CELL_W))
     target_luma = np.mean([mean_luma(rgba[cell(*rc)]) for rc in NATIVE_REFERENCE])
-    items = json.loads((args.bundle / 'port-manifest.json').read_text())['items']
+    listing = json.loads((args.bundle / 'icons-069d.json').read_text())
+    items = listing['weapons']
     listed = []
     for item in items:
         key, root, (r, c) = item['name'], item['model_root'], item['icon']
@@ -285,7 +287,7 @@ def main():
                 bg.convert('RGB').save(args.gallery / f'{key}-{name}.png')
     # New ammo: a live ammo's icon in a cell of its own (`icon_like`).
     _, _, ammo_argb = atlas(tags, AMMO_SYMBOL)
-    for ammo in json.loads((args.bundle / 'port-manifest.json').read_text()).get('ammo', []):
+    for ammo in listing['rounds']:
         (r, c), (lr, lc) = ammo['icon'], ammo['icon_like']
         assert ammo_argb[cell(r, c)][:, :, 0].max() == 0, f'ammo icon cell {r},{c} is taken'
         px = ammo_argb[cell(lr, lc)].astype(float)

@@ -10,7 +10,7 @@
 //! * configs re-encoded in 24-byte records; clips with 16-byte event headers
 //!   (the core's [`clips::events_12_to_16`]);
 //! * each gun's model ([`Gun069`], the port's donor sidecar
-//!   `ports/weapons-*.donor.json`) composed at 0.69d0's own model path: its
+//!   `ports/donor-weapons-*.json`) composed at 0.69d0's own model path: its
 //!   skinned surfaces widened to 0.26g's 36-byte vertices and its
 //!   **structural** modules baked in (receiver parts, stocks, pistol grips,
 //!   magazines, bolts, the bare barrel). Muzzle devices, foregrips, scopes and
@@ -102,7 +102,7 @@ pub struct Round069 {
     pub icon_like: String,
 }
 
-/// The donor sidecar of a 0.69d0 port (`ports/weapons-*.donor.json`).
+/// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Spec069 {
@@ -119,7 +119,11 @@ impl Spec069 {
             &fs::read(path).with_context(|| format!("reading {}", path.display()))?,
         )
         .with_context(|| format!("parsing {}", path.display()))?;
-        ensure!(spec.format_version == 1, "{}: format_version 1", path.display());
+        ensure!(
+            spec.format_version == 1,
+            "{}: format_version 1",
+            path.display()
+        );
         Ok(spec)
     }
 }
@@ -180,7 +184,9 @@ fn list(v: Option<&V>) -> &[V] {
 }
 
 fn db_config(db: &mut ResourceDb, path: &str) -> Result<V> {
-    let bytes = db.read(path).with_context(|| format!("reading donor {path}"))?;
+    let bytes = db
+        .read(path)
+        .with_context(|| format!("reading donor {path}"))?;
     Ok(BinaryConfig::parse(&bytes)
         .with_context(|| format!("parsing donor {path}"))?
         .root)
@@ -561,7 +567,10 @@ impl Donor069 {
         target: &mut ResourceDb,
     ) -> Result<BTreeSet<String>> {
         let w = self.weapon(item)?.clone();
-        let root = format!("models/{}.skinned_model", string_of(get(&w, "object.model"))?);
+        let root = format!(
+            "models/{}.skinned_model",
+            string_of(get(&w, "object.model"))?
+        );
         let bind_bytes = self.db.read(&format!("{root}/render/bind_pose"))?;
         let bind = bind_pose(&bind_bytes)?;
         let properties = db_config(&mut self.db, &format!("{root}/render/export_properties"))?;
@@ -582,10 +591,14 @@ impl Donor069 {
                     names == ours,
                     "{item}: the donor rig's bones {ours:?} are not {model}'s {names:?}"
                 );
-                let props =
-                    parse_config(target, &format!("{model}/render/export_properties"), "live rig")?
-                        .root;
-                let skeleton = parse_config(target, &format!("{model}/skeleton"), "live skeleton")?.root;
+                let props = parse_config(
+                    target,
+                    &format!("{model}/render/export_properties"),
+                    "live rig",
+                )?
+                .root;
+                let skeleton =
+                    parse_config(target, &format!("{model}/skeleton"), "live skeleton")?.root;
                 (live, Some(props), skeleton)
             }
             Rig::Donor => (
@@ -781,17 +794,29 @@ impl Donor069 {
                     V::Named(vec![field("max", V::Float3(b)), field("min", V::Float3(a))]),
                 ),
             ]);
-            self.put(format!("{root}/render/{name}/export_properties"), encode(props)?)?;
-            self.put(format!("{root}/render/{name}/converted_model"), mesh.to_bytes()?)?;
+            self.put(
+                format!("{root}/render/{name}/export_properties"),
+                encode(props)?,
+            )?;
+            self.put(
+                format!("{root}/render/{name}/converted_model"),
+                mesh.to_bytes()?,
+            )?;
         }
         let props = V::Named(vec![
             field("src_filename", s(format!("Survarium 0.69d0: {root}"))),
             field("type", V::Integer(40)),
             field("version", V::Integer(0)),
-            field("locators", V::Indexed(locs.iter().map(locator_value).collect())),
+            field(
+                "locators",
+                V::Indexed(locs.iter().map(locator_value).collect()),
+            ),
             field(
                 "bounding_box",
-                V::Named(vec![field("max", V::Float3(hi)), field("min", V::Float3(lo))]),
+                V::Named(vec![
+                    field("max", V::Float3(hi)),
+                    field("min", V::Float3(lo)),
+                ]),
             ),
         ]);
         self.put(format!("{root}/render/export_properties"), encode(props)?)?;
@@ -820,7 +845,10 @@ impl Donor069 {
                 .with_context(|| format!("{path}: {role}"))?
                 .to_owned();
             ensure!(!texture.is_empty(), "{path} binds no {role}");
-            material.set_path(&format!("material.g_stage.effect.{native}.value"), s(&texture))?;
+            material.set_path(
+                &format!("material.g_stage.effect.{native}.value"),
+                s(&texture),
+            )?;
             names.insert(role, texture);
         }
         for (role, _, curve) in MAP_ROLES {
@@ -831,7 +859,9 @@ impl Donor069 {
             }
             let bytes = self.db.read(&dds)?;
             let bytes = if role == "t_albedo" {
-                let metalness = self.db.read(&format!("textures/{}.dds", names["t_metalness"]))?;
+                let metalness = self
+                    .db
+                    .read(&format!("textures/{}.dds", names["t_metalness"]))?;
                 diffuse_dds(&bytes, &metalness, &dds, work)?
             } else {
                 match curve {
@@ -947,7 +977,8 @@ pub fn build_069d(
 
     // The new rounds.
     let dict_path = "gameplay/db_static_dictionaries";
-    let mut dict = BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, dict_path)?)?)?.root;
+    let mut dict =
+        BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, dict_path)?)?)?.root;
     let mut rounds = vec![];
     for round in &spec.rounds {
         let Some(V::Indexed(items)) = dict.named("items_dict") else {
@@ -959,9 +990,11 @@ pub fn build_069d(
             .with_context(|| format!("no {} row", round.template))?
             .clone();
         ensure!(
-            !items.iter().any(|v| v.named("dict_id") == Some(&V::Integer(round.dict_id))
-                || v.named("name") == Some(&s(&round.name))
-                || v.named("cfg_name") == Some(&s(&round.config))),
+            !items
+                .iter()
+                .any(|v| v.named("dict_id") == Some(&V::Integer(round.dict_id))
+                    || v.named("name") == Some(&s(&round.name))
+                    || v.named("cfg_name") == Some(&s(&round.config))),
             "round {} ({}) is taken",
             round.dict_id,
             round.name
@@ -969,27 +1002,22 @@ pub fn build_069d(
         let template_cfg = string_of(template_row.named("cfg_name"))?.to_owned();
         let mut cfg = parse_config(&mut target, &template_cfg, "live round")?.root;
         for (key, value) in &round.set {
-            super::config::set_typed(&mut cfg, key, value).with_context(|| format!("{}: {key}", round.name))?;
+            super::config::set_typed(&mut cfg, key, value)
+                .with_context(|| format!("{}: {key}", round.name))?;
         }
         cfg.set_path(
             "ui_desc.icon",
             V::Indexed(round.icon.iter().map(|v| V::Integer(*v as i32)).collect()),
         )?;
-        let icon_like = parse_config(
-            &mut target,
-            &format!(
-                "{}",
-                string_of(
-                    items
-                        .iter()
-                        .find(|v| v.named("name") == Some(&s(&round.icon_like)))
-                        .with_context(|| format!("no {} row", round.icon_like))?
-                        .named("cfg_name")
-                )?
-            ),
-            "live round",
+        let like_cfg = string_of(
+            items
+                .iter()
+                .find(|v| v.named("name") == Some(&s(&round.icon_like)))
+                .with_context(|| format!("no {} row", round.icon_like))?
+                .named("cfg_name"),
         )?
-        .root;
+        .to_owned();
+        let icon_like = parse_config(&mut target, &like_cfg, "live round")?.root;
         let like: Vec<i32> = list(get(&icon_like, "ui_desc.icon"))
             .iter()
             .map(|v| int_of(Some(v)))
@@ -1026,7 +1054,8 @@ pub fn build_069d(
                 "attach_points": donor.attach_points().get(&w.donor_item),
             }),
         );
-        let cfg = BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, &w.config)?)?)?.root;
+        let cfg =
+            BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, &w.config)?)?)?.root;
         let model = string_of(get(&cfg, "object.model"))?;
         let icon: Vec<i32> = list(get(&cfg, "ui_desc.icon"))
             .iter()
@@ -1055,12 +1084,20 @@ pub fn build_069d(
         .chain(spec.rounds.iter().map(|r| r.dict_id))
         .map(|id| serde_json::json!({"dict_id": id}))
         .collect();
-    fs::write(output.join("equipment.json"), serde_json::to_vec_pretty(&ids)?)?;
+    fs::write(
+        output.join("equipment.json"),
+        serde_json::to_vec_pretty(&ids)?,
+    )?;
     Ok(report)
 }
 
 /// Writes `path` into the overlay and its row of the port manifest's files.
-fn write_file(overlay: &Path, manifest: &mut serde_json::Value, path: &str, bytes: &[u8]) -> Result<()> {
+fn write_file(
+    overlay: &Path,
+    manifest: &mut serde_json::Value,
+    path: &str,
+    bytes: &[u8],
+) -> Result<()> {
     let dest = crate::archive::safe_join(overlay, path)?;
     fs::create_dir_all(dest.parent().unwrap())?;
     fs::write(&dest, bytes)?;
@@ -1088,22 +1125,34 @@ fn check_clips(cfg: &V, overlay: &Path, target: &mut ResourceDb) -> Result<()> {
     };
     let hands = clip_bones(&target.read(NATIVE_HANDS_CLIP)?)?;
     let model = string_of(get(cfg, "object.model"))?;
-    let bind = bind_pose(&read(&format!("models/{model}.skinned_model/render/bind_pose"), target)?)?;
+    let bind = bind_pose(&read(
+        &format!("models/{model}.skinned_model/render/bind_pose"),
+        target,
+    )?)?;
     let mut item: BTreeSet<String> = bind.into_iter().map(|(n, _)| n).collect();
     item.insert("object_movement".into());
     let mut strings = vec![];
     cfg.collect_strings(&mut strings);
-    for clip in strings.into_iter().filter(|c| c.starts_with("resources/animations/")) {
+    for clip in strings
+        .into_iter()
+        .filter(|c| c.starts_with("resources/animations/"))
+    {
         let path = clip.trim_start_matches("resources/");
         if !crate::archive::safe_join(overlay, &format!("{path}.b-spline"))?.is_file() {
             continue;
         }
         let bones = clip_bones(&read(&format!("{path}.bones_names"), target)?)?;
         if path.contains("/player/") {
-            ensure!(bones == hands, "{path} drives other bones than 0.26g's player rig");
+            ensure!(
+                bones == hands,
+                "{path} drives other bones than 0.26g's player rig"
+            );
         } else {
             let set: BTreeSet<String> = bones.iter().cloned().collect();
-            ensure!(set == item, "{path} drives {bones:?}, not the gun's {item:?}");
+            ensure!(
+                set == item,
+                "{path} drives {bones:?}, not the gun's {item:?}"
+            );
         }
     }
     Ok(())

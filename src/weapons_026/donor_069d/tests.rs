@@ -104,7 +104,10 @@ fn a_socket_turned_about_x_turns_its_module_the_other_way_in_mesh_space() {
     // The socket: the bone's bind translation plus the locator, x and z
     // negated (mesh space is half a turn about y from the bind frame).
     let at = socket(&loc, &[("magazin".into(), [0.0, -0.03, 0.25])]).unwrap();
-    assert!((at[1] + 0.05).abs() < 1e-6 && (at[2] - 0.27).abs() < 1e-6, "{at:?}");
+    assert!(
+        (at[1] + 0.05).abs() < 1e-6 && (at[2] - 0.27).abs() < 1e-6,
+        "{at:?}"
+    );
 }
 
 #[test]
@@ -142,7 +145,7 @@ fn the_sidecar_parses() {
 fn the_069d_port_and_its_sidecar_agree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("ports");
     let port = super::super::manifest::WeaponPort::load(&root.join("weapons-069d.json")).unwrap();
-    let spec = Spec069::load(&root.join("weapons-069d.donor.json")).unwrap();
+    let spec = Spec069::load(&root.join("donor-weapons-069d.json")).unwrap();
     assert_eq!(port.donor_build, DonorBuild::V069d0);
     for w in &port.weapons {
         assert!(spec.guns.contains_key(&w.donor_item), "{}", w.name);
@@ -152,6 +155,26 @@ fn the_069d_port_and_its_sidecar_agree() {
     for r in &spec.rounds {
         assert!((2253..=2259).contains(&r.dict_id), "{}", r.name);
     }
+}
+
+/// A clip with the engine's words cleared and the bytes after each event
+/// name's NUL, to four, zeroed: the exporter left whatever its memory held
+/// there.
+fn without_padding(b: &[u8]) -> Vec<u8> {
+    let mut out = clips::engine_words_cleared(b).unwrap();
+    for name in clips::event_names(b).unwrap() {
+        let needle = [name.as_bytes(), &[0]].concat();
+        let start = out
+            .windows(needle.len())
+            .rposition(|w| w == needle.as_slice())
+            .unwrap();
+        let mut at = start + needle.len();
+        while at % 4 != 0 && at < out.len() {
+            out[at] = 0;
+            at += 1;
+        }
+    }
+    out
 }
 
 /// With the stock 0.26g database (`VOSTOK_026G_DB`) and an archive of
@@ -178,8 +201,8 @@ fn shared_ak12_clips_convert_to_the_026g_bytes() {
         let native = stock.read(&path).unwrap();
         let converted = clips::events_12_to_16(&donor.read(&path).unwrap()).unwrap();
         assert_eq!(
-            clips::engine_words_cleared(&converted).unwrap(),
-            clips::engine_words_cleared(&native).unwrap(),
+            without_padding(&converted),
+            without_padding(&native),
             "{clip}"
         );
     }

@@ -238,7 +238,7 @@ enum Command {
     },
     /// A 0.69d0 weapon port: `port-weapons` with 0.69d0 as the donor (its
     /// guns' composed models, PBR materials) and its sidecar
-    /// (`ports/weapons-*.donor.json`: rigs, modules left out, new rounds).
+    /// (`ports/donor-weapons-*.json`: rigs, modules left out, new rounds).
     #[command(name = "port-weapons-069d")]
     PortWeapons069d {
         #[arg(long)]
