@@ -30,8 +30,15 @@ fn error(cause: resources_db::Error) -> anyhow::Error {
 }
 
 impl ResourceDb {
+    /// One archive, or a split build's volumes: a `.split` text file
+    /// naming them in mount order, one a line (0.29 to 0.69 ship
+    /// `resources.00.db` ..), read as layers.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::open_layers(&[path.as_ref().to_path_buf()])
+        let path = path.as_ref();
+        if path.extension().is_some_and(|e| e == SPLIT_EXTENSION) {
+            return Self::open_layers(&split_volumes(path)?);
+        }
+        Self::open_layers(&[path.to_path_buf()])
     }
 
     /// `paths` over one another, the first at the bottom: for each path the
@@ -483,4 +490,25 @@ mod tests {
         assert_eq!(written.read("n/new").unwrap(), b"added");
         assert_eq!(stats.size, fs::metadata(&output).unwrap().len());
     }
+}
+
+/// The extension of a split build's list of volumes.
+pub const SPLIT_EXTENSION: &str = "split";
+
+/// The volumes a `.split` file names, in mount order; a relative one is
+/// next to the list.
+pub fn split_volumes(path: &Path) -> Result<Vec<PathBuf>> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("reading split database list {}", path.display()))?;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let volumes: Vec<PathBuf> = text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| dir.join(l))
+        .collect();
+    if volumes.is_empty() {
+        bail!("{} names no volumes", path.display());
+    }
+    Ok(volumes)
 }

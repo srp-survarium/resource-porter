@@ -45,6 +45,9 @@ enum Command {
         db: PathBuf,
         #[arg(long, default_value = "")]
         prefix: String,
+        /// Also each file's size and stored CRC-32, tab-separated.
+        #[arg(long)]
+        long: bool,
     },
     /// Print archive metadata for one virtual resource path.
     Stat {
@@ -959,10 +962,13 @@ fn main() -> Result<()> {
             println!("unique_paths={}", archive.paths().count());
             println!("stored_bytes={stored_bytes}");
         }
-        Command::List { db, prefix } => {
+        Command::List { db, prefix, long } => {
             let archive = ResourceDb::open(db)?;
             for path in archive.paths_with_prefix(&prefix) {
-                println!("{path}");
+                match archive.entry(path).filter(|_| long) {
+                    Some((_, entry)) => println!("{path}\t{}\t{:08x}", entry.size, entry.hash),
+                    None => println!("{path}"),
+                }
             }
         }
         Command::Stat { db, path } => {
