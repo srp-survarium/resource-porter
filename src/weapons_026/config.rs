@@ -499,7 +499,14 @@ pub(crate) fn own_preview_item(cfg: &mut V, notes: &mut Vec<String>) -> Result<(
     }
     .context("preview_item: the idle state plays no item clip")?
     .to_owned();
-    if string_of(get(cfg, KEY)) != Some(idle.as_str()) {
+    // A pose of the gun's own (its lobby preview, 0.29a3's on_site idle)
+    // stays: a clip under the gun's own folder fits its skeleton.
+    let own = idle.find("/item/").map(|i| &idle[..=i]);
+    let current = string_of(get(cfg, KEY));
+    if current.is_some_and(|c| own.is_some_and(|own| c.starts_with(own))) {
+        return Ok(());
+    }
+    if current != Some(idle.as_str()) {
         notes.push(format!("{KEY}: the gun's idle {idle}"));
         cfg.set_path(KEY, s(&idle))?;
     }
