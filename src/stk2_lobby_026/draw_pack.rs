@@ -463,10 +463,14 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
     ]));
     project.root.set_path("render_visuals", ConfigValue::Indexed(new_visuals))?;
     notes.push(format!(
-        "drawn from a path-traced bake (scripts/lobby-bake, vostok-port draw-lobby-bake): {} pages, {} surfaces in {lobby_model}; {removed} placements baked away, {swapped} keeping what the engine still draws (glass, forward decals, the parts in the unbaked zones: {}) in models of their own under {made}/drawn",
+        "drawn from a path-traced bake (scripts/lobby-bake, vostok-port draw-lobby-bake): {} pages, {} surfaces in {lobby_model}; {removed} placements baked away, {swapped} keeping what the engine still draws (glass, forward decals{}) in models of their own under {made}/drawn",
         baked.pages.len(),
         surfaces.len(),
-        scene.zones.iter().map(|z| z.name.as_str()).collect::<Vec<_>>().join(", ")
+        if scene.zones.is_empty() {
+            String::new()
+        } else {
+            format!(", the parts in the unbaked zones: {}", scene.zones.iter().map(|z| z.name.as_str()).collect::<Vec<_>>().join(", "))
+        }
     ));
 
     let decals: BTreeSet<&str> = scene.decals.iter().map(|d| d.name.as_str()).collect();
@@ -509,9 +513,13 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
         scene.dropped_lights.len()
     );
     notes.push(format!(
-        "{} client objects left out: the {decals_out} projected decals painted into the pages, the {ambient_out} ambient-light boxes inside the lobby (the trace's bounce and shadows stand for them), the {lights_out} fill lights the bake left out ({})",
+        "{} client objects left out: the {decals_out} projected decals painted into the pages, the {ambient_out} ambient-light boxes inside the lobby (the trace's bounce and shadows stand for them), the {lights_out} fill lights the bake left out{}",
         before - objects.len(),
-        scene.dropped_lights.iter().cloned().collect::<Vec<_>>().join(", ")
+        if scene.dropped_lights.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", scene.dropped_lights.iter().cloned().collect::<Vec<_>>().join(", "))
+        }
     ));
     for (name, relit) in &scene.relit {
         let object = objects
