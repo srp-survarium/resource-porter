@@ -490,28 +490,6 @@ fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
     let V::Indexed(items) = dict.named_mut("items_dict").context("items_dict")? else {
         bail!("items_dict is not indexed");
     };
-    for a in &port.ammo {
-        let mut row = items
-            .iter()
-            .find(|v| string_of(v.named("name")) == Some(a.template_row.as_str()))
-            .with_context(|| format!("no dictionary row {}", a.template_row))?
-            .clone();
-        ensure!(
-            !items
-                .iter()
-                .any(|v| v.named("dict_id") == Some(&V::Integer(a.dict_id))
-                    || string_of(v.named("cfg_name")) == Some(a.config.as_str())
-                    || string_of(v.named("name")) == Some(a.name.as_str())),
-            "item {} ({}) is taken",
-            a.dict_id,
-            a.name
-        );
-        row.set_path("cfg_name", s(&a.config))?;
-        row.set_path("name", s(&a.name))?;
-        row.set_path("dict_id", V::Integer(a.dict_id))?;
-        row.set_path("base_cost", V::Integer(a.base_cost))?;
-        items.push(row);
-    }
     for w in &port.weapons {
         let mut row = items
             .iter()
@@ -707,15 +685,6 @@ pub fn build<D: Donor>(
     for (w, cfg) in &configs {
         texts.extend(text_keys(cfg));
         carry.config(&w.config, cfg.clone())?;
-    }
-    for a in &port.ammo {
-        ensure!(!carry.target.contains(&a.config), "{} exists", a.config);
-        let mut cfg = parse_config(carry.target, &a.round, "the round")?.root;
-        for (path, value) in &a.set {
-            super::config::set_typed(&mut cfg, path, value).with_context(|| a.name.clone())?;
-        }
-        texts.extend(text_keys(&cfg));
-        carry.config(&a.config, cfg)?;
     }
     let mut dict = parse_config(carry.target, DICT, "0.26g dictionary")?;
     let compat = dictionary(&mut dict.root, port)?;

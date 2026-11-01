@@ -397,7 +397,6 @@ fn a_manifest_refuses_twice_used_ids_and_cells() {
         weapons: vec![weapon()],
         modules: vec![],
         external_ammo: vec![],
-        ammo: vec![],
     };
     port.check().unwrap();
     let mut second = weapon();

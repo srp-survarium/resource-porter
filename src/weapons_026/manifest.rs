@@ -27,34 +27,6 @@ pub struct WeaponPort {
     /// target's dictionary): patch 19's own rounds, for its comparison.
     #[serde(default)]
     pub external_ammo: Vec<i32>,
-    /// New ammunition items: a live round in another unit (an MG's belt).
-    #[serde(default)]
-    pub ammo: Vec<AmmoItem>,
-}
-
-/// A new ammunition item made of a live one: a belt of 100 of a rifle
-/// round for a belt-fed gun, as the PKP's 7.62x54 7N13 belt (2204) is. A
-/// kit's ammo slot holds three bags, so a 100-round gun fed 10 or 30 rounds
-/// a unit starts short and can never reload a full box.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct AmmoItem {
-    /// Its `items_dict` name.
-    pub name: String,
-    pub dict_id: i32,
-    /// Where its config goes (`gameplay/items/weapons/ammo/<name>.options`).
-    pub config: String,
-    /// The live ammunition config it is made of: the round, its ballistics.
-    pub round: String,
-    /// The live item whose dictionary row it takes (category, stack): the
-    /// PKP's belt for a belt.
-    pub template_row: String,
-    /// Silver for one unit (its dictionary row's `base_cost`).
-    pub base_cost: i32,
-    /// Config values over the round's, by dotted path (the unit, levels,
-    /// texts, card).
-    #[serde(default)]
-    pub set: BTreeMap<String, serde_json::Value>,
 }
 
 /// One gun: a new item of 0.26g's.
@@ -193,11 +165,6 @@ impl WeaponPort {
         let mut names = std::collections::BTreeSet::new();
         let mut configs = std::collections::BTreeSet::new();
         let mut cells = std::collections::BTreeSet::new();
-        for a in &self.ammo {
-            ensure!(ids.insert(a.dict_id), "dict id {} twice", a.dict_id);
-            ensure!(names.insert(a.name.clone()), "{} twice", a.name);
-            ensure!(configs.insert(a.config.clone()), "{} twice", a.config);
-        }
         for w in &self.weapons {
             ensure!(ids.insert(w.dict_id), "dict id {} twice", w.dict_id);
             ensure!(names.insert(w.name.clone()), "{} twice", w.name);
