@@ -218,6 +218,39 @@ enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Port later builds' weapons to v0.26g from a port manifest
+    /// (`ports/weapons-*.json`; docs/weapons-026.md): a bundle for
+    /// `pack from-bundle`.
+    PortWeapons {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The donor build: a resources.db or a `.split` list of volumes.
+        #[arg(long)]
+        donor: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// The patches players have, in mount order.
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Compare a weapon bundle with files players have (a patch), file by
+    /// file; exits non-zero on an unexplained difference.
+    CompareWeapons {
+        #[arg(long)]
+        bundle: PathBuf,
+        /// The archive (or archives, laid over one another) to compare with.
+        #[arg(long, required = true)]
+        reference: Vec<PathBuf>,
+        /// Known differences (`ports/*.known.tsv`).
+        #[arg(long)]
+        known: Option<PathBuf>,
+        /// Writes every row here (TSV).
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
     /// Build a new-weapon overlay bundle from a declarative manifest.
     BuildWeapon {
         #[arg(long)]
@@ -1199,6 +1232,52 @@ fn main() -> Result<()> {
                 std::fs::write(output, json)?;
             } else {
                 println!("{json}");
+            }
+        }
+        Command::PortWeapons {
+            manifest,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::{donor::ArchiveDonor, manifest::WeaponPort};
+            let port = WeaponPort::load(&manifest)?;
+            let mut donor = ArchiveDonor::open(&donor, port.donor_build)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report =
+                vostok_resource_porter::weapons_026::build(&port, &mut donor, &layers, &output)?;
+            for (config, notes) in &report.notes {
+                for note in notes {
+                    println!("{config}: {note}");
+                }
+            }
+            println!(
+                "Built {}: {} files, {} reused from the target",
+                port.id, report.files, report.reused
+            );
+        }
+        Command::CompareWeapons {
+            bundle,
+            reference,
+            known,
+            report,
+        } => {
+            use vostok_resource_porter::weapons_026::compare;
+            let known = match known {
+                Some(path) => compare::load_known(&path)?,
+                None => Vec::new(),
+            };
+            let mut reference = ResourceDb::open_layers(&reference)?;
+            let result = compare::compare(&bundle.join("overlay"), &mut reference, &known)?;
+            if let Some(path) = report {
+                std::fs::write(path, result.tsv())?;
+            }
+            print!("{}", result.summary());
+            let unexplained = result.unexplained().count();
+            if unexplained > 0 {
+                anyhow::bail!("{unexplained} unexplained differences");
             }
         }
         Command::BuildWeapon {

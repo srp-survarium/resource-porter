@@ -73,6 +73,9 @@ fn validate_resource_pairs(
     paths: &BTreeSet<String>,
     changed: Option<&BTreeSet<String>>,
 ) -> Result<()> {
+    // 0.26g's sounds take `raw_options`, and a sound may have none (22 stock
+    // ones: the defaults); v0.100b's take `single_sound_options`.
+    let raw_options = paths.iter().any(|p| p.ends_with(".raw_options"));
     for path in paths {
         if changed.is_some_and(|changed| !changed.contains(path)) {
             continue;
@@ -83,11 +86,7 @@ fn validate_resource_pairs(
             Some(format!("{}.dds", path.trim_end_matches(".options")))
         } else if path.starts_with("sounds/single/") && path.ends_with(".high.ogg") {
             let stem = path.trim_end_matches(".high.ogg");
-            Some(if paths.contains(&format!("{stem}.raw_options")) {
-                format!("{stem}.raw_options")
-            } else {
-                format!("{stem}.single_sound_options")
-            })
+            (!raw_options).then(|| format!("{stem}.single_sound_options"))
         } else if path.starts_with("sounds/single/") && path.ends_with(".single_sound_options") {
             Some(format!(
                 "{}.high.ogg",
