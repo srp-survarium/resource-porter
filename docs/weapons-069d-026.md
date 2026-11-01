@@ -65,9 +65,11 @@ scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu
   `fire_point`), `scope_point` (the scope rail, else the aim), `handguard_point`, and the hand
   locators (`_idle`, `_lobby`, `_reload`, `_reload_pivot`).
 * **Materials.** 0.69d0 is metalness PBR. Each material the models draw is the native AK-12's
-  with four maps: diffuse `0.514 * (albedo * (1 - 0.8 * metalness)) ^ 0.75` (re-encoded DXT1),
-  gloss 0.36 x smoothness and Fresnel 0.162 x metalness^0.388 (both in the DXT endpoints), the
-  normal map as it is.
+  with four maps, each pixel mapped and the map encoded DXT1 again: diffuse
+  `0.76 * albedo * (1 - 0.5 * metalness)` (sRGB), gloss `0.36 * smoothness`, Fresnel
+  `0.08 + 0.09 * sqrt(metalness)`, the normal map as it is. Fitted on the ten texture sets both
+  builds ship with the same layout (`convert.rs`); the curves applied before to the DXT endpoints
+  left the blocks they collapsed raw (raw metalness as Fresnel: 2 to 3 times stock).
 * **New rounds** are the core manifest's `ammo_items`.
 * **Icons.** `icons-069d.json` lists each gun's model and cell and each round's; the renderer
   draws the converted meshes (right side, muzzle right, pistols at 0.6), exposure matched to
