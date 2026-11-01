@@ -21,7 +21,9 @@
 //! * [`donor_069d`]: 0.69d0 as a donor (its game.options items, its weapons'
 //!   models with their structural modules baked in, PBR materials fitted);
 //! * [`modules`]: attachable modules (scopes, flash hiders, muzzle brakes,
-//!   grips), placed at the gun's locators.
+//!   grips), placed at the gun's locators;
+//! * [`tactical`]: live guns' one-clip reloads as two-clip ones
+//!   (a donor's tactical clips, the live empty one).
 
 use crate::{ConfigValue as V, NamedValue};
 
@@ -35,6 +37,7 @@ pub mod icons;
 pub mod manifest;
 pub mod modules;
 pub mod resources;
+pub mod tactical;
 
 pub use build::{BuildReport, build, conform_material, environment_layer};
 pub use config::conform;

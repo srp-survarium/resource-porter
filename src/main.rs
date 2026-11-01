@@ -257,6 +257,25 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Live guns' one-clip reloads (0.26g's state 303) as two-clip ones
+    /// (314) with a donor's tactical clips, from a
+    /// `ports/tactical-reload-*.json`: a bundle for `pack from-bundle`.
+    #[command(name = "port-tactical-reload")]
+    PortTacticalReload {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The port's donor build: 0.29a3's `.split` or `resources.db`;
+        /// 0.69d0's archive of the files the reloads name, with
+        /// `gameplay/game.options` (`scripts/weapons-069d-donor.py --reload`).
+        #[arg(long)]
+        donor: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// A side view of a model's meshes (`<model>/render/*/converted_model`
     /// of a folder): a weapon's verification render.
     RenderWeapon {
@@ -1313,6 +1332,35 @@ fn main() -> Result<()> {
                 "Built {}: {} files, {} reused from the target",
                 port.id, report.files, report.reused
             );
+        }
+        Command::PortTacticalReload {
+            manifest,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::tactical;
+            let port = tactical::TacticalPort::load(&manifest)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let guns = tactical::build(&port, &donor, &layers, &output)?;
+            for g in &guns {
+                println!(
+                    "{} ({}): hands {:?}, item {:?}, donor sounds {}, rest {:.4} m {:.4} rad",
+                    g.config,
+                    g.donor_item,
+                    g.clips[0],
+                    g.clips[1],
+                    g.donor_sounds,
+                    g.rest[0],
+                    g.rest[1]
+                );
+                for note in &g.notes {
+                    println!("  note: {note}");
+                }
+            }
+            println!("Built {}: {} guns", port.id, guns.len());
         }
         Command::RenderWeapon {
             model,

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """The 0.69d0 files the ported weapons draw, as a list of paths.
 
-    weapons-069d-donor.py <vostok-port with split support> <0.69d0 .split> <paths069.txt> <out> <weapon key>..
+    weapons-069d-donor.py <vostok-port with split support> <0.69d0 .split> <paths069.txt> <out> [--reload] <weapon key>..
 
 Reads `gameplay/game.options` (each weapon's model, skeleton, bundled and
 default modules, clips and sounds) and follows models -> materials ->
@@ -12,6 +12,9 @@ per-location reverbs left out, as the port drops them), for
 
     vostok-port extract-bundle --db <split> --prefix <each path> --output TREE
     (cp gameplay/game.options in) ; cargo run --example pack-donor-tree -- TREE/overlay donor.db
+
+With --reload, only what each weapon's reload state names (its clips and
+sounds), for `vostok-port port-tactical-reload-069d`.
 """
 import collections
 import re
@@ -20,6 +23,8 @@ import sys
 
 P, SPLIT, PATHS, OUT = sys.argv[1:5]
 guns = sys.argv[5:]
+reload_only = '--reload' in guns
+guns = [g for g in guns if g != '--reload']
 paths = set(open(PATHS).read().split('\n'))
 
 
@@ -117,10 +122,14 @@ def sound(kind, name):
 
 for g in guns:
     c = cfg[g]
-    model(sv(c['object.model']))
-    # The kill log icon of its ui_desc.combat_log_icon (icon_<n + 1>.png).
-    add(f"flash_movies/textures/ui_icons/log/icon_{int(sv(c['ui_desc.combat_log_icon'])) + 1}.png")
-    add(f"animations/skeletons/{sv(c['object.skeleton'])}.skeleton")
+    if reload_only:
+        c = {k: v for k, v in c.items() if k.startswith('states.reload.')}
+    else:
+        model(sv(c['object.model']))
+    if not reload_only:
+        # The kill log icon of its ui_desc.combat_log_icon (icon_<n + 1>.png).
+        add(f"flash_movies/textures/ui_icons/log/icon_{int(sv(c['ui_desc.combat_log_icon'])) + 1}.png")
+        add(f"animations/skeletons/{sv(c['object.skeleton'])}.skeleton")
     for k, v in c.items():
         if re.match(r'(bundled|default)_modules\[\d+\]\.module$', k):
             md = mods[sv(v)]
