@@ -11,6 +11,8 @@
 //! is refused too, so a new kind of reference is never let through
 //! unchecked.
 
+use std::collections::BTreeSet;
+
 use anyhow::{Result, bail};
 
 use crate::ConfigValue as V;
@@ -45,6 +47,16 @@ pub fn sound_file(kind: i32, name: &str) -> Result<String> {
         258 => format!("sounds/collections/{name}.sound_collection"),
         other => bail!("sound {name} of unknown resource type {other}"),
     })
+}
+
+/// Every resource the native configs name, whether or not an archive has
+/// it (a native config's key of unknown kind is skipped: it is 0.26g's).
+pub fn native_references<'a>(natives: impl IntoIterator<Item = &'a V>) -> BTreeSet<String> {
+    natives
+        .into_iter()
+        .flat_map(|cfg| resource_files(cfg).unwrap_or_default())
+        .map(|(_, file)| file)
+        .collect()
 }
 
 /// The resources `cfg` names (archive paths, with the key naming each).
@@ -85,11 +97,19 @@ pub fn resource_files(cfg: &V) -> Result<Vec<(String, String)>> {
 }
 
 /// Refuses `cfg` when a resource it names is in neither the target nor the
-/// bundle (`exists`), listing every missing one.
-pub fn check_resources(name: &str, cfg: &V, exists: &dyn Fn(&str) -> bool) -> Result<()> {
+/// bundle (`exists`), listing every missing one; a reference the native
+/// configs already carry (`native`: the stock pistols' and AKs'
+/// `ak/.../on_site/death_fwd`, which no archive has) is 0.26g's own and
+/// allowed: only a new one is refused.
+pub fn check_resources(
+    name: &str,
+    cfg: &V,
+    exists: &dyn Fn(&str) -> bool,
+    native: &BTreeSet<String>,
+) -> Result<()> {
     let missing: Vec<String> = resource_files(cfg)?
         .into_iter()
-        .filter(|(_, file)| !exists(file))
+        .filter(|(_, file)| !exists(file) && !native.contains(file))
         .map(|(key, file)| format!("{key}: {file}"))
         .collect();
     if !missing.is_empty() {

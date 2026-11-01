@@ -59,7 +59,7 @@
    "template": "gameplay/items/weapons/wpn_ak_12.options",
    "base_cost": 125000,
    "ammo": [
-    2266,
+    2254,
     51,
     52
    ],
@@ -98,7 +98,7 @@
     "FN SCAR-H: the M4A1 scaled: 7.62x51 at 625 rpm, 20 rounds, damage 0.59 (the SOCOM 16 on the same round: 0.6) and pierce 0.4 (the SOCOM 16's: one round, one penetration; the owner, 2026-11-01), its kick the M4A1's times the donor's; level 15 (the donor 2 above its M4A1), Renaissance rank 10, priced with the level-15 automatics (AK-12 115,000, PKP 125,000)",
     "balance: scripts/weapons/peer_scale.py by the m4a1 (0.31a2 and live, rev 40)",
     "the muzzle flash fx/weapons/ak_74 (the donor's names one no 0.26g archive has, or the UZI's, barely visible): the M4A1's, the HK416's and the AK-12's",
-    "its own 7.62x51 in 20-round magazines (2266, a bag each, as 0.69d's own ammo_7.62x51_scar): the shared 7.62x51 is 10 a bag (the SOCOM 16's and the Rem 700's), 30 rounds a default kit, 1.5 of its magazines; the shared rounds stay usable"
+    "the 7.62x51 in clips of 20 (2254, ammo_7.62x51_20, a bag each, shared with batch 4's H&K G3SG/1): the shared 7.62x51 is 10 a bag (the SOCOM 16's and the Rem 700's), 30 rounds a default kit, 1.5 of its magazines; with it 60, 3 magazines; the shared rounds stay usable"
    ]
   },
   {
@@ -215,20 +215,24 @@
    "lobby_icon": null
   },
   {
-   "name": "ammo_7.62x51_scar",
-   "dict_id": 2266,
-   "config": "gameplay/items/weapons/ammo/ammo_7.62x51_scar.options",
+   "name": "ammo_7.62x51_20",
+   "dict_id": 2254,
+   "config": "gameplay/items/weapons/ammo/ammo_7.62x51_20.options",
    "template": "gameplay/items/weapons/ammo/ammo_7.62x51.options",
    "category": null,
    "base_cost": 300,
    "set": {
     "parameters.clip_size": 20,
     "parameters.clip_weight": 0.5,
-    "ui_desc.text_descriptions.name": "st_ammo_762x51_scar_name",
-    "ui_desc.text_descriptions.description": "st_ammo_762x51_scar_description",
-    "ui_desc.ammo_indicator_name": "st_ammo_762x51_scar_name"
+    "ui_desc.text_descriptions.name": "st_ammo_762x51_20_name",
+    "ui_desc.text_descriptions.description": "st_ammo_762x51_20_description",
+    "ui_desc.ammo_indicator_name": "st_ammo_762x51_20_name"
    },
-   "lobby_icon": null
+   "lobby_icon": {
+    "row": 21,
+    "col": 4,
+    "file": "icons/ammo_7.62x51_20.png"
+   }
   }
  ]
 }
