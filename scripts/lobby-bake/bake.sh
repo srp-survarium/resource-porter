@@ -12,13 +12,22 @@ set -euo pipefail
 manifest=$1 stk2=$2 db=$3 work=$4
 shift 4
 here=$(cd "$(dirname "$0")" && pwd)
+# LOBBY_BAKE_GPU=OPTIX|CUDA renders on the GPU (BLENDER: a Blender built with
+# it), one job at a time on the lock LOBBY_BAKE_GPU_LOCK
+blender() {
+    if [[ -n ${LOBBY_BAKE_GPU:-} ]]; then
+        flock "${LOBBY_BAKE_GPU_LOCK:-/mnt/hdd/Projects/lobby-bake/gpu.lock}" nice -n 19 "${BLENDER:-blender}" "$@"
+    else
+        nice -n 19 "${BLENDER:-blender}" "$@"
+    fi
+}
 port=${VOSTOK_PORT:-vostok-port}
 mkdir -p "$work"
 rm -rf "$work/lit" "$work/pack"
 "$port" build-stk2-lobby-026 --manifest "$manifest" --stk2-root "$stk2" --target-db "$db" \
     --output "$work/lit" --work "$work/textures" --lit
 VOSTOK_PORT=$port python3 "$here/prep.py" "$work/lit" "$db" "$work/bake"
-nice -n 19 blender -b --factory-startup --python "$here/bake.py" -- "$work/bake" "$@"
-nice -n 19 blender -b --factory-startup --python "$here/show.py" -- "$work/bake"
+blender -b --factory-startup --python "$here/bake.py" -- "$work/bake" "$@"
+blender -b --factory-startup --python "$here/show.py" -- "$work/bake"
 "$port" build-stk2-lobby-026 --manifest "$manifest" --stk2-root "$stk2" --target-db "$db" \
     --output "$work/pack" --work "$work/textures" --bake-dir "$work/bake"

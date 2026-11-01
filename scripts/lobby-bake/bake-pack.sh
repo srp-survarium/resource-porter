@@ -15,7 +15,16 @@ set -euo pipefail
 pack=$1 db=$2 spec=$3 work=$4
 shift 4
 here=$(cd "$(dirname "$0")" && pwd)
+# LOBBY_BAKE_GPU=OPTIX|CUDA renders on the GPU (BLENDER: a Blender built with
+# it), one job at a time on the lock LOBBY_BAKE_GPU_LOCK
+blender() {
+    if [[ -n ${LOBBY_BAKE_GPU:-} ]]; then
+        flock "${LOBBY_BAKE_GPU_LOCK:-/mnt/hdd/Projects/lobby-bake/gpu.lock}" nice -n 19 "${BLENDER:-blender}" "$@"
+    else
+        nice -n 19 "${BLENDER:-blender}" "$@"
+    fi
+}
 mkdir -p "$work"
 VOSTOK_PORT=${VOSTOK_PORT:-vostok-port} python3 "$here/prep.py" "$pack" "$db" "$work" "$spec"
-nice -n 19 blender -b --factory-startup --python "$here/bake.py" -- "$work" "$@"
-nice -n 19 blender -b --factory-startup --python "$here/show.py" -- "$work"
+blender -b --factory-startup --python "$here/bake.py" -- "$work" "$@"
+blender -b --factory-startup --python "$here/show.py" -- "$work"

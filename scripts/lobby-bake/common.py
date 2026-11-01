@@ -131,6 +131,20 @@ def new_scene(threads):
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
+    # LOBBY_BAKE_GPU=OPTIX (or CUDA): the GPU, with a Blender built with it
+    # (one GPU job at a time: bake-pack.sh and bake.sh hold a lock)
+    gpu = os.environ.get("LOBBY_BAKE_GPU")
+    if gpu:
+        prefs = bpy.context.preferences.addons["cycles"].preferences
+        prefs.compute_device_type = gpu
+        prefs.get_devices()
+        devices = [d for d in prefs.devices if d.type == gpu]
+        if not devices:
+            raise SystemExit(f"LOBBY_BAKE_GPU={gpu}: this Blender sees no such device")
+        for d in prefs.devices:
+            d.use = d.type == gpu
+        sc.cycles.device = "GPU"
+        log("GPU:", ", ".join(d.name for d in devices))
     sc.render.threads_mode = "FIXED"
     sc.render.threads = threads
     sc.cycles.use_denoising = True
@@ -140,6 +154,14 @@ def new_scene(threads):
     sc.cycles.transparent_max_bounces = 16
     sc.world = bpy.data.worlds.new("black")
     sc.world.color = (0, 0, 0)
+    # the colour above is the viewport's only: a new world renders its
+    # Background node, grey 0.05, which showed through every opening onto
+    # nothing (the classic lobby's window) and lit the rooms through it
+    if sc.world.node_tree is None:
+        sc.world.use_nodes = True
+    for n in sc.world.node_tree.nodes:
+        if n.type == "BACKGROUND":
+            n.inputs["Color"].default_value = (0, 0, 0, 1)
     sc.view_settings.view_transform = "Standard"
     sc.render.resolution_x, sc.render.resolution_y = 1280, 720
     return sc
@@ -319,6 +341,8 @@ def add_lights(scene_json, skip, match, bulb):
     (scene.json's `sun`, the environment's) matches the engine's at every
     distance (Cycles: albedo * S / pi * N.L), the sky is the world's
     radiance (a matte surface under it sends albedo x sky)."""
+    tint = scene_json.get("tint", [1.0, 1.0, 1.0])
+    warm = lambda c: [c[k] * tint[k] for k in range(3)]
     for l in scene_json["lights"]:
         if skipped(l["name"], skip) or not l["intensity"] or l.get("enabled") is False:
             continue
@@ -330,7 +354,7 @@ def add_lights(scene_json, skip, match, bulb):
         power = 4 * math.pi ** 2 * at * at * l["intensity"] * window
         spot = l.get("light_type") == 1
         light = bpy.data.lights.new(l["name"], "SPOT" if spot else "POINT")
-        light.color = l["color"][:3]
+        light.color = warm(l["color"])
         light.energy = power
         light.shadow_soft_size = bulb
         lo = bpy.data.objects.new(l["name"], light)
@@ -345,7 +369,7 @@ def add_lights(scene_json, skip, match, bulb):
     sun = scene_json.get("sun")
     if sun and sun["intensity"] and not skipped("environment_sun", skip):
         light = bpy.data.lights.new("environment_sun", "SUN")
-        light.color = sun["color"]
+        light.color = warm(sun["color"])
         light.energy = math.pi * sun["intensity"]
         light.angle = math.radians(1.0)
         lo = bpy.data.objects.new("environment_sun", light)
@@ -358,7 +382,7 @@ def add_lights(scene_json, skip, match, bulb):
         if world.node_tree is None:
             world.use_nodes = True
         background = next(n for n in world.node_tree.nodes if n.type == "BACKGROUND")
-        background.inputs["Color"].default_value = list(sky) + [1.0]
+        background.inputs["Color"].default_value = warm(sky) + [1.0]
         background.inputs["Strength"].default_value = 1.0
         log(f"sky: radiance {sky}")
 
@@ -398,3 +422,88 @@ def render(directory, name, view, fov, samples, exposure):
     t = time.time()
     bpy.ops.render.render(write_still=True)
     log(f"render {name}: {time.time() - t:.0f} s")
+
+
+def add_decals(scene_json):
+    """The projected decals painted into the albedo of the matte surfaces
+    their boxes reach (the engine writes them into the g-buffer's albedo, so
+    a bake must hold them: on a baked page's black albedo the engine would
+    light them on their own). A decal's box is half-extents (width, height,
+    depth) about its position along its local axes; its texture spans the
+    width and the height."""
+    def bounds(points):
+        return [min(p[k] for p in points) for k in range(3)], [max(p[k] for p in points) for k in range(3)]
+
+    for d in scene_json.get("decals", []):
+        if not d["diffuse"] or not d["alpha"]:
+            continue
+        box = bpy.data.objects.new(d["name"], None)
+        box.matrix_world = placement({"position": d["position"], "rotation": d["rotation"], "scale": d["extent"]})
+        bpy.context.scene.collection.objects.link(box)
+        lo, hi = bounds([box.matrix_world @ mathutils.Vector(c) for c in
+                         [(x, y, z) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]])
+        reached = set()
+        for ob in bpy.context.scene.objects:
+            if ob.type != "MESH":
+                continue
+            olo, ohi = bounds([ob.matrix_world @ mathutils.Vector(c) for c in ob.bound_box])
+            if all(olo[k] <= hi[k] and lo[k] <= ohi[k] for k in range(3)):
+                reached.update(m for m in ob.data.materials if m)
+        for m in reached:
+            nt = m.node_tree
+            bsdf = next((n for n in nt.nodes if n.type == "BSDF_DIFFUSE"), None)
+            if bsdf is None:
+                continue
+            colour = bsdf.inputs["Color"]
+            below = colour.links[0].from_socket if colour.links else None
+            coords = nt.nodes.new("ShaderNodeTexCoord")
+            coords.object = box
+            xyz = nt.nodes.new("ShaderNodeSeparateXYZ")
+            nt.links.new(coords.outputs["Object"], xyz.inputs[0])
+            # Blender's local (x, y, z) is the decal's (x, depth, height)
+            uv = nt.nodes.new("ShaderNodeCombineXYZ")
+            nt.links.new(xyz.outputs[0], uv.inputs[0])
+            nt.links.new(xyz.outputs[2], uv.inputs[1])
+            scaled = nt.nodes.new("ShaderNodeVectorMath")
+            scaled.operation = "MULTIPLY_ADD"
+            nt.links.new(uv.outputs[0], scaled.inputs[0])
+            scaled.inputs[1].default_value = (0.5, 0.5, 0.0)
+            scaled.inputs[2].default_value = (0.5, 0.5, 0.0)
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = image(d["diffuse"])
+            tex.extension = "CLIP"
+            nt.links.new(scaled.outputs[0], tex.inputs[0])
+            inside = nt.nodes.new("ShaderNodeVectorMath")  # max(|x|, |y|, |z|) <= 1
+            inside.operation = "ABSOLUTE"
+            nt.links.new(coords.outputs["Object"], inside.inputs[0])
+            parts = nt.nodes.new("ShaderNodeSeparateXYZ")
+            nt.links.new(inside.outputs[0], parts.inputs[0])
+            top = parts.outputs[0]
+            for k in (1, 2):
+                mx = nt.nodes.new("ShaderNodeMath")
+                mx.operation = "MAXIMUM"
+                nt.links.new(top, mx.inputs[0])
+                nt.links.new(parts.outputs[k], mx.inputs[1])
+                top = mx.outputs[0]
+            mask = nt.nodes.new("ShaderNodeMath")
+            mask.operation = "LESS_THAN"
+            mask.inputs[1].default_value = 1.0
+            nt.links.new(top, mask.inputs[0])
+            fac = nt.nodes.new("ShaderNodeMath")
+            fac.operation = "MULTIPLY"
+            nt.links.new(tex.outputs["Alpha"], fac.inputs[0])
+            nt.links.new(mask.outputs[0], fac.inputs[1])
+            weight = nt.nodes.new("ShaderNodeMath")
+            weight.operation = "MULTIPLY"
+            nt.links.new(fac.outputs[0], weight.inputs[0])
+            weight.inputs[1].default_value = d["alpha"]
+            mix = nt.nodes.new("ShaderNodeMix")
+            mix.data_type = "RGBA"
+            nt.links.new(weight.outputs[0], mix.inputs[0])
+            if below is not None:
+                nt.links.new(below, mix.inputs[6])
+            else:
+                mix.inputs[6].default_value = colour.default_value
+            nt.links.new(_multiply(nt, tex.outputs["Color"], d["colour"]), mix.inputs[7])
+            nt.links.new(mix.outputs[2], colour)
+        log(f"decal {d['name']}: on {len(reached)} materials")

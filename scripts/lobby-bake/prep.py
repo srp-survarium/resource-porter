@@ -21,7 +21,9 @@ left out of the trace (names, or prefixes ending in '/': the fills that only
 stand in for a bounce); `views` ({name: [eye, target]}) the views rendered;
 `eye` the point the texel density is highest around (the character's chest,
 (0, 1.2, 0) by default) and `box` ([min, max]) the space the lobby is seen in:
-a baked face outside it gets the fewest texels (bake.py --outside). Without a spec: the stk2 rule for slice "main".
+a baked face outside it gets the fewest texels (bake.py --outside); `tint`
+([r, g, b]) multiplies every light's colour, the sun's and the sky's (warmer
+light). Without a spec: the stk2 rule for slice "main".
 """
 import hashlib
 import json
@@ -115,6 +117,21 @@ def material(src, name):
     return out
 
 
+def decal(src, o):
+    """A projected decal: its box (half-extents width, height and depth
+    about its position, along its local x, y and z: decal_instance.cpp's
+    orthographic projection) and its material's albedo layer."""
+    v = src.config(f"material_instances/{o['decal_material']}.material")
+    get = lambda k, d=None: v.get(f"material.decals.effect.{k}.value", d)
+    texture = get("texture_diffuse", "")
+    return {
+        "name": o.get("full_name") or o["name"], "position": o["position"], "rotation": o["rotation"],
+        "extent": [o["decal_width"], o["decal_height"], o["decal_far_distance"]],
+        "diffuse": src.path(f"textures/{texture}.dds") if texture and get("use_tdiffuse", True) else None,
+        "colour": get("constant_diffuse", [1, 1, 1, 1])[:3], "alpha": get("diffuse_alpha", 1.0),
+    }
+
+
 def model(src, visual):
     if visual not in src.models:
         settings = src.config(f"models/{visual}.model/settings")
@@ -150,9 +167,9 @@ def main(pack, db, out, spec_file=None):
     folder = os.path.join(pack, "files/projects/lobby_scene")
     project_dir = next(d for d in sorted(os.listdir(folder)) if d != "vegetation")
     project = leaves(["dump-config", "--file", os.path.join(folder, project_dir, "client_project")])
-    scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "camera": {
+    scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
-    for field in ("views", "skip_lights", "eye", "box"):
+    for field in ("views", "skip_lights", "eye", "box", "tint"):
         if spec.get(field):
             scene[field] = spec[field]
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])
@@ -185,6 +202,8 @@ def main(pack, db, out, spec_file=None):
                 "position", "rotation", "color", "intensity", "range", "attenuation_power", "light_type",
                 "spot_umbra_angle", "spot_penumbra_angle", "spot_falloff", "is_cast_shadow", "enabled")}
             scene["lights"].append(dict(light, name=name))
+        elif kind == "decal" and o.get("projection_on_static_geometry", True):
+            scene["decals"].append(decal(src, o))
         elif kind == "environment_probe":
             scene["probes"].append({"name": name, "position": o["position"]})
         elif kind == "environment" and "outdoor" in spec:
@@ -197,6 +216,7 @@ def main(pack, db, out, spec_file=None):
         json.dump(scene, f, indent=1)
     through = sorted({s["material"]["name"] for s in scene["surfaces"] if s["material"]["transparent"]})
     print(f"scene: {len(scene['surfaces'])} surfaces, {len(scene['props'])} props, {len(scene['lights'])} lights,",
+          f"{len(scene['decals'])} decals,",
           f"{len(scene['probes'])} probes, sun {'yes' if 'sun' in scene else 'no'};",
           f"seen through: {', '.join(through) or 'none'}")
 

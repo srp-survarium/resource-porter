@@ -29,7 +29,7 @@ import mathutils
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import (Materials, add_lights, add_props, log, new_object, new_scene, read_placed,  # noqa: E402
+from common import (Materials, add_decals, add_lights, add_props, log, new_object, new_scene, read_placed,  # noqa: E402
                     render, to_b, views, write_model)
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -126,6 +126,7 @@ log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
     ", ".join(f"{sum(a for _, d, a, _ in chunks if d == v):.0f} m2 at {v:g} texels/m"
               for v in sorted({d for _, d, _, _ in chunks}, reverse=True)))
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
+add_decals(scene_json)  # into the pages: the baked pack leaves the decals out
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 
 for name, view in views(scene_json).items() if not args.only_pack else ():
