@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::weapons_026::clips;
 use crate::binary_config::NamedValue;
+use crate::weapons_026::clips;
 
 fn field(name: &str, value: V) -> NamedValue {
     NamedValue {
@@ -105,6 +105,25 @@ fn configs_come_out_in_24_byte_records() {
     assert_eq!(BinaryConfig::parse(&out).unwrap().root, tree);
 }
 
+/// [`clips::engine_words_cleared`] with the padding after each event name
+/// cleared too (exporters leave whatever was in memory there).
+fn engine_words_and_padding_cleared(b: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let mut out = clips::engine_words_cleared(b)?;
+    for name in clips::event_names(b)? {
+        let needle = [name.as_bytes(), &[0]].concat();
+        let start = out
+            .windows(needle.len())
+            .rposition(|w| w == needle.as_slice())
+            .ok_or_else(|| anyhow::anyhow!("event name {name}"))?;
+        let mut at = start + needle.len();
+        while at % 4 != 0 && at < out.len() {
+            out[at] = 0;
+            at += 1;
+        }
+    }
+    Ok(out)
+}
+
 /// With the stock 0.26g database (`VOSTOK_026G_DB`) and the 0.46c2 game
 /// folder (`VOSTOK_046C2_GAME`, its `resources.NN.db`): the AK-12 clips
 /// 0.46c2 did not re-animate, converted, are 0.26g's own bytes, and the
@@ -131,8 +150,8 @@ fn the_046c2_game_reads_in_026g_layout() {
         let raw = donor.read_raw(&path).unwrap();
         later += usize::from(clips::clip_header(&raw).unwrap().events > 0);
         assert_eq!(
-            clips::engine_words_cleared(&donor.read(&path).unwrap()).unwrap(),
-            clips::engine_words_cleared(&stock.read(&path).unwrap()).unwrap(),
+            engine_words_and_padding_cleared(&donor.read(&path).unwrap()).unwrap(),
+            engine_words_and_padding_cleared(&stock.read(&path).unwrap()).unwrap(),
             "{clip}"
         );
     }

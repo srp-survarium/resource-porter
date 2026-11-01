@@ -29,6 +29,8 @@ pub enum DonorBuild {
     V029a3,
     #[serde(rename = "0.31a2")]
     V031a2,
+    #[serde(rename = "0.46c2")]
+    V046c2,
 }
 
 /// What a build's configs mean, against 0.26g's.
@@ -91,11 +93,26 @@ pub const RULES_031A2: Rules = Rules {
     mesh_statistics: true,
 };
 
+/// 0.46c2: 0.31a2's state types (its AK-12, PM, SVD, Saiga and the ten
+/// guns of `ports/weapons-046c2.json`), 12-byte clip event headers. Its
+/// stamina key is spelt as 0.26g's after skhid-srp's weapon-balance-1, and
+/// its stamina damage is no fraction of 0.26g's (0.1 against the live
+/// AK-12's 20): a port takes that from the template.
+pub const RULES_046C2: Rules = Rules {
+    state_types: &[(312, 313), (313, 314), (314, 315), (315, 316), (320, 321)],
+    same_state_types_up_to: 311,
+    renames: &[("health_modifier", "pain_health_modifier")],
+    scaled: &[],
+    clips_12_byte_events: true,
+    mesh_statistics: true,
+};
+
 impl DonorBuild {
     pub fn rules(self) -> &'static Rules {
         match self {
             Self::V029a3 => &RULES_029A3,
             Self::V031a2 => &RULES_031A2,
+            Self::V046c2 => &RULES_046C2,
         }
     }
 }
@@ -137,6 +154,12 @@ pub trait Donor {
     /// for a build that ships item configs as files).
     fn item_config(&mut self, item: &str) -> Result<ConfigValue> {
         self.config(item)
+    }
+    /// A lobby cell (171x83 RGBA PNG) of the donor's icon `png`, turned by
+    /// `angle` degrees for a build that draws icons otherwise than 0.26g.
+    fn lobby_cell(&mut self, png: &str, angle: Option<f32>) -> Result<Vec<u8>> {
+        ensure!(angle.is_none(), "{png}: this build's icons are not turned");
+        super::icons::cell_png(&self.read(png)?)
     }
     /// The build's `gameplay/db_static_dictionaries`.
     fn dictionary(&mut self) -> Result<ConfigValue> {

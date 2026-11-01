@@ -41,9 +41,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail, ensure};
 
+use super::clips;
 use crate::ResourceDb;
 use crate::binary_config::{BinaryConfig, ConfigValue as V};
-use super::clips;
 
 /// The file every 0.46c2 item config is in.
 pub const GAME_OPTIONS: &str = "gameplay/game.options";
@@ -793,6 +793,44 @@ fn field(name: &str, value: V) -> crate::binary_config::NamedValue {
     crate::binary_config::NamedValue {
         name: name.into(),
         value,
+    }
+}
+
+/// A pistol's icon is smaller in 0.26g's atlas than a long gun's (the PM's,
+/// the Fort 17's): the box each is fitted to, in a 171x83 cell.
+const LONG_GUN_BOX: (usize, usize) = (161, 75);
+const PISTOL_BOX: (usize, usize) = (110, 62);
+
+impl super::donor::Donor for Donor046 {
+    fn build(&self) -> super::donor::DonorBuild {
+        super::donor::DonorBuild::V046c2
+    }
+    fn contains(&self, path: &str) -> bool {
+        Donor046::contains(self, path)
+    }
+    fn is_file(&self, path: &str) -> bool {
+        Donor046::is_file(self, path)
+    }
+    fn paths_with_prefix(&self, prefix: &str) -> Vec<String> {
+        Donor046::paths_with_prefix(self, prefix)
+    }
+    fn read(&mut self, path: &str) -> Result<Vec<u8>> {
+        Donor046::read(self, path)
+    }
+    fn item_config(&mut self, item: &str) -> Result<V> {
+        Donor046::item_config(self, item)
+    }
+    /// 0.46c2's icons are diagonal: turned level ([`lobby_cell`]). A pistol
+    /// is given its angle (its grip pulls the silhouette's axis off its
+    /// slide) and fits a pistol's box; a long gun turns by its own axis.
+    fn lobby_cell(&mut self, png: &str, angle: Option<f32>) -> Result<Vec<u8>> {
+        let bytes = self.db.read(png)?;
+        let size = if angle.is_some() {
+            PISTOL_BOX
+        } else {
+            LONG_GUN_BOX
+        };
+        lobby_cell(&bytes, size, angle)
     }
 }
 

@@ -87,6 +87,10 @@ pub struct LobbyIcon {
     pub col: u32,
     /// The donor's icon image (a PNG no larger than a cell).
     pub donor_png: String,
+    /// Degrees the donor's icon is turned by ([`super::donor::Donor::lobby_cell`]):
+    /// 0.46c2 draws its weapons diagonally (`None` there: a long gun's own axis).
+    #[serde(default)]
+    pub angle: Option<f32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

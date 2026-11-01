@@ -30,7 +30,7 @@ use serde_json::json;
 
 use super::config::weapon_config;
 use super::donor::{Donor, is_config};
-use super::icons::{cell_png, kill_feed_name, kill_feed_png};
+use super::icons::{kill_feed_name, kill_feed_png};
 use super::manifest::{Weapon, WeaponPort};
 use super::{field, get, s, string_of};
 use crate::manifest::BuiltFile;
@@ -313,15 +313,28 @@ impl<D: Donor> Carry<'_, D> {
     }
 
     /// The clips and sounds an item config names.
-    fn states(&mut self, cfg: &V) -> Result<()> {
+    /// The clips and sounds `cfg` names. A clip the template names that no
+    /// archive has (the stock pistols' `on_site/death_fwd`) stays named, as
+    /// in the stock config, and is noted.
+    fn states(&mut self, cfg: &V, template: &V, notes: &mut Vec<String>) -> Result<()> {
         let mut strings = vec![];
         cfg.collect_strings(&mut strings);
+        let mut theirs = vec![];
+        template.collect_strings(&mut theirs);
         let clips: Vec<String> = strings
             .into_iter()
             .filter(|c| c.starts_with("resources/animations/"))
             .map(str::to_owned)
             .collect();
         for c in clips {
+            let path = format!("{}.b-spline", c.trim_start_matches("resources/"));
+            if theirs.contains(&c.as_str())
+                && !self.target.contains(&path)
+                && !self.donor.contains(&path)
+            {
+                notes.push(format!("{c}: the template's, which no archive has"));
+                continue;
+            }
             self.clip(&c)?;
         }
         let mut lists = vec![];
@@ -423,10 +436,22 @@ pub fn conform_material(donor: &V, template: &V) -> Result<V> {
                 );
             }
         }
+        // The template's switches: 0.26g draws only the switch combinations
+        // its own materials compile (a later build's combination hung the
+        // lobby, skhid-srp's equipment-046), so a donor material takes the
+        // native one's `use_*` values and keeps its own maps and constants.
         let effect = V::Named(
             dk.iter()
-                .filter(|f| tk.iter().any(|k| k.name == f.name))
-                .cloned()
+                .filter_map(|f| {
+                    let native = tk.iter().find(|k| k.name == f.name)?;
+                    let mut f = f.clone();
+                    if let (Some(V::Boolean(_)), Some(own @ V::Boolean(_))) =
+                        (f.value.named("value"), native.value.named("value"))
+                    {
+                        f.value.set_path("value", own.clone()).ok()?;
+                    }
+                    Some(f)
+                })
                 .collect(),
         );
         out.set_path(&format!("material.{stage}.effect"), effect)?;
@@ -435,9 +460,32 @@ pub fn conform_material(donor: &V, template: &V) -> Result<V> {
     Ok(out)
 }
 
+/// Keys skhid-srp's edit lists add to every weapon config (`weapon-camo-1`,
+/// `weapon-decals-1`; the card's properties are written anew): a template
+/// from the players' patches without them.
+const EDIT_KEYS: [(&str, &str); 3] = [
+    ("parameters", "camo_available"),
+    ("parameters", "decal_available"),
+    ("", "data"),
+];
+
+fn without_edit_keys(mut root: V) -> V {
+    for (table, key) in EDIT_KEYS {
+        let fields = if table.is_empty() {
+            Some(&mut root)
+        } else {
+            root.named_mut(table)
+        };
+        if let Some(V::Named(fields)) = fields {
+            fields.retain(|f| f.name != key);
+        }
+    }
+    root
+}
+
 /// The port's rows in `items_dict` (each its template's row with the gun's
 /// config, name, id and price) and one `items_compatibility` row a gun and
-/// round.
+/// round, `compatibility_<gun>_<round>` (srp and the game take any name).
 fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
     let V::Indexed(items) = dict.named_mut("items_dict").context("items_dict")? else {
         bail!("items_dict is not indexed");
@@ -480,12 +528,8 @@ fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
     else {
         bail!("items_compatibility is not a table");
     };
-    let mut next = compat
-        .iter()
-        .filter_map(|c| c.name.strip_prefix("compatibility_")?.parse::<u32>().ok())
-        .max()
-        .context("no compatibility rows")?
-        + 1;
+    // Each row named by its pair, not the next free number: packs made
+    // apart (each weapon batch its own) never take the same name.
     let mut added = vec![];
     for w in &port.weapons {
         for ammo in &w.ammo {
@@ -494,8 +538,8 @@ fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
                 "{}: no ammunition item {ammo}",
                 w.name
             );
-            let name = format!("compatibility_{next}");
-            next += 1;
+            let name = format!("compatibility_{}_{ammo}", w.dict_id);
+            ensure!(!compat.iter().any(|c| c.name == name), "{name} is taken");
             compat.push(field(
                 &name,
                 V::Named(vec![
@@ -593,7 +637,15 @@ pub fn build<D: Donor>(
     for w in &port.weapons {
         ensure!(!carry.target.contains(&w.config), "{} exists", w.config);
         let donor_cfg = carry.donor.item_config(&w.donor_item)?;
-        let template = parse_config(&mut stock, &w.template, "native template")?.root;
+        let template = if stock.contains(&w.template) {
+            parse_config(&mut stock, &w.template, "native template")?.root
+        } else {
+            // A gun only the patches have (patch 19's Saiga-12K, the one
+            // box-magazine wpn_asgn; its PKP and M4A1): its config without the
+            // keys skhid-srp's edit lists add to every weapon (they add them
+            // again).
+            without_edit_keys(parse_config(carry.target, &w.template, "template")?.root)
+        };
         let target: &ResourceDb = carry.target;
         let foreign = |clip: &str| -> bool {
             let path = clip.trim_start_matches("resources/");
@@ -614,7 +666,7 @@ pub fn build<D: Donor>(
             &foreign,
         )
         .with_context(|| w.name.clone())?;
-        report.notes.insert(w.config.clone(), notes);
+        let mut notes = notes;
         let model = string_of(get(&cfg, "object.model"))
             .context("object.model")?
             .to_owned();
@@ -623,7 +675,10 @@ pub fn build<D: Donor>(
             .context("object.skeleton")?
             .to_owned();
         carry.file(&format!("animations/skeletons/{skeleton}.skeleton"))?;
-        carry.states(&cfg).with_context(|| w.name.clone())?;
+        carry
+            .states(&cfg, &template, &mut notes)
+            .with_context(|| w.name.clone())?;
+        report.notes.insert(w.config.clone(), notes);
         configs.push((w, cfg));
     }
     let mut texts = BTreeSet::new();
@@ -674,7 +729,9 @@ pub fn build<D: Donor>(
             let name = format!("{symbol}-r{:02}c{:02}.png", icon.row, icon.col);
             fs::write(
                 icons_dir.join(&name),
-                cell_png(&carry.donor.read(&icon.donor_png)?)
+                carry
+                    .donor
+                    .lobby_cell(&icon.donor_png, icon.angle)
                     .with_context(|| icon.donor_png.clone())?,
             )?;
             icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": icon.donor_png}));

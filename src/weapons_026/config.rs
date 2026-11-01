@@ -314,7 +314,14 @@ pub fn weapon_config(
         }
     }
     let mut cfg = V::Named(out);
-    // A gun's fitted scope (`addons`) is its own, whatever the template has.
+    // A gun's fitted scope (`addons`) is its own, whatever the template has:
+    // a gun without one takes none of the template's (the SVD's PSO-1 sits
+    // on the SVD's mount).
+    if donor.named("addons").is_none()
+        && let V::Named(fields) = &mut cfg
+    {
+        fields.retain(|f| f.name != "addons");
+    }
     if let Some(addons) = donor.named("addons") {
         let mut merged = match template.named("addons") {
             Some(t) => conform(addons, t),
@@ -392,6 +399,53 @@ fn donor_top_level(donor: &V) -> Vec<String> {
 
 /// The template's states, each the donor's (its type mapped) unless it
 /// plays a clip 0.26g lacks; donor states 0.26g has no counterpart of go.
+/// The clip lists of a state (`animations`, the item's; `user_animations`,
+/// the hands') in the template's slots: 0.26g picks a clip by its slot (a
+/// pistol's fire state plays slot 1 on the last round, its idle slot 1 with
+/// the slide back; a reload slot 0 tactical, 1 empty), and a later build
+/// may list more (0.46c2's pistols: shoot, shoot_calim, shoot_end,
+/// shoot_end_calim). Slot i takes the donor's clip of the same name as the
+/// template's slot i; a list of one name in every slot (the hands' eight)
+/// takes the donor's first.
+fn align_clips(state: &mut V, template: &V, notes: &mut Vec<String>, name: &str) -> Result<()> {
+    let leaf = |v: &V| match v {
+        V::String(s) => s.rsplit('/').next().map(str::to_owned),
+        _ => None,
+    };
+    for list in ["animations", "user_animations"] {
+        let (Some(V::Indexed(ours)), Some(V::Indexed(theirs))) =
+            (template.named(list), state.named(list).cloned())
+        else {
+            continue;
+        };
+        if theirs.len() == ours.len() && theirs.iter().zip(ours).all(|(d, t)| leaf(d) == leaf(t)) {
+            continue;
+        }
+        let one = theirs.iter().all(|d| leaf(d) == leaf(&theirs[0]));
+        let mut aligned = Vec::with_capacity(ours.len());
+        for (i, t) in ours.iter().enumerate() {
+            let want = leaf(t);
+            let found = theirs
+                .iter()
+                .find(|d| leaf(d) == want)
+                .or_else(|| if one { theirs.first() } else { theirs.get(i) })
+                .with_context(|| {
+                    format!("states.{name}.{list}: no clip for slot {i} ({want:?})")
+                })?;
+            aligned.push(found.clone());
+        }
+        if aligned != theirs {
+            notes.push(format!(
+                "states.{name}.{list}: the donor's {} clips in the template's {} slots",
+                theirs.len(),
+                ours.len()
+            ));
+            state.set_path(list, V::Indexed(aligned))?;
+        }
+    }
+    Ok(())
+}
+
 fn states_config(
     rules: &Rules,
     donor: &V,
@@ -429,6 +483,12 @@ fn states_config(
                         Some(V::Integer(k)) => rules.state_type(*k)?,
                         other => bail!("states.{}.state_type is {other:?}", t.name),
                     };
+                    // Slots mean what the state's type says: aligned only to
+                    // a template state of the same type (the Vityaz's
+                    // one-clip reload, 303, is not the MP5's two-clip 314).
+                    if t.value.named("state_type") == Some(&V::Integer(kind)) {
+                        align_clips(&mut merged, &t.value, notes, &t.name)?;
+                    }
                     merged.set_path("state_type", V::Integer(kind))?;
                     merged
                 }
