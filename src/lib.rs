@@ -45,6 +45,8 @@ pub mod terrain_surface_patch;
 pub mod v069d_skinned;
 pub mod weapon;
 pub mod weapons_026;
+pub mod weapons_069d;
+pub mod muzzles_069d;
 
 pub use archive::ResourceDb;
 pub use binary_config::{BinaryConfig, ConfigValue, NamedValue};
