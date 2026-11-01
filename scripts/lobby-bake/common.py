@@ -334,6 +334,57 @@ def skipped(name, skip):
     return any(name == k or name.endswith("/" + k) or (k.endswith("/") and name.startswith(k)) for k in skip)
 
 
+def blackbody(kelvin):
+    """A black body's colour at `kelvin` in linear sRGB (D65), its largest
+    channel 1: the Planckian locus's xy (Kim et al.'s cubic fit,
+    1667..25000 K) at Y 1."""
+    t = kelvin
+    if t < 4000:
+        x = -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.179910
+    else:
+        x = -3.0258469e9 / t ** 3 + 2.1070379e6 / t ** 2 + 0.2226347e3 / t + 0.240390
+    if t < 2222:
+        y = -1.1063814 * x ** 3 - 1.34811020 * x ** 2 + 2.18555832 * x - 0.20219683
+    elif t < 4000:
+        y = -0.9549476 * x ** 3 - 1.37418593 * x ** 2 + 2.09137015 * x - 0.16748867
+    else:
+        y = 3.0817580 * x ** 3 - 5.87338670 * x ** 2 + 3.75112997 * x - 0.37001483
+    big_x, big_z = x / y, (1 - x - y) / y
+    rgb = (3.2406 * big_x - 1.5372 - 0.4986 * big_z, -0.9689 * big_x + 1.8758 + 0.0415 * big_z,
+           0.0557 * big_x - 0.2040 + 1.0570 * big_z)
+    return [c / max(rgb) for c in rgb]
+
+
+def luminance(c):
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+
+def light_colours(scene_json):
+    """How the scene's light colours are taken: (lamp, other). A spec's
+    `lamp_kelvin` gives every project light a black body's colour at that
+    temperature, as bright as its own colour; `white_kelvin` is the white
+    point every source is seen against (a camera's white balance: a black
+    body at that temperature is white, daylight bluer, a lamp warmer);
+    `tint` multiplies every colour. Each returns (colour, brightness factor)."""
+    tint = scene_json.get("tint", [1.0, 1.0, 1.0])
+    white = scene_json.get("white_kelvin")
+    balance = [1.0, 1.0, 1.0]
+    if white:
+        w = blackbody(white)
+        balance = [1.0 / c for c in w]
+        scale = 1.0 / luminance(balance)  # the balance keeps a grey's brightness
+        balance = [c * scale for c in balance]
+    seen = lambda c: [c[k] * balance[k] * tint[k] for k in range(3)]
+    lamp_k = scene_json.get("lamp_kelvin")
+
+    def lamp(c):
+        if lamp_k:
+            out = seen(blackbody(lamp_k))
+            return out, luminance(c[:3]) / luminance(out)
+        return seen(c), 1.0
+    return lamp, lambda c: (seen(c), 1.0)
+
+
 def add_lights(scene_json, skip, match, bulb):
     """Point and spot lights matching the engine's at `match` metres (the
     engine: albedo * I * colour * N.L * (1 - d^2/range^2)^power,
@@ -344,8 +395,7 @@ def add_lights(scene_json, skip, match, bulb):
     (scene.json's `sun`, the environment's) matches the engine's at every
     distance (Cycles: albedo * S / pi * N.L), the sky is the world's
     radiance (a matte surface under it sends albedo x sky)."""
-    tint = scene_json.get("tint", [1.0, 1.0, 1.0])
-    warm = lambda c: [c[k] * tint[k] for k in range(3)]
+    lamp_colour, other_colour = light_colours(scene_json)
     for l in scene_json["lights"]:
         if skipped(l["name"], skip) or not l["intensity"] or l.get("enabled") is False:
             continue
@@ -357,8 +407,9 @@ def add_lights(scene_json, skip, match, bulb):
         power = 4 * math.pi ** 2 * at * at * l["intensity"] * window
         spot = l.get("light_type") == 1
         light = bpy.data.lights.new(l["name"], "SPOT" if spot else "POINT")
-        light.color = warm(l["color"])
-        light.energy = power
+        colour, factor = lamp_colour(l["color"])
+        light.color = colour
+        light.energy = power * factor
         light.shadow_soft_size = bulb
         lo = bpy.data.objects.new(l["name"], light)
         lo.location = to_b(l["position"])
@@ -372,7 +423,7 @@ def add_lights(scene_json, skip, match, bulb):
     sun = scene_json.get("sun")
     if sun and sun["intensity"] and not skipped("environment_sun", skip):
         light = bpy.data.lights.new("environment_sun", "SUN")
-        light.color = warm(sun["color"])
+        light.color = other_colour(sun["color"])[0]
         light.energy = math.pi * sun["intensity"]
         light.angle = math.radians(1.0)
         lo = bpy.data.objects.new("environment_sun", light)
@@ -385,7 +436,7 @@ def add_lights(scene_json, skip, match, bulb):
         if world.node_tree is None:
             world.use_nodes = True
         background = next(n for n in world.node_tree.nodes if n.type == "BACKGROUND")
-        background.inputs["Color"].default_value = warm(sky) + [1.0]
+        background.inputs["Color"].default_value = other_colour(sky)[0] + [1.0]
         background.inputs["Strength"].default_value = 1.0
         log(f"sky: radiance {sky}")
 

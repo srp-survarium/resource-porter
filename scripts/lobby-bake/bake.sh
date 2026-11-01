@@ -8,8 +8,9 @@
 #                   (bake.py), renders/ (traced-* path-traced, baked-* from the bake)
 #   <work>/pack     the pack drawn from the bake
 # With --gpu, Cycles runs on the GPU (BLENDER: a command running a Blender
-# built with OptiX or CUDA, as blender.org's), one job at a time on the lock
-# LOBBY_BAKE_GPU_LOCK.
+# built with OptiX or CUDA, as blender.org's), one job at a time: on the
+# lock LOBBY_BAKE_GPU_LOCK when set (blender.sh), or the one the BLENDER
+# command takes itself.
 # Needs vostok-port on PATH (or VOSTOK_PORT), ImageMagick, Python 3, Blender.
 set -euo pipefail
 manifest=$1 stk2=$2 db=$3 work=$4

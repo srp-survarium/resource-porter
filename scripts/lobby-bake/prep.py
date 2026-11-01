@@ -23,7 +23,9 @@ stand in for a bounce); `views` ({name: [eye, target]}) the views rendered;
 (0, 1.2, 0) by default) and `box` ([min, max]) the space the lobby is seen in:
 a baked face outside it gets the fewest texels (bake.py --outside); `tint`
 ([r, g, b]) multiplies every light's colour, the sun's and the sky's (warmer
-light). Without a spec: the stk2 rule for slice "main".
+light); `lamp_kelvin` gives every project light a black body's colour at that
+temperature (as bright as its own) and `white_kelvin` the white point every
+source is seen against (bake.py's light_colours). Without a spec: the stk2 rule for slice "main".
 """
 import hashlib
 import json
@@ -169,7 +171,7 @@ def main(pack, db, out, spec_file=None):
     project = leaves(["dump-config", "--file", os.path.join(folder, project_dir, "client_project")])
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
-    for field in ("views", "skip_lights", "eye", "box", "tint"):
+    for field in ("views", "skip_lights", "eye", "box", "tint", "lamp_kelvin", "white_kelvin"):
         if spec.get(field):
             scene[field] = spec[field]
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])

@@ -200,6 +200,15 @@ pub struct BakeSpec {
     /// The environment's sun and a sky of this radiance.
     #[serde(default)]
     pub outdoor: Option<OutdoorSpec>,
+    /// Every light's colour multiplied by this.
+    #[serde(default)]
+    pub tint: Option<[f32; 3]>,
+    /// The project's lights given a black body's colour at this temperature.
+    #[serde(default)]
+    pub lamp_kelvin: Option<f32>,
+    /// The white point every source is seen against.
+    #[serde(default)]
+    pub white_kelvin: Option<f32>,
 }
 
 /// A bake's outdoors (scripts/lobby-bake/prep.py): the environment's sun,
