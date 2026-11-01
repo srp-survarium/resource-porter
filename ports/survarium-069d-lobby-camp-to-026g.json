@@ -50,7 +50,15 @@
       "environment_and_lights/shadows/ambient_light(6)": { "intensity": 0.0 },
       "environment_and_lights/shadows/ambient_light(7)": { "intensity": 0.0 },
       "environment_and_lights/shadows/ambient_light(8)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(9)": { "intensity": 0.0 }
+      "environment_and_lights/shadows/ambient_light(9)": { "intensity": 0.0 },
+      "environment_and_lights/light/ambient_light(5)": { "intensity": 0.0 },
+      "environment_and_lights/light/ambient_light(6)": { "intensity": 0.0 },
+      "environment_and_lights/light/celling/ambient_light(1)": { "intensity": 0.0 },
+      "environment_and_lights/light/celling/ambient_light(2)": { "intensity": 0.0 },
+      "environment_and_lights/light/celling/ambient_light(3)": { "intensity": 0.0 },
+      "environment_and_lights/light/celling/ambient_light(4)": { "intensity": 0.0 },
+      "environment_and_lights/light/celling/ambient_light(5)": { "intensity": 0.0 },
+      "environment_and_lights/light/celling/ambient_light(6)": { "intensity": 0.0 }
     },
     "removed_parts": [
       {
@@ -211,7 +219,7 @@
         "centre": [
           -0.44,
           1.405,
-          -1.60
+          -1.45
         ],
         "half_extents": [
           2.0,
