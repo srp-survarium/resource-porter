@@ -41,6 +41,7 @@ ap.add_argument("--radius", type=float, default=7.0)
 ap.add_argument("--outside", type=float, default=4.0,
                 help="texels a metre outside the scene's box (the faces no view of the lobby reaches)")
 ap.add_argument("--page", type=int, default=2048, help="the largest page")
+ap.add_argument("--gpu", action="store_true", help="Cycles on the GPU (OptiX, else CUDA): Blender built with them")
 ap.add_argument("--samples", type=int, default=128)
 ap.add_argument("--render-samples", type=int, default=256)
 ap.add_argument("--threads", type=int, default=12)
@@ -52,14 +53,18 @@ ap.add_argument("--skip-materials", default="/fx/", help="surfaces left as they 
 ap.add_argument("--exposure", type=float, default=0.0)
 ap.add_argument("--fov", type=float, default=70.0, help="horizontal field of view, degrees")
 ap.add_argument("--only-render", action="store_true", help="the traced views only, no bake")
+ap.add_argument("--probe-samples", type=int, default=512)
+ap.add_argument("--probe-at", default="0,1.2,0", help="where the probes are traced (lobby frame): the character's chest; "
+                "a probe object's own place can be inside a prop (the bunker's room probe is in the gas-mask crates)")
+ap.add_argument("--only-probes", action="store_true", help="the probes only (no renders, no bake)")
 ap.add_argument("--only-pack", action="store_true", help="lay out the pages and stop (no renders, no bake)")
 args = ap.parse_args(argv)
 D = args.scene
 scene_json = json.load(open(os.path.join(D, "scene.json")))
-for sub in ("pages", "baked", "renders"):
+for sub in ("pages", "baked", "renders", "probes"):
     os.makedirs(os.path.join(D, sub), exist_ok=True)
 
-sc = new_scene(args.threads)
+sc = new_scene(args.threads, args.gpu)
 materials = Materials()
 
 
@@ -129,9 +134,65 @@ add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_decals(scene_json)  # into the pages: the baked pack leaves the decals out
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s] + scene_json.get("skip_lights", []), args.match, args.bulb)
 
-for name, view in views(scene_json).items() if not args.only_pack else ():
+for name, view in views(scene_json).items() if not (args.only_pack or args.only_probes) else ():
     render(os.path.join(D, "renders"), f"traced-{name}.png", view, args.fov, args.render_samples, args.exposure)
 if args.only_render:
+    sys.exit(0)
+
+# --- the probes ----------------------------------------------------------------
+# Each environment probe's six faces traced at the character, 0.26g's texel
+# order (probe_bake::direction: forward, right, up of a face's rows), the
+# lamps themselves unseen (the project's lights light the character directly;
+# the probe gives it what the room sends back).
+PROBE_SIZE = 128
+FACES = [((1, 0, 0), (0, 0, -1), (0, 1, 0)), ((-1, 0, 0), (0, 0, 1), (0, 1, 0)),
+         ((0, 1, 0), (1, 0, 0), (0, 0, -1)), ((0, -1, 0), (1, 0, 0), (0, 0, 1)),
+         ((0, 0, 1), (1, 0, 0), (0, 1, 0)), ((0, 0, -1), (-1, 0, 0), (0, 1, 0))]
+probes_made = []
+if scene_json.get("probes") and not args.only_pack:
+    from common import to_b
+    lights = [o for o in sc.objects if o.type == "LIGHT"]
+    for o in lights:
+        o.visible_camera = False
+    size_x, size_y = sc.render.resolution_x, sc.render.resolution_y
+    sc.render.resolution_x = sc.render.resolution_y = PROBE_SIZE
+    sc.render.image_settings.file_format = "OPEN_EXR"
+    sc.render.image_settings.color_depth = "32"
+    sc.cycles.samples = args.probe_samples
+    cam = bpy.data.cameras.new("probe")
+    cam.angle = math.radians(90.0)
+    cam.clip_start = 0.02
+    co = bpy.data.objects.new("probe", cam)
+    sc.collection.objects.link(co)
+    sc.camera = co
+    for probe in scene_json["probes"]:
+        out = np.zeros((6, PROBE_SIZE, PROBE_SIZE, 3), dtype=np.float32)
+        for f, (fwd, right, up) in enumerate(FACES):
+            x, y, z = (mathutils.Vector(to_b(v)) for v in (right, up, fwd))
+            mirrored = mathutils.Matrix((x, y, -z)).transposed().determinant() < 0
+            if mirrored:
+                x = -x
+            co.matrix_world = mathutils.Matrix.Translation(to_b([float(v) for v in args.probe_at.split(",")])) @ \
+                mathutils.Matrix((x, y, -z)).transposed().to_4x4()
+            path = os.path.join(D, "probes", f"{probe['name']}_{f}.exr")
+            sc.render.filepath = path
+            bpy.ops.render.render(write_still=True)
+            im = bpy.data.images.load(path)
+            px = np.empty(PROBE_SIZE * PROBE_SIZE * 4, dtype=np.float32)
+            im.pixels.foreach_get(px)
+            face = px.reshape(PROBE_SIZE, PROBE_SIZE, 4)[::-1, :, :3]  # Blender's rows run up
+            out[f] = face[:, ::-1] if mirrored else face
+            bpy.data.images.remove(im)
+        name = f"probes/{probe['name']}.f32"
+        out.astype("<f4").tofile(os.path.join(D, name))
+        probes_made.append({"object": probe["name"], "file": name, "size": PROBE_SIZE})
+        log(f"probe {probe['name']}: traced, mean radiance {out.mean(axis=(0, 1, 2))}")
+    for o in lights:
+        o.visible_camera = True
+    sc.render.resolution_x, sc.render.resolution_y = size_x, size_y
+    sc.render.image_settings.file_format = "PNG"
+    sc.render.image_settings.color_depth = "8"
+if args.only_probes:
     sys.exit(0)
 
 # --- pages ---------------------------------------------------------------------
@@ -354,5 +415,6 @@ for k, page in enumerate(pages):
                            "chunks": page["chunks"]})
 baked["kept"] = kept
 baked["sources"] = {s["name"]: s["sha256"] for s in scene_json["surfaces"]}
+baked["probes"] = probes_made
 json.dump(baked, open(os.path.join(D, "baked.json"), "w"), indent=1)
 log(f"baked.json: {len(baked['surfaces'])} surfaces on {len(pages)} pages")

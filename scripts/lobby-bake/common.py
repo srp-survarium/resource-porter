@@ -126,25 +126,28 @@ def write_model(path, pos, nrm, uv, tris):
 
 
 # --- the scene -----------------------------------------------------------------
-def new_scene(threads):
+def new_scene(threads, gpu=False):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sc = bpy.context.scene
     sc.render.engine = "CYCLES"
     sc.cycles.device = "CPU"
-    # LOBBY_BAKE_GPU=OPTIX (or CUDA): the GPU, with a Blender built with it
-    # (one GPU job at a time: bake-pack.sh and bake.sh hold a lock)
-    gpu = os.environ.get("LOBBY_BAKE_GPU")
-    if gpu:
+    if gpu:  # OptiX, else CUDA; a Blender without them (nixpkgs') stops here
         prefs = bpy.context.preferences.addons["cycles"].preferences
-        prefs.compute_device_type = gpu
-        prefs.get_devices()
-        devices = [d for d in prefs.devices if d.type == gpu]
-        if not devices:
-            raise SystemExit(f"LOBBY_BAKE_GPU={gpu}: this Blender sees no such device")
-        for d in prefs.devices:
-            d.use = d.type == gpu
-        sc.cycles.device = "GPU"
-        log("GPU:", ", ".join(d.name for d in devices))
+        for kind in ("OPTIX", "CUDA"):
+            try:
+                prefs.compute_device_type = kind
+            except TypeError:
+                continue
+            prefs.get_devices()
+            devices = [d for d in prefs.devices if d.type == kind]
+            if devices:
+                for d in prefs.devices:
+                    d.use = d.type == kind
+                sc.cycles.device = "GPU"
+                log(f"Cycles on {kind}: {', '.join(d.name for d in devices)}")
+                break
+        else:
+            raise SystemExit("--gpu: this Blender has no OptiX or CUDA device")
     sc.render.threads_mode = "FIXED"
     sc.render.threads = threads
     sc.cycles.use_denoising = True

@@ -205,7 +205,8 @@ def main(pack, db, out, spec_file=None):
         elif kind == "decal" and o.get("projection_on_static_geometry", True):
             scene["decals"].append(decal(src, o))
         elif kind == "environment_probe":
-            scene["probes"].append({"name": name, "position": o["position"]})
+            # by its object name: build-stk2-lobby-026's probe_cubes name it so
+            scene["probes"].append({"name": o["name"], "position": o["position"]})
         elif kind == "environment" and "outdoor" in spec:
             properties = {f[len("properties."):]: value for f, value in o.items() if f.startswith("properties.")}
             outdoor = spec["outdoor"]

@@ -155,6 +155,12 @@ pub struct LobbyManifest {
     /// `emission`) is scaled further.
     #[serde(default)]
     pub emission_scale: BTreeMap<String, f32>,
+    /// STK2 materials whose surfaces are mapped anew from above (uv along
+    /// the lobby's x and z, this many uv a metre), for a tiled texture laid
+    /// over a surface STK2 mapped for something else (the bomb shelter's
+    /// vault overlay, one uv tile a bay for its stain).
+    #[serde(default)]
+    pub planar_uvs: BTreeMap<String, f32>,
     /// The slice's merged model drawn from a path-traced bake
     /// (`scripts/lobby-bake`) in place of its lit materials.
     #[serde(default)]
@@ -217,6 +223,19 @@ struct BakedJson {
     kept: Vec<String>,
     /// Each merged surface the bake was made of: its converted_model's sha256.
     sources: BTreeMap<String, String>,
+    /// The environment probes' radiance, path-traced from the probes.
+    #[serde(default)]
+    probes: Vec<BakedProbeJson>,
+}
+
+/// A probe's six faces (0.26g's order, `probe_bake::direction`'s texels),
+/// `size` texels a side, float32 RGB, row by row, without the lamps
+/// themselves (the project's lights light the character directly).
+#[derive(Debug, Deserialize)]
+struct BakedProbeJson {
+    object: String,
+    file: PathBuf,
+    size: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -240,6 +259,8 @@ struct Bake {
     surfaces: Vec<BuiltSurface>,
     kept: BTreeSet<String>,
     sources: BTreeMap<String, String>,
+    /// Probe object -> its traced radiance, in 0.26g light units.
+    probes: BTreeMap<String, crate::probe_bake::Cube>,
 }
 
 impl Bake {
@@ -292,11 +313,18 @@ impl Bake {
                 texture_name: texture.clone(),
             });
         }
+        let mut probes = BTreeMap::new();
+        for probe in &json.probes {
+            let bytes = fs::read(dir.join(&probe.file))
+                .with_context(|| format!("the bake: {}", probe.file.display()))?;
+            probes.insert(probe.object.clone(), traced_cube(&bytes, probe.size, &probe.object)?);
+        }
         Ok(Bake {
             slice: spec.slice.clone(),
             surfaces,
             kept: json.kept.into_iter().collect(),
             sources: json.sources,
+            probes,
         })
     }
 
@@ -325,6 +353,45 @@ impl Bake {
         built.extend(self.surfaces.iter().cloned());
         Ok(())
     }
+}
+
+/// A traced probe's faces as a radiance cube of 0.26g's probe size, its
+/// mips the averages of four texels.
+fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_bake::Cube> {
+    ensure!(size == PROBE_CUBE_SIZE, "probe {label}: {size} px, made probes are {PROBE_CUBE_SIZE}");
+    ensure!(bytes.len() == 6 * size * size * 12, "probe {label}: not six {size} px faces of float RGB");
+    let mut faces = Vec::new();
+    for face in 0..6 {
+        let mut levels: Vec<Vec<[f32; 3]>> = vec![
+            (0..size * size)
+                .map(|i| {
+                    let at = (face * size * size + i) * 12;
+                    std::array::from_fn(|c| f32::from_le_bytes(bytes[at + c * 4..at + c * 4 + 4].try_into().unwrap()))
+                })
+                .collect(),
+        ];
+        ensure!(
+            levels[0].iter().flatten().all(|v| v.is_finite() && *v >= 0.0),
+            "probe {label}: a texel is not a radiance"
+        );
+        for m in 1..PROBE_CUBE_MIPS {
+            let (n, up) = ((size >> m).max(1), (size >> (m - 1)).max(1));
+            let above = &levels[m - 1];
+            let level = (0..n * n)
+                .map(|i| {
+                    let (x, y) = (i % n * 2, i / n * 2);
+                    std::array::from_fn(|c| {
+                        (above[y * up + x][c] + above[y * up + x + 1][c] + above[(y + 1) * up + x][c]
+                            + above[(y + 1) * up + x + 1][c])
+                            / 4.0
+                    })
+                })
+                .collect();
+            levels.push(level);
+        }
+        faces.push(levels);
+    }
+    Ok(crate::probe_bake::Cube { size, mips: PROBE_CUBE_MIPS, faces })
 }
 
 /// A baked page's material: black (the g-buffer's albedo is the diffuse
@@ -922,9 +989,21 @@ impl PackWriter {
         self.write(path, &config.to_bytes()?)
     }
 
+    /// A file taken out, and the folders it leaves empty (a patch archive
+    /// refuses an empty folder).
     fn remove(&mut self, path: &str) -> Result<()> {
         ensure!(self.paths.remove(path), "{path}: not in the pack");
-        fs::remove_file(safe_join(&self.files, path)?).with_context(|| format!("removing {path}"))
+        let file = safe_join(&self.files, path)?;
+        fs::remove_file(&file).with_context(|| format!("removing {path}"))?;
+        let mut dir = file.parent();
+        while let Some(d) = dir.filter(|d| *d != self.files) {
+            if fs::read_dir(d)?.next().is_some() {
+                break;
+            }
+            fs::remove_dir(d)?;
+            dir = d.parent();
+        }
+        Ok(())
     }
 
     /// The materials under `material_prefix` no written model names, and the
@@ -1222,6 +1301,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             slice,
             objects,
             &material_names,
+            &manifest.planar_uvs,
             &templates,
             scene,
             bake.as_ref().filter(|b| b.slice == slice.name),
@@ -1345,7 +1425,8 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         ));
     }
     for cube in &manifest.probe_cubes {
-        add_probe_cube(&mut project, cube, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
+        let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object));
+        add_probe_cube(&mut project, cube, traced, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
     }
     let weapon = manifest
         .spots
@@ -2330,6 +2411,67 @@ impl Mesh {
         Ok(mesh)
     }
 
+    /// Its uvs projected from above: u along x, v along z, `density` uv a
+    /// metre, shifted by whole tiles to near 0 (for the half floats); the
+    /// tangent and binormal along x and z in each vertex's plane (its
+    /// normal the faces' around it).
+    fn map_from_above(&mut self, density: f32, label: &str) -> Result<()> {
+        let mut normals = vec![[0.0f32; 3]; self.vertices.len()];
+        for t in &self.triangles {
+            let [a, b, c] = t.map(|i| self.positions[i as usize]);
+            let (e1, e2) = (
+                [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+                [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+            );
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            for &i in t {
+                for (sum, value) in normals[i as usize].iter_mut().zip(n) {
+                    *sum += value;
+                }
+            }
+        }
+        let low = |axis: usize| {
+            self.positions
+                .iter()
+                .map(|p| p[axis] * density)
+                .fold(f32::INFINITY, f32::min)
+                .floor()
+        };
+        let (shift_u, shift_v) = (low(0), low(2));
+        for ((vertex, p), n) in self.vertices.iter_mut().zip(&self.positions).zip(&normals) {
+            let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            let n = if length > 0.0 {
+                n.map(|v| v / length)
+            } else {
+                [0.0, -1.0, 0.0]
+            };
+            // the axis less its part along the normal
+            let along = |axis: [f32; 3]| {
+                let d = axis[0] * n[0] + axis[1] * n[1] + axis[2] * n[2];
+                [axis[0] - d * n[0], axis[1] - d * n[1], axis[2] - d * n[2]]
+            };
+            for (slot, axis) in [(1, [1.0, 0.0, 0.0]), (2, [0.0, 0.0, 1.0])] {
+                vertex[12 + slot * 4..16 + slot * 4]
+                    .copy_from_slice(&packed_basis(along(axis), 255).to_le_bytes());
+            }
+            for (offset, value) in [
+                (24, p[0] * density - shift_u),
+                (26, p[2] * density - shift_v),
+            ] {
+                vertex[offset..offset + 2].copy_from_slice(
+                    &half(value)
+                        .with_context(|| format!("{label}: uv from above"))?
+                        .to_le_bytes(),
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Only the triangles with a corner `inside`, their vertices
     /// renumbered.
     fn clipped(&self, inside: impl Fn([f32; 3]) -> bool) -> Mesh {
@@ -3178,6 +3320,7 @@ fn write_slice(
     slice: &SliceSpec,
     objects: &SliceObjects,
     material_names: &BTreeMap<String, Option<(String, String)>>,
+    planar_uvs: &BTreeMap<String, f32>,
     templates: &StaticModelTemplates,
     scene: Rigid,
     bake: Option<&Bake>,
@@ -3209,7 +3352,10 @@ fn write_slice(
                 continue;
             };
             validate_static_geometry(&vertices, &indices, &label)?;
-            let mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            let mut mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            if let Some(density) = planar_uvs.get(material) {
+                mesh.map_from_above(*density, &label)?;
+            }
             let clipped = mesh.clipped(in_box);
             if clipped.triangles.is_empty() {
                 continue;
@@ -3385,6 +3531,7 @@ fn native_cube_dds(mut bytes: Vec<u8>) -> Vec<u8> {
 fn add_probe_cube(
     project: &mut BinaryConfig,
     cube: &ProbeCube,
+    traced: Option<&crate::probe_bake::Cube>,
     prefix: &str,
     target: &mut ResourceDb,
     pack: &mut PackWriter,
@@ -3420,17 +3567,36 @@ fn add_probe_cube(
             layer.value = ConfigValue::String(texture.clone());
         }
     }
-    let faces = (0..6)
-        .map(|f| {
-            (0..PROBE_CUBE_MIPS)
-                .map(|m| {
-                    let n = (PROBE_CUBE_SIZE >> m).max(1);
-                    (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+    let radiance = match traced {
+        // the engine multiplies the probe by its diffuse_multiplier: the
+        // traced radiance divided by it, so the character gets the bake's light
+        Some(traced) => {
+            let multiplier = match object.named("diffuse_multiplier") {
+                Some(ConfigValue::Float(v)) => *v,
+                Some(ConfigValue::Integer(v)) => *v as f32,
+                _ => bail!("probe cube: {:?} has no diffuse_multiplier", cube.object),
+            };
+            ensure!(multiplier > 0.0, "probe cube: {:?}'s diffuse_multiplier is not positive", cube.object);
+            let mut radiance = traced.clone();
+            for texel in radiance.faces.iter_mut().flatten().flatten() {
+                *texel = texel.map(|v| v / multiplier);
+            }
+            radiance
+        }
+        None => {
+            let faces = (0..6)
+                .map(|f| {
+                    (0..PROBE_CUBE_MIPS)
+                        .map(|m| {
+                            let n = (PROBE_CUBE_SIZE >> m).max(1);
+                            (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+                        })
+                        .collect()
                 })
-                .collect()
-        })
-        .collect();
-    let radiance = Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces };
+                .collect();
+            Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces }
+        }
+    };
     let diffuse = diffuse_of(&radiance);
     let template = target.read(&format!("textures/{native}.dds"))?;
     let template_diffuse = target.read(&format!("textures/{native}_diffuse.dds"))?;
@@ -3447,10 +3613,16 @@ fn add_probe_cube(
         pack.config(&format!("textures/{texture}{suffix}.options"), &options)?;
     }
     let mean = crate::probe_bake::mean(&diffuse, 0);
-    notes.push(format!(
-        "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
-        cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
-    ));
+    notes.push(match traced {
+        Some(_) => format!(
+            "probe {}: cubemaps path-traced from the bake (over its diffuse_multiplier); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+            cube.object, mean[0], mean[1], mean[2]
+        ),
+        None => format!(
+            "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+            cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
+        ),
+    });
     Ok(())
 }
 
@@ -3774,6 +3946,32 @@ mod tests {
         assert_eq!(read_u32(&mesh, at).unwrap(), 4);
         assert_eq!(&mesh[at + 8..], &indices[..]);
         assert!(near(bounds.min, [10.0, 0.0, -1.0]));
+    }
+
+    #[test]
+    fn a_mesh_mapped_from_above_takes_x_and_z_at_the_density() {
+        // a flat triangle at x 3..5, z -1..1
+        let mut mesh = Mesh {
+            vertices: vec![[0u8; VERTEX_SIZE]; 3],
+            positions: vec![[3.0, 2.0, -1.0], [3.0, 2.0, 1.0], [5.0, 2.0, -1.0]],
+            triangles: vec![[0, 1, 2]],
+        };
+        mesh.map_from_above(0.5, "test").unwrap();
+        let uv = |i: usize| {
+            let v = &mesh.vertices[i];
+            [
+                u16::from_le_bytes([v[24], v[25]]),
+                u16::from_le_bytes([v[26], v[27]]),
+            ]
+        };
+        // u = 0.5 x less 1 (whole tiles), v = 0.5 z less -1
+        assert_eq!(uv(0), [half(0.5).unwrap(), half(0.5).unwrap()]);
+        assert_eq!(uv(1), [half(0.5).unwrap(), half(1.5).unwrap()]);
+        assert_eq!(uv(2), [half(1.5).unwrap(), half(0.5).unwrap()]);
+        // the tangent along x, the binormal along z
+        let slot = |s: usize| read_u32(&mesh.vertices[0], 12 + s * 4).unwrap();
+        assert_eq!(slot(1), packed_basis([1.0, 0.0, 0.0], 255));
+        assert_eq!(slot(2), packed_basis([0.0, 0.0, 1.0], 255));
     }
 
     #[test]

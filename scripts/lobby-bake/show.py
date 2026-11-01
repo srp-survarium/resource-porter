@@ -19,6 +19,7 @@ from common import (Materials, add_lights, add_props, log, new_object, new_scene
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 ap = argparse.ArgumentParser()
 ap.add_argument("scene")
+ap.add_argument("--gpu", action="store_true")
 ap.add_argument("--fov", type=float, default=70.0)
 ap.add_argument("--samples", type=int, default=64)
 ap.add_argument("--threads", type=int, default=12)
@@ -33,7 +34,7 @@ D = args.scene
 scene_json = json.load(open(os.path.join(D, "scene.json")))
 baked = json.load(open(os.path.join(D, "baked.json")))
 
-new_scene(args.threads)
+new_scene(args.threads, args.gpu)
 materials = Materials()
 pages = {p["name"]: page_material(p["name"], os.path.join(D, p["png"]), baked["emission"], p["alpha"])
          for p in baked["pages"]}
