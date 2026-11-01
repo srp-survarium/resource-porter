@@ -48,8 +48,19 @@ scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu
   its attach points (`muzzle_point`, the rails) for the weapon kit.
 * **Rigs.** `live`: the donor rig is a live weapon's skeleton bone for bone (checked); the model
   takes the live model's bind pose, skeleton file and hand locators, so the live clips play on
-  it. `donor`: the donor's skeleton, bind pose and clips. Every carried clip is checked against
-  its rig (hands: 0.26g's player rig; item: the gun's bones).
+  it (the FAMAS on the Ash-12's, whose clips 0.69d0 plays too). `donor`: the donor's
+  skeleton, bind pose, clips and hand points (the AKMSU, the Drum: a live rig's clips hold their
+  bodies where the live gun's are, the Drum's left hand on the box magazine's place). Every
+  carried clip is checked against its rig (hands: 0.26g's player rig; item: the gun's bones).
+* **Renames** (the sidecar's `renames`, `donor_069d/renames.rs`). The core ships a donor file
+  only when the target lacks its path, so 0.69d0's files under a name 0.26g also uses would play
+  as 0.26g's older ones. A rename serves a donor file at a path of its own and renames every
+  name of it in the donor's configs: clip folders (0.69d0's `ak/` as `akmsu_069/`, `ppsh/` as
+  `ppsh_drum/`) and sound names with everything under them (`weapons/akm_n` as
+  `weapons/akm_n_069`, which takes `weapons/akm_n_m` and `weapons/akm_n/...` along). A name
+  is renamed only when the donor has its file; a template's name stays.
+* **Clip events** (the sidecar's `clip_events`): a donor clip's event channel set anew (the
+  Mauser's empty reload: 0.69d0 leaves its sound events' indices at 255, 0.26g plays none).
 * **Locators.** 0.26g's contract: `aim`, `barrel_point` (the bare barrel's `muzzle_point`, else
   `fire_point`), `scope_point` (the scope rail, else the aim), `handguard_point`, and the hand
   locators (`_idle`, `_lobby`, `_reload`, `_reload_pivot`).
@@ -57,8 +68,7 @@ scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu
   with four maps: diffuse `0.514 * (albedo * (1 - 0.8 * metalness)) ^ 0.75` (re-encoded DXT1),
   gloss 0.36 x smoothness and Fresnel 0.162 x metalness^0.388 (both in the DXT endpoints), the
   normal map as it is.
-* **New rounds** (the sidecar's `rounds`): a live round's config and dictionary row with its own
-  values, added to the core's bundle.
+* **New rounds** are the core manifest's `ammo_items`.
 * **Icons.** `icons-069d.json` lists each gun's model and cell and each round's; the renderer
   draws the converted meshes (right side, muzzle right, pistols at 0.6), exposure matched to
   native rifle icons; a new round takes a live round's icon (`icon_like`).

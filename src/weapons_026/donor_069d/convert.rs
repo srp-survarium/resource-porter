@@ -512,6 +512,30 @@ pub fn tga(w: usize, h: usize, px: &[[u8; 3]]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Sets the values of the event channel `name` of a clip in 0.26g's layout
+/// (the knots' times, then a byte value each: a `sound_events` channel's
+/// indices in its state's sound list), one for each knot.
+pub fn set_event_values(clip: &mut [u8], name: &str, values: &[u8]) -> Result<()> {
+    use crate::weapons_026::clips::{BONE_RECORD, EVENT_HEADER_026, clip_header, event_names};
+    let h = clip_header(clip)?;
+    let index = event_names(clip)?
+        .iter()
+        .position(|n| n == name)
+        .with_context(|| format!("no event channel {name}"))?;
+    let header = 4 + h.bones * BONE_RECORD + index * EVENT_HEADER_026;
+    let knots = usize::from(clip[header + 8]);
+    ensure!(
+        knots == values.len(),
+        "{name} has {knots} knots, {} values given",
+        values.len()
+    );
+    let at = header + u32_at(clip, header)? as usize + 4 * knots;
+    clip.get_mut(at..at + knots)
+        .context("event values outside the clip")?
+        .copy_from_slice(values);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

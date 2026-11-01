@@ -208,13 +208,87 @@ fn shared_ak12_clips_convert_to_the_026g_bytes() {
 }
 
 #[test]
-fn a_live_body_takes_the_live_sights() {
-    let spec: Spec069 = serde_json::from_str(
-        r#"{"format_version": 1,
-            "guns": {"ppsh_drum": {"rig": {"live_sights": "models/weapons/ppsh/ppsh.skinned_model"}}}}"#,
+fn a_rename_moves_a_file_and_every_name_of_it() {
+    use super::renames::Renames;
+    use crate::binary_config::{ConfigValue as V, NamedValue};
+    let r: Renames = serde_json::from_str(
+        r#"{"clips": {"animations/single/weapons/ppsh/": "animations/single/weapons/ppsh_drum/"},
+            "sounds": {"weapons/akm_n": "weapons/akm_n_069"}}"#,
     )
     .unwrap();
-    assert!(
-        matches!(&spec.guns["ppsh_drum"].rig, Rig::LiveSights(m) if m.ends_with("ppsh.skinned_model"))
+    assert_eq!(
+        r.donor_path("animations/single/weapons/ppsh_drum/item/idle.b-spline")
+            .as_deref(),
+        Some("animations/single/weapons/ppsh/item/idle.b-spline")
+    );
+    assert_eq!(
+        r.donor_path("sounds/composite/weapons/akm_n_069_m.composite_sound")
+            .as_deref(),
+        Some("sounds/composite/weapons/akm_n_m.composite_sound")
+    );
+    assert_eq!(
+        r.donor_path("sounds/single/weapons/akm_n_069/akm_n_reload_1.high.ogg")
+            .as_deref(),
+        Some("sounds/single/weapons/akm_n/akm_n_reload_1.high.ogg")
+    );
+    assert_eq!(r.donor_path("sounds/single/weapons/akm_nx.high.ogg"), None);
+    assert_eq!(
+        r.donor_path("sounds/composite/weapons/akm_n_069.composite_sound").as_deref(),
+        Some("sounds/composite/weapons/akm_n.composite_sound")
+    );
+    // The donor has everything but the template's clip.
+    let has = |p: &str| !p.contains("template");
+    let s = |t: &str| V::String(t.into());
+    let mut cfg = V::Named(vec![
+        NamedValue {
+            name: "animations".into(),
+            value: V::Indexed(vec![
+                s("resources/animations/single/weapons/ppsh/item/idle"),
+                s("resources/animations/single/weapons/ppsh/template"),
+            ]),
+        },
+        NamedValue {
+            name: "sounds".into(),
+            value: V::Indexed(vec![V::Indexed(vec![
+                V::Integer(257),
+                s("weapons/akm_n_m"),
+            ])]),
+        },
+        NamedValue {
+            name: "skeleton".into(),
+            value: s("weapons/akm_n/akm_n"),
+        },
+        NamedValue {
+            name: "item".into(),
+            value: V::Named(vec![NamedValue {
+                name: "filename".into(),
+                value: s("weapons/akm_n/layers/tail"),
+            }]),
+        },
+    ]);
+    r.apply(&mut cfg, &has);
+    let V::Named(f) = &cfg else { unreachable!() };
+    assert_eq!(
+        f[0].value,
+        V::Indexed(vec![
+            s("resources/animations/single/weapons/ppsh_drum/item/idle"),
+            s("resources/animations/single/weapons/ppsh/template"),
+        ])
+    );
+    assert_eq!(
+        f[1].value,
+        V::Indexed(vec![V::Indexed(vec![
+            V::Integer(257),
+            s("weapons/akm_n_069_m")
+        ])])
+    );
+    // A string that names no sound stays.
+    assert_eq!(f[2].value, s("weapons/akm_n/akm_n"));
+    assert_eq!(
+        f[3].value,
+        V::Named(vec![NamedValue {
+            name: "filename".into(),
+            value: s("weapons/akm_n_069/layers/tail")
+        }])
     );
 }

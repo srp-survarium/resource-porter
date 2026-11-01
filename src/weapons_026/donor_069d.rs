@@ -27,6 +27,9 @@
 //! template's) is the core manifest's, as for any donor.
 
 pub mod convert;
+pub mod renames;
+
+pub use renames::Renames;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -62,12 +65,6 @@ pub enum Rig {
     /// skeleton bone for bone (checked); the model takes its bind pose,
     /// skeleton file and hand locators.
     Live(String),
-    /// As [`Rig::Live`], on a body that is that live model's own mesh (the
-    /// Drum's PPSh): its `aim` locator is the live one's too. The live aim
-    /// carries the angle the live clips hold those sights at (the PPSh's
-    /// 0.015 rad of yaw); the donor's, written for 0.69d0's clips, put the
-    /// Drum's sights 6-7 px right of the screen's centre.
-    LiveSights(String),
     /// The donor's own skeleton and clips.
     Donor,
 }
@@ -96,6 +93,15 @@ pub struct Spec069 {
     pub format_version: u32,
     /// By the core manifest's `donor_item` (0.69d0's item name).
     pub guns: BTreeMap<String, Gun069>,
+    /// 0.69d0's clips and sounds moved to names of their own where 0.26g
+    /// has an older file of the same name ([`Renames`]).
+    #[serde(default)]
+    pub renames: Renames,
+    /// Event channels of a donor clip set anew, by the clip's donor name
+    /// (no extension): channel to the knots' values (a `sound_events`
+    /// channel's: the indices in its state's sound list).
+    #[serde(default)]
+    pub clip_events: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
 }
 
 impl Spec069 {
@@ -141,6 +147,8 @@ pub struct Donor069 {
     files: BTreeMap<String, Vec<u8>>,
     attach_points: BTreeMap<String, Vec<AttachPoint>>,
     modules: BTreeMap<String, Vec<PlacedModule>>,
+    renames: Renames,
+    clip_events: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
 }
 
 fn string_of(v: Option<&V>) -> Result<&str> {
@@ -436,6 +444,8 @@ impl Donor069 {
             files: BTreeMap::new(),
             attach_points: BTreeMap::new(),
             modules: BTreeMap::new(),
+            renames: spec.renames.clone(),
+            clip_events: spec.clip_events.clone(),
         };
         for (item, gun) in &spec.guns {
             let materials = donor
@@ -467,6 +477,21 @@ impl Donor069 {
     /// Each gun's bundled and default modules, baked or left out.
     pub fn modules(&self) -> &BTreeMap<String, Vec<PlacedModule>> {
         &self.modules
+    }
+
+    /// The donor archive's path for `path`: its own, or the one a rename
+    /// moved to it.
+    fn source(&self, path: &str) -> String {
+        match self.renames.donor_path(path) {
+            Some(old) if !self.db.contains(path) => old,
+            _ => path.to_owned(),
+        }
+    }
+
+    /// `v` with the clips and sounds it names moved as [`Renames`] says.
+    fn renamed(&self, v: &mut V) {
+        let db = &self.db;
+        self.renames.apply(v, &|path: &str| db.contains(path));
     }
 
     fn weapon(&self, item: &str) -> Result<&V> {
@@ -568,7 +593,7 @@ impl Donor069 {
         // The bind pose shipped: the live model's for a live rig (its clips
         // are written for it), else the donor's.
         let (ship_bind, live_props, skeleton_file) = match &gun.rig {
-            Rig::Live(model) | Rig::LiveSights(model) => {
+            Rig::Live(model) => {
                 let live = target.read(&format!("{model}/render/bind_pose"))?;
                 let names: Vec<String> = bind_pose(&live)?.into_iter().map(|(n, _)| n).collect();
                 let ours: Vec<String> = bind.iter().map(|(n, _)| n.clone()).collect();
@@ -678,18 +703,11 @@ impl Donor069 {
             .iter()
             .find_map(|n| find(n).ok())
             .context("no handguard locator")?;
-        let aim = match (&gun.rig, &live_props) {
-            (Rig::LiveSights(model), Some(live)) => locators(live)?
-                .into_iter()
-                .find(|l| l.name == "aim")
-                .with_context(|| format!("{model} has no aim locator"))?,
-            _ => Locator {
+        let mut locs = vec![
+            Locator {
                 name: "aim".into(),
                 ..aim.clone()
             },
-        };
-        let mut locs = vec![
-            aim,
             Locator {
                 name: "barrel_point".into(),
                 rotation: [0.0; 3],
@@ -874,10 +892,10 @@ impl Donor for Donor069 {
         DonorBuild::V069d0
     }
     fn contains(&self, path: &str) -> bool {
-        self.files.contains_key(path) || self.db.contains(path)
+        self.files.contains_key(path) || self.db.contains(&self.source(path))
     }
     fn is_file(&self, path: &str) -> bool {
-        self.files.contains_key(path) || self.db.is_file(path)
+        self.files.contains_key(path) || self.db.is_file(&self.source(path))
     }
     fn paths_with_prefix(&self, prefix: &str) -> Vec<String> {
         let mut out: BTreeSet<String> = self
@@ -901,28 +919,42 @@ impl Donor for Donor069 {
         if let Some(bytes) = self.files.get(path) {
             return Ok(bytes.clone());
         }
+        let source = self.source(path);
         let bytes = self
             .db
-            .read(path)
-            .with_context(|| format!("reading donor {path}"))?;
+            .read(&source)
+            .with_context(|| format!("reading donor {source}"))?;
         if path.ends_with(".b-spline") {
-            return clips::events_12_to_16(&bytes).with_context(|| format!("converting {path}"));
+            let mut clip =
+                clips::events_12_to_16(&bytes).with_context(|| format!("converting {source}"))?;
+            if let Some(channels) = self.clip_events.get(source.trim_end_matches(".b-spline")) {
+                for (channel, values) in channels {
+                    convert::set_event_values(&mut clip, channel, values)
+                        .with_context(|| format!("{source}: {channel}"))?;
+                }
+            }
+            return Ok(clip);
         }
         ensure!(
             !path.ends_with("/converted_model") && !path.ends_with("/bind_pose"),
             "{path}: 0.69d0's meshes are served only as composed models"
         );
-        if is_config(path) && BinaryConfig::is_compact(&bytes) {
-            return encode(
-                BinaryConfig::parse(&bytes)
-                    .with_context(|| format!("parsing donor {path}"))?
-                    .root,
-            );
+        if is_config(path) {
+            let parsed = BinaryConfig::parse(&bytes)
+                .with_context(|| format!("parsing donor {source}"))?
+                .root;
+            let mut root = parsed.clone();
+            self.renamed(&mut root);
+            if root != parsed || BinaryConfig::is_compact(&bytes) {
+                return encode(root);
+            }
         }
         Ok(bytes)
     }
     fn item_config(&mut self, item: &str) -> Result<V> {
-        Ok(without_069d_only(self.weapon(item)?))
+        let mut cfg = without_069d_only(self.weapon(item)?);
+        self.renamed(&mut cfg);
+        Ok(cfg)
     }
     fn dictionary(&mut self) -> Result<V> {
         bail!("0.69d0 keeps its dictionary on its server")
