@@ -404,20 +404,25 @@ fn lod0_surfaces(settings: &V, path: &str) -> Result<Vec<(String, String)>> {
         .collect()
 }
 
-/// The donor map roles and the 0.26g ones they feed.
-const MAP_ROLES: [(&str, &str, Option<convert::ToneCurve>); 4] = [
-    ("t_albedo", "texture_diffuse", Some(convert::ALBEDO)),
-    ("t_normal", "texture_normal", None),
-    (
-        "t_smoothness",
-        "texture_roughness",
-        Some(convert::SMOOTHNESS_TO_GLOSS),
-    ),
-    (
-        "t_metalness",
-        "texture_fresnel",
-        Some(convert::METALNESS_TO_FRESNEL),
-    ),
+/// What a donor map becomes in 0.26g (see [`convert::diffuse_from_albedo`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MapRole {
+    /// The albedo, with the metalness, the diffuse (sRGB).
+    Diffuse,
+    /// The normal map as it is (both builds' layout: x in alpha, y in green).
+    Normal,
+    /// The smoothness, the gloss ([`convert::gloss_from_smoothness`]).
+    Gloss,
+    /// The metalness, the Fresnel F0 ([`convert::fresnel_from_metalness`]).
+    Fresnel,
+}
+
+/// The donor map slots, the 0.26g ones they feed and how.
+const MAP_ROLES: [(&str, &str, MapRole); 4] = [
+    ("t_albedo", "texture_diffuse", MapRole::Diffuse),
+    ("t_normal", "texture_normal", MapRole::Normal),
+    ("t_smoothness", "texture_roughness", MapRole::Gloss),
+    ("t_metalness", "texture_fresnel", MapRole::Fresnel),
 ];
 
 /// The 0.26g diffuse of a 0.69d albedo and metalness pair (see
@@ -432,13 +437,34 @@ fn diffuse_dds(albedo: &[u8], metalness: &[u8], name: &str, work: &Path) -> Resu
             convert::diffuse_from_albedo(a[i], metal)
         })
         .collect();
+    encode_dxt1(w, h, &px, name, true, work)
+}
+
+/// A 0.69d grey map (smoothness or metalness) with `map` applied to each
+/// pixel, DXT1 with mips like a native weapon's, read linear.
+fn mapped_dds(bytes: &[u8], map: fn(u8) -> u8, name: &str, work: &Path) -> Result<Vec<u8>> {
+    let (w, h, px) = convert::decode_dxt1(bytes)?;
+    let px: Vec<[u8; 3]> = px.iter().map(|p| [map(p[0]); 3]).collect();
+    encode_dxt1(w, h, &px, name, false, work)
+}
+
+/// Pixels as a game DXT1 .dds: its mips and the sRGB byte 0.26g reads at
+/// its end (`srgb` for a diffuse).
+fn encode_dxt1(
+    w: usize,
+    h: usize,
+    px: &[[u8; 3]],
+    name: &str,
+    srgb: bool,
+    work: &Path,
+) -> Result<Vec<u8>> {
     fs::create_dir_all(work)?;
     let stem = name.replace('/', "_");
     let tga = work.join(format!("{stem}.tga"));
     let dds = work.join(format!("{stem}.dds"));
-    fs::write(&tga, convert::tga(w, h, &px)?)?;
+    fs::write(&tga, convert::tga(w, h, px)?)?;
     crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt1)?;
-    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, true)?;
+    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, srgb)?;
     fs::remove_file(&tga)?;
     fs::remove_file(&dds)?;
     Ok(out)
@@ -876,22 +902,24 @@ impl Donor069 {
             )?;
             names.insert(role, texture);
         }
-        for (role, _, curve) in MAP_ROLES {
+        for (role, _, map) in MAP_ROLES {
             let texture = &names[role];
             let dds = format!("textures/{texture}.dds");
             if self.files.contains_key(&dds) {
                 continue;
             }
             let bytes = self.db.read(&dds)?;
-            let bytes = if role == "t_albedo" {
-                let metalness = self
-                    .db
-                    .read(&format!("textures/{}.dds", names["t_metalness"]))?;
-                diffuse_dds(&bytes, &metalness, &dds, work)?
-            } else {
-                match curve {
-                    Some(curve) => convert::remap_dds(&bytes, curve)?,
-                    None => bytes,
+            let bytes = match map {
+                MapRole::Diffuse => {
+                    let metalness = self
+                        .db
+                        .read(&format!("textures/{}.dds", names["t_metalness"]))?;
+                    diffuse_dds(&bytes, &metalness, &dds, work)?
+                }
+                MapRole::Normal => bytes,
+                MapRole::Gloss => mapped_dds(&bytes, convert::gloss_from_smoothness, &dds, work)?,
+                MapRole::Fresnel => {
+                    mapped_dds(&bytes, convert::fresnel_from_metalness, &dds, work)?
                 }
             };
             self.put(dds, bytes)?;
