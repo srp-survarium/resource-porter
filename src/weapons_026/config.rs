@@ -43,6 +43,37 @@ pub const NATIVE_PATHS: &[&str] = &[
 /// none goes without, as the natives with none (the AK-12): 0.
 pub const MODEL_PATHS: &[&str] = &["parameters.aim_offset"];
 
+/// The screen shake a shot gives (`weapon_recoil_parameters` reads them
+/// raw): the class's live value, the template's, never the donor's nor a
+/// peer-scaled one. 0.31a2 cut the M4A1's, HK416's and UZI's to 0.2/0.4,
+/// against 0.26g's 0.8/1.0 x8 for every automatic, so a gun scaled by such
+/// a peer shook 3 times harder than any live gun (the SCAR-H's 2.4/3.0).
+/// A manifest `set` may still name one, as a decision of its own.
+pub const SHAKE_PATHS: &[&str] = &[
+    "recoil.min_shake_recoil",
+    "recoil.max_shake_recoil",
+    "recoil.shake_time_scale",
+];
+
+/// The template's screen shake over whatever the merge left (see
+/// [`SHAKE_PATHS`]).
+pub(crate) fn template_shake(cfg: &mut V, template: &V, notes: &mut Vec<String>) -> Result<()> {
+    for path in SHAKE_PATHS {
+        match (get(template, path).cloned(), get(cfg, path).cloned()) {
+            (Some(ours), Some(had)) if ours != had => {
+                notes.push(format!(
+                    "{path}: the template's {ours:?} (the donor's {had:?})"
+                ));
+                cfg.set_path(path, ours)?;
+            }
+            (Some(ours), None) => cfg.set_path(path, ours)?,
+            (None, Some(_)) => remove_path(cfg, path),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Removes the key at a dotted path, if there.
 pub fn remove_path(cfg: &mut V, path: &str) {
     let (parent, leaf) = match path.rsplit_once('.') {
@@ -448,6 +479,7 @@ pub fn weapon_config(
         }
     }
     own_preview_item(&mut cfg, &mut notes)?;
+    template_shake(&mut cfg, template, &mut notes)?;
     for (path, value) in &weapon.set {
         set_typed(&mut cfg, path, value)?;
     }

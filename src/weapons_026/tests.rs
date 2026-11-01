@@ -937,3 +937,26 @@ fn a_sounds_spl_preset_is_a_file_it_needs() {
     assert_eq!(spl_preset(&options("")), None);
     assert_eq!(spl_preset(&t(vec![])), None);
 }
+
+/// Screen shake is the template's (the live class's), not the donor's: a
+/// 0.31a2 gun on 0.2/0.4 gets the live 0.8/1.0 x8.
+#[test]
+fn screen_shake_is_the_templates() {
+    let recoil = |min: f32, max: f32, ts: i32| {
+        t(vec![(
+            "recoil",
+            t(vec![
+                ("min_shake_recoil", V::Float(min)),
+                ("max_shake_recoil", V::Float(max)),
+                ("shake_time_scale", V::Integer(ts)),
+                ("recoil_power", V::Float(0.8)),
+            ]),
+        )])
+    };
+    let template = recoil(0.8, 1.0, 8);
+    let mut cfg = recoil(2.4, 3.0, 8);
+    let mut notes = vec![];
+    config::template_shake(&mut cfg, &template, &mut notes).unwrap();
+    assert_eq!(cfg, template);
+    assert_eq!(notes.len(), 2);
+}
