@@ -37,6 +37,29 @@ pub const NATIVE_PATHS: &[&str] = &[
     "particles.shoot_pfx_count",
 ];
 
+/// Values that fit the template's model, not the gun's: the aim's offset
+/// from the `aim` locator (the Val's 0.028 lowered the Groza's sight line by
+/// 3 cm, its ring 50 px under the screen's centre). A gun whose donor has
+/// none goes without, as the natives with none (the AK-12): 0.
+pub const MODEL_PATHS: &[&str] = &["parameters.aim_offset"];
+
+/// Removes the key at a dotted path, if there.
+pub fn remove_path(cfg: &mut V, path: &str) {
+    let (parent, leaf) = match path.rsplit_once('.') {
+        Some((p, l)) => (Some(p), l),
+        None => (None, path),
+    };
+    let target = match parent {
+        Some(p) => p
+            .split('.')
+            .try_fold(&mut *cfg, |v, part| v.named_mut(part)),
+        None => Some(cfg),
+    };
+    if let Some(V::Named(fields)) = target {
+        fields.retain(|f| f.name != leaf);
+    }
+}
+
 /// `donor` on `template`'s keys: of each named table the template's keys,
 /// with the donor's values where it has them (recursively) and the
 /// template's otherwise. An indexed table is the donor's whole; an integer
@@ -361,6 +384,14 @@ pub fn weapon_config(
         )?;
     }
     cfg.set_path("ui_desc.combat_log_icon", V::Integer(weapon.kill_feed.icon))?;
+    for path in MODEL_PATHS {
+        if get(&donor, path).is_none() && get(&cfg, path).is_some() {
+            remove_path(&mut cfg, path);
+            notes.push(format!(
+                "{path}: the template's left out (the donor's model has none)"
+            ));
+        }
+    }
     for (path, value) in &weapon.set {
         set_typed(&mut cfg, path, value)?;
     }

@@ -27,6 +27,34 @@ pub struct WeaponPort {
     /// target's dictionary): patch 19's own rounds, for its comparison.
     #[serde(default)]
     pub external_ammo: Vec<i32>,
+    /// New ammunition items the guns take (a belt, a magazine of another
+    /// size than the shared round's).
+    #[serde(default)]
+    pub ammo_items: Vec<AmmoItem>,
+}
+
+/// A new ammunition item: a native round's config (its ballistics) with the
+/// port's values (`clip_size`, `required_bags`, `clip_weight`, texts, icon).
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AmmoItem {
+    pub name: String,
+    pub dict_id: i32,
+    /// Where its config goes (`gameplay/items/weapons/ammo/<name>.options`).
+    pub config: String,
+    /// The native round it is (read from the target: the stock db and the
+    /// patches); its dictionary row is the template's, unless `category`.
+    pub template: String,
+    /// The dictionary row's `item_category` when not the template's (21 a
+    /// belt, as the PKP's and the RPD's).
+    pub category: Option<i32>,
+    /// A clip (one step of the shop's slider: `clip_size` rounds).
+    pub base_cost: i32,
+    #[serde(default)]
+    pub set: BTreeMap<String, serde_json::Value>,
+    /// A cell of `LobbyMenu_AmmoIcons` and the donor's image, or `None` to
+    /// keep the template's cell (`set` may name another).
+    pub lobby_icon: Option<LobbyIcon>,
 }
 
 /// One gun: a new item of 0.26g's.
@@ -178,6 +206,11 @@ impl WeaponPort {
                 );
             }
             ensure!(!w.ammo.is_empty(), "{} takes no ammo", w.name);
+        }
+        for a in &self.ammo_items {
+            ensure!(ids.insert(a.dict_id), "dict id {} twice", a.dict_id);
+            ensure!(names.insert(a.name.clone()), "{} twice", a.name);
+            ensure!(configs.insert(a.config.clone()), "{} twice", a.config);
         }
         for m in &self.modules {
             ensure!(ids.insert(m.dict_id), "dict id {} twice", m.dict_id);

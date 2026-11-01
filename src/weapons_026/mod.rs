@@ -32,6 +32,7 @@ pub mod donor_046;
 pub mod icons;
 pub mod manifest;
 pub mod modules;
+pub mod resources;
 
 pub use build::{BuildReport, build, conform_material, environment_layer};
 pub use config::conform;

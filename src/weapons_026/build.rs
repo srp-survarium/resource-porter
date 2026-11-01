@@ -515,6 +515,31 @@ fn dictionary(dict: &mut V, port: &WeaponPort) -> Result<Vec<String>> {
         }
         items.push(row);
     }
+    for a in &port.ammo_items {
+        let mut row = items
+            .iter()
+            .find(|v| string_of(v.named("cfg_name")) == Some(a.template.as_str()))
+            .with_context(|| format!("no dictionary row for the template {}", a.template))?
+            .clone();
+        ensure!(
+            !items
+                .iter()
+                .any(|v| v.named("dict_id") == Some(&V::Integer(a.dict_id))
+                    || string_of(v.named("cfg_name")) == Some(a.config.as_str())
+                    || string_of(v.named("name")) == Some(a.name.as_str())),
+            "item {} ({}) is taken",
+            a.dict_id,
+            a.name
+        );
+        row.set_path("cfg_name", s(&a.config))?;
+        row.set_path("name", s(&a.name))?;
+        row.set_path("dict_id", V::Integer(a.dict_id))?;
+        row.set_path("base_cost", V::Integer(a.base_cost))?;
+        if let Some(category) = a.category {
+            row.set_path("item_category", V::Integer(category))?;
+        }
+        items.push(row);
+    }
     let ids: BTreeSet<i32> = items
         .iter()
         .filter_map(|v| match v.named("dict_id") {
@@ -681,10 +706,44 @@ pub fn build<D: Donor>(
         report.notes.insert(w.config.clone(), notes);
         configs.push((w, cfg));
     }
+    let mut ammo_configs: Vec<(String, V)> = vec![];
+    for a in &port.ammo_items {
+        ensure!(!carry.target.contains(&a.config), "{} exists", a.config);
+        let mut cfg = parse_config(carry.target, &a.template, "native round")?.root;
+        for (path, value) in &a.set {
+            super::config::set_typed(&mut cfg, path, value).with_context(|| a.name.clone())?;
+        }
+        if let Some(icon) = &a.lobby_icon {
+            cfg.set_path(
+                "ui_desc.icon",
+                V::Indexed(vec![
+                    V::Integer(icon.row as i32),
+                    V::Integer(icon.col as i32),
+                ]),
+            )?;
+        }
+        ammo_configs.push((a.config.clone(), cfg));
+    }
+    // Every resource a config names exists, in the target or the bundle.
+    for (w, cfg) in &configs {
+        let (target, written) = (&*carry.target, &carry.written);
+        let exists = |file: &str| target.contains(file) || written.contains(file);
+        super::resources::check_resources(&w.config, cfg, &exists)?;
+    }
     let mut texts = BTreeSet::new();
     for (w, cfg) in &configs {
         texts.extend(text_keys(cfg));
         carry.config(&w.config, cfg.clone())?;
+    }
+    for (path, cfg) in &ammo_configs {
+        let (target, written) = (&*carry.target, &carry.written);
+        let exists = |file: &str| target.contains(file) || written.contains(file);
+        super::resources::check_resources(path, cfg, &exists)?;
+        texts.extend(text_keys(cfg));
+        if let Some(key) = string_of(get(cfg, "ui_desc.ammo_indicator_name")) {
+            texts.insert(key.to_owned());
+        }
+        carry.config(path, cfg.clone())?;
     }
     let mut dict = parse_config(carry.target, DICT, "0.26g dictionary")?;
     let compat = dictionary(&mut dict.root, port)?;
@@ -745,6 +804,18 @@ pub fn build<D: Donor>(
             )?;
         }
     }
+    for a in &port.ammo_items {
+        if let Some(icon) = &a.lobby_icon {
+            let symbol = "LobbyMenu_AmmoIcons";
+            let name = format!("{symbol}-r{:02}c{:02}.png", icon.row, icon.col);
+            fs::write(
+                icons_dir.join(&name),
+                cell_png(&carry.donor.read(&icon.donor_png)?)
+                    .with_context(|| icon.donor_png.clone())?,
+            )?;
+            icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": icon.donor_png}));
+        }
+    }
     fs::write(
         icons_dir.join("icons.json"),
         serde_json::to_vec_pretty(&icons)?,
@@ -765,7 +836,7 @@ pub fn build<D: Donor>(
             "donor_build": port.donor_build,
             "files": files,
             "target": target_layers,
-            "items": configs.iter().map(|(w, _)| &w.config).collect::<Vec<_>>(),
+            "items": configs.iter().map(|(w, _)| w.config.clone()).chain(ammo_configs.iter().map(|(p, _)| p.clone())).collect::<Vec<_>>(),
             "compatibility": compat,
             "icons": icons,
             "reused_from_target": reused,
