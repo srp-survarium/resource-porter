@@ -131,3 +131,21 @@ fn a_fire_point_off_the_bore_is_refused() {
     assert!(fire_mm([0.01, 0.0, 0.05], "x").is_err());
     assert_eq!(fire_mm([0.0, 0.0044, 0.0464], "x").unwrap(), 46);
 }
+
+#[test]
+fn a_brakes_stats_go_where_a_weapon_reads_them() {
+    let p = |s: &[&str]| s.iter().map(|x| (*x).to_owned()).collect::<Vec<String>>();
+    let recoil = effective_modifiers(&p(&["parameters", "recoil_modifier"]), -0.04, 1);
+    assert_eq!(recoil.len(), 6);
+    assert!(recoil.iter().all(|(path, v, k)| path[0] == "recoil" && *v == -0.04 && *k == 2));
+    assert_eq!(
+        effective_modifiers(&p(&["parameters", "aim_time_modifier"]), 0.03, 1),
+        vec![(p(&["parameters", "aim_time"]), 0.03, 2)]
+    );
+    assert_eq!(
+        effective_modifiers(&p(&["parameters", "unmasking_radius"]), -0.4, 2),
+        vec![(p(&["parameters", "unmasking_radius"]), -0.4, 2)]
+    );
+    assert_eq!(Kind::of(&[(p(&["parameters", "unmasking_radius"]), -0.4, 2)]), Kind::FlashHider);
+    assert_eq!(Kind::of(&recoil), Kind::Brake);
+}

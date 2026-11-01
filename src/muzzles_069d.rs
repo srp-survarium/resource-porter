@@ -149,8 +149,9 @@ impl MuzzlePort {
     }
 }
 
-/// A device kind: a flash hider by its 0.69d0 group or id (0.69d0 keeps
-/// some under `muzzlebrakes/`), else a brake.
+/// A device kind: a flash hider is what 0.69d0 rolls an unmasking radius
+/// on (its drop modifications; 0.69d0's groups and folders mislabel some),
+/// else a brake.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     FlashHider,
@@ -158,8 +159,8 @@ enum Kind {
 }
 
 impl Kind {
-    fn of(id: &str, group: &str) -> Self {
-        if matches!(group, "flash_hider" | "firearrestor") || id.contains("firearrestor") {
+    fn of(stats: &[(Vec<String>, f32, i32)]) -> Self {
+        if stats.iter().any(|(path, _, _)| path.last().is_some_and(|k| k == "unmasking_radius")) {
             Self::FlashHider
         } else {
             Self::Brake
@@ -565,7 +566,6 @@ fn build_device(
     );
     let model = string_of(module.named("model"))?.to_owned();
     ensure!(!modules::is_suppressor(&model), "{model}: a suppressor");
-    let kind = Kind::of(&spec.module, group);
     let ours = w69::ns_name(&model)?;
     let mut surfaces = vec![];
     let mut positions = vec![];
@@ -609,7 +609,7 @@ fn build_device(
     let name_key = string_of(at(module, "ui_desc.name"))?.to_owned();
     Ok(Device {
         spec: spec.clone(),
-        kind,
+        kind: Kind::of(&stats),
         model: ours,
         fire_mm: fire_mm(fire, &spec.module)?,
         links: all_links.get(&spec.module).cloned().unwrap_or_default(),
@@ -937,7 +937,7 @@ pub fn build(port: &MuzzlePort, donor_db: &Path, target_layers: &[PathBuf], outp
     let mut guns = vec![];
     let mut edits = vec![];
     let mut reports = vec![];
-    let mut gun_params: BTreeMap<i32, V> = BTreeMap::new();
+    let mut gun_configs: BTreeMap<i32, V> = BTreeMap::new();
     for gun in &port.guns {
         let cfg = parse_config(&mut target, &gun.config, "a gun's config")?;
         let model = string_of(at(&cfg.root, "object.model"))?.to_owned();
@@ -1063,7 +1063,7 @@ pub fn build(port: &MuzzlePort, donor_db: &Path, target_layers: &[PathBuf], outp
             .filter(|(_, d)| d.links.contains(like))
             .map(|(i, _)| i)
             .collect();
-        gun_params.insert(dict_id, cfg.root.named("parameters").cloned().unwrap_or(V::Named(vec![])));
+        gun_configs.insert(dict_id, cfg.root.clone());
         guns.push(GunOut {
             name,
             dict_id,
@@ -1107,27 +1107,31 @@ pub fn build(port: &MuzzlePort, donor_db: &Path, target_layers: &[PathBuf], outp
         let mut kept = vec![];
         let mut dropped = vec![];
         for (path, value, kind) in &d.stats {
-            let every = path.len() == 2
-                && path[0] == "parameters"
-                && fitting
+            let effective = effective_modifiers(path, *value, *kind);
+            let every = effective.iter().all(|(p, _, _)| {
+                fitting
                     .iter()
-                    .all(|g| gun_params[&g.dict_id].named(&path[1]).is_some());
+                    .all(|g| at(&gun_configs[&g.dict_id], &p.join(".")).is_some())
+            });
             if !every {
                 dropped.push(path.join("/"));
                 continue;
             }
-            modifiers.push(json_modifier(
-                &path.iter().map(String::as_str).collect::<Vec<_>>(),
-                V::Float(*value),
-                *kind,
-            ));
+            for (p, v, k) in &effective {
+                modifiers.push(json_modifier(
+                    &p.iter().map(String::as_str).collect::<Vec<_>>(),
+                    V::Float(*v),
+                    *k,
+                ));
+            }
             if let Some(id) = prop_of(path) {
                 props.push(V::Named(vec![
                     field("prop_value", s(format!("{value:.2}"))),
                     field("prop_id", V::Integer(id)),
                 ]));
             }
-            kept.push(json!({"path": path.join("/"), "value": value, "type": kind}));
+            kept.push(json!({"path": path.join("/"), "value": value, "type": kind,
+                "as": effective.iter().map(|(p, v, k)| json!({"path": p.join("/"), "value": v, "type": k})).collect::<Vec<_>>()}));
         }
         if d.kind == Kind::FlashHider {
             modifiers.push(json_modifier(&["particles", "shoot"], s(&port.flash_hider_shoot), 0));
@@ -1260,6 +1264,31 @@ pub fn build(port: &MuzzlePort, donor_db: &Path, target_layers: &[PathBuf], outp
         files.len()
     );
     Ok(())
+}
+
+/// A 0.69d0 stat as the 0.26g keys that take effect on a weapon (as
+/// skhid-srp's weapon-rolls-1 does for the stock rolls,
+/// docs/notes/weapon-rolls.md): `recoil_modifier` and `aim_time_modifier`
+/// are a player's modifiers, which a weapon never registers, so the recoil
+/// goes on the six kick bounds the recoil loader reads and the aim time on
+/// the weapon's own, by the same fraction (type 2). Any other key as it is.
+fn effective_modifiers(path: &[String], value: f32, kind: i32) -> Vec<(Vec<String>, f32, i32)> {
+    let owned = |p: &[&str]| p.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+    match (path.iter().map(String::as_str).collect::<Vec<_>>().as_slice(), kind) {
+        (["parameters", "recoil_modifier"], 1) => [
+            "min_top_recoil",
+            "max_top_recoil",
+            "min_left_recoil",
+            "max_left_recoil",
+            "min_right_recoil",
+            "max_right_recoil",
+        ]
+        .iter()
+        .map(|k| (owned(&["recoil", k]), value, 2))
+        .collect(),
+        (["parameters", "aim_time_modifier"], 1) => vec![(owned(&["parameters", "aim_time"]), value, 2)],
+        _ => vec![(path.to_vec(), value, kind)],
+    }
 }
 
 fn json_modifier(path: &[&str], value: V, kind: i32) -> V {
