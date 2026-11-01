@@ -23,7 +23,7 @@ use anyhow::{Context, Result, bail, ensure};
 
 use super::donor::Rules;
 use super::manifest::Weapon;
-use super::{field, get, s};
+use super::{field, get, s, string_of};
 use crate::{ConfigValue as V, NamedValue};
 
 /// Config paths taken from the template whatever the donor has.
@@ -214,6 +214,19 @@ pub fn typed(value: &serde_json::Value, like: Option<&V>) -> Result<V> {
         (J::Number(n), None) => V::Float(n.as_f64().context("number")? as f32),
         (J::String(t), Some(V::String(_)) | None) => V::String(t.clone()),
         (J::Bool(b), Some(V::Boolean(_)) | None) => V::Boolean(*b),
+        // A vector stays a vector (a locator's position): never a table.
+        (J::Array(items), Some(V::Float2(_) | V::Float3(_) | V::Float4(_))) => {
+            let f: Vec<f32> = items
+                .iter()
+                .map(|i| i.as_f64().map(|x| x as f32).context("a vector of numbers"))
+                .collect::<Result<_>>()?;
+            match (like, f.as_slice()) {
+                (Some(V::Float2(_)), [a, b]) => V::Float2([*a, *b]),
+                (Some(V::Float3(_)), [a, b, c]) => V::Float3([*a, *b, *c]),
+                (Some(V::Float4(_)), [a, b, c, d]) => V::Float4([*a, *b, *c, *d]),
+                _ => bail!("{value}: another length than the template's vector"),
+            }
+        }
         (J::Array(items), _) => V::Indexed(
             items
                 .iter()
@@ -266,6 +279,48 @@ pub fn card_props(cfg: &V) -> Result<Vec<(i32, String)>> {
         // The native cards round the weight to 0.1 kg (the SKS's 3.75: 3.8).
         (15, fmt((num("weight")? * 10.0).round() / 10.0)),
     ])
+}
+
+/// An ammunition item's card from its own values: prop 16 (rounds in a
+/// pack) is `parameters.clip_size`, prop 15 (weight) `parameters.clip_weight`,
+/// as every native round's card has them; a new round on a native round's
+/// config would show the template's otherwise (a 100-round belt said 30).
+pub fn ammo_card(cfg: &mut V) -> Result<()> {
+    let num = |key: &str| -> Result<f32> {
+        match get(cfg, &format!("parameters.{key}")) {
+            Some(V::Float(f)) => Ok(*f),
+            Some(V::Integer(i)) => Ok(*i as f32),
+            other => bail!("parameters.{key} is {other:?}"),
+        }
+    };
+    // As the natives write it: 0.3, 1.5, and a whole kilogram 1.0.
+    let fmt = |v: f32| {
+        let t = format!("{v:.3}");
+        let t = t.trim_end_matches('0');
+        if t.ends_with('.') {
+            format!("{t}0")
+        } else {
+            t.to_owned()
+        }
+    };
+    let values = [
+        (16, format!("{}", num("clip_size")? as i32)),
+        (15, fmt(num("clip_weight")?)),
+    ];
+    let Some(V::Indexed(rows)) = cfg
+        .named_mut("ui_desc")
+        .and_then(|u| u.named_mut("props_list"))
+    else {
+        bail!("the round has no ui_desc.props_list");
+    };
+    for (id, value) in values {
+        let row = rows
+            .iter_mut()
+            .find(|r| r.named("prop_id") == Some(&V::Integer(id)))
+            .with_context(|| format!("the round's card has no prop {id}"))?;
+        row.set_path("prop_value", s(value))?;
+    }
+    Ok(())
 }
 
 /// The gun's config, and what the build did that 0.26g cannot take
@@ -385,6 +440,7 @@ pub fn weapon_config(
             ));
         }
     }
+    own_preview_item(&mut cfg, &mut notes)?;
     for (path, value) in &weapon.set {
         set_typed(&mut cfg, path, value)?;
     }
@@ -417,6 +473,37 @@ pub fn weapon_config(
         set_typed(&mut cfg, path, value)?;
     }
     Ok((cfg, notes))
+}
+
+/// The lobby holds the gun on the character with
+/// `user_animations_in_place.preview_item`, a clip of the gun's skeleton:
+/// the template's names its own gun's (the PKP's lobby idle on the
+/// Fort-401, the PM's idle on the CZ 75), which crashed the lobby in
+/// bone_matrices_computer::convert_to_object_matrices. The gun's own idle
+/// (its idle state's first item clip) takes its place.
+pub(crate) fn own_preview_item(cfg: &mut V, notes: &mut Vec<String>) -> Result<()> {
+    const KEY: &str = "user_animations_in_place.preview_item";
+    if get(cfg, KEY).is_none() {
+        return Ok(());
+    }
+    let idle = match get(cfg, "states.idle.animations") {
+        Some(V::Indexed(clips)) => clips.first().and_then(|c| string_of(Some(c))),
+        _ => None,
+    }
+    .context("preview_item: the idle state plays no item clip")?
+    .to_owned();
+    // A pose of the gun's own (its lobby preview, 0.29a3's on_site idle)
+    // stays: a clip under the gun's own folder fits its skeleton.
+    let own = idle.find("/item/").map(|i| &idle[..=i]);
+    let current = string_of(get(cfg, KEY));
+    if current.is_some_and(|c| own.is_some_and(|own| c.starts_with(own))) {
+        return Ok(());
+    }
+    if current != Some(idle.as_str()) {
+        notes.push(format!("{KEY}: the gun's idle {idle}"));
+        cfg.set_path(KEY, s(&idle))?;
+    }
+    Ok(())
 }
 
 fn donor_top_level(donor: &V) -> Vec<String> {
