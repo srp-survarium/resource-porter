@@ -1,0 +1,331 @@
+"""bake.py: path-trace a lobby's light into unique-uv pages (Blender Cycles, CPU).
+
+  blender -b --factory-startup --python bake.py -- <scene dir> [options]
+
+<scene dir>/scene.json is prep.py's. Writes into <scene dir>:
+  pages/page_NN.exr        the baked radiance (linear, 0.26g light units)
+  pages/page_NN.png        the same over the emission multiplier, sRGB-encoded
+                           (alpha: the alpha test's cut)
+  baked/page_NN_K          the page's surfaces as 0.26g converted_models (uv: the page's)
+  baked.json               the surfaces, pages, multiplier and the merged surfaces
+                           baked (their sha256), for the porter's `bake`
+  renders/traced-*.png     the views path-traced with the lit materials
+
+The merged model's surfaces are cut in chunks (near and far of the character,
+then halved while a page cannot hold one), each given its own islands (smart
+project), and the chunks laid on pages by the texels they need; a page is baked
+COMBINED with diffuse direct + indirect + colour + emission: the light a matte
+surface sends, the same from wherever it is seen.
+"""
+import argparse
+import json
+import math
+import os
+import sys
+import time
+
+import bpy
+import mathutils
+import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import (Materials, add_lights, add_props, log, new_object, new_scene, read_model,  # noqa: E402
+                    render, views, write_model)
+
+argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+ap = argparse.ArgumentParser()
+ap.add_argument("scene")
+ap.add_argument("--near", type=float, default=128.0, help="texels a metre within --radius of the character's eye")
+ap.add_argument("--far", type=float, default=32.0, help="texels a metre beyond it")
+ap.add_argument("--radius", type=float, default=7.0)
+ap.add_argument("--page", type=int, default=2048, help="the largest page")
+ap.add_argument("--samples", type=int, default=128)
+ap.add_argument("--render-samples", type=int, default=256)
+ap.add_argument("--threads", type=int, default=12)
+ap.add_argument("--match", type=float, default=2.0, help="distance where a light matches the engine's")
+ap.add_argument("--bulb", type=float, default=0.03, help="light source radius, m")
+ap.add_argument("--skip-lights", default="sun,character_fill")
+ap.add_argument("--skip-props", default="_on")
+ap.add_argument("--skip-materials", default="/fx/", help="surfaces left as they are, by material")
+ap.add_argument("--exposure", type=float, default=0.0)
+ap.add_argument("--fov", type=float, default=70.0, help="horizontal field of view, degrees")
+ap.add_argument("--only-render", action="store_true", help="the traced views only, no bake")
+ap.add_argument("--only-pack", action="store_true", help="lay out the pages and stop (no renders, no bake)")
+args = ap.parse_args(argv)
+D = args.scene
+scene_json = json.load(open(os.path.join(D, "scene.json")))
+for sub in ("pages", "baked", "renders"):
+    os.makedirs(os.path.join(D, sub), exist_ok=True)
+
+sc = new_scene(args.threads)
+materials = Materials()
+
+
+def centroid(pos, t):
+    return (mathutils.Vector(pos[t[0]]) + mathutils.Vector(pos[t[1]]) + mathutils.Vector(pos[t[2]])) / 3
+
+
+def tri_area(pos, t):
+    a, b, c = (mathutils.Vector(pos[i]) for i in t)
+    return 0.5 * (b - a).cross(c - a).length
+
+
+EYE = mathutils.Vector((0.0, 0.0, 1.2))  # the orbit's centre, Blender frame
+CAPACITY = args.page * args.page * 0.5
+skip_m = [s for s in args.skip_materials.split(",") if s]
+chunks = []  # (object, density, area, alpha)
+kept = []    # surfaces left as they are, still in the scene
+for s in scene_json["surfaces"]:
+    pos, nrm, uv, tris = read_model(s["file"])
+    mat = materials.lit(s["material"])
+    if any(k in s["material"]["name"] for k in skip_m):
+        kept.append(new_object(s["name"], pos, nrm, uv, tris, mat))
+        continue
+    groups = {}
+    for t in tris:
+        groups.setdefault((centroid(pos, t) - EYE).length < args.radius, []).append(t)
+    work = list(groups.items())
+    while work:
+        near, ts = work.pop()
+        density = args.near if near else args.far
+        area = sum(tri_area(pos, t) for t in ts)
+        cs = [centroid(pos, t) for t in ts]
+        extent = [max(c[k] for c in cs) - min(c[k] for c in cs) for k in range(3)]
+        # halved while a page cannot hold it, or while it is longer than a
+        # third of a page (one long island, a pipe or a vault's strip, would
+        # shrink every other island on its page)
+        if (area * density * density > CAPACITY or max(extent) > math.sqrt(CAPACITY) / density / 3) and len(ts) > 1:
+            axis = max(range(3), key=lambda k: extent[k])
+            order = sorted(range(len(ts)), key=lambda i: cs[i][axis])
+            mid = len(order) // 2
+            work.append((near, [ts[i] for i in order[:mid]]))
+            work.append((near, [ts[i] for i in order[mid:]]))
+            continue
+        used = sorted({i for t in ts for i in t})
+        remap = {v: k for k, v in enumerate(used)}
+        ob = new_object(f"{s['name']}_{'n' if near else 'f'}{len(chunks)}", [pos[i] for i in used],
+                        [nrm[i] for i in used], [uv[i] for i in used],
+                        [tuple(remap[i] for i in t) for t in ts], mat)
+        chunks.append((ob, density, area, s["material"]["alpha_test"]))
+log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
+    f"near {sum(a for _, d, a, _ in chunks if d == args.near):.0f} m2, far {sum(a for _, d, a, _ in chunks if d != args.near):.0f} m2")
+add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
+add_lights(scene_json, [s for s in args.skip_lights.split(",") if s], args.match, args.bulb)
+
+for name, view in views(scene_json).items() if not args.only_pack else ():
+    render(os.path.join(D, "renders"), f"traced-{name}.png", view, args.fov, args.render_samples, args.exposure)
+if args.only_render:
+    sys.exit(0)
+
+# --- pages ---------------------------------------------------------------------
+pages = []
+for ob, density, area, alpha in sorted(chunks, key=lambda c: -c[2] * c[1] * c[1]):
+    need = area * density * density
+    for page in pages:
+        if page["alpha"] == alpha and page["density"] == density and page["need"] + need <= CAPACITY:
+            break
+    else:
+        page = {"objects": [], "need": 0.0, "alpha": alpha, "density": density}
+        pages.append(page)
+    page["objects"].append(ob)
+    page["need"] += need
+for page in pages:  # each the smallest square that holds what it needs, 1024 at least (margins)
+    side = 1024
+    while side * side * 0.5 < page["need"] and side < args.page:
+        side *= 2
+    page["size"] = side
+log(f"{len(pages)} pages:", ", ".join(f"{len(p['objects'])} chunks {p['need'] / 1e6:.1f} Mtexels {p['size']} px" for p in pages))
+
+
+def select(objects):
+    if bpy.context.object and bpy.context.object.mode != "OBJECT":
+        bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objects:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+
+
+# The page's islands are the model's own (its uv seams; STK2's props are laid
+# out on their atlases, its architecture tiles in long strips the chunks cut):
+# smart project cut the 14 000-face valves and the debris into thousands of
+# islands, each with its margin, and filled pages to 1 %.
+for ob, _, _, _ in chunks:
+    ob.data.uv_layers.active = ob.data.uv_layers.new(name="bake", do_init=True)
+for k, page in enumerate(pages):
+    margin = 4.0 / page["size"]
+    # every chunk's islands scaled to its metres
+    for ob in page["objects"]:
+        me = ob.data
+        uvs = me.uv_layers["bake"].data
+        uv_area = sum(abs(sum((uvs[li[j]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j + 1]].uv.y - uvs[li[0]].uv.y)
+                                - (uvs[li[j + 1]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j]].uv.y - uvs[li[0]].uv.y)
+                                for j in range(1, len(li) - 1))) * 0.5
+                      for li in (list(p.loop_indices) for p in me.polygons))
+        area = sum(p.area for p in me.polygons)
+        scale = math.sqrt(area / uv_area) if uv_area > 0 else 1.0
+        flat = [0.0] * (2 * len(uvs))
+        uvs.foreach_get("uv", flat)
+        uvs.foreach_set("uv", [c * scale for c in flat])
+    select(page["objects"])
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.uv.select_all(action="SELECT")
+    bpy.ops.uv.pack_islands(udim_source="ACTIVE_UDIM", rotate=True, scale=True, margin_method="FRACTION",
+                            margin=margin, shape_method="CONCAVE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # how much of the page the islands fill, and that they keep inside it
+    used, lo, hi = 0.0, [1.0, 1.0], [0.0, 0.0]
+    for ob in page["objects"]:
+        uvs = ob.data.uv_layers["bake"].data
+        for poly in ob.data.polygons:
+            c = [uvs[i].uv for i in poly.loop_indices]
+            for u in c:
+                lo = [min(lo[0], u[0]), min(lo[1], u[1])]
+                hi = [max(hi[0], u[0]), max(hi[1], u[1])]
+            used += 0.5 * abs(sum((c[j].x - c[0].x) * (c[j + 1].y - c[0].y)
+                                  - (c[j + 1].x - c[0].x) * (c[j].y - c[0].y) for j in range(1, len(c) - 1)))
+    page["fill"] = abs(used)
+    log(f"page {k}: {len(page['objects'])} chunks packed, filling {abs(used):.0%}, uv {lo[0]:.3f}..{hi[0]:.3f} x {lo[1]:.3f}..{hi[1]:.3f}")
+if args.only_pack:
+    sys.exit(0)
+
+# --- bake ----------------------------------------------------------------------
+sc.cycles.samples = args.samples
+sc.render.bake.margin = 8
+sc.render.bake.margin_type = "EXTEND"
+copies = {}
+for k, page in enumerate(pages):
+    img = bpy.data.images.new(f"page_{k:02d}", page["size"], page["size"], float_buffer=True, alpha=True)
+    page["image"] = img
+    for ob in page["objects"]:  # one material copy a page, the page its target
+        src = ob.data.materials[0]
+        if (src.name, k) not in copies:
+            m = src.copy()
+            tn = m.node_tree.nodes.new("ShaderNodeTexImage")
+            tn.image = img
+            uvb = m.node_tree.nodes.new("ShaderNodeUVMap")
+            uvb.uv_map = "bake"
+            m.node_tree.links.new(uvb.outputs[0], tn.inputs[0])
+            m.node_tree.nodes.active = tn
+            copies[(src.name, k)] = m
+        ob.data.materials[0] = copies[(src.name, k)]
+    select(page["objects"])
+    t = time.time()
+    bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
+                        margin=8, use_clear=True, target="IMAGE_TEXTURES")
+    img.filepath_raw = os.path.join(D, "pages", f"page_{k:02d}.exr")
+    img.file_format = "OPEN_EXR"
+    img.save()
+    log(f"page {k}: baked in {time.time() - t:.0f} s")
+
+# the alpha test's cut, baked as emission into a second image
+sc.cycles.samples = 4
+for k, page in enumerate(pages):
+    if not page["alpha"]:
+        continue
+    aimg = bpy.data.images.new(f"alpha_{k:02d}", page["size"], page["size"], float_buffer=False)
+    page["alpha_image"] = aimg
+    saved = {}
+    for m in {ob.data.materials[0] for ob in page["objects"]}:
+        nt = m.node_tree
+        tex = next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is not page["image"])
+        em = nt.nodes.new("ShaderNodeEmission")
+        nt.links.new(tex.outputs["Alpha"], em.inputs["Color"])
+        out = next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL")
+        saved[m] = out.inputs[0].links[0].from_socket
+        nt.links.new(em.outputs[0], out.inputs[0])
+        target = next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is page["image"])
+        target.image = aimg
+        nt.nodes.active = target
+    select(page["objects"])
+    bpy.ops.object.bake(type="EMIT", margin=8, use_clear=True, target="IMAGE_TEXTURES")
+    for m, socket in saved.items():
+        nt = m.node_tree
+        nt.links.new(socket, next(n for n in nt.nodes if n.type == "OUTPUT_MATERIAL").inputs[0])
+        next(n for n in nt.nodes if n.type == "TEX_IMAGE" and n.image is aimg).image = page["image"]
+    log(f"page {k}: alpha baked")
+
+# --- the multiplier and the 8-bit pages ----------------------------------------
+# One multiplier for every page: the 99.8th percentile of the baked radiance is
+# the texture's white (the hot spots by the bulbs clip above it).
+values = []
+for page in pages:
+    px = np.empty(page["size"] ** 2 * 4, dtype=np.float32)
+    page["image"].pixels.foreach_get(px)
+    page["px"] = px.reshape(-1, 4)
+    values.append(page["px"][page["px"][:, 3] > 0.5, :3].max(axis=1))
+allv = np.concatenate(values)
+emission = float(np.percentile(allv, 99.8))
+log(f"emission multiplier {emission:.3f} (radiance median {np.median(allv):.3f}, max {allv.max():.2f})")
+
+
+def srgb(x):
+    x = np.clip(x, 0.0, 1.0)
+    return np.where(x <= 0.0031308, 12.92 * x, 1.055 * np.power(x, 1 / 2.4) - 0.055)
+
+
+for k, page in enumerate(pages):
+    rgb = srgb(page["px"][:, :3] / emission)
+    a = np.ones(len(rgb), dtype=np.float32)
+    if page.get("alpha_image"):
+        apx = np.empty(page["size"] ** 2 * 4, dtype=np.float32)
+        page["alpha_image"].pixels.foreach_get(apx)
+        a = apx.reshape(-1, 4)[:, 0]
+    out = bpy.data.images.new(f"png_{k:02d}", page["size"], page["size"], alpha=True)
+    out.colorspace_settings.name = "Non-Color"  # written as they are: sRGB-encoded above
+    out.pixels.foreach_set(np.concatenate([rgb, a[:, None]], axis=1).astype(np.float32).ravel())
+    out.filepath_raw = os.path.join(D, "pages", f"page_{k:02d}.png")
+    out.file_format = "PNG"
+    out.save()
+
+# --- the baked surfaces as 0.26g models ----------------------------------------
+LIMIT = 35000  # stk2_lobby_026's MAX_STATIC_SURFACE_VERTICES, less a little
+baked = {"emission": emission, "pages": [], "surfaces": []}
+for k, page in enumerate(pages):
+    pos, nrm, uv, tris = [], [], [], []
+    for ob in page["objects"]:
+        me = ob.data
+        layer = me.uv_layers["bake"].data
+        normals = me.corner_normals
+        index = {}  # one vertex a corner (position, normal, page uv), welded where all three agree
+        for poly in me.polygons:
+            corners = []
+            for li in poly.loop_indices:
+                co = me.vertices[me.loops[li].vertex_index].co
+                n = tuple(normals[li].vector)
+                u = tuple(layer[li].uv)
+                key = (tuple(round(c, 6) for c in co), tuple(round(c, 3) for c in n), tuple(round(c, 7) for c in u))
+                if key not in index:
+                    pos.append(tuple(co))
+                    nrm.append(n)
+                    uv.append(u)
+                    index[key] = len(pos) - 1
+                corners.append(index[key])
+            for j in range(1, len(corners) - 1):
+                tris.append((corners[0], corners[j], corners[j + 1]))
+    piece, start = 0, 0
+    while start < len(tris):  # pieces under the vertex limit, whole triangles
+        used, ts = {}, []
+        while start < len(tris):
+            new = [i for i in dict.fromkeys(tris[start]) if i not in used]
+            if len(used) + len(new) > LIMIT:
+                break
+            for i in new:
+                used[i] = len(used)
+            ts.append(tuple(used[i] for i in tris[start]))
+            start += 1
+        order = sorted(used, key=used.get)
+        name = f"page_{k:02d}_{piece}"
+        write_model(os.path.join(D, "baked", name), [pos[i] for i in order], [nrm[i] for i in order],
+                    [uv[i] for i in order], ts)
+        baked["surfaces"].append({"name": name, "file": f"baked/{name}", "page": f"page_{k:02d}",
+                                  "vertices": len(order), "triangles": len(ts)})
+        piece += 1
+    baked["pages"].append({"name": f"page_{k:02d}", "png": f"pages/page_{k:02d}.png", "alpha": page["alpha"],
+                           "size": page["size"], "density": page["density"], "texels": page["need"],
+                           "chunks": len(page["objects"])})
+baked["kept"] = [o.name for o in kept]
+baked["sources"] = {s["name"]: s["sha256"] for s in scene_json["surfaces"]}
+json.dump(baked, open(os.path.join(D, "baked.json"), "w"), indent=1)
+log(f"baked.json: {len(baked['surfaces'])} surfaces on {len(pages)} pages")

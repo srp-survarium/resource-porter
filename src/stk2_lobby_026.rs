@@ -155,6 +155,207 @@ pub struct LobbyManifest {
     /// `emission`) is scaled further.
     #[serde(default)]
     pub emission_scale: BTreeMap<String, f32>,
+    /// The slice's merged model drawn from a path-traced bake
+    /// (`scripts/lobby-bake`) in place of its lit materials.
+    #[serde(default)]
+    pub bake: Option<BakeSpec>,
+}
+
+/// A path-traced bake of a slice's merged model: its surfaces on unique-uv
+/// pages that hold their light (`scripts/lobby-bake/bake.py`), drawn as
+/// emission on a black, unshiny material, so the project's lights add
+/// nothing to them and light only the characters, the weapon and the native
+/// props.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BakeSpec {
+    /// The slice the bake is made of.
+    pub slice: String,
+    /// The converted templates the pages' materials are made from, opaque
+    /// and alpha-tested: the slice's own, so the materials keep shapes (and
+    /// shader permutations) the game is seen to draw.
+    pub template: String,
+    pub alpha_template: String,
+}
+
+/// bake.py's `baked.json`.
+#[derive(Debug, Deserialize)]
+struct BakedJson {
+    /// The pages' white, in 0.26g light units (the emission multiplier).
+    emission: f32,
+    pages: Vec<BakedPageJson>,
+    surfaces: Vec<BakedSurfaceJson>,
+    /// The merged surfaces left as they were (not baked), by name.
+    kept: Vec<String>,
+    /// Each merged surface the bake was made of: its converted_model's sha256.
+    sources: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BakedPageJson {
+    name: String,
+    png: PathBuf,
+    alpha: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct BakedSurfaceJson {
+    name: String,
+    file: PathBuf,
+    page: String,
+}
+
+/// A bake made into the pack: its pages' materials written, its surfaces
+/// ready to replace the slice's.
+struct Bake {
+    slice: String,
+    surfaces: Vec<BuiltSurface>,
+    kept: BTreeSet<String>,
+    sources: BTreeMap<String, String>,
+}
+
+impl Bake {
+    fn make(
+        spec: &BakeSpec,
+        dir: &Path,
+        manifest: &LobbyManifest,
+        target: &mut ResourceDb,
+        textures: &mut TextureMaker<'_>,
+        pack: &mut PackWriter,
+    ) -> Result<Bake> {
+        let json: BakedJson = serde_json::from_slice(
+            &fs::read(dir.join("baked.json"))
+                .with_context(|| format!("the bake: {}/baked.json (run scripts/lobby-bake)", dir.display()))?,
+        )?;
+        ensure!(json.emission.is_finite() && json.emission > 0.0, "the bake's emission is not positive");
+        let version = &manifest.pack.version;
+        let mut materials = BTreeMap::new();
+        for page in &json.pages {
+            let texture = textures.make_page(
+                &format!("baked_v{version}/{}", page.name),
+                &dir.join(&page.png),
+                page.alpha,
+                pack,
+            )?;
+            let template = if page.alpha { &spec.alpha_template } else { &spec.template };
+            let mut material = parse(target, &format!("material_instances/{template}.material"))?;
+            set_baked(&mut material.root, &texture, json.emission)
+                .with_context(|| format!("{template}: the baked material"))?;
+            let name = format!("{}/baked_v{version}/{}", manifest.material_prefix, page.name);
+            pack.config(&format!("material_instances/{name}.material"), &material)?;
+            materials.insert(page.name.clone(), (name, texture));
+        }
+        let mut surfaces = Vec::new();
+        for surface in &json.surfaces {
+            let (material, texture) = materials
+                .get(&surface.page)
+                .with_context(|| format!("{}: no page {}", surface.name, surface.page))?;
+            let mesh = fs::read(dir.join(&surface.file))
+                .with_context(|| format!("the bake: {}", surface.file.display()))?;
+            let (vertices, indices, bounds) = converted_model_shape(&mesh, &surface.name)?;
+            surfaces.push(BuiltSurface {
+                name: surface.name.clone(),
+                material: material.clone(),
+                mesh,
+                bounds,
+                vertices,
+                indices,
+                mesh_name: format!("|bake|{}", surface.page),
+                texture_name: texture.clone(),
+            });
+        }
+        Ok(Bake {
+            slice: spec.slice.clone(),
+            surfaces,
+            kept: json.kept.into_iter().collect(),
+            sources: json.sources,
+        })
+    }
+
+    /// The slice's surfaces with the baked ones in place of those the bake
+    /// was made of; a surface built otherwise than the bake saw it (the
+    /// manifest or the porter changed since) is an error, not a stale page.
+    fn replace(&self, built: &mut Vec<BuiltSurface>) -> Result<()> {
+        for surface in built.iter() {
+            let made = crate::content_pack::sha256_hex(&surface.mesh);
+            let baked = self.sources.get(&surface.name).with_context(|| {
+                format!("{}: built, but not in the bake: bake the slice again", surface.name)
+            })?;
+            ensure!(
+                *baked == made,
+                "{}: built otherwise than the bake saw it: bake the slice again",
+                surface.name
+            );
+        }
+        ensure!(
+            self.sources.len() == built.len(),
+            "the bake saw {} surfaces, the slice has {}: bake the slice again",
+            self.sources.len(),
+            built.len()
+        );
+        built.retain(|s| self.kept.contains(&s.name));
+        built.extend(self.surfaces.iter().cloned());
+        Ok(())
+    }
+}
+
+/// A baked page's material: black (the g-buffer's albedo is the diffuse
+/// times `constant_diffuse`: 0, so the lights and probes add nothing; the
+/// page's alpha still feeds the alpha test) and without specular
+/// (`constant_specular_color`, the g-buffer's specular intensity: 0; the
+/// template's normal and roughness maps then show nowhere), emitting its page
+/// times `emission` (the emissive pass adds texture x constant_emissive x
+/// multiplier to the lit frame).
+fn set_baked(root: &mut ConfigValue, texture: &str, emission: f32) -> Result<()> {
+    let effect = "material.g_stage.effect";
+    for (field, value) in [
+        ("use_tdiffuse", ConfigValue::Boolean(true)),
+        ("texture_diffuse", ConfigValue::String(texture.to_owned())),
+        ("constant_diffuse", ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])),
+        ("constant_specular_color", ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])),
+        ("use_emissive", ConfigValue::Boolean(true)),
+        ("use_emissive_map", ConfigValue::Boolean(true)),
+        ("texture_emissive", ConfigValue::String(texture.to_owned())),
+        ("constant_emissive", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ("constant_emissive_multiplier", ConfigValue::Float(emission)),
+    ] {
+        let path = format!("{effect}.{field}.value");
+        ensure!(
+            crate::content_pack::value::value_at(root, &path).is_some(),
+            "the template has no {field}"
+        );
+        root.set_path(&path, value)?;
+    }
+    Ok(())
+}
+
+/// A 0.26g converted_model's vertex and index counts and bounds, checked:
+/// the vertex block (3) of 28-byte vertices, the u16 index block (4).
+fn converted_model_shape(bytes: &[u8], label: &str) -> Result<(u32, u32, Bounds)> {
+    ensure!(read_u32(bytes, 0)? == 3, "{label}: no vertex block");
+    let count = usize::try_from(read_u32(bytes, 8)?)?;
+    ensure!(
+        count <= MAX_STATIC_SURFACE_VERTICES,
+        "{label}: {count} vertices, more than 0.26g loads ({MAX_STATIC_SURFACE_VERTICES})"
+    );
+    ensure!(read_u32(bytes, 4)? as usize == 4 + count * VERTEX_SIZE, "{label}: bad vertex block");
+    let mut bounds = Bounds::empty();
+    for i in 0..count {
+        bounds.add(read_float3(bytes, 12 + i * VERTEX_SIZE)?);
+    }
+    let at = 12 + count * VERTEX_SIZE;
+    ensure!(read_u32(bytes, at)? == 4, "{label}: no index block");
+    let indices = usize::try_from(read_u32(bytes, at + 8)?)?;
+    ensure!(
+        read_u32(bytes, at + 4)? as usize == 4 + indices * 2 && bytes.len() == at + 12 + indices * 2,
+        "{label}: bad index block"
+    );
+    ensure!(indices % 3 == 0, "{label}: not whole triangles");
+    for i in 0..indices {
+        let index = u16::from_le_bytes([bytes[at + 12 + i * 2], bytes[at + 13 + i * 2]]);
+        ensure!(usize::from(index) < count, "{label}: index outside its vertices");
+    }
+    Ok((u32::try_from(count)?, u32::try_from(indices)?, bounds))
 }
 
 /// A converted light's fields set by eye.
@@ -675,6 +876,8 @@ const ROLES: &[(&str, &str, TextureKind, Option<&str>)] = &[
 struct PackWriter {
     files: PathBuf,
     paths: BTreeSet<String>,
+    /// The materials the written models name.
+    materials_used: BTreeSet<String>,
 }
 
 impl PackWriter {
@@ -688,6 +891,64 @@ impl PackWriter {
 
     fn config(&mut self, path: &str, config: &BinaryConfig) -> Result<()> {
         self.write(path, &config.to_bytes()?)
+    }
+
+    fn remove(&mut self, path: &str) -> Result<()> {
+        ensure!(self.paths.remove(path), "{path}: not in the pack");
+        fs::remove_file(safe_join(&self.files, path)?).with_context(|| format!("removing {path}"))
+    }
+
+    /// The materials under `material_prefix` no written model names, and the
+    /// textures under `texture_prefix` no material left names, taken out (a
+    /// baked slice leaves its STK2 materials and their textures unused).
+    /// Returns how many files went.
+    fn prune(&mut self, material_prefix: &str, texture_prefix: &str) -> Result<usize> {
+        fn strings(value: &ConfigValue, out: &mut BTreeSet<String>) {
+            match value {
+                ConfigValue::String(s) => {
+                    out.insert(s.clone());
+                }
+                ConfigValue::Named(values) => values.iter().for_each(|v| strings(&v.value, out)),
+                ConfigValue::Indexed(values) => values.iter().for_each(|v| strings(v, out)),
+                _ => {}
+            }
+        }
+        let before = self.paths.len();
+        let materials: Vec<String> = self
+            .paths
+            .iter()
+            .filter(|p| p.starts_with(&format!("material_instances/{material_prefix}/")))
+            .cloned()
+            .collect();
+        let mut named = BTreeSet::new();
+        for path in materials {
+            let name = path
+                .strip_prefix("material_instances/")
+                .and_then(|p| p.strip_suffix(".material"))
+                .with_context(|| format!("{path}: not a material"))?;
+            if self.materials_used.contains(name) {
+                let bytes = fs::read(safe_join(&self.files, &path)?)?;
+                strings(&BinaryConfig::parse(&bytes)?.root, &mut named);
+            } else {
+                self.remove(&path)?;
+            }
+        }
+        let textures: Vec<String> = self
+            .paths
+            .iter()
+            .filter(|p| p.starts_with(&format!("textures/{texture_prefix}/")))
+            .cloned()
+            .collect();
+        for path in textures {
+            let name = path
+                .strip_prefix("textures/")
+                .and_then(|p| p.strip_suffix(".dds").or_else(|| p.strip_suffix(".options")))
+                .with_context(|| format!("{path}: not a texture"))?;
+            if !named.contains(name) {
+                self.remove(&path)?;
+            }
+        }
+        Ok(before - self.paths.len())
     }
 }
 
@@ -704,6 +965,17 @@ pub struct BuildOptions<'a> {
     /// Write the STK2 textures the materials need to this file, one a
     /// line, and make nothing (to know what to extract).
     pub list_textures: Option<&'a Path>,
+    /// For a manifest with a `bake`: where the bake is, or the slice lit.
+    pub bake: Option<BakeChoice<'a>>,
+}
+
+/// How a baked manifest's slice is made.
+#[derive(Clone, Copy, Debug)]
+pub enum BakeChoice<'a> {
+    /// Drawn from the bake in this folder (bake.py's: `baked.json`, ...).
+    From(&'a Path),
+    /// Lit by its materials and the project's lights: what a bake is made of.
+    Lit,
 }
 
 /// What a build made, for the report.
@@ -725,6 +997,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
     let mut pack = PackWriter {
         files: options.output.join("files"),
         paths: BTreeSet::new(),
+        materials_used: BTreeSet::new(),
     };
     let scene = Rigid::scene(&manifest.scene);
     let stk2 = Stk2Tree {
@@ -819,6 +1092,29 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         render_properties: parse(&mut target, &manifest.static_templates.render_properties)?,
         surface_properties: parse(&mut target, &manifest.static_templates.surface_properties)?,
     };
+    let bake = match (&manifest.bake, options.bake) {
+        (None, None) => None,
+        (None, Some(_)) => bail!("the manifest has no bake"),
+        (Some(_), None) => bail!(
+            "the manifest is baked: give the bake's folder (scripts/lobby-bake), or build the slice lit to bake it"
+        ),
+        (Some(_), Some(BakeChoice::Lit)) => None,
+        (Some(spec), Some(BakeChoice::From(dir))) => Some(Bake::make(
+            spec,
+            dir,
+            &manifest,
+            &mut target,
+            &mut textures,
+            &mut pack,
+        )?),
+    };
+    if let Some(bake) = &bake {
+        ensure!(
+            manifest.slices.iter().any(|s| s.name == bake.slice),
+            "the bake's slice {} is not in the manifest",
+            bake.slice
+        );
+    }
     let mut visuals = Vec::new();
     let mut collisions = Vec::new();
     for (model, surfaces) in &models {
@@ -899,6 +1195,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             &material_names,
             &templates,
             scene,
+            bake.as_ref().filter(|b| b.slice == slice.name),
             &mut pack,
         )?;
         slice_notes.push(format!(
@@ -1048,6 +1345,14 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         config_to_lua(&project.root)?.as_bytes(),
     )?;
 
+    if let Some(bake) = &bake {
+        let pruned = pack.prune(&manifest.material_prefix, &manifest.texture_prefix)?;
+        extra_notes.push(format!(
+            "slice {}: drawn from a path-traced bake ({} surfaces); the {pruned} files of its lit materials and their textures left out",
+            bake.slice,
+            bake.surfaces.len()
+        ));
+    }
     for path in &pack.paths {
         ensure!(
             !target.contains(path),
@@ -1315,17 +1620,35 @@ impl TextureMaker<'_> {
             fs::write(&cache_format, format!("{format} {}", u8::from(srgb)))?;
             (bytes, format.to_owned(), srgb)
         };
-        pack.write(&format!("textures/{target}.dds"), &bytes)?;
+        self.write(&target, &bytes, &format, srgb, pack)?;
+        self.made.insert(key, target.clone());
+        Ok(target)
+    }
+
+    /// A baked page (`scripts/lobby-bake`, an sRGB PNG) as `<prefix>/<name>`:
+    /// DXT5 when its alpha is an alpha test's, else DXT1.
+    fn make_page(&mut self, name: &str, png: &Path, alpha: bool, pack: &mut PackWriter) -> Result<String> {
+        let target = format!("{}/{name}", self.prefix);
+        let stem = self.work.join(name.replace('/', "__"));
+        let options = if alpha { "\"DXT5\"" } else { "" };
+        let (bytes, format, srgb) = self
+            .convert(&target, &target, TextureKind::Colour, png, options, &stem)
+            .with_context(|| format!("the baked page {}", png.display()))?;
+        self.write(&target, &bytes, format, srgb, pack)?;
+        Ok(target)
+    }
+
+    /// The texture's DDS and its options (cloned from the template's).
+    fn write(&self, target: &str, dds: &[u8], format: &str, srgb: bool, pack: &mut PackWriter) -> Result<()> {
+        pack.write(&format!("textures/{target}.dds"), dds)?;
         let mut options = self.options_template.clone();
         options
             .root
             .set_path("options.srgb", ConfigValue::Integer(i32::from(srgb)))?;
         options
             .root
-            .set_path("options.format", ConfigValue::String(format))?;
-        pack.config(&format!("textures/{target}.options"), &options)?;
-        self.made.insert(key, target.clone());
-        Ok(target)
+            .set_path("options.format", ConfigValue::String(format.to_owned()))?;
+        pack.config(&format!("textures/{target}.options"), &options)
     }
 
     /// The texture's canonical DDS bytes, its options format and colour space.
@@ -1907,6 +2230,7 @@ struct StaticModelTemplates {
     surface_properties: BinaryConfig,
 }
 
+#[derive(Clone)]
 struct BuiltSurface {
     name: String,
     material: String,
@@ -2165,6 +2489,7 @@ fn write_static_model(
     let root = format!("models/{name}.model");
     let mut all = Bounds::empty();
     for surface in surfaces {
+        pack.materials_used.insert(surface.material.clone());
         all.union(&surface.bounds);
         pack.write(
             &format!("{root}/render/{}/converted_model", surface.name),
@@ -2689,7 +3014,8 @@ struct SliceMade {
 
 /// One model of a slice's objects: their surfaces clipped to the box and
 /// merged by material (in pieces the 0.26g loader takes), and their low
-/// collision clipped the same way.
+/// collision clipped the same way; with a bake, its surfaces the bake's.
+#[allow(clippy::too_many_arguments)]
 fn write_slice(
     name: &str,
     slice: &SliceSpec,
@@ -2697,6 +3023,7 @@ fn write_slice(
     material_names: &BTreeMap<String, Option<(String, String)>>,
     templates: &StaticModelTemplates,
     scene: Rigid,
+    bake: Option<&Bake>,
     pack: &mut PackWriter,
 ) -> Result<SliceMade> {
     // the box is the STK2 world's: a point is moved back to test it
@@ -2783,6 +3110,10 @@ fn write_slice(
                 texture_name: texture_name.clone(),
             });
         }
+    }
+    if let Some(bake) = bake {
+        bake.replace(&mut built)?;
+        vertices = built.iter().map(|s| s.vertices as usize).sum();
     }
     let collision = if collision_triangles.is_empty() {
         None
@@ -3377,6 +3708,61 @@ mod tests {
         set_emission(&mut root, [1.0; 4], 1.0, Some("t/diffuse")).unwrap();
         assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/mask".into())));
         assert!(set_emission(&mut material(ConfigValue::Named(Vec::new())), [1.0; 4], 1.0, None).is_err());
+    }
+
+    #[test]
+    fn a_baked_page_is_black_unshiny_and_emits_itself() {
+        let leaf = |v: ConfigValue| ConfigValue::Named(vec![named("value", v)]);
+        let fields = [
+            ("use_tdiffuse", ConfigValue::Boolean(true)),
+            ("texture_diffuse", ConfigValue::String("t/plaster".into())),
+            ("constant_diffuse", ConfigValue::Float4([1.0; 4])),
+            ("constant_specular_color", ConfigValue::Float4([1.0; 4])),
+            ("use_nmap", ConfigValue::Boolean(true)),
+            ("use_emissive", ConfigValue::Boolean(false)),
+            ("use_emissive_map", ConfigValue::Boolean(false)),
+            ("texture_emissive", ConfigValue::String(String::new())),
+            ("constant_emissive", ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])),
+            ("constant_emissive_multiplier", ConfigValue::Integer(1)),
+        ];
+        let material = |n: usize| {
+            let effect = fields[..n].iter().map(|(f, v)| named(f, leaf(v.clone()))).collect();
+            ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named("g_stage", ConfigValue::Named(vec![named("effect", ConfigValue::Named(effect))]))]),
+            )])
+        };
+        let at = |root: &ConfigValue, f: &str| {
+            crate::content_pack::value::value_at(root, &format!("material.g_stage.effect.{f}.value")).cloned()
+        };
+        let mut root = material(fields.len());
+        set_baked(&mut root, "t/page_00", 2.5).unwrap();
+        assert_eq!(at(&root, "texture_diffuse"), Some(ConfigValue::String("t/page_00".into())));
+        assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/page_00".into())));
+        assert_eq!(at(&root, "constant_diffuse"), Some(ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])));
+        assert_eq!(at(&root, "constant_specular_color"), Some(ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])));
+        assert_eq!(at(&root, "constant_emissive_multiplier"), Some(ConfigValue::Float(2.5)));
+        // the template's normal map stays (its shape is one the game draws)
+        assert_eq!(at(&root, "use_nmap"), Some(ConfigValue::Boolean(true)));
+        // a template without the emissive fields is refused
+        assert!(set_baked(&mut material(5), "t/page_00", 2.5).is_err());
+    }
+
+    #[test]
+    fn a_baked_model_is_read_for_its_shape_and_refused_when_broken() {
+        let mesh = Mesh {
+            vertices: vec![[0u8; VERTEX_SIZE]; 3],
+            positions: vec![[0.0; 3]; 3],
+            triangles: vec![[0, 1, 2]],
+        };
+        let mut bytes = mesh.encode("t").unwrap();
+        bytes[12..16].copy_from_slice(&2.0f32.to_le_bytes());
+        let (vertices, indices, bounds) = converted_model_shape(&bytes, "t").unwrap();
+        assert_eq!((vertices, indices, bounds.max[0]), (3, 3, 2.0));
+        let at = bytes.len() - 2;
+        bytes[at..].copy_from_slice(&3u16.to_le_bytes());
+        assert!(converted_model_shape(&bytes, "t").is_err());
+        assert!(converted_model_shape(&bytes[..bytes.len() - 2], "t").is_err());
     }
 
     #[test]
