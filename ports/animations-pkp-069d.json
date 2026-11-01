@@ -1,0 +1,46 @@
+{
+ "format_version": 1,
+ "id": "pkp-animations-069",
+ "donor_build": "0.69d0",
+ "guns": [
+  {
+   "config": "gameplay/items/weapons/wpn_pkp_pecheneg.options",
+   "donor_item": "pkp_pecheneg",
+   "states": [
+    "idle",
+    "fire",
+    "hide",
+    "reload"
+   ],
+   "folder": [
+    "pkp_pecheneg",
+    "pkp_pecheneg_069d0"
+   ],
+   "models": [
+    "models/weapons/pkp_pecheneg/pkp_pecheneg.skinned_model",
+    "models/weapons/pkp_pecheneg/pkp_pecheneg_n_cobra_ekp_8.skinned_model"
+   ],
+   "locators": [
+    "LeftHand_idle",
+    "LeftThumb1_idle",
+    "LeftThumb2_idle",
+    "LeftThumb3_idle",
+    "LeftIndex1_idle",
+    "LeftIndex2_idle",
+    "LeftIndex3_idle",
+    "LeftMiddle1_idle",
+    "LeftMiddle2_idle",
+    "LeftMiddle3_idle",
+    "LeftRing1_idle",
+    "LeftRing2_idle",
+    "LeftRing3_idle",
+    "LeftPinky1_idle",
+    "LeftPinky2_idle",
+    "LeftPinky3_idle"
+   ],
+   "accept": {
+    "magazin_door": "the ammo box's lid: 0.69d0's idle holds it 4 degrees from ours"
+   }
+  }
+ ]
+}

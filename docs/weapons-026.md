@@ -64,6 +64,27 @@ retail's), the removal rule for a device built into a gun's mesh (`cut_builtin`:
 missing from the 0.69d0 base mesh inside the placed stock module), and a side render for checking.
 No suppressors: a module whose model names one is refused.
 
+## Tactical reloads of live guns
+
+`vostok-port port-tactical-reload` (`tactical.rs`; `ports/tactical-reload-029a3.json`, then
+`ports/tactical-reload-069d.json` for the guns 0.29a3 lacks): live configs whose reload is 0.26g's
+one-clip one (303) take a donor's two-clip reload (314), as the live vz. 58 and the other 0.29a3
+ports reload: the donor's tactical and empty clips (a pair one build made; the engine plays both at
+the tactical clip's speed over `reload_time`, which stays), its sound lists, the clips at
+`<path>_<donor>` where 0.26g has another clip of that name. No exe change. A gun is refused unless
+its clips drive 0.26g's rigs and start and end with the gun's parts where 0.26g has them (0.69d0
+moved some guns in the hands: its hands' `Weapon` bone carries what 0.26g's clips keep in the gun's
+`offset` bone). The 0.69d0 donor: the reload states' files, `scripts/weapons-069d-donor.py
+--reload`. skhid's packs: `tactical-clips-029`, `tactical-clips-069`.
+
+## Newer animations of a live gun
+
+`vostok-port port-animation-set` (`animation_set.rs`, `ports/animations-*.json`): a live config's
+listed states take a later build's clips of the same rig, under a renamed weapon folder, and its
+models the donor model's listed hand points (`*_idle`, bone index by our bind pose). Refused unless
+the clips drive 0.26g's rigs, the sound lists their events index are ours (or none live), and the
+new idle holds the gun where ours does. skhid's pack: `pkp-animations-069` (the PKP, 0.69d0).
+
 ## The check against patch 19
 
 `ports/weapons-029a3-patch19.json` is patch 19's 33 weapons read back as a manifest

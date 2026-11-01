@@ -1,0 +1,72 @@
+{
+ "format_version": 1,
+ "id": "tactical-clips-069",
+ "donor_build": "0.69d0",
+ "guns": [
+  {
+   "config": "gameplay/items/weapons/wpn_ak_12.options",
+   "donor_item": "ak_12"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_12_premium.options",
+   "donor_item": "ak_12"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_a545.options",
+   "donor_item": "a545"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ash_12.options",
+   "donor_item": "ash_12",
+   "accept": {
+    "safety_catch": "0.69d0's tactical clip ends with the safety catch 25 degrees turned, as 0.26g's own reload starts it"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_a9_91.options",
+   "donor_item": "a9_91"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vsk_94.options",
+   "donor_item": "vsk_94"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vsk_94_premium.options",
+   "donor_item": "vsk_94"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_pp2000.options",
+   "donor_item": "pp2000"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vityaz.options",
+   "donor_item": "vityaz",
+   "accept": {
+    "safety": "the fire selector lever: 0.69d0's Vityaz clips hold it 10 degrees from 0.26g's idle"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vityaz_premium.options",
+   "donor_item": "vityaz",
+   "accept": {
+    "safety": "the fire selector lever: 0.69d0's Vityaz clips hold it 10 degrees from 0.26g's idle"
+   }
+  }
+ ],
+ "not_ported": {
+  "gameplay/items/weapons/wpn_sr2m.options": "0.69d0 holds the gun 13 cm elsewhere in the hands (its hands' Weapon bone carries the placement 0.26g's clips keep in the gun's offset bone): its reload would slide the gun at the start and end; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_aek_919k.options": "0.69d0 holds the gun 13 cm elsewhere in the hands (its hands' Weapon bone carries the placement 0.26g's clips keep in the gun's offset bone): its reload would slide the gun at the start and end; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_vepr.options": "0.69d0 holds the gun 13 cm elsewhere in the hands (its hands' Weapon bone carries the placement 0.26g's clips keep in the gun's offset bone): its reload would slide the gun at the start and end; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_vepr_premium.options": "0.69d0 holds the gun 13 cm elsewhere in the hands (its hands' Weapon bone carries the placement 0.26g's clips keep in the gun's offset bone): its reload would slide the gun at the start and end; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_ump45.options": "0.69d0 holds the gun 14 cm elsewhere in the hands (its hands' Weapon bone carries the placement 0.26g's clips keep in the gun's offset bone): its reload would slide the gun at the start and end; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_ppsh.options": "0.69d0 holds the gun 6 to 9 cm elsewhere in the hands (its hands' Weapon bone carries the placement 0.26g's clips keep in the gun's offset bone): its reload would slide the gun at the start and end; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_sr3m.options": "0.69d0's SR-3M plays the Val's clips, the gun 5 cm elsewhere in the hands, and the stock rig names wpn_val where the model has wpn_sr3m; 0.29a3 has no two-clip reload for it",
+  "gameplay/items/weapons/wpn_sr3m_premium.options": "as wpn_sr3m",
+  "gameplay/items/weapons/wpn_pkp_pecheneg.options": "one clip in 0.29a3 and 0.69d0 too",
+  "gameplay/items/weapons/wpn_rpd.options": "one clip in 0.29a3 and 0.69d0 too",
+  "gameplay/items/weapons/wpn_vssk.options": "one clip in 0.29a3 and 0.69d0 too",
+  "gameplay/items/weapons/wpn_vssk_camo.options": "one clip in 0.29a3 and 0.69d0 too",
+  "gameplay/items/weapons/wpn_toz_122.options": "one clip in 0.29a3 and 0.69d0 too",
+  "gameplay/items/weapons/wpn_magnum.options": "a revolver; one clip in 0.29a3 and 0.69d0 too"
+ }
+}
