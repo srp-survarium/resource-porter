@@ -334,7 +334,9 @@ pub const G3SG1: Gun = Gun {
         reload_time: 3.2,
         aim_time: 0.3,
         base_dispersion: 0.2,
-        magazine: 10,
+        // The real gun's 20 rounds, as 0.69d0 has it (the owner,
+        // 2026-11-01), where the SOCOM 16 it is fitted to holds 10.
+        magazine: 20,
         min_damage_distance: 100,
         max_damage_distance: 30,
         fire_modes: &[1, 3],
