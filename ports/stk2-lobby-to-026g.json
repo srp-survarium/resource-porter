@@ -1,14 +1,14 @@
 {
   "pack": {
     "id": "lobby-stk2",
-    "version": "2",
-    "description": "the STK2 (2011-12) lobby scene as a 0.26g lobby project, projects/lobby_scene/stk2_blockpost: the a02 blockpost guard hut, its sentry bunk, mattress, stool and campfire (STK2 models and textures), a flat grass ground, STK2's own lights and post-process (0.26g's sky behind it), the lobby's sounds and the native bonfire flame; camera boxes keep the lobby camera inside the hut (its walls, floor, ceiling and doorway, the bunk, the stool, the campfire), the campfire moved clear of the squad's left member, the weapon 0.40 m above the bunk"
+    "version": "3",
+    "description": "the STK2 (2011-12) lobby scene as a 0.26g lobby project, projects/lobby_scene/stk2_blockpost: the a02 blockpost guard hut, its sentry bunk, mattress, stool and campfire (STK2 models and textures), a flat grass ground, STK2's own lights and post-process (0.26g's sky behind it), the lobby's sounds and the native bonfire flame; @2: camera boxes keep the lobby camera inside the hut (its walls, floor, ceiling and doorway, the bunk, the stool, the campfire), the campfire moved clear of the squad's left member, the weapon 0.40 m above the bunk; @3: the hut, its furniture and the campfire merged in one model as STK2's lobby_scene places them (level/stk2_blockpost/main_v3, new with each version, as the bomb shelter's), the campfire's own light moved with its logs (it stayed at the old spot); the textures at their STK2 sources' full size (to 2048 px: the walls' plaster, concrete and decal and the windows were 1024); lit the bomb shelter's way: a box probe of the room from a warm-neutral gradient, STK2's hut light (white, no fixture) warm and softer under a pendant on the crossing of two tie beams (0.26's green_lamp_with_wire with a glowing lamp_on bulb), the campfire's light warm, no light casting a shadow (the campfire's cast them); through the doorway 0.26's own spruces and bushes round the hut and the grass ground to 200 m (it ended at 40 m, with nothing past it)"
   },
   "template_project": "projects/lobby_scene/day/client_project",
   "target_project": "projects/lobby_scene/stk2_blockpost/client_project",
-  "model_prefix": "level/stk2_lobby",
-  "material_prefix": "ported/stk2/lobby",
-  "texture_prefix": "ported/stk2/lobby",
+  "model_prefix": "level/stk2_blockpost",
+  "material_prefix": "ported/stk2/lobby_blockpost",
+  "texture_prefix": "ported/stk2/lobby_blockpost",
   "static_templates": {
     "settings": "models/level/lobby/base.model/settings",
     "render_properties": "models/level/lobby/base.model/render/export_properties",
@@ -16,7 +16,7 @@
   },
   "textures_dir": "STK2/xr2-prog/resources/sources/textures",
   "texture_options_template": "textures/tiled/concrete/concrete_01.options",
-  "max_texture_size": 1024,
+  "max_texture_size": 2048,
   "scene": {
     "character": [
       2.0896555,
@@ -25,67 +25,10 @@
     ],
     "view_yaw": -1.5707963
   },
-  "models": [
-    {
-      "name": "blockpost",
-      "archive": "STK2/xr2-dsgn/resources/exported/models/location/a02_blockpost/blockpost.model",
-      "settings": "STK2/xr2-prog/resources/sources/models/location/a02_blockpost/blockpost.model/settings",
-      "position": [
-        2.6896555423736572,
-        0.0882604718208313,
-        27.65566062927246
-      ],
-      "collision": true
-    },
-    {
-      "name": "sentry_a",
-      "archive": "STK2/xr2-prog/resources/exported/models/props/furniture/sentry_a.model",
-      "settings": "STK2/xr2-prog/resources/sources/models/props/furniture/sentry_a.model/settings",
-      "position": [
-        5.272342681884766,
-        1.1073660850524902,
-        26.225276947021484
-      ],
-      "yaw": 1.5811034,
-      "collision": true
-    },
-    {
-      "name": "mattress_01",
-      "archive": "STK2/xr2-prog/resources/exported/models/props/furniture/mattress_01.model",
-      "settings": "STK2/xr2-prog/resources/sources/models/props/furniture/mattress_01.model/settings",
-      "position": [
-        3.87308931350708,
-        1.1073658466339111,
-        29.460472106933594
-      ],
-      "collision": true
-    },
-    {
-      "name": "stool",
-      "archive": "STK2/xr2-prog/resources/exported/models/props/furniture/stool.model",
-      "settings": "STK2/xr2-prog/resources/sources/models/props/furniture/stool.model/settings",
-      "position": [
-        4.400021553039551,
-        1.1073659658432007,
-        27.573366165161133
-      ],
-      "collision": true
-    },
-    {
-      "name": "campfire",
-      "archive": "STK2/xr2-prog/resources/exported/models/props/fire/campfire.model",
-      "settings": "STK2/xr2-prog/resources/sources/models/props/fire/campfire.model/settings",
-      "position": [
-        3.7347,
-        1.1073659658432007,
-        28.2487
-      ]
-    }
-  ],
   "ground": {
     "name": "ground",
     "height": 0.0,
-    "half_size": 40.0,
+    "half_size": 200.0,
     "tile": 4.0,
     "material": "terrain/grass_dry"
   },
@@ -237,6 +180,27 @@
         "is_cast_shadow": false,
         "layer": "default"
       }
+    },
+    {
+      "from": "environment_probe",
+      "name": "room_probe",
+      "set": {
+        "position": [
+          -0.55,
+          1.3,
+          0.61
+        ],
+        "probe_side_width": 0.1,
+        "diffuse_multiplier": 3.0,
+        "specular_multiplier": 0.5,
+        "ambient_multiplier": 0.45,
+        "geometry": 1,
+        "scale": [
+          2.7,
+          1.35,
+          2.7
+        ]
+      }
     }
   ],
   "srp_lobby": {
@@ -272,10 +236,13 @@
   },
   "slices": [
     {
-      "name": "lights",
+      "name": "main",
       "project": "STK2/xr2-prog/resources/sources/projects/lobby_scene/project.xprj",
       "composites": "STK2/xr2-prog/resources/sources/library/composite/composite.library",
-      "model_roots": [],
+      "model_roots": [
+        "STK2/xr2-prog/resources",
+        "STK2/xr2-dsgn/resources"
+      ],
       "box_min": [
         -60,
         -10,
@@ -286,13 +253,42 @@
         20,
         60
       ],
-      "geometry": false,
       "lights": {
         "point_template": "point_light(5)",
         "spot_template": "spot_light(1)",
         "sun_template": "sun",
         "intensity_scale": 2.0
-      }
+      },
+      "collision": true,
+      "moves": [
+        {
+          "id": "7107faba-15f8-44cd-8a62-23a3fbe16cbf/campfire(1)",
+          "what": "the campfire, clear of the squad's left member (lobby (-1.15, 0, 1.65))",
+          "position": [
+            3.7347,
+            1.1073659658432007,
+            28.2487
+          ]
+        },
+        {
+          "id": "7107faba-15f8-44cd-8a62-23a3fbe16cbf/sphere_light",
+          "what": "the campfire's own light, with its logs",
+          "position": [
+            3.7385,
+            1.66,
+            28.2529
+          ]
+        },
+        {
+          "id": "3fefa2e1-2d2c-402a-8178-17e7b0ad460c",
+          "what": "STK2's hut light (no fixture of its own) 3 cm under the bulb of a pendant on the crossing of two tie beams (lobby (-2.0, 1.84, 0.6))",
+          "position": [
+            2.6897,
+            2.9474,
+            29.1057
+          ]
+        }
+      ]
     }
   ],
   "environment": {
@@ -416,6 +412,262 @@
         0.35,
         0.285
       ]
+    }
+  ],
+  "light_overrides": {
+    "3fefa2e1-2d2c-402a-8178-17e7b0ad460c": {
+      "intensity": 2.4,
+      "range": 7.0,
+      "color": [
+        1.0,
+        0.78,
+        0.55
+      ],
+      "cast_shadow": false
+    },
+    "7107faba-15f8-44cd-8a62-23a3fbe16cbf/sphere_light": {
+      "color": [
+        1.0,
+        0.82,
+        0.6
+      ],
+      "cast_shadow": false
+    },
+    "8d3fe05f-c7d2-49d1-a42f-14559c8306a5": {
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    },
+    "a95038f3-7e25-4b44-a399-76e0f2792ebf": {
+      "color": [
+        1.0,
+        0.9,
+        0.78
+      ],
+      "cast_shadow": false
+    }
+  },
+  "probe_cubes": [
+    {
+      "object": "room_probe",
+      "up": [
+        0.13,
+        0.12,
+        0.11
+      ],
+      "side": [
+        0.19,
+        0.17,
+        0.15
+      ],
+      "down": [
+        0.22,
+        0.19,
+        0.16
+      ]
+    }
+  ],
+  "native_props": [
+    {
+      "lib": "props/light/green_lamp_with_wire",
+      "position": [
+        -2.0,
+        2.58,
+        0.6
+      ],
+      "collision": false
+    },
+    {
+      "lib": "props/light/lamp_on",
+      "position": [
+        -2.0,
+        2.08,
+        0.6
+      ],
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        -3.5,
+        -1.107,
+        -12.0
+      ],
+      "yaw": 0.4,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        4.5,
+        -1.107,
+        -11.0
+      ],
+      "yaw": 1.9,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_02",
+      "position": [
+        -10.5,
+        -1.107,
+        -8.0
+      ],
+      "yaw": 2.7,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_05",
+      "position": [
+        0.5,
+        -1.107,
+        -17.5
+      ],
+      "yaw": 0.9,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        11.0,
+        -1.107,
+        -15.0
+      ],
+      "yaw": 3.6,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        -8.0,
+        -1.107,
+        -20.0
+      ],
+      "yaw": 5.1,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_02",
+      "position": [
+        7.5,
+        -1.107,
+        -24.0
+      ],
+      "yaw": 4.2,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_05",
+      "position": [
+        15.0,
+        -1.107,
+        -5.0
+      ],
+      "yaw": 1.2,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        -15.0,
+        -1.107,
+        -1.0
+      ],
+      "yaw": 2.2,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_01",
+      "position": [
+        -12.0,
+        -1.107,
+        9.0
+      ],
+      "yaw": 0.1,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_02",
+      "position": [
+        12.0,
+        -1.107,
+        8.0
+      ],
+      "yaw": 3.0,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_05",
+      "position": [
+        -3.0,
+        -1.107,
+        14.0
+      ],
+      "yaw": 4.6,
+      "collision": false
+    },
+    {
+      "lib": "flora/elka_green_03",
+      "position": [
+        6.0,
+        -1.107,
+        15.5
+      ],
+      "yaw": 5.7,
+      "collision": false
+    },
+    {
+      "lib": "flora/bush_s_003",
+      "position": [
+        -5.0,
+        -1.107,
+        -6.5
+      ],
+      "yaw": 0.6,
+      "collision": false
+    },
+    {
+      "lib": "flora/bush_s_005",
+      "position": [
+        3.8,
+        -1.107,
+        -6.8
+      ],
+      "yaw": 2.4,
+      "collision": false
+    },
+    {
+      "lib": "flora/bush_s_line_1",
+      "position": [
+        -1.0,
+        -1.107,
+        -9.0
+      ],
+      "yaw": 0.0,
+      "collision": false
+    },
+    {
+      "lib": "flora/bush_s_005",
+      "position": [
+        -6.5,
+        -1.107,
+        3.0
+      ],
+      "yaw": 1.3,
+      "collision": false
+    },
+    {
+      "lib": "flora/bush_s_003",
+      "position": [
+        5.5,
+        -1.107,
+        2.0
+      ],
+      "yaw": 3.9,
+      "collision": false
     }
   ]
 }
