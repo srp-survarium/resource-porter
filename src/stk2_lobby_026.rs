@@ -91,6 +91,13 @@ pub struct LobbyManifest {
     /// first that matches.
     #[serde(default)]
     pub texture_caps: Vec<TextureCap>,
+    /// STK2 textures whose alpha is cut where STK2's alpha test cut it (0 or
+    /// 1 at this alpha_ref): 0.26g samples the alpha test from mips, and a
+    /// mask's averaged mips fall under a high alpha_ref at a distance (the
+    /// overlay would vanish, a low one would fill in); a 0..1 mask tested at
+    /// half keeps its coverage down the mips.
+    #[serde(default)]
+    pub alpha_cuts: BTreeMap<String, f32>,
     pub scene: SceneSpec,
     #[serde(default)]
     pub models: Vec<ModelSpec>,
@@ -155,6 +162,12 @@ pub struct LobbyManifest {
     /// `emission`) is scaled further.
     #[serde(default)]
     pub emission_scale: BTreeMap<String, f32>,
+    /// STK2 materials whose surfaces are mapped anew from above (uv along
+    /// the lobby's x and z, this many uv a metre), for a tiled texture laid
+    /// over a surface STK2 mapped for something else (the bomb shelter's
+    /// vault overlay, one uv tile a bay for its stain).
+    #[serde(default)]
+    pub planar_uvs: BTreeMap<String, f32>,
 }
 
 /// A converted light's fields set by eye.
@@ -450,6 +463,11 @@ pub enum MaterialSpec {
         /// As [`RuleTarget::Converted`]'s (it needs `source`).
         #[serde(default)]
         emission: Option<f32>,
+        /// Fields under `material.g_stage` set as the STK2 instance has them
+        /// (`effect.alpha_ref`, `is_cast_shadow`, ...): a number or a bool
+        /// in the template's own type there.
+        #[serde(default)]
+        set: BTreeMap<String, Json>,
     },
     /// A native material, as it is.
     Native { material: String },
@@ -669,6 +687,14 @@ const ROLES: &[(&str, &str, TextureKind, Option<&str>)] = &[
         TextureKind::Colour,
         Some("use_emissive_map"),
     ),
+    // gbuffer_pass.ps: constant_roughness_min + (max - min) * t_roughness.y
+    // (effect_gstage_default_materials::compile 0x1ddd50 reads those names)
+    (
+        "texture_roughness",
+        "texture_roughness",
+        TextureKind::Linear,
+        Some("use_troughness"),
+    ),
 ];
 
 /// One file of the pack (its resource path, its bytes on disk under `files/`).
@@ -758,6 +784,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         more_dirs: &manifest.more_texture_dirs,
         max_size: manifest.max_texture_size,
         caps: &manifest.texture_caps,
+        alpha_cuts: &manifest.alpha_cuts,
         work: options.work,
         options_template: parse(&mut target, &manifest.texture_options_template)?,
         made: BTreeMap::new(),
@@ -897,6 +924,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             slice,
             objects,
             &material_names,
+            &manifest.planar_uvs,
             &templates,
             scene,
             &mut pack,
@@ -1255,6 +1283,7 @@ struct TextureMaker<'a> {
     more_dirs: &'a [String],
     max_size: u32,
     caps: &'a [TextureCap],
+    alpha_cuts: &'a BTreeMap<String, f32>,
     work: &'a Path,
     options_template: BinaryConfig,
     /// Textures that could not be read (their surfaces left out).
@@ -1301,7 +1330,8 @@ impl TextureMaker<'_> {
         let stem = self.work.join(name.replace('/', "__"));
         // a texture made before in the same work folder (same kind and
         // size) is taken again: the conversions are the slow part
-        let cache = stem.with_extension(format!("k{}.c{}.cache", kind_key(kind), self.cap(name)));
+        let cut = self.alpha_cuts.get(name).map(|c| format!(".a{c}")).unwrap_or_default();
+        let cache = stem.with_extension(format!("k{}.c{}{cut}.cache", kind_key(kind), self.cap(name)));
         let cache_format = cache.with_extension("format");
         let (bytes, format, srgb) = if let (Ok(bytes), Ok(format)) =
             (fs::read(&cache), fs::read_to_string(&cache_format))
@@ -1372,6 +1402,20 @@ impl TextureMaker<'_> {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
             resize(&unpacked)?;
+        }
+        if let Some(cut) = self.alpha_cuts.get(name) {
+            ensure!((0.0..1.0).contains(cut), "{name}: alpha cut {cut} is not in 0..1");
+            magick(&[
+                scaled.as_os_str(),
+                "-channel".as_ref(),
+                "A".as_ref(),
+                "-threshold".as_ref(),
+                format!("{}%", cut * 100.0).as_ref(),
+                "+channel".as_ref(),
+                "-compress".as_ref(),
+                "none".as_ref(),
+                scaled.as_os_str(),
+            ])?;
         }
         let has_alpha = tga_has_alpha(&scaled)?;
         let dds = stem.with_extension("dds");
@@ -1449,7 +1493,7 @@ fn make_material(
     textures: &mut TextureMaker<'_>,
     pack: &mut PackWriter,
 ) -> Result<Option<(String, Option<String>)>> {
-    let (template, source, explicit, emission) = match spec {
+    let (template, source, explicit, emission, set) = match spec {
         MaterialSpec::Hidden => return Ok(None),
         MaterialSpec::Native { material } => {
             ensure!(
@@ -1463,7 +1507,8 @@ fn make_material(
             source,
             textures,
             emission,
-        } => (template, source, textures, emission),
+            set,
+        } => (template, source, textures, emission, set),
     };
     let roles = material_textures(key, source.as_deref(), explicit, stk2)?;
     // an instance with no diffuse of its own or its base's (a decal's
@@ -1546,6 +1591,20 @@ fn make_material(
         set_emission(&mut material.root, colour, multiplier * scale, diffuse.as_deref())
             .with_context(|| format!("{key}: emission"))?;
     }
+    for (field, value) in set {
+        let path = format!("material.g_stage.{field}.value");
+        let hint = crate::content_pack::value::value_at(&material.root, &path)
+            .cloned()
+            .with_context(|| format!("{key}: the template has no {field}"))?;
+        // an integer field given a fraction takes the fraction
+        let hint = match hint {
+            ConfigValue::Integer(v) if value.as_f64().is_some_and(|f| f.fract() != 0.0) => ConfigValue::Float(v as f32),
+            other => other,
+        };
+        let value = crate::content_pack::value::to_config(value, Some(&hint))
+            .with_context(|| format!("{key}: {field}"))?;
+        material.root.set_path(&path, value)?;
+    }
     // `tex:<texture>` keys (a surface known by its texture) as a folder
     let name = format!("{prefix}/{}", key.replace(':', "/").replace(' ', "_"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
@@ -1590,6 +1649,7 @@ fn material_by_rule(
                         source: None,
                         textures,
                         emission: None,
+                        set: BTreeMap::new(),
                     },
                     format!("its texture alone -> {template}"),
                 ));
@@ -1648,6 +1708,7 @@ fn material_by_rule(
                 source: Some(source),
                 textures: BTreeMap::new(),
                 emission: *emission,
+                set: BTreeMap::new(),
             },
             match emission {
                 Some(k) => format!("{why} -> {template}, its emission x{k}"),
@@ -1930,6 +1991,7 @@ impl Mesh {
     /// An STK2 surface (u32 n, n 56-byte vertices; u32 m, m u16 indices)
     /// moved by `placement` (a mirroring one turns the triangles over).
     fn stk2(vertices: &[u8], indices: &[u8], placement: Rigid, label: &str) -> Result<Mesh> {
+        let (vertices, indices) = &unmapped_faces_projected(vertices, indices, label)?;
         let count = usize::try_from(read_u32(vertices, 0)?)?;
         let bases = repaired_static_bases(vertices, indices, label)?;
         let mut mesh = Mesh::default();
@@ -1974,6 +2036,67 @@ impl Mesh {
             mesh.triangles.push(corners);
         }
         Ok(mesh)
+    }
+
+    /// Its uvs projected from above: u along x, v along z, `density` uv a
+    /// metre, shifted by whole tiles to near 0 (for the half floats); the
+    /// tangent and binormal along x and z in each vertex's plane (its
+    /// normal the faces' around it).
+    fn map_from_above(&mut self, density: f32, label: &str) -> Result<()> {
+        let mut normals = vec![[0.0f32; 3]; self.vertices.len()];
+        for t in &self.triangles {
+            let [a, b, c] = t.map(|i| self.positions[i as usize]);
+            let (e1, e2) = (
+                [b[0] - a[0], b[1] - a[1], b[2] - a[2]],
+                [c[0] - a[0], c[1] - a[1], c[2] - a[2]],
+            );
+            let n = [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ];
+            for &i in t {
+                for (sum, value) in normals[i as usize].iter_mut().zip(n) {
+                    *sum += value;
+                }
+            }
+        }
+        let low = |axis: usize| {
+            self.positions
+                .iter()
+                .map(|p| p[axis] * density)
+                .fold(f32::INFINITY, f32::min)
+                .floor()
+        };
+        let (shift_u, shift_v) = (low(0), low(2));
+        for ((vertex, p), n) in self.vertices.iter_mut().zip(&self.positions).zip(&normals) {
+            let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            let n = if length > 0.0 {
+                n.map(|v| v / length)
+            } else {
+                [0.0, -1.0, 0.0]
+            };
+            // the axis less its part along the normal
+            let along = |axis: [f32; 3]| {
+                let d = axis[0] * n[0] + axis[1] * n[1] + axis[2] * n[2];
+                [axis[0] - d * n[0], axis[1] - d * n[1], axis[2] - d * n[2]]
+            };
+            for (slot, axis) in [(1, [1.0, 0.0, 0.0]), (2, [0.0, 0.0, 1.0])] {
+                vertex[12 + slot * 4..16 + slot * 4]
+                    .copy_from_slice(&packed_basis(along(axis), 255).to_le_bytes());
+            }
+            for (offset, value) in [
+                (24, p[0] * density - shift_u),
+                (26, p[2] * density - shift_v),
+            ] {
+                vertex[offset..offset + 2].copy_from_slice(
+                    &half(value)
+                        .with_context(|| format!("{label}: uv from above"))?
+                        .to_le_bytes(),
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Only the triangles with a corner `inside`, their vertices
@@ -2094,6 +2217,126 @@ fn move_collision(vertices: &[u8], placement: Rigid) -> Result<Vec<u8>> {
     }
     out.extend_from_slice(&vertices[8 + size..]);
     Ok(out)
+}
+
+/// An STK2 surface (as [`Mesh::stk2`] reads it) with its unmapped faces
+/// mapped. STK2 left some faces of its level shells without a mapping: their
+/// corners share one uv or lie on one line of the texture (the bomb
+/// shelter's door sills and a floor strip by the store room's west arch,
+/// `(0, 1) (0, 1) (1, 1)`), so the face shows one row of texels stretched
+/// across it. Each gets corners of its own, its uvs projected along the
+/// axis it faces at the surface's median texel density (shifted by whole
+/// tiles to near 0, for the half-float uvs), their tangent and binormal
+/// along the projection's axes. A surface with none, or with no mapped face
+/// to take the density from, is returned as it is.
+fn unmapped_faces_projected(
+    vertices: &[u8],
+    indices: &[u8],
+    label: &str,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    let count = usize::try_from(read_u32(vertices, 0)?)?;
+    let index_count = usize::try_from(read_u32(indices, 0)?)?;
+    let corner = |t: usize, c: usize| -> Result<usize> {
+        let at = 4 + (t * 3 + c) * 2;
+        let index = usize::from(u16::from_le_bytes(
+            indices
+                .get(at..at + 2)
+                .context("truncated index")?
+                .try_into()?,
+        ));
+        ensure!(index < count, "{label}: index outside its vertices");
+        Ok(index)
+    };
+    let record = |i: usize| &vertices[4 + i * STK2_VERTEX_SIZE..][..STK2_VERTEX_SIZE];
+    let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let mut unmapped = Vec::new();
+    let mut densities = Vec::new();
+    for t in 0..index_count / 3 {
+        let mut p = [[0.0f32; 3]; 3];
+        let mut uv = [[0.0f32; 2]; 3];
+        for c in 0..3 {
+            let source = record(corner(t, c)?);
+            p[c] = read_float3(source, 0)?;
+            uv[c] = [read_f32(source, 48)?, read_f32(source, 52)?];
+        }
+        let (e1, e2) = (sub(p[1], p[0]), sub(p[2], p[0]));
+        let n = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let area = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if area <= 1e-8 {
+            continue;
+        }
+        let (a, b) = (
+            (uv[1][0] - uv[0][0]) * (uv[2][1] - uv[0][1]),
+            (uv[2][0] - uv[0][0]) * (uv[1][1] - uv[0][1]),
+        );
+        if (a - b).abs() <= f32::EPSILON * (a.abs() + b.abs()) {
+            unmapped.push((t, n));
+        } else {
+            densities.push(((a - b).abs() / area).sqrt());
+        }
+    }
+    if unmapped.is_empty() || densities.is_empty() {
+        return Ok((vertices.to_vec(), indices.to_vec()));
+    }
+    densities.sort_by(f32::total_cmp);
+    let density = densities[densities.len() / 2];
+    let added = count + unmapped.len() * 3;
+    ensure!(
+        added <= usize::from(u16::MAX) + 1,
+        "{label}: {added} vertices with its unmapped faces' own, more than u16 indices reach"
+    );
+    let mut out_vertices = Vec::with_capacity(4 + added * STK2_VERTEX_SIZE);
+    push_u32(&mut out_vertices, u32::try_from(added)?);
+    out_vertices.extend_from_slice(&vertices[4..4 + count * STK2_VERTEX_SIZE]);
+    let mut out_indices = indices.to_vec();
+    for (k, (t, n)) in unmapped.iter().enumerate() {
+        // STK2 is y-up: floors and ceilings take x and z, walls their
+        // horizontal axis and -y (the texture upright)
+        let [x, y, z] = n.map(f32::abs);
+        let (u_axis, v_axis) = if y >= x && y >= z {
+            ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+        } else if x >= z {
+            ([0.0, 0.0, 1.0], [0.0, -1.0, 0.0])
+        } else {
+            ([1.0, 0.0, 0.0], [0.0, -1.0, 0.0])
+        };
+        let dot = |p: [f32; 3], axis: [f32; 3]| p[0] * axis[0] + p[1] * axis[1] + p[2] * axis[2];
+        let mut uvs = [[0.0f32; 2]; 3];
+        for (c, uv) in uvs.iter_mut().enumerate() {
+            let p = read_float3(record(corner(*t, c)?), 0)?;
+            *uv = [dot(p, u_axis) * density, dot(p, v_axis) * density];
+        }
+        let shift = [0, 1].map(|a| {
+            uvs.iter()
+                .map(|uv| uv[a])
+                .fold(f32::INFINITY, f32::min)
+                .floor()
+        });
+        for (c, uv) in uvs.iter().enumerate() {
+            let mut source = record(corner(*t, c)?).to_vec();
+            for (offset, value) in [
+                (24, u_axis[0]),
+                (28, u_axis[1]),
+                (32, u_axis[2]),
+                (36, v_axis[0]),
+                (40, v_axis[1]),
+                (44, v_axis[2]),
+                (48, uv[0] - shift[0]),
+                (52, uv[1] - shift[1]),
+            ] {
+                source[offset..offset + 4].copy_from_slice(&f32::to_le_bytes(value));
+            }
+            out_vertices.extend_from_slice(&source);
+            let at = 4 + (t * 3 + c) * 2;
+            out_indices[at..at + 2]
+                .copy_from_slice(&u16::try_from(count + k * 3 + c)?.to_le_bytes());
+        }
+    }
+    Ok((out_vertices, out_indices))
 }
 
 /// A square of `2 half` metres at `height`, about the origin, facing up,
@@ -2690,11 +2933,13 @@ struct SliceMade {
 /// One model of a slice's objects: their surfaces clipped to the box and
 /// merged by material (in pieces the 0.26g loader takes), and their low
 /// collision clipped the same way.
+#[allow(clippy::too_many_arguments)]
 fn write_slice(
     name: &str,
     slice: &SliceSpec,
     objects: &SliceObjects,
     material_names: &BTreeMap<String, Option<(String, String)>>,
+    planar_uvs: &BTreeMap<String, f32>,
     templates: &StaticModelTemplates,
     scene: Rigid,
     pack: &mut PackWriter,
@@ -2725,7 +2970,10 @@ fn write_slice(
                 continue;
             };
             validate_static_geometry(&vertices, &indices, &label)?;
-            let mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            let mut mesh = Mesh::stk2(&vertices, &indices, object.placement, &label)?;
+            if let Some(density) = planar_uvs.get(material) {
+                mesh.map_from_above(*density, &label)?;
+            }
             let clipped = mesh.clipped(in_box);
             if clipped.triangles.is_empty() {
                 continue;
@@ -3286,6 +3534,87 @@ mod tests {
         assert_eq!(read_u32(&mesh, at).unwrap(), 4);
         assert_eq!(&mesh[at + 8..], &indices[..]);
         assert!(near(bounds.min, [10.0, 0.0, -1.0]));
+    }
+
+    #[test]
+    fn a_mesh_mapped_from_above_takes_x_and_z_at_the_density() {
+        // a flat triangle at x 3..5, z -1..1
+        let mut mesh = Mesh {
+            vertices: vec![[0u8; VERTEX_SIZE]; 3],
+            positions: vec![[3.0, 2.0, -1.0], [3.0, 2.0, 1.0], [5.0, 2.0, -1.0]],
+            triangles: vec![[0, 1, 2]],
+        };
+        mesh.map_from_above(0.5, "test").unwrap();
+        let uv = |i: usize| {
+            let v = &mesh.vertices[i];
+            [
+                u16::from_le_bytes([v[24], v[25]]),
+                u16::from_le_bytes([v[26], v[27]]),
+            ]
+        };
+        // u = 0.5 x less 1 (whole tiles), v = 0.5 z less -1
+        assert_eq!(uv(0), [half(0.5).unwrap(), half(0.5).unwrap()]);
+        assert_eq!(uv(1), [half(0.5).unwrap(), half(1.5).unwrap()]);
+        assert_eq!(uv(2), [half(1.5).unwrap(), half(0.5).unwrap()]);
+        // the tangent along x, the binormal along z
+        let slot = |s: usize| read_u32(&mesh.vertices[0], 12 + s * 4).unwrap();
+        assert_eq!(slot(1), packed_basis([1.0, 0.0, 0.0], 255));
+        assert_eq!(slot(2), packed_basis([0.0, 0.0, 1.0], 255));
+    }
+
+    #[test]
+    fn unmapped_faces_get_corners_of_their_own_projected_at_the_surface_density() {
+        // a floor quad mapped at 0.5 uv a metre beside a wall triangle whose
+        // corners lie on one line of the texture (STK2's (0, 1) (0, 1) (1, 1))
+        let mut vertices = Vec::new();
+        let corners: [([f32; 3], [f32; 2]); 7] = [
+            ([0.0, 0.0, 0.0], [0.0, 0.0]),
+            ([2.0, 0.0, 0.0], [1.0, 0.0]),
+            ([2.0, 0.0, 2.0], [1.0, 1.0]),
+            ([0.0, 0.0, 2.0], [0.0, 1.0]),
+            ([3.0, 0.0, 5.0], [0.0, 1.0]),
+            ([3.0, 1.0, 5.0], [0.0, 1.0]),
+            ([3.0, 1.0, 6.0], [1.0, 1.0]),
+        ];
+        push_u32(&mut vertices, corners.len() as u32);
+        for (p, uv) in corners {
+            for v in p
+                .iter()
+                .chain(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0])
+                .chain(&uv)
+            {
+                vertices.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        let mut indices = Vec::new();
+        push_u32(&mut indices, 9);
+        for i in [0u16, 2, 1, 0, 3, 2, 4, 5, 6] {
+            indices.extend_from_slice(&i.to_le_bytes());
+        }
+        let (out_vertices, out_indices) =
+            unmapped_faces_projected(&vertices, &indices, "test").unwrap();
+        // the mapped triangles and their corners are as they were
+        assert_eq!(read_u32(&out_vertices, 0).unwrap(), 10);
+        assert_eq!(&out_vertices[4..4 + 7 * STK2_VERTEX_SIZE], &vertices[4..]);
+        assert_eq!(&out_indices[..4 + 12], &indices[..4 + 12]);
+        // the wall triangle takes three new corners; it faces x: u along z,
+        // v down y, 0.5 a metre, shifted by whole tiles to near 0
+        let new = |k: usize| &out_vertices[4 + (7 + k) * STK2_VERTEX_SIZE..][..STK2_VERTEX_SIZE];
+        let uvs: Vec<[f32; 2]> = (0..3)
+            .map(|k| [read_f32(new(k), 48).unwrap(), read_f32(new(k), 52).unwrap()])
+            .collect();
+        assert_eq!(uvs, vec![[0.5, 1.0], [0.5, 0.5], [1.0, 0.5]]);
+        assert!(near(read_float3(new(0), 24).unwrap(), [0.0, 0.0, 1.0]));
+        assert!(near(read_float3(new(0), 36).unwrap(), [0.0, -1.0, 0.0]));
+        let wall: Vec<u16> = (0..3)
+            .map(|c| u16::from_le_bytes([out_indices[16 + c * 2], out_indices[17 + c * 2]]))
+            .collect();
+        assert_eq!(wall, vec![7, 8, 9]);
+        // a surface with every face mapped is returned as it is
+        let mut mapped = indices[..4 + 12].to_vec();
+        mapped[..4].copy_from_slice(&6u32.to_le_bytes());
+        let same = unmapped_faces_projected(&vertices, &mapped, "test").unwrap();
+        assert_eq!(same, (vertices, mapped));
     }
 
     #[test]
