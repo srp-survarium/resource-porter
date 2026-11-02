@@ -394,6 +394,13 @@ pub struct LobbyVariant {
     /// The vegetation layers are left out (their density maps are not turned).
     #[serde(default)]
     pub turned: bool,
+    /// `srp_lobby.facing` (radians): how far the exe turns the characters
+    /// about the origin when it shows the lobby (their spots and facings) and
+    /// the lobby camera's start yaw with them (skhid-srp's lobby choice reads
+    /// it; the camp's night: they face the chandelier, the camera starts on
+    /// its side). The room stays as it is: the alternative to `turned`.
+    #[serde(default)]
+    pub facing: Option<f32>,
     /// A colour grading table of its own (`<namespace>/color_grading/<project's
     /// name>`), drawn with: 0.26's eye adaptation brings a room lit only by
     /// its lamps to the brightness of a sunlit one, and the table, applied
@@ -1315,7 +1322,15 @@ fn make_variant(
         Some(lit) => light_windows(lit, &mut project, target, output, files)?,
         None => "no lit windows".to_owned(),
     };
+    ensure!(!(variant.turned && variant.facing.is_some()), "variant {what}: turned (the room) or facing (the characters), not both");
     let turned = if variant.turned { format!("; half a turn about the character ({} placements)", turn_half(&mut project)?) } else { String::new() };
+    let turned = match variant.facing {
+        Some(f) => {
+            project.set_path("srp_lobby.facing", ConfigValue::Float(f))?;
+            format!("{turned}; the characters and the camera's start turned {f} rad (srp_lobby.facing)")
+        }
+        None => turned,
+    };
     let path = format!("projects/{}/client_project", variant.output_project);
     ensure!(!target.contains(&path), "project exists");
     emit(output, &path, &BinaryConfig { root: project }.to_bytes()?, &format!("variant of the lobby: {}", variant.output_project), files)?;

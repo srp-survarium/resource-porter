@@ -355,3 +355,7 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
     lamp). Every placement turns (x and z negated, the rotation followed by the turn), the
     weapon's spot and view, the sun's azimuth; the root `camera` (the lobby camera's own frame)
     stays; vegetation layers are left out (their density maps are not turned).
+  * `facing` (the alternative to `turned`; not both): the room stays, and the project's
+    `srp_lobby.facing` (radians) tells skhid-srp's exe how far to turn the characters about the
+    origin (their spots and facings) and the lobby camera's start yaw with them. The camp's
+    night uses it (pi: they face the chandelier, the camera starts on its side).
