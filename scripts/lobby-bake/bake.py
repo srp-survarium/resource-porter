@@ -90,12 +90,22 @@ EYE = mathutils.Vector(to_b(scene_json.get("eye", (0.0, 1.2, 0.0))))
 BOX = [mathutils.Vector(to_b(c)) for c in scene_json["box"]] if scene_json.get("box") else None
 
 
+# where the camera comes close (scene.json's `sharp`, prep.py: the upgrade
+# window's weapon): {at, radius, density}, Blender frame
+SHARP = [(mathutils.Vector(to_b(s["at"])), s["radius"], s["density"]) for s in scene_json.get("sharp", [])]
+
+
 def density_of(pos, t):
     """A triangle's texels a metre: the fewest outside the scene's box (by its
-    centroid), the most when any corner is within --radius of the eye."""
+    centroid), the most when any corner is within --radius of the eye, a
+    `sharp` spot's when its centroid is near one (and it is small: a large
+    wall's triangle there stays at --near)."""
     c = centroid(pos, t)
     if BOX and not all(min(BOX[0][k], BOX[1][k]) <= c[k] <= max(BOX[0][k], BOX[1][k]) for k in range(3)):
         return args.outside
+    for at, radius, density in SHARP:
+        if (c - at).length < radius and tri_area(pos, t) <= 2.0:
+            return density
     return args.near if min((mathutils.Vector(pos[i]) - EYE).length for i in t) < args.radius else args.far
 
 

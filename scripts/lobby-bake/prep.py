@@ -241,6 +241,10 @@ def main(pack, db, out, spec_file=None):
         if spec.get(field):
             scene[field] = spec[field]
     if "slice" not in spec:
+        # the upgrade window's camera comes within a metre of the weapon: its
+        # table and wall get more texels (bake.py), unless the spec says
+        w = project.get("srp_lobby.weapon")
+        scene["sharp"] = spec.get("sharp", [{"at": w, "radius": 1.6, "density": 512.0}] if w else [])
         scene["project"] = {"path": os.path.relpath(project_file, os.path.join(pack, "files")),
                             "sha256": hashlib.sha256(open(project_file, "rb").read()).hexdigest()}
     engine_lit, left_out = spec.get("engine_lit", []), spec.get("left_out", [])
