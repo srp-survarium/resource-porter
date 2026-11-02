@@ -175,3 +175,45 @@ shafts, waist, collar, backpack, hood). The bomber and the hood with masks were 
 rendered in poses of the game's clips (aiming, crouching, sprinting):
 `examples/pose-stk2-outfits-026.rs` writes posed copies of any surfaces (bundle files or
 `db:` paths) through the player's rig (`stk2_outfits_026::pose_surfaces`).
+
+## Cuff profiles and exposed shins (2026-11-02)
+
+The shared `limb_fit` sampler used to accept 12 of 48 radial samples as a
+whole section. At an uneven boot opening, this can be just an inward lip or
+a small part of the shaft. Filling the other three quarters of the circle
+made an artificially narrow profile. Its constraint then extended above the
+opening through the easing rule, pinching visible trousers. This affected
+all three STK2 trousers and could affect the same routine's sleeves, glove
+cuffs and boot shafts.
+
+A section now requires at least 36 of 48 samples and no missing arc longer
+than six samples (45 degrees). Small cracks still interpolate. The first
+and last reliable sections bound the profile; trailing partial faces do not
+extend it, and neither inside nor outside fitting applies past its end.
+There are no item-name exceptions. The existing clearance, easing and
+boot/glove classes remain unchanged.
+
+The native three-influence, 44-byte skin layout is also read by the pose
+helper, so native boots can be checked alongside the converted 48-byte
+trousers in the game's animation clips.
+
+Regression checks:
+
+```sh
+cargo test --lib limb_fit::tests
+cargo test --lib clothing_skin_tests
+cargo test --lib stk2_outfits_026::tests
+```
+
+The partial-lip fixture reproduces the old narrowing. Other fixtures cover
+an open half-shell, small cracks versus a missing side, trailing partial
+faces, and the exposed limb past a cuff. Rebuild **all three outfits** after
+changing this shared fitter. Their release packs are `stk2-bandit@14`,
+`stk2-novice@13`, `stk2-loner@13`; the config operations are unchanged.
+
+Skhid's `scripts/clothing-fit/render_pairs.py` renders explicit config pairs
+from extracted resources, resolves `model_type` exactly as the game does,
+and can use `pose-stk2-outfits-026` for animation poses. Its
+`check_boot_classes.py` checks the separate class/height error that affected
+the exoskeleton boots; `release/build-content` now runs that check against
+the final composed content.
