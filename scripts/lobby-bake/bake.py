@@ -395,14 +395,20 @@ for k, page in enumerate(pages):
         for target, passes, world in ((ind, {"DIRECT", "INDIRECT", "COLOR"}, True), (lamps, {"DIRECT", "COLOR"}, False)):
             for m in {m for ob in page["objects"] for m in ob.data.materials}:
                 next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is img).image = target
-            background = next((n for n in sc.world.node_tree.nodes if n.type == "BACKGROUND"), None)
-            strength = background.inputs["Strength"].default_value if background else 0.0
-            if background and not world:
-                background.inputs["Strength"].default_value = 0.0
-            sc.cycles.samples = args.indirect_samples if world else max(args.indirect_samples // 4, 64)
+            # the second bake sees the engine's lamps alone: the world black,
+            # every emissive surface dark (a glowing shade lights the walls in
+            # Cycles, not in the engine)
+            dimmed = [] if world else [(sock, sock.default_value) for m in bpy.data.materials if m.node_tree
+                                       for n in m.node_tree.nodes if n.type in ("EMISSION", "BACKGROUND")
+                                       for sock in [n.inputs["Strength"]]]
+            dimmed += [] if world else [(n.inputs["Strength"], n.inputs["Strength"].default_value)
+                                        for n in sc.world.node_tree.nodes if n.type == "BACKGROUND"]
+            for sock, _ in dimmed:
+                sock.default_value = 0.0
+            sc.cycles.samples = args.indirect_samples if world else max(args.indirect_samples // 2, 256)
             bpy.ops.object.bake(type="DIFFUSE", pass_filter=passes, margin=4, use_clear=True, target="IMAGE_TEXTURES")
-            if background:
-                background.inputs["Strength"].default_value = strength
+            for sock, value in dimmed:
+                sock.default_value = value
             for m in {m for ob in page["objects"] for m in ob.data.materials}:
                 next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is target).image = img
         page["gloss_image"] = bake_gloss(k, page, img)

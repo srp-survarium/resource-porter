@@ -84,6 +84,10 @@ struct SceneJson {
     /// A hybrid's indirect pages emitted this much brighter.
     #[serde(default = "one")]
     indirect_scale: f32,
+    /// The traced probes this much brighter (the characters as lit as today:
+    /// the owner, 2026-11-02).
+    #[serde(default = "one")]
+    probe_scale: f32,
 }
 
 #[derive(Deserialize)]
@@ -588,7 +592,8 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
             .find(|o| full_name(o) == probe.object)
             .with_context(|| format!("the bake traced probe {:?}, the project has none", probe.object))?;
         let bytes = fs::read(options.bake_dir.join(&probe.file)).with_context(|| format!("the bake: {}", probe.file.display()))?;
-        let traced: Cube = traced_cube(&bytes, probe.size, &probe.object)?;
+        let mut traced: Cube = traced_cube(&bytes, probe.size, &probe.object)?;
+        crate::probe_bake::scale(&mut traced, scene.probe_scale);
         let texture = format!("{made}/probes/{}", probe.object.to_ascii_lowercase().replace(['/', ' '], "_"));
         let mean = set_probe_traced(object, &traced, &texture, &mut |path| source.read(path), &mut pack)?;
         notes.push(format!(

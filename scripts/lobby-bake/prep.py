@@ -43,7 +43,8 @@ temperature, seen against a black body at `white_kelvin` as white (a camera's
 white balance), as bright as its own (scene.json's `relit`, which
 draw-lobby-bake sets in the project too); `drop_lights` (names, or prefixes
 ending in '/') leaves fills out of the trace and the project (`dropped_lights`);
-`indirect_scale` brightens a hybrid's indirect pages in the game. A baked surface is cut on them: the part inside is
+`indirect_scale` brightens a hybrid's indirect pages in the game,
+`probe_scale` its traced probes. A baked surface is cut on them: the part inside is
 traced as a prop and recorded in scene.json's `unbaked` (its file, None when
 the whole surface is inside) for draw-lobby-bake to keep drawn as it was.
 """
@@ -237,7 +238,7 @@ def main(pack, db, out, spec_file=None):
     scene = {"surfaces": [], "props": [], "lights": [], "probes": [], "decals": [], "camera": {
         "position": project["camera.position"], "direction": project["camera.direction"]}}
     scene["dropped_lights"], scene["relit"] = [], {}
-    for field in ("views", "skip_lights", "eye", "box", "tint", "hybrid", "indirect_scale"):
+    for field in ("views", "skip_lights", "eye", "box", "tint", "hybrid", "indirect_scale", "probe_scale"):
         if spec.get(field):
             scene[field] = spec[field]
     if "slice" not in spec:
