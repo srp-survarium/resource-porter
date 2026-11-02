@@ -12,8 +12,8 @@
   },
   "pack": {
     "id": "lobby-stk2-bunker",
-    "version": "11",
-    "description": "the STK2 bomb shelter (2011-12 scenario a03_bomb_shelter: its octagonal store room with its shelves, crates and beds, and the vaults beside it) as a 0.26g lobby project, projects/lobby_scene/stk2_bunker, lit by STK2's own lights, sun and post-process; the character's spot 0.25 m clear of the crates and the leaf pile beside it left out (the squad's left member stood in it), camera boxes over the floor and around the props the lobby camera got into, the weapon 0.40 m above the metal boxes; @3: relit warm (the owner's pick): a box probe of the room from a warm-neutral gradient, STK2's three wide fills shortened and warmed short of orange, a warm light under each street lamp (the one behind the character shadowed, the character lit all the way round), the lamps' shades glowing (STK2's unlit lamp_street given its emissive variant, emitting its texture), a camera box across the front arch to the next vault; @4: the whole shelter (the slice's box grown to x 24..63, z -36..6: its corridors, vaults and rooms beyond the store room's doorways, which showed the sky through the cut), their lamps as warm; a dim warm light in each vault beyond the room's arches (they showed black); @5: the weapon of an upgrade window in the air in front of the character, beside him (lobby (-0.95, 1.35, -0.80), seen along +z as the stock camera looks; the shelter has no table, and above the metal boxes by the south wall it hung before a bed frame); the textures at their STK2 sources' full size (to 2048 px: up to @4 they were scaled to 512 px, the props' to 256, and looked fuzzy up close); the wheeled cart by the leaning plank left out, and its camera box; @6: lamps with fixtures, softer light (the owner: \"the lightbulbs are missing completely\", \"not just bulbs, plafonds too\", \"the lighting too is a bit too sharp\"): STK2's street lamps (one surface each, a shade or a cage, no bulb) left out and 0.26's own fixtures at their spots, drawn only: a pendant (props/light/green_lamp_with_wire, its enamel shade, with a glowing bulb props/light/lamp_on in its socket) where STK2 hung an open shade, a caged ceiling plafond (props/light/plafon_lamp and its glowing glass plafon_lamp_on) where it hung a cage; the store room's three lights at their fixtures, 2.4 (3.2), 8.5 m (6), falloff power 1.5 (2); the room probe's ambient 0.3 (0.2); @7: the lights at the pendants cast no shadow (the store room's lamp_0 and STK2's light under the corridor pendant: their shades threw a pitch-black ellipse over the vault above them; the light now reaches the ceiling as a real lamp's bounce does), the room probe's ambient 0.45 (0.3) so the shadows are lighter; the merged model is new with each version (level/stk2_bunker/main_v7), so no surface of an earlier version is left in it; @8: no light casts a shadow (the owner: a hard pitch-black band down the inner face of the big arch, \"a shadow of something\": the shelf post by the gas-mask crates, 1.7 m from STK2's store-room fill point_light(5), which stands right beside the shelf; the other fills and the vault glows alike), and the main lights 18 % lower (the owner: \"decrease intensity of light a bit\"): the store room's three lamps 2.0 (2.4), the fills and the vault glows by the same share; the ambient and the bulbs' glow kept; @9: the vault over the store room plain (the owner: \"roof being a bit strange\"): STK2's dirty-plaster overlay tiled/wall/stucco_alpha_01 (1 cm over the brick vault, alpha-tested on a speckled 2048 px mask, darker than the plaster under it) left out, so its blotch and its speckled edge are gone; the moss on the sill of the store room's doorway up to the corridor (its steps, by the fuse boxes) left out (nature/moss: a saturated green photo without alpha, a bright green strip on the sill); STK2's unmapped faces (the corners of each at one uv or on one line, a row of texels stretched across: that doorway's sill riser, a floor strip by the west arch, a sill in the east vault, the ventilation shaft's ceiling) mapped by projection at their surface's texel density; a dim warm light under the glowing plafond of the corridor beyond that doorway (corridor_glow, as the vault glows: it showed black); @10 (the owner's captures of @9: the vault showed straight seams, the corridor still black): under STK2's overlay the octagonal vaults are p_brick panels each mapped on its own (rotated, 0.11 to 0.31 uv a metre), their seams hidden by the overlay; the overlay is back as a plain ceiling over each bay: 0.26's own tiled plaster tiled/stucco/stucco_01, mapped from above at 0.4 uv a metre (one mapping over the whole ceiling, no seam), opaque (no speckled oval, no darker stain); corridor_glow lower and stronger in the corridor beyond the doorway (12.3, 2.7, 0.65; 2.0, 4 m: short of the store room's floor) and STK2's light by the corridor's far plafond (point_light(7)) 1.6 (0.4), 6 m (5), so the corridor reads from the store room through the doorway; @11: the vault as STK2 drew it (the vault worker's finding, 2026-11-01: p_brick's uvs are STK2's own; its seam cover is the overlay tiled/wall/stucco_alpha_01, one sheet a bay over the crown and the rim seam): the overlay back on its model uvs, alpha-tested at STK2's 0.95, casting no shadow, its own normal and specular maps, STK2's roughness 0.02..0.415 and specular power 35, in place of @10's plaster mapped from above (stucco_01, planar_uvs); the shelter drawn from a path-traced bake, the hybrid (resource-porter scripts/lobby-bake --hybrid, Blender Cycles; the owner's pick of three, 2026-11-01): every surface of the merged model on unique-uv pages of its albedo and its original materials' roughness, lit live by the project's lamps, plus a quarter-size page of the bounce light alone emitted on top (indirect_scale 2: the lamps' engine falloff ends at their range); the store room's three lamps cast shadows again (the pendant shade's shadow over the vault, the squad's on the floor: the owner, \"the important part\"), the room probe's cubemaps traced from the bake at the character, every light a little warmer (green x0.96, blue x0.90: \"maybe a bit more warm\")"
+    "version": "12",
+    "description": "the STK2 bomb shelter (2011-12 scenario a03_bomb_shelter: its octagonal store room with its shelves, crates and beds, and the vaults beside it) as a 0.26g lobby project, projects/lobby_scene/stk2_bunker, lit by STK2's own lights, sun and post-process; the character's spot 0.25 m clear of the crates and the leaf pile beside it left out (the squad's left member stood in it), camera boxes over the floor and around the props the lobby camera got into, the weapon 0.40 m above the metal boxes; @3: relit warm (the owner's pick): a box probe of the room from a warm-neutral gradient, STK2's three wide fills shortened and warmed short of orange, a warm light under each street lamp (the one behind the character shadowed, the character lit all the way round), the lamps' shades glowing (STK2's unlit lamp_street given its emissive variant, emitting its texture), a camera box across the front arch to the next vault; @4: the whole shelter (the slice's box grown to x 24..63, z -36..6: its corridors, vaults and rooms beyond the store room's doorways, which showed the sky through the cut), their lamps as warm; a dim warm light in each vault beyond the room's arches (they showed black); @5: the weapon of an upgrade window in the air in front of the character, beside him (lobby (-0.95, 1.35, -0.80), seen along +z as the stock camera looks; the shelter has no table, and above the metal boxes by the south wall it hung before a bed frame); the textures at their STK2 sources' full size (to 2048 px: up to @4 they were scaled to 512 px, the props' to 256, and looked fuzzy up close); the wheeled cart by the leaning plank left out, and its camera box; @6: lamps with fixtures, softer light (the owner: \"the lightbulbs are missing completely\", \"not just bulbs, plafonds too\", \"the lighting too is a bit too sharp\"): STK2's street lamps (one surface each, a shade or a cage, no bulb) left out and 0.26's own fixtures at their spots, drawn only: a pendant (props/light/green_lamp_with_wire, its enamel shade, with a glowing bulb props/light/lamp_on in its socket) where STK2 hung an open shade, a caged ceiling plafond (props/light/plafon_lamp and its glowing glass plafon_lamp_on) where it hung a cage; the store room's three lights at their fixtures, 2.4 (3.2), 8.5 m (6), falloff power 1.5 (2); the room probe's ambient 0.3 (0.2); @7: the lights at the pendants cast no shadow (the store room's lamp_0 and STK2's light under the corridor pendant: their shades threw a pitch-black ellipse over the vault above them; the light now reaches the ceiling as a real lamp's bounce does), the room probe's ambient 0.45 (0.3) so the shadows are lighter; the merged model is new with each version (level/stk2_bunker/main_v7), so no surface of an earlier version is left in it; @8: no light casts a shadow (the owner: a hard pitch-black band down the inner face of the big arch, \"a shadow of something\": the shelf post by the gas-mask crates, 1.7 m from STK2's store-room fill point_light(5), which stands right beside the shelf; the other fills and the vault glows alike), and the main lights 18 % lower (the owner: \"decrease intensity of light a bit\"): the store room's three lamps 2.0 (2.4), the fills and the vault glows by the same share; the ambient and the bulbs' glow kept; @9: the vault over the store room plain (the owner: \"roof being a bit strange\"): STK2's dirty-plaster overlay tiled/wall/stucco_alpha_01 (1 cm over the brick vault, alpha-tested on a speckled 2048 px mask, darker than the plaster under it) left out, so its blotch and its speckled edge are gone; the moss on the sill of the store room's doorway up to the corridor (its steps, by the fuse boxes) left out (nature/moss: a saturated green photo without alpha, a bright green strip on the sill); STK2's unmapped faces (the corners of each at one uv or on one line, a row of texels stretched across: that doorway's sill riser, a floor strip by the west arch, a sill in the east vault, the ventilation shaft's ceiling) mapped by projection at their surface's texel density; a dim warm light under the glowing plafond of the corridor beyond that doorway (corridor_glow, as the vault glows: it showed black); @10 (the owner's captures of @9: the vault showed straight seams, the corridor still black): under STK2's overlay the octagonal vaults are p_brick panels each mapped on its own (rotated, 0.11 to 0.31 uv a metre), their seams hidden by the overlay; the overlay is back as a plain ceiling over each bay: 0.26's own tiled plaster tiled/stucco/stucco_01, mapped from above at 0.4 uv a metre (one mapping over the whole ceiling, no seam), opaque (no speckled oval, no darker stain); corridor_glow lower and stronger in the corridor beyond the doorway (12.3, 2.7, 0.65; 2.0, 4 m: short of the store room's floor) and STK2's light by the corridor's far plafond (point_light(7)) 1.6 (0.4), 6 m (5), so the corridor reads from the store room through the doorway; @11: the vault as STK2 drew it (the vault worker's finding, 2026-11-01: p_brick's uvs are STK2's own; its seam cover is the overlay tiled/wall/stucco_alpha_01, one sheet a bay over the crown and the rim seam): the overlay back on its model uvs, alpha-tested at STK2's 0.95, casting no shadow, its own normal and specular maps, STK2's roughness 0.02..0.415 and specular power 35, in place of @10's plaster mapped from above (stucco_01, planar_uvs); the shelter drawn from a path-traced bake, the hybrid (resource-porter scripts/lobby-bake --hybrid, Blender Cycles; the owner's pick of three, 2026-11-01): every surface of the merged model on unique-uv pages of its albedo and its original materials' roughness, lit live by the project's lamps, plus a quarter-size page of the bounce light alone emitted on top (indirect_scale 2: the lamps' engine falloff ends at their range); the store room's three lamps cast shadows again (the pendant shade's shadow over the vault, the squad's on the floor: the owner, \"the important part\"), the room probe's cubemaps traced from the bake at the character, every light a little warmer (green x0.96, blue x0.90: \"maybe a bit more warm\"); @12: the lamps at 2700 K and the character fill at 4000 K, seen against a 4000 K white point (the owner's rule for every lobby, from the Bar: \"right is visually clean\"; each light as bright as before), the character fill kept; 384 texels a metre within 3 m of the character (the orbit's eye comes up against the pillar behind him: blurred at 192); the roughness pages read the maps' green channel, as gbuffer_pass.ps does (t_roughness.y; @11 read red); the vault kept as at @11 (the owner: \"keep as is\"); the shadows no darker than @10 at the game's exposure (the owner's rule, from the Hangar: \"see how dark on right shadows are\"): the bounce emitted 5.5 times as traced (indirect_scale, measured on 25 poses and the squad's 4: the darkest tenth and quarter of the frame as @10's) and the room probe 4.7 times (probe_scale: the characters' shaded sides at the gradient probe's level: \"you cannot see half of their equip\")"
   },
   "target_project": "projects/lobby_scene/stk2_bunker/client_project",
   "model_prefix": "level/stk2_bunker",
@@ -189,10 +189,10 @@
         ],
         "color": [
           1.0,
-          0.883,
-          0.738
+          1.0,
+          1.0
         ],
-        "intensity": 1.0,
+        "intensity": 0.897,
         "range": 3.5,
         "attenuation_power": 2.0,
         "is_cast_shadow": false,
@@ -231,10 +231,10 @@
         ],
         "color": [
           1.0,
-          0.749,
-          0.495
+          0.639,
+          0.265
         ],
-        "intensity": 1.968,
+        "intensity": 2.24,
         "range": 8.5,
         "attenuation_power": 1.5,
         "is_cast_shadow": true,
@@ -252,10 +252,10 @@
         ],
         "color": [
           1.0,
-          0.749,
-          0.495
+          0.639,
+          0.265
         ],
-        "intensity": 1.968,
+        "intensity": 2.24,
         "range": 8.5,
         "attenuation_power": 1.5,
         "is_cast_shadow": true,
@@ -273,10 +273,10 @@
         ],
         "color": [
           1.0,
-          0.749,
-          0.495
+          0.639,
+          0.265
         ],
-        "intensity": 1.968,
+        "intensity": 2.24,
         "range": 8.5,
         "attenuation_power": 1.5,
         "is_cast_shadow": true,
@@ -294,10 +294,10 @@
         ],
         "color": [
           1.0,
-          0.787,
-          0.558
+          0.639,
+          0.265
         ],
-        "intensity": 1.148,
+        "intensity": 1.36,
         "range": 4.0,
         "attenuation_power": 2.0,
         "is_cast_shadow": false,
@@ -315,10 +315,10 @@
         ],
         "color": [
           1.0,
-          0.787,
-          0.558
+          0.639,
+          0.265
         ],
-        "intensity": 1.148,
+        "intensity": 1.36,
         "range": 4.5,
         "attenuation_power": 2.0,
         "is_cast_shadow": false,
@@ -336,10 +336,10 @@
         ],
         "color": [
           1.0,
-          0.787,
-          0.558
+          0.639,
+          0.265
         ],
-        "intensity": 2.0,
+        "intensity": 2.369,
         "range": 4.0,
         "attenuation_power": 2.0,
         "is_cast_shadow": false,
@@ -630,82 +630,82 @@
   ],
   "light_overrides": {
     "62d415f0-c4ab-499f-ab21-0f65625fba99": {
-      "intensity": 1.312,
+      "intensity": 1.617,
       "range": 6.5,
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "b17d9e70-dd87-45ce-93bd-3503f044d728": {
-      "intensity": 1.312,
+      "intensity": 1.617,
       "range": 6.5,
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "da89c6fd-39f5-4a81-b0e7-0944049b734f": {
-      "intensity": 0.328,
+      "intensity": 0.404,
       "range": 6.5,
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "15d2c2da-b85c-486b-8ca8-f7e6133ea649": {
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "3d7a9f66-b4ba-45df-9603-337c40fa0776": {
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "513e2f69-d167-4e5a-9bc8-ec0932e1afbb": {
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "817329d9-a0b0-4e77-9890-69fa4b17605a": {
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "8bef0203-fcf2-48c4-bb86-d4735c5b6997": {
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     },
     "dade9829-e13b-422a-92ac-5f0b281e4f5d": {
-      "intensity": 1.6,
+      "intensity": 1.972,
       "range": 6.0,
       "color": [
         1.0,
-        0.826,
-        0.63
+        0.639,
+        0.265
       ],
       "cast_shadow": false
     }
@@ -731,6 +731,7 @@
     "slice": "main",
     "template": "tiled/concrete/concrete_01",
     "alpha_template": "tiled/roof/roof_03_alpha_2side",
-    "indirect_scale": 2.0
+    "indirect_scale": 5.5,
+    "probe_scale": 4.7
   }
 }

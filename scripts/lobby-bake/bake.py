@@ -11,7 +11,7 @@
                            baked (their sha256), for the porter's `bake`
   renders/traced-*.png     the views path-traced with the lit materials
 
-The merged model's surfaces are cut in chunks (near and far of the character,
+The merged model's surfaces are cut in chunks (close, near and far of the character,
 then halved while a page cannot hold one), each given its own islands (smart
 project), and the chunks laid on pages by the texels they need; a page is baked
 COMBINED with diffuse direct + indirect + colour + emission: the light a matte
@@ -38,6 +38,10 @@ ap.add_argument("scene")
 ap.add_argument("--near", type=float, default=192.0, help="texels a metre within --radius of the character's eye")
 ap.add_argument("--far", type=float, default=32.0, help="texels a metre beyond it")
 ap.add_argument("--radius", type=float, default=8.0)
+ap.add_argument("--close", type=float, default=384.0,
+                help="texels a metre within --close-radius: where the orbit camera's ray can bring the eye up "
+                     "against a surface (the pillar behind the character, @11)")
+ap.add_argument("--close-radius", type=float, default=3.0)
 ap.add_argument("--page", type=int, default=2048, help="the largest page")
 ap.add_argument("--samples", type=int, default=128)
 ap.add_argument("--render-samples", type=int, default=256)
@@ -92,12 +96,14 @@ for s in scene_json["surfaces"]:
         continue
     groups = {}
     for t in tris:
-        # near when any corner is (a large wall triangle by the character is near)
-        groups.setdefault(min((mathutils.Vector(pos[i]) - EYE).length for i in t) < args.radius, []).append(t)
+        # a triangle's tier by its nearest corner (a large wall triangle by the
+        # character is near): close, near or far
+        d = min((mathutils.Vector(pos[i]) - EYE).length for i in t)
+        groups.setdefault(args.close if d < args.close_radius else args.near if d < args.radius else args.far,
+                          []).append(t)
     work = list(groups.items())
     while work:
-        near, ts = work.pop()
-        density = args.near if near else args.far
+        density, ts = work.pop()
         area = sum(tri_area(pos, t) for t in ts)
         cs = [centroid(pos, t) for t in ts]
         extent = [max(c[k] for c in cs) - min(c[k] for c in cs) for k in range(3)]
@@ -108,17 +114,18 @@ for s in scene_json["surfaces"]:
             axis = max(range(3), key=lambda k: extent[k])
             order = sorted(range(len(ts)), key=lambda i: cs[i][axis])
             mid = len(order) // 2
-            work.append((near, [ts[i] for i in order[:mid]]))
-            work.append((near, [ts[i] for i in order[mid:]]))
+            work.append((density, [ts[i] for i in order[:mid]]))
+            work.append((density, [ts[i] for i in order[mid:]]))
             continue
         used = sorted({i for t in ts for i in t})
         remap = {v: k for k, v in enumerate(used)}
-        ob = new_object(f"{s['name']}_{'n' if near else 'f'}{len(chunks)}", [pos[i] for i in used],
+        ob = new_object(f"{s['name']}_d{density:g}_{len(chunks)}", [pos[i] for i in used],
                         [nrm[i] for i in used], [uv[i] for i in used],
                         [tuple(remap[i] for i in t) for t in ts], mat)
         chunks.append((ob, density, area, s["material"]["alpha_test"]))
 log(f"{len(chunks)} chunks to bake, {len(kept)} surfaces kept;",
-    f"near {sum(a for _, d, a, _ in chunks if d == args.near):.0f} m2, far {sum(a for _, d, a, _ in chunks if d != args.near):.0f} m2")
+    ", ".join(f"{sum(a for _, d, a, _ in chunks if d == v):.0f} m2 at {v:g} texels/m"
+              for v in sorted({d for _, d, _, _ in chunks}, reverse=True)))
 add_props(scene_json, materials, [s for s in args.skip_props.split(",") if s])
 add_lights(scene_json, [s for s in args.skip_lights.split(",") if s], args.match, args.bulb)
 
@@ -261,6 +268,20 @@ for k, page in enumerate(pages):
             used += 0.5 * abs(sum((c[j].x - c[0].x) * (c[j + 1].y - c[0].y)
                                   - (c[j + 1].x - c[0].x) * (c[j].y - c[0].y) for j in range(1, len(c) - 1)))
     page["fill"] = abs(used)
+    # chunks whose texels a metre fall well short of the page's (a distorted
+    # model uv, a sliver island): where the game shows blur
+    for ob in page["objects"]:
+        uvs = ob.data.uv_layers["bake"].data
+        uv = sum(0.5 * abs(sum((uvs[li[j]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j + 1]].uv.y - uvs[li[0]].uv.y)
+                                - (uvs[li[j + 1]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j]].uv.y - uvs[li[0]].uv.y)
+                                for j in range(1, len(li) - 1)))
+                 for li in (list(p.loop_indices) for p in ob.data.polygons))
+        area = sum(p.area for p in ob.data.polygons)
+        got = math.sqrt(uv / area) * page["size"] if area > 0 else 0.0
+        if got < 0.5 * page["density"]:
+            c = sum((mathutils.Vector(v.co) for v in ob.data.vertices), mathutils.Vector()) / max(len(ob.data.vertices), 1)
+            log(f"  low density: {ob.name} {got:.0f} of {page['density']:.0f} texels/m, {area:.1f} m2, "
+                f"at ({c.x:.1f}, {c.z:.1f}, {c.y:.1f})")
     log(f"page {k}: {len(page['objects'])} chunks packed, filling {abs(used):.0%}, uv {lo[0]:.3f}..{hi[0]:.3f} x {lo[1]:.3f}..{hi[1]:.3f}")
 if args.only_pack:
     sys.exit(0)
@@ -340,7 +361,9 @@ for k, page in enumerate(pages):
                 ramp = nt.nodes.new("ShaderNodeMapRange")
                 ramp.inputs["To Min"].default_value = spec["min"]
                 ramp.inputs["To Max"].default_value = spec["max"]
-                nt.links.new(sep.outputs[0], ramp.inputs["Value"])
+                # gbuffer_pass.ps: min + (max - min) * t_roughness.y, the GREEN channel
+                # (constant_roughness_min/max: effect_gstage_default_materials::compile 0x1ddd50)
+                nt.links.new(sep.outputs[1], ramp.inputs["Value"])
                 nt.links.new(ramp.outputs[0], em.inputs["Color"])
             else:
                 em.inputs["Color"].default_value = (spec["constant"],) * 3 + (1.0,)

@@ -187,6 +187,10 @@ pub struct BakeSpec {
     /// still lights a far corner: the bounce stands in for both).
     #[serde(default = "one")]
     pub indirect_scale: f32,
+    /// The traced probe this much brighter (the characters' shaded sides
+    /// no darker than the gradient probe left them).
+    #[serde(default = "one")]
+    pub probe_scale: f32,
 }
 
 /// bake.py's `baked.json`.
@@ -255,6 +259,7 @@ struct BakedSurfaceJson {
 /// ready to replace the slice's.
 struct Bake {
     slice: String,
+    probe_scale: f32,
     surfaces: Vec<BuiltSurface>,
     kept: BTreeSet<String>,
     sources: BTreeMap<String, String>,
@@ -357,8 +362,13 @@ impl Bake {
                 .with_context(|| format!("the bake: {}", probe.file.display()))?;
             probes.insert(probe.object.clone(), traced_cube(&bytes, probe.size, &probe.object)?);
         }
+        ensure!(
+            spec.probe_scale.is_finite() && spec.probe_scale > 0.0,
+            "the bake's probe_scale is not positive"
+        );
         Ok(Bake {
             slice: spec.slice.clone(),
+            probe_scale: spec.probe_scale,
             surfaces,
             kept: json.kept.into_iter().collect(),
             sources: json.sources,
@@ -1535,7 +1545,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         ));
     }
     for cube in &manifest.probe_cubes {
-        let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object));
+        let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object).map(|c| (c, b.probe_scale)));
         add_probe_cube(&mut project, cube, traced, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
     }
     let weapon = manifest
@@ -1863,10 +1873,24 @@ impl TextureMaker<'_> {
         let target = format!("{}/{name}", self.prefix);
         let stem = self.work.join(name.replace('/', "__"));
         let options = if alpha { "\"DXT5\"" } else { "" };
-        let (bytes, format, srgb) = self
-            .convert(&target, &target, kind, png, options, &stem)
-            .with_context(|| format!("the baked page {}", png.display()))?;
-        self.write(&target, &bytes, format, srgb, pack)?;
+        // converted once per image (by its bytes): a rebuild that changes
+        // only the bake's scales takes them again
+        let source = fs::read(png).with_context(|| format!("the baked page {}", png.display()))?;
+        let key = &crate::content_pack::sha256_hex(&source)[..16];
+        let cache = stem.with_extension(format!("{key}.k{}.a{}.cache", kind_key(kind), u8::from(alpha)));
+        let cache_format = cache.with_extension("format");
+        let (bytes, format, srgb) = if let (Ok(bytes), Ok(made)) = (fs::read(&cache), fs::read_to_string(&cache_format)) {
+            let (format, srgb) = made.split_once(' ').context("bad texture cache")?;
+            (bytes, format.to_owned(), srgb == "1")
+        } else {
+            let (bytes, format, srgb) = self
+                .convert(&target, &target, kind, png, options, &stem)
+                .with_context(|| format!("the baked page {}", png.display()))?;
+            fs::write(&cache, &bytes)?;
+            fs::write(&cache_format, format!("{format} {}", u8::from(srgb)))?;
+            (bytes, format.to_owned(), srgb)
+        };
+        self.write(&target, &bytes, &format, srgb, pack)?;
         Ok(target)
     }
 
@@ -3662,7 +3686,7 @@ fn native_cube_dds(mut bytes: Vec<u8>) -> Vec<u8> {
 fn add_probe_cube(
     project: &mut BinaryConfig,
     cube: &ProbeCube,
-    traced: Option<&crate::probe_bake::Cube>,
+    traced: Option<(&crate::probe_bake::Cube, f32)>,
     prefix: &str,
     target: &mut ResourceDb,
     pack: &mut PackWriter,
@@ -3701,7 +3725,7 @@ fn add_probe_cube(
     let radiance = match traced {
         // the engine multiplies the probe by its diffuse_multiplier: the
         // traced radiance divided by it, so the character gets the bake's light
-        Some(traced) => {
+        Some((traced, scale)) => {
             let multiplier = match object.named("diffuse_multiplier") {
                 Some(ConfigValue::Float(v)) => *v,
                 Some(ConfigValue::Integer(v)) => *v as f32,
@@ -3710,7 +3734,7 @@ fn add_probe_cube(
             ensure!(multiplier > 0.0, "probe cube: {:?}'s diffuse_multiplier is not positive", cube.object);
             let mut radiance = traced.clone();
             for texel in radiance.faces.iter_mut().flatten().flatten() {
-                *texel = texel.map(|v| v / multiplier);
+                *texel = texel.map(|v| v * scale / multiplier);
             }
             radiance
         }
