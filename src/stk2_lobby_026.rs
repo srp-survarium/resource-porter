@@ -91,6 +91,13 @@ pub struct LobbyManifest {
     /// first that matches.
     #[serde(default)]
     pub texture_caps: Vec<TextureCap>,
+    /// STK2 textures whose alpha is cut where STK2's alpha test cut it (0 or
+    /// 1 at this alpha_ref): 0.26g samples the alpha test from mips, and a
+    /// mask's averaged mips fall under a high alpha_ref at a distance (the
+    /// overlay would vanish, a low one would fill in); a 0..1 mask tested at
+    /// half keeps its coverage down the mips.
+    #[serde(default)]
+    pub alpha_cuts: BTreeMap<String, f32>,
     pub scene: SceneSpec,
     #[serde(default)]
     pub models: Vec<ModelSpec>,
@@ -456,6 +463,11 @@ pub enum MaterialSpec {
         /// As [`RuleTarget::Converted`]'s (it needs `source`).
         #[serde(default)]
         emission: Option<f32>,
+        /// Fields under `material.g_stage` set as the STK2 instance has them
+        /// (`effect.alpha_ref`, `is_cast_shadow`, ...): a number or a bool
+        /// in the template's own type there.
+        #[serde(default)]
+        set: BTreeMap<String, Json>,
     },
     /// A native material, as it is.
     Native { material: String },
@@ -675,6 +687,14 @@ const ROLES: &[(&str, &str, TextureKind, Option<&str>)] = &[
         TextureKind::Colour,
         Some("use_emissive_map"),
     ),
+    // gbuffer_pass.ps: constant_roughness_min + (max - min) * t_roughness.y
+    // (effect_gstage_default_materials::compile 0x1ddd50 reads those names)
+    (
+        "texture_roughness",
+        "texture_roughness",
+        TextureKind::Linear,
+        Some("use_troughness"),
+    ),
 ];
 
 /// One file of the pack (its resource path, its bytes on disk under `files/`).
@@ -764,6 +784,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         more_dirs: &manifest.more_texture_dirs,
         max_size: manifest.max_texture_size,
         caps: &manifest.texture_caps,
+        alpha_cuts: &manifest.alpha_cuts,
         work: options.work,
         options_template: parse(&mut target, &manifest.texture_options_template)?,
         made: BTreeMap::new(),
@@ -1262,6 +1283,7 @@ struct TextureMaker<'a> {
     more_dirs: &'a [String],
     max_size: u32,
     caps: &'a [TextureCap],
+    alpha_cuts: &'a BTreeMap<String, f32>,
     work: &'a Path,
     options_template: BinaryConfig,
     /// Textures that could not be read (their surfaces left out).
@@ -1308,7 +1330,8 @@ impl TextureMaker<'_> {
         let stem = self.work.join(name.replace('/', "__"));
         // a texture made before in the same work folder (same kind and
         // size) is taken again: the conversions are the slow part
-        let cache = stem.with_extension(format!("k{}.c{}.cache", kind_key(kind), self.cap(name)));
+        let cut = self.alpha_cuts.get(name).map(|c| format!(".a{c}")).unwrap_or_default();
+        let cache = stem.with_extension(format!("k{}.c{}{cut}.cache", kind_key(kind), self.cap(name)));
         let cache_format = cache.with_extension("format");
         let (bytes, format, srgb) = if let (Ok(bytes), Ok(format)) =
             (fs::read(&cache), fs::read_to_string(&cache_format))
@@ -1379,6 +1402,20 @@ impl TextureMaker<'_> {
                 String::from_utf8_lossy(&output.stderr).trim()
             );
             resize(&unpacked)?;
+        }
+        if let Some(cut) = self.alpha_cuts.get(name) {
+            ensure!((0.0..1.0).contains(cut), "{name}: alpha cut {cut} is not in 0..1");
+            magick(&[
+                scaled.as_os_str(),
+                "-channel".as_ref(),
+                "A".as_ref(),
+                "-threshold".as_ref(),
+                format!("{}%", cut * 100.0).as_ref(),
+                "+channel".as_ref(),
+                "-compress".as_ref(),
+                "none".as_ref(),
+                scaled.as_os_str(),
+            ])?;
         }
         let has_alpha = tga_has_alpha(&scaled)?;
         let dds = stem.with_extension("dds");
@@ -1456,7 +1493,7 @@ fn make_material(
     textures: &mut TextureMaker<'_>,
     pack: &mut PackWriter,
 ) -> Result<Option<(String, Option<String>)>> {
-    let (template, source, explicit, emission) = match spec {
+    let (template, source, explicit, emission, set) = match spec {
         MaterialSpec::Hidden => return Ok(None),
         MaterialSpec::Native { material } => {
             ensure!(
@@ -1470,7 +1507,8 @@ fn make_material(
             source,
             textures,
             emission,
-        } => (template, source, textures, emission),
+            set,
+        } => (template, source, textures, emission, set),
     };
     let roles = material_textures(key, source.as_deref(), explicit, stk2)?;
     // an instance with no diffuse of its own or its base's (a decal's
@@ -1553,6 +1591,20 @@ fn make_material(
         set_emission(&mut material.root, colour, multiplier * scale, diffuse.as_deref())
             .with_context(|| format!("{key}: emission"))?;
     }
+    for (field, value) in set {
+        let path = format!("material.g_stage.{field}.value");
+        let hint = crate::content_pack::value::value_at(&material.root, &path)
+            .cloned()
+            .with_context(|| format!("{key}: the template has no {field}"))?;
+        // an integer field given a fraction takes the fraction
+        let hint = match hint {
+            ConfigValue::Integer(v) if value.as_f64().is_some_and(|f| f.fract() != 0.0) => ConfigValue::Float(v as f32),
+            other => other,
+        };
+        let value = crate::content_pack::value::to_config(value, Some(&hint))
+            .with_context(|| format!("{key}: {field}"))?;
+        material.root.set_path(&path, value)?;
+    }
     // `tex:<texture>` keys (a surface known by its texture) as a folder
     let name = format!("{prefix}/{}", key.replace(':', "/").replace(' ', "_"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
@@ -1597,6 +1649,7 @@ fn material_by_rule(
                         source: None,
                         textures,
                         emission: None,
+                        set: BTreeMap::new(),
                     },
                     format!("its texture alone -> {template}"),
                 ));
@@ -1655,6 +1708,7 @@ fn material_by_rule(
                 source: Some(source),
                 textures: BTreeMap::new(),
                 emission: *emission,
+                set: BTreeMap::new(),
             },
             match emission {
                 Some(k) => format!("{why} -> {template}, its emission x{k}"),
