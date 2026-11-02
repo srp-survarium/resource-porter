@@ -115,8 +115,11 @@ def material(src, name):
     # the specular the engine draws (a hybrid page keeps the source's, laid
     # out as the page: bake.py's gloss pages)
     texture = lambda use, field: (src.path(f"textures/{get(field)}.dds") if get(use, False) and get(field) else None)
+    # gbuffer_pass.ps: the texture's green channel mapped onto the
+    # material's constant_roughness_min..max (51 lobby materials 0..0.2)
     out["roughness"] = {"texture": texture("use_troughness", "texture_roughness"),
-                        "constant": get("constant_roughness", 0.5)}
+                        "constant": get("constant_roughness", 0.5),
+                        "range": [get("constant_roughness_min", 0.0), get("constant_roughness_max", 1.0)]}
     colour = get("constant_specular_color", [1, 1, 1, 1])[:3]
     scale = get("constant_specular_color_multiplier", [1, 1, 1])
     out["specular"] = {"texture": texture("use_tspecular_intensity", "texture_specular_intensity"),

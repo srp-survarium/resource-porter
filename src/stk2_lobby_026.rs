@@ -620,6 +620,17 @@ fn set_hybrid(
         if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
             root.set_path(&path, ConfigValue::String(page_specular.clone()))?;
         }
+        // the page holds the sources' roughness already on their own range
+        // (gbuffer_pass.ps maps the texture's green onto min..max)
+        for (field, value) in [("constant_roughness_min", 0.0), ("constant_roughness_max", 1.0)] {
+            let path = format!("{effect}.{field}.value");
+            ensure!(
+                crate::content_pack::value::value_at(root, &path).is_some(),
+                "the template has no {field}"
+            );
+            let value = number_like(root, &path, value);
+            root.set_path(&path, value)?;
+        }
         return Ok(());
     }
     for field in ["texture_specular_intensity", "texture_vertex_blended_specular"] {

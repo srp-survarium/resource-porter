@@ -285,8 +285,19 @@ def lit_material(spec):
             nt.links.new(uvn.outputs[0], t.inputs[0])
             if field == "specular":  # the texture's intensity times the constant colour
                 source = _mix_multiply(nt, t.outputs["Color"], source.outputs[0]).node
-            else:
-                source = t
+            else:  # its green channel on the material's range, as the engine reads it
+                low, high = spec[field].get("range", [0.0, 1.0])
+                parts = nt.nodes.new("ShaderNodeSeparateColor")
+                nt.links.new(t.outputs["Color"], parts.inputs[0])
+                mapped = nt.nodes.new("ShaderNodeMath")
+                mapped.operation = "MULTIPLY_ADD"
+                nt.links.new(parts.outputs[1], mapped.inputs[0])
+                mapped.inputs[1].default_value = high - low
+                mapped.inputs[2].default_value = low
+                grey = nt.nodes.new("ShaderNodeCombineColor")
+                for k in range(3):
+                    nt.links.new(mapped.outputs[0], grey.inputs[k])
+                source = grey
         source.label = f"srp_{field}"
     if spec["alpha_test"] and tex is not None:
         shader = _cut(nt, shader, tex.outputs["Alpha"], spec["alpha_ref"])
