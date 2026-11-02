@@ -383,16 +383,28 @@ for k, page in enumerate(pages):
         sc.cycles.samples = 4
         bpy.ops.object.bake(type="DIFFUSE", pass_filter={"COLOR"}, margin=8, use_clear=True,
                             target="IMAGE_TEXTURES")
+        # what the engine does not draw: all the light that reaches the
+        # surface (times the albedo) less the lamps' and the sun's own direct
+        # light (the engine's, live). The sky's light through the openings is
+        # direct light to Cycles, and the engine has none of it (an indirect
+        # pass alone left the Hangar's and the Room's shade near black)
         small = max(page["size"] // 4, 128)
         ind = bpy.data.images.new(f"indirect_{k:02d}", small, small, float_buffer=True, alpha=True)
-        page["indirect_image"] = ind
-        for m in {m for ob in page["objects"] for m in ob.data.materials}:
-            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is img).image = ind
-        sc.cycles.samples = args.indirect_samples
-        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"INDIRECT", "COLOR"}, margin=4, use_clear=True,
-                            target="IMAGE_TEXTURES")
-        for m in {m for ob in page["objects"] for m in ob.data.materials}:
-            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+        lamps = bpy.data.images.new(f"lamps_{k:02d}", small, small, float_buffer=True, alpha=True)
+        page["indirect_image"], page["lamps_image"] = ind, lamps
+        for target, passes, world in ((ind, {"DIRECT", "INDIRECT", "COLOR"}, True), (lamps, {"DIRECT", "COLOR"}, False)):
+            for m in {m for ob in page["objects"] for m in ob.data.materials}:
+                next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is img).image = target
+            background = next((n for n in sc.world.node_tree.nodes if n.type == "BACKGROUND"), None)
+            strength = background.inputs["Strength"].default_value if background else 0.0
+            if background and not world:
+                background.inputs["Strength"].default_value = 0.0
+            sc.cycles.samples = args.indirect_samples if world else max(args.indirect_samples // 4, 64)
+            bpy.ops.object.bake(type="DIFFUSE", pass_filter=passes, margin=4, use_clear=True, target="IMAGE_TEXTURES")
+            if background:
+                background.inputs["Strength"].default_value = strength
+            for m in {m for ob in page["objects"] for m in ob.data.materials}:
+                next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is target).image = img
         page["gloss_image"] = bake_gloss(k, page, img)
     else:
         bpy.ops.object.bake(type="COMBINED", pass_filter={"DIRECT", "INDIRECT", "DIFFUSE", "EMIT"},
@@ -455,7 +467,9 @@ def quiet(px, size):
 values = []
 for page in pages:
     if args.hybrid:
-        page["indirect_px"] = quiet(pixels(page["indirect_image"]), page["indirect_image"].size[0])
+        rest = pixels(page["indirect_image"])
+        rest[:, :3] = np.maximum(rest[:, :3] - pixels(page["lamps_image"])[:, :3], 0.0)
+        page["indirect_px"] = quiet(rest, page["indirect_image"].size[0])
     page["px"] = pixels(page["image"])
     emitted = page["indirect_px"] if args.hybrid else page["px"]
     values.append(emitted[emitted[:, 3] > 0.5, :3].max(axis=1))
