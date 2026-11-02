@@ -459,10 +459,14 @@ def light_colours(scene_json):
 
     def lamp(c, name):
         k = next((k for part, k in by_name if part in name), lamp_k)
-        if k:
-            out = seen(blackbody(k))
-            return out, luminance(c[:3]) / luminance(out)
-        return seen(c), 1.0
+        out = seen(blackbody(k)) if k else seen(c)
+        factor = luminance(c[:3]) / luminance(out) if k else 1.0
+        # a channel over 1 in the brightness (the engine's light colour is
+        # 8-bit: a 5200 K lamp's blue 1.2 wrapped to 0.2, the Range's lime)
+        top = max(out)
+        if top > 1.0:
+            out, factor = [v / top for v in out], factor * top
+        return out, factor
     return lamp, lambda c: (seen(c), 1.0)
 
 

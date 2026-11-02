@@ -1686,6 +1686,11 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             let Some(seen) = bake.lights.get(&full_name) else {
                 continue;
             };
+            ensure!(
+                seen.color.iter().all(|c| (0.0..=1.0).contains(c)),
+                "{full_name}: the bake's colour {:?} is not 0..1 (the engine stores it in 8 bits)",
+                seen.color
+            );
             object.set_path("color", ConfigValue::Float3(seen.color))?;
             let intensity = match object.named("intensity") {
                 Some(ConfigValue::Float(v)) => *v,
