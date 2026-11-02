@@ -320,3 +320,42 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
     yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
     belts past the blocks, and level 02's own background terrain and tree rings (as the
     school map has them, one transform for the four) for the horizon.
+* `variants`: the same lobby under other weather or at another time of day, each a project
+  of its own (`output_project`; skhid-srp's lobby choice swaps whole projects). A variant is
+  made from the lobby's project once it is built, so it shares every model, material, texture
+  and probe cubemap, and its room, camera walls, weapon spot (`srp_lobby`) and camera track
+  are the lobby's. What it changes:
+  * `environment`: environment fields over the lobby's (an integer literal stays an integer,
+    as 0.26g's own projects write the field: skhid-srp's build-content keeps each key's type);
+  * `lights`: lights and ambient lights by `full_name` (a key ending in `/` a folder):
+    `intensity` (0 leaves it out), `colour`, `range`, `cast_shadow`; every key must match a
+    light. `added_lights`: point lights copied from one of the lobby's as the lobby has it
+    (`like`), with their own place, intensity, colour, range and shadow;
+  * `probes`: a probe's diffuse and specular multipliers scaled (the cubemaps are baked by day);
+  * `particles`: 0.26's own effects placed (`particles/<lib>.particle`, as the lobby's own
+    particle object, its `path` the effect's);
+  * `sounds`: `object_sound` emitters (`resource_id` 256 a single sound, 258 a collection: a
+    collection given 256 crashes the game as the project loads); a 0.26 sound is used as it is,
+    the donor's, or one whose `volume_k` or `spl_preset` the variant sets, is imported under the
+    namespace with its `.raw_options` (0.26's own file is the maps' too). `lp_filter_k` was
+    measured to change nothing in a game and is not offered;
+  * `grading`: a colour grading table of its own (`<namespace>/color_grading/<project's name>`,
+    0.26's `l_03d` layout: a 16^3 RGBA volume, red along x): saturation, gamma, gain and a tint
+    of the darks. 0.26g's eye adaptation brings a room lit only by its lamps back to a day's
+    brightness; the table, after it, is what keeps a night dim;
+  * `lit_windows`: a few facade windows lit. The facades' windows are quads each showing one
+    pane of the material's atlas: a copy of the material (`<material>_<suffix>`) emits a BC1
+    texture, black but for the glass of the given panes (each texel's darkness in the albedo,
+    so the glass glows and the frames do not); one instance of a model (`at`, its render
+    visual's position) is drawn by a copy (`<model>_<suffix>_<n>`) whose triangles near given
+    points (model space) are a surface of their own, `srp_lit_<surface>`, with that material;
+  * `turned`: the whole scene half a turn about the character, after everything else. 0.26g
+    stands the lobby's character at the origin facing -z whatever the project, so the room turns
+    instead (the camp's night: he faces the chandelier, the stock camera between him and the
+    lamp). Every placement turns (x and z negated, the rotation followed by the turn), the
+    weapon's spot and view, the sun's azimuth; the root `camera` (the lobby camera's own frame)
+    stays; vegetation layers are left out (their density maps are not turned).
+  * `facing` (the alternative to `turned`; not both): the room stays, and the project's
+    `srp_lobby.facing` (radians) tells skhid-srp's exe how far to turn the characters about the
+    origin (their spots and facings) and the lobby camera's start yaw with them. The camp's
+    night uses it (pi: they face the chandelier, the camera starts on its side).
