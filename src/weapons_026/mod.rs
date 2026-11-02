@@ -18,6 +18,8 @@
 //! * [`build`]: carrying every file a gun names, materials and sound
 //!   options on native templates, the firing sounds' reverb layers, the
 //!   dictionary rows, icons;
+//! * [`donor_069d`]: 0.69d0 as a donor (its game.options items, its weapons'
+//!   models with their structural modules baked in, PBR materials fitted);
 //! * [`modules`]: attachable modules (scopes, flash hiders, muzzle brakes,
 //!   grips), placed at the gun's locators.
 
@@ -28,6 +30,7 @@ pub mod clips;
 pub mod compare;
 pub mod config;
 pub mod donor;
+pub mod donor_069d;
 pub mod icons;
 pub mod manifest;
 pub mod modules;

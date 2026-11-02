@@ -1,0 +1,72 @@
+{
+ "format_version": 1,
+ "guns": {
+  "akmsu": {
+   "rig": "donor",
+   "separable": [
+    "akmsu_m24x15_muzzlebrake"
+   ]
+  },
+  "famas": {
+   "rig": {
+    "live": "models/weapons/ash_12/ash_12.skinned_model"
+   },
+   "separable": [
+    "famas_default_muzzlebrake"
+   ]
+  },
+  "g3a3": {
+   "rig": "donor",
+   "separable": [
+    "g3a3_default_muzzlebrake"
+   ]
+  },
+  "mauser": {
+   "rig": "donor"
+  },
+  "ks_23": {
+   "rig": "donor"
+  },
+  "ppsh_drum": {
+   "rig": "donor",
+   "module_turns": {
+    "ppsh_762x25_71_round_mag": 90.0
+   }
+  }
+ },
+ "renames": {
+  "clips": {
+   "animations/single/weapons/ak/": "animations/single/weapons/akmsu_069/",
+   "animations/single/weapons/ppsh/": "animations/single/weapons/ppsh_drum/"
+  },
+  "sounds": {
+   "weapons/akm_n": "weapons/akm_n_069",
+   "weapons/show_hide_aimed_states": "weapons/show_hide_aimed_states_069",
+   "weapons/m4a1": "weapons/m4a1_069",
+   "weapons/vssk": "weapons/vssk_069",
+   "weapons/socom16": "weapons/socom16_069",
+   "weapons/mp5": "weapons/mp5_069",
+   "weapons/saiga_12": "weapons/saiga_12_069",
+   "weapons/rem_870": "weapons/rem_870_069",
+   "weapons/remington_870": "weapons/remington_870_069",
+   "weapons/ppsh": "weapons/ppsh_069",
+   "weapons/fort_17": "weapons/fort_17_069",
+   "weapons/benelli_m4": "weapons/benelli_m4_069",
+   "weapons/hk416": "weapons/hk416_069",
+   "weapons/pp2000": "weapons/pp2000_069",
+   "weapons/vepr": "weapons/vepr_069",
+   "weapons/vityaz": "weapons/vityaz_069"
+  }
+ },
+ "clip_events": {
+  "animations/single/weapons/mauser/item/stand/3rd_view/reload": {
+   "sound_events": [
+    0,
+    1,
+    2,
+    3,
+    6
+   ]
+  }
+ }
+}

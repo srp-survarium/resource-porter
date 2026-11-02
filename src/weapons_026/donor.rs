@@ -29,6 +29,10 @@ pub enum DonorBuild {
     V029a3,
     #[serde(rename = "0.31a2")]
     V031a2,
+    /// 0.69d0: items in `gameplay/game.options`, 16-byte configs, PBR
+    /// materials, attachment modules ([`super::donor_069d`]).
+    #[serde(rename = "0.69d0")]
+    V069d0,
 }
 
 /// What a build's configs mean, against 0.26g's.
@@ -48,6 +52,11 @@ pub struct Rules {
     pub clips_12_byte_events: bool,
     /// The build's meshes may carry chunk 110 (4-byte statistics).
     pub mesh_statistics: bool,
+    /// The build's weapon configs carry `parameters.aim_offset` where their
+    /// model needs one, so a donor without it means its model needs none
+    /// (0.29a3, 0.31a2). 0.46c2's configs have the key on no weapon (not on
+    /// its SVD, -0.11 in 0.26g): a port keeps the template's.
+    pub aim_offset_in_config: bool,
 }
 
 /// 0.29 and 0.31 spell two of 0.26g's parameters otherwise, keep stamina
@@ -77,6 +86,7 @@ pub const RULES_029A3: Rules = Rules {
     scaled: SCALED,
     clips_12_byte_events: true,
     mesh_statistics: false,
+    aim_offset_in_config: true,
 };
 
 /// 0.31a2 renumbered the state types above 311 down by one (its reload of
@@ -89,6 +99,24 @@ pub const RULES_031A2: Rules = Rules {
     scaled: SCALED,
     clips_12_byte_events: true,
     mesh_statistics: true,
+    aim_offset_in_config: true,
+};
+
+/// 0.69d0 numbers its states as 0.31a2 (two-clip idle 312, reload 313 and
+/// fire 314 are 0.26g's 313, 314 and 315; grenade 315 is 316), and its
+/// melee 324 is 0.26g's 321 (its clips are the shared `weapons/base` set,
+/// so a port keeps the template's melee). Its states' parameters keep
+/// 0.26g's names; stamina damage is a port's `set`.
+pub const RULES_069D0: Rules = Rules {
+    state_types: &[(312, 313), (313, 314), (314, 315), (315, 316), (324, 321)],
+    same_state_types_up_to: 311,
+    renames: &[],
+    scaled: &[],
+    clips_12_byte_events: true,
+    mesh_statistics: false,
+    // 0.69d0's configs carry `parameters.aim_offset` on no weapon (0.69d0
+    // places the sight by the model's aim locator): the template's stays.
+    aim_offset_in_config: false,
 };
 
 impl DonorBuild {
@@ -96,6 +124,7 @@ impl DonorBuild {
         match self {
             Self::V029a3 => &RULES_029A3,
             Self::V031a2 => &RULES_031A2,
+            Self::V069d0 => &RULES_069D0,
         }
     }
 }
