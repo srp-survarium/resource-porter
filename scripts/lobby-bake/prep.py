@@ -39,7 +39,8 @@ weapon's shadows fall only on what it lights): by default the squad's and
 the weapon's (zones.py); none for a `hybrid` bake (bake.py --hybrid: its
 albedo pages are lit by the engine, shadows and all). `lamp_kelvin` gives
 every warm or white point and spot light a black body's colour at that
-temperature, as bright as its own (scene.json's `relit`, which
+temperature, seen against a black body at `white_kelvin` as white (a camera's
+white balance), as bright as its own (scene.json's `relit`, which
 draw-lobby-bake sets in the project too); `drop_lights` (names, or prefixes
 ending in '/') leaves fills out of the trace and the project (`dropped_lights`);
 `indirect_scale` brightens a hybrid's indirect pages in the game. A baked surface is cut on them: the part inside is
@@ -299,8 +300,13 @@ def main(pack, db, out, spec_file=None):
             colour = light["color"][:3]
             if spec.get("lamp_kelvin") and light["light_type"] in (0, 1) and colour[0] >= colour[2]:
                 # a lamp (warm or white; a cool light stands for daylight and
-                # keeps its colour): a black body's colour, as bright as its own
+                # keeps its colour): a black body's colour, as bright as its own,
+                # seen against `white_kelvin`'s white (a camera's white balance)
                 warm = blackbody(spec["lamp_kelvin"])
+                if spec.get("white_kelvin"):
+                    white = blackbody(spec["white_kelvin"])
+                    warm = [warm[k] / white[k] for k in range(3)]
+                    warm = [c / max(warm) for c in warm]
                 light["intensity"] *= luminance(colour) / luminance(warm)
                 light["color"] = warm
                 scene["relit"][name] = {"color": warm, "intensity": light["intensity"]}
