@@ -213,6 +213,11 @@ pub struct BakeSpec {
     /// kelvin), the first that matches.
     #[serde(default)]
     pub light_kelvin: Vec<(String, f32)>,
+    /// The manifest's probe cubes kept, not the ones traced from the bake
+    /// (the traced probe left the characters' shaded sides near black in
+    /// the game: "you cannot see half of their equip").
+    #[serde(default)]
+    pub keep_probe_cubes: bool,
     /// Zones ([min, max], lobby frame) whose faces are not baked: they keep
     /// their lit materials, so the engine's lights, and the characters' and
     /// the weapon's shadows, fall on them (a baked page takes no light).
@@ -1682,8 +1687,9 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         ensure!(set == bake.lights.len(), "the bake traced {} lights, the project has {set} of them", bake.lights.len());
         extra_notes.push(format!("{set} lights at the bake's colours"));
     }
+    let keep_cubes = manifest.bake.as_ref().is_some_and(|b| b.keep_probe_cubes);
     for cube in &manifest.probe_cubes {
-        let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object));
+        let traced = bake.as_ref().filter(|_| !keep_cubes).and_then(|b| b.probes.get(&cube.object));
         add_probe_cube(&mut project, cube, traced, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
     }
     let weapon = manifest

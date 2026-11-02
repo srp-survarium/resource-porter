@@ -388,8 +388,29 @@ for k, page in enumerate(pages):
         sc.cycles.samples = args.samples
         bpy.ops.object.bake(type="DIFFUSE", pass_filter={"INDIRECT", "COLOR"}, margin=4, use_clear=True,
                             target="IMAGE_TEXTURES")
+        # and the direct light no live lamp gives: the sky through the
+        # openings, the glowing shades and screens (Cycles counts them as
+        # direct light; the engine has no light for them), the lamps hidden
+        sky = bpy.data.images.new(f"skylight_{k:02d}", small, small, float_buffer=True, alpha=True)
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
-            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = img
+            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is ind).image = sky
+        lamps = [o for o in sc.objects if o.type == "LIGHT" and not o.hide_render]
+        for o in lamps:
+            o.hide_render = True
+        bpy.ops.object.bake(type="DIFFUSE", pass_filter={"DIRECT", "COLOR"}, margin=4, use_clear=True,
+                            target="IMAGE_TEXTURES")
+        for o in lamps:
+            o.hide_render = False
+        both = np.empty(small * small * 4, dtype=np.float32)
+        ind.pixels.foreach_get(both)
+        extra = np.empty(small * small * 4, dtype=np.float32)
+        sky.pixels.foreach_get(extra)
+        both = both.reshape(-1, 4)
+        both[:, :3] += extra.reshape(-1, 4)[:, :3]
+        ind.pixels.foreach_set(both.ravel())
+        for m in {m for ob in page["objects"] for m in ob.data.materials}:
+            next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is sky).image = img
+        bpy.data.images.remove(sky)
         # the sources' specular laid out as the page (roughness, intensity):
         # flat stand-ins made wood and plaster shine in the game
         page["gloss"] = {}
