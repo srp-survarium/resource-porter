@@ -387,7 +387,12 @@
     "variants": [
       {
         "output_project": "lobby_scene/camp_069_rain",
-        "grading": { "saturation": 0.8, "gamma": 1.0, "gain": [1.0, 1.02, 1.05], "shadow_tint": [0.97, 1.0, 1.04] },
+        "grading": {
+          "saturation": 0.8,
+          "gamma": 1.0,
+          "gain": [1.0, 1.02, 1.05],
+          "shadow_tint": [0.97, 1.0, 1.04]
+        },
         "environment": {
           "use_rain": true,
           "rain_color": [0.638, 0.658, 0.669, 0.6],
@@ -399,12 +404,10 @@
           "rain_u_scale": 1,
           "rain_v_scale": 1.93,
           "wind_strength": 0.81,
-          "sun_intensity": 0.22,
-          "sun_color": [1.0, 1.0, 1.0, 1.0],
-          "sun_size": 0.55,
+          "sun_intensity": 0.0,
           "use_sun_shadows": false,
           "use_dynamic_lens_flare": false,
-          "god_rays_intensity": 0.03,
+          "god_rays_intensity": 0.0,
           "atmosphere_miePi_multiplier": 1,
           "atmosphere_mieSun_multiplier": 1,
           "atmosphere_rayleighPi_multiplier": 1,
@@ -423,37 +426,164 @@
           "mie_fog_bias": 0.6
         },
         "lights": {
-          "environment_and_lights/character_lights/point_light(5)": { "intensity": 3.3, "colour": [0.86, 0.92, 1.0], "cast_shadow": false }
+          "environment_and_lights/character_lights/point_light(5)": { "intensity": 0.0 },
+          "environment_and_lights/light/ambient_light": {
+            "intensity": 0.6,
+            "colour": [0.86, 0.92, 1.0]
+          },
+          "environment_and_lights/light/floor_light_1": { "intensity": 0.6 },
+          "environment_and_lights/light/floor_light_2": { "intensity": 0.3 }
         },
+        "added_lights": [
+          {
+            "like": "environment_and_lights/character_lights/point_light(5)",
+            "name": "environment_and_lights/rain/back_window",
+            "position": [-0.45, 2.55, -2.3],
+            "intensity": 3.8,
+            "colour": [0.84, 0.9, 1.0],
+            "range": 5.0,
+            "cast_shadow": false
+          },
+          {
+            "like": "environment_and_lights/character_lights/point_light(5)",
+            "name": "environment_and_lights/rain/left_window",
+            "position": [-2.7, 2.55, 1.75],
+            "intensity": 2.0,
+            "colour": [0.84, 0.9, 1.0],
+            "range": 4.5,
+            "cast_shadow": false
+          }
+        ],
         "probes": {
-          "environment_and_lights/outdoor/environment_probe": { "diffuse": 0.7, "specular": 0.5 }
+          "environment_and_lights/outdoor/environment_probe": { "diffuse": 0.7, "specular": 0.5 },
+          "environment_and_lights/room_probe": { "diffuse": 0.7, "specular": 0.6 },
+          "environment_and_lights/room_fill_probe": { "diffuse": 0.7, "specular": 0.6 }
         },
         "particles": [
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_0", "position": [-2.85, 3.2, -1.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_1", "position": [-2.85, 3.2, -0.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_2", "position": [-2.85, 3.2, 0.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_3", "position": [-2.85, 3.2, 1.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_4", "position": [-2.85, 3.2, 2.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_5", "position": [-2.85, 3.2, 3.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/left_wall_6", "position": [-2.85, 3.2, 4.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/back_wall_7", "position": [-2.0, 3.2, -2.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/back_wall_8", "position": [-1.0, 3.2, -2.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/back_wall_9", "position": [0.0, 3.2, -2.5]},
-          {"lib": "fx/environment/rain", "name": "fx/rain/back_wall_10", "position": [1.0, 3.2, -2.5]}
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_0",
+            "position": [-2.85, 3.2, -1.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_1",
+            "position": [-2.85, 3.2, -0.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_2",
+            "position": [-2.85, 3.2, 0.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_3",
+            "position": [-2.85, 3.2, 1.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_4",
+            "position": [-2.85, 3.2, 2.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_5",
+            "position": [-2.85, 3.2, 3.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/left_wall_6",
+            "position": [-2.85, 3.2, 4.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/back_wall_0",
+            "position": [-2.0, 3.2, -2.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/back_wall_1",
+            "position": [-1.0, 3.2, -2.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/back_wall_2",
+            "position": [0.0, 3.2, -2.5]
+          },
+          {
+            "lib": "fx/environment/rain",
+            "name": "fx/rain/back_wall_3",
+            "position": [1.0, 3.2, -2.5]
+          }
         ],
         "sounds": [
-          { "sound": "weather/rain/rain_pour", "name": "sounds/rain/back_window", "position": [-0.45, 1.6, -3.3], "volume_k": 1.0, "spl_preset": "mid_range" },
-          { "sound": "weather/rain/rain_pour", "name": "sounds/rain/left_window", "position": [-3.4, 1.6, 1.0], "volume_k": 1.0, "spl_preset": "mid_range" },
-          { "sound": "scapes/level_04/rain/3d_water_drops", "name": "sounds/rain/sill_drips", "position": [-0.5, 1.1, -2.4] }
+          {
+            "sound": "weather/rain/rain_pour",
+            "name": "sounds/rain/back_window",
+            "position": [-0.45, 1.6, -3.3],
+            "volume_k": 1.0,
+            "spl_preset": "mid_range"
+          },
+          {
+            "sound": "weather/rain/rain_pour",
+            "name": "sounds/rain/left_window",
+            "position": [-3.4, 1.6, 1.0],
+            "volume_k": 1.0,
+            "spl_preset": "mid_range"
+          },
+          {
+            "sound": "scapes/level_04/rain/3d_water_drops",
+            "name": "sounds/rain/sill_drips",
+            "position": [-0.5, 1.1, -2.4]
+          }
         ]
       },
       {
         "output_project": "lobby_scene/camp_069_night",
-        "lit_windows": {"suffix": "night", "material": "ported/v069d_lobby/backgr/bg_houses_1", "models": ["ported/v069d_lobby/level/02/bg_house_1", "ported/v069d_lobby/level/02/bg_house_2", "ported/v069d_lobby/level/02/bg_shop"], "panes": [{"rect": [0.0684, 0.0078, 0.1904, 0.127], "colour": [1.0, 0.72, 0.42]}, {"rect": [0.3789, 0.0078, 0.5566, 0.127], "colour": [1.0, 0.78, 0.5]}, {"rect": [0.1729, 0.1396, 0.2705, 0.2559], "colour": [1.0, 0.7, 0.4]}, {"rect": [0.2734, 0.2588, 0.3662, 0.376], "colour": [1.0, 0.8, 0.55]}, {"rect": [0.0049, 0.2002, 0.166, 0.252], "colour": [0.62, 0.72, 1.0]}, {"rect": [0.4707, 0.2979, 0.6055, 0.3516], "colour": [1.0, 0.72, 0.42]}, {"rect": [0.4102, 0.4102, 0.5859, 0.5566], "colour": [1.0, 0.76, 0.48]}], "size": 512, "multiplier": 4.0},
-        "grading": { "saturation": 0.75, "gamma": 1.15, "gain": [0.92, 0.95, 1.05], "shadow_tint": [0.85, 0.92, 1.12] },
+        "turned": true,
+        "lit_windows": {
+          "suffix": "night",
+          "material": "ported/v069d_lobby/backgr/bg_houses_1",
+          "size": 512,
+          "multiplier": 3.5,
+          "panes": [
+            {
+              "rect": [0.0, 0.0, 0.752, 0.38],
+              "colour": [1.0, 0.62, 0.3]
+            },
+            {
+              "rect": [0.405, 0.35, 0.762, 0.562],
+              "colour": [1.0, 0.62, 0.3]
+            }
+          ],
+          "windows": [
+            {
+              "model": "ported/v069d_lobby/level/02/bg_house_2",
+              "at": [-3.751, -22.673, -47.713],
+              "near": [
+                [28.519, 23.37, 1.75]
+              ],
+              "radius": 0.8
+            },
+            {
+              "model": "ported/v069d_lobby/level/02/bg_house_2",
+              "at": [-59.421, -22.673, 14.295],
+              "near": [
+                [7.759, 27.099, -5.019]
+              ],
+              "radius": 0.95
+            }
+          ]
+        },
+        "grading": {
+          "saturation": 0.8,
+          "gamma": 1.45,
+          "gain": [0.82, 0.84, 0.9],
+          "shadow_tint": [0.85, 0.92, 1.12]
+        },
         "environment": {
           "sun_angle": 35.0,
-          "sun_intensity": 0.35,
+          "sun_intensity": 0.25,
           "sun_color": [0.55, 0.66, 1.0, 1.0],
           "use_sun_moon_texture": true,
           "sun_moon_texture": "sky/moon_full",
@@ -470,31 +600,40 @@
           "mie_fog_color": [0.02, 0.025, 0.045, 1.0]
         },
         "lights": {
-          "environment_and_lights/character_lights/point_light(5)": { "intensity": 2.5, "colour": [0.75, 0.82, 1.0] },
-          "environment_and_lights/outdoor/": { "intensity": 0.1, "colour": [0.5, 0.6, 1.0] },
-          "room/lustra/point_light(4)": { "intensity": 1.4, "range": 3.5 },
-          "room/lustra/point_light(5)": { "intensity": 1.4, "range": 3.5 },
-          "weapon_workshop/lights/": { "intensity": 0.4 },
-          "environment_and_lights/light/ambient_light": { "intensity": 0.25, "colour": [1.0, 0.85, 0.65] },
-          "environment_and_lights/light/floor_light_1": { "intensity": 0.3 },
-          "environment_and_lights/light/floor_light_2": { "intensity": 0.15 },
-          "environment_and_lights/light/wall_blue_light": { "intensity": 0.2 },
+          "environment_and_lights/character_lights/point_light(5)": {
+            "intensity": 0.6,
+            "colour": [0.6, 0.72, 1.0]
+          },
+          "environment_and_lights/outdoor/": {
+            "intensity": 0.05,
+            "colour": [0.5, 0.6, 1.0]
+          },
+          "room/lustra/point_light(4)": { "intensity": 2.2, "range": 5.0 },
+          "room/lustra/point_light(5)": { "intensity": 2.2, "range": 5.0 },
+          "weapon_workshop/lights/": { "intensity": 0.3 },
+          "environment_and_lights/light/ambient_light": { "intensity": 0.0 },
+          "environment_and_lights/light/floor_light_1": { "intensity": 0.0 },
+          "environment_and_lights/light/floor_light_2": { "intensity": 0.0 },
+          "environment_and_lights/light/wall_blue_light": { "intensity": 0.0 },
+          "environment_and_lights/light/floor/": { "intensity": 0.0 },
           "environment_and_lights/light/ambient_light(3)": { "intensity": 0.0 }
         },
-        "added_lights": [
-          { "like": "room/lustra/point_light(4)", "name": "environment_and_lights/night/front_lamp", "position": [0.3, 2.2, -1.0], "intensity": 5.0, "colour": [1.0, 0.8, 0.58], "range": 4.0 }
-        ],
-        "sounds": [
-          { "sound": "scapes/creatures/wolves", "name": "sounds/night/wolves", "position": [-15.0, -20.0, -50.0], "volume_k": 0.6 }
-        ],
         "probes": {
-          "environment_and_lights/outdoor/environment_probe": { "diffuse": 0.06, "specular": 0.06 },
-          "environment_and_lights/room_probe": { "diffuse": 0.25, "specular": 0.2 },
-          "environment_and_lights/room_fill_probe": { "diffuse": 0.25, "specular": 0.2 },
-          "environment_and_lights/environment_probe": { "diffuse": 0.25, "specular": 0.2 },
-          "environment_and_lights/environment_probe(1)": { "diffuse": 0.25, "specular": 0.2 },
-          "environment_and_lights/environment_probe(2)": { "diffuse": 0.25, "specular": 0.2 }
-        }
+          "environment_and_lights/room_probe": { "diffuse": 0.1, "specular": 0.1 },
+          "environment_and_lights/room_fill_probe": { "diffuse": 0.1, "specular": 0.1 },
+          "environment_and_lights/environment_probe": { "diffuse": 0.1, "specular": 0.1 },
+          "environment_and_lights/environment_probe(1)": { "diffuse": 0.1, "specular": 0.1 },
+          "environment_and_lights/environment_probe(2)": { "diffuse": 0.1, "specular": 0.1 },
+          "environment_and_lights/outdoor/environment_probe": { "diffuse": 0.03, "specular": 0.03 }
+        },
+        "sounds": [
+          {
+            "sound": "scapes/creatures/wolves",
+            "name": "sounds/night/wolves",
+            "position": [-15.0, -20.0, -50.0],
+            "volume_k": 0.6
+          }
+        ]
       }
     ]
   },

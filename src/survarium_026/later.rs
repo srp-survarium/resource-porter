@@ -370,7 +370,7 @@ pub struct LobbyVariant {
     /// folder), each key matching at least one.
     #[serde(default)]
     pub lights: BTreeMap<String, VariantLight>,
-    /// Point lights added, each a copy of one of the lobby's (`like`).
+    /// Point lights added, each a copy of one of the lobby's as the lobby has it (`like`).
     #[serde(default)]
     pub added_lights: Vec<AddedLight>,
     /// Probes (`full_name`): their diffuse and specular multipliers scaled
@@ -387,6 +387,13 @@ pub struct LobbyVariant {
     /// whose material emits light from some of its window panes.
     #[serde(default)]
     pub lit_windows: Option<LitWindows>,
+    /// The whole scene half a turn about the character, after every other
+    /// change (whose positions are the lobby's). 0.26g stands the lobby's
+    /// character at the origin facing -z, which no project turns: turning the
+    /// room shows him from its other half (the camp's night: facing his lamp).
+    /// The vegetation layers are left out (their density maps are not turned).
+    #[serde(default)]
+    pub turned: bool,
     /// A colour grading table of its own (`<namespace>/color_grading/<project's
     /// name>`), drawn with: 0.26's eye adaptation brings a room lit only by
     /// its lamps to the brightness of a sunlit one, and the table, applied
@@ -460,12 +467,13 @@ impl Grading {
     }
 }
 
-/// Lit windows in the scenery's facades: the models' copies (`<model>_<suffix>`)
-/// draw the material's copy (`<material>_<suffix>`), which emits from the
-/// glass of the given panes of its texture (the dark texels of each pane:
-/// the glass glows and the frames do not). The facades' windows are quads
-/// each showing one pane of the atlas, so lighting some panes lights the
-/// windows that show them.
+/// Lit windows in the scenery's facades. The facades' windows are quads each
+/// showing one pane of the material's atlas: the material's copy
+/// (`<material>_<suffix>`) emits from the glass of the given panes (the dark
+/// texels of each pane: the glass glows and the frames do not), and the
+/// models' copies (`<model>_<suffix>_<n>`, one instance each) draw it on the quads near the given
+/// points only (a surface of their own, `srp_lit_<surface>`), so only those
+/// windows are lit.
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LitWindows {
@@ -473,8 +481,8 @@ pub struct LitWindows {
     pub suffix: String,
     /// The lobby's material (`material_instances/<material>.material`).
     pub material: String,
-    /// The models (render visuals' `lib_name`) drawn with it.
-    pub models: Vec<String>,
+    /// The lit windows, by model.
+    pub windows: Vec<LitWindow>,
     /// Lit panes: a rectangle of the texture (u0, v0, u1, v1 in 0..1) and its
     /// light's colour.
     pub panes: Vec<LitPane>,
@@ -482,6 +490,20 @@ pub struct LitWindows {
     pub size: u32,
     /// The material's emissive multiplier.
     pub multiplier: f32,
+}
+
+/// A model's lit windows: its triangles whose centre lies within `radius`
+/// of a point (model space).
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LitWindow {
+    /// The render visuals' `lib_name`.
+    pub model: String,
+    /// The one instance drawn with them: the render visual at this position
+    /// (the others keep the model as it is).
+    pub at: [f32; 3],
+    pub near: Vec<[f32; 3]>,
+    pub radius: f32,
 }
 
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
@@ -517,6 +539,9 @@ pub struct AddedLight {
     pub intensity: f32,
     pub colour: [f32; 3],
     pub range: f32,
+    /// Whether it casts shadows (`is_cast_shadow`), in place of its original's.
+    #[serde(default)]
+    pub cast_shadow: Option<bool>,
 }
 
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
@@ -959,38 +984,136 @@ fn light_windows(lit: &LitWindows, project: &mut ConfigValue, target: &mut Resou
     set_effect(&mut material, "g_stage", "constant_emissive_multiplier", ConfigValue::Float(lit.multiplier))?;
     let lit_material = format!("{}_{}", lit.material, lit.suffix);
     emit(output, &format!("material_instances/{lit_material}.material"), &BinaryConfig { root: material }.to_bytes()?, &format!("{} emitting {texture}", lit.material), files)?;
-    for model in &lit.models {
-        let copy = format!("{model}_{}", lit.suffix);
-        let mut drawn = false;
-        for (path, bytes) in model_files(output, target, model)? {
+    let mut notes = Vec::new();
+    for (n, window) in lit.windows.iter().enumerate() {
+        let model = &window.model;
+        let copy = format!("{model}_{}_{n}", lit.suffix);
+        let model_files = model_files(output, target, model)?;
+        let settings = model_files.iter().find(|(p, _)| p.ends_with("/settings")).context("lit windows: no settings")?;
+        let mut settings = BinaryConfig::parse(&settings.1)?.root;
+        let surfaces: Vec<String> = match settings.named("material_settings") {
+            Some(ConfigValue::Named(entries)) => {
+                entries.iter().filter(|e| string(&e.value, "material_name") == Some(lit.material.as_str())).map(|e| e.name.clone()).collect()
+            }
+            _ => bail!("{model}: no material_settings"),
+        };
+        ensure!(!surfaces.is_empty(), "lit windows: {model} has no surface of {}", lit.material);
+        let mut lit_triangles = 0;
+        let mut lit_meshes = BTreeMap::new();
+        for (path, bytes) in &model_files {
             let rel = path.strip_prefix(&format!("models/{model}.model/")).context("model file")?;
-            let bytes = if rel == "settings" {
-                let mut settings = BinaryConfig::parse(&bytes)?.root;
-                let Some(ConfigValue::Named(surfaces)) = settings.named_mut("material_settings") else { bail!("{model}: no material_settings") };
-                for surface in surfaces.iter_mut() {
-                    if string(&surface.value, "material_name") == Some(lit.material.as_str()) {
-                        surface.value.set_path("material_name", ConfigValue::String(lit_material.clone()))?;
-                        drawn = true;
-                    }
+            let surface = rel.strip_prefix("render/").and_then(|r| r.split_once('/'));
+            match surface {
+                Some((surface, "converted_model")) if surfaces.iter().any(|s| s == surface) => {
+                    let (glowing, rest) = split_mesh(bytes, &window.near, window.radius).with_context(|| format!("lit windows: {path}"))?;
+                    lit_triangles += triangles(&glowing);
+                    emit(output, &format!("models/{copy}.model/render/{surface}/converted_model"), &rest, &format!("{model} without its lit windows"), files)?;
+                    emit(output, &format!("models/{copy}.model/render/srp_lit_{surface}/converted_model"), &glowing, &format!("{model}'s lit windows"), files)?;
+                    lit_meshes.insert(surface.to_owned(), glowing);
                 }
-                BinaryConfig { root: settings }.to_bytes()?
-            } else {
-                bytes
-            };
-            emit(output, &format!("models/{copy}.model/{rel}"), &bytes, &format!("{model} with {lit_material}"), files)?;
+                Some((surface, "export_properties")) if surfaces.iter().any(|s| s == surface) => {
+                    emit(output, &format!("models/{copy}.model/{rel}"), bytes, model, files)?;
+                    // the lit part's counts, as glowing_surfaces' (the mesh comes first: its files are sorted)
+                    let glowing = lit_meshes.get(surface).with_context(|| format!("lit windows: {surface}'s export_properties before its mesh"))?;
+                    let mut properties = BinaryConfig::parse(bytes)?;
+                    if properties.root.named("source").is_some() {
+                        let u = |o: usize| u32::from_le_bytes(glowing[o..o + 4].try_into().unwrap()) as usize;
+                        let (vertices, indices) = (u(8), u(8 + u(4) + 8));
+                        properties.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                        properties.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                        properties.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
+                    }
+                    emit(output, &format!("models/{copy}.model/render/srp_lit_{surface}/export_properties"), &properties.to_bytes()?, &format!("{model}'s {surface}"), files)?;
+                }
+                _ if rel == "settings" => {}
+                _ => emit(output, &format!("models/{copy}.model/{rel}"), bytes, model, files)?,
+            }
         }
-        ensure!(drawn, "lit windows: {model} has no surface of {}", lit.material);
+        for surface in &surfaces {
+            let name = format!("srp_lit_{surface}");
+            settings.set_path(&format!("material_settings.{name}"), named(vec![("material_name", ConfigValue::String(lit_material.clone()))]))?;
+            let Some(ConfigValue::Indexed(list)) = settings.named_mut("lod_hierrarchy").and_then(|h| h.named_mut("LOD0")).and_then(|l| l.named_mut("surfaces")) else {
+                bail!("lit windows: {model}'s LOD0 surfaces are not a list");
+            };
+            ensure!(list.iter().any(|v| matches!(v, ConfigValue::String(x) if x == surface)), "lit windows: {surface} is not a LOD0 surface of {model}");
+            list.push(ConfigValue::String(name));
+        }
+        let other_lods = match settings.named("lod_hierrarchy") {
+            Some(ConfigValue::Named(levels)) => levels
+                .iter()
+                .filter(|l| l.name != "LOD0")
+                .any(|l| l.value.named("surfaces").is_some_and(|list| array(list).is_ok_and(|a| !a.is_empty()))),
+            _ => false,
+        };
+        ensure!(!other_lods, "lit windows: {model} has LODs (its lit quads are split in LOD0 only)");
+        emit(output, &format!("models/{copy}.model/settings"), &BinaryConfig { root: settings }.to_bytes()?, &format!("{model} with its lit windows"), files)?;
         let Some(ConfigValue::Indexed(visuals)) = project.named_mut("render_visuals") else { bail!("no render_visuals") };
         let mut placed = 0;
         for visual in visuals.iter_mut() {
-            if string(visual, "lib_name") == Some(model.as_str()) {
+            let here = float3(visual, "position").is_ok_and(|p| (0..3).all(|k| (p[k] - window.at[k]).abs() < 0.01));
+            if string(visual, "lib_name") == Some(model.as_str()) && here {
                 visual.set_path("lib_name", ConfigValue::String(copy.clone()))?;
                 placed += 1;
             }
         }
-        ensure!(placed > 0, "lit windows: the project draws no {model}");
+        ensure!(placed == 1, "lit windows: the project draws {placed} {model} at {:?}", window.at);
+        notes.push(format!("{model}: {lit_triangles} triangles lit"));
     }
-    Ok(format!("lit windows: {} panes of {albedo_name} in {}", lit.panes.len(), lit.models.join(", ")))
+    Ok(format!("lit windows: {} panes of {albedo_name}; {}", lit.panes.len(), notes.join(", ")))
+}
+
+/// The rotation `instance_rotation` makes, back: its x, y and z angles.
+fn rotation_angles(r: &[[f32; 3]; 3]) -> [f32; 3] {
+    let y = r[0][2].clamp(-1.0, 1.0).asin();
+    if r[0][2].abs() < 0.999_999 {
+        [(-r[1][2]).atan2(r[2][2]), y, (-r[0][1]).atan2(r[0][0])]
+    } else {
+        // gimbal lock: x and z turn about one axis; all of it on x
+        [r[1][0].atan2(r[1][1]), y, 0.0]
+    }
+}
+
+/// A placement's position and rotation half a turn about the y axis
+/// (`LobbyVariant::turned`): x and z negated, the rotation followed by the turn.
+fn half_turned(object: &mut ConfigValue) -> Result<()> {
+    if let Some(ConfigValue::Float3(p)) = object.named("position").cloned() {
+        object.set_path("position", ConfigValue::Float3([-p[0], p[1], -p[2]]))?;
+    }
+    if let Some(ConfigValue::Float3(a)) = object.named("rotation").cloned() {
+        let r = instance_rotation(a);
+        // row vectors: v (R W), W = the turn about y = diag(-1, 1, -1)
+        let turned: [[f32; 3]; 3] = std::array::from_fn(|i| [-r[i][0], r[i][1], -r[i][2]]);
+        object.set_path("rotation", ConfigValue::Float3(rotation_angles(&turned)))?;
+    }
+    Ok(())
+}
+
+/// A project half a turn about the character (`LobbyVariant::turned`): every
+/// placed instance and object, the weapon's spot and its view, the sun; the
+/// vegetation left out. The root `camera` is the lobby camera's frame, kept.
+fn turn_half(project: &mut ConfigValue) -> Result<usize> {
+    let mut turned = 0;
+    for list in ["render_visuals", "collision_objects", "client_objects"] {
+        let Some(ConfigValue::Indexed(items)) = project.named_mut(list) else { bail!("no {list}") };
+        items.retain(|o| kind(o) != "vegetation");
+        for item in items.iter_mut() {
+            if kind(item) == "environment" {
+                let azimuth = real(item, "properties.sun_position_azimut").or_else(|| item.named("properties").and_then(|p| real(p, "sun_position_azimut"))).unwrap_or(0.0);
+                item.set_path("properties.sun_position_azimut", ConfigValue::Float((azimuth + 180.0).rem_euclid(360.0)))?;
+                continue;
+            }
+            half_turned(item)?;
+            turned += 1;
+        }
+    }
+    if let Some(ConfigValue::Float3(v)) = project.named("srp_lobby").and_then(|t| t.named("weapon")).cloned() {
+        project.set_path("srp_lobby.weapon", ConfigValue::Float3([-v[0], v[1], -v[2]]))?;
+    }
+    if let Some(view) = project.named("srp_lobby").and_then(|t| real(t, "weapon_view")) {
+        let pi = std::f32::consts::PI;
+        project.set_path("srp_lobby.weapon_view", ConfigValue::Float((view + pi + pi).rem_euclid(2.0 * pi) - pi))?;
+    }
+    Ok(turned)
 }
 
 /// One variant of a built lobby project (see `LobbyVariant`): the project and
@@ -1020,6 +1143,25 @@ fn make_variant(
     let environment = objects.iter_mut().find(|o| kind(o) == "environment").context("no environment")?;
     for (field, value) in &variant.environment {
         environment.set_path(&format!("properties.{field}"), variant_environment_value(field, value)?)?;
+    }
+
+    // copies of the lobby's lights as they are (before `lights` changes or leaves out their originals)
+    for added in &variant.added_lights {
+        let mut light = objects
+            .iter()
+            .find(|o| kind(o) == "light" && string(o, "full_name") == Some(added.like.as_str()))
+            .cloned()
+            .with_context(|| format!("variant {what}: no light {} to copy", added.like))?;
+        light.set_path("position", ConfigValue::Float3(added.position))?;
+        light.set_path("name", ConfigValue::String(added.name.rsplit('/').next().unwrap_or(&added.name).into()))?;
+        light.set_path("full_name", ConfigValue::String(added.name.clone()))?;
+        light.set_path("intensity", ConfigValue::Float(added.intensity))?;
+        light.set_path("range", ConfigValue::Float(added.range))?;
+        if let Some(c) = added.cast_shadow {
+            light.set_path("is_cast_shadow", ConfigValue::Boolean(c))?;
+        }
+        set_colour(&mut light, added.colour)?;
+        objects.push(light);
     }
 
     let mut matched = BTreeMap::<&str, usize>::new();
@@ -1062,21 +1204,6 @@ fn make_variant(
     }
     for key in variant.lights.keys() {
         ensure!(matched.contains_key(key.as_str()), "variant {what}: lights {key} matches no light");
-    }
-
-    for added in &variant.added_lights {
-        let mut light = objects
-            .iter()
-            .find(|o| kind(o) == "light" && string(o, "full_name") == Some(added.like.as_str()))
-            .cloned()
-            .with_context(|| format!("variant {what}: no light {} to copy", added.like))?;
-        light.set_path("position", ConfigValue::Float3(added.position))?;
-        light.set_path("name", ConfigValue::String(added.name.rsplit('/').next().unwrap_or(&added.name).into()))?;
-        light.set_path("full_name", ConfigValue::String(added.name.clone()))?;
-        light.set_path("intensity", ConfigValue::Float(added.intensity))?;
-        light.set_path("range", ConfigValue::Float(added.range))?;
-        set_colour(&mut light, added.colour)?;
-        objects.push(light);
     }
 
     for (name, scale) in &variant.probes {
@@ -1188,11 +1315,12 @@ fn make_variant(
         Some(lit) => light_windows(lit, &mut project, target, output, files)?,
         None => "no lit windows".to_owned(),
     };
+    let turned = if variant.turned { format!("; half a turn about the character ({} placements)", turn_half(&mut project)?) } else { String::new() };
     let path = format!("projects/{}/client_project", variant.output_project);
     ensure!(!target.contains(&path), "project exists");
     emit(output, &path, &BinaryConfig { root: project }.to_bytes()?, &format!("variant of the lobby: {}", variant.output_project), files)?;
     Ok(format!(
-        "variant {}: environment {}; {} lights set, {} added; {} probes scaled; {} particles; sounds: {}; {windows}",
+        "variant {}: environment {}; {} lights set, {} added; {} probes scaled; {} particles; sounds: {}; {windows}{turned}",
         variant.output_project,
         variant.environment.keys().cloned().collect::<Vec<_>>().join(", "),
         matched.values().sum::<usize>(),
@@ -5782,6 +5910,34 @@ mod tests {
         assert!(at(1, 1)[0] > 200 && at(1, 1)[1] > 100 && at(1, 1)[2] < 100, "the glass glows warm: {:?}", at(1, 1));
         assert_eq!(&at(6, 1)[..3], &[0, 0, 0], "the frame does not glow");
         assert_eq!(&at(1, 6)[..3], &[0, 0, 0], "outside the panes nothing glows");
+    }
+
+    #[test]
+    fn rotation_angles_give_back_the_rotation() {
+        for a in [[0.0, 0.0, 0.0], [-1.571, 1.5707964, 0.0], [0.3, -0.7, 2.9], [-3.141, -1.453, -3.141], [1.146, -0.546, -1.716]] {
+            let r = instance_rotation(a);
+            let back = instance_rotation(rotation_angles(&r));
+            for i in 0..3 {
+                for j in 0..3 {
+                    assert!((r[i][j] - back[i][j]).abs() < 1e-4, "{a:?}: {r:?} != {back:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_half_turn_moves_a_point_to_the_other_side_and_turns_its_rotation() {
+        let mut o = named(vec![("position", ConfigValue::Float3([1.0, 2.0, 3.0])), ("rotation", ConfigValue::Float3([0.0, 0.5, 0.0]))]);
+        half_turned(&mut o).unwrap();
+        assert!(matches!(o.named("position"), Some(ConfigValue::Float3([-1.0, 2.0, -3.0]))));
+        let Some(ConfigValue::Float3(a)) = o.named("rotation") else { panic!() };
+        // the same as a yaw of 0.5 + pi
+        let (want, got) = (instance_rotation([0.0, 0.5 + std::f32::consts::PI, 0.0]), instance_rotation(*a));
+        for i in 0..3 {
+            for j in 0..3 {
+                assert!((want[i][j] - got[i][j]).abs() < 1e-5, "{want:?} != {got:?}");
+            }
+        }
     }
 
     #[test]
