@@ -300,7 +300,16 @@ pub fn card_props(cfg: &V) -> Result<Vec<(i32, String)>> {
         (3, pct(num("bullet_pierce")?)),
         (133, fmt(num("aim_time")?)),
         (132, pct(num("stopping_power")?)),
-        (2, fmt(num("base_dispersion")?)),
+        // The dispersion the game reads (dispersion/): skhid-srp's
+        // dead-keys-1 removed the parameters/ copy from every live gun.
+        (
+            2,
+            fmt(match get(cfg, "dispersion.base_dispersion") {
+                Some(V::Float(f)) => *f,
+                Some(V::Integer(i)) => *i as f32,
+                _ => num("base_dispersion")?,
+            }),
+        ),
         (24, format!("{}", num("min_damage_distance")? as i32)),
         (4, format!("{}", num("rounds_per_minute")? as i32)),
         // The magazine (134): the live guns have it after the rate of fire
