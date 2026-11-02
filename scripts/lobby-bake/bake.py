@@ -406,7 +406,10 @@ for k, page in enumerate(pages):
         extra = np.empty(small * small * 4, dtype=np.float32)
         sky.pixels.foreach_get(extra)
         both = both.reshape(-1, 4)
-        both[:, :3] += extra.reshape(-1, 4)[:, :3]
+        # --indirect-scale on the bounce only: the sky's and the emitters'
+        # direct light is as traced (scaled, it lit a table's edge facing
+        # the strip windows bright blue-white)
+        both[:, :3] = both[:, :3] * args.indirect_scale + extra.reshape(-1, 4)[:, :3]
         ind.pixels.foreach_set(both.ravel())
         for m in {m for ob in page["objects"] for m in ob.data.materials}:
             next(n for n in m.node_tree.nodes if n.type == "TEX_IMAGE" and n.image is sky).image = img
@@ -523,7 +526,7 @@ if args.hybrid:  # the template's normal and roughness maps, flat (they would ti
 
 # --- the baked surfaces as 0.26g models ----------------------------------------
 LIMIT = 35000  # stk2_lobby_026's MAX_STATIC_SURFACE_VERTICES, less a little
-baked = {"emission": emission * (args.indirect_scale if args.hybrid else 1.0), "pages": [], "surfaces": [],
+baked = {"emission": emission, "pages": [], "surfaces": [],
          "lights": lights_seen}
 if args.hybrid:
     baked["flat"] = {"normal": "pages/flat_normal.png", "roughness": "pages/flat_roughness.png"}
