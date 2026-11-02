@@ -267,39 +267,76 @@ for ob, _, area, _ in chunks:
         bpy.ops.uv.smart_project(angle_limit=math.radians(66.0), island_margin=0.0, area_weight=0.0,
                                  correct_aspect=True, scale_to_bounds=False)
         bpy.ops.object.mode_set(mode="OBJECT")
+def to_metres(ob):
+    """A chunk's islands scaled to its metres (every chunk of a page alike)."""
+    me = ob.data
+    uvs = me.uv_layers["bake"].data
+    uv_area = sum(abs(sum((uvs[li[j]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j + 1]].uv.y - uvs[li[0]].uv.y)
+                            - (uvs[li[j + 1]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j]].uv.y - uvs[li[0]].uv.y)
+                            for j in range(1, len(li) - 1))) * 0.5
+                  for li in (list(p.loop_indices) for p in me.polygons))
+    area = sum(p.area for p in me.polygons)
+    scale = math.sqrt(area / uv_area) if uv_area > 0 else 1.0
+    flat = [0.0] * (2 * len(uvs))
+    uvs.foreach_get("uv", flat)
+    uvs.foreach_set("uv", [c * scale for c in flat])
+
+
 for k, page in enumerate(pages):
     margin = 4.0 / page["size"]
-    # every chunk's islands scaled to its metres
-    for ob in page["objects"]:
-        me = ob.data
-        uvs = me.uv_layers["bake"].data
-        uv_area = sum(abs(sum((uvs[li[j]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j + 1]].uv.y - uvs[li[0]].uv.y)
-                                - (uvs[li[j + 1]].uv.x - uvs[li[0]].uv.x) * (uvs[li[j]].uv.y - uvs[li[0]].uv.y)
-                                for j in range(1, len(li) - 1))) * 0.5
-                      for li in (list(p.loop_indices) for p in me.polygons))
-        area = sum(p.area for p in me.polygons)
-        scale = math.sqrt(area / uv_area) if uv_area > 0 else 1.0
-        flat = [0.0] * (2 * len(uvs))
-        uvs.foreach_get("uv", flat)
-        uvs.foreach_set("uv", [c * scale for c in flat])
+    for ob in page["objects"]:  # every chunk's islands scaled to its metres
+        to_metres(ob)
     select(page["objects"])
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
-    bpy.ops.uv.select_all(action="SELECT")
-    bpy.ops.uv.pack_islands(udim_source="ACTIVE_UDIM", rotate=True, scale=True, margin_method="FRACTION",
-                            margin=margin, shape_method="CONCAVE")
-    bpy.ops.object.mode_set(mode="OBJECT")
-    # how much of the page the islands fill, and that they keep inside it
-    used, lo, hi = 0.0, [1.0, 1.0], [0.0, 0.0]
-    for ob in page["objects"]:
-        uvs = ob.data.uv_layers["bake"].data
-        for poly in ob.data.polygons:
-            c = [uvs[i].uv for i in poly.loop_indices]
-            for u in c:
-                lo = [min(lo[0], u[0]), min(lo[1], u[1])]
-                hi = [max(hi[0], u[0]), max(hi[1], u[1])]
-            used += 0.5 * abs(sum((c[j].x - c[0].x) * (c[j + 1].y - c[0].y)
-                                  - (c[j + 1].x - c[0].x) * (c[j].y - c[0].y) for j in range(1, len(c) - 1)))
+
+    def pack(shape):
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.uv.select_all(action="SELECT")
+        bpy.ops.uv.pack_islands(udim_source="ACTIVE_UDIM", rotate=True, scale=True, margin_method="FRACTION",
+                                margin=margin, shape_method=shape)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        return measure()
+
+    def measure():
+        """How much of the page the islands fill, and their bounds."""
+        used, lo, hi = 0.0, [1.0, 1.0], [0.0, 0.0]
+        for ob in page["objects"]:
+            uvs = ob.data.uv_layers["bake"].data
+            for poly in ob.data.polygons:
+                c = [uvs[i].uv for i in poly.loop_indices]
+                for u in c:
+                    lo = [min(lo[0], u[0]), min(lo[1], u[1])]
+                    hi = [max(hi[0], u[0]), max(hi[1], u[1])]
+                used += 0.5 * abs(sum((c[j].x - c[0].x) * (c[j + 1].y - c[0].y)
+                                      - (c[j + 1].x - c[0].x) * (c[j].y - c[0].y) for j in range(1, len(c) - 1)))
+        return abs(used), lo, hi
+
+    # a page of many islands the concave packer may fill worse than the box
+    # packer: the better kept (a page of long thin islands, cables and rails,
+    # stays nearly empty either way: scaled up to the page, more texels than
+    # asked, not fewer)
+    used, lo, hi = pack("CONCAVE")
+    if used < 0.3:
+        saved = {ob: [0.0] * (2 * len(ob.data.uv_layers["bake"].data)) for ob in page["objects"]}
+        for ob, flat in saved.items():
+            ob.data.uv_layers["bake"].data.foreach_get("uv", flat)
+        boxed = pack("AABB")
+        if boxed[0] > used:
+            used, lo, hi = boxed
+        else:
+            for ob, flat in saved.items():
+                ob.data.uv_layers["bake"].data.foreach_set("uv", flat)
+    # the islands fitted to the page inside its margin (the packer can leave
+    # them short of it, or a hair over it: 1.01 seen)
+    span = max(hi[0] - lo[0], hi[1] - lo[1])
+    if span > 0 and (lo[0] < margin or lo[1] < margin or hi[0] > 1 - margin or hi[1] > 1 - margin or span < 0.98):
+        f = (1 - 2 * margin) / span
+        for ob in page["objects"]:
+            uvs = ob.data.uv_layers["bake"].data
+            flat = [0.0] * (2 * len(uvs))
+            uvs.foreach_get("uv", flat)
+            uvs.foreach_set("uv", [margin + (v - lo[i % 2]) * f for i, v in enumerate(flat)])
+        used, lo, hi = measure()
     page["fill"] = abs(used)
     log(f"page {k}: {len(page['objects'])} chunks packed, filling {abs(used):.0%}, uv {lo[0]:.3f}..{hi[0]:.3f} x {lo[1]:.3f}..{hi[1]:.3f}")
 if args.only_pack:
