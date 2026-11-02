@@ -858,7 +858,7 @@ mod tests {
     fn unwraps_angles_across_the_seam() {
         let frames = vec![
             [3.10_f32, 0.0, 0.0],
-            [3.14, 0.0, 0.0],
+            [std::f32::consts::PI - 0.002, 0.0, 0.0],
             [-3.13, 0.0, 0.0],
             [-3.09, 0.0, 0.0],
         ];
