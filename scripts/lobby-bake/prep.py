@@ -123,13 +123,15 @@ def material(src, name):
         "alpha_ref": get("alpha_ref", 0.25),
         "two_sided": bool(get("two_sided", False)),
         "emission": None,
-        # the g-buffer's gloss (gbuffer_pass.ps: t_roughness's green between
-        # min_roughness and max_roughness, else the constant): a hybrid page
-        # carries it (bake.py)
+        # the g-buffer's gloss (gbuffer_pass.ps: o2.y = (z + w * t_roughness.y)
+        # * smoothness, z and w the range: constant_roughness_min and _max,
+        # which the lobbies' materials tune (51 of the Room's, Hangar's and
+        # Basement's at 0..0.2; min_roughness and max_roughness are 0..1 on
+        # all but one); else the constant): a hybrid page carries it (bake.py)
         "roughness": {
             "texture": (src.path(f"textures/{get('texture_roughness')}.dds")
                         if get("use_troughness", False) and get("texture_roughness") else None),
-            "min": get("min_roughness", 0.0), "max": get("max_roughness", 1.0),
+            "min": get("constant_roughness_min", 0.0), "max": get("constant_roughness_max", 1.0),
             "constant": get("constant_roughness", 0.5),
         },
         # a second layer drawn where the vertices' weight leaves the first

@@ -383,6 +383,20 @@ pub fn draw(options: &DrawOptions<'_>) -> Result<DrawReport> {
         material
             .root
             .set_path("material.g_stage.effect.two_sided.value", ConfigValue::Boolean(page.two_sided))?;
+        if matches!(page.light, BakedLightJson::Hybrid { gloss: Some(_), .. }) {
+            // the gloss page holds the g-buffer's value: read through as it is
+            // (the alpha template's range is 0..0.3)
+            for (field, value) in [
+                ("constant_roughness_min", 0.0),
+                ("constant_roughness_max", 1.0),
+                ("min_roughness", 0.0),
+                ("max_roughness", 1.0),
+            ] {
+                let path = format!("material.g_stage.effect.{field}.value");
+                let value = number_like(&material.root, &path, value);
+                material.root.set_path(&path, value)?;
+            }
+        }
         let name = format!("{made}/{}", page.name);
         pack.config(&format!("material_instances/{name}.material"), &material)?;
         materials.insert(page.name.clone(), (name, texture));
