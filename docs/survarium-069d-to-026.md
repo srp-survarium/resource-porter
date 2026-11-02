@@ -320,3 +320,24 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
     yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
     belts past the blocks, and level 02's own background terrain and tree rings (as the
     school map has them, one transform for the four) for the horizon.
+* `variants`: the same lobby under other weather or at another time of day, each a project
+  of its own (`output_project`; skhid-srp's lobby choice swaps whole projects). A variant is
+  made from the lobby's project once it is built, so it shares every model, material, texture
+  and probe cubemap, and its room, camera walls, weapon spot (`srp_lobby`) and camera track
+  are the lobby's. What it changes:
+  * `environment`: environment fields over the lobby's (an integer literal stays an integer,
+    as 0.26g's own projects write the field: skhid-srp's build-content keeps each key's type);
+  * `lights`: lights and ambient lights by `full_name` (a key ending in `/` a folder):
+    `intensity` (0 leaves it out), `colour`, `range`; every key must match a light;
+    `added_lights`: point lights copied from one of the lobby's (`like`);
+  * `probes`: a probe's diffuse and specular multipliers scaled (the cubemaps are baked by day);
+  * `particles`: 0.26's own effects placed (`particles/<lib>.particle`, as the lobby's own
+    particle object);
+  * `sounds`: `object_sound` emitters; a 0.26 sound is used as it is, the donor's (or one
+    whose `volume_k` the variant sets) is imported under the namespace with its `.raw_options`
+    (0.26's own file is the maps' too);
+  * `lit_windows`: some window panes of the scenery's facades lit. The facades' windows are
+    quads each showing one pane of the material's atlas: the variant's copies of the models
+    (`<model>_<suffix>`) draw a copy of the material (`<material>_<suffix>`) that emits a BC1
+    texture, black but for the glass of the given panes (each texel's darkness in the albedo,
+    so the glass glows and the frames do not), in each pane's colour.

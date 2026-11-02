@@ -345,6 +345,223 @@ pub struct LobbySpec {
     /// Parts of donor models' surfaces left out.
     #[serde(default)]
     pub removed_parts: Vec<RemovedPart>,
+    /// The same scene under other weather or at another time of day, each a
+    /// project of its own (the lobby selection swaps whole projects).
+    #[serde(default)]
+    pub variants: Vec<LobbyVariant>,
+}
+
+/// Another weather or time of day of a lobby: made from the lobby's project
+/// once it is built, so it shares every model, material, texture and probe
+/// cubemap, and its room, camera walls, weapon spot and squad spots are the
+/// lobby's. It changes what weather or time change: the environment, the
+/// light, and what is seen and heard outside.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LobbyVariant {
+    /// Output project directory under `projects/` (`lobby_scene/<name>`).
+    pub output_project: String,
+    /// Environment fields set over the lobby's: a number with a fraction or
+    /// exponent becomes a float, an integer an integer (as 0.26g's own
+    /// projects write the field), 3 or 4 numbers a vector.
+    #[serde(default)]
+    pub environment: BTreeMap<String, serde_json::Value>,
+    /// Lights and ambient lights (`full_name`; a key ending in `/` is a
+    /// folder), each key matching at least one.
+    #[serde(default)]
+    pub lights: BTreeMap<String, VariantLight>,
+    /// Point lights added, each a copy of one of the lobby's (`like`).
+    #[serde(default)]
+    pub added_lights: Vec<AddedLight>,
+    /// Probes (`full_name`): their diffuse and specular multipliers scaled
+    /// (the cubemaps are the lobby's, baked by day).
+    #[serde(default)]
+    pub probes: BTreeMap<String, VariantProbe>,
+    /// 0.26's own particle effects placed in the scene.
+    #[serde(default)]
+    pub particles: Vec<VariantParticle>,
+    /// Sound emitters added (`object_sound`).
+    #[serde(default)]
+    pub sounds: Vec<VariantSound>,
+    /// Windows of the scenery lit (a night's): the models drawn by copies
+    /// whose material emits light from some of its window panes.
+    #[serde(default)]
+    pub lit_windows: Option<LitWindows>,
+    /// A colour grading table of its own (`<namespace>/color_grading/<project's
+    /// name>`), drawn with: 0.26's eye adaptation brings a room lit only by
+    /// its lamps to the brightness of a sunlit one, and the table, applied
+    /// after it, takes the mid-tones down again.
+    #[serde(default)]
+    pub grading: Option<Grading>,
+}
+
+/// A colour grading table: each colour desaturated (`saturation`, 1 as it
+/// is), raised to `gamma` and scaled by `gain`, its darker part tinted
+/// toward `shadow_tint` (by 1 - its luminance). 0.26's layout (the stock
+/// `color_grading/l_03d`): a 16 x 16 x 16 RGBA volume, red along x, green
+/// along y, blue along z, its mips halving x and y.
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Grading {
+    pub saturation: f32,
+    pub gamma: f32,
+    pub gain: [f32; 3],
+    pub shadow_tint: [f32; 3],
+}
+
+impl Grading {
+    fn apply(&self, c: [f32; 3]) -> [f32; 3] {
+        let luma = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let l = luma(c);
+        let desaturated = c.map(|v| l + (v - l) * self.saturation);
+        let l = luma(desaturated).clamp(0.0, 1.0);
+        std::array::from_fn(|k| {
+            let tint = self.shadow_tint[k] * (1.0 - l) + l;
+            (desaturated[k].max(0.0).powf(self.gamma) * self.gain[k] * tint).clamp(0.0, 1.0)
+        })
+    }
+
+    /// The table, in the layout, header and trailing byte of `template`.
+    fn table(&self, template: &[u8]) -> Result<Vec<u8>> {
+        ensure!(template.len() > 128 && &template[..4] == b"DDS ", "grading template: not a DDS");
+        let get = |o: usize| u32::from_le_bytes(template[o..o + 4].try_into().unwrap()) as usize;
+        let (height, width, depth, mips) = (get(12), get(16), get(24), get(28).max(1));
+        ensure!((width, height, depth) == (16, 16, 16) && get(88) == 32, "grading template: not a 16^3 RGBA volume");
+        let mut texels = vec![[0u8; 4]; 16 * 16 * 16];
+        for z in 0..16 {
+            for y in 0..16 {
+                for x in 0..16 {
+                    let c = self.apply([x as f32 / 15.0, y as f32 / 15.0, z as f32 / 15.0]).map(|v| (v * 255.0).round() as u8);
+                    texels[(z * 16 + y) * 16 + x] = [c[2], c[1], c[0], 255];
+                }
+            }
+        }
+        let mut out = template[..128].to_vec();
+        let mut level = texels;
+        let mut side = 16;
+        for _ in 0..mips {
+            out.extend(level.iter().flatten());
+            let half = side / 2;
+            if half == 0 {
+                break;
+            }
+            level = (0..16 * half * half)
+                .map(|i| {
+                    let (z, y, x) = (i / (half * half), i / half % half, i % half);
+                    let at = |dx: usize, dy: usize| level[(z * side + 2 * y + dy) * side + 2 * x + dx];
+                    std::array::from_fn(|c| ((0..4).map(|k| u32::from(at(k % 2, k / 2)[c])).sum::<u32>() / 4) as u8)
+                })
+                .collect();
+            side = half;
+        }
+        ensure!(out.len() == template.len() - 1, "grading table: {} bytes, the template {}", out.len(), template.len() - 1);
+        out.push(*template.last().context("empty template")?);
+        Ok(out)
+    }
+}
+
+/// Lit windows in the scenery's facades: the models' copies (`<model>_<suffix>`)
+/// draw the material's copy (`<material>_<suffix>`), which emits from the
+/// glass of the given panes of its texture (the dark texels of each pane:
+/// the glass glows and the frames do not). The facades' windows are quads
+/// each showing one pane of the atlas, so lighting some panes lights the
+/// windows that show them.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LitWindows {
+    /// The new files' suffix (`night`).
+    pub suffix: String,
+    /// The lobby's material (`material_instances/<material>.material`).
+    pub material: String,
+    /// The models (render visuals' `lib_name`) drawn with it.
+    pub models: Vec<String>,
+    /// Lit panes: a rectangle of the texture (u0, v0, u1, v1 in 0..1) and its
+    /// light's colour.
+    pub panes: Vec<LitPane>,
+    /// The emission texture's size (texels a side).
+    pub size: u32,
+    /// The material's emissive multiplier.
+    pub multiplier: f32,
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LitPane {
+    pub rect: [f32; 4],
+    pub colour: [f32; 3],
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VariantLight {
+    /// 0 leaves the light out.
+    #[serde(default)]
+    pub intensity: Option<f32>,
+    #[serde(default)]
+    pub colour: Option<[f32; 3]>,
+    #[serde(default)]
+    pub range: Option<f32>,
+    /// Whether it casts shadows (`is_cast_shadow`).
+    #[serde(default)]
+    pub cast_shadow: Option<bool>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddedLight {
+    /// The lobby's light (`full_name`) it copies (type, falloff, shadow).
+    pub like: String,
+    /// Its `full_name`.
+    pub name: String,
+    pub position: [f32; 3],
+    pub intensity: f32,
+    pub colour: [f32; 3],
+    pub range: f32,
+}
+
+#[derive(Clone, Copy, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VariantProbe {
+    pub diffuse: f32,
+    pub specular: f32,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VariantParticle {
+    /// `particles/<lib>.particle`, as 0.26 has it.
+    pub lib: String,
+    /// Its `full_name`.
+    pub name: String,
+    pub position: [f32; 3],
+    #[serde(default)]
+    pub rotation: [f32; 3],
+    #[serde(default = "unit_scale3")]
+    pub scale: [f32; 3],
+}
+
+fn unit_scale3() -> [f32; 3] {
+    [1.0; 3]
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VariantSound {
+    /// The sound (`sounds/single/<sound>` or `sounds/collections/<sound>`):
+    /// 0.26's own, else the donor's, imported under the namespace.
+    pub sound: String,
+    /// Its `full_name`.
+    pub name: String,
+    pub position: [f32; 3],
+    /// The sample's loudness (`.raw_options` `volume_k`) in place of its
+    /// own: the sample is then imported under the namespace (0.26's own file
+    /// is the maps' too).
+    #[serde(default)]
+    pub volume_k: Option<f32>,
+    /// Its distance curve (`.raw_options` `spl_preset`, `sounds/spl/<preset>.spl`)
+    /// in place of its own, imported likewise.
+    #[serde(default)]
+    pub spl_preset: Option<String>,
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -551,6 +768,439 @@ fn place_native_scenery(project: &mut ConfigValue, scenery: &[NativeScenery], ex
         models.insert(item.lib.as_str());
     }
     Ok(format!("native scenery: {} instances of {} 0.26 models outside the room, without collision", scenery.len(), models.len()))
+}
+
+/// A variant's environment value: an integer literal stays an integer (the
+/// type 0.26g's own projects give such a field), any other number a float.
+fn variant_environment_value(field: &str, value: &serde_json::Value) -> Result<ConfigValue> {
+    let numbers = || value.as_array().map(|a| a.iter().filter_map(|v| v.as_f64()).map(|v| v as f32).collect::<Vec<_>>());
+    Ok(match value {
+        serde_json::Value::Bool(b) => ConfigValue::Boolean(*b),
+        serde_json::Value::Number(n) if n.is_i64() => ConfigValue::Integer(i32::try_from(n.as_i64().context("integer")?)?),
+        serde_json::Value::Number(n) => ConfigValue::Float(n.as_f64().context("number")? as f32),
+        serde_json::Value::String(t) => ConfigValue::String(t.clone()),
+        _ => match numbers().as_deref() {
+            Some(&[a, b, c]) => ConfigValue::Float3([a, b, c]),
+            Some(&[a, b, c, d]) => ConfigValue::Float4([a, b, c, d]),
+            _ => bail!("variant environment {field}: a bool, number, string or 3/4 numbers"),
+        },
+    })
+}
+
+/// A light's colour in the encoding its object has: a vector for a light,
+/// the packed integer for an ambient light.
+fn set_colour(object: &mut ConfigValue, rgb: [f32; 3]) -> Result<()> {
+    let value = match object.named("color") {
+        Some(ConfigValue::Float4(_)) => ConfigValue::Float4([rgb[0], rgb[1], rgb[2], 1.0]),
+        Some(ConfigValue::Integer(_)) => ConfigValue::Integer(packed_colour(rgb)),
+        _ => ConfigValue::Float3(rgb),
+    };
+    object.set_path("color", value)
+}
+
+/// A BC1 (DXT1) block chain of an RGB image: each block's darkest and
+/// brightest texels as its ends, each texel the nearest of the four.
+fn encode_bc1(w: usize, h: usize, rgb: &[[u8; 3]]) -> Vec<u8> {
+    let to565 = |c: [u8; 3]| (u16::from(c[0] >> 3) << 11) | (u16::from(c[1] >> 2) << 5) | u16::from(c[2] >> 3);
+    let from565 = |c: u16| {
+        let (r, g, b) = (u32::from((c >> 11) & 31), u32::from((c >> 5) & 63), u32::from(c & 31));
+        [(r * 255 / 31) as i32, (g * 255 / 63) as i32, (b * 255 / 31) as i32]
+    };
+    let mut out = Vec::with_capacity(w.div_ceil(4) * h.div_ceil(4) * 8);
+    for by in 0..h.div_ceil(4) {
+        for bx in 0..w.div_ceil(4) {
+            let texel = |i: usize| rgb[(by * 4 + i / 4).min(h - 1) * w + (bx * 4 + i % 4).min(w - 1)];
+            let luminance = |c: [u8; 3]| 2 * u32::from(c[0]) + 4 * u32::from(c[1]) + u32::from(c[2]);
+            let (mut hi, mut lo) = (texel(0), texel(0));
+            for i in 1..16 {
+                let c = texel(i);
+                if luminance(c) > luminance(hi) {
+                    hi = c;
+                }
+                if luminance(c) < luminance(lo) {
+                    lo = c;
+                }
+            }
+            let (mut c0, mut c1) = (to565(hi), to565(lo));
+            if c0 < c1 {
+                std::mem::swap(&mut c0, &mut c1);
+            }
+            let mut bits = 0u32;
+            if c0 != c1 {
+                let (p0, p1) = (from565(c0), from565(c1));
+                let palette: [[i32; 3]; 4] =
+                    [p0, p1, std::array::from_fn(|k| (2 * p0[k] + p1[k]) / 3), std::array::from_fn(|k| (p0[k] + 2 * p1[k]) / 3)];
+                for i in 0..16 {
+                    let c = texel(i).map(i32::from);
+                    let d = |p: [i32; 3]| (0..3).map(|k| (c[k] - p[k]).pow(2)).sum::<i32>();
+                    let best = (0..4).min_by_key(|&j| d(palette[j])).unwrap_or(0) as u32;
+                    bits |= best << (2 * i);
+                }
+            }
+            out.extend(c0.to_le_bytes());
+            out.extend(c1.to_le_bytes());
+            out.extend(bits.to_le_bytes());
+        }
+    }
+    out
+}
+
+/// The lit panes' emission texture (`LitWindows`): black but for the glass
+/// of each pane, its darkness (what the texture's albedo shows of the room
+/// behind) in the pane's colour; a BC1 texture with its mips to 4 x 4, in
+/// the albedo DDS's header and trailing byte.
+fn lit_windows_texture(albedo: &[u8], panes: &[LitPane], size: usize) -> Result<Vec<u8>> {
+    let (w, h, texels) = decode_bc(albedo)?;
+    ensure!(size.is_power_of_two() && size >= 4 && size <= w && w == h, "lit windows: texture size {size} of a {w} x {h} albedo");
+    let k = w / size;
+    let mut level: Vec<[u8; 3]> = (0..size * size)
+        .map(|i| {
+            let (x, y) = (i % size, i / size);
+            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let Some(pane) = panes.iter().find(|p| u >= p.rect[0] && u < p.rect[2] && v >= p.rect[1] && v < p.rect[3]) else {
+                return [0; 3];
+            };
+            // the mean luminance of the albedo's texels under this one
+            let mut sum = 0.0;
+            for dy in 0..k {
+                for dx in 0..k {
+                    let t = texels[(y * k + dy) * w + x * k + dx];
+                    sum += (0.299 * f32::from(t[0]) + 0.587 * f32::from(t[1]) + 0.114 * f32::from(t[2])) / 255.0;
+                }
+            }
+            let darkness = ((0.5 - sum / (k * k) as f32) / 0.3).clamp(0.0, 1.0);
+            pane.colour.map(|c| (c.clamp(0.0, 1.0) * darkness * 255.0).round() as u8)
+        })
+        .collect();
+    let mut chain = Vec::new();
+    let mut side = size;
+    let mut mips = 0u32;
+    loop {
+        chain.extend(encode_bc1(side, side, &level));
+        mips += 1;
+        if side == 4 {
+            break;
+        }
+        let half = side / 2;
+        level = (0..half * half)
+            .map(|i| {
+                let (x, y) = (i % half, i / half);
+                let at = |dx: usize, dy: usize| level[(2 * y + dy) * side + 2 * x + dx];
+                std::array::from_fn(|c| ((u32::from(at(0, 0)[c]) + u32::from(at(1, 0)[c]) + u32::from(at(0, 1)[c]) + u32::from(at(1, 1)[c]) + 2) / 4) as u8)
+            })
+            .collect();
+        side = half;
+    }
+    let mut dds = albedo[..128].to_vec();
+    let side = u32::try_from(size)?;
+    dds[12..16].copy_from_slice(&side.to_le_bytes());
+    dds[16..20].copy_from_slice(&side.to_le_bytes());
+    dds[28..32].copy_from_slice(&mips.to_le_bytes());
+    dds[84..88].copy_from_slice(b"DXT1");
+    dds.extend(chain);
+    dds.push(*albedo.last().context("empty albedo")?);
+    canonical_dds(&mut dds)?;
+    Ok(dds)
+}
+
+/// The files of a model the bundle made (`overlay/models/<model>.model/...`)
+/// or 0.26 has, by their paths.
+fn model_files(output: &Path, target: &mut ResourceDb, model: &str) -> Result<Vec<(String, Vec<u8>)>> {
+    let root = format!("models/{model}.model/");
+    let dir = output.join("overlay").join(&root);
+    let mut files = Vec::new();
+    if dir.is_dir() {
+        let mut stack = vec![dir.clone()];
+        while let Some(d) = stack.pop() {
+            for entry in fs::read_dir(&d)? {
+                let p = entry?.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else {
+                    let rel = p.strip_prefix(&dir)?.to_string_lossy().replace('\\', "/");
+                    files.push((format!("{root}{rel}"), fs::read(&p)?));
+                }
+            }
+        }
+    } else {
+        for path in target.paths_with_prefix(&root).map(str::to_owned).collect::<Vec<_>>() {
+            let bytes = target.read(&path)?;
+            files.push((path, bytes));
+        }
+    }
+    ensure!(!files.is_empty(), "no model {model}");
+    files.sort();
+    Ok(files)
+}
+
+/// A file the bundle made, else 0.26's.
+fn built_or_native(output: &Path, target: &mut ResourceDb, path: &str) -> Result<Vec<u8>> {
+    let built = output.join("overlay").join(path);
+    if built.is_file() { Ok(fs::read(built)?) } else { target.read(path) }
+}
+
+/// The lit windows of a variant (`LitWindows`): the emission texture, the
+/// material's and the models' copies; the project's render visuals of the
+/// models drawn with the copies.
+fn light_windows(lit: &LitWindows, project: &mut ConfigValue, target: &mut ResourceDb, output: &Path, files: &mut Vec<BuiltFile>) -> Result<String> {
+    let material_path = format!("material_instances/{}.material", lit.material);
+    let mut material = BinaryConfig::parse(&built_or_native(output, target, &material_path)?)?.root;
+    let albedo_name = effect_text(&material, "g_stage", "texture_diffuse").context("lit windows: no diffuse texture")?;
+    let albedo = built_or_native(output, target, &format!("textures/{albedo_name}.dds"))?;
+    let texture = format!("{albedo_name}_{}_lit", lit.suffix);
+    let dds = lit_windows_texture(&albedo, &lit.panes, lit.size as usize)?;
+    let source = format!("{} panes of {albedo_name} lit", lit.panes.len());
+    emit(output, &format!("textures/{texture}.dds"), &dds, &source, files)?;
+    let options = built_or_native(output, target, &format!("textures/{albedo_name}.options"))?;
+    emit(output, &format!("textures/{texture}.options"), &options, &source, files)?;
+    set_effect(&mut material, "g_stage", "use_emissive", ConfigValue::Boolean(true))?;
+    set_effect(&mut material, "g_stage", "texture_emissive", ConfigValue::String(texture.clone()))?;
+    set_effect(&mut material, "g_stage", "constant_emissive", ConfigValue::Float4([1.0; 4]))?;
+    set_effect(&mut material, "g_stage", "constant_emissive_multiplier", ConfigValue::Float(lit.multiplier))?;
+    let lit_material = format!("{}_{}", lit.material, lit.suffix);
+    emit(output, &format!("material_instances/{lit_material}.material"), &BinaryConfig { root: material }.to_bytes()?, &format!("{} emitting {texture}", lit.material), files)?;
+    for model in &lit.models {
+        let copy = format!("{model}_{}", lit.suffix);
+        let mut drawn = false;
+        for (path, bytes) in model_files(output, target, model)? {
+            let rel = path.strip_prefix(&format!("models/{model}.model/")).context("model file")?;
+            let bytes = if rel == "settings" {
+                let mut settings = BinaryConfig::parse(&bytes)?.root;
+                let Some(ConfigValue::Named(surfaces)) = settings.named_mut("material_settings") else { bail!("{model}: no material_settings") };
+                for surface in surfaces.iter_mut() {
+                    if string(&surface.value, "material_name") == Some(lit.material.as_str()) {
+                        surface.value.set_path("material_name", ConfigValue::String(lit_material.clone()))?;
+                        drawn = true;
+                    }
+                }
+                BinaryConfig { root: settings }.to_bytes()?
+            } else {
+                bytes
+            };
+            emit(output, &format!("models/{copy}.model/{rel}"), &bytes, &format!("{model} with {lit_material}"), files)?;
+        }
+        ensure!(drawn, "lit windows: {model} has no surface of {}", lit.material);
+        let Some(ConfigValue::Indexed(visuals)) = project.named_mut("render_visuals") else { bail!("no render_visuals") };
+        let mut placed = 0;
+        for visual in visuals.iter_mut() {
+            if string(visual, "lib_name") == Some(model.as_str()) {
+                visual.set_path("lib_name", ConfigValue::String(copy.clone()))?;
+                placed += 1;
+            }
+        }
+        ensure!(placed > 0, "lit windows: the project draws no {model}");
+    }
+    Ok(format!("lit windows: {} panes of {albedo_name} in {}", lit.panes.len(), lit.models.join(", ")))
+}
+
+/// One variant of a built lobby project (see `LobbyVariant`): the project and
+/// the sound files it imports (`imported`: the namespace's sound files
+/// already emitted, with the options they were given).
+#[allow(clippy::too_many_arguments)]
+fn make_variant(
+    base: &ConfigValue,
+    variant: &LobbyVariant,
+    ns: &str,
+    target: &mut ResourceDb,
+    donor: &mut ResourceDb,
+    output: &Path,
+    files: &mut Vec<BuiltFile>,
+    imported: &mut BTreeMap<String, (Option<f32>, Option<String>)>,
+) -> Result<String> {
+    let mut project = base.clone();
+    let what = &variant.output_project;
+    let template_of = |kind_name: &str| -> Result<ConfigValue> {
+        let ConfigValue::Indexed(objects) = base.named("client_objects").context("no objects")? else { bail!("no objects") };
+        objects.iter().find(|o| kind(o) == kind_name).cloned().with_context(|| format!("variant {what}: the lobby has no {kind_name} to copy"))
+    };
+    let sound_template = if variant.sounds.is_empty() { None } else { Some(template_of("object_sound")?) };
+    let particle_template = if variant.particles.is_empty() { None } else { Some(template_of("particle")?) };
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no objects") };
+
+    let environment = objects.iter_mut().find(|o| kind(o) == "environment").context("no environment")?;
+    for (field, value) in &variant.environment {
+        environment.set_path(&format!("properties.{field}"), variant_environment_value(field, value)?)?;
+    }
+
+    let mut matched = BTreeMap::<&str, usize>::new();
+    let mut failed = None;
+    objects.retain_mut(|o| {
+        if !matches!(kind(o), "light" | "ambient_light") {
+            return true;
+        }
+        let name = string(o, "full_name").unwrap_or("").to_owned();
+        let Some((key, over)) = variant.lights.iter().find(|(k, _)| if k.ends_with('/') { name.starts_with(k.as_str()) } else { &name == *k }) else {
+            return true;
+        };
+        *matched.entry(key.as_str()).or_default() += 1;
+        if over.intensity == Some(0.0) {
+            return false;
+        }
+        let mut apply = || -> Result<()> {
+            if let Some(v) = over.intensity {
+                o.set_path("intensity", ConfigValue::Float(v))?;
+            }
+            if let Some(c) = over.colour {
+                set_colour(o, c)?;
+            }
+            if let Some(r) = over.range {
+                o.set_path(if kind(o) == "light" { "range" } else { "radius" }, ConfigValue::Float(r))?;
+            }
+            if let Some(c) = over.cast_shadow {
+                ensure!(kind(o) == "light", "cast_shadow: an ambient light casts none");
+                o.set_path("is_cast_shadow", ConfigValue::Boolean(c))?;
+            }
+            Ok(())
+        };
+        if let Err(e) = apply() {
+            failed = Some(e.context(name));
+        }
+        true
+    });
+    if let Some(e) = failed {
+        return Err(e);
+    }
+    for key in variant.lights.keys() {
+        ensure!(matched.contains_key(key.as_str()), "variant {what}: lights {key} matches no light");
+    }
+
+    for added in &variant.added_lights {
+        let mut light = objects
+            .iter()
+            .find(|o| kind(o) == "light" && string(o, "full_name") == Some(added.like.as_str()))
+            .cloned()
+            .with_context(|| format!("variant {what}: no light {} to copy", added.like))?;
+        light.set_path("position", ConfigValue::Float3(added.position))?;
+        light.set_path("name", ConfigValue::String(added.name.rsplit('/').next().unwrap_or(&added.name).into()))?;
+        light.set_path("full_name", ConfigValue::String(added.name.clone()))?;
+        light.set_path("intensity", ConfigValue::Float(added.intensity))?;
+        light.set_path("range", ConfigValue::Float(added.range))?;
+        set_colour(&mut light, added.colour)?;
+        objects.push(light);
+    }
+
+    for (name, scale) in &variant.probes {
+        let probe = objects
+            .iter_mut()
+            .find(|o| kind(o) == "environment_probe" && string(o, "full_name") == Some(name.as_str()))
+            .with_context(|| format!("variant {what}: no probe {name}"))?;
+        for (field, k) in [("diffuse_multiplier", scale.diffuse), ("specular_multiplier", scale.specular)] {
+            let v = real(probe, field).unwrap_or(1.0) * k;
+            probe.set_path(field, ConfigValue::Float(v))?;
+        }
+    }
+
+    for p in &variant.particles {
+        ensure!(target.is_file(&format!("particles/{}.particle", p.lib)), "variant {what}: particles/{}.particle is not in 0.26", p.lib);
+        let mut particle = particle_template.clone().context("particle template")?;
+        particle.set_path("lib_name", ConfigValue::String(p.lib.clone()))?;
+        if particle.named("path").is_some() {
+            particle.set_path("path", ConfigValue::String(p.lib.clone()))?;
+        }
+        particle.set_path("position", ConfigValue::Float3(p.position))?;
+        particle.set_path("rotation", ConfigValue::Float3(p.rotation))?;
+        particle.set_path("scale", ConfigValue::Float3(p.scale))?;
+        particle.set_path("name", ConfigValue::String(p.name.rsplit('/').next().unwrap_or(&p.name).into()))?;
+        particle.set_path("full_name", ConfigValue::String(p.name.clone()))?;
+        objects.push(particle);
+    }
+
+    let mut sound_notes = Vec::new();
+    for s in &variant.sounds {
+        let single = format!("sounds/single/{}", s.sound);
+        let collection = !target.is_file(&format!("{single}.high.ogg")) && target.is_file(&format!("sounds/collections/{}.sound_collection", s.sound));
+        let native = target.is_file(&format!("{single}.high.ogg")) || collection;
+        let options_set = s.volume_k.is_some() || s.spl_preset.is_some();
+        if let Some(preset) = &s.spl_preset {
+            ensure!(target.is_file(&format!("sounds/spl/{preset}.spl")), "variant {what}: sounds/spl/{preset}.spl is not in 0.26");
+        }
+        ensure!(!collection || !options_set, "variant {what}: {} is a collection; volume_k and spl_preset are a single sound's", s.sound);
+        let sound_name = if native && !options_set {
+            sound_notes.push(format!("{} (0.26's)", s.sound));
+            s.sound.clone()
+        } else {
+            let from_target = target.is_file(&format!("{single}.high.ogg"));
+            ensure!(
+                from_target || donor.is_file(&format!("{single}.high.ogg")),
+                "variant {what}: neither 0.26 nor the donor has {single}.high.ogg"
+            );
+            let dest = format!("{ns}/{}", s.sound);
+            match imported.get(&dest) {
+                Some(options) => ensure!(*options == (s.volume_k, s.spl_preset.clone()), "variant {what}: {dest} imported with other options"),
+                None => {
+                    let (db, source) = if from_target { (&mut *target, "0.26g") } else { (&mut *donor, "the donor") };
+                    for ext in ["high.ogg", "high.rms"] {
+                        let path = format!("{single}.{ext}");
+                        if db.is_file(&path) {
+                            emit(output, &format!("sounds/single/{dest}.{ext}"), &db.read(&path)?, &format!("{source} {path}"), files)?;
+                        }
+                    }
+                    let mut options = cfg(db, &format!("{single}.raw_options"))?;
+                    if let Some(v) = s.volume_k {
+                        options.set_path("options.volume_k", ConfigValue::Float(v))?;
+                    }
+                    if let Some(preset) = &s.spl_preset {
+                        options.set_path("options.spl_preset", ConfigValue::String(preset.clone()))?;
+                    }
+                    let note = format!(
+                        "{source} {single}.raw_options{}{}",
+                        s.volume_k.map(|v| format!(", volume_k {v}")).unwrap_or_default(),
+                        s.spl_preset.as_ref().map(|v| format!(", spl_preset {v}")).unwrap_or_default()
+                    );
+                    emit(output, &format!("sounds/single/{dest}.raw_options"), &BinaryConfig { root: options }.to_bytes()?, &note, files)?;
+                    imported.insert(dest.clone(), (s.volume_k, s.spl_preset.clone()));
+                }
+            }
+            sound_notes.push(format!(
+                "{} ({}{}{})",
+                s.sound,
+                if from_target { "0.26's" } else { "the donor's" },
+                s.volume_k.map(|v| format!(", volume_k {v}")).unwrap_or_default(),
+                s.spl_preset.as_ref().map(|v| format!(", spl_preset {v}")).unwrap_or_default()
+            ));
+            dest
+        };
+        let mut sound = sound_template.clone().context("sound template")?;
+        sound.set_path("sound_name", ConfigValue::String(sound_name))?;
+        // The resource's kind, as 0.26g's projects give it: 256 a single
+        // sound, 258 a collection (a collection read as a single crashed the
+        // game as the project loaded).
+        sound.set_path("resource_id", ConfigValue::Integer(if collection { 258 } else { 256 }))?;
+        sound.set_path("position", ConfigValue::Float3(s.position))?;
+        sound.set_path("name", ConfigValue::String(s.name.rsplit('/').next().unwrap_or(&s.name).into()))?;
+        sound.set_path("full_name", ConfigValue::String(s.name.clone()))?;
+        objects.push(sound);
+    }
+
+    if let Some(grading) = &variant.grading {
+        let name = variant.output_project.rsplit('/').next().unwrap_or(&variant.output_project);
+        let texture = format!("{ns}/color_grading/{name}");
+        let table = grading.table(&target.read("textures/color_grading/l_03d.dds")?)?;
+        let source = format!("a grading table (0.26's color_grading/l_03d layout) for {}", variant.output_project);
+        emit(output, &format!("textures/{texture}.dds"), &table, &source, files)?;
+        emit(output, &format!("textures/{texture}.options"), &target.read("textures/color_grading/l_03d.options")?, &source, files)?;
+        let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no objects") };
+        let environment = objects.iter_mut().find(|o| kind(o) == "environment").context("no environment")?;
+        environment.set_path("properties.color_grading_texture", ConfigValue::String(texture))?;
+        environment.set_path("properties.use_color_grading_texture", ConfigValue::Boolean(true))?;
+    }
+    let windows = match &variant.lit_windows {
+        Some(lit) => light_windows(lit, &mut project, target, output, files)?,
+        None => "no lit windows".to_owned(),
+    };
+    let path = format!("projects/{}/client_project", variant.output_project);
+    ensure!(!target.contains(&path), "project exists");
+    emit(output, &path, &BinaryConfig { root: project }.to_bytes()?, &format!("variant of the lobby: {}", variant.output_project), files)?;
+    Ok(format!(
+        "variant {}: environment {}; {} lights set, {} added; {} probes scaled; {} particles; sounds: {}; {windows}",
+        variant.output_project,
+        variant.environment.keys().cloned().collect::<Vec<_>>().join(", "),
+        matched.values().sum::<usize>(),
+        variant.added_lights.len(),
+        variant.probes.len(),
+        variant.particles.len(),
+        if sound_notes.is_empty() { "none".to_owned() } else { sound_notes.join(", ") }
+    ))
 }
 
 /// 0.26's unit box collision (half extents 1), scaled per instance.
@@ -4627,7 +5277,13 @@ pub fn build(
     let output_project = format!("projects/{}/client_project", port.output_project());
     ensure!(!target.contains(&output_project), "project exists");
     let what = format!("{} scene on 0.26g templates", m.source_build.label());
-    emit(output, &output_project, &BinaryConfig { root: project }.to_bytes()?, &what, &mut files)?;
+    emit(output, &output_project, &BinaryConfig { root: project.clone() }.to_bytes()?, &what, &mut files)?;
+    if let Port::Lobby(lobby) = &port {
+        let mut imported = BTreeMap::new();
+        for variant in &lobby.variants {
+            notes.push(make_variant(&project, variant, &ns, &mut target, &mut donor, output, &mut files, &mut imported)?);
+        }
+    }
 
     if let Port::Map(spec) = &port {
         // Mode and registration.
@@ -5099,6 +5755,36 @@ mod tests {
     }
 
     #[test]
+    fn a_variant_environment_keeps_integer_literals_integers() {
+        let value = |text: &str| variant_environment_value("f", &serde_json::from_str(text).unwrap()).unwrap();
+        assert!(matches!(value("1"), ConfigValue::Integer(1)));
+        assert!(matches!(value("1.0"), ConfigValue::Float(v) if v == 1.0));
+        assert!(matches!(value("true"), ConfigValue::Boolean(true)));
+        assert!(matches!(value("\"sky/overcast\""), ConfigValue::String(t) if t == "sky/overcast"));
+        assert!(matches!(value("[0.5, 0.5, 0.5, 1]"), ConfigValue::Float4([0.5, 0.5, 0.5, 1.0])));
+        assert!(variant_environment_value("f", &serde_json::from_str("[1, 2]").unwrap()).is_err());
+    }
+
+    #[test]
+    fn lit_windows_glow_where_a_pane_shows_glass_and_nowhere_else() {
+        // An 8 x 8 albedo: its left half dark glass, its right half a light frame.
+        let (glass, frame) = (0x2104, 0xc618); // (4, 8, 4) and (24, 48, 24)
+        let mut albedo = flat_dxt1([glass, frame, glass, frame]);
+        albedo.push(0);
+        let warm = [1.0, 0.5, 0.25];
+        let pane = |rect| LitPane { rect, colour: warm };
+        // The whole top half is a pane; the bottom half is not.
+        let dds = lit_windows_texture(&albedo, &[pane([0.0, 0.0, 1.0, 0.5])], 8).unwrap();
+        assert_eq!(dds.len(), 128 + 4 * 8 + 8 + 1, "8 x 8 and 4 x 4 levels and the colour-space byte");
+        let (w, h, texels) = decode_bc(&dds).unwrap();
+        assert_eq!((w, h), (8, 8));
+        let at = |x: usize, y: usize| texels[y * 8 + x];
+        assert!(at(1, 1)[0] > 200 && at(1, 1)[1] > 100 && at(1, 1)[2] < 100, "the glass glows warm: {:?}", at(1, 1));
+        assert_eq!(&at(6, 1)[..3], &[0, 0, 0], "the frame does not glow");
+        assert_eq!(&at(1, 6)[..3], &[0, 0, 0], "outside the panes nothing glows");
+    }
+
+    #[test]
     fn terrain_layer_weights_paint_later_layers_over_earlier_ones() {
         assert_eq!(layer_weights([0, 0, 0, 0]), [1.0, 0.0, 0.0, 0.0, 0.0]);
         let w = layer_weights([255, 0, 0, 255]);
@@ -5382,7 +6068,7 @@ mod tests {
             probe_overrides: BTreeMap::new(),
             glowing_surfaces: Vec::new(),
             light_overrides: BTreeMap::new(),
-            emission_scale: BTreeMap::new(), removed_parts: Vec::new(),
+            emission_scale: BTreeMap::new(), removed_parts: Vec::new(), variants: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
@@ -5448,7 +6134,7 @@ mod tests {
             donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
             probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
             native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: BTreeMap::new(), photometric_lights: None, environment_overrides: BTreeMap::new(),
-            exclude_probes: Vec::new(), probe_overrides: overrides, glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(), removed_parts: Vec::new(),
+            exclude_probes: Vec::new(), probe_overrides: overrides, glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(), removed_parts: Vec::new(), variants: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby(BTreeMap::from([("outdoor/environment_probe".to_owned(), outdoor)]))), false, &BTreeMap::new()).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
@@ -5471,7 +6157,7 @@ mod tests {
             donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
             probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
             native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: turned, photometric_lights: None, environment_overrides: BTreeMap::new(),
-            exclude_probes: Vec::new(), probe_overrides: BTreeMap::new(), glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(), removed_parts: Vec::new(),
+            exclude_probes: Vec::new(), probe_overrides: BTreeMap::new(), glowing_surfaces: Vec::new(), light_overrides: BTreeMap::new(), emission_scale: BTreeMap::new(), removed_parts: Vec::new(), variants: Vec::new(),
         };
         let donor = [-3.1411853, -1.4530003, -3.1411853];
         let port = Port::Lobby(spec(BTreeMap::from([("props/door/wood_door_02".to_owned(), [0.0, 1.6885923, 0.0])])));
