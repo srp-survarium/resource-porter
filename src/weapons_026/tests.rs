@@ -992,3 +992,28 @@ fn kill_feed_icons_do_not_clash() {
     let twice = feed(99, None);
     assert!(check_kill_feed(&[("colt_m1911", &colt), ("other", &twice)], &live).is_err());
 }
+
+/// The card's dispersion is the one the game reads (dispersion/): the live
+/// guns lost their parameters/ copy (skhid-srp's dead-keys-1).
+#[test]
+fn the_cards_dispersion_is_the_one_the_game_reads() {
+    let p = |v: f32| V::Float(v);
+    let cfg = t(vec![
+        (
+            "parameters",
+            t(vec![
+                ("bullet_damage", p(0.5)),
+                ("bullet_pierce", p(0.3)),
+                ("aim_time", p(0.25)),
+                ("stopping_power", p(0.2)),
+                ("min_damage_distance", V::Integer(20)),
+                ("rounds_per_minute", V::Integer(700)),
+                ("magazine_capacity", V::Integer(30)),
+                ("weight", p(3.4)),
+            ]),
+        ),
+        ("dispersion", t(vec![("base_dispersion", p(0.25))])),
+    ]);
+    let props = config::card_props(&cfg).unwrap();
+    assert!(props.contains(&(2, "0.25".to_owned())), "{props:?}");
+}
