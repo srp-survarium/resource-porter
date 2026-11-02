@@ -471,10 +471,16 @@ def quiet(px, size):
 
 
 values = []
-for page in pages:
+for k, page in enumerate(pages):
     if args.hybrid:
         rest = pixels(page["indirect_image"])
-        rest[:, :3] = np.maximum(rest[:, :3] - pixels(page["lamps_image"])[:, :3], 0.0)
+        lamps = pixels(page["lamps_image"])
+        covered = rest[:, 3] > 0.5
+        if covered.any():
+            log(f"page {k}: all light {rest[covered, :3].mean():.4f}, the engine's lamps and sun "
+                f"{lamps[covered, :3].mean():.4f}, emitted {np.maximum(rest[covered, :3] - lamps[covered, :3], 0).mean():.4f}"
+                " (means over the page, times albedo)")
+        rest[:, :3] = np.maximum(rest[:, :3] - lamps[:, :3], 0.0)
         page["indirect_px"] = quiet(rest, page["indirect_image"].size[0])
     page["px"] = pixels(page["image"])
     emitted = page["indirect_px"] if args.hybrid else page["px"]
