@@ -16,6 +16,7 @@
 use anyhow::{Result, bail, ensure};
 
 /// One decoded cubemap: six faces of `mips` levels, linear RGB.
+#[derive(Clone)]
 pub struct Cube {
     pub size: usize,
     pub mips: usize,

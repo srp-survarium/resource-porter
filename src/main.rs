@@ -278,6 +278,13 @@ enum Command {
         /// Only write the STK2 textures needed to this file (nothing made).
         #[arg(long)]
         list_textures: Option<PathBuf>,
+        /// A baked manifest's bake: scripts/lobby-bake's folder.
+        #[arg(long, conflicts_with = "lit")]
+        bake_dir: Option<PathBuf>,
+        /// A baked manifest's slice lit (by its materials and lights): what
+        /// scripts/lobby-bake bakes.
+        #[arg(long)]
+        lit: bool,
     },
     /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
     BuildSurvarium021Maps {
@@ -1209,7 +1216,10 @@ fn main() -> Result<()> {
             output,
             work,
             list_textures,
+            bake_dir,
+            lit,
         } => {
+            use vostok_resource_porter::stk2_lobby_026::BakeChoice;
             let report = vostok_resource_porter::stk2_lobby_026::build(
                 &vostok_resource_porter::stk2_lobby_026::BuildOptions {
                     manifest: &manifest,
@@ -1218,6 +1228,11 @@ fn main() -> Result<()> {
                     output: &output,
                     work: &work,
                     list_textures: list_textures.as_deref(),
+                    bake: match (bake_dir.as_deref(), lit) {
+                        (Some(dir), _) => Some(BakeChoice::From(dir)),
+                        (None, true) => Some(BakeChoice::Lit),
+                        (None, false) => None,
+                    },
                 },
             )?;
             println!("files={}", report.files);

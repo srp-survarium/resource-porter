@@ -161,6 +161,406 @@ pub struct LobbyManifest {
     /// vault overlay, one uv tile a bay for its stain).
     #[serde(default)]
     pub planar_uvs: BTreeMap<String, f32>,
+    /// The slice's merged model drawn from a path-traced bake
+    /// (`scripts/lobby-bake`) in place of its lit materials.
+    #[serde(default)]
+    pub bake: Option<BakeSpec>,
+}
+
+/// A path-traced bake of a slice's merged model: its surfaces on unique-uv
+/// pages that hold their light (`scripts/lobby-bake/bake.py`), drawn as
+/// emission on a black, unshiny material, so the project's lights add
+/// nothing to them and light only the characters, the weapon and the native
+/// props.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BakeSpec {
+    /// The slice the bake is made of.
+    pub slice: String,
+    /// The converted templates the pages' materials are made from, opaque
+    /// and alpha-tested: the slice's own, so the materials keep shapes (and
+    /// shader permutations) the game is seen to draw.
+    pub template: String,
+    pub alpha_template: String,
+    /// A hybrid's indirect pages emitted this much brighter than traced (the
+    /// lamps' engine falloff ends at their range, where the inverse square
+    /// still lights a far corner: the bounce stands in for both).
+    #[serde(default = "one")]
+    pub indirect_scale: f32,
+    /// The traced probe this much brighter (the characters' shaded sides
+    /// no darker than the gradient probe left them).
+    #[serde(default = "one")]
+    pub probe_scale: f32,
+}
+
+/// bake.py's `baked.json`.
+#[derive(Debug, Deserialize)]
+struct BakedJson {
+    /// The pages' white, in 0.26g light units (the emission multiplier).
+    emission: f32,
+    pages: Vec<BakedPageJson>,
+    surfaces: Vec<BakedSurfaceJson>,
+    /// The merged surfaces left as they were (not baked), by name.
+    kept: Vec<String>,
+    /// Each merged surface the bake was made of: its converted_model's sha256.
+    sources: BTreeMap<String, String>,
+    /// The environment probes' radiance, path-traced from the probes.
+    #[serde(default)]
+    probes: Vec<BakedProbeJson>,
+    /// A hybrid bake's flat normal and roughness maps.
+    #[serde(default)]
+    flat: Option<BakedFlatJson>,
+}
+
+/// A probe's six faces (0.26g's order, `probe_bake::direction`'s texels),
+/// `size` texels a side, float32 RGB, row by row, without the lamps
+/// themselves (the project's lights light the character directly).
+#[derive(Debug, Deserialize)]
+struct BakedProbeJson {
+    object: String,
+    file: PathBuf,
+    size: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct BakedPageJson {
+    name: String,
+    alpha: bool,
+    #[serde(flatten)]
+    light: BakedLightJson,
+}
+
+/// What a page holds: the light a surface sends (drawn as emission on a black
+/// material), or its albedo (lit by the project's lights in the game), the
+/// indirect light alone (emitted, a smaller page of the same layout) and the
+/// original materials' roughness (the g-buffer's, laid on the page).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum BakedLightJson {
+    Hybrid { albedo: PathBuf, indirect: PathBuf, roughness: PathBuf },
+    Radiance { png: PathBuf },
+}
+
+/// A hybrid bake's flat stand-in for the template's normal map, which would
+/// tile over the pages' layout.
+#[derive(Debug, Deserialize)]
+struct BakedFlatJson {
+    normal: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct BakedSurfaceJson {
+    name: String,
+    file: PathBuf,
+    page: String,
+}
+
+/// A bake made into the pack: its pages' materials written, its surfaces
+/// ready to replace the slice's.
+struct Bake {
+    slice: String,
+    probe_scale: f32,
+    surfaces: Vec<BuiltSurface>,
+    kept: BTreeSet<String>,
+    sources: BTreeMap<String, String>,
+    /// Probe object -> its traced radiance, in 0.26g light units.
+    probes: BTreeMap<String, crate::probe_bake::Cube>,
+}
+
+impl Bake {
+    fn make(
+        spec: &BakeSpec,
+        dir: &Path,
+        manifest: &LobbyManifest,
+        target: &mut ResourceDb,
+        textures: &mut TextureMaker<'_>,
+        pack: &mut PackWriter,
+    ) -> Result<Bake> {
+        let json: BakedJson = serde_json::from_slice(
+            &fs::read(dir.join("baked.json"))
+                .with_context(|| format!("the bake: {}/baked.json (run scripts/lobby-bake)", dir.display()))?,
+        )?;
+        ensure!(json.emission.is_finite() && json.emission > 0.0, "the bake's emission is not positive");
+        let version = &manifest.pack.version;
+        let mut materials = BTreeMap::new();
+        let flat_normal = match &json.flat {
+            Some(flat) => Some(textures.make_page_as(
+                &format!("baked_v{version}/flat_normal"),
+                &dir.join(&flat.normal),
+                TextureKind::Normal,
+                false,
+                pack,
+            )?),
+            None => None,
+        };
+        for page in &json.pages {
+            let template = if page.alpha { &spec.alpha_template } else { &spec.template };
+            let mut material = parse(target, &format!("material_instances/{template}.material"))?;
+            if page.alpha {
+                // the page's alpha is the cut already made (0 or 1, at each
+                // material's own alpha_ref): halfway keeps its coverage down
+                // the mips; and no shadow (decals and the vault's overlay
+                // lie a centimetre over their surface: STK2's cast none)
+                material.root.set_path("material.g_stage.effect.alpha_ref.value", ConfigValue::Float(0.5))?;
+                material.root.set_path("material.g_stage.is_cast_shadow.value", ConfigValue::Boolean(false))?;
+            }
+            let page_name = format!("baked_v{version}/{}", page.name);
+            let texture = match &page.light {
+                BakedLightJson::Radiance { png } => {
+                    let texture = textures.make_page(&page_name, &dir.join(png), page.alpha, pack)?;
+                    set_baked(&mut material.root, &texture, json.emission)
+                        .with_context(|| format!("{template}: the baked material"))?;
+                    texture
+                }
+                BakedLightJson::Hybrid { albedo, indirect, roughness } => {
+                    let normal = flat_normal.as_ref().context("a hybrid page without the bake's flat normal")?;
+                    let texture = textures.make_page(&page_name, &dir.join(albedo), page.alpha, pack)?;
+                    let light = textures.make_page(&format!("{page_name}_indirect"), &dir.join(indirect), false, pack)?;
+                    let roughness = textures.make_page_as(
+                        &format!("{page_name}_roughness"),
+                        &dir.join(roughness),
+                        TextureKind::Linear,
+                        false,
+                        pack,
+                    )?;
+                    ensure!(
+                        spec.indirect_scale.is_finite() && spec.indirect_scale > 0.0,
+                        "the bake's indirect_scale is not positive"
+                    );
+                    let emission = json.emission * spec.indirect_scale;
+                    set_hybrid(&mut material.root, &texture, &light, emission, normal, &roughness)
+                        .with_context(|| format!("{template}: the hybrid material"))?;
+                    texture
+                }
+            };
+            let name = format!("{}/baked_v{version}/{}", manifest.material_prefix, page.name);
+            pack.config(&format!("material_instances/{name}.material"), &material)?;
+            materials.insert(page.name.clone(), (name, texture));
+        }
+        let mut surfaces = Vec::new();
+        for surface in &json.surfaces {
+            let (material, texture) = materials
+                .get(&surface.page)
+                .with_context(|| format!("{}: no page {}", surface.name, surface.page))?;
+            let mesh = fs::read(dir.join(&surface.file))
+                .with_context(|| format!("the bake: {}", surface.file.display()))?;
+            let (vertices, indices, bounds) = converted_model_shape(&mesh, &surface.name)?;
+            surfaces.push(BuiltSurface {
+                name: surface.name.clone(),
+                material: material.clone(),
+                mesh,
+                bounds,
+                vertices,
+                indices,
+                mesh_name: format!("|bake|{}", surface.page),
+                texture_name: texture.clone(),
+            });
+        }
+        let mut probes = BTreeMap::new();
+        for probe in &json.probes {
+            let bytes = fs::read(dir.join(&probe.file))
+                .with_context(|| format!("the bake: {}", probe.file.display()))?;
+            probes.insert(probe.object.clone(), traced_cube(&bytes, probe.size, &probe.object)?);
+        }
+        ensure!(
+            spec.probe_scale.is_finite() && spec.probe_scale > 0.0,
+            "the bake's probe_scale is not positive"
+        );
+        Ok(Bake {
+            slice: spec.slice.clone(),
+            probe_scale: spec.probe_scale,
+            surfaces,
+            kept: json.kept.into_iter().collect(),
+            sources: json.sources,
+            probes,
+        })
+    }
+
+    /// The slice's surfaces with the baked ones in place of those the bake
+    /// was made of; a surface built otherwise than the bake saw it (the
+    /// manifest or the porter changed since) is an error, not a stale page.
+    fn replace(&self, built: &mut Vec<BuiltSurface>) -> Result<()> {
+        for surface in built.iter() {
+            let made = crate::content_pack::sha256_hex(&surface.mesh);
+            let baked = self.sources.get(&surface.name).with_context(|| {
+                format!("{}: built, but not in the bake: bake the slice again", surface.name)
+            })?;
+            ensure!(
+                *baked == made,
+                "{}: built otherwise than the bake saw it: bake the slice again",
+                surface.name
+            );
+        }
+        ensure!(
+            self.sources.len() == built.len(),
+            "the bake saw {} surfaces, the slice has {}: bake the slice again",
+            self.sources.len(),
+            built.len()
+        );
+        built.retain(|s| self.kept.contains(&s.name));
+        built.extend(self.surfaces.iter().cloned());
+        Ok(())
+    }
+}
+
+/// A traced probe's faces as a radiance cube of 0.26g's probe size, its
+/// mips the averages of four texels.
+fn traced_cube(bytes: &[u8], size: usize, label: &str) -> Result<crate::probe_bake::Cube> {
+    ensure!(size == PROBE_CUBE_SIZE, "probe {label}: {size} px, made probes are {PROBE_CUBE_SIZE}");
+    ensure!(bytes.len() == 6 * size * size * 12, "probe {label}: not six {size} px faces of float RGB");
+    let mut faces = Vec::new();
+    for face in 0..6 {
+        let mut levels: Vec<Vec<[f32; 3]>> = vec![
+            (0..size * size)
+                .map(|i| {
+                    let at = (face * size * size + i) * 12;
+                    std::array::from_fn(|c| f32::from_le_bytes(bytes[at + c * 4..at + c * 4 + 4].try_into().unwrap()))
+                })
+                .collect(),
+        ];
+        ensure!(
+            levels[0].iter().flatten().all(|v| v.is_finite() && *v >= 0.0),
+            "probe {label}: a texel is not a radiance"
+        );
+        for m in 1..PROBE_CUBE_MIPS {
+            let (n, up) = ((size >> m).max(1), (size >> (m - 1)).max(1));
+            let above = &levels[m - 1];
+            let level = (0..n * n)
+                .map(|i| {
+                    let (x, y) = (i % n * 2, i / n * 2);
+                    std::array::from_fn(|c| {
+                        (above[y * up + x][c] + above[y * up + x + 1][c] + above[(y + 1) * up + x][c]
+                            + above[(y + 1) * up + x + 1][c])
+                            / 4.0
+                    })
+                })
+                .collect();
+            levels.push(level);
+        }
+        faces.push(levels);
+    }
+    Ok(crate::probe_bake::Cube { size, mips: PROBE_CUBE_MIPS, faces })
+}
+
+/// A hybrid page's material: the template lit as it is (its albedo and
+/// roughness the page's, the original materials' laid on it; its specular
+/// the template's, as every converted material's; its normal maps flat:
+/// theirs would tile over the page's layout), emitting the indirect page
+/// times `emission` on top of the project's lights (the emissive pass adds
+/// to the lit frame).
+fn set_hybrid(
+    root: &mut ConfigValue,
+    albedo: &str,
+    indirect: &str,
+    emission: f32,
+    normal: &str,
+    roughness: &str,
+) -> Result<()> {
+    let effect = "material.g_stage.effect";
+    for (field, value) in [
+        ("use_tdiffuse", ConfigValue::Boolean(true)),
+        ("texture_diffuse", ConfigValue::String(albedo.to_owned())),
+        ("constant_diffuse", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ("texture_normal", ConfigValue::String(normal.to_owned())),
+        ("texture_roughness", ConfigValue::String(roughness.to_owned())),
+        ("use_troughness", ConfigValue::Boolean(true)),
+        ("use_emissive", ConfigValue::Boolean(true)),
+        ("use_emissive_map", ConfigValue::Boolean(true)),
+        ("texture_emissive", ConfigValue::String(indirect.to_owned())),
+        ("constant_emissive", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ("constant_emissive_multiplier", ConfigValue::Float(emission)),
+    ] {
+        let path = format!("{effect}.{field}.value");
+        ensure!(
+            crate::content_pack::value::value_at(root, &path).is_some(),
+            "the template has no {field}"
+        );
+        root.set_path(&path, value)?;
+    }
+    // the page holds the roughness itself: the template's range 0..1, in the
+    // number type the template keeps there (roof_03's max is 0.3)
+    for (field, value) in [("constant_roughness_min", 0.0f32), ("constant_roughness_max", 1.0)] {
+        let path = format!("{effect}.{field}.value");
+        let typed = match crate::content_pack::value::value_at(root, &path) {
+            Some(ConfigValue::Integer(_)) => ConfigValue::Integer(value as i32),
+            Some(ConfigValue::Float(_)) => ConfigValue::Float(value),
+            _ => bail!("the template has no {field}"),
+        };
+        root.set_path(&path, typed)?;
+    }
+    // every other normal slot the template binds (detail, blended) flat too
+    for field in ["texture_detail_normal", "texture_alphablended_normal", "texture_vertex_blended_normal"] {
+        let path = format!("{effect}.{field}.value");
+        if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
+            root.set_path(&path, ConfigValue::String(normal.to_owned()))?;
+        }
+    }
+    for field in ["texture_specular_intensity", "texture_vertex_blended_specular"] {
+        let path = format!("{effect}.{field}.value");
+        if matches!(crate::content_pack::value::value_at(root, &path), Some(ConfigValue::String(t)) if !t.is_empty()) {
+            root.set_path(&path, ConfigValue::String(roughness.to_owned()))?;
+        }
+    }
+    Ok(())
+}
+
+/// A baked page's material: black (the g-buffer's albedo is the diffuse
+/// times `constant_diffuse`: 0, so the lights and probes add nothing; the
+/// page's alpha still feeds the alpha test) and without specular
+/// (`constant_specular_color`, the g-buffer's specular intensity: 0; the
+/// template's normal and roughness maps then show nowhere), emitting its page
+/// times `emission` (the emissive pass adds texture x constant_emissive x
+/// multiplier to the lit frame).
+fn set_baked(root: &mut ConfigValue, texture: &str, emission: f32) -> Result<()> {
+    let effect = "material.g_stage.effect";
+    for (field, value) in [
+        ("use_tdiffuse", ConfigValue::Boolean(true)),
+        ("texture_diffuse", ConfigValue::String(texture.to_owned())),
+        ("constant_diffuse", ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])),
+        ("constant_specular_color", ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])),
+        ("use_emissive", ConfigValue::Boolean(true)),
+        ("use_emissive_map", ConfigValue::Boolean(true)),
+        ("texture_emissive", ConfigValue::String(texture.to_owned())),
+        ("constant_emissive", ConfigValue::Float4([1.0, 1.0, 1.0, 1.0])),
+        ("constant_emissive_multiplier", ConfigValue::Float(emission)),
+    ] {
+        let path = format!("{effect}.{field}.value");
+        ensure!(
+            crate::content_pack::value::value_at(root, &path).is_some(),
+            "the template has no {field}"
+        );
+        root.set_path(&path, value)?;
+    }
+    Ok(())
+}
+
+/// A 0.26g converted_model's vertex and index counts and bounds, checked:
+/// the vertex block (3) of 28-byte vertices, the u16 index block (4).
+fn converted_model_shape(bytes: &[u8], label: &str) -> Result<(u32, u32, Bounds)> {
+    ensure!(read_u32(bytes, 0)? == 3, "{label}: no vertex block");
+    let count = usize::try_from(read_u32(bytes, 8)?)?;
+    ensure!(
+        count <= MAX_STATIC_SURFACE_VERTICES,
+        "{label}: {count} vertices, more than 0.26g loads ({MAX_STATIC_SURFACE_VERTICES})"
+    );
+    ensure!(read_u32(bytes, 4)? as usize == 4 + count * VERTEX_SIZE, "{label}: bad vertex block");
+    let mut bounds = Bounds::empty();
+    for i in 0..count {
+        bounds.add(read_float3(bytes, 12 + i * VERTEX_SIZE)?);
+    }
+    let at = 12 + count * VERTEX_SIZE;
+    ensure!(read_u32(bytes, at)? == 4, "{label}: no index block");
+    let indices = usize::try_from(read_u32(bytes, at + 8)?)?;
+    ensure!(
+        read_u32(bytes, at + 4)? as usize == 4 + indices * 2 && bytes.len() == at + 12 + indices * 2,
+        "{label}: bad index block"
+    );
+    ensure!(indices % 3 == 0, "{label}: not whole triangles");
+    for i in 0..indices {
+        let index = u16::from_le_bytes([bytes[at + 12 + i * 2], bytes[at + 13 + i * 2]]);
+        ensure!(usize::from(index) < count, "{label}: index outside its vertices");
+    }
+    Ok((u32::try_from(count)?, u32::try_from(indices)?, bounds))
 }
 
 /// A converted light's fields set by eye.
@@ -456,6 +856,11 @@ pub enum MaterialSpec {
         /// As [`RuleTarget::Converted`]'s (it needs `source`).
         #[serde(default)]
         emission: Option<f32>,
+        /// Fields under `material.g_stage` set as the STK2 instance has them
+        /// (`effect.alpha_ref`, `is_cast_shadow`, ...): a number or a bool
+        /// in the template's own type there.
+        #[serde(default)]
+        set: BTreeMap<String, Json>,
     },
     /// A native material, as it is.
     Native { material: String },
@@ -675,12 +1080,20 @@ const ROLES: &[(&str, &str, TextureKind, Option<&str>)] = &[
         TextureKind::Colour,
         Some("use_emissive_map"),
     ),
+    (
+        "texture_roughness",
+        "texture_roughness",
+        TextureKind::Linear,
+        Some("use_troughness"),
+    ),
 ];
 
 /// One file of the pack (its resource path, its bytes on disk under `files/`).
 struct PackWriter {
     files: PathBuf,
     paths: BTreeSet<String>,
+    /// The materials the written models name.
+    materials_used: BTreeSet<String>,
 }
 
 impl PackWriter {
@@ -694,6 +1107,76 @@ impl PackWriter {
 
     fn config(&mut self, path: &str, config: &BinaryConfig) -> Result<()> {
         self.write(path, &config.to_bytes()?)
+    }
+
+    /// A file taken out, and the folders it leaves empty (a patch archive
+    /// refuses an empty folder).
+    fn remove(&mut self, path: &str) -> Result<()> {
+        ensure!(self.paths.remove(path), "{path}: not in the pack");
+        let file = safe_join(&self.files, path)?;
+        fs::remove_file(&file).with_context(|| format!("removing {path}"))?;
+        let mut dir = file.parent();
+        while let Some(d) = dir.filter(|d| *d != self.files) {
+            if fs::read_dir(d)?.next().is_some() {
+                break;
+            }
+            fs::remove_dir(d)?;
+            dir = d.parent();
+        }
+        Ok(())
+    }
+
+    /// The materials under `material_prefix` no written model names, and the
+    /// textures under `texture_prefix` no material left names, taken out (a
+    /// baked slice leaves its STK2 materials and their textures unused).
+    /// Returns how many files went.
+    fn prune(&mut self, material_prefix: &str, texture_prefix: &str) -> Result<usize> {
+        fn strings(value: &ConfigValue, out: &mut BTreeSet<String>) {
+            match value {
+                ConfigValue::String(s) => {
+                    out.insert(s.clone());
+                }
+                ConfigValue::Named(values) => values.iter().for_each(|v| strings(&v.value, out)),
+                ConfigValue::Indexed(values) => values.iter().for_each(|v| strings(v, out)),
+                _ => {}
+            }
+        }
+        let before = self.paths.len();
+        let materials: Vec<String> = self
+            .paths
+            .iter()
+            .filter(|p| p.starts_with(&format!("material_instances/{material_prefix}/")))
+            .cloned()
+            .collect();
+        let mut named = BTreeSet::new();
+        for path in materials {
+            let name = path
+                .strip_prefix("material_instances/")
+                .and_then(|p| p.strip_suffix(".material"))
+                .with_context(|| format!("{path}: not a material"))?;
+            if self.materials_used.contains(name) {
+                let bytes = fs::read(safe_join(&self.files, &path)?)?;
+                strings(&BinaryConfig::parse(&bytes)?.root, &mut named);
+            } else {
+                self.remove(&path)?;
+            }
+        }
+        let textures: Vec<String> = self
+            .paths
+            .iter()
+            .filter(|p| p.starts_with(&format!("textures/{texture_prefix}/")))
+            .cloned()
+            .collect();
+        for path in textures {
+            let name = path
+                .strip_prefix("textures/")
+                .and_then(|p| p.strip_suffix(".dds").or_else(|| p.strip_suffix(".options")))
+                .with_context(|| format!("{path}: not a texture"))?;
+            if !named.contains(name) {
+                self.remove(&path)?;
+            }
+        }
+        Ok(before - self.paths.len())
     }
 }
 
@@ -710,6 +1193,17 @@ pub struct BuildOptions<'a> {
     /// Write the STK2 textures the materials need to this file, one a
     /// line, and make nothing (to know what to extract).
     pub list_textures: Option<&'a Path>,
+    /// For a manifest with a `bake`: where the bake is, or the slice lit.
+    pub bake: Option<BakeChoice<'a>>,
+}
+
+/// How a baked manifest's slice is made.
+#[derive(Clone, Copy, Debug)]
+pub enum BakeChoice<'a> {
+    /// Drawn from the bake in this folder (bake.py's: `baked.json`, ...).
+    From(&'a Path),
+    /// Lit by its materials and the project's lights: what a bake is made of.
+    Lit,
 }
 
 /// What a build made, for the report.
@@ -731,6 +1225,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
     let mut pack = PackWriter {
         files: options.output.join("files"),
         paths: BTreeSet::new(),
+        materials_used: BTreeSet::new(),
     };
     let scene = Rigid::scene(&manifest.scene);
     let stk2 = Stk2Tree {
@@ -825,6 +1320,29 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         render_properties: parse(&mut target, &manifest.static_templates.render_properties)?,
         surface_properties: parse(&mut target, &manifest.static_templates.surface_properties)?,
     };
+    let bake = match (&manifest.bake, options.bake) {
+        (None, None) => None,
+        (None, Some(_)) => bail!("the manifest has no bake"),
+        (Some(_), None) => bail!(
+            "the manifest is baked: give the bake's folder (scripts/lobby-bake), or build the slice lit to bake it"
+        ),
+        (Some(_), Some(BakeChoice::Lit)) => None,
+        (Some(spec), Some(BakeChoice::From(dir))) => Some(Bake::make(
+            spec,
+            dir,
+            &manifest,
+            &mut target,
+            &mut textures,
+            &mut pack,
+        )?),
+    };
+    if let Some(bake) = &bake {
+        ensure!(
+            manifest.slices.iter().any(|s| s.name == bake.slice),
+            "the bake's slice {} is not in the manifest",
+            bake.slice
+        );
+    }
     let mut visuals = Vec::new();
     let mut collisions = Vec::new();
     for (model, surfaces) in &models {
@@ -906,6 +1424,7 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
             &manifest.planar_uvs,
             &templates,
             scene,
+            bake.as_ref().filter(|b| b.slice == slice.name),
             &mut pack,
         )?;
         slice_notes.push(format!(
@@ -1026,7 +1545,8 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         ));
     }
     for cube in &manifest.probe_cubes {
-        add_probe_cube(&mut project, cube, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
+        let traced = bake.as_ref().and_then(|b| b.probes.get(&cube.object).map(|c| (c, b.probe_scale)));
+        add_probe_cube(&mut project, cube, traced, &manifest.texture_prefix, &mut target, &mut pack, &mut extra_notes)?;
     }
     let weapon = manifest
         .spots
@@ -1055,6 +1575,14 @@ pub fn build(options: &BuildOptions<'_>) -> Result<BuildReport> {
         config_to_lua(&project.root)?.as_bytes(),
     )?;
 
+    if let Some(bake) = &bake {
+        let pruned = pack.prune(&manifest.material_prefix, &manifest.texture_prefix)?;
+        extra_notes.push(format!(
+            "slice {}: drawn from a path-traced bake ({} surfaces); the {pruned} files of its lit materials and their textures left out",
+            bake.slice,
+            bake.surfaces.len()
+        ));
+    }
     for path in &pack.paths {
         ensure!(
             !target.contains(path),
@@ -1322,17 +1850,61 @@ impl TextureMaker<'_> {
             fs::write(&cache_format, format!("{format} {}", u8::from(srgb)))?;
             (bytes, format.to_owned(), srgb)
         };
-        pack.write(&format!("textures/{target}.dds"), &bytes)?;
+        self.write(&target, &bytes, &format, srgb, pack)?;
+        self.made.insert(key, target.clone());
+        Ok(target)
+    }
+
+    /// A baked page (`scripts/lobby-bake`, an sRGB PNG) as `<prefix>/<name>`:
+    /// DXT5 when its alpha is an alpha test's, else DXT1.
+    fn make_page(&mut self, name: &str, png: &Path, alpha: bool, pack: &mut PackWriter) -> Result<String> {
+        self.make_page_as(name, png, TextureKind::Colour, alpha, pack)
+    }
+
+    /// A baked image of `kind` as `<prefix>/<name>`.
+    fn make_page_as(
+        &mut self,
+        name: &str,
+        png: &Path,
+        kind: TextureKind,
+        alpha: bool,
+        pack: &mut PackWriter,
+    ) -> Result<String> {
+        let target = format!("{}/{name}", self.prefix);
+        let stem = self.work.join(name.replace('/', "__"));
+        let options = if alpha { "\"DXT5\"" } else { "" };
+        // converted once per image (by its bytes): a rebuild that changes
+        // only the bake's scales takes them again
+        let source = fs::read(png).with_context(|| format!("the baked page {}", png.display()))?;
+        let key = &crate::content_pack::sha256_hex(&source)[..16];
+        let cache = stem.with_extension(format!("{key}.k{}.a{}.cache", kind_key(kind), u8::from(alpha)));
+        let cache_format = cache.with_extension("format");
+        let (bytes, format, srgb) = if let (Ok(bytes), Ok(made)) = (fs::read(&cache), fs::read_to_string(&cache_format)) {
+            let (format, srgb) = made.split_once(' ').context("bad texture cache")?;
+            (bytes, format.to_owned(), srgb == "1")
+        } else {
+            let (bytes, format, srgb) = self
+                .convert(&target, &target, kind, png, options, &stem)
+                .with_context(|| format!("the baked page {}", png.display()))?;
+            fs::write(&cache, &bytes)?;
+            fs::write(&cache_format, format!("{format} {}", u8::from(srgb)))?;
+            (bytes, format.to_owned(), srgb)
+        };
+        self.write(&target, &bytes, &format, srgb, pack)?;
+        Ok(target)
+    }
+
+    /// The texture's DDS and its options (cloned from the template's).
+    fn write(&self, target: &str, dds: &[u8], format: &str, srgb: bool, pack: &mut PackWriter) -> Result<()> {
+        pack.write(&format!("textures/{target}.dds"), dds)?;
         let mut options = self.options_template.clone();
         options
             .root
             .set_path("options.srgb", ConfigValue::Integer(i32::from(srgb)))?;
         options
             .root
-            .set_path("options.format", ConfigValue::String(format))?;
-        pack.config(&format!("textures/{target}.options"), &options)?;
-        self.made.insert(key, target.clone());
-        Ok(target)
+            .set_path("options.format", ConfigValue::String(format.to_owned()))?;
+        pack.config(&format!("textures/{target}.options"), &options)
     }
 
     /// The texture's canonical DDS bytes, its options format and colour space.
@@ -1456,7 +2028,7 @@ fn make_material(
     textures: &mut TextureMaker<'_>,
     pack: &mut PackWriter,
 ) -> Result<Option<(String, Option<String>)>> {
-    let (template, source, explicit, emission) = match spec {
+    let (template, source, explicit, emission, set) = match spec {
         MaterialSpec::Hidden => return Ok(None),
         MaterialSpec::Native { material } => {
             ensure!(
@@ -1470,7 +2042,8 @@ fn make_material(
             source,
             textures,
             emission,
-        } => (template, source, textures, emission),
+            set,
+        } => (template, source, textures, emission, set),
     };
     let roles = material_textures(key, source.as_deref(), explicit, stk2)?;
     // an instance with no diffuse of its own or its base's (a decal's
@@ -1553,6 +2126,19 @@ fn make_material(
         set_emission(&mut material.root, colour, multiplier * scale, diffuse.as_deref())
             .with_context(|| format!("{key}: emission"))?;
     }
+    for (field, value) in set {
+        let path = format!("material.g_stage.{field}.value");
+        let hint = crate::content_pack::value::value_at(&material.root, &path)
+            .cloned()
+            .with_context(|| format!("{key}: the template has no {field}"))?;
+        let hint = match hint {
+            ConfigValue::Integer(v) if value.as_f64().is_some_and(|f| f.fract() != 0.0) => ConfigValue::Float(v as f32),
+            other => other,
+        };
+        let value = crate::content_pack::value::to_config(value, Some(&hint))
+            .with_context(|| format!("{key}: {field}"))?;
+        material.root.set_path(&path, value)?;
+    }
     // `tex:<texture>` keys (a surface known by its texture) as a folder
     let name = format!("{prefix}/{}", key.replace(':', "/").replace(' ', "_"));
     pack.config(&format!("material_instances/{name}.material"), &material)?;
@@ -1597,6 +2183,7 @@ fn material_by_rule(
                         source: None,
                         textures,
                         emission: None,
+                        set: BTreeMap::new(),
                     },
                     format!("its texture alone -> {template}"),
                 ));
@@ -1655,6 +2242,7 @@ fn material_by_rule(
                 source: Some(source),
                 textures: BTreeMap::new(),
                 emission: *emission,
+                set: BTreeMap::new(),
             },
             match emission {
                 Some(k) => format!("{why} -> {template}, its emission x{k}"),
@@ -1914,6 +2502,7 @@ struct StaticModelTemplates {
     surface_properties: BinaryConfig,
 }
 
+#[derive(Clone)]
 struct BuiltSurface {
     name: String,
     material: String,
@@ -2354,6 +2943,7 @@ fn write_static_model(
     let root = format!("models/{name}.model");
     let mut all = Bounds::empty();
     for surface in surfaces {
+        pack.materials_used.insert(surface.material.clone());
         all.union(&surface.bounds);
         pack.write(
             &format!("{root}/render/{}/converted_model", surface.name),
@@ -2878,7 +3468,7 @@ struct SliceMade {
 
 /// One model of a slice's objects: their surfaces clipped to the box and
 /// merged by material (in pieces the 0.26g loader takes), and their low
-/// collision clipped the same way.
+/// collision clipped the same way; with a bake, its surfaces the bake's.
 #[allow(clippy::too_many_arguments)]
 fn write_slice(
     name: &str,
@@ -2888,6 +3478,7 @@ fn write_slice(
     planar_uvs: &BTreeMap<String, f32>,
     templates: &StaticModelTemplates,
     scene: Rigid,
+    bake: Option<&Bake>,
     pack: &mut PackWriter,
 ) -> Result<SliceMade> {
     // the box is the STK2 world's: a point is moved back to test it
@@ -2977,6 +3568,10 @@ fn write_slice(
                 texture_name: texture_name.clone(),
             });
         }
+    }
+    if let Some(bake) = bake {
+        bake.replace(&mut built)?;
+        vertices = built.iter().map(|s| s.vertices as usize).sum();
     }
     let collision = if collision_triangles.is_empty() {
         None
@@ -3091,6 +3686,7 @@ fn native_cube_dds(mut bytes: Vec<u8>) -> Vec<u8> {
 fn add_probe_cube(
     project: &mut BinaryConfig,
     cube: &ProbeCube,
+    traced: Option<(&crate::probe_bake::Cube, f32)>,
     prefix: &str,
     target: &mut ResourceDb,
     pack: &mut PackWriter,
@@ -3126,17 +3722,36 @@ fn add_probe_cube(
             layer.value = ConfigValue::String(texture.clone());
         }
     }
-    let faces = (0..6)
-        .map(|f| {
-            (0..PROBE_CUBE_MIPS)
-                .map(|m| {
-                    let n = (PROBE_CUBE_SIZE >> m).max(1);
-                    (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+    let radiance = match traced {
+        // the engine multiplies the probe by its diffuse_multiplier: the
+        // traced radiance divided by it, so the character gets the bake's light
+        Some((traced, scale)) => {
+            let multiplier = match object.named("diffuse_multiplier") {
+                Some(ConfigValue::Float(v)) => *v,
+                Some(ConfigValue::Integer(v)) => *v as f32,
+                _ => bail!("probe cube: {:?} has no diffuse_multiplier", cube.object),
+            };
+            ensure!(multiplier > 0.0, "probe cube: {:?}'s diffuse_multiplier is not positive", cube.object);
+            let mut radiance = traced.clone();
+            for texel in radiance.faces.iter_mut().flatten().flatten() {
+                *texel = texel.map(|v| v * scale / multiplier);
+            }
+            radiance
+        }
+        None => {
+            let faces = (0..6)
+                .map(|f| {
+                    (0..PROBE_CUBE_MIPS)
+                        .map(|m| {
+                            let n = (PROBE_CUBE_SIZE >> m).max(1);
+                            (0..n * n).map(|i| gradient(cube, direction(f, n, i % n, i / n))).collect()
+                        })
+                        .collect()
                 })
-                .collect()
-        })
-        .collect();
-    let radiance = Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces };
+                .collect();
+            Cube { size: PROBE_CUBE_SIZE, mips: PROBE_CUBE_MIPS, faces }
+        }
+    };
     let diffuse = diffuse_of(&radiance);
     let template = target.read(&format!("textures/{native}.dds"))?;
     let template_diffuse = target.read(&format!("textures/{native}_diffuse.dds"))?;
@@ -3153,10 +3768,16 @@ fn add_probe_cube(
         pack.config(&format!("textures/{texture}{suffix}.options"), &options)?;
     }
     let mean = crate::probe_bake::mean(&diffuse, 0);
-    notes.push(format!(
-        "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
-        cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
-    ));
+    notes.push(match traced {
+        Some(_) => format!(
+            "probe {}: cubemaps path-traced from the bake (over its diffuse_multiplier); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+            cube.object, mean[0], mean[1], mean[2]
+        ),
+        None => format!(
+            "probe {}: cubemaps made from a gradient (up {:?}, side {:?}, down {:?}); mean irradiance over pi ({:.3}, {:.3}, {:.3})",
+            cube.object, cube.up, cube.side, cube.down, mean[0], mean[1], mean[2]
+        ),
+    });
     Ok(())
 }
 
@@ -3652,6 +4273,61 @@ mod tests {
         set_emission(&mut root, [1.0; 4], 1.0, Some("t/diffuse")).unwrap();
         assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/mask".into())));
         assert!(set_emission(&mut material(ConfigValue::Named(Vec::new())), [1.0; 4], 1.0, None).is_err());
+    }
+
+    #[test]
+    fn a_baked_page_is_black_unshiny_and_emits_itself() {
+        let leaf = |v: ConfigValue| ConfigValue::Named(vec![named("value", v)]);
+        let fields = [
+            ("use_tdiffuse", ConfigValue::Boolean(true)),
+            ("texture_diffuse", ConfigValue::String("t/plaster".into())),
+            ("constant_diffuse", ConfigValue::Float4([1.0; 4])),
+            ("constant_specular_color", ConfigValue::Float4([1.0; 4])),
+            ("use_nmap", ConfigValue::Boolean(true)),
+            ("use_emissive", ConfigValue::Boolean(false)),
+            ("use_emissive_map", ConfigValue::Boolean(false)),
+            ("texture_emissive", ConfigValue::String(String::new())),
+            ("constant_emissive", ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])),
+            ("constant_emissive_multiplier", ConfigValue::Integer(1)),
+        ];
+        let material = |n: usize| {
+            let effect = fields[..n].iter().map(|(f, v)| named(f, leaf(v.clone()))).collect();
+            ConfigValue::Named(vec![named(
+                "material",
+                ConfigValue::Named(vec![named("g_stage", ConfigValue::Named(vec![named("effect", ConfigValue::Named(effect))]))]),
+            )])
+        };
+        let at = |root: &ConfigValue, f: &str| {
+            crate::content_pack::value::value_at(root, &format!("material.g_stage.effect.{f}.value")).cloned()
+        };
+        let mut root = material(fields.len());
+        set_baked(&mut root, "t/page_00", 2.5).unwrap();
+        assert_eq!(at(&root, "texture_diffuse"), Some(ConfigValue::String("t/page_00".into())));
+        assert_eq!(at(&root, "texture_emissive"), Some(ConfigValue::String("t/page_00".into())));
+        assert_eq!(at(&root, "constant_diffuse"), Some(ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])));
+        assert_eq!(at(&root, "constant_specular_color"), Some(ConfigValue::Float4([0.0, 0.0, 0.0, 1.0])));
+        assert_eq!(at(&root, "constant_emissive_multiplier"), Some(ConfigValue::Float(2.5)));
+        // the template's normal map stays (its shape is one the game draws)
+        assert_eq!(at(&root, "use_nmap"), Some(ConfigValue::Boolean(true)));
+        // a template without the emissive fields is refused
+        assert!(set_baked(&mut material(5), "t/page_00", 2.5).is_err());
+    }
+
+    #[test]
+    fn a_baked_model_is_read_for_its_shape_and_refused_when_broken() {
+        let mesh = Mesh {
+            vertices: vec![[0u8; VERTEX_SIZE]; 3],
+            positions: vec![[0.0; 3]; 3],
+            triangles: vec![[0, 1, 2]],
+        };
+        let mut bytes = mesh.encode("t").unwrap();
+        bytes[12..16].copy_from_slice(&2.0f32.to_le_bytes());
+        let (vertices, indices, bounds) = converted_model_shape(&bytes, "t").unwrap();
+        assert_eq!((vertices, indices, bounds.max[0]), (3, 3, 2.0));
+        let at = bytes.len() - 2;
+        bytes[at..].copy_from_slice(&3u16.to_le_bytes());
+        assert!(converted_model_shape(&bytes, "t").is_err());
+        assert!(converted_model_shape(&bytes[..bytes.len() - 2], "t").is_err());
     }
 
     #[test]
