@@ -2125,231 +2125,9 @@ fn close_hem(model: &mut Model, base_legs: &[u8], hip: [f64; 3]) -> Result<(usiz
     Ok((added, open))
 }
 
-/// The stock Scavenger hood (892): how far down and how wide a hood's cowl
-/// comes over the neck and shoulders, and its skin there.
+/// The stock Scavenger hood, used to compare mask intersections with the donor.
 const SCAVENGER_HOOD: &str =
     "models/character/human/scavengers/scavengers_03_helmet.skinned_model/render/scavengers_03_helmet_s/converted_model";
-/// Below this the Scavenger hood is its cowl (m).
-const COWL_TOP: f64 = 1.58;
-const COWL_ROWS: usize = 4;
-/// Room the grown cowl leaves over the native neck (m).
-const COWL_CLEARANCE: f64 = 0.006;
-
-/// Where the cowl ends (m): at the collar line round the neck, a little
-/// lower in front (the Scavenger hood's comes to a point there).
-const COWL_BOTTOM: f64 = 1.47;
-const COWL_FRONT_DROP: f64 = 0.03;
-/// Segments of the panel that closes the grown cowl across the throat.
-const BRIDGE_SEGMENTS: usize = 8;
-
-/// The Novice hood (48-byte vertices) grown down over the neck and the
-/// shoulders, which STK2's collar covered. Its shell's bottom hem (the
-/// open edge whose normals face out; the lining's edge stays inside) grows
-/// in [`COWL_ROWS`] rows to the Scavenger hood's hem at its angle around the
-/// neck (the lowest point of its cowl there), kept [`COWL_CLEARANCE`] out of
-/// the native neck; the two flap tips are then joined across the throat, as
-/// the Scavenger hood's cowl closes there, with a seam down the middle.
-/// Every new vertex takes the hood's own canvas reflected across the edge it
-/// grows from (no patch and no break at the join), and its skin blends from
-/// the hood's into the Scavenger hood's hem's. Returns the new hood and the
-/// triangles added.
-fn grow_cowl(hood: &[u8], scavenger: &[u8], head: &[u8]) -> Result<(Vec<u8>, usize)> {
-    use crate::mask_fit::farthest_hit;
-    ensure!((read_u32(scavenger, 4)? - 4) / read_u32(scavenger, 8)? == 48, "the Scavenger hood has another vertex layout");
-    let mesh = parse_mesh(hood, 48, "hood")?;
-    let neck = parse_mesh(head, 40, "native head")?;
-    let stock = parse_mesh(scavenger, 48, "Scavenger hood")?;
-    let all_edges = boundary(&mesh);
-    ensure!(!all_edges.is_empty(), "the hood has no open edge");
-    let centre_z = all_edges.iter().map(|&(a, _)| mesh.positions[a][2]).sum::<f64>() / all_edges.len() as f64;
-    let angle = |p: [f64; 3]| p[0].atan2(p[2] - centre_z);
-    let radial = |p: [f64; 3]| {
-        let d = [p[0], 0.0, p[2] - centre_z];
-        let l = dot(d, d).sqrt().max(1e-9);
-        d.map(|c| c / l)
-    };
-    let normal = |i: usize| -> [f64; 3] {
-        let b = &hood[12 + i * 48 + 28..12 + i * 48 + 31];
-        [b[2], b[1], b[0]].map(|v| f64::from(v) / 127.5 - 1.0)
-    };
-    let faces_out = |i: usize| dot(normal(i), radial(mesh.positions[i])) > 0.2;
-    let edges: Vec<(usize, usize)> = all_edges.into_iter().filter(|&(a, b)| faces_out(a) && faces_out(b)).collect();
-    ensure!(!edges.is_empty(), "the hood's hem has no outward edge");
-    // The hem's two ends (by position: the flap tips).
-    let key = |p: [f64; 3]| p.map(|v| (v * 1e4).round() as i64);
-    let mut uses: BTreeMap<[i64; 3], (usize, usize)> = BTreeMap::new();
-    for &(a, b) in &edges {
-        for v in [a, b] {
-            uses.entry(key(mesh.positions[v])).or_insert((v, 0)).1 += 1;
-        }
-    }
-    let ends: Vec<usize> = uses.values().filter(|(_, n)| *n == 1).map(|(v, _)| *v).collect();
-    ensure!(ends.len() == 2, "the hood's outer hem is not one open chain ({} ends)", ends.len());
-    // The Scavenger hood's hem: its lowest cowl point in each sector.
-    const SECTORS: usize = 24;
-    let sector = |p: [f64; 3]| ((angle(p) + std::f64::consts::PI) / std::f64::consts::TAU * SECTORS as f64) as usize % SECTORS;
-    let mut hem: Vec<Option<usize>> = vec![None; SECTORS];
-    for (i, &p) in stock.positions.iter().enumerate() {
-        if p[1] < COWL_TOP {
-            let k = sector(p);
-            if hem[k].is_none_or(|j| p[1] < stock.positions[j][1]) {
-                hem[k] = Some(i);
-            }
-        }
-    }
-    let hem_at = |t: f64| -> Result<usize> {
-        let p = [t.sin(), 0.0, centre_z + t.cos()];
-        let k = sector(p);
-        (0..SECTORS)
-            .flat_map(|d| [hem[(k + d) % SECTORS], hem[(k + SECTORS - d) % SECTORS]])
-            .flatten()
-            .next()
-            .context("the Scavenger hood has no cowl")
-    };
-    // Out of the native neck, horizontally from the axis.
-    let clear = |mut x: [f64; 3]| {
-        let dir = radial(x);
-        let origin = [0.0, x[1], centre_z];
-        if let Some((t, _, _)) = farthest_hit(origin, dir, &neck.positions, &neck.triangles)
-            && dot(sub(x, origin), dir) < t + COWL_CLEARANCE
-        {
-            x[0] = dir[0] * (t + COWL_CLEARANCE);
-            x[2] = centre_z + dir[2] * (t + COWL_CLEARANCE);
-        }
-        x
-    };
-    let mut targets: BTreeMap<usize, (usize, [f64; 3])> = BTreeMap::new();
-    for &(a, b) in &edges {
-        for v in [a, b] {
-            let p = mesh.positions[v];
-            let t = angle(p);
-            let h = hem_at(t)?;
-            let q = stock.positions[h];
-            // Down round the neck to the collar line, hugging it (`clear`
-            // keeps it out of the native neck): under every jacket's collar,
-            // as the Scavenger hood's cowl is; its hem only lends the skin.
-            let _ = q;
-            let r = p[0].hypot(p[2] - centre_z);
-            let front = t.cos().max(0.0);
-            let y = (COWL_BOTTOM - COWL_FRONT_DROP * front).min(p[1] - 0.02);
-            targets.entry(v).or_insert((h, [t.sin() * r * 0.85, y, centre_z + t.cos() * r * 0.85]));
-        }
-    }
-    let positions = mesh.positions.clone();
-    let place = |v: usize, k: usize| {
-        let (p, q) = (positions[v], targets[&v].1);
-        let s = k as f64 / COWL_ROWS as f64;
-        clear(std::array::from_fn(|c| p[c] + s * (q[c] - p[c])))
-    };
-    let skin_at = |v: usize, k: usize| {
-        let own = skin_of(&hood[12 + v * 48..12 + (v + 1) * 48]);
-        let h = targets[&v].0;
-        mix(&own, &skin_of(&scavenger[12 + h * 48..12 + (h + 1) * 48]), k as f64 / COWL_ROWS as f64)
-    };
-    let (grown, mut added, index) = grow(hood, &edges, COWL_ROWS, place, skin_at, false)?;
-    // --- The throat: a panel from one flap tip's column to the other's ---
-    let row = |v: usize, k: usize| if k == 0 { v } else { index[&(v, k)] };
-    let g = parse_mesh(&grown, 48, "grown hood")?;
-    let uv_of = |i: usize| -> [f64; 2] {
-        [0, 4].map(|o| f64::from(f32::from_le_bytes(grown[12 + i * 48 + 40 + o..12 + i * 48 + 44 + o].try_into().unwrap())))
-    };
-    let tri_of = |v: usize| -> Result<[usize; 3]> {
-        mesh.triangles
-            .iter()
-            .find(|t| t.contains(&v))
-            .copied()
-            .context("a flap tip on no triangle")
-    };
-    let (mut l, mut r) = (ends[0], ends[1]);
-    if angle(mesh.positions[l]) > angle(mesh.positions[r]) {
-        std::mem::swap(&mut l, &mut r);
-    }
-    ensure!(angle(mesh.positions[l]) < 0.0 && angle(mesh.positions[r]) > 0.0, "the flap tips are not either side of the throat");
-    let mut vertices: Vec<Vec<u8>> = vec![];
-    let mut grid: BTreeMap<(usize, usize, bool), usize> = BTreeMap::new();
-    let half = BRIDGE_SEGMENTS / 2;
-    for k in 0..=COWL_ROWS {
-        let (pl, pr) = (g.positions[row(l, k)], g.positions[row(r, k)]);
-        let (tl, tr) = (angle(pl), angle(pr));
-        let (rl, rr) = (pl[0].hypot(pl[2] - centre_z), pr[0].hypot(pr[2] - centre_z));
-        for j in 1..BRIDGE_SEGMENTS {
-            let f = j as f64 / BRIDGE_SEGMENTS as f64;
-            let (t, rad, y) = (tl + f * (tr - tl), rl + f * (rr - rl), pl[1] + f * (pr[1] - pl[1]));
-            let at = clear([t.sin() * rad, y, centre_z + t.cos() * rad]);
-            // The middle twice: each half takes its own flap's canvas.
-            for side_left in [true, false] {
-                if (side_left && j > half) || (!side_left && j < half) {
-                    continue;
-                }
-                let tip = if side_left { l } else { r };
-                let src = row(tip, k);
-                let tri = tri_of(tip)?;
-                let p3 = tri.map(|i| mesh.positions[i]);
-                let uv3 = tri.map(|i| {
-                    [0, 4].map(|o| f64::from(f32::from_le_bytes(hood[12 + i * 48 + 40 + o..12 + i * 48 + 44 + o].try_into().unwrap())))
-                });
-                let back = uv_change(p3, uv3, sub(at, mesh.positions[tip]));
-                let own = uv_of(tip);
-                let mut vertex = grown[12 + src * 48..12 + (src + 1) * 48].to_vec();
-                for (c, value) in at.iter().enumerate() {
-                    vertex[c * 4..c * 4 + 4].copy_from_slice(&(*value as f32).to_le_bytes());
-                }
-                let h = hem_at(t)?;
-                set_skin(
-                    &mut vertex,
-                    &mix(
-                        &skin_of(&grown[12 + src * 48..12 + (src + 1) * 48]),
-                        &skin_of(&scavenger[12 + h * 48..12 + (h + 1) * 48]),
-                        k as f64 / COWL_ROWS as f64,
-                    ),
-                );
-                for c in 0..2 {
-                    let value = (own[c] - back[c]) as f32;
-                    vertex[40 + c * 4..44 + c * 4].copy_from_slice(&value.to_le_bytes());
-                    let rebased = f64::from(value) * 1024.0;
-                    vertex[35 + c * 4] = (255.5 * (rebased - rebased.floor())).floor().clamp(0.0, 255.0) as u8;
-                }
-                grid.insert((k, j, side_left), g.positions.len() + vertices.len());
-                vertices.push(vertex);
-            }
-        }
-    }
-    let at = |k: usize, j: usize, left: bool| -> usize {
-        if j == 0 {
-            row(l, k)
-        } else if j == BRIDGE_SEGMENTS {
-            row(r, k)
-        } else if j == half {
-            grid[&(k, j, left)]
-        } else {
-            grid[&(k, j, j < half)]
-        }
-    };
-    let mut triangles = vec![];
-    for k in 0..COWL_ROWS {
-        for j in 0..BRIDGE_SEGMENTS {
-            let left = j < half;
-            let (a, b, c, d) = (at(k, j, left), at(k, j + 1, left), at(k + 1, j + 1, left), at(k + 1, j, left));
-            triangles.push([a, b, c]);
-            triangles.push([a, c, d]);
-        }
-    }
-    // Facing out, as the shell does.
-    let pos = |i: usize| if i < g.positions.len() { g.positions[i] } else {
-        let v = &vertices[i - g.positions.len()];
-        [0, 4, 8].map(|o| f64::from(f32::from_le_bytes(v[o..o + 4].try_into().unwrap())))
-    };
-    let t0 = triangles[0];
-    let n0 = crate::mask_fit::cross(sub(pos(t0[1]), pos(t0[0])), sub(pos(t0[2]), pos(t0[0])));
-    if dot(n0, radial(pos(t0[0]))) < 0.0 {
-        for t in &mut triangles {
-            t.swap(1, 2);
-        }
-    }
-    added += triangles.len();
-    Ok((append(&grown, &vertices, &triangles)?, added))
-}
-
 /// The lowest a full-length trousers hem should come over low boots (m):
 /// the stock `data_full` trousers end 6 to 13 cm above the ground, and the
 /// lowest stock low boot is 16.6 cm high.
@@ -2967,15 +2745,17 @@ pub fn build(
             r.3 * 1000.0
         );
         let stock = cx.view.read(SCAVENGER_HOOD)?;
-        let (grown, n) = grow_cowl(&model.surfaces[0].1, &stock, &cx.head)?;
-        model.surfaces[0].1 = grown;
-        println!("{label}: grown down to the Scavenger hood's hem over the neck and shoulders and closed across the throat ({n} triangles)");
+        // Keep the donor's open neckline. A generated cowl/throat bridge
+        // crosses native sweater collars and samples unrelated atlas tiles.
+        // The original flap ends already meet the native neck and collars.
+        let bottom = parse_mesh(&model.surfaces[0].1, 48, "hood")?.positions
+            .iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
         {
             let full = parse_mesh(&cx.head, 40, "native head")?;
             let centre = crate::hat_fit::head_centre(&full, &bind)?;
             println!("the stock Scavenger hood over the masks:");
             report_mask_clashes(&parse_mesh(&stock, 48, "Scavenger hood")?, centre, &cx.masks, |p| {
-                p[1] > COWL_BOTTOM && (p[2] < HOOD_FACE_FROM || p[1] > HOOD_BROW)
+                p[1] > bottom && (p[2] < HOOD_FACE_FROM || p[1] > HOOD_BROW)
             });
         }
         let r = fit_hood_over_masks(&mut model.surfaces[0].1, &cx.head, &bind, &cx.masks)?;
@@ -3049,9 +2829,9 @@ const HOOD_MASK_REACH: f64 = 0.015;
 /// The farthest the hood may be pushed out over the masks (m).
 const HOOD_MASK_MAX_PUSH: f64 = 0.02;
 
-/// The hood (48-byte vertices, grown) pushed out over every mask where the
+/// The original hood (48-byte vertices) pushed out over every mask where the
 /// mask is under it: its vertices behind the face (as [`head_under_hood`]'s,
-/// down to the cowl's hem) that come through the hood or within
+/// down to the donor hood's hem) that come through the hood or within
 /// [`HOOD_MASK_CLEARANCE`] of it. The parts of a mask in front of the face
 /// show through the hood's opening and are left as they are.
 fn fit_hood_over_masks(
@@ -3062,8 +2842,9 @@ fn fit_hood_over_masks(
 ) -> Result<(usize, usize, usize, f64)> {
     let full = parse_mesh(head, 40, "native head")?;
     let centre = crate::hat_fit::head_centre(&full, bind_pose)?;
-    let under = |p: &[f64; 3]| p[1] > COWL_BOTTOM && (p[2] < HOOD_FACE_FROM || p[1] > HOOD_BROW);
     let mesh = parse_mesh(hood, 48, "hood")?;
+    let bottom = mesh.positions.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min);
+    let under = |p: &[f64; 3]| p[1] > bottom && (p[2] < HOOD_FACE_FROM || p[1] > HOOD_BROW);
     report_mask_clashes(&mesh, centre, masks, under);
     let reach = |p: &[f64; 3]| {
         let d = sub(*p, centre);
