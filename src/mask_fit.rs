@@ -1345,7 +1345,8 @@ pub(crate) type Skin = Vec<(u8, f64)>;
 
 /// The skin of each vertex of a converted model: four influences for the
 /// 48-byte layout (three weights stored, the fourth the rest), two for the
-/// native head's 40-byte one (one weight stored).
+/// native head's 40-byte one (one weight stored), three for native clothing's
+/// 44-byte layout (two weights stored).
 pub(crate) fn skins(model: &[u8], stride: usize) -> Result<Vec<Skin>> {
     let count = read_u32(model, 8)?;
     (0..count)
@@ -1358,6 +1359,10 @@ pub(crate) fn skins(model: &[u8], stride: usize) -> Result<Vec<Skin>> {
                 48 => {
                     let w = [read_f32(v, 16)?, read_f32(v, 20)?, read_f32(v, 24)?];
                     vec![w[0], w[1], w[2], 1.0 - w[0] - w[1] - w[2]]
+                }
+                44 => {
+                    let w = [read_f32(v, 16)?, read_f32(v, 20)?];
+                    vec![w[0], w[1], 1.0 - w[0] - w[1]]
                 }
                 40 => {
                     let w = read_f32(v, 16)?;
@@ -2279,5 +2284,21 @@ mod tests {
             assert_eq!(c.through, 0, "{degrees}: {c:?}");
             assert!((c.min - bind_gap.min).abs() < 1e-4, "{degrees}: {c:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod clothing_skin_tests {
+    #[test]
+    fn native_three_bone_boots_keep_the_implicit_third_weight() {
+        let mut model = vec![0; 12 + 44];
+        model[8..12].copy_from_slice(&1_u32.to_le_bytes());
+        model[24..28].copy_from_slice(&[1, 2, 3, 0]);
+        model[28..32].copy_from_slice(&0.25_f32.to_le_bytes());
+        model[32..36].copy_from_slice(&0.5_f32.to_le_bytes());
+        assert_eq!(
+            super::skins(&model, 44).unwrap(),
+            vec![vec![(1, 0.25), (2, 0.5), (3, 0.25)]]
+        );
     }
 }

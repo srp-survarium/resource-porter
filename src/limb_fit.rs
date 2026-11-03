@@ -14,6 +14,10 @@ const STEP: f64 = 0.005;
 const ANGLES: usize = 48;
 /// Fraction of a slice's median radius below which a hit is inner geometry.
 const INNER: f64 = 0.6;
+/// A cuff lip or strap is not a cross-section of the enclosing garment.
+/// Interpolate small cracks only, never the missing back of a partial arc.
+const MIN_COVERAGE: usize = ANGLES * 3 / 4;
+const MAX_GAP: usize = ANGLES / 8;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Layer {
@@ -68,7 +72,11 @@ impl Axis {
         };
         let u = normalize(cross(dir, helper));
         let v = cross(dir, u);
-        let side = if a[0].abs() < 0.02 { 0.0 } else { a[0].signum() };
+        let side = if a[0].abs() < 0.02 {
+            0.0
+        } else {
+            a[0].signum()
+        };
         Ok(Axis {
             origin: a,
             dir,
@@ -128,7 +136,7 @@ impl Profile {
             .map(|t| t.2)
             .fold(f64::NEG_INFINITY, f64::max)
             .min(limit);
-        if !(start < end) {
+        if start.partial_cmp(&end) != Some(std::cmp::Ordering::Less) {
             return None;
         }
         let mut slices: Vec<Option<[f64; ANGLES]>> = vec![];
@@ -151,7 +159,8 @@ impl Profile {
         }
         // Slices without any surface take the nearest sampled neighbour.
         let first = slices.iter().position(Option::is_some)?;
-        let radii = (0..slices.len())
+        let last = slices.iter().rposition(Option::is_some)?;
+        let radii = (first..=last)
             .map(|i| {
                 (0..slices.len())
                     .filter_map(|j| slices[j].map(|r| (i.abs_diff(j), r)))
@@ -159,7 +168,6 @@ impl Profile {
                     .map(|(_, r)| r)
                     .unwrap()
             })
-            .skip(first)
             .collect();
         Some(Profile {
             start: start + first as f64 * STEP,
@@ -180,6 +188,23 @@ impl Profile {
     fn end(&self) -> f64 {
         self.start + self.radii.len() as f64 * STEP
     }
+
+    fn bound(&self, s: f64, angle: f64, spec: &LimbFit<'_>) -> Option<f64> {
+        // A sleeve or trouser leg does not continue beyond its actual cuff.
+        if s > self.end() {
+            return None;
+        }
+        let opening = self.start - s;
+        let base = self.radius(s, angle);
+        match spec.layer {
+            Layer::Inside if opening > 0.0 => Some(base + spec.ease * opening),
+            Layer::Inside => Some(base),
+            Layer::Outside if opening > 0.0 => {
+                Some(base - spec.ease * opening).filter(|b| *b > 0.0)
+            }
+            Layer::Outside => Some(base),
+        }
+    }
 }
 
 /// Angles the slice did not hit take the circular interpolation of their
@@ -194,7 +219,12 @@ fn fill_angles(mut hits: [Option<f64>; ANGLES]) -> Option<[f64; ANGLES]> {
         }
     }
     let known: Vec<usize> = (0..ANGLES).filter(|&k| hits[k].is_some()).collect();
-    if known.len() < ANGLES / 4 {
+    if known.len() < MIN_COVERAGE
+        || known
+            .iter()
+            .enumerate()
+            .any(|(i, &k)| (known[(i + 1) % known.len()] + ANGLES - k - 1) % ANGLES > MAX_GAP)
+    {
         return None;
     }
     Some(std::array::from_fn(|k| {
@@ -266,7 +296,12 @@ pub fn fit(
     let mut positions = mesh.positions.clone();
     let mut report = LimbFitReport::default();
     for &(from, to) in spec.axes {
-        let bone = |n: &str| bones.get(n).copied().with_context(|| format!("no bone {n}"));
+        let bone = |n: &str| {
+            bones
+                .get(n)
+                .copied()
+                .with_context(|| format!("no bone {n}"))
+        };
         let axis = Axis::new(bone(from)?, bone(to)?)?;
         let limit = match spec.layer {
             Layer::Inside => f64::INFINITY,
@@ -287,19 +322,7 @@ pub fn fit(
             if r > spec.max_radius || r < 1e-6 {
                 continue;
             }
-            let bounds = profiles.iter().filter_map(|pr| {
-                let opening = pr.start - s;
-                let base = pr.radius(s, angle);
-                match spec.layer {
-                    Layer::Inside if opening > 0.0 => Some(base + spec.ease * opening),
-                    Layer::Inside => Some(base),
-                    Layer::Outside if s > pr.end() => None,
-                    Layer::Outside if opening > 0.0 => {
-                        Some(base - spec.ease * opening).filter(|b| *b > 0.0)
-                    }
-                    Layer::Outside => Some(base),
-                }
-            });
+            let bounds = profiles.iter().filter_map(|pr| pr.bound(s, angle, spec));
             let target = match spec.layer {
                 Layer::Inside => bounds.fold(f64::INFINITY, f64::min) - spec.clearance,
                 Layer::Outside => bounds.fold(f64::NEG_INFINITY, f64::max) + spec.clearance,
@@ -316,10 +339,112 @@ pub fn fit(
         }
     }
     for (i, p) in positions.iter().enumerate() {
-        for k in 0..3 {
+        for (k, value) in p.iter().enumerate() {
             let at = 12 + i * 48 + k * 4;
-            garment[at..at + 4].copy_from_slice(&(p[k] as f32).to_le_bytes());
+            garment[at..at + 4].copy_from_slice(&(*value as f32).to_le_bytes());
         }
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tube(mesh: &mut Mesh, radius: f64, start: f64, end: f64, sectors: usize) {
+        let offset = mesh.positions.len();
+        for z in [start, end] {
+            for k in 0..=sectors {
+                let angle = k as f64 * std::f64::consts::TAU / ANGLES as f64;
+                mesh.positions
+                    .push([radius * angle.cos(), radius * angle.sin(), z]);
+            }
+        }
+        for k in 0..sectors {
+            let a = offset + k;
+            let b = a + sectors + 1;
+            mesh.triangles.extend([[a, a + 1, b], [a + 1, b + 1, b]]);
+        }
+    }
+
+    #[test]
+    fn a_partial_cuff_lip_does_not_become_a_narrow_shaft() {
+        let mut mesh = Mesh {
+            positions: vec![],
+            triangles: vec![],
+        };
+        // The narrow inner lip starts before the enclosing shaft. The old
+        // quarter-circle threshold fabricated its missing circumference and
+        // narrowed every garment to that lip, even above the actual boot.
+        tube(&mut mesh, 0.02, 0.0, 0.03, ANGLES / 3);
+        tube(&mut mesh, 0.08, 0.03, 0.20, ANGLES);
+        let axis = Axis::new([0.0; 3], [0.0, 0.0, 1.0]).unwrap();
+        let profile = Profile::sample(&mesh, &axis, 1.0, 0.15).unwrap();
+        assert!((profile.start - 0.03).abs() < STEP);
+        for k in 0..ANGLES {
+            assert!(
+                (profile.radius(
+                    profile.start,
+                    k as f64 * std::f64::consts::TAU / ANGLES as f64
+                ) - 0.08)
+                    .abs()
+                    < 0.001
+            );
+        }
+    }
+
+    #[test]
+    fn an_open_arc_is_not_an_enclosing_accessory() {
+        let mut mesh = Mesh {
+            positions: vec![],
+            triangles: vec![],
+        };
+        tube(&mut mesh, 0.04, 0.0, 0.2, ANGLES / 2);
+        let axis = Axis::new([0.0; 3], [0.0, 0.0, 1.0]).unwrap();
+        assert!(Profile::sample(&mesh, &axis, 1.0, 0.15).is_none());
+    }
+
+    #[test]
+    fn small_mesh_cracks_are_interpolated_but_a_missing_side_is_not() {
+        let mut hits = [Some(0.08); ANGLES];
+        hits[0] = None;
+        hits[ANGLES - 1] = None;
+        assert_eq!(fill_angles(hits).unwrap(), [0.08; ANGLES]);
+        for hit in hits.iter_mut().take(ANGLES / 4) {
+            *hit = None;
+        }
+        assert!(fill_angles(hits).is_none());
+    }
+
+    #[test]
+    fn trailing_partial_faces_do_not_extend_the_accessory() {
+        let mut mesh = Mesh {
+            positions: vec![],
+            triangles: vec![],
+        };
+        tube(&mut mesh, 0.08, 0.0, 0.1, ANGLES);
+        tube(&mut mesh, 0.02, 0.1, 0.2, ANGLES / 3);
+        let axis = Axis::new([0.0; 3], [0.0, 0.0, 1.0]).unwrap();
+        let profile = Profile::sample(&mesh, &axis, 1.0, 0.15).unwrap();
+        assert!((profile.end() - 0.1).abs() < STEP);
+    }
+    #[test]
+    fn a_cuff_does_not_squeeze_the_exposed_limb_beyond_it() {
+        let profile = Profile {
+            start: 0.1,
+            radii: vec![[0.04; ANGLES]; 10],
+        };
+        for layer in [Layer::Inside, Layer::Outside] {
+            let spec = LimbFit {
+                axes: &[],
+                layer,
+                clearance: 0.003,
+                ease: 0.5,
+                max_radius: 0.15,
+                distal_reach: 0.0,
+            };
+            assert_eq!(profile.bound(0.12, 0.0, &spec), Some(0.04));
+            assert_eq!(profile.bound(0.16, 0.0, &spec), None);
+        }
+    }
 }

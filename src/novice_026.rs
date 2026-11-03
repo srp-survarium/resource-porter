@@ -239,7 +239,7 @@ pub(crate) fn game_view(db: &Path, patches: &[PathBuf]) -> Result<ResourceDb> {
 
 /// Every surface of an item config's model and its additional models:
 /// (label, converted model, the model's bind pose).
-fn item_surfaces(view: &mut ResourceDb, path: &str) -> Result<Vec<(String, Vec<u8>, Vec<u8>)>> {
+pub(crate) fn item_surfaces(view: &mut ResourceDb, path: &str) -> Result<Vec<(String, Vec<u8>, Vec<u8>)>> {
     let config = parse_config(view, path, "equipment")?;
     let data = config.root.named("data").context("item without data")?;
     let mut parts = vec![data];
@@ -265,7 +265,7 @@ fn item_surfaces(view: &mut ResourceDb, path: &str) -> Result<Vec<(String, Vec<u
 
 /// The item configs of an armour category in the game's view, ported ones
 /// included unless they are this port's own.
-fn category_configs(view: &ResourceDb, category: &str) -> Vec<String> {
+pub(crate) fn category_configs(view: &ResourceDb, category: &str) -> Vec<String> {
     let prefix = format!("gameplay/items/armour/{category}/");
     view.paths_with_prefix(&prefix)
         .filter(|p| p.ends_with(".options") && !p.contains("novice_026"))
@@ -919,7 +919,7 @@ pub fn collar_poses(db: &Path, patches: &[PathBuf], jackets: &[(String, Vec<u8>,
     Ok(())
 }
 
-fn report_covers(covers: &[crate::body_fit::CoverReport]) {
+pub(crate) fn report_covers(covers: &[crate::body_fit::CoverReport]) {
     for c in covers {
         if c.outside_before == 0 && c.left_points == 0 {
             continue;
