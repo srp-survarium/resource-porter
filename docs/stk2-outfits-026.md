@@ -93,16 +93,13 @@ has the items, their stats and the owner's open questions.
     the boots) and painted there: the jeans' calf denim a shade lighter, a stitched
     seam along each edge and the belt line under it (`close_waist`, `grow`,
     `paint_waistband`; under 0.985 only, the other trousers end at 1.014 and 1.036);
-  - the hood's bottom was open where STK2's collar covered it: its shell's own bottom
-    hem grows down round the neck to the collar line (1.47 m, 1.44 in front), 6 mm off
-    the native neck, and the two flap tips are joined across the throat with a seam
-    down the middle; every new vertex takes the hood's canvas reflected across the edge
-    it grows from, and its skin blends into the stock Scavenger hood's hem's
-    (`grow_cowl`);
+  - the hood keeps the donor's open neckline and original hem. The generated cowl
+    and throat bridge were removed in `stk2-novice@14` on 2026-11-03: they crossed
+    the native sweater collar and showed unrelated atlas tiles below it;
   - the hood is pushed out where the native skull under it comes through (one point,
-    0.9 mm: 62 vertices, up to 5.3 mm), then, grown, over every mask (the owner,
+    0.9 mm: 62 vertices, up to 5.3 mm), then over every mask (the owner,
     2026-10-31: masks go under it): where a mask's point behind the face (above the
-    cowl's hem) comes through it or within 3 mm, up to 15 mm (868 points of 15 masks:
+    hood's hem) comes through it or within 3 mm, up to 15 mm (the earlier cowl build had 868 points of 15 masks:
     239 vertices, up to 16.7 mm; `fit_hood_over_masks`). The bulky helmet masks' neck
     guards, hoses and filters, 30 to 62 mm out, are left: they stand as far out of the
     stock Scavenger hood (31 to 57 mm; the 0.69 balaclavas 23 to 26 mm, which this hood
