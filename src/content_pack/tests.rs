@@ -741,6 +741,7 @@ fn from_bundle_keeps_only_owned_shared_changes() {
         output: &output,
         id: "new-item",
         version: "8",
+        requires: &[],
     })
     .unwrap();
     let operations = serde_json::to_value(&manifest.operations).unwrap();
@@ -1140,6 +1141,7 @@ fn a_bundle_built_on_stock_converts_over_an_earlier_release() {
         output: &output,
         id: "new-item",
         version: "2",
+        requires: &[],
     })
     .unwrap();
     let operations = serde_json::to_value(&manifest.operations).unwrap();
@@ -1288,6 +1290,7 @@ fn from_bundle_finds_the_weapon_icon_atlas() {
         output: &output,
         id: "rifles",
         version: "1",
+        requires: &[],
     })
     .unwrap();
     let operations = serde_json::to_value(&manifest.operations).unwrap();

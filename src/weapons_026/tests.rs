@@ -172,17 +172,227 @@ fn state_types_map_by_build() {
     assert!(RULES_031A2.state_type(399).is_err());
 }
 
+// --- Reverb layers ---------------------------------------------------------
+
+/// A composite item: name, resource type, start offset, window, enabled.
+fn sound_item(name: &str, kind: i32, start: i32, window: (i32, i32), enabled: bool) -> V {
+    t(vec![
+        ("filename", s(name)),
+        ("enabled", V::Boolean(enabled)),
+        ("max_distance", V::Integer(window.1)),
+        ("resource_type", V::Integer(kind)),
+        ("start_offset", V::Integer(start)),
+        ("start_offset_max", V::Integer(start)),
+        ("min_distance", V::Integer(window.0)),
+    ])
+}
+
+fn composite(items: Vec<V>) -> V {
+    t(vec![(
+        "composite_sound",
+        t(vec![
+            ("master_layer_index", V::Integer(0)),
+            ("use_master_layer_index", V::Boolean(false)),
+            ("sound_items", list(items)),
+        ]),
+    )])
+}
+
+fn located(mut item: V, environment: &str) -> V {
+    item.set_path("sound_environment", s(environment)).unwrap();
+    item
+}
+
+/// An SPL preset whose volume falls to 0 at `end` metres.
+fn spl(end: f32) -> V {
+    let key = |x: f32, y: f32| t(vec![("position", V::Float2([x, y]))]);
+    t(vec![(
+        "volume",
+        t(vec![("key1", key(end, 0.0)), ("key0", key(0.0, 1.0))]),
+    )])
+}
+
+fn raw_options(preset: &str) -> V {
+    t(vec![("options", t(vec![("spl_preset", s(preset))]))])
+}
+
+/// A donor's reverb composites and sounds, as `reverb::layers_of` reads them.
+fn reverb_files(path: &str) -> anyhow::Result<Option<V>> {
+    use reverb::composite_file;
+    let env = "weapons/environments";
+    Ok(Some(
+        if path == composite_file(&format!("{env}/weapons_3rd_view")) {
+            composite(vec![
+                located(
+                    sound_item(&format!("{env}/school_3rd"), 257, 0, (0, 2000), true),
+                    "school_outdoor",
+                ),
+                located(
+                    sound_item(&format!("{env}/rudnya_3rd"), 257, 0, (0, 2000), true),
+                    "rudnya_outdoor",
+                ),
+            ])
+        } else if path == composite_file(&format!("{env}/rudnya_3rd")) {
+            composite(vec![
+                sound_item("distant", 258, 0, (0, 2000), true),
+                sound_item("core", 256, 10, (0, 2000), false),
+                sound_item("near", 258, 0, (0, 21), true),
+                sound_item("far_only", 256, 0, (300, 2000), true),
+                sound_item("unknown_reach", 258, 0, (0, 2000), true),
+            ])
+        } else if path == composite_file(&format!("{env}/weapons_1st_view_one_shot")) {
+            composite(vec![located(
+                sound_item("own_tail", 258, 80, (0, 2000), true),
+                "rudnya_outdoor",
+            )])
+        } else {
+            match path {
+                "sounds/collections/distant.sound_collection" => t(vec![(
+                    "collection",
+                    t(vec![(
+                        "sound_items",
+                        list(vec![
+                            t(vec![("filename", s("d1"))]),
+                            t(vec![("filename", s("d2"))]),
+                        ]),
+                    )]),
+                )]),
+                "sounds/collections/near.sound_collection" => t(vec![(
+                    "collection",
+                    t(vec![(
+                        "sound_items",
+                        list(vec![t(vec![("filename", s("n1"))])]),
+                    )]),
+                )]),
+                "sounds/collections/unknown_reach.sound_collection" => t(vec![(
+                    "collection",
+                    t(vec![(
+                        "sound_items",
+                        list(vec![t(vec![("filename", s("plain"))])]),
+                    )]),
+                )]),
+                "sounds/single/d1.raw_options" | "sounds/single/d2.raw_options" => {
+                    raw_options("main_distant")
+                }
+                "sounds/single/core.raw_options" => raw_options("core_distant"),
+                "sounds/single/n1.raw_options" => raw_options("main_3rd_view"),
+                "sounds/single/plain.raw_options" => raw_options("default"),
+                "sounds/spl/main_distant.spl" => spl(200.0),
+                "sounds/spl/core_distant.spl" => spl(240.0),
+                "sounds/spl/main_3rd_view.spl" => spl(19.293),
+                "sounds/spl/default.spl" => spl(80.0),
+                _ => return Ok(None),
+            }
+        },
+    ))
+}
+
+fn windows(composite: &V) -> Vec<(String, i32, (i32, i32), bool)> {
+    reverb::items(composite)
+        .unwrap()
+        .iter()
+        .map(|i| {
+            let i = reverb::Item::parse(i).unwrap();
+            (
+                i.name,
+                i.play.start_offset,
+                (i.play.min_distance, i.play.max_distance),
+                i.play.enabled,
+            )
+        })
+        .collect()
+}
+
 #[test]
-fn reverb_composites_become_outdoor_collections() {
+fn a_third_view_reverb_is_its_rudnya_composites_layers_in_the_guns_composite() {
+    let gun = composite(vec![
+        sound_item("weapons/gun/loud_m", 258, 0, (0, 21), true),
+        sound_item(
+            "weapons/environments/weapons_3rd_view",
+            257,
+            5,
+            (0, 250),
+            true,
+        ),
+    ]);
+    let out = reverb::with_reverb_layers(&gun, &mut reverb_files).unwrap();
+    let w = |n: &str, start, window, enabled| (n.to_owned(), start, window, enabled);
     assert_eq!(
-        environment_layer("weapons/environments/weapons_1st_view").as_deref(),
-        Some("weapons/environments/level_01/automatic/outdoor/rudnya_outdoor")
+        windows(&out),
+        vec![
+            w("weapons/gun/loud_m", 0, (0, 21), true),
+            // The gun's window, ended where the curve is silent (200 m).
+            w("distant", 5, (0, 200), true),
+            // Offsets add up; disabled in the donor stays disabled.
+            w("core", 15, (0, 240), false),
+            // The donor's own window, inside the curve's 19.3 m reach.
+            w("near", 5, (0, 20), true),
+            // A preset `default` (2/d, never silent) keeps the window.
+            w("unknown_reach", 5, (0, 250), true),
+        ],
+        "far_only (300-2000) never meets the gun's 0-250"
     );
+    // The item keeps the 0.26g template's keys, none of the donor's.
+    let item = &reverb::items(&out).unwrap()[1];
+    assert!(item.named("sound_environment").is_none());
+}
+
+#[test]
+fn a_first_view_reverb_is_its_rudnya_collection_with_its_offset() {
+    let gun = composite(vec![sound_item(
+        "weapons/environments/weapons_1st_view_one_shot",
+        257,
+        0,
+        (0, 2000),
+        true,
+    )]);
+    let out = reverb::with_reverb_layers(&gun, &mut reverb_files).unwrap();
     assert_eq!(
-        environment_layer("weapons/environments/weapons_3rd_view_one_shot").as_deref(),
-        Some("weapons/environments/level_01/automatic/outdoor/rudnya_outdoor_one_shot_distant")
+        windows(&out),
+        vec![("own_tail".to_owned(), 80, (0, 2000), true)]
     );
-    assert_eq!(environment_layer("weapons/environments/indoor_x"), None);
+}
+
+#[test]
+fn relayer_replaces_an_earlier_ports_outdoor_collection_only() {
+    let donor = composite(vec![
+        sound_item("weapons/akm_n/loud_m", 258, 0, (0, 21), true),
+        sound_item(
+            "weapons/environments/weapons_3rd_view",
+            257,
+            0,
+            (0, 250),
+            true,
+        ),
+    ]);
+    let live = composite(vec![
+        sound_item("weapons/akm_n_069/loud_m", 258, 0, (0, 21), true),
+        sound_item("near", 258, 0, (0, 250), true),
+    ]);
+    let out = reverb::relayer(&live, &donor, &mut reverb_files).unwrap();
+    let names: Vec<String> = windows(&out).into_iter().map(|w| w.0).collect();
+    assert_eq!(
+        names,
+        [
+            "weapons/akm_n_069/loud_m",
+            "distant",
+            "core",
+            "near",
+            "unknown_reach"
+        ]
+    );
+    // A live item of another window is not the donor's: refused.
+    let other = composite(vec![
+        sound_item("weapons/akm_n_069/loud_m", 258, 0, (0, 21), true),
+        sound_item("near", 258, 0, (0, 2000), true),
+    ]);
+    assert!(reverb::relayer(&other, &donor, &mut reverb_files).is_err());
+    // Under a master layer the layers' own curves do not apply: refused.
+    let mut master = live.clone();
+    master
+        .set_path("composite_sound.use_master_layer_index", V::Boolean(true))
+        .unwrap();
+    assert!(reverb::relayer(&master, &donor, &mut reverb_files).is_err());
 }
 
 #[test]

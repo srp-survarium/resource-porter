@@ -32,8 +32,9 @@ pub mod icons;
 pub mod manifest;
 pub mod modules;
 pub mod resources;
+pub mod reverb;
 
-pub use build::{BuildReport, build, conform_material, environment_layer};
+pub use build::{BuildReport, build, conform_material, relayer_bundle};
 pub use config::conform;
 pub use donor::strip_mesh_statistics;
 
