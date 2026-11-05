@@ -14,7 +14,7 @@ side view. The code: `src/weapons_026/` (its module docs say each rule and why).
 | meshes | 0.31's statistics chunk 110 dropped; otherwise 0.26g's layout |
 | materials | the donor's on a native material of the same base material's effect keys |
 | sound options | the donor's, less the keys 0.26g's exe does not read (`pitch`, `add_rms`) |
-| firing sounds | the reverb layer `weapons/environments/weapons_<view>_view*` (per-location reverbs 0.26g's maps have no zones for) becomes the outdoor collection of its kind (patch 19's choice) |
+| firing sounds | the reverb layer `weapons/environments/weapons_<view>_view*` (per-location reverbs 0.26g's maps have no zones for) becomes its Rudnya outdoor item (patch 19's choice): the first view's collection, or the third view's composite (near tail and distant shot) nested into the gun's composite, each layer ending where its loudness curve does (`reverb.rs`) |
 | item config | the donor's on a native template's keys and the natives' schema (a key some native weapon has is kept); the build's state types, renamed and rescaled keys (`donor.rs` `Rules`); a state or part that plays the later builds' shared `weapons/base` clips is the template's; durability, repair, modification mask and melee are 0.26g's (`config.rs` `NATIVE_PATHS`); then the manifest's `set`, icons and the card |
 | dictionary | a row like the template's (id, name, config, price), an `items_compatibility` row `compatibility_<gun>_<round>` a round |
 | icons | the lobby cell (`icons/`, `atlas_icons_add`) and the kill feed image (`kill-feed/CombatLogWeapon<n>.png`, RGBA) for skhid-srp's hud |
@@ -77,7 +77,37 @@ explained in
 0.26g's melee (patch 19 wrote k_damage 2 for the natives' 1.5). Where patch 19 is right: a bolt
 action's card rate, the Saiga skin's missing material, the shotguns' template. The rest are
 choices or invisible (sound keys 0.26g does not read, int against float, rounding).
+Since the reverb layers (2026-11-05) the tool also differs, rightly, in the seven third-view
+composites and the MP7 SD's 55 ms tail start, and ships the 130 files of the distant layers patch 19
+left out.
 
 The test `the_tool_gives_patch_19s_weapons` runs it with `VOSTOK_029A3_DONOR` (the donor's
 `.split`), `VOSTOK_026G_DB` and `VOSTOK_026G_PATCHES` set (the 0.29a3 donor: `Survarium29a` of
 the owner's `Survarium_archives.zip`).
+
+## The earlier ports' reverb layers
+
+Patch 19 and the packs weapons-031, -046 and -069 were made when the port collapsed a reverb item
+into one outdoor collection: in the third view only the near tail (0.31 and later: to 21 m) stayed,
+at 0-2000 m, and the distant shot was lost (other players' shots fell silent at 19-50 m).
+`vostok-port relayer-weapons` lays the donors' reverb layers into those composites as a port now
+makes them, and leaves every other item as it is:
+
+```sh
+vostok-port relayer-weapons --list ports/weapons-reverb-layers.tsv \
+  --build 0.29a3=v029a3.split --build 0.31a2=v031a2.split --build 0.46c2=v046c2.split \
+  --build 0.69d0=composites-069d0.db --files-donor v029a3.split \
+  --target-db STOCK/resources.db --target-patch ... --output BUNDLE
+vostok-port pack from-bundle --base-db STOCK/resources.db --base-patch ... --bundle BUNDLE \
+  --output PACK --id weapons-reverb-layers --version 1 \
+  --requires weapons-031 --requires weapons-046 --requires weapons-069
+```
+
+The list names each composite, its donor build and the donor composite (0.69d0 renamed five).
+The tool refuses a composite whose reverb item is not the donor's (another window, or not one of
+its layers). The new layers' files come from 0.29a3 (`--files-donor`), patch 19's source of the
+outdoor collections: the four builds' configs of them are the same values, and 0.69d0's own
+recordings of them would need paths of their own. 0.69d0's volumes are compressed, so its
+composites are a small archive: `extract-bundle` of `sounds/composite/weapons/` with the weapon
+survey's vostok-port, then `examples/pack-donor-tree`. The first view changes only where the donor
+starts its tail late (the KS-23M 80 ms, the MP7 SD 55 ms).

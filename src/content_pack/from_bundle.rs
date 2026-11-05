@@ -37,6 +37,9 @@ pub struct FromBundleOptions<'a> {
     pub output: &'a Path,
     pub id: &'a str,
     pub version: &'a str,
+    /// Packs composed under this one whose files it replaces (a layered
+    /// replace measures against their bytes).
+    pub requires: &'a [String],
 }
 
 #[derive(Default)]
@@ -231,7 +234,7 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
             .get("asset_id")
             .and_then(Json::as_str)
             .map(|asset| format!("converted from bundle {asset}")),
-        requires: Vec::new(),
+        requires: options.requires.to_vec(),
         base_db_sha256: record
             .get("target_db_sha256")
             .and_then(Json::as_str)

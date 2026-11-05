@@ -236,6 +236,29 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Lay the donors' reverb layers into the firing composites an earlier
+    /// port made (a list like `ports/weapons-reverb-layers.tsv`;
+    /// docs/weapons-026.md): a bundle for `pack from-bundle`.
+    RelayerWeapons {
+        /// `<composite>\t<build>\t<donor composite>` rows.
+        #[arg(long)]
+        list: PathBuf,
+        /// A donor build's archive, `<build>=<resources.db or .split>`
+        /// (repeatable): its composites are read from it.
+        #[arg(long = "build", required = true)]
+        builds: Vec<String>,
+        /// The donor the new layers' files come from (0.29a3: patch 19's).
+        #[arg(long)]
+        files_donor: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// The patches players have, in mount order.
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// A side view of a model's meshes (`<model>/render/*/converted_model`
     /// of a folder): a weapon's verification render.
     RenderWeapon {
@@ -945,6 +968,10 @@ enum PackCommand {
         id: String,
         #[arg(long)]
         version: String,
+        /// A pack composed under this one whose files it replaces
+        /// (repeatable).
+        #[arg(long)]
+        requires: Vec<String>,
     },
 }
 
@@ -1267,6 +1294,47 @@ fn main() -> Result<()> {
             println!(
                 "Built {}: {} files, {} reused from the target",
                 port.id, report.files, report.reused
+            );
+        }
+        Command::RelayerWeapons {
+            list,
+            builds,
+            files_donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::{
+                donor::{ArchiveDonor, DonorBuild},
+                relayer_bundle,
+                reverb::load_relayers,
+            };
+            let rows = load_relayers(&std::fs::read_to_string(&list)?)?;
+            let mut archives = std::collections::BTreeMap::new();
+            for b in &builds {
+                let (name, path) = b
+                    .split_once('=')
+                    .with_context(|| format!("--build {b}: not <build>=<path>"))?;
+                archives.insert(name.to_owned(), ResourceDb::open(path)?);
+            }
+            let mut files = ArchiveDonor::open(&files_donor, DonorBuild::V029a3)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report = relayer_bundle(&rows, &mut archives, &mut files, &layers, &output)?;
+            for (what, notes) in &report.notes {
+                for note in notes {
+                    println!("{what}: {note}");
+                }
+            }
+            println!(
+                "Relayered {} composites: {} files, {} reused from the target",
+                rows.len()
+                    - report
+                        .notes
+                        .get("unchanged")
+                        .map_or(0, |unchanged| unchanged.len()),
+                report.files,
+                report.reused
             );
         }
         Command::RenderWeapon {
@@ -2727,6 +2795,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             output,
             id,
             version,
+            requires,
         } => {
             let manifest = content_pack::from_bundle::from_bundle(
                 &content_pack::from_bundle::FromBundleOptions {
@@ -2737,6 +2806,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
                     output: &output,
                     id: &id,
                     version: &version,
+                    requires: &requires,
                 },
             )?;
             for note in &manifest.notes {

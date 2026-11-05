@@ -13,8 +13,8 @@
 //!   `pitch`);
 //! * firing sounds (`composite_sound`): the later builds' reverb layer,
 //!   `weapons/environments/weapons_<view>_view*` (a composite of per-location
-//!   reverbs, which 0.26g's maps have no zones for), becomes the outdoor
-//!   collection of the same kind, as patch 19's ([`environment_layer`]);
+//!   reverbs, which 0.26g's maps have no zones for), becomes its Rudnya
+//!   outdoor item's layers ([`super::reverb`]);
 //! * any other config: as it is, and what it names is carried in turn.
 //!
 //! The item configs are [`super::config::weapon_config`]'s, on templates
@@ -49,38 +49,6 @@ const MATERIAL_TEMPLATES: [(&str, &str); 2] = [
 ];
 const RAW_OPTIONS_TEMPLATE: &str =
     "sounds/single/weapons/ak_12/layers/ak_12_shutter_01.raw_options";
-
-/// The later builds' reverb composites and the outdoor collection each
-/// becomes (patch 19's choice for its 0.29a3 weapons; the four marked
-/// "by kind" no patch-19 weapon names, and take the collection of their
-/// kind).
-const ENVIRONMENT_LAYERS: [(&str, &str); 9] = [
-    ("weapons_1st_view", "rudnya_outdoor"),
-    ("weapons_3rd_view", "rudnya_outdoor"),
-    ("weapons_1st_view_smg", "rudnya_outdoor_smg"),
-    ("weapons_3rd_view_smg", "rudnya_outdoor_smg"),
-    ("weapons_1st_view_suppressed", "rudnya_outdoor_suppressed"),
-    ("weapons_1st_view_one_shot_auto", "rudnya_outdoor_one_shot"),
-    (
-        "weapons_3rd_view_one_shot",
-        "rudnya_outdoor_one_shot_distant",
-    ),
-    // by kind
-    ("weapons_1st_view_one_shot", "rudnya_outdoor_one_shot"),
-    (
-        "weapons_3rd_view_one_shot_auto",
-        "rudnya_outdoor_one_shot_distant",
-    ),
-];
-
-/// The outdoor collection a reverb composite becomes.
-pub fn environment_layer(composite: &str) -> Option<String> {
-    let name = composite.strip_prefix("weapons/environments/")?;
-    ENVIRONMENT_LAYERS
-        .iter()
-        .find(|(from, _)| *from == name)
-        .map(|(_, to)| format!("weapons/environments/level_01/automatic/outdoor/{to}"))
-}
 
 /// What a build made, besides the bundle's files.
 #[derive(Debug, Default)]
@@ -188,7 +156,7 @@ impl<D: Donor> Carry<'_, D> {
             let template = parse_config(self.target, RAW_OPTIONS_TEMPLATE, "native raw_options")?;
             known_keys_only(&root, &template.root)
         } else if path.ends_with(".composite_sound") {
-            environment_layers(root)?
+            self.reverb_layers(&root)?
         } else {
             root
         };
@@ -203,6 +171,22 @@ impl<D: Donor> Carry<'_, D> {
             return self.raw(path, &bytes);
         }
         self.config(path, root)
+    }
+
+    /// A config as the port reads it: the target's, else the donor's.
+    fn read_config(&mut self, path: &str) -> Result<Option<V>> {
+        if self.target.contains(path) {
+            return Ok(Some(parse_config(self.target, path, "target config")?.root));
+        }
+        if self.donor.contains(path) {
+            return Ok(Some(self.donor.config(path)?));
+        }
+        Ok(None)
+    }
+
+    /// A donor firing composite with its reverb items' layers in place.
+    fn reverb_layers(&mut self, root: &V) -> Result<V> {
+        super::reverb::with_reverb_layers(root, &mut |path| self.read_config(path))
     }
 
     /// Every file under `prefix` (a model folder), unless the target has
@@ -366,29 +350,6 @@ fn collect_sound_lists(v: &V, out: &mut Vec<(i32, String)>) {
             }
         }
     }
-}
-
-/// A firing composite's reverb layers as outdoor collections.
-fn environment_layers(mut root: V) -> Result<V> {
-    let Some(V::Indexed(items)) = root
-        .named_mut("composite_sound")
-        .and_then(|c| c.named_mut("sound_items"))
-    else {
-        return Ok(root);
-    };
-    for item in items.iter_mut() {
-        let Some(name) = string_of(item.named("filename")).map(str::to_owned) else {
-            continue;
-        };
-        if !name.starts_with("weapons/environments/weapons_") {
-            continue;
-        }
-        let to = environment_layer(&name)
-            .with_context(|| format!("no outdoor collection for the reverb layer {name}"))?;
-        item.set_path("filename", s(to))?;
-        item.set_path("resource_type", V::Integer(258))?;
-    }
-    Ok(root)
 }
 
 /// `donor` without the keys `template`'s tables lack (0.31's `pitch`,
@@ -858,6 +819,105 @@ pub fn build<D: Donor>(
             "items": configs.iter().map(|(w, _)| w.config.clone()).chain(ammo_configs.iter().map(|(p, _)| p.clone())).collect::<Vec<_>>(),
             "compatibility": compat,
             "icons": icons,
+            "reused_from_target": reused,
+            "notes": report.notes,
+        }))?,
+    )?;
+    crate::model_validation::validate_overlay_on(&mut target, &overlay)?;
+    report.files = files.len();
+    report.reused = reused.len();
+    Ok(report)
+}
+
+/// A bundle of the firing composites an earlier port made (each reverb item
+/// one outdoor collection, as patch 19 made them) with their donors' reverb
+/// layers in place ([`super::reverb::relayer`]), and the files the new
+/// layers name that the target lacks. `builds` are the donor builds'
+/// archives, by the rows' build names (their composites are read from
+/// them); `files` is the donor the carried files come from. A composite the
+/// layers leave as it is is not shipped.
+pub fn relayer_bundle<D: Donor>(
+    rows: &[super::reverb::Relayer],
+    builds: &mut BTreeMap<String, ResourceDb>,
+    files: &mut D,
+    target_layers: &[PathBuf],
+    output: &Path,
+) -> Result<BuildReport> {
+    use super::reverb::{composite_file, relayer};
+    prepare_empty_output(output)?;
+    let overlay = output.join("overlay");
+    fs::create_dir_all(&overlay)?;
+    let mut target = ResourceDb::open_layers(target_layers)?;
+    let files_build = files.build();
+    let mut carry = Carry {
+        donor: files,
+        target: &mut target,
+        overlay: &overlay,
+        files: vec![],
+        written: BTreeSet::new(),
+        reused: BTreeSet::new(),
+        source: format!(
+            "converted:{}",
+            serde_json::to_value(files_build)?.as_str().unwrap_or("?")
+        ),
+        file_values: BTreeMap::new(),
+        warnings: vec![],
+        material_templates: BTreeMap::new(),
+    };
+    let mut report = BuildReport::default();
+    let mut relayered = vec![];
+    for row in rows {
+        let path = composite_file(&row.composite);
+        let live = parse_config(carry.target, &path, "the players' composite")?.root;
+        let build = builds
+            .get_mut(&row.build)
+            .with_context(|| format!("{}: no build {}", row.composite, row.build))?;
+        let donor_path = composite_file(&row.donor_composite);
+        let donor = BinaryConfig::parse(&build.read(&donor_path)?)
+            .with_context(|| format!("{} {donor_path}", row.build))?
+            .root;
+        // The reverb composites are the row's build's; the sounds' files
+        // the target's, else the carried donor's.
+        let mut read = |p: &str| -> Result<Option<V>> {
+            if p.starts_with("sounds/composite/") {
+                return match build.contains(p) {
+                    true => Ok(Some(BinaryConfig::parse(&build.read(p)?)?.root)),
+                    false => Ok(None),
+                };
+            }
+            carry.read_config(p)
+        };
+        let new = relayer(&live, &donor, &mut read).with_context(|| row.composite.clone())?;
+        if new == live {
+            report
+                .notes
+                .entry("unchanged".into())
+                .or_default()
+                .push(row.composite.clone());
+            continue;
+        }
+        carry.follow(&path, &new)?;
+        carry.config(&path, new)?;
+        relayered.push(path);
+    }
+    let Carry {
+        mut files,
+        reused,
+        warnings,
+        ..
+    } = carry;
+    report.notes.insert("files".into(), warnings);
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    fs::write(
+        output.join("port-manifest.json"),
+        serde_json::to_vec_pretty(&json!({
+            "format_version": 1,
+            "asset_id": "reverb-layers",
+            "donor_build": files_build,
+            "files": files,
+            "target": target_layers,
+            "items": [],
+            "relayered": relayered,
             "reused_from_target": reused,
             "notes": report.notes,
         }))?,
