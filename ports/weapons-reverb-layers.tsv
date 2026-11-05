@@ -1,0 +1,50 @@
+# The firing composites the earlier weapon ports made with each reverb item collapsed into one
+# outdoor collection (patch 19, weapons-031, -046, -069), and the donor composite each was made
+# from: <composite>	<donor build>	<donor composite>. `vostok-port relayer-weapons` lays the
+# donors' reverb layers into them (docs/weapons-026.md, src/weapons_026/reverb.rs).
+weapons/fn_p90	0.29a3	weapons/fn_p90
+weapons/fn_p90_m	0.29a3	weapons/fn_p90_m
+weapons/hk416	0.29a3	weapons/hk416
+weapons/m4a1	0.29a3	weapons/m4a1
+weapons/mp7	0.29a3	weapons/mp7
+weapons/mp7_m	0.29a3	weapons/mp7_m
+weapons/mp7_silencer	0.29a3	weapons/mp7_silencer
+weapons/neostead	0.29a3	weapons/neostead
+weapons/neostead_m	0.29a3	weapons/neostead_m
+weapons/pkp_pecheneg	0.29a3	weapons/pkp_pecheneg
+weapons/pkp_pecheneg_m	0.29a3	weapons/pkp_pecheneg_m
+weapons/saiga_12	0.29a3	weapons/saiga_12
+weapons/saiga_12_m	0.29a3	weapons/saiga_12_m
+weapons/vepr_12	0.29a3	weapons/vepr_12
+weapons/vepr_12_m	0.29a3	weapons/vepr_12_m
+weapons/fn_minimi	0.31a2	weapons/fn_minimi
+weapons/fn_minimi_m	0.31a2	weapons/fn_minimi_m
+weapons/ots14	0.31a2	weapons/ots14
+weapons/ots14_m	0.31a2	weapons/ots14_m
+weapons/vepr	0.31a2	weapons/vepr
+weapons/beretta93r	0.46c2	weapons/beretta93r
+weapons/beretta93r_m	0.46c2	weapons/beretta93r_m
+weapons/cz_75b	0.46c2	weapons/cz_75b
+weapons/cz_75b_m	0.46c2	weapons/cz_75b_m
+weapons/glock_17	0.46c2	weapons/glock_17
+weapons/glock_17_m	0.46c2	weapons/glock_17_m
+weapons/jackhammer	0.46c2	weapons/jackhammer
+weapons/jackhammer_m	0.46c2	weapons/jackhammer_m
+weapons/l85a2	0.46c2	weapons/l85a2
+weapons/l85a2_m	0.46c2	weapons/l85a2_m
+weapons/mp_443	0.46c2	weapons/mp_443
+weapons/mp_443_m	0.46c2	weapons/mp_443_m
+weapons/mp5	0.46c2	weapons/mp5
+weapons/mp5_m	0.46c2	weapons/mp5_m
+weapons/svu	0.46c2	weapons/svu
+weapons/svu_m	0.46c2	weapons/svu_m
+weapons/akm_n_069	0.69d0	weapons/akm_n
+weapons/akm_n_069_m	0.69d0	weapons/akm_n_m
+weapons/m4a1_069	0.69d0	weapons/m4a1
+weapons/m4a1_069_m	0.69d0	weapons/m4a1_m
+weapons/ppsh_069	0.69d0	weapons/ppsh
+weapons/ppsh_069_m	0.69d0	weapons/ppsh_m
+weapons/rem_870_069	0.69d0	weapons/rem_870
+weapons/rem_870_069_m	0.69d0	weapons/rem_870_m
+weapons/socom16_069	0.69d0	weapons/socom16
+weapons/socom16_069_m	0.69d0	weapons/socom16_m

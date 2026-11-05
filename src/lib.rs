@@ -44,6 +44,7 @@ pub mod target_native_map;
 pub mod terrain_surface_patch;
 pub mod v069d_skinned;
 pub mod weapon;
+pub mod weapons_026;
 
 pub use archive::ResourceDb;
 pub use binary_config::{BinaryConfig, ConfigValue, NamedValue};

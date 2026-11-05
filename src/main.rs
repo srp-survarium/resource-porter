@@ -45,6 +45,9 @@ enum Command {
         db: PathBuf,
         #[arg(long, default_value = "")]
         prefix: String,
+        /// Also each file's size and stored CRC-32, tab-separated.
+        #[arg(long)]
+        long: bool,
     },
     /// Print archive metadata for one virtual resource path.
     Stat {
@@ -214,6 +217,73 @@ enum Command {
         roots: Vec<String>,
         #[arg(long)]
         output: Option<PathBuf>,
+    },
+    /// Port later builds' weapons to v0.26g from a port manifest
+    /// (`ports/weapons-*.json`; docs/weapons-026.md): a bundle for
+    /// `pack from-bundle`.
+    PortWeapons {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// The donor build: a resources.db or a `.split` list of volumes.
+        #[arg(long)]
+        donor: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// The patches players have, in mount order.
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Lay the donors' reverb layers into the firing composites an earlier
+    /// port made (a list like `ports/weapons-reverb-layers.tsv`;
+    /// docs/weapons-026.md): a bundle for `pack from-bundle`.
+    RelayerWeapons {
+        /// `<composite>\t<build>\t<donor composite>` rows.
+        #[arg(long)]
+        list: PathBuf,
+        /// A donor build's archive, `<build>=<resources.db or .split>`
+        /// (repeatable): its composites are read from it.
+        #[arg(long = "build", required = true)]
+        builds: Vec<String>,
+        /// The donor the new layers' files come from (0.29a3: patch 19's).
+        #[arg(long)]
+        files_donor: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// The patches players have, in mount order.
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// A side view of a model's meshes (`<model>/render/*/converted_model`
+    /// of a folder): a weapon's verification render.
+    RenderWeapon {
+        /// The model folder (`.../<name>.skinned_model` or `.model`).
+        #[arg(long)]
+        model: PathBuf,
+        #[arg(long, default_value_t = 1200)]
+        width: usize,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Compare a weapon bundle with files players have (a patch), file by
+    /// file; exits non-zero on an unexplained difference.
+    CompareWeapons {
+        #[arg(long)]
+        bundle: PathBuf,
+        /// The archive (or archives, laid over one another) to compare with.
+        #[arg(long, required = true)]
+        reference: Vec<PathBuf>,
+        /// Known differences (`ports/*.known.tsv`).
+        #[arg(long)]
+        known: Option<PathBuf>,
+        /// Writes every row here (TSV).
+        #[arg(long)]
+        report: Option<PathBuf>,
     },
     /// Build a new-weapon overlay bundle from a declarative manifest.
     BuildWeapon {
@@ -898,6 +968,10 @@ enum PackCommand {
         id: String,
         #[arg(long)]
         version: String,
+        /// A pack composed under this one whose files it replaces
+        /// (repeatable).
+        #[arg(long)]
+        requires: Vec<String>,
     },
 }
 
@@ -959,10 +1033,13 @@ fn main() -> Result<()> {
             println!("unique_paths={}", archive.paths().count());
             println!("stored_bytes={stored_bytes}");
         }
-        Command::List { db, prefix } => {
+        Command::List { db, prefix, long } => {
             let archive = ResourceDb::open(db)?;
             for path in archive.paths_with_prefix(&prefix) {
-                println!("{path}");
+                match archive.entry(path).filter(|_| long) {
+                    Some((_, entry)) => println!("{path}\t{}\t{:08x}", entry.size, entry.hash),
+                    None => println!("{path}"),
+                }
             }
         }
         Command::Stat { db, path } => {
@@ -1193,6 +1270,115 @@ fn main() -> Result<()> {
                 std::fs::write(output, json)?;
             } else {
                 println!("{json}");
+            }
+        }
+        Command::PortWeapons {
+            manifest,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::{donor::ArchiveDonor, manifest::WeaponPort};
+            let port = WeaponPort::load(&manifest)?;
+            let mut donor = ArchiveDonor::open(&donor, port.donor_build)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report =
+                vostok_resource_porter::weapons_026::build(&port, &mut donor, &layers, &output)?;
+            for (config, notes) in &report.notes {
+                for note in notes {
+                    println!("{config}: {note}");
+                }
+            }
+            println!(
+                "Built {}: {} files, {} reused from the target",
+                port.id, report.files, report.reused
+            );
+        }
+        Command::RelayerWeapons {
+            list,
+            builds,
+            files_donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::{
+                donor::{ArchiveDonor, DonorBuild},
+                relayer_bundle,
+                reverb::load_relayers,
+            };
+            let rows = load_relayers(&std::fs::read_to_string(&list)?)?;
+            let mut archives = std::collections::BTreeMap::new();
+            for b in &builds {
+                let (name, path) = b
+                    .split_once('=')
+                    .with_context(|| format!("--build {b}: not <build>=<path>"))?;
+                archives.insert(name.to_owned(), ResourceDb::open(path)?);
+            }
+            let mut files = ArchiveDonor::open(&files_donor, DonorBuild::V029a3)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report = relayer_bundle(&rows, &mut archives, &mut files, &layers, &output)?;
+            for (what, notes) in &report.notes {
+                for note in notes {
+                    println!("{what}: {note}");
+                }
+            }
+            println!(
+                "Relayered {} composites: {} files, {} reused from the target",
+                rows.len()
+                    - report
+                        .notes
+                        .get("unchanged")
+                        .map_or(0, |unchanged| unchanged.len()),
+                report.files,
+                report.reused
+            );
+        }
+        Command::RenderWeapon {
+            model,
+            width,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::modules::{Mesh, png, render_side};
+            let mut meshes = vec![];
+            for entry in std::fs::read_dir(model.join("render"))? {
+                let path = entry?.path().join("converted_model");
+                if path.is_file() {
+                    meshes.push(Mesh::parse(&std::fs::read(&path)?)?);
+                }
+            }
+            anyhow::ensure!(!meshes.is_empty(), "{} has no meshes", model.display());
+            let parts: Vec<_> = meshes
+                .iter()
+                .map(|m| (m.positions.as_slice(), m.triangles.as_slice(), [190u8, 190, 180]))
+                .collect();
+            let (w, h, rgba) = render_side(&parts, width)?;
+            std::fs::write(&output, png(w, h, &rgba)?)?;
+            println!("{}: {w}x{h}", output.display());
+        }
+        Command::CompareWeapons {
+            bundle,
+            reference,
+            known,
+            report,
+        } => {
+            use vostok_resource_porter::weapons_026::compare;
+            let known = match known {
+                Some(path) => compare::load_known(&path)?,
+                None => Vec::new(),
+            };
+            let mut reference = ResourceDb::open_layers(&reference)?;
+            let result = compare::compare(&bundle.join("overlay"), &mut reference, &known)?;
+            if let Some(path) = report {
+                std::fs::write(path, result.tsv())?;
+            }
+            print!("{}", result.summary());
+            let unexplained = result.unexplained().count();
+            if unexplained > 0 {
+                anyhow::bail!("{unexplained} unexplained differences");
             }
         }
         Command::BuildWeapon {
@@ -2609,6 +2795,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             output,
             id,
             version,
+            requires,
         } => {
             let manifest = content_pack::from_bundle::from_bundle(
                 &content_pack::from_bundle::FromBundleOptions {
@@ -2619,6 +2806,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
                     output: &output,
                     id: &id,
                     version: &version,
+                    requires: &requires,
                 },
             )?;
             for note in &manifest.notes {

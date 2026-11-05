@@ -26,6 +26,15 @@ use flate2::write::ZlibEncoder;
 
 pub const DEFAULT_SWF: &str = "flash_movies/lobby_menu.swf";
 pub const DEFAULT_SYMBOL: &str = "LobbyMenu_EquipmentIcons";
+/// The lobby's item icon atlases (`lobby_menu.swf`), one per item kind; an
+/// item's `ui_desc.icon` is a cell of its kind's.
+pub const ICON_SYMBOLS: [&str; 5] = [
+    DEFAULT_SYMBOL,
+    "LobbyMenu_WeaponIcons",
+    "LobbyMenu_AmmoIcons",
+    "LobbyMenu_BundleIcons",
+    "LobbyMenu_VoucherIcons",
+];
 pub const CELL_WIDTH: usize = 171;
 pub const CELL_HEIGHT: usize = 83;
 pub const ROW_PITCH: usize = 91;
@@ -488,6 +497,42 @@ pub fn write_icon_png(path: &Path, argb: &[u8], grid: Grid) -> Result<()> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// A tiny CWS movie exporting one lossless bitmap per `(symbol, width,
+    /// height)`, character ids 7 on.
+    pub fn synthetic_swf_with(bitmaps: &[(&str, u16, u16)]) -> Vec<u8> {
+        let mut body = vec![0x08, 0x00, 0x00, 0x18, 0x01, 0x00];
+        let mut symbols = (bitmaps.len() as u16).to_le_bytes().to_vec();
+        for (index, (symbol, width, height)) in bitmaps.iter().enumerate() {
+            let id = 7 + index as u16;
+            let mut bitmap = id.to_le_bytes().to_vec();
+            bitmap.push(5);
+            bitmap.extend_from_slice(&width.to_le_bytes());
+            bitmap.extend_from_slice(&height.to_le_bytes());
+            let mut encoder = ZlibEncoder::new(bitmap, Compression::best());
+            encoder
+                .write_all(&vec![0; usize::from(*width) * usize::from(*height) * 4])
+                .unwrap();
+            let bitmap = encoder.finish().unwrap();
+            body.extend_from_slice(&((36_u16 << 6) | 0x3f).to_le_bytes());
+            body.extend_from_slice(&(bitmap.len() as u32).to_le_bytes());
+            body.extend_from_slice(&bitmap);
+            symbols.extend_from_slice(&id.to_le_bytes());
+            symbols.extend_from_slice(symbol.as_bytes());
+            symbols.push(0);
+        }
+        body.extend_from_slice(&((76_u16 << 6) | 0x3f).to_le_bytes());
+        body.extend_from_slice(&(symbols.len() as u32).to_le_bytes());
+        body.extend_from_slice(&symbols);
+        body.extend_from_slice(&[0, 0]);
+        let mut raw = b"FWS".to_vec();
+        raw.push(10);
+        raw.extend_from_slice(&((8 + body.len()) as u32).to_le_bytes());
+        raw.extend_from_slice(&body);
+        let mut swf = Swf::parse(&raw).unwrap();
+        swf.compressed = true;
+        swf.to_bytes().unwrap()
+    }
 
     /// A tiny CWS movie with a SymbolClass export and a lossless bitmap.
     pub fn synthetic_swf(width: u16, height: u16) -> Vec<u8> {

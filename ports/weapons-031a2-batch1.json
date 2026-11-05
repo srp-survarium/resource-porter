@@ -1,0 +1,235 @@
+{
+ "format_version": 1,
+ "id": "weapons-031",
+ "donor_build": "0.31a2",
+ "weapons": [
+  {
+   "name": "ots14",
+   "dict_id": 2261,
+   "donor_item": "gameplay/items/weapons/assault/ots14.options",
+   "config": "gameplay/items/weapons/wpn_ots14.options",
+   "template": "gameplay/items/weapons/wpn_val.options",
+   "base_cost": 80000,
+   "ammo": [
+    300,
+    301,
+    302
+   ],
+   "set": {
+    "parameters.aim_zoom_factor": 1.1,
+    "parameters.bullet_damage": 0.5,
+    "parameters.bullet_pierce": 0.3,
+    "parameters.drop_weight": 30,
+    "parameters.faction": 3,
+    "parameters.item_level": 13,
+    "parameters.match_making_level": 13,
+    "parameters.max_damage_distance": 23,
+    "parameters.reload_time": 3.17,
+    "parameters.stamina_damage": 35,
+    "parameters.stopping_power": 0.35,
+    "recoil.max_left_recoil": 2.6,
+    "recoil.max_right_recoil": 1.54,
+    "recoil.max_top_recoil": 2.17,
+    "recoil.min_left_recoil": 1.04,
+    "recoil.min_right_recoil": 1.03,
+    "recoil.min_top_recoil": 1.81,
+    "recoil.recoil_power": 0.8,
+    "particles.shoot": "fx/weapons/ak_74"
+   },
+   "lobby_icon": {
+    "row": 6,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_6.png"
+   },
+   "kill_feed": {
+    "icon": 72,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_73.png"
+   },
+   "notes": [
+    "OTs-14 Groza: the Val scaled (donor x live Val / donor Val): its 9x39 damage and pierce, 700 rpm against the Val's 800, a faster aim and a tighter spread; the Val's level (13, Renaissance rank 8) and drops; between the Val (76,000) and the 9A-91 (84,000)",
+    "balance: scripts/weapons/peer_scale.py by the val (0.31a2 and live, rev 40)",
+    "the muzzle flash fx/weapons/ak_74 (the donor's fx/weapons/uzi is barely visible, the Val's 9x39 is a suppressed puff: the Groza is not suppressed)",
+    "the aim locator the donor's own, (0, 0.0868, 0.178) unturned, at the front post tip's height: the post stands in the rear notch at the screen's centre (a locator 3 mm lower and turned 0.7 degrees up put the notch's floor on the post and hid it)"
+   ]
+  },
+  {
+   "name": "scar_h",
+   "dict_id": 2262,
+   "donor_item": "gameplay/items/weapons/assault/scar_h.options",
+   "config": "gameplay/items/weapons/wpn_scar_h.options",
+   "template": "gameplay/items/weapons/wpn_ak_12.options",
+   "base_cost": 125000,
+   "ammo": [
+    2254,
+    51,
+    52
+   ],
+   "set": {
+    "parameters.aim_zoom_factor": 1.2,
+    "parameters.bullet_damage": 0.59,
+    "parameters.bullet_pierce": 0.4,
+    "parameters.drop_weight": 40,
+    "parameters.faction": 3,
+    "parameters.item_level": 15,
+    "parameters.match_making_level": 15,
+    "parameters.max_damage_distance": 20,
+    "parameters.min_damage_distance": 57,
+    "parameters.stamina_damage": 20,
+    "recoil.max_left_recoil": 1.75,
+    "recoil.max_right_recoil": 2.1,
+    "recoil.max_top_recoil": 3.04,
+    "recoil.min_left_recoil": 0.88,
+    "recoil.min_right_recoil": 1.4,
+    "recoil.min_top_recoil": 2.47,
+    "recoil.recoil_power": 0.88,
+    "particles.shoot": "fx/weapons/ak_74"
+   },
+   "lobby_icon": {
+    "row": 5,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_5.png"
+   },
+   "kill_feed": {
+    "icon": 71,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_72.png"
+   },
+   "notes": [
+    "FN SCAR-H: the M4A1 scaled: 7.62x51 at 625 rpm, 20 rounds, damage 0.59 (the SOCOM 16 on the same round: 0.6) and pierce 0.4 (the SOCOM 16's: one round, one penetration; the owner, 2026-11-01), its kick the M4A1's times the donor's; level 15 (the donor 2 above its M4A1), Renaissance rank 10, priced with the level-15 automatics (AK-12 115,000, PKP 125,000)",
+    "balance: scripts/weapons/peer_scale.py by the m4a1 (0.31a2 and live, rev 40)",
+    "the muzzle flash fx/weapons/ak_74 (the donor's names one no 0.26g archive has, or the UZI's, barely visible): the M4A1's, the HK416's and the AK-12's",
+    "the 7.62x51 in clips of 20 (2254, ammo_7.62x51_20, a bag each, shared with batch 4's H&K G3SG/1): the shared 7.62x51 is 10 a bag (the SOCOM 16's and the Rem 700's), 30 rounds a default kit, 1.5 of its magazines; with it 60, 3 magazines; the shared rounds stay usable"
+   ]
+  },
+  {
+   "name": "vhs_2",
+   "dict_id": 2263,
+   "donor_item": "gameplay/items/weapons/assault/vhs_2.options",
+   "config": "gameplay/items/weapons/wpn_vhs_2.options",
+   "template": "gameplay/items/weapons/wpn_ak_12.options",
+   "base_cost": 115000,
+   "ammo": [
+    2201
+   ],
+   "set": {
+    "parameters.aim_zoom_factor": 1.2,
+    "parameters.bullet_damage": 0.5,
+    "parameters.bullet_pierce": 0.34,
+    "parameters.drop_weight": 60,
+    "parameters.faction": 3,
+    "parameters.item_level": 14,
+    "parameters.match_making_level": 14,
+    "parameters.max_damage_distance": 20,
+    "parameters.min_damage_distance": 50,
+    "parameters.stamina_damage": 15,
+    "recoil.max_left_recoil": 2.62,
+    "recoil.max_right_recoil": 2.1,
+    "recoil.max_top_recoil": 2.47,
+    "recoil.min_left_recoil": 1.31,
+    "recoil.min_right_recoil": 1.05,
+    "recoil.min_top_recoil": 2.28,
+    "recoil.recoil_power": 0.88,
+    "particles.shoot": "fx/weapons/ak_74"
+   },
+   "lobby_icon": {
+    "row": 4,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_4.png"
+   },
+   "kill_feed": {
+    "icon": 70,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_71.png"
+   },
+   "notes": [
+    "VHS-2: the M4A1 scaled: 5.56 at 850 rpm, damage 0.5, pierce 0.34 (the HK416's, 5.56 on the 0.26g scale), the donor's tight spread (0.1); level 14 beside the HK416 (0.55 damage, also 850 rpm), Renaissance rank 9; just under the HK416's 120,000",
+    "balance: scripts/weapons/peer_scale.py by the m4a1 (0.31a2 and live, rev 40)",
+    "the muzzle flash fx/weapons/ak_74 (the donor's names one no 0.26g archive has, or the UZI's, barely visible): the M4A1's, the HK416's and the AK-12's"
+   ]
+  },
+  {
+   "name": "fn_minimi",
+   "dict_id": 2264,
+   "donor_item": "gameplay/items/weapons/lmg/fn_minimi.options",
+   "config": "gameplay/items/weapons/wpn_fn_minimi.options",
+   "template": "gameplay/items/weapons/wpn_rpd.options",
+   "base_cost": 120000,
+   "ammo": [
+    2265
+   ],
+   "set": {
+    "parameters.bullet_damage": 0.41,
+    "parameters.bullet_pierce": 0.36,
+    "parameters.drop_weight": 60,
+    "parameters.faction": 3,
+    "parameters.item_level": 14,
+    "parameters.match_making_level": 14,
+    "parameters.max_damage_distance": 30,
+    "parameters.min_damage_distance": 50,
+    "parameters.movement_speed_modifier": -0.05,
+    "parameters.stamina_damage": 11,
+    "parameters.stopping_power": 0.29,
+    "recoil.max_left_recoil": 2.45,
+    "recoil.max_right_recoil": 2.45,
+    "recoil.max_top_recoil": 2.41,
+    "recoil.min_left_recoil": 2.05,
+    "recoil.min_right_recoil": 2.05,
+    "recoil.min_top_recoil": 2.06,
+    "recoil.recoil_power": 1.0
+   },
+   "lobby_icon": {
+    "row": 8,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_8.png"
+   },
+   "kill_feed": {
+    "icon": 74,
+    "donor_png": "flash_movies/textures/ui_icons/log/icon_75.png"
+   },
+   "notes": [
+    "FN Minimi: the PKP scaled: 5.56 belt gun, 100 rounds at 800 rpm, damage 0.41 and pierce 0.36 under the PKP's 0.45, a faster reload (8 s against 10); level 14, one under the PKP, Renaissance rank 9; the rifle's 5.56 (the owner: no belt items)",
+    "balance: scripts/weapons/peer_scale.py by the pkp_pecheneg (0.31a2 and live, rev 40)",
+    "its own 5.56x45 belt (2265: 100 rounds, 2 bags, as the PKP's and the RPD's belts): with the 30-round 5.56 a default kit's 3 bags hold 90, under its 100-round box, and it never reloaded"
+   ]
+  }
+ ],
+ "ammo_items": [
+  {
+   "name": "ammo_5.56x45_belt",
+   "dict_id": 2265,
+   "config": "gameplay/items/weapons/ammo/ammo_5.56x45_belt.options",
+   "template": "gameplay/items/weapons/ammo/ammo_5.56x45.options",
+   "category": 21,
+   "base_cost": 200,
+   "set": {
+    "parameters.clip_size": 100,
+    "parameters.required_bags": 2,
+    "parameters.clip_weight": 1.0,
+    "parameters.item_level": 10,
+    "parameters.match_making_level": 10,
+    "ui_desc.text_descriptions.name": "st_ammo_556x45_belt_name",
+    "ui_desc.text_descriptions.description": "st_ammo_556x45_belt_description",
+    "ui_desc.ammo_indicator_name": "st_ammo_556x45_belt_name"
+   },
+   "lobby_icon": null
+  },
+  {
+   "name": "ammo_7.62x51_20",
+   "dict_id": 2254,
+   "config": "gameplay/items/weapons/ammo/ammo_7.62x51_20.options",
+   "template": "gameplay/items/weapons/ammo/ammo_7.62x51.options",
+   "category": null,
+   "base_cost": 300,
+   "set": {
+    "parameters.clip_size": 20,
+    "parameters.clip_weight": 0.5,
+    "ui_desc.text_descriptions.name": "st_ammo_762x51_20_name",
+    "ui_desc.text_descriptions.description": "st_ammo_762x51_20_description",
+    "ui_desc.ammo_indicator_name": "st_ammo_762x51_20_name"
+   },
+   "lobby_icon": {
+    "row": 21,
+    "col": 4,
+    "file": "icons/ammo_7.62x51_20.png"
+   }
+  }
+ ]
+}
