@@ -49,17 +49,8 @@
     "OTs-14 Groza: the Val scaled (donor x live Val / donor Val): its 9x39 damage and pierce, 700 rpm against the Val's 800, a faster aim and a tighter spread; the Val's level (13, Renaissance rank 8) and drops; between the Val (76,000) and the 9A-91 (84,000)",
     "balance: scripts/weapons/peer_scale.py by the val (0.31a2 and live, rev 40)",
     "the muzzle flash fx/weapons/ak_74 (the donor's fx/weapons/uzi is barely visible, the Val's 9x39 is a suppressed puff: the Groza is not suppressed)",
-    "the aim locator retail 0.69d0's (models/weapons/assault/ots144a_groza/ots14, the same mesh and bind pose): the donor's height (the front post's tip), unturned, 13.4 cm further back than the donor's, so the post stands in the rear notch at the screen's centre"
-   ],
-   "file_values": {
-    "models/weapons/ots14/ots14.skinned_model/render/export_properties": {
-     "locators.0.position": [
-      0.0,
-      0.08681414,
-      0.31166592
-     ]
-    }
-   }
+    "the aim locator the donor's own, (0, 0.0868, 0.178) unturned, at the front post tip's height: the post stands in the rear notch at the screen's centre (a locator 3 mm lower and turned 0.7 degrees up put the notch's floor on the post and hid it)"
+   ]
   },
   {
    "name": "scar_h",
