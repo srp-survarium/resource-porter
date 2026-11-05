@@ -31,11 +31,15 @@
 //!   map of the same role.
 //! - **Fit.** A back piece is measured against every stock torso that leaves
 //!   the back slot free ([`fit_back`]) and must sink into none of them more
-//!   than the native back pieces do.
+//!   than the native back pieces do. A recoloured piece of a 0.69d set (the
+//!   Snow-20 is the Sniper set in snow) must have the very vertices and
+//!   triangles of the 0.69d model it recolours ([`same_geometry`]). A mask is
+//!   fitted onto the native head as the face-wear masks are
+//!   ([`crate::face_items_069d::fit_surface`]).
 //!
 //! What the item is (its config, level, price, texts, icon) is not this
 //! builder's: the pack that ships the models writes it.
-use crate::face_items_069d::same_rig_for;
+use crate::face_items_069d::{Fitting, fit_surface, same_rig_for};
 use crate::manifest::BuiltFile;
 use crate::mask_fit::{Mesh, closest_on_triangle, cross, dot, parse_mesh, read_u32, sub};
 use crate::outfit_026::Writer;
@@ -46,7 +50,7 @@ use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -74,7 +78,8 @@ impl Manifest {
     }
 }
 
-/// One 0.69d piece.
+/// One 0.69d model of a piece (an item may draw several: a vest's three
+/// lengths).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Piece {
@@ -84,18 +89,27 @@ pub struct Piece {
     pub model: String,
     /// A native model of the same slot, under `models/`.
     pub template_model: String,
-    /// The native material the piece's materials start from, under
-    /// `material_instances/`, without `.material`.
-    pub template_material: String,
+    /// Each 0.69d material the model draws, under `material_instances/`
+    /// without `.material`, and the native material it starts from. Pieces
+    /// sharing a material give it the same template.
+    pub materials: BTreeMap<String, String>,
     pub fit: Fit,
 }
 
 /// What a piece is measured against.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Fit {
     /// Worn on the back: against the stock torsos ([`fit_back`]).
     Back,
+    /// A recolour of another 0.69d model (`model`, under `models/`): the
+    /// same surfaces with the same vertices and triangles
+    /// ([`same_geometry`]).
+    SameAs { model: String },
+    /// A mask, fitted onto the native head
+    /// ([`crate::face_items_069d::fit_surface`]); `covers_helmet` when a
+    /// rigid part over the skull keeps it from going under a helmet.
+    Mask { covers_helmet: bool },
 }
 
 /// The gloss range a 0.69d smoothness map is drawn in: the G-buffer writes
@@ -333,24 +347,21 @@ struct Surface {
     donor_properties: BinaryConfig,
 }
 
-/// The piece's LOD0 surfaces in the four-bone layout; each may be skinned
-/// only to bones that bind where `native_pose` binds them.
-fn convert_surfaces(source: &Path, piece: &Piece, native_pose: &[u8]) -> Result<Vec<Surface>> {
-    let root = format!("models/{}.skinned_model", piece.model);
-    let settings = source_config(source, &format!("{root}/settings"))?;
+/// A 0.69d model's LOD0 surfaces: each name and its material's.
+fn lod0_surfaces(source: &Path, model: &str) -> Result<Vec<(String, String)>> {
+    let settings = source_config(source, &format!("models/{model}.skinned_model/settings"))?;
     let Some(V::Indexed(lod0)) = settings
         .root
         .named("lod_hierrarchy")
         .and_then(|l| l.named("LOD0"))
         .and_then(|l| l.named("surfaces"))
     else {
-        bail!("{}: no LOD0 surfaces", piece.model);
+        bail!("{model}: no LOD0 surfaces");
     };
-    let donor_pose = fs::read(source.join(format!("{root}/render/bind_pose")))?;
     let mut out = vec![];
     for name in lod0 {
         let V::String(name) = name else {
-            bail!("{}: a LOD0 surface is not a name", piece.model);
+            bail!("{model}: a LOD0 surface is not a name");
         };
         let Some(V::String(material)) = settings
             .root
@@ -358,12 +369,66 @@ fn convert_surfaces(source: &Path, piece: &Piece, native_pose: &[u8]) -> Result<
             .and_then(|m| m.named(name))
             .and_then(|m| m.named("material_name"))
         else {
-            bail!("{}: surface {name} has no material", piece.model);
+            bail!("{model}: surface {name} has no material");
         };
+        out.push((name.clone(), material.clone()));
+    }
+    ensure!(!out.is_empty(), "{model}: no LOD0 surface");
+    Ok(out)
+}
+
+fn donor_surface(source: &Path, model: &str, name: &str) -> Result<crate::v069d_skinned::Surface> {
+    let label = format!("{model} {name}");
+    let raw = fs::read(source.join(format!(
+        "models/{model}.skinned_model/render/{name}/converted_model"
+    )))
+    .with_context(|| label.clone())?;
+    parse_069d(&raw, &label)
+}
+
+/// Whether `model` has the surfaces of `reference` (two 0.69d models) with
+/// the same vertices (position, skin, basis, UV) and triangles: a recolour,
+/// which only its materials tell apart. Returns the vertex count.
+pub fn same_geometry(source: &Path, model: &str, reference: &str) -> Result<usize> {
+    let names = |m: &str| -> Result<Vec<String>> {
+        Ok(lod0_surfaces(source, m)?.into_iter().map(|(n, _)| n).collect())
+    };
+    let surfaces = names(model)?;
+    ensure!(
+        surfaces == names(reference)?,
+        "{model}: LOD0 surfaces {surfaces:?}, {reference} has others"
+    );
+    let mut vertices = 0;
+    for name in &surfaces {
+        let (a, b) = (donor_surface(source, model, name)?, donor_surface(source, reference, name)?);
+        ensure!(
+            a.vertices == b.vertices && a.indices == b.indices,
+            "{model} {name}: not the vertices and triangles of {reference}"
+        );
+        vertices += a.vertices.len();
+    }
+    Ok(vertices)
+}
+
+/// The piece's LOD0 surfaces in the four-bone layout; each may be skinned
+/// only to bones that bind where `native_pose` binds them. A mask's is
+/// fitted onto the native head.
+fn convert_surfaces(
+    target: &mut ResourceDb,
+    source: &Path,
+    piece: &Piece,
+    native_pose: &[u8],
+) -> Result<Vec<Surface>> {
+    let root = format!("models/{}.skinned_model", piece.model);
+    let donor_pose = fs::read(source.join(format!("{root}/render/bind_pose")))?;
+    let lod0 = lod0_surfaces(source, &piece.model)?;
+    if let Fit::Mask { .. } = piece.fit {
+        ensure!(lod0.len() == 1, "{}: a mask draws one surface", piece.model);
+    }
+    let mut out = vec![];
+    for (name, material) in lod0 {
         let label = format!("{} {name}", piece.model);
-        let donor = fs::read(source.join(format!("{root}/render/{name}/converted_model")))
-            .with_context(|| label.clone())?;
-        let parsed = parse_069d(&donor, &label)?;
+        let parsed = donor_surface(source, &piece.model, &name)?;
         let used: BTreeSet<usize> = parsed
             .vertices
             .iter()
@@ -372,22 +437,36 @@ fn convert_surfaces(source: &Path, piece: &Piece, native_pose: &[u8]) -> Result<
             .map(|(&b, _)| usize::from(b))
             .collect();
         same_rig_for(&donor_pose, native_pose, &label, Some(&used))?;
+        let bytes = match piece.fit {
+            Fit::Mask { covers_helmet } => fit_surface(
+                target,
+                source,
+                &Fitting {
+                    label: &piece.item,
+                    model: &piece.model,
+                    surface: &name,
+                    dark_rim: None,
+                    covers_helmet,
+                },
+                None,
+            )?,
+            Fit::Back | Fit::SameAs { .. } => to_026_four_bone(&parsed)?,
+        };
         out.push(Surface {
             name: name.clone(),
-            bytes: to_026_four_bone(&parsed)?,
-            material: material.clone(),
+            bytes,
+            material,
             donor_properties: source_config(
                 source,
                 &format!("{root}/render/{name}/export_properties"),
             )?,
         });
     }
-    ensure!(!out.is_empty(), "{}: no LOD0 surface", piece.model);
     Ok(out)
 }
 
 /// What a material conversion did, for the record.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct MaterialRecord {
     pub material: String,
     pub template: String,
@@ -403,13 +482,14 @@ struct MaterialInputs<'a> {
     released: &'a BTreeSet<BTreeSet<String>>,
 }
 
-/// One donor material as a native one, its maps written beside it.
+/// One donor material as a native one (from `template`), its maps written
+/// beside it.
 fn convert_material(
     out: &Writer<'_>,
     target: &mut ResourceDb,
     inputs: &MaterialInputs<'_>,
     name: &str,
-    piece: &Piece,
+    template: &str,
     files: &mut Vec<BuiltFile>,
 ) -> Result<MaterialRecord> {
     let MaterialInputs {
@@ -421,7 +501,7 @@ fn convert_material(
     ensure!(!target.contains(&path), "{path} is in the released game");
     let donor = source_config(source, &path)?;
     let donor_effect = effect(&donor)?.clone();
-    let template_path = format!("material_instances/{}.material", piece.template_material);
+    let template_path = format!("material_instances/{template}.material");
     let mut material = parse_config(target, &template_path, "template material")?;
     let template_effect = effect(&material)?.clone();
     let mut textures = vec![];
@@ -473,6 +553,19 @@ fn convert_material(
             V::Float(value),
         )?;
     }
+    // Drawn from both sides as the donor is (a net of shreds): 0.69d says so
+    // on its g_stage or its effect, 0.26g on the effect.
+    let two_sided = flag(&donor_effect, "two_sided")
+        || donor
+            .root
+            .named("material")
+            .and_then(|m| m.named("g_stage"))
+            .is_some_and(|g| flag(g, "two_sided"));
+    set(
+        &mut material,
+        &format!("{STAGE}.two_sided.value"),
+        V::Boolean(two_sided),
+    )?;
     let fuzzy = flag(&donor_effect, "use_fuzziness");
     set(
         &mut material,
@@ -515,7 +608,7 @@ fn convert_material(
     out.config(&path, &material, files)?;
     Ok(MaterialRecord {
         material: name.to_owned(),
-        template: piece.template_material.clone(),
+        template: template.to_owned(),
         switches: on.into_iter().collect(),
         textures,
     })
@@ -890,6 +983,17 @@ pub fn fit_back(
     Ok(out)
 }
 
+/// What a piece was measured against, and how it did.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FitRecord {
+    Back { torsos: Vec<TorsoFit> },
+    /// The same vertices and triangles as this 0.69d model.
+    SameAs { model: String },
+    /// Fitted onto the native head, and through the game's poses.
+    Mask { covers_helmet: bool },
+}
+
 /// What the builder made of a piece.
 #[derive(Debug, Serialize)]
 pub struct PieceRecord {
@@ -898,7 +1002,7 @@ pub struct PieceRecord {
     pub surfaces: Vec<String>,
     pub vertices: usize,
     pub materials: Vec<MaterialRecord>,
-    pub fit: Vec<TorsoFit>,
+    pub fit: FitRecord,
 }
 
 /// Builds the manifest's pieces into `output` (`overlay/`,
@@ -927,56 +1031,76 @@ pub fn build(
     };
     let mut files = vec![];
     let mut records = vec![];
-    let mut materials = BTreeSet::new();
+    // Each material converted once, from its one template.
+    let mut materials: BTreeMap<String, MaterialRecord> = BTreeMap::new();
     for piece in &manifest.pieces {
         let native_pose = target.read(&format!(
             "models/{}.skinned_model/render/bind_pose",
             piece.template_model
         ))?;
-        let surfaces = convert_surfaces(source, piece, &native_pose)?;
+        let surfaces = convert_surfaces(&mut target, source, piece, &native_pose)?;
+        let drawn: BTreeSet<&String> = surfaces.iter().map(|s| &s.material).collect();
+        ensure!(
+            drawn == piece.materials.keys().collect(),
+            "{}: draws {drawn:?}, the manifest names {:?}",
+            piece.model,
+            piece.materials.keys()
+        );
         let mut piece_materials = vec![];
-        for name in surfaces
-            .iter()
-            .map(|s| s.material.clone())
-            .collect::<BTreeSet<_>>()
-        {
-            ensure!(
-                materials.insert(name.clone()),
-                "material {name} is used by two pieces"
-            );
-            piece_materials.push(convert_material(
-                &out,
-                &mut target,
-                &inputs,
-                &name,
-                piece,
-                &mut files,
-            )?);
+        for (name, template) in &piece.materials {
+            if let Some(done) = materials.get(name) {
+                ensure!(
+                    &done.template == template,
+                    "material {name} has two templates: {} and {template}",
+                    done.template
+                );
+            } else {
+                let record =
+                    convert_material(&out, &mut target, &inputs, name, template, &mut files)?;
+                materials.insert(name.clone(), record);
+            }
+            piece_materials.push(materials[name].clone());
         }
         model_files(&out, &mut target, source, piece, &surfaces, &mut files)?;
         let mut points = vec![];
         for surface in &surfaces {
             points.extend(surface_mesh(&surface.bytes, &surface.name)?.positions);
         }
-        let fit = match piece.fit {
-            Fit::Back => fit_back(&reference, &piece.item, &points)?,
+        let fit = match &piece.fit {
+            Fit::Back => {
+                let torsos = fit_back(&reference, &piece.item, &points)?;
+                let above_median = torsos.iter().filter(|f| f.share > f.native_median).count();
+                let worst = torsos
+                    .iter()
+                    .max_by(|a, b| a.share.total_cmp(&b.share))
+                    .context("no torso measured")?;
+                println!(
+                    "{} ({}): {} surfaces, {} vertices; sunk into {} torsos above the native median, at most {:.1} % ({}; native up to {:.1} %)",
+                    piece.item,
+                    piece.model,
+                    surfaces.len(),
+                    points.len(),
+                    above_median,
+                    worst.share * 100.0,
+                    worst.torso,
+                    worst.native_max * 100.0
+                );
+                FitRecord::Back { torsos }
+            }
+            Fit::SameAs { model } => {
+                let vertices = same_geometry(source, &piece.model, model)?;
+                println!(
+                    "{} ({}): {} surfaces, {vertices} vertices, the vertices and triangles of {model}",
+                    piece.item,
+                    piece.model,
+                    surfaces.len()
+                );
+                FitRecord::SameAs {
+                    model: model.clone(),
+                }
+            }
+            &Fit::Mask { covers_helmet } => FitRecord::Mask { covers_helmet },
         };
-        let above_median = fit.iter().filter(|f| f.share > f.native_median).count();
-        let worst = fit
-            .iter()
-            .max_by(|a, b| a.share.total_cmp(&b.share))
-            .context("no torso measured")?;
-        println!(
-            "{} ({}): {} surfaces, {} vertices; sunk into {} torsos above the native median, at most {:.1} % ({}; native up to {:.1} %)",
-            piece.item,
-            piece.model,
-            surfaces.len(),
-            points.len(),
-            above_median,
-            worst.share * 100.0,
-            worst.torso,
-            worst.native_max * 100.0
-        );
         records.push(PieceRecord {
             item: piece.item.clone(),
             model: piece.model.clone(),
@@ -1124,18 +1248,26 @@ mod tests {
 
     #[test]
     fn a_manifest_names_its_fit() {
-        let manifest: Manifest = serde_json::from_str(
-            r#"{"asset_id": "a", "max_texture_size": 1024, "pieces": [{"item": "i", "model": "m",
-               "template_model": "t", "template_material": "tm", "fit": "back"}]}"#,
-        )
-        .unwrap();
-        assert_eq!(manifest.pieces[0].fit, Fit::Back);
-        assert!(
-            serde_json::from_str::<Manifest>(
-                r#"{"asset_id": "a", "max_texture_size": 1024, "pieces": [{"item": "i", "model": "m",
-                   "template_model": "t", "template_material": "tm", "fit": "head"}]}"#
-            )
-            .is_err()
+        let piece = |fit: &str| {
+            serde_json::from_str::<Manifest>(&format!(
+                r#"{{"asset_id": "a", "max_texture_size": 1024, "pieces": [{{"item": "i", "model": "m",
+                   "template_model": "t", "materials": {{"dm": "tm"}}, "fit": {fit}}}]}}"#
+            ))
+            .map(|m| m.pieces.into_iter().next().unwrap().fit)
+        };
+        assert_eq!(piece(r#"{"kind": "back"}"#).unwrap(), Fit::Back);
+        assert_eq!(
+            piece(r#"{"kind": "same_as", "model": "r"}"#).unwrap(),
+            Fit::SameAs { model: "r".into() }
         );
+        assert_eq!(
+            piece(r#"{"kind": "mask", "covers_helmet": true}"#).unwrap(),
+            Fit::Mask { covers_helmet: true }
+        );
+        // A recolour names what it recolours; a mask says whether it covers
+        // the helmet; no other kind.
+        assert!(piece(r#"{"kind": "same_as"}"#).is_err());
+        assert!(piece(r#"{"kind": "mask"}"#).is_err());
+        assert!(piece(r#"{"kind": "head"}"#).is_err());
     }
 }

@@ -399,6 +399,34 @@ const TEXTURE_OPTIONS: [(&str, &str); 3] = [
 const HEAD_BIND_POSE: &str =
     "models/character/human/base/base_character_head.skinned_model/render/bind_pose";
 
+/// What fitting a 0.69d mask surface onto the native head reads.
+#[derive(Clone, Copy, Debug)]
+pub struct Fitting<'a> {
+    /// The item, for the log and the debug files.
+    pub label: &'a str,
+    /// The 0.69d model (under `models/`, without `.skinned_model`) and its
+    /// LOD0 surface.
+    pub model: &'a str,
+    pub surface: &'a str,
+    /// The albedo (under `textures/`) whose black inner roll of the eye
+    /// opening goes, when it does ([`Spec::drop_dark_rim`]).
+    pub dark_rim: Option<&'a str>,
+    /// [`Spec::covers_helmet`].
+    pub covers_helmet: bool,
+}
+
+impl Spec {
+    pub fn fitting(&self) -> Fitting<'_> {
+        Fitting {
+            label: self.name,
+            model: self.model,
+            surface: self.surface,
+            dark_rim: self.drop_dark_rim.then_some(self.albedo),
+            covers_helmet: self.covers_helmet,
+        }
+    }
+}
+
 /// Native string keys of an item.
 pub fn text_keys(spec: &Spec) -> [String; 2] {
     let key = format!("st_{PORT}_{}", spec.name);
@@ -591,19 +619,19 @@ fn model_files(
 pub fn fit_surface(
     target: &mut ResourceDb,
     source: &Path,
-    spec: &Spec,
+    fitting: &Fitting<'_>,
     debug: Option<&Path>,
 ) -> Result<Vec<u8>> {
     let path = source.join(format!(
         "models/{}.skinned_model/render/{}/converted_model",
-        spec.model, spec.surface
+        fitting.model, fitting.surface
     ));
     let donor = fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
-    let parsed = crate::v069d_skinned::parse_069d(&donor, spec.surface)?;
+    let parsed = crate::v069d_skinned::parse_069d(&donor, fitting.surface)?;
     // The rig is the player's: the donor's bind pose is the native one.
     let donor_pose = fs::read(source.join(format!(
         "models/{}.skinned_model/render/bind_pose",
-        spec.model
+        fitting.model
     )))?;
     let bind_pose = target.read(HEAD_BIND_POSE)?;
     // Only the bones the surface is skinned to must bind where the native
@@ -615,14 +643,14 @@ pub fn fit_surface(
         .filter(|(_, w)| *w > 0.0)
         .map(|(&b, _)| usize::from(b))
         .collect();
-    same_rig_for(&donor_pose, &bind_pose, spec.model, Some(&used))?;
+    same_rig_for(&donor_pose, &bind_pose, fitting.model, Some(&used))?;
     let mut mask = crate::v069d_skinned::to_026_four_bone(&parsed)?;
     if let Some(dir) = debug {
         fs::create_dir_all(dir)?;
-        fs::write(dir.join(format!("{}-converted", spec.name)), &mask)?;
+        fs::write(dir.join(format!("{}-converted", fitting.label)), &mask)?;
     }
     let head = target.read(crate::bandit_026::HEAD_MODEL)?;
-    let shells = if spec.covers_helmet {
+    let shells = if fitting.covers_helmet {
         vec![]
     } else {
         crate::bandit_026::helmets_worn_over_masks(target, &bind_pose)?
@@ -653,10 +681,9 @@ pub fn fit_surface(
         })?;
     }
     let dropped = before - crate::mask_fit::read_u32(&mask, 8)?;
-    let dark_rim = if spec.drop_dark_rim {
-        drop_dark_rim(&mut mask, source, spec, &head)?
-    } else {
-        0
+    let dark_rim = match fitting.dark_rim {
+        Some(albedo) => drop_dark_rim(&mut mask, source, albedo, &head)?,
+        None => 0,
     };
     // Where a pose of the game's clips slides the skin out under the cloth.
     let relief = crate::bandit_026::relieve_poses(
@@ -667,12 +694,12 @@ pub fn fit_surface(
         crate::bandit_026::RELIEF_MAX_SAME_RIG,
     )?;
     if let Some(dir) = debug {
-        fs::write(dir.join(format!("{}-fitted", spec.name)), &mask)?;
+        fs::write(dir.join(format!("{}-fitted", fitting.label)), &mask)?;
     }
     println!(
         "{} ({}): {} vertices; tucked {} onto the neck, pushed {} up to {:.1} mm, pulled {} under helmets up to {:.1} mm; skin from the head for {} ({} had chest or clavicle bones)",
-        spec.id,
-        spec.donor_name,
+        fitting.label,
+        fitting.model,
         parsed.vertices.len(),
         fit.tucked_vertices,
         fit.pushed_vertices,
@@ -696,7 +723,7 @@ pub fn fit_surface(
         "  unfold: {turned} turned triangles -> {left} (the rest under another layer or at a rim)"
     );
     println!("  inside the head: {dropped} vertices only hidden triangles used, dropped");
-    if spec.drop_dark_rim {
+    if fitting.dark_rim.is_some() {
         println!("  the eye opening's black inner roll: {dark_rim} triangles dropped");
     }
     println!(
@@ -718,7 +745,7 @@ pub fn fit_surface(
         ensure!(
             c.min >= crate::bandit_026::POSED_CLEARANCE,
             "{}: the head shows through in {clip}: {:.2} mm at {:?} ({} head vertices through)",
-            spec.donor_name,
+            fitting.label,
             c.min * 1000.0,
             c.at,
             c.through
@@ -776,8 +803,8 @@ const DARK_RIM_ZONE: f64 = 0.03;
 /// Drops the triangles near an opening (`DARK_RIM_ZONE`) whose albedo is
 /// black at their middle: the inner roll of a hole, painted black. Returns
 /// how many went.
-fn drop_dark_rim(mask: &mut Vec<u8>, source: &Path, spec: &Spec, head: &[u8]) -> Result<usize> {
-    let dds = fs::read(source.join(format!("textures/{}.dds", spec.albedo)))?;
+fn drop_dark_rim(mask: &mut Vec<u8>, source: &Path, albedo: &str, head: &[u8]) -> Result<usize> {
+    let dds = fs::read(source.join(format!("textures/{}.dds", albedo)))?;
     let mesh = crate::mask_fit::parse_mesh(mask, 48, "mask")?;
     let head_mesh = crate::mask_fit::parse_mesh(head, 40, "native head")?;
     let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
@@ -936,7 +963,7 @@ pub fn build(
     let mut item_configs = vec![];
     let mut strings = BTreeMap::new();
     for spec in shipped() {
-        let mask = fit_surface(&mut target, source, spec, Some(&output.join("debug")))?;
+        let mask = fit_surface(&mut target, source, &spec.fitting(), Some(&output.join("debug")))?;
         let material = material(&out, &mut target, source, spec, &mut files)?;
         model_files(&out, &mut target, spec, &mask, &material, &mut files)?;
 
