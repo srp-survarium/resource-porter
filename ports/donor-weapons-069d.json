@@ -28,10 +28,7 @@
    "rig": "donor"
   },
   "ppsh_drum": {
-   "rig": "donor",
-   "module_turns": {
-    "ppsh_762x25_71_round_mag": 90.0
-   }
+   "rig": "donor"
   }
  },
  "renames": {

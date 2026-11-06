@@ -80,10 +80,6 @@ pub struct Gun069 {
     /// suppressor. Every other one is structural and baked.
     #[serde(default)]
     pub separable: Vec<String>,
-    /// Baked modules turned about the vertical axis (degrees) before they
-    /// are placed: meshes 0.69d0 authored facing another way than the gun.
-    #[serde(default)]
-    pub module_turns: BTreeMap<String, f32>,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -356,16 +352,6 @@ fn socket_rotation(loc: &Locator) -> Result<[[f32; 3]; 3]> {
     );
     let (s, c) = (-x).sin_cos();
     Ok([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
-}
-
-fn turn_about_y(a: f32) -> [[f32; 3]; 3] {
-    let (s, c) = a.sin_cos();
-    [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]
-}
-
-/// `a` after `b`: the matrix applying `b` first.
-fn multiply3(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
-    std::array::from_fn(|r| std::array::from_fn(|c| (0..3).map(|k| a[r][k] * b[k][c]).sum()))
 }
 
 /// Locator names of the 0.26g contract that are made, not copied.
@@ -693,11 +679,11 @@ impl Donor069 {
             // the module sits at the shipped bind frame of its bone (the live
             // rig's on a live rig: the AKMSU's magazine bone rests 15 cm off
             // in 0.69d0's bind pose, where the AK clips never take it).
+            // Every module of a slot is authored in the slot's frame (the
+            // PPSh's 30-round box and 71-round drum alike: rounds along the
+            // bore, the neck in the well), so none is turned beyond it.
             let origin = socket(loc, &ship_bones)?;
-            let mut rotation = socket_rotation(loc)?;
-            if let Some(degrees) = gun.module_turns.get(&module.id) {
-                rotation = multiply3(&rotation, &turn_about_y(degrees.to_radians()));
-            }
+            let rotation = socket_rotation(loc)?;
             let bone = bind
                 .iter()
                 .position(|(n, _)| *n == loc.bone)

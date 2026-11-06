@@ -111,31 +111,16 @@ fn a_socket_turned_about_x_turns_its_module_the_other_way_in_mesh_space() {
 }
 
 #[test]
-fn a_quarter_turn_about_y_takes_z_to_x() {
-    let r = turn_about_y(std::f32::consts::FRAC_PI_2);
-    let v = [0.0, 0.0, 1.0];
-    let x: Vec<f32> = (0..3)
-        .map(|i| (0..3).map(|k| r[i][k] * v[k]).sum())
-        .collect();
-    assert!((x[0] - 1.0).abs() < 1e-6 && x[2].abs() < 1e-6, "{x:?}");
-    let id = multiply3(&r, &turn_about_y(-std::f32::consts::FRAC_PI_2));
-    assert!((id[0][0] - 1.0).abs() < 1e-6 && id[0][2].abs() < 1e-6);
-}
-
-#[test]
 fn the_sidecar_parses() {
     let spec: Spec069 = serde_json::from_str(
         r#"{"format_version": 1,
             "guns": {"akmsu": {"rig": {"live": "models/weapons/ak74u.skinned_model"},
                                "separable": ["akmsu_m24x15_muzzlebrake"]},
-                     "ppsh_drum": {"rig": "donor", "module_turns": {"ppsh_762x25_71_round_mag": 90.0}}}}"#,
+                     "ppsh_drum": {"rig": "donor"}}}"#,
     )
     .unwrap();
     assert!(matches!(spec.guns["akmsu"].rig, Rig::Live(_)));
-    assert_eq!(
-        spec.guns["ppsh_drum"].module_turns["ppsh_762x25_71_round_mag"],
-        90.0
-    );
+    assert!(matches!(spec.guns["ppsh_drum"].rig, Rig::Donor));
 }
 
 /// The port the repository ships parses, and its guns' donor items are the

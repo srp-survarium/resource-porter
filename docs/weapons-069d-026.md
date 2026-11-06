@@ -40,8 +40,9 @@ vostok-port port-weapons-069d --manifest ports/weapons-069d.json \
   bone plus the locator (`bind + R_y(pi) * locator`): in the game a bone's vertices are drawn at
   clip * bind^-1, and 0.69d0 drew the module at clip * locator (the AKMSU's magazine bone rests
   15 cm off in 0.69d0's bind pose, where no clip takes it). A socket turned about x turns its
-  module; `module_turns` turns a module authored facing another way (the 71-round drum). Every
-  LOD0 surface of a module is baked. **Muzzle devices, foregrips, scopes and suppressors are
+  module, and nothing else turns one: every module of a slot is authored in the slot's frame (the
+  PPSh's 71-round drum as its 30-round box: rounds along the bore, the neck in the well, the drum
+  across the gun). Every LOD0 surface of a module is baked. **Muzzle devices, foregrips, scopes and suppressors are
   never baked** (refused unless `separable`); `donor-069d.json` records each gun's modules and
   its attach points (`muzzle_point`, the rails) for the weapon kit.
 * **Rigs.** `live`: the donor rig is a live weapon's skeleton bone for bone (checked); the model
