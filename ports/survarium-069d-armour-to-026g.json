@@ -1,0 +1,154 @@
+{
+  "asset_id": "armour-069d-to-026g",
+  "max_texture_size": 1024,
+  "pieces": [
+    {
+      "item": "leagues_back_2",
+      "model": "character/human/special_items/league_regeneration_back/league_regeneration_back",
+      "template_model": "character/human/black_market/black_market_raider_09_back",
+      "materials": {
+        "characters/human/special_items/league_regeneration_back/league_regeneration_back": "characters/human/black_market_raider_09/black_market_raider_09_back"
+      },
+      "fit": {
+        "kind": "back"
+      }
+    },
+    {
+      "item": "leagues_back_5",
+      "model": "character/human/special_items/league_battle_back/league_battle_back",
+      "template_model": "character/human/renesanse/renesance_combat_back",
+      "materials": {
+        "characters/human/special_items/league_battle_back/league_battle_back": "characters/human/renesance_combat/renesance_combat_back"
+      },
+      "fit": {
+        "kind": "back"
+      }
+    },
+    {
+      "item": "snow_20_torso_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_torso_s1",
+      "template_model": "character/human/renesanse/renesance_combat_torso_s1",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_torso_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso",
+        "characters/human/newyears_2020/renesanse_sniper_07_ghillie_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_torso_s1"
+      }
+    },
+    {
+      "item": "snow_20_torso_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_torso_s2",
+      "template_model": "character/human/renesanse/renesance_combat_torso_s2",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_torso_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso",
+        "characters/human/newyears_2020/renesanse_sniper_07_ghillie_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_torso_s2"
+      }
+    },
+    {
+      "item": "snow_20_torso_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_torso_s3",
+      "template_model": "character/human/renesanse/renesance_combat_torso_s3",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_torso_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso",
+        "characters/human/newyears_2020/renesanse_sniper_07_ghillie_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_torso_s3"
+      }
+    },
+    {
+      "item": "snow_20_legs_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_legs_s1",
+      "template_model": "character/human/renesanse/renesance_combat_legs_s1",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_legs_newyears_2020": "characters/human/renesance_combat/renesance_combat_legs",
+        "characters/human/newyears_2020/renesanse_sniper_07_ghillie_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_legs_s1"
+      }
+    },
+    {
+      "item": "snow_20_legs_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_legs_s2",
+      "template_model": "character/human/renesanse/renesance_combat_legs_s2",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_legs_newyears_2020": "characters/human/renesance_combat/renesance_combat_legs",
+        "characters/human/newyears_2020/renesanse_sniper_07_ghillie_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_legs_s2"
+      }
+    },
+    {
+      "item": "snow_20_legs_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_legs_s3",
+      "template_model": "character/human/renesanse/renesance_combat_legs_s3",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_legs_newyears_2020": "characters/human/renesance_combat/renesance_combat_legs",
+        "characters/human/newyears_2020/renesanse_sniper_07_ghillie_newyears_2020": "characters/human/renesance_combat/renesance_combat_torso"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_legs_s3"
+      }
+    },
+    {
+      "item": "snow_20_gloves_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_hand_hud",
+      "template_model": "character/human/renesanse/renesanse_tank_hand_hud",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_hand_newyears_2020": "characters/human/renesanse_tank/renesanse_tank_hand"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_hand_hud"
+      }
+    },
+    {
+      "item": "snow_20_boots_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_boot",
+      "template_model": "character/human/renesanse/renesanse_scout_1a_boot",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_boot_newyears_2020": "characters/human/renesanse_scout_1a/renesanse_scout_1a_boot"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_boot"
+      }
+    },
+    {
+      "item": "snow_20_helmet_7",
+      "model": "character/human/newyears_2020/renesanse_sniper_07_snow_helmet",
+      "template_model": "character/human/renesanse/renesanse_tank_helmet",
+      "materials": {
+        "characters/human/newyears_2020/renesanse_sniper_07_helme_newyears_2020": "characters/human/renesance_combat/renesance_combat_helmet"
+      },
+      "fit": {
+        "kind": "same_as",
+        "model": "character/human/renesanse/renesanse_sniper_07_helmet"
+      }
+    },
+    {
+      "item": "league_shadow_mask",
+      "model": "character/human/special_items/league_shadow/league_shadow_mask",
+      "template_model": "character/human/scavengers/scavengers_02_mask",
+      "materials": {
+        "characters/human/special_items/league_shadow/league_shadow_mask": "characters/human/renesanse_scout_1a/renesanse_scout_1a_mask"
+      },
+      "fit": {
+        "kind": "mask",
+        "covers_helmet": true
+      }
+    }
+  ]
+}
