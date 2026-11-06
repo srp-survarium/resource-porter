@@ -328,6 +328,44 @@ fn convert_texture(bytes: &[u8], label: &str, map: Map, max: u32) -> Result<Vec<
     crate::duty_026::texture_dds(&out, label, map.srgb())
 }
 
+/// 0.26g's diffuse of a 0.69d albedo: albedo x (1 - metalness), in DXT1 at
+/// the albedo's size. 0.69d draws a metallic texel's albedo as the colour of
+/// its reflection and gives it no diffuse light; drawn as 0.26g's diffuse,
+/// metal came out as bright as the albedo (the Snow-20 vest's plates white,
+/// where 0.69d shows them dark). ImageMagick (`magick`) composites and encodes.
+fn diffuse_from_albedo(albedo: &Path, metalness: &Path, work: &Path, label: &str) -> Result<Vec<u8>> {
+    let info = parse_dds(
+        &fs::read(albedo).with_context(|| format!("0.69d {label}"))?,
+        label,
+    )?;
+    fs::create_dir_all(work)?;
+    let out = work.join("diffuse.dds");
+    let result = std::process::Command::new("magick")
+        .arg(albedo)
+        // A DXT5 albedo's alpha is no transparency 0.26g draws: composited
+        // with it, the colour under its clear texels was lost (white straps).
+        .args(["-alpha", "off"])
+        .arg("(")
+        .arg(metalness)
+        .args(["-resize", &format!("{}x{}!", info.width, info.height)])
+        .args(["-channel", "R", "-separate", "+channel", "-negate"])
+        .arg(")")
+        .args(["-compose", "Multiply", "-composite", "-alpha", "off"])
+        .args(["-define", "dds:compression=dxt1"])
+        .arg(&out)
+        .output()
+        .context("starting ImageMagick; install `magick` or enter the repository Nix shell")?;
+    ensure!(
+        result.status.success(),
+        "{label}: ImageMagick failed with {}: {}",
+        result.status,
+        String::from_utf8_lossy(&result.stderr).trim()
+    );
+    let bytes = fs::read(&out)?;
+    fs::remove_file(&out)?;
+    Ok(bytes)
+}
+
 /// Native-convention bounds of converted vertices: half a turn about the up
 /// axis (`-x, y, -z`).
 fn stored_bounds(min: [f32; 3], max: [f32; 3]) -> ([f32; 3], [f32; 3]) {
@@ -504,6 +542,13 @@ fn convert_material(
     let template_path = format!("material_instances/{template}.material");
     let mut material = parse_config(target, &template_path, "template material")?;
     let template_effect = effect(&material)?.clone();
+    let metalness = text(&donor_effect, Map::Metalness.donor().0)
+        .with_context(|| format!("{name}: no {}", Map::Metalness.donor().0))?;
+    let work = out
+        .overlay
+        .parent()
+        .context("an overlay without a folder above it")?
+        .join("work");
     let mut textures = vec![];
     for map in Map::ALL {
         let (donor_key, donor_switch) = map.donor();
@@ -522,7 +567,16 @@ fn convert_material(
             .with_context(|| format!("{template_path}: no {native_key}"))?;
         let dds = format!("textures/{texture}.dds");
         ensure!(!target.contains(&dds), "{dds} is in the released game");
-        let bytes = fs::read(source.join(&dds)).with_context(|| format!("0.69d {dds}"))?;
+        let bytes = if map == Map::Albedo {
+            diffuse_from_albedo(
+                &source.join(&dds),
+                &source.join(format!("textures/{metalness}.dds")),
+                &work,
+                &dds,
+            )?
+        } else {
+            fs::read(source.join(&dds)).with_context(|| format!("0.69d {dds}"))?
+        };
         out.raw(
             &dds,
             &convert_texture(&bytes, &dds, map, max_texture_size)?,
@@ -1109,6 +1163,10 @@ pub fn build(
             materials: piece_materials,
             fit,
         });
+    }
+    // The diffuse maps' intermediate files (diffuse_from_albedo).
+    if output.join("work").exists() {
+        fs::remove_dir_all(output.join("work"))?;
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     crate::weapon::reject_duplicate_outputs(&files)?;
