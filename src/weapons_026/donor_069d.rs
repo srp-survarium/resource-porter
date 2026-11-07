@@ -105,11 +105,16 @@ pub struct Gun069 {
     /// live gun's (the Uzi's taller rear sight). Else the live aim.
     #[serde(default)]
     pub aim_069: bool,
-    /// The live gun carries an optic by default (its config's rifle scope, not 0.69d0's): its iron
-    /// sights are drawn as 0.69d0 draws them under an optic, each module in a slot 0.69d0's optics
-    /// swap (`attach_params.slots_to_change_param`, param 1) at its `model_param1` (folded).
+    /// The live gun carries an optic by default (its config's rifle scope, not 0.69d0's): it is
+    /// drawn as 0.69d0 draws it under an optic: each module in a slot 0.69d0's optics swap
+    /// (`attach_params.slots_to_change_param`, param 1) at its `model_param1` (folded), none in a
+    /// slot they take (the M4A1's rear sight).
     #[serde(default)]
     pub optic: bool,
+    /// A remodel's second model, the same with `optic` (its iron sights folded): what the gun's
+    /// scope variants draw, as 0.69d0 folds the sights under any optic.
+    #[serde(default)]
+    pub optic_model_path: Option<String>,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -543,6 +548,22 @@ impl Donor069 {
             texture_names: BTreeMap::new(),
         };
         for (item, gun) in &spec.guns {
+            // The folded model first: the gun's own model's modules and attach points are kept.
+            if let Some(path) = &gun.optic_model_path {
+                ensure!(
+                    !gun.optic,
+                    "{item}: its sights are folded already; no optic_model_path"
+                );
+                let folded = Gun069 {
+                    optic: true,
+                    model_path: Some(path.clone()),
+                    optic_model_path: None,
+                    ..gun.clone()
+                };
+                donor
+                    .compose_model(item, &folded, &mut target, work)
+                    .with_context(|| format!("{item}: folded model"))?;
+            }
             donor
                 .compose_model(item, gun, &mut target, work)
                 .with_context(|| format!("{item}: model"))?;
@@ -607,21 +628,33 @@ impl Donor069 {
     /// The gun's modules in their attach order (bundled, then default), each
     /// at the locator its slot names after the slot overrides of the baked
     /// modules before it.
-    /// The slots 0.69d0's optics swap to their modules' `model_param1` when attached (every
-    /// optic the same: the iron sights).
-    fn optic_slots(&self) -> Result<BTreeSet<String>> {
+    /// What 0.69d0's optics (its `_scope` and `_collimator` modules; a rail adapter and the A-545's
+    /// brake change slots too) do to the gun they attach to, every optic the same: the slots they
+    /// swap to their modules' `model_param1` (`slots_to_change_param`, param 1: the iron sights
+    /// folded) and the slots they take (`slots_to_attach_to`: a module there, the M4A1's rear
+    /// sight, makes way).
+    fn optic_slots(&self) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
         let Some(V::Named(modules)) = get(&self.game, "weapon_modules") else {
             bail!("0.69d0's game.options has no weapon_modules");
         };
-        let mut out = BTreeSet::new();
+        let (mut folded, mut taken) = (BTreeSet::new(), BTreeSet::new());
         for m in modules {
-            for c in list(get(&m.value, "attach_params.slots_to_change_param")) {
+            if !(m.name.ends_with("_scope") || m.name.ends_with("_collimator")) {
+                continue;
+            }
+            let changes = list(get(&m.value, "attach_params.slots_to_change_param"));
+            for c in changes {
                 if int_of(c.named("param"))? == 1 {
-                    out.insert(string_of(c.named("id"))?.to_owned());
+                    folded.insert(string_of(c.named("id"))?.to_owned());
+                }
+            }
+            if !changes.is_empty() {
+                for a in list(m.value.named("slots_to_attach_to")) {
+                    taken.insert(string_of(a.named("slot"))?.to_owned());
                 }
             }
         }
-        Ok(out)
+        Ok((folded, taken))
     }
 
     fn placed_modules(&self, item: &str, gun: &Gun069) -> Result<Vec<PlacedModule>> {
@@ -651,10 +684,10 @@ impl Donor069 {
                 "{item}: {id} is none of its modules"
             );
         }
-        let folded = if gun.optic {
+        let (folded, taken) = if gun.optic {
             self.optic_slots()?
         } else {
-            BTreeSet::new()
+            Default::default()
         };
         let mut out = vec![];
         for (id, named_slot) in entries {
@@ -689,6 +722,9 @@ impl Donor069 {
                 );
                 continue;
             };
+            if baked && taken.contains(slot) {
+                continue;
+            }
             let locator = slots[slot].clone();
             let model = match model_of("model_param1")? {
                 Some(folded_model) if baked && folded.contains(slot) => folded_model,

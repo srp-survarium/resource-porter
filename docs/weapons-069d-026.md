@@ -99,9 +99,11 @@ icons (skhid-srp's `scripts/remodel-069`).
   baked modules and 0.69d0's locators move. Where 0.69d0's iron sights stand otherwise than the
   live gun's on the same body (the Uzi's), `aim_069` puts the aim on 0.69d0's own sight line
   (its height and side, moved with `offset`) at the live aim's distance.
-* **Default optic.** A live gun that carries an optic by default (its config's rifle scope)
-  has `optic`: each baked module in a slot 0.69d0's optics swap (`slots_to_change_param`, param
-  1; every optic the same: the iron sights) is drawn at its `model_param1`, folded, as 0.69d0
-  draws it under an optic. `scripts/weapons-069d-donor.py` lists those models too.
+* **Under an optic.** A live gun that carries an optic by default (its config's rifle scope)
+  has `optic`: it is drawn as 0.69d0 draws it under an optic (its `_scope` and `_collimator`
+  modules, every one the same): each baked module in a slot they swap (`slots_to_change_param`,
+  param 1: the iron sights) at its `model_param1`, folded (the M4A1's front sight a gas block),
+  none in a slot they take (the M4A1's rear sight). `optic_model_path` writes that model besides
+  the gun's own, for its scope variants. `scripts/weapons-069d-donor.py` lists those models too.
 * **Names.** A 0.69d0 material or texture at a path the target has with other bytes gets a
   `_069` name; the same bytes are not written again.
