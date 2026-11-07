@@ -74,3 +74,25 @@ vostok-port port-weapons-069d --manifest ports/weapons-069d.json \
   `ui_desc.icon`) through the core's `lobby_icon`; 0.69d0 draws them diagonally in a 128x128
   square, so the donor serves them level (mirrored, turned by the art's own axis, muzzle
   right, `convert::level_lobby_icon`) and the core's `cell_png` fits them.
+
+## Remodelling a live gun (`remodel-weapons-069d`)
+
+`vostok-port remodel-weapons-069d --id <id> --donor-spec <sidecar> --donor <db> --target-db <db>
+[--target-patch <patch>]... --output <bundle>` writes only models, materials and textures: each
+sidecar gun's 0.69d0 model at its `model_path`, for a live item that keeps its config, clips and
+icons (skhid-srp's `scripts/remodel-069`).
+
+* **Rig.** The live model's skeleton, bind pose and hand locators: a donor bone of the same name
+  (or the sidecar's `bone_map`) is the live one, any other rides on the body; vertex bones are
+  remapped to the live skeleton.
+* **Modules.** Structural modules are baked as for a port; the sidecar's `bake` lists the
+  attachments the live gun shows by default (its own muzzle device, a bipod), baked as surfaces
+  named `<module>_<surface>`; other attachments are left to the scopes and the kit. A module
+  goes to its named slot, else the first slot of its kind the gun has.
+* **Locators.** The live model's `aim`, `scope_point`, `barrel_point` and `handguard_point`:
+  the live scope items and variants (their eyes), the muzzle flash and the kit's devices are
+  placed at them for the live clips' pose (0.69d0's aim is the eye for its own pose; 0.69d0 has no
+  `aim_offset`). A point the live model lacks is 0.69d0's. Every 0.69d0 slot locator is added
+  under its own name, for attachments made later.
+* **Names.** A 0.69d0 material or texture at a path the target has with other bytes gets a
+  `_069` name; the same bytes are not written again.
