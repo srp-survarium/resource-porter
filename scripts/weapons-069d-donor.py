@@ -126,7 +126,9 @@ for g in guns:
     for k, v in c.items():
         if re.match(r'(bundled|default)_modules\[\d+\]\.module$', k):
             md = mods[sv(v)]
-            for mk in [k for k in md if k == 'model' or k == 'aimed_model' or k == f'exceptions.{g}.model']:
+            # model_param1: the model an attached optic swaps it to (an iron sight folded)
+            for mk in [k for k in md if k in ('model', 'aimed_model', 'model_param1')
+                       or k in (f'exceptions.{g}.model', f'exceptions.{g}.model_param1')]:
                 model(sv(md[mk]))
         s = sv(v)
         if s.startswith('resources/animations/single/') and not re.search(r'/(base|antidote|bandage|medkit_injector)/', s):

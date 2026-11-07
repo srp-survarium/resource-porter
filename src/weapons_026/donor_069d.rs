@@ -105,6 +105,11 @@ pub struct Gun069 {
     /// live gun's (the Uzi's taller rear sight). Else the live aim.
     #[serde(default)]
     pub aim_069: bool,
+    /// The live gun carries an optic by default (its config's rifle scope, not 0.69d0's): its iron
+    /// sights are drawn as 0.69d0 draws them under an optic, each module in a slot 0.69d0's optics
+    /// swap (`attach_params.slots_to_change_param`, param 1) at its `model_param1` (folded).
+    #[serde(default)]
+    pub optic: bool,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -602,6 +607,23 @@ impl Donor069 {
     /// The gun's modules in their attach order (bundled, then default), each
     /// at the locator its slot names after the slot overrides of the baked
     /// modules before it.
+    /// The slots 0.69d0's optics swap to their modules' `model_param1` when attached (every
+    /// optic the same: the iron sights).
+    fn optic_slots(&self) -> Result<BTreeSet<String>> {
+        let Some(V::Named(modules)) = get(&self.game, "weapon_modules") else {
+            bail!("0.69d0's game.options has no weapon_modules");
+        };
+        let mut out = BTreeSet::new();
+        for m in modules {
+            for c in list(get(&m.value, "attach_params.slots_to_change_param")) {
+                if int_of(c.named("param"))? == 1 {
+                    out.insert(string_of(c.named("id"))?.to_owned());
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn placed_modules(&self, item: &str, gun: &Gun069) -> Result<Vec<PlacedModule>> {
         let w = self.weapon(item)?;
         let mut slots: BTreeMap<String, String> = BTreeMap::new();
@@ -629,14 +651,24 @@ impl Donor069 {
                 "{item}: {id} is none of its modules"
             );
         }
+        let folded = if gun.optic {
+            self.optic_slots()?
+        } else {
+            BTreeSet::new()
+        };
         let mut out = vec![];
         for (id, named_slot) in entries {
             let module = get(&self.game, &format!("weapon_modules.{id}"))
                 .with_context(|| format!("0.69d0 has no weapon_modules.{id}"))?;
-            let model = match get(module, &format!("exceptions.{item}.model")) {
-                Some(v) => string_of(Some(v))?.to_owned(),
-                None => string_of(module.named("model"))?.to_owned(),
+            let model_of = |key: &str| -> Result<Option<String>> {
+                Ok(
+                    match get(module, &format!("exceptions.{item}.{key}")).or(module.named(key)) {
+                        Some(v) => Some(string_of(Some(v))?.to_owned()),
+                        None => None,
+                    },
+                )
             };
+            let model = model_of("model")?.with_context(|| format!("{id} has no model"))?;
             // The first of its slots the gun has (an AK magazine fits three, an optic up to nine);
             // a separable module none of whose slots the gun has is left out (the VSK-94
             // Premium's foregrip).
@@ -658,6 +690,10 @@ impl Donor069 {
                 continue;
             };
             let locator = slots[slot].clone();
+            let model = match model_of("model_param1")? {
+                Some(folded_model) if baked && folded.contains(slot) => folded_model,
+                _ => model,
+            };
             ensure!(
                 !(baked && is_attachment(&id, &model) && !gun.bake.contains(&id)),
                 "{item}: {id} ({model}) is an attachment, not structural; list it as separable"
