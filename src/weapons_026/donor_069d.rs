@@ -741,8 +741,8 @@ impl Donor069 {
         }
         let shift = mesh_from_bind(gun.offset);
         for l in &mut all {
-            for k in 0..3 {
-                l.position[k] += shift[k];
+            for (p, s) in l.position.iter_mut().zip(shift) {
+                *p += s;
             }
         }
         let all = all;
