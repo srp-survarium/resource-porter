@@ -883,6 +883,22 @@ impl Donor069 {
             locs.iter().filter(|l| l.name.ends_with("_idle")).count() == 32,
             "{item}: not 32 idle hand locators"
         );
+        // A remodelled live gun keeps the live model's aim, scope, barrel and handguard points: its
+        // scope items and variants (their eyes too), its muzzle flash and kit devices are placed at
+        // them, for our clips' pose. 0.69d0's aim is the eye itself for 0.69d0's own pose (0.69d0 has
+        // no aim_offset; its pistols' sits 40 cm behind the grip; the UMP-45's body is posed 3 cm
+        // aside from its aim bone by our clip). Where the live model has none of a point (a pistol's
+        // handguard point, the Kedr's scope point), 0.69d0's stays.
+        if let (Some(_), Some(live)) = (&gun.model_path, &live_props) {
+            for theirs in locators(live)? {
+                if let Some(ours) = locs
+                    .iter_mut()
+                    .find(|l| l.name == theirs.name && CONTRACT.contains(&l.name.as_str()))
+                {
+                    *ours = theirs;
+                }
+            }
+        }
         // A remodelled live gun keeps 0.69d0's slot locators as well (its rails, muzzle and grip
         // points, at 0.69d0's names), for the attachments made for it later.
         if gun.model_path.is_some() {
