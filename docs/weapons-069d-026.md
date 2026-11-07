@@ -94,5 +94,10 @@ icons (skhid-srp's `scripts/remodel-069`).
   placed at them for the live clips' pose (0.69d0's aim is the eye for its own pose; 0.69d0 has no
   `aim_offset`). A point the live model lacks is 0.69d0's. Every 0.69d0 slot locator is added
   under its own name, for attachments made later.
+* **Placement.** Where 0.69d0 placed its model otherwise on the same rig (the MP-153 2.2 cm
+  higher), the sidecar's `offset` (mesh space, metres) lays it on the live model: the mesh, the
+  baked modules and 0.69d0's locators move. Where 0.69d0's iron sights stand otherwise than the
+  live gun's on the same body (the Uzi's), `aim_069` puts the aim on 0.69d0's own sight line
+  (its height and side, moved with `offset`) at the live aim's distance.
 * **Names.** A 0.69d0 material or texture at a path the target has with other bytes gets a
   `_069` name; the same bytes are not written again.

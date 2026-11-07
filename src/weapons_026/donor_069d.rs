@@ -95,6 +95,16 @@ pub struct Gun069 {
     /// attachment leaves out by name.
     #[serde(default)]
     pub bake: Vec<String>,
+    /// A remodel's shift in mesh space (metres): where 0.69d0 placed its model otherwise on the
+    /// same rig (the MP-153 2.2 cm higher), the shift that lays it on the live model, so the
+    /// live hands, sights and points fit it. The mesh, the baked modules and 0.69d0's locators move.
+    #[serde(default)]
+    pub offset: [f32; 3],
+    /// A remodel's aim on 0.69d0's own sight line (its height and side, shifted with `offset`),
+    /// the live aim's distance along the bore: where 0.69d0's iron sights stand otherwise than the
+    /// live gun's (the Uzi's taller rear sight). Else the live aim.
+    #[serde(default)]
+    pub aim_069: bool,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -729,6 +739,12 @@ impl Donor069 {
                 }
             }
         }
+        let shift = mesh_from_bind(gun.offset);
+        for l in &mut all {
+            for k in 0..3 {
+                l.position[k] += shift[k];
+            }
+        }
         let all = all;
         let find = |name: &str| {
             all.iter()
@@ -773,6 +789,11 @@ impl Donor069 {
             for v in &mut mesh.vertices {
                 let b = u32::from_le_bytes(v[12..16].try_into()?);
                 v[12..16].copy_from_slice(&bone_of[b as usize].to_le_bytes());
+                for k in 0..3 {
+                    let at = 4 * k;
+                    let p = f32::from_le_bytes(v[at..at + 4].try_into()?) + gun.offset[k];
+                    v[at..at + 4].copy_from_slice(&p.to_le_bytes());
+                }
             }
             surfaces.push((surface.into(), mesh, material.into()));
         }
@@ -895,7 +916,17 @@ impl Donor069 {
                     .iter_mut()
                     .find(|l| l.name == theirs.name && CONTRACT.contains(&l.name.as_str()))
                 {
-                    *ours = theirs;
+                    if ours.name == "aim" && gun.aim_069 {
+                        ensure!(
+                            ours.bone == theirs.bone,
+                            "{item}: 0.69d0's aim is on {}, the live one on {}",
+                            ours.bone,
+                            theirs.bone
+                        );
+                        ours.position[2] = theirs.position[2];
+                    } else {
+                        *ours = theirs;
+                    }
                 }
             }
         }
