@@ -257,6 +257,26 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Live guns remodelled on 0.69d0's models (`donor_069d::remodel_069d`):
+    /// the sidecar's guns, each at its `model_path`; models, materials and
+    /// textures only, for `pack from-bundle`.
+    #[command(name = "remodel-weapons-069d")]
+    RemodelWeapons069d {
+        /// The bundle's id (the pack's).
+        #[arg(long)]
+        id: String,
+        /// The sidecar (`ports/remodel-*.json`).
+        #[arg(long)]
+        donor_spec: PathBuf,
+        #[arg(long)]
+        donor: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// A side view of a model's meshes (`<model>/render/*/converted_model`
     /// of a folder): a weapon's verification render.
     RenderWeapon {
@@ -1314,6 +1334,24 @@ fn main() -> Result<()> {
                 port.id, report.files, report.reused
             );
         }
+        Command::RemodelWeapons069d {
+            id,
+            donor_spec,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::donor_069d;
+            let spec = donor_069d::Spec069::load(&donor_spec)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let files = donor_069d::remodel_069d(&id, &spec, &donor, &layers, &output)?;
+            println!(
+                "Built {id}: {} guns remodelled, {files} files",
+                spec.guns.len()
+            );
+        }
         Command::RenderWeapon {
             model,
             width,
@@ -1330,7 +1368,13 @@ fn main() -> Result<()> {
             anyhow::ensure!(!meshes.is_empty(), "{} has no meshes", model.display());
             let parts: Vec<_> = meshes
                 .iter()
-                .map(|m| (m.positions.as_slice(), m.triangles.as_slice(), [190u8, 190, 180]))
+                .map(|m| {
+                    (
+                        m.positions.as_slice(),
+                        m.triangles.as_slice(),
+                        [190u8, 190, 180],
+                    )
+                })
                 .collect();
             let (w, h, rgba) = render_side(&parts, width)?;
             std::fs::write(&output, png(w, h, &rgba)?)?;

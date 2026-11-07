@@ -80,6 +80,21 @@ pub struct Gun069 {
     /// suppressor. Every other one is structural and baked.
     #[serde(default)]
     pub separable: Vec<String>,
+    /// The model's path (`models/<path>.skinned_model`), new to the target:
+    /// a live gun remodelled (`remodel_069d`) keeps its old model and its
+    /// item points here. Else 0.69d0's own path.
+    #[serde(default)]
+    pub model_path: Option<String>,
+    /// On a live rig: a donor bone whose live bone is named otherwise (the VSS's `magazin3`,
+    /// ours `magazin2`). Bones of the same name are each other's, the roots are; a donor bone
+    /// the live rig lacks rides on `offset` (the body; our clips do not move it).
+    #[serde(default)]
+    pub bone_map: BTreeMap<String, String>,
+    /// Attachments baked all the same: a remodelled live gun's own default muzzle device or
+    /// bipod, which it shows today, as surfaces of its own (`<module>_<surface>`) that a later
+    /// attachment leaves out by name.
+    #[serde(default)]
+    pub bake: Vec<String>,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -145,6 +160,14 @@ pub struct Donor069 {
     modules: BTreeMap<String, Vec<PlacedModule>>,
     renames: Renames,
     clip_events: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
+    /// Each donor material's and texture's final name (compose_material).
+    material_names: BTreeMap<String, String>,
+    texture_names: BTreeMap<String, String>,
+}
+
+/// Whether the target has `path` with other bytes than `bytes`.
+fn differs(target: &mut ResourceDb, path: &str, bytes: &[u8]) -> Result<bool> {
+    Ok(target.contains(path) && target.read(path)? != bytes)
 }
 
 fn string_of(v: Option<&V>) -> Result<&str> {
@@ -344,8 +367,10 @@ fn socket(loc: &Locator, bind: &[(String, [f32; 3])]) -> Result<[f32; 3]> {
 /// a turn about y from the bind frame, it is the opposite angle about x.
 fn socket_rotation(loc: &Locator) -> Result<[[f32; 3]; 3]> {
     let [x, y, z] = loc.rotation;
+    // A turn about y or z below 0.01 rad (0.6 degrees) is an author's slip and left out: the
+    // SR-3M's muzzle point turns 0.0036 rad about x and z (0.2 degrees, 0.2 mm at its brake's end).
     ensure!(
-        y.abs() < 1e-5 && z.abs() < 1e-5,
+        y.abs() < 0.01 && z.abs() < 0.01,
         "{} turns about y or z ({:?}); only turns about x are baked",
         loc.name,
         loc.rotation
@@ -413,23 +438,49 @@ const MAP_ROLES: [(&str, &str, MapRole); 4] = [
 
 /// The 0.26g diffuse of a 0.69d albedo and metalness pair (see
 /// [`convert::diffuse_from_albedo`]), DXT1 with mips like a native weapon's.
+/// A 4x4 black DXT1 (a metalness map of nothing metal), for an albedo with none.
+fn black_dxt1(_albedo: &[u8]) -> Result<Vec<u8>> {
+    let mut out = vec![0u8; 128 + 8];
+    out[..4].copy_from_slice(b"DDS ");
+    out[4..8].copy_from_slice(&124u32.to_le_bytes());
+    out[12..16].copy_from_slice(&4u32.to_le_bytes());
+    out[16..20].copy_from_slice(&4u32.to_le_bytes());
+    out[84..88].copy_from_slice(b"DXT1");
+    Ok(out)
+}
+
 fn diffuse_dds(albedo: &[u8], metalness: &[u8], name: &str, work: &Path) -> Result<Vec<u8>> {
-    let (w, h, a) = convert::decode_dxt1(albedo)?;
-    let (mw, mh, m) = convert::decode_dxt1(metalness)?;
-    let px: Vec<[u8; 3]> = (0..w * h)
+    let (w, h, a) = convert::decode_dds(albedo)?;
+    let (mw, mh, m) = convert::decode_dds(metalness)?;
+    let px: Vec<[u8; 4]> = (0..w * h)
         .map(|i| {
             let (x, y) = (i % w, i / w);
             let metal = m[(y * mh / h) * mw + x * mw / w][0];
-            convert::diffuse_from_albedo(a[i], metal)
+            let c = convert::diffuse_from_albedo([a[i][0], a[i][1], a[i][2]], metal);
+            [c[0], c[1], c[2], a[i][3]]
         })
         .collect();
-    encode_dxt1(w, h, &px, name, true, work)
+    if px.iter().all(|p| p[3] == 255) {
+        let rgb: Vec<[u8; 3]> = px.iter().map(|p| [p[0], p[1], p[2]]).collect();
+        return encode_dxt1(w, h, &rgb, name, true, work);
+    }
+    // An albedo with cut-outs (DXT5, alpha below 255: the SV-98's netting) keeps its alpha.
+    fs::create_dir_all(work)?;
+    let stem = name.replace('/', "_");
+    let tga = work.join(format!("{stem}.tga"));
+    let dds = work.join(format!("{stem}.dds"));
+    fs::write(&tga, convert::tga_rgba(w, h, &px)?)?;
+    crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt5)?;
+    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, true)?;
+    fs::remove_file(&tga)?;
+    fs::remove_file(&dds)?;
+    Ok(out)
 }
 
 /// A 0.69d grey map (smoothness or metalness) with `map` applied to each
 /// pixel, DXT1 with mips like a native weapon's, read linear.
 fn mapped_dds(bytes: &[u8], map: fn(u8) -> u8, name: &str, work: &Path) -> Result<Vec<u8>> {
-    let (w, h, px) = convert::decode_dxt1(bytes)?;
+    let (w, h, px) = convert::decode_dds(bytes)?;
     let px: Vec<[u8; 3]> = px.iter().map(|p| [map(p[0]); 3]).collect();
     encode_dxt1(w, h, &px, name, false, work)
 }
@@ -473,26 +524,30 @@ impl Donor069 {
             modules: BTreeMap::new(),
             renames: spec.renames.clone(),
             clip_events: spec.clip_events.clone(),
+            material_names: BTreeMap::new(),
+            texture_names: BTreeMap::new(),
         };
         for (item, gun) in &spec.guns {
-            let materials = donor
-                .compose_model(item, gun, &mut target)
+            donor
+                .compose_model(item, gun, &mut target, work)
                 .with_context(|| format!("{item}: model"))?;
-            for material in materials {
-                donor
-                    .compose_material(&material, &mut target, work)
-                    .with_context(|| format!("{item}: material {material}"))?;
-            }
         }
         if work.exists() {
             fs::remove_dir(work).context("the texture encoder left files behind")?;
         }
-        for path in donor.files.keys() {
-            ensure!(
-                !target.contains(path),
-                "{path}: the target has it; 0.69d0's paths must be new"
-            );
+        // A path the target has is fine only with the same bytes: an earlier port's (the AKMSU's
+        // magazine and grip, which the AKMN's 0.69d0 model draws too), served again unchanged.
+        let mut clashes = Vec::new();
+        for (path, bytes) in &donor.files {
+            if target.contains(path) && target.read(path)? != *bytes {
+                clashes.push(path.as_str());
+            }
         }
+        ensure!(
+            clashes.is_empty(),
+            "the target has these, otherwise; 0.69d0's paths must be new:\n  {}",
+            clashes.join("\n  ")
+        );
         Ok(donor)
     }
 
@@ -546,33 +601,55 @@ impl Donor069 {
                 string_of(slot.named("locator"))?.into(),
             );
         }
-        let mut ids = vec![];
+        // Each module with the slot its entry names, if it names one (the A-545's two magazines:
+        // `mag1` and `mag2`).
+        let mut entries: Vec<(String, Option<String>)> = vec![];
         for kind in ["bundled_modules", "default_modules"] {
             for m in list(w.named(kind)) {
-                ids.push(string_of(m.named("module"))?.to_owned());
+                let slot = match m.named("slot") {
+                    Some(v) => Some(string_of(Some(v))?.to_owned()),
+                    None => None,
+                };
+                entries.push((string_of(m.named("module"))?.to_owned(), slot));
             }
         }
         for id in &gun.separable {
-            ensure!(ids.contains(id), "{item}: {id} is none of its modules");
+            ensure!(
+                entries.iter().any(|(e, _)| e == id),
+                "{item}: {id} is none of its modules"
+            );
         }
         let mut out = vec![];
-        for id in ids {
+        for (id, named_slot) in entries {
             let module = get(&self.game, &format!("weapon_modules.{id}"))
                 .with_context(|| format!("0.69d0 has no weapon_modules.{id}"))?;
             let model = match get(module, &format!("exceptions.{item}.model")) {
                 Some(v) => string_of(Some(v))?.to_owned(),
                 None => string_of(module.named("model"))?.to_owned(),
             };
-            let attach = list(module.named("slots_to_attach_to"));
-            ensure!(attach.len() == 1, "{id} attaches to {} slots", attach.len());
-            let slot = string_of(attach[0].named("slot"))?.to_owned();
-            let locator = slots
-                .get(&slot)
-                .with_context(|| format!("{item}: {id}'s slot {slot} has no locator"))?
-                .clone();
+            // The first of its slots the gun has (an AK magazine fits three, an optic up to nine);
+            // a separable module none of whose slots the gun has is left out (the VSK-94
+            // Premium's foregrip).
+            let candidates = list(module.named("slots_to_attach_to"))
+                .iter()
+                .map(|a| string_of(a.named("slot")).map(str::to_owned))
+                .collect::<Result<Vec<_>>>()?;
+            ensure!(!candidates.is_empty(), "{id} attaches to no slot");
             let baked = !gun.separable.contains(&id);
+            let Some(slot) = named_slot
+                .as_ref()
+                .filter(|s| slots.contains_key(*s))
+                .or_else(|| candidates.iter().find(|s| slots.contains_key(*s)))
+            else {
+                ensure!(
+                    !baked,
+                    "{item}: {id}: none of its slots {candidates:?} has a locator"
+                );
+                continue;
+            };
+            let locator = slots[slot].clone();
             ensure!(
-                !(baked && is_attachment(&id, &model)),
+                !(baked && is_attachment(&id, &model) && !gun.bake.contains(&id)),
                 "{item}: {id} ({model}) is an attachment, not structural; list it as separable"
             );
             if baked {
@@ -602,16 +679,57 @@ impl Donor069 {
         item: &str,
         gun: &Gun069,
         target: &mut ResourceDb,
-    ) -> Result<BTreeSet<String>> {
+        work: &Path,
+    ) -> Result<()> {
         let w = self.weapon(item)?.clone();
         let root = format!(
             "models/{}.skinned_model",
             string_of(get(&w, "object.model"))?
         );
+        // Where the model is written: 0.69d0's path, or a remodel's own (new to the target).
+        let out = match &gun.model_path {
+            Some(path) => {
+                let out = format!("models/{path}.skinned_model");
+                ensure!(
+                    !target.contains(&format!("{out}/settings")),
+                    "{out}: the target has it; a remodel's model path must be new"
+                );
+                out
+            }
+            None => root.clone(),
+        };
         let bind_bytes = self.db.read(&format!("{root}/render/bind_pose"))?;
         let bind = bind_pose(&bind_bytes)?;
         let properties = db_config(&mut self.db, &format!("{root}/render/export_properties"))?;
-        let all = locators(&properties)?;
+        let mut all = locators(&properties)?;
+        // On a live rig, each donor bone's live bone (`Gun069::bone_map`); else each its own.
+        let mut bone_of: Vec<u32> = (0..bind.len() as u32).collect();
+        if let Rig::Live(model) = &gun.rig {
+            let live: Vec<String> = bind_pose(&target.read(&format!("{model}/render/bind_pose"))?)?
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect();
+            let offset = live
+                .iter()
+                .position(|n| n == "offset")
+                .context("the live rig has no offset bone")?;
+            for (i, (name, _)) in bind.iter().enumerate() {
+                let want = gun.bone_map.get(name).unwrap_or(name);
+                bone_of[i] = if i == 0 {
+                    0
+                } else {
+                    live.iter().position(|n| n == want).unwrap_or(offset) as u32
+                };
+            }
+            // (a locator on no donor bone, the AK-12's hand locators', is the live model's anyway)
+            for l in &mut all {
+                if let Some(i) = bind.iter().position(|(n, _)| *n == l.bone) {
+                    l.bone_idx = bone_of[i] as i32;
+                    l.bone = live[bone_of[i] as usize].clone();
+                }
+            }
+        }
+        let all = all;
         let find = |name: &str| {
             all.iter()
                 .find(|l| l.name == name)
@@ -622,12 +740,6 @@ impl Donor069 {
         let (ship_bind, live_props, skeleton_file) = match &gun.rig {
             Rig::Live(model) => {
                 let live = target.read(&format!("{model}/render/bind_pose"))?;
-                let names: Vec<String> = bind_pose(&live)?.into_iter().map(|(n, _)| n).collect();
-                let ours: Vec<String> = bind.iter().map(|(n, _)| n.clone()).collect();
-                ensure!(
-                    names == ours,
-                    "{item}: the donor rig's bones {ours:?} are not {model}'s {names:?}"
-                );
                 let props = parse_config(
                     target,
                     &format!("{model}/render/export_properties"),
@@ -657,7 +769,11 @@ impl Donor069 {
             let bytes = self
                 .db
                 .read(&format!("{root}/render/{surface}/converted_model"))?;
-            let mesh = convert::skinned_069_to_026(&bytes, bind.len())?;
+            let mut mesh = convert::skinned_069_to_026(&bytes, bind.len())?;
+            for v in &mut mesh.vertices {
+                let b = u32::from_le_bytes(v[12..16].try_into()?);
+                v[12..16].copy_from_slice(&bone_of[b as usize].to_le_bytes());
+            }
             surfaces.push((surface.into(), mesh, material.into()));
         }
         let modules = self.placed_modules(item, gun)?;
@@ -684,7 +800,7 @@ impl Donor069 {
             // bore, the neck in the well), so none is turned beyond it.
             let origin = socket(loc, &ship_bones)?;
             let rotation = socket_rotation(loc)?;
-            let bone = bind
+            let bone = ship_bones
                 .iter()
                 .position(|(n, _)| *n == loc.bone)
                 .context("socket bone")? as u32;
@@ -694,7 +810,11 @@ impl Donor069 {
                     .read(&format!("{path}/render/{surface}/converted_model"))?;
                 let mesh = convert::static_069_to_skinned(&bytes, rotation, origin, bone)?;
                 let module_name = module.model.rsplit('/').next().unwrap();
-                let name = format!("{module_name}_{surface}");
+                // The same module twice (the A-545's magazines) is named by its locator too.
+                let mut name = format!("{module_name}_{surface}");
+                if surfaces.iter().any(|(n, _, _)| *n == name) {
+                    name = format!("{module_name}_{}_{surface}", module.locator);
+                }
                 ensure!(
                     !surfaces.iter().any(|(n, _, _)| *n == name),
                     "{item}: two surfaces {name}"
@@ -763,6 +883,23 @@ impl Donor069 {
             locs.iter().filter(|l| l.name.ends_with("_idle")).count() == 32,
             "{item}: not 32 idle hand locators"
         );
+        // A remodelled live gun keeps 0.69d0's slot locators as well (its rails, muzzle and grip
+        // points, at 0.69d0's names), for the attachments made for it later.
+        if gun.model_path.is_some() {
+            for l in &all {
+                if !is_hand_locator(&l.name) && !locs.iter().any(|x| x.name == l.name) {
+                    locs.push(l.clone());
+                }
+            }
+        }
+        // The materials, each at its final name (compose_material: 0.69d0's, or its own where
+        // 0.26g has another file at that path).
+        for (_, _, material) in &mut surfaces {
+            let name = material.clone();
+            *material = self
+                .compose_material(&name, target, work)
+                .with_context(|| format!("material {name}"))?;
+        }
 
         // Files.
         let mut native = parse_config(target, SETTINGS_TEMPLATE, "native rifle settings")?.root;
@@ -793,9 +930,9 @@ impl Donor069 {
                     .collect(),
             ),
         )?;
-        self.put(format!("{root}/settings"), encode(native)?)?;
-        self.put(format!("{root}/skeleton"), encode(skeleton_file)?)?;
-        self.put(format!("{root}/render/bind_pose"), ship_bind)?;
+        self.put(format!("{out}/settings"), encode(native)?)?;
+        self.put(format!("{out}/skeleton"), encode(skeleton_file)?)?;
+        self.put(format!("{out}/render/bind_pose"), ship_bind)?;
         let mut lo = [f32::INFINITY; 3];
         let mut hi = [f32::NEG_INFINITY; 3];
         for (name, mesh, _) in &surfaces {
@@ -832,11 +969,11 @@ impl Donor069 {
                 ),
             ]);
             self.put(
-                format!("{root}/render/{name}/export_properties"),
+                format!("{out}/render/{name}/export_properties"),
                 encode(props)?,
             )?;
             self.put(
-                format!("{root}/render/{name}/converted_model"),
+                format!("{out}/render/{name}/converted_model"),
                 mesh.to_bytes()?,
             )?;
         }
@@ -856,50 +993,68 @@ impl Donor069 {
                 ]),
             ),
         ]);
-        self.put(format!("{root}/render/export_properties"), encode(props)?)?;
+        self.put(format!("{out}/render/export_properties"), encode(props)?)?;
         self.attach_points.insert(item.into(), attach);
         self.modules.insert(item.into(), modules);
-        Ok(surfaces.into_iter().map(|(_, _, m)| m).collect())
+        Ok(())
     }
 
     /// A donor material on the native AK-12's, its four PBR maps fitted to
     /// 0.26g's diffuse, normal, gloss and Fresnel (at the donor's paths). The
     /// detail normal stays the template's (`det/weap_nmap`, the one 0.69d0's
-    /// weapons name too; the cartridges name another).
-    fn compose_material(&mut self, name: &str, target: &mut ResourceDb, work: &Path) -> Result<()> {
-        let path = format!("material_instances/{name}.material");
-        if self.files.contains_key(&path) {
-            return Ok(());
+    /// weapons name too; the cartridges name another). Returns its name: the
+    /// donor's, or `<name>_069` where the target has another file there (a
+    /// live gun remodelled: 0.26g's older material of the same name); a
+    /// texture likewise. The same bytes (an earlier port's) keep the name.
+    fn compose_material(
+        &mut self,
+        name: &str,
+        target: &mut ResourceDb,
+        work: &Path,
+    ) -> Result<String> {
+        if let Some(done) = self.material_names.get(name) {
+            return Ok(done.clone());
         }
+        let path = format!("material_instances/{name}.material");
         let source = db_config(&mut self.db, &path)?;
         let effect = get(&source, "material.g_stage.effect")
             .with_context(|| format!("{path} has no g_stage effect"))?
             .clone();
         let mut material = parse_config(target, MATERIAL_TEMPLATE, "native rifle material")?.root;
+        // A role the material binds no map for (the MP7's glow material: no smoothness) keeps
+        // the template's map; an albedo with no metalness map is taken as non-metal.
         let mut names = BTreeMap::new();
         for (role, native, _) in MAP_ROLES {
-            let texture = string_of(get(&effect, &format!("{role}.value")))
-                .with_context(|| format!("{path}: {role}"))?
-                .to_owned();
-            ensure!(!texture.is_empty(), "{path} binds no {role}");
+            let texture = match get(&effect, &format!("{role}.value")) {
+                Some(v) => string_of(Some(v))?.to_owned(),
+                None => String::new(),
+            };
+            if texture.is_empty() {
+                ensure!(role != "t_albedo", "{path} binds no {role}");
+                continue;
+            }
             material.set_path(
                 &format!("material.g_stage.effect.{native}.value"),
                 s(&texture),
             )?;
             names.insert(role, texture);
         }
-        for (role, _, map) in MAP_ROLES {
-            let texture = &names[role];
-            let dds = format!("textures/{texture}.dds");
-            if self.files.contains_key(&dds) {
+        for (role, native, map) in MAP_ROLES {
+            let Some(texture) = names.get(role).cloned() else {
+                continue;
+            };
+            if let Some(done) = self.texture_names.get(&texture) {
+                material.set_path(&format!("material.g_stage.effect.{native}.value"), s(done))?;
                 continue;
             }
+            let dds = format!("textures/{texture}.dds");
             let bytes = self.db.read(&dds)?;
             let bytes = match map {
                 MapRole::Diffuse => {
-                    let metalness = self
-                        .db
-                        .read(&format!("textures/{}.dds", names["t_metalness"]))?;
+                    let metalness = match names.get("t_metalness") {
+                        Some(m) => self.db.read(&format!("textures/{m}.dds"))?,
+                        None => black_dxt1(&bytes)?,
+                    };
                     diffuse_dds(&bytes, &metalness, &dds, work)?
                 }
                 MapRole::Normal => bytes,
@@ -908,11 +1063,35 @@ impl Donor069 {
                     mapped_dds(&bytes, convert::fresnel_from_metalness, &dds, work)?
                 }
             };
-            self.put(dds, bytes)?;
-            let options = db_config(&mut self.db, &format!("textures/{texture}.options"))?;
-            self.put(format!("textures/{texture}.options"), encode(options)?)?;
+            let options = encode(db_config(
+                &mut self.db,
+                &format!("textures/{texture}.options"),
+            )?)?;
+            let own = differs(target, &dds, &bytes)?
+                || differs(target, &format!("textures/{texture}.options"), &options)?;
+            let final_name = if own {
+                format!("{texture}_069")
+            } else {
+                texture.clone()
+            };
+            self.put(format!("textures/{final_name}.dds"), bytes)?;
+            self.put(format!("textures/{final_name}.options"), options)?;
+            material.set_path(
+                &format!("material.g_stage.effect.{native}.value"),
+                s(&final_name),
+            )?;
+            self.texture_names.insert(texture, final_name);
         }
-        self.put(path, encode(material)?)
+        let bytes = encode(material)?;
+        let final_name = if differs(target, &path, &bytes)? {
+            format!("{name}_069")
+        } else {
+            name.to_owned()
+        };
+        self.put(format!("material_instances/{final_name}.material"), bytes)?;
+        self.material_names
+            .insert(name.to_owned(), final_name.clone());
+        Ok(final_name)
     }
 }
 
@@ -1167,3 +1346,67 @@ fn check_clips(cfg: &V, overlay: &Path, target: &mut ResourceDb) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+/// Live guns remodelled on 0.69d0's (`remodel-weapons-069d`, `ports/remodel-*.json`): each
+/// sidecar gun's model composed as for a port (its structural modules baked, the separable ones
+/// left for the kit; a live rig keeps the gun's clips and hand points) at its `model_path`, new to
+/// the target, with its materials and textures (0.69d0's names, or `_069` ones where 0.26g has
+/// other files there). No item config, dictionary row or icon: the live items keep theirs and
+/// point at the new models (skhid-srp's edit list). Writes `overlay/`, `port-manifest.json` (for
+/// `pack from-bundle`) and `donor-069d.json` (each gun's model, modules and attach points).
+pub fn remodel_069d(
+    id: &str,
+    spec: &Spec069,
+    donor_db: &Path,
+    target_layers: &[PathBuf],
+    output: &Path,
+) -> Result<usize> {
+    ensure!(!output.exists(), "{} is already there", output.display());
+    for (item, gun) in &spec.guns {
+        ensure!(
+            gun.model_path.is_some(),
+            "{item}: a remodel names its model_path"
+        );
+    }
+    let work = output.with_extension("work");
+    let donor = Donor069::open(donor_db, spec, target_layers, &work)?;
+    let overlay = output.join("overlay");
+    let mut files = vec![];
+    for (path, bytes) in &donor.files {
+        let dest = crate::archive::safe_join(&overlay, path)?;
+        fs::create_dir_all(dest.parent().context("a file without a folder")?)?;
+        fs::write(&dest, bytes)?;
+        files.push(crate::weapon::record_file(path, "0.69d0", bytes));
+    }
+    fs::write(
+        output.join("port-manifest.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "format_version": 1,
+            "asset_id": id,
+            "donor_build": DonorBuild::V069d0,
+            "files": files,
+            "target": target_layers,
+            "items": [],
+            "compatibility": [],
+            "icons": [],
+            "reused_from_target": [],
+            "notes": {},
+        }))?,
+    )?;
+    let mut guns = serde_json::Map::new();
+    for (item, gun) in &spec.guns {
+        guns.insert(
+            item.clone(),
+            serde_json::json!({
+                "model_root": format!("models/{}.skinned_model", gun.model_path.as_deref().unwrap_or_default()),
+                "modules": donor.modules().get(item),
+                "attach_points": donor.attach_points().get(item),
+            }),
+        );
+    }
+    fs::write(
+        output.join("donor-069d.json"),
+        serde_json::to_vec_pretty(&guns)?,
+    )?;
+    Ok(files.len())
+}
