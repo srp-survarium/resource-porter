@@ -105,59 +105,73 @@
   "donor_copies": [
     {
       "from": "textures/engine/rain_drop.dds",
-      "to": "textures/ported/v021d/engine/rain_drop.dds"
+      "to": "textures/ported/v021d/engine/rain_drop.dds",
+      "sha256": "a72db33d8eacd6caa43465ad556272d5e1818aef49971275773bb26237a0454e"
     },
     {
       "from": "textures/engine/rain_drop.options",
-      "to": "textures/ported/v021d/engine/rain_drop.options"
+      "to": "textures/ported/v021d/engine/rain_drop.options",
+      "sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2"
     },
     {
       "from": "textures/engine/scroll_rain_0.dds",
-      "to": "textures/ported/v021d/engine/scroll_rain_0.dds"
+      "to": "textures/ported/v021d/engine/scroll_rain_0.dds",
+      "sha256": "0e4bdcc3669e5bf5bfa970ee2be6a2c7a8368b0f17fbad46e43aebdd0a68d1e9"
     },
     {
       "from": "textures/engine/scroll_rain_0.options",
-      "to": "textures/ported/v021d/engine/scroll_rain_0.options"
+      "to": "textures/ported/v021d/engine/scroll_rain_0.options",
+      "sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2"
     },
     {
       "from": "textures/engine/water_waves2.dds",
-      "to": "textures/ported/v021d/engine/water_waves2.dds"
+      "to": "textures/ported/v021d/engine/water_waves2.dds",
+      "sha256": "af438742acb54c75f6b2baccd050c5b21a824a752797daf26701599176c65eaa"
     },
     {
       "from": "textures/engine/water_waves2.options",
-      "to": "textures/ported/v021d/engine/water_waves2.options"
+      "to": "textures/ported/v021d/engine/water_waves2.options",
+      "sha256": "803011f7e4bbdca18737386e744138c38c6355023e45494b2381ce8fdf3e1ed9"
     },
     {
       "from": "shaders/sm_4_0/vertex_base.vs/__________________0____11________0_0________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_v021d.vs/___________________________________________________________________",
+      "sha256": "d3a9b4d3adc759f0dba004c143bb7a0aa0590acecc85e22c3c8d2362cd8e9fb3"
     },
     {
       "from": "shaders/sm_4_0/vertex_base_shadow.vs/__________________0____11________0_0________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_shadow_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_shadow_v021d.vs/___________________________________________________________________",
+      "sha256": "2e9de81ee80543937a8dab1c74024ec1594ae7804de585b0cd71b9e416a080a0"
     },
     {
       "from": "shaders/sm_4_0/vertex_base_shadow_batched.vs/__________________0____11________0_1________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_shadow_batched_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_shadow_batched_v021d.vs/___________________________________________________________________",
+      "sha256": "ec814cb579d6b3df76ed46352cfed1aa506e6871a816500c6cff95950dfa3ca3"
     },
     {
       "from": "shaders/sm_4_0/vertex_base_lpv.vs/__________________0____11________0_0________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_lpv_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_lpv_v021d.vs/___________________________________________________________________",
+      "sha256": "d467ef7441ad1ac760808c7b78a45424b9edf9ce8e9eefacfcc6166425173e2d"
     },
     {
       "from": "shaders/sm_4_0/vertex_base_unwrap.vs/__________________0____11________0_0________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_unwrap_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_unwrap_v021d.vs/___________________________________________________________________",
+      "sha256": "f9342d2ec2cd3ac94f5155e613761a89206ca9538d66acea64aa51401229d736"
     },
     {
       "from": "shaders/sm_4_0/vertex_base_bake_decal_occlusion.vs/__________________0____11________0_0________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_bake_decal_occlusion_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_bake_decal_occlusion_v021d.vs/___________________________________________________________________",
+      "sha256": "8264b402c050077cd806a9b6e0c5e2c8867858489fa028be6cd4746dfe0418b2"
     },
     {
       "from": "shaders/sm_4_0/vertex_base_z_shifted.vs/__________________0____11________0_0________________0_0_____________",
-      "to": "shaders/sm_4_0/vertex_base_z_shifted_v021d.vs/___________________________________________________________________"
+      "to": "shaders/sm_4_0/vertex_base_z_shifted_v021d.vs/___________________________________________________________________",
+      "sha256": "1b54c05fe37554cd80517b19791ef859684f0efd18476727986880f89eb2c139"
     },
     {
       "from": "shaders/sm_4_0/wet_sufrace.ps/___________________________________________________________________",
-      "to": "shaders/sm_4_0/wet_surface_v021d.ps/___________________________________________________________________"
+      "to": "shaders/sm_4_0/wet_surface_v021d.ps/___________________________________________________________________",
+      "sha256": "6a195128d5b229e88c738a5ce38274146cd02e77b58778479382bc7cf70aebf9"
     }
   ]
 }
