@@ -1384,7 +1384,7 @@ pub(crate) fn skins(model: &[u8], stride: usize) -> Result<Vec<Skin>> {
 }
 
 /// Writes a skin into a 48-byte vertex: its four heaviest bones, renormalised.
-fn put_skin(vertex: &mut [u8], skin: &[(u8, f64)]) {
+pub(crate) fn put_skin(vertex: &mut [u8], skin: &[(u8, f64)]) {
     let mut skin = skin.to_vec();
     skin.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
     skin.truncate(4);
