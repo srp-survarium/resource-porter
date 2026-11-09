@@ -265,6 +265,11 @@ enum Command {
         donor_db: PathBuf,
         #[arg(long)]
         target_db: PathBuf,
+        /// A `resources.db.patch_<n>` players have over the target
+        /// (repeatable): the weather shaders are converted over the bytes
+        /// the game loads.
+        #[arg(long = "shader-base-patch")]
+        shader_base_patches: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
     },
@@ -286,6 +291,31 @@ enum Command {
         /// The pack's new version.
         #[arg(long)]
         version: String,
+    },
+    /// Another weather of a shipped 0.21 map as a content pack: the shipped
+    /// day projects with the donor weather's environment, weather objects and
+    /// lighting, its 0.21 conversions (weather_021d.rs).
+    #[command(name = "build-021d-weather")]
+    Build021dWeather {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        donor_db: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// A patch the packs are composed over (repeatable; release/content.tsv's base rows).
+        #[arg(long = "base-patch")]
+        base_patches: Vec<PathBuf>,
+        /// Every patch players have (repeatable).
+        #[arg(long = "live-patch", required = true)]
+        live_patches: Vec<PathBuf>,
+        /// A new folder for the importer's bundle and the checks.
+        #[arg(long)]
+        work: PathBuf,
+        /// The new pack folder.
+        #[arg(long)]
+        output: PathBuf,
     },
     /// Give native 0.26g School an overcast environment and map-wide volume fog.
     BuildSurvarium026Fog {
@@ -1236,10 +1266,15 @@ fn main() -> Result<()> {
             manifest,
             donor_db,
             target_db,
+            shader_base_patches,
             output,
         } => {
             let record = vostok_resource_porter::survarium_026::build(
-                &manifest, &donor_db, &target_db, &output,
+                &manifest,
+                &donor_db,
+                &target_db,
+                &shader_base_patches,
+                &output,
             )?;
             println!(
                 "maps={} files={} materials={}",
@@ -1274,6 +1309,29 @@ fn main() -> Result<()> {
                     println!("  options {change}");
                 }
             }
+        }
+        Command::Build021dWeather {
+            manifest,
+            donor_db,
+            target_db,
+            base_patches,
+            live_patches,
+            work,
+            output,
+        } => {
+            anyhow::ensure!(!work.exists(), "{}: exists; give a new folder", work.display());
+            vostok_resource_porter::weather_021d::build(
+                &manifest,
+                &vostok_resource_porter::weather_021d::Inputs {
+                    donor_db: &donor_db,
+                    target_db: &target_db,
+                    base_patches: &base_patches,
+                    live_patches: &live_patches,
+                    work: &work,
+                    output: &output,
+                },
+            )?;
+            println!("pack={}", output.display());
         }
         Command::BuildSurvarium026Fog { target_db, output } => {
             vostok_resource_porter::survarium_026::build_native_fog(&target_db, &output)?;

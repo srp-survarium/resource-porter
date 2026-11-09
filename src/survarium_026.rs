@@ -9,7 +9,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     io::Read,
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
@@ -306,7 +306,7 @@ fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result
 }
 
 /// Lighting object types replaced by `Map::native_lighting`.
-const LIGHTING_OBJECT_TYPES: [&str; 3] = ["environment_probe", "ambient_light", "light"];
+pub(crate) const LIGHTING_OBJECT_TYPES: [&str; 3] = ["environment_probe", "ambient_light", "light"];
 
 /// Translation from the native project's layout to the donor's: the most
 /// common position difference of models placed exactly once in both. 0.26
@@ -908,7 +908,7 @@ fn particle_fields(kind: &str) -> &'static [&'static str] {
         _ => &[],
     }
 }
-fn particle_defaults(target: &mut ResourceDb) -> Result<BTreeMap<String, ConfigValue>> {
+pub(crate) fn particle_defaults(target: &mut ResourceDb) -> Result<BTreeMap<String, ConfigValue>> {
     fn collect(c: &ConfigValue, defaults: &mut BTreeMap<String, ConfigValue>) {
         if let Some(kind) = string(c, "particle_entity_type") {
             if let Some(properties) = c.named("properties") {
@@ -962,7 +962,7 @@ fn particle_defaults(target: &mut ResourceDb) -> Result<BTreeMap<String, ConfigV
     }
     Ok(defaults)
 }
-fn adapt_particle(c: &mut ConfigValue, defaults: &BTreeMap<String, ConfigValue>) -> Result<bool> {
+pub(crate) fn adapt_particle(c: &mut ConfigValue, defaults: &BTreeMap<String, ConfigValue>) -> Result<bool> {
     let mut changed = false;
     if let Some(kind) = string(c, "particle_entity_type").map(str::to_owned) {
         if let Some(properties) = c.named_mut("properties") {
@@ -1378,10 +1378,15 @@ pub fn build_native_fog(target_path: &Path, output: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `shader_patches`: the `resources.db.patch_<n>` files players have over
+/// the target (ascending n). The converted weather shaders are built over
+/// the target's shader bytes with these laid over it, the bytes the game
+/// loads, never stock bytes a patch replaced; none, the target's own.
 pub fn build(
     manifest_path: &Path,
     donor_path: &Path,
     target_path: &Path,
+    shader_patches: &[PathBuf],
     output: &Path,
 ) -> Result<Record> {
     let m: Manifest = serde_json::from_reader(fs::File::open(manifest_path)?)?;
@@ -1612,12 +1617,16 @@ pub fn build(
     }
     // Validate both retail shader fingerprints and assemble the compatibility
     // branch before writing any output. With no opt-in, emit no shader change.
+    let mut shaders = ResourceDb::open_layers(&crate::content_pack::patch::base_layers(
+        target_path,
+        shader_patches,
+    )?)?;
     let fog_shader = if fog_profiles.is_empty() {
         None
     } else {
         Some(crate::weather_fog_021::build(
             &donor.read(crate::weather_fog_021::PATH)?,
-            &target.read(crate::weather_fog_021::PATH)?,
+            &shaders.read(crate::weather_fog_021::PATH)?,
             &fog_profiles,
         )?)
     };
@@ -1626,7 +1635,7 @@ pub fn build(
     } else {
         Some(crate::weather_fog_021::build_sky(
             &donor.read(crate::weather_fog_021::SKY_PATH)?,
-            &target.read(crate::weather_fog_021::SKY_PATH)?,
+            &shaders.read(crate::weather_fog_021::SKY_PATH)?,
             &sky_markers,
         )?)
     };
@@ -1634,14 +1643,14 @@ pub fn build(
     let ao_shader = if ao_markers.is_empty() { None } else {
         Some(crate::weather_fog_021::build_ambient_occlusion(
             &donor.read(crate::weather_fog_021::AO_SOURCE)?,
-            &target.read(crate::weather_fog_021::AO_PATH)?, &ao_markers)?)
+            &shaders.read(crate::weather_fog_021::AO_PATH)?, &ao_markers)?)
     };
     let mut god_rays_shaders = Vec::new();
     if !god_rays_markers.is_empty() {
         for quality in 0..4 {
             let path = crate::weather_fog_021::god_rays_path(quality);
             let shader = crate::weather_fog_021::build_god_rays_falloff(
-                &donor.read(&path)?, &target.read(&path)?, quality, &god_rays_markers)?;
+                &donor.read(&path)?, &shaders.read(&path)?, quality, &god_rays_markers)?;
             god_rays_shaders.push((path, shader));
         }
     }
@@ -1653,11 +1662,11 @@ pub fn build(
     let mut tonemap_shaders = Vec::new();
     if !tonemap_markers.is_empty() {
         let source = donor.read(crate::weather_fog_021::TONEMAP_SOURCE)?;
-        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::TONEMAP_PREFIX)
-            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        let paths: Vec<_> = shaders.paths_with_prefix(crate::weather_fog_021::TONEMAP_PREFIX)
+            .filter(|p| shaders.is_file(p)).map(str::to_owned).collect();
         ensure!(paths.len() == 12, "unexpected native tone-map variant count");
         for path in paths {
-            if let Some(shader) = crate::weather_fog_021::build_tonemap(&source, &target.read(&path)?, &tonemap_markers)? {
+            if let Some(shader) = crate::weather_fog_021::build_tonemap(&source, &shaders.read(&path)?, &tonemap_markers)? {
                 tonemap_shaders.push((path, shader));
             }
         }
@@ -1667,13 +1676,13 @@ pub fn build(
     if !rain_albedo_markers.is_empty() || !sun_lighting_markers.is_empty() {
         let sun_source = donor.read(crate::weather_fog_021::SUN_COMPOSITION_SOURCE)?;
         let source = donor.read(crate::weather_fog_021::COMPOSITION_SOURCE)?;
-        let template = target.read(crate::weather_fog_021::COMPOSITION_TEMPLATE)?;
-        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::COMPOSITION_PREFIX)
-            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        let template = shaders.read(crate::weather_fog_021::COMPOSITION_TEMPLATE)?;
+        let paths: Vec<_> = shaders.paths_with_prefix(crate::weather_fog_021::COMPOSITION_PREFIX)
+            .filter(|p| shaders.is_file(p)).map(str::to_owned).collect();
         ensure!(paths.len() == 64, "unexpected native composition variant count");
         for path in paths {
             if let Some(shader) = crate::weather_fog_021::build_composition(
-                &source, &sun_source, &target.read(&path)?, &template, &rain_albedo_markers, &sun_lighting_markers)? {
+                &source, &sun_source, &shaders.read(&path)?, &template, &rain_albedo_markers, &sun_lighting_markers)? {
                 composition_shaders.push((path, shader));
             }
         }
@@ -1682,13 +1691,13 @@ pub fn build(
     let mut particle_fog_shaders = Vec::new();
     if !particle_fog_profiles.is_empty() {
         let source = donor.read(crate::weather_fog_021::PARTICLE_SOURCE)?;
-        let template = target.read(crate::weather_fog_021::PARTICLE_TEMPLATE)?;
-        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::PARTICLE_PREFIX)
-            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        let template = shaders.read(crate::weather_fog_021::PARTICLE_TEMPLATE)?;
+        let paths: Vec<_> = shaders.paths_with_prefix(crate::weather_fog_021::PARTICLE_PREFIX)
+            .filter(|p| shaders.is_file(p)).map(str::to_owned).collect();
         ensure!(paths.len() == 480, "unexpected native particle variant count");
         for path in paths {
             if let Some(shader) = crate::weather_fog_021::build_particle(
-                &source, &target.read(&path)?, &template, &particle_fog_profiles)? {
+                &source, &shaders.read(&path)?, &template, &particle_fog_profiles)? {
                 particle_fog_shaders.push((path,shader));
             }
         }
@@ -1697,13 +1706,13 @@ pub fn build(
     let mut water_fog_shaders = Vec::new();
     if !water_fog_profiles.is_empty() {
         let source = donor.read(crate::weather_fog_021::WATER_SOURCE)?;
-        let template = target.read(crate::weather_fog_021::WATER_TEMPLATE)?;
-        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::WATER_PREFIX)
-            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        let template = shaders.read(crate::weather_fog_021::WATER_TEMPLATE)?;
+        let paths: Vec<_> = shaders.paths_with_prefix(crate::weather_fog_021::WATER_PREFIX)
+            .filter(|p| shaders.is_file(p)).map(str::to_owned).collect();
         ensure!(paths.len() == 120, "unexpected native water variant count");
         for path in paths {
             if let Some(shader) = crate::weather_fog_021::build_water(
-                &source, &target.read(&path)?, &template, &water_fog_profiles)? {
+                &source, &shaders.read(&path)?, &template, &water_fog_profiles)? {
                 water_fog_shaders.push((path,shader));
             }
         }
@@ -1712,14 +1721,14 @@ pub fn build(
     let scattering_shader = if scattering_profiles.is_empty() {None} else {
         Some(crate::weather_fog_021::build_scattering(
             &donor.read(crate::weather_fog_021::SCATTERING_PATH)?,
-            &target.read(crate::weather_fog_021::SCATTERING_PATH)?,
-            &target.read(crate::weather_fog_021::SKY_PATH)?,
+            &shaders.read(crate::weather_fog_021::SCATTERING_PATH)?,
+            &shaders.read(crate::weather_fog_021::SKY_PATH)?,
             &scattering_profiles)?)
     };
     if !cloud_markers.is_empty() {
         let paths: Vec<_> = target
             .paths_with_prefix(crate::weather_fog_021::CLOUD_PREFIX)
-            .filter(|p| target.is_file(p))
+            .filter(|p| shaders.is_file(p))
             .map(str::to_owned)
             .collect();
         ensure!(paths.len() == 8, "unexpected native cloud variant count");
@@ -1734,7 +1743,7 @@ pub fn build(
             let lit = variant.as_bytes()[31] == b'1';
             let shader = crate::weather_fog_021::build_cloud(
                 &donor.read(&crate::weather_fog_021::cloud_source_path(lit))?,
-                &target.read(&path)?,
+                &shaders.read(&path)?,
                 &cloud_markers,
                 lit,
             )?;
