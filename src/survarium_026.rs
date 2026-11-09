@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Add retail 0.21d maps to 0.26g without replacing its maps or shaders.
+//! Add retail 0.21d maps to 0.26g, with opt-in legacy fog compatibility.
 use crate::manifest::BuiltFile;
 use crate::{BinaryConfig, ConfigValue, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
@@ -52,6 +52,44 @@ pub struct Map {
     /// re-baked and re-tuned for 0.26's lighting.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_lighting: bool,
+    /// Explicit per-weather environment adjustments, applied after filling the
+    /// target schema. Only existing properties with compatible types may change.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub environment_overrides: BTreeMap<String, serde_json::Value>,
+    /// Use the pinned original fog arithmetic for this map. The shared shader
+    /// retains its native path for unmarked maps. Experimental visual parity.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_fog_021: bool,
+    /// Original sky arithmetic for this map, sharing the legacy fog marker.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_sky_021: bool,
+    /// Original cloud shading, source defaults and rotation convention.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_clouds_021: bool,
+    /// Original atmospheric lookup coefficients and authored Rayleigh gain.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_scattering_021: bool,
+    /// Original fog interpolation for the checked batched particle variants.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_particle_fog_021: bool,
+    /// Original fog in the checked forward-water pixel variants.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_water_fog_021: bool,
+    /// Omit 0.26's additional rain diffuse attenuation, absent in 0.21.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_rain_albedo_021: bool,
+    /// Original quality-1 ambient occlusion, normalized for native application.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_ambient_occlusion_021: bool,
+    /// Original radial sun-ray falloff, retaining native mask and application.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_god_rays_falloff_021: bool,
+    /// Original direct-sun diffuse/specular block; native foliage retained.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_sun_lighting_021: bool,
+    /// Original tone curve; native grading and unmarked maps remain intact.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_tonemap_021: bool,
     /// `mode.match_making_params.map_id` of the mode config: the number a
     /// server counts a map by, whatever its weather and mode. Unset, the
     /// native map's (3 for level_03), which makes the import a weather
@@ -416,8 +454,171 @@ fn adapt_project(
             }
         }
     }
+    apply_environment_overrides(&mut donor, &map.environment_overrides)?;
     validate_gameplay(&donor)?;
     Ok(donor)
+}
+
+fn apply_environment_overrides(
+    project: &mut ConfigValue,
+    overrides: &BTreeMap<String, serde_json::Value>,
+) -> Result<()> {
+    if overrides.is_empty() {
+        return Ok(());
+    }
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("environment overrides require client objects");
+    };
+    let mut environments = objects.iter_mut()
+        .filter(|o| string(o, "game_object_type") == Some("environment"));
+    let environment = environments.next().context("environment overrides require an environment")?;
+    ensure!(environments.next().is_none(), "ambiguous environment overrides: multiple environments");
+    let properties = environment.named_mut("properties").context("environment properties missing")?;
+    // Validate every edit first; an invalid key/type must not partly apply a profile.
+    let mut edits = Vec::new();
+    for (name, value) in overrides {
+        ensure!(!name.contains('.'), "environment override must be a direct property: {name}");
+        let old = properties.named(name).with_context(|| format!("unknown environment property {name}"))?;
+        let new = crate::content_pack::value::to_config(value, Some(old))?;
+        let numeric = |v: &ConfigValue| matches!(v, ConfigValue::Float(_) | ConfigValue::Integer(_));
+        ensure!(std::mem::discriminant(old) == std::mem::discriminant(&new)
+                || (numeric(old) && numeric(&new)), "environment property type changed: {name}");
+        let finite = match &new {
+            ConfigValue::Float(v) => v.is_finite(),
+            ConfigValue::Float2(v) => v.iter().all(|v| v.is_finite()),
+            ConfigValue::Float3(v) => v.iter().all(|v| v.is_finite()),
+            ConfigValue::Float4(v) => v.iter().all(|v| v.is_finite()),
+            ConfigValue::Named(_) | ConfigValue::Indexed(_) => false,
+            _ => true,
+        };
+        ensure!(finite, "environment override must be a finite scalar/vector: {name}");
+        edits.push((name, new));
+    }
+    for (name, value) in edits {
+        properties.set_path(name, value)?;
+    }
+    Ok(())
+}
+
+fn mark_legacy_fog(project: &mut ConfigValue, map: &Map) -> Result<crate::weather_fog_021::Profile> {
+    ensure!(!map.native_lighting, "legacy fog requires donor lighting");
+    ensure!(!map.environment_overrides.keys().any(|k| k.starts_with("mie_fog_") || k.starts_with("rayleigh_fog_")),
+            "legacy fog cannot be combined with fog property overrides");
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("legacy fog requires client objects");
+    };
+    let mut environments = objects.iter_mut().filter(|o| string(o, "game_object_type") == Some("environment"));
+    let environment = environments.next().context("legacy fog requires an environment")?;
+    ensure!(environments.next().is_none(), "legacy fog requires one environment");
+    let properties = environment.named_mut("properties").context("missing environment properties")?;
+    let Some(ConfigValue::Float4(color)) = properties.named("rayleigh_fog_color") else {
+        bail!("original Rayleigh color is missing");
+    };
+    let color = [color[0].powf(2.2), color[1].powf(2.2), color[2].powf(2.2)];
+    ensure!(color.iter().all(|v| v.is_finite() && *v >= 0.0), "invalid original Rayleigh color");
+    let marker = -32021.0 - f32::from(map.id);
+    ensure!(properties.named("mie_fog_base_height").is_some(), "missing native fog marker field");
+    properties.set_path("mie_fog_base_height", ConfigValue::Float(marker))?;
+    Ok(crate::weather_fog_021::Profile { marker, color })
+}
+
+fn prepare_legacy_clouds(project: &mut ConfigValue, map: &Map) -> Result<()> {
+    ensure!(
+        ![
+            "sky_clouds_rotation",
+            "stratosphere_rotation",
+            "sky_clouds_fog_color",
+            "sky_clouds_sunlight",
+            "use_sky_clouds_lighting"
+        ]
+        .iter()
+        .any(|k| map.environment_overrides.contains_key(*k)),
+        "original cloud conversion conflicts with cloud overrides"
+    );
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("original clouds require client objects");
+    };
+    let mut environments = objects
+        .iter_mut()
+        .filter(|o| string(o, "game_object_type") == Some("environment"));
+    let environment = environments
+        .next()
+        .context("original clouds require an environment")?;
+    ensure!(
+        environments.next().is_none(),
+        "original clouds require one environment"
+    );
+    let properties = environment
+        .named_mut("properties")
+        .context("missing cloud environment properties")?;
+    let mut edits = Vec::new();
+    for key in ["sky_clouds_rotation", "stratosphere_rotation"] {
+        let angle = match properties.named(key) {
+            Some(ConfigValue::Float(v)) => *v,
+            Some(ConfigValue::Integer(v)) => *v as f32,
+            _ => bail!("missing original cloud angle {key}"),
+        };
+        ensure!(angle.is_finite(), "nonfinite original cloud angle");
+        // Original uploads (cos,sin), native uploads (sin,cos).
+        edits.push((key, ConfigValue::Float((90.0 - angle).rem_euclid(360.0))));
+    }
+    // Read the donor before schema filling: an omitted original fog color
+    // means white, as observed in the retail draw, not the native map's black.
+    if properties.named("sky_clouds_fog_color").is_none() {
+        edits.push(("sky_clouds_fog_color", ConfigValue::Float4([1.0; 4])));
+    }
+    if properties.named("use_sky_clouds_lighting").is_none() {
+        edits.push(("use_sky_clouds_lighting", ConfigValue::Boolean(false)));
+    }
+    // 0.26 additionally multiplies the uploaded tint by this new property.
+    // The original uploads gamma-corrected color * authored multiplier only.
+    ensure!(
+        properties.named("sky_clouds_sunlight").is_none(),
+        "unexpected original cloud sunlight field"
+    );
+    edits.push(("sky_clouds_sunlight", ConfigValue::Float(1.0)));
+    for (key, value) in edits {
+        properties.set_path(key, value)?;
+    }
+    Ok(())
+}
+
+fn original_scattering_profile(
+    project: &ConfigValue,
+    map: &Map,
+    marker: f32,
+) -> Result<crate::weather_fog_021::ScatteringProfile> {
+    ensure!(
+        !map.environment_overrides
+            .keys()
+            .any(|k| k.starts_with("atmosphere_")),
+        "original scattering conflicts with atmosphere overrides"
+    );
+    let objects = array(
+        project
+            .named("client_objects")
+            .context("missing scattering environment")?,
+    )?;
+    let environment = objects
+        .iter()
+        .find(|o| string(o, "game_object_type") == Some("environment"))
+        .context("missing scattering environment")?;
+    let props = environment
+        .named("properties")
+        .context("missing scattering properties")?;
+    let value = match props.named("atmosphere_rayleighSun_multiplier") {
+        Some(ConfigValue::Float(v)) => *v,
+        Some(ConfigValue::Integer(v)) => *v as f32,
+        _ => bail!("missing original Rayleigh sunlight multiplier"),
+    };
+    ensure!(
+        value.is_finite() && value >= 0.0,
+        "invalid original Rayleigh sunlight multiplier"
+    );
+    Ok(crate::weather_fog_021::ScatteringProfile {
+        marker,
+        rayleigh_sun: value,
+    })
 }
 
 /// All authored interaction-zone references must still resolve after upgrading.
@@ -1191,6 +1392,22 @@ pub fn build(
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
     for map in &m.maps {
+        ensure!(!map.legacy_scattering_021 || map.legacy_sky_021,"original scattering requires legacy_sky_021");
+        ensure!(!map.legacy_particle_fog_021 || map.legacy_fog_021, "original particle fog requires legacy_fog_021");
+        ensure!(!map.legacy_water_fog_021 || map.legacy_fog_021, "original water fog requires legacy_fog_021");
+        ensure!(!map.legacy_rain_albedo_021 || (map.legacy_fog_021 && map.weather == "rain"), "original rain albedo requires rain weather and legacy_fog_021");
+        ensure!(!map.legacy_sun_lighting_021 || map.legacy_fog_021, "original sun lighting requires legacy_fog_021");
+        ensure!(!map.legacy_tonemap_021 || map.legacy_fog_021, "original tone curve requires legacy_fog_021");
+        ensure!(!map.legacy_god_rays_falloff_021 || map.legacy_fog_021, "original god-rays falloff requires legacy_fog_021");
+        ensure!(!map.legacy_ambient_occlusion_021 || map.legacy_fog_021, "original ambient occlusion requires legacy_fog_021");
+        ensure!(
+            !map.legacy_sky_021 || map.legacy_fog_021,
+            "original sky requires legacy_fog_021"
+        );
+        ensure!(
+            !map.legacy_clouds_021 || map.legacy_fog_021,
+            "original clouds require legacy_fog_021"
+        );
         ensure!(
             matches!(
                 map.level.as_str(),
@@ -1314,14 +1531,60 @@ pub fn build(
     }
     let mut overrides = BTreeMap::new();
     let mut collision_repairs = BTreeMap::new();
+    let mut fog_profiles = Vec::new();
+    let mut sky_markers = Vec::new();
+    let mut cloud_markers = Vec::new();
+    let mut scattering_profiles = Vec::new();
+    let mut particle_fog_profiles = Vec::new();
+    let mut water_fog_profiles = Vec::new();
+    let mut rain_albedo_markers = Vec::new();
+    let mut ao_markers = Vec::new();
+    let mut god_rays_markers = Vec::new();
+    let mut sun_lighting_markers = Vec::new();
+    let mut tonemap_markers = Vec::new();
     for map in &m.maps {
+        let mut source = cfg(&mut donor, &map.donor_project())?;
+        if map.legacy_clouds_021 {
+            prepare_legacy_clouds(&mut source, map)?;
+        }
         let mut project = adapt_project(
-            cfg(&mut donor, &map.donor_project())?,
+            source,
             &target_projects[&map.target_project()],
             map,
             &templates,
         )
         .with_context(|| format!("adapting {}", map.donor_project()))?;
+        if map.legacy_fog_021 {
+            let profile = mark_legacy_fog(&mut project, map)?;
+            if map.legacy_rain_albedo_021 {
+                rain_albedo_markers.push(profile.marker);
+            }
+            if map.legacy_sun_lighting_021 {
+                sun_lighting_markers.push(profile.marker);
+            }
+            if map.legacy_god_rays_falloff_021 {
+                god_rays_markers.push(profile.marker);
+            }
+            if map.legacy_ambient_occlusion_021 {
+                ao_markers.push(profile.marker);
+            }
+            if map.legacy_water_fog_021 {
+                water_fog_profiles.push(profile.clone());
+            }
+            if map.legacy_particle_fog_021 {
+                particle_fog_profiles.push(profile.clone());
+            }
+            if map.legacy_scattering_021 {
+                scattering_profiles.push(original_scattering_profile(&project,map,profile.marker)?);
+            }
+            if map.legacy_sky_021 {
+                sky_markers.push(profile.marker);
+            }
+            if map.legacy_clouds_021 {
+                cloud_markers.push(profile.marker);
+            }
+            fog_profiles.push(profile);
+        }
         if map.native_lighting {
             let native = &target_projects[&map.target_project()];
             let offset = layout_offset(&project, native)
@@ -1346,6 +1609,137 @@ pub fn build(
             map.donor_project(),
             BinaryConfig { root: project }.to_bytes()?,
         );
+    }
+    // Validate both retail shader fingerprints and assemble the compatibility
+    // branch before writing any output. With no opt-in, emit no shader change.
+    let fog_shader = if fog_profiles.is_empty() {
+        None
+    } else {
+        Some(crate::weather_fog_021::build(
+            &donor.read(crate::weather_fog_021::PATH)?,
+            &target.read(crate::weather_fog_021::PATH)?,
+            &fog_profiles,
+        )?)
+    };
+    let sky_shader = if sky_markers.is_empty() {
+        None
+    } else {
+        Some(crate::weather_fog_021::build_sky(
+            &donor.read(crate::weather_fog_021::SKY_PATH)?,
+            &target.read(crate::weather_fog_021::SKY_PATH)?,
+            &sky_markers,
+        )?)
+    };
+    let mut cloud_shaders = Vec::new();
+    let ao_shader = if ao_markers.is_empty() { None } else {
+        Some(crate::weather_fog_021::build_ambient_occlusion(
+            &donor.read(crate::weather_fog_021::AO_SOURCE)?,
+            &target.read(crate::weather_fog_021::AO_PATH)?, &ao_markers)?)
+    };
+    let mut god_rays_shaders = Vec::new();
+    if !god_rays_markers.is_empty() {
+        for quality in 0..4 {
+            let path = crate::weather_fog_021::god_rays_path(quality);
+            let shader = crate::weather_fog_021::build_god_rays_falloff(
+                &donor.read(&path)?, &target.read(&path)?, quality, &god_rays_markers)?;
+            god_rays_shaders.push((path, shader));
+        }
+    }
+    for map in &m.maps {
+        if map.legacy_tonemap_021 {
+            tonemap_markers.push(-32021.0 - f32::from(map.id));
+        }
+    }
+    let mut tonemap_shaders = Vec::new();
+    if !tonemap_markers.is_empty() {
+        let source = donor.read(crate::weather_fog_021::TONEMAP_SOURCE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::TONEMAP_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 12, "unexpected native tone-map variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_tonemap(&source, &target.read(&path)?, &tonemap_markers)? {
+                tonemap_shaders.push((path, shader));
+            }
+        }
+        ensure!(tonemap_shaders.len() == 4, "unexpected compatible tone-map variant count");
+    }
+    let mut composition_shaders = Vec::new();
+    if !rain_albedo_markers.is_empty() || !sun_lighting_markers.is_empty() {
+        let sun_source = donor.read(crate::weather_fog_021::SUN_COMPOSITION_SOURCE)?;
+        let source = donor.read(crate::weather_fog_021::COMPOSITION_SOURCE)?;
+        let template = target.read(crate::weather_fog_021::COMPOSITION_TEMPLATE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::COMPOSITION_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 64, "unexpected native composition variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_composition(
+                &source, &sun_source, &target.read(&path)?, &template, &rain_albedo_markers, &sun_lighting_markers)? {
+                composition_shaders.push((path, shader));
+            }
+        }
+        ensure!(composition_shaders.len() == 4, "unexpected compatible weather composition variant count");
+    }
+    let mut particle_fog_shaders = Vec::new();
+    if !particle_fog_profiles.is_empty() {
+        let source = donor.read(crate::weather_fog_021::PARTICLE_SOURCE)?;
+        let template = target.read(crate::weather_fog_021::PARTICLE_TEMPLATE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::PARTICLE_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 480, "unexpected native particle variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_particle(
+                &source, &target.read(&path)?, &template, &particle_fog_profiles)? {
+                particle_fog_shaders.push((path,shader));
+            }
+        }
+        ensure!(particle_fog_shaders.len() == 24, "unexpected compatible particle fog variant count");
+    }
+    let mut water_fog_shaders = Vec::new();
+    if !water_fog_profiles.is_empty() {
+        let source = donor.read(crate::weather_fog_021::WATER_SOURCE)?;
+        let template = target.read(crate::weather_fog_021::WATER_TEMPLATE)?;
+        let paths: Vec<_> = target.paths_with_prefix(crate::weather_fog_021::WATER_PREFIX)
+            .filter(|p| target.is_file(p)).map(str::to_owned).collect();
+        ensure!(paths.len() == 120, "unexpected native water variant count");
+        for path in paths {
+            if let Some(shader) = crate::weather_fog_021::build_water(
+                &source, &target.read(&path)?, &template, &water_fog_profiles)? {
+                water_fog_shaders.push((path,shader));
+            }
+        }
+        ensure!(water_fog_shaders.len() == 8, "unexpected compatible water fog variant count");
+    }
+    let scattering_shader = if scattering_profiles.is_empty() {None} else {
+        Some(crate::weather_fog_021::build_scattering(
+            &donor.read(crate::weather_fog_021::SCATTERING_PATH)?,
+            &target.read(crate::weather_fog_021::SCATTERING_PATH)?,
+            &target.read(crate::weather_fog_021::SKY_PATH)?,
+            &scattering_profiles)?)
+    };
+    if !cloud_markers.is_empty() {
+        let paths: Vec<_> = target
+            .paths_with_prefix(crate::weather_fog_021::CLOUD_PREFIX)
+            .filter(|p| target.is_file(p))
+            .map(str::to_owned)
+            .collect();
+        ensure!(paths.len() == 8, "unexpected native cloud variant count");
+        for path in paths {
+            let variant = path
+                .strip_prefix(crate::weather_fog_021::CLOUD_PREFIX)
+                .unwrap();
+            ensure!(
+                variant.len() == 67 && matches!(variant.as_bytes()[31], b'0' | b'1'),
+                "unexpected cloud variant key"
+            );
+            let lit = variant.as_bytes()[31] == b'1';
+            let shader = crate::weather_fog_021::build_cloud(
+                &donor.read(&crate::weather_fog_021::cloud_source_path(lit))?,
+                &target.read(&path)?,
+                &cloud_markers,
+                lit,
+            )?;
+            cloud_shaders.push((path, shader));
+        }
     }
     let forced: BTreeSet<String> = donor
         .paths()
@@ -1558,6 +1952,51 @@ pub fn build(
     let mut adapted_particles = BTreeSet::new();
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
+    if let Some(shader) = fog_shader {
+        emit(output, crate::weather_fog_021::PATH, &shader,
+             "0.21d-fog-equations+unchanged-0.26g-fallback", &mut files)?;
+    }
+    if let Some(shader) = sky_shader {
+        emit(
+            output,
+            crate::weather_fog_021::SKY_PATH,
+            &shader,
+            "0.21d-sky-equations+unchanged-0.26g-fallback",
+            &mut files,
+        )?;
+    }
+    for (path, shader) in cloud_shaders {
+        emit(
+            output,
+            &path,
+            &shader,
+            "0.21d-cloud-equations+unchanged-0.26g-fallback",
+            &mut files,
+        )?;
+    }
+    if let Some(shader) = scattering_shader {
+        emit(output,crate::weather_fog_021::SCATTERING_PATH,&shader,
+             "0.21d-scattering-equations+unchanged-0.26g-fallback",&mut files)?;
+    }
+    for (path, shader) in particle_fog_shaders {
+        emit(output, &path, &shader, "0.21d-particle-fog+native-geometry-lighting-and-fallback", &mut files)?;
+    }
+    for (path, shader) in water_fog_shaders {
+        emit(output, &path, &shader, "0.21d-water-fog+native-waves-reflections-lighting-and-fallback", &mut files)?;
+    }
+    for (path, shader) in composition_shaders {
+        emit(output, &path, &shader, "0.21d-selected-weather-composition+native-unmarked-fallback", &mut files)?;
+    }
+    for (path, shader) in tonemap_shaders {
+        emit(output, &path, &shader, "0.21d-tone-curve+native-grading-and-unmarked-fallback", &mut files)?;
+    }
+    for (path, shader) in god_rays_shaders {
+        emit(output, &path, &shader, "0.21d-god-rays-falloff+native-sampling-and-unmarked-fallback", &mut files)?;
+    }
+    if let Some(shader) = ao_shader {
+        emit(output, crate::weather_fog_021::AO_PATH, &shader,
+             "0.21d-quality1-ambient-occlusion+native-unmarked-fallback", &mut files)?;
+    }
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
     for path in &plan.donor_files {
@@ -1865,6 +2304,201 @@ mod tests {
         )
     }
     #[test]
+    fn environment_overrides_are_scoped_typed_and_atomic() {
+        let mut project = named(vec![("client_objects", ConfigValue::Indexed(vec![
+            named(vec![
+                ("game_object_type", ConfigValue::String("environment".into())),
+                ("properties", named(vec![
+                    ("mie_fog_base_height", ConfigValue::Integer(75)),
+                    ("use_sky_clouds_lighting", ConfigValue::Boolean(true)),
+                    ("sun_color", ConfigValue::Float4([1., 0.8, 0.6, 1.])),
+                ])),
+            ]),
+            named(vec![("game_object_type", ConfigValue::String("light".into())),
+                       ("intensity", ConfigValue::Float(2.))]),
+        ]))]);
+        let original = project.clone();
+        let overrides = BTreeMap::from([
+            ("mie_fog_base_height".into(), serde_json::json!(0)),
+            ("use_sky_clouds_lighting".into(), serde_json::json!(false)),
+        ]);
+        apply_environment_overrides(&mut project, &overrides).unwrap();
+        let objects = array(project.named("client_objects").unwrap()).unwrap();
+        assert_eq!(objects[0].named("properties").unwrap().named("mie_fog_base_height"), Some(&ConfigValue::Integer(0)));
+        assert_eq!(objects[1], array(original.named("client_objects").unwrap()).unwrap()[1]);
+        for bad in [serde_json::json!({"mie_fog_base_height": 0, "typo": 1}),
+                    serde_json::json!({"mie_fog_base_height": 0, "sun_color": [1, 2]}),
+                    serde_json::json!({"mie_fog_base_height": 1e300}),
+                    serde_json::json!({"use_sky_clouds_lighting": 1})] {
+            let mut candidate = original.clone();
+            assert!(apply_environment_overrides(&mut candidate, &serde_json::from_value(bad).unwrap()).is_err());
+            assert_eq!(candidate, original);
+        }
+        apply_environment_overrides(&mut project, &BTreeMap::new()).unwrap();
+    }
+
+    #[test]
+    fn original_cloud_defaults_angles_and_authored_values() {
+        let map: Map = serde_json::from_value(serde_json::json!({
+            "id": 176, "level": "level_06", "weather": "evening", "legacy_fog_021": true,
+            "legacy_clouds_021": true
+        }))
+        .unwrap();
+        let original = named(vec![(
+            "client_objects",
+            ConfigValue::Indexed(vec![named(vec![
+                (
+                    "game_object_type",
+                    ConfigValue::String("environment".into()),
+                ),
+                (
+                    "properties",
+                    named(vec![
+                        ("sky_clouds_rotation", ConfigValue::Float(316.74)),
+                        ("stratosphere_rotation", ConfigValue::Integer(0)),
+                        ("sky_clouds_rotation_speed", ConfigValue::Float(0.1)),
+                        ("stratosphere_rotation_speed", ConfigValue::Integer(0)),
+                    ]),
+                ),
+            ])]),
+        )]);
+        for color in [None, Some(ConfigValue::Float4([0.265, 0.265, 0.265, 1.0]))] {
+            let lighting = color.is_some();
+            let mut project = original.clone();
+            let ConfigValue::Indexed(objects) = project.named_mut("client_objects").unwrap() else {
+                panic!()
+            };
+            if let Some(ref color) = color {
+                objects[0]
+                    .named_mut("properties")
+                    .unwrap()
+                    .set_path("sky_clouds_fog_color", color.clone())
+                    .unwrap();
+                objects[0]
+                    .named_mut("properties")
+                    .unwrap()
+                    .set_path("use_sky_clouds_lighting", ConfigValue::Boolean(true))
+                    .unwrap();
+            }
+            prepare_legacy_clouds(&mut project, &map).unwrap();
+            let props = array(project.named("client_objects").unwrap()).unwrap()[0]
+                .named("properties")
+                .unwrap();
+            assert_eq!(
+                props.named("sky_clouds_fog_color"),
+                Some(&color.unwrap_or(ConfigValue::Float4([1.0; 4])))
+            );
+            assert_eq!(
+                props.named("sky_clouds_rotation_speed"),
+                Some(&ConfigValue::Float(0.1))
+            );
+            assert_eq!(
+                props.named("stratosphere_rotation_speed"),
+                Some(&ConfigValue::Integer(0))
+            );
+            assert_eq!(
+                props.named("sky_clouds_sunlight"),
+                Some(&ConfigValue::Float(1.0))
+            );
+            assert_eq!(
+                props.named("use_sky_clouds_lighting"),
+                Some(&ConfigValue::Boolean(lighting))
+            );
+            for (key, old) in [
+                ("sky_clouds_rotation", 316.74f32),
+                ("stratosphere_rotation", 0.0),
+            ] {
+                let Some(ConfigValue::Float(new)) = props.named(key) else {
+                    panic!()
+                };
+                assert!((new.to_radians().sin() - old.to_radians().cos()).abs() < 1e-6);
+                assert!((new.to_radians().cos() - old.to_radians().sin()).abs() < 1e-6);
+            }
+        }
+        let mut invalid = original.clone();
+        let ConfigValue::Indexed(objects) = invalid.named_mut("client_objects").unwrap() else {
+            panic!()
+        };
+        objects[0]
+            .named_mut("properties")
+            .unwrap()
+            .set_path(
+                "stratosphere_rotation",
+                ConfigValue::String("invalid".into()),
+            )
+            .unwrap();
+        let untouched = invalid.clone();
+        assert!(prepare_legacy_clouds(&mut invalid, &map).is_err());
+        assert_eq!(invalid, untouched);
+    }
+
+    #[test]
+    fn scattering_uses_authored_gain_instead_of_sun_intensity() {
+        let mut map: Map = serde_json::from_value(
+            serde_json::json!({"id":176,"level":"level_06","weather":"evening"}),
+        )
+        .unwrap();
+        let project = named(vec![(
+            "client_objects",
+            ConfigValue::Indexed(vec![named(vec![
+                (
+                    "game_object_type",
+                    ConfigValue::String("environment".into()),
+                ),
+                (
+                    "properties",
+                    named(vec![
+                        ("sun_intensity", ConfigValue::Integer(2)),
+                        (
+                            "atmosphere_rayleighSun_multiplier",
+                            ConfigValue::Float(4.67),
+                        ),
+                    ]),
+                ),
+            ])]),
+        )]);
+        assert_eq!(
+            original_scattering_profile(&project, &map, -32197.0)
+                .unwrap()
+                .rayleigh_sun,
+            4.67
+        );
+        map.environment_overrides.insert(
+            "atmosphere_rayleighSun_multiplier".into(),
+            serde_json::json!(2),
+        );
+        assert!(original_scattering_profile(&project, &map, -32197.0).is_err());
+    }
+
+    #[test]
+    fn legacy_fog_preserves_authored_colors_and_rejects_conflicting_overrides() {
+        let mut map: Map = serde_json::from_value(serde_json::json!({
+            "id": 176, "level": "level_06", "weather": "evening", "legacy_fog_021": true
+        })).unwrap();
+        let original = named(vec![("client_objects", ConfigValue::Indexed(vec![named(vec![
+            ("game_object_type", ConfigValue::String("environment".into())),
+            ("properties", named(vec![
+                ("rayleigh_fog_color", ConfigValue::Float4([1.583, 1.2, 0.9, 1.0])),
+                ("mie_fog_color", ConfigValue::Float4([0.3, 0.5, 0.7, 1.0])),
+                ("mie_fog_base_height", ConfigValue::Float(75.0)),
+            ])),
+        ])]))]);
+        let mut changed = original.clone();
+        let profile = mark_legacy_fog(&mut changed, &map).unwrap();
+        assert_eq!(profile.marker, -32197.0);
+        assert_eq!(profile.color, [1.583f32.powf(2.2), 1.2f32.powf(2.2), 0.9f32.powf(2.2)]);
+        let ConfigValue::Indexed(objects) = changed.named_mut("client_objects").unwrap() else { panic!() };
+        objects[0].named_mut("properties").unwrap().set_path("mie_fog_base_height", ConfigValue::Float(75.0)).unwrap();
+        assert_eq!(changed, original); // The marker is the only environment edit.
+        map.environment_overrides.insert("mie_fog_color".into(), serde_json::json!([1, 1, 1, 1]));
+        assert!(mark_legacy_fog(&mut changed, &map).is_err());
+        assert_eq!(changed, original);
+        map.environment_overrides.clear(); map.native_lighting = true;
+        assert!(mark_legacy_fog(&mut changed, &map).is_err());
+        assert_eq!(changed, original);
+    }
+
+    #[test]
     fn imported_project_retains_hud_key_without_losing_resource_namespace() {
         let collectors = (0..2)
             .map(|team| {
@@ -1893,6 +2527,18 @@ mod tests {
             level: "level_02".into(),
             weather: "rain".into(),
             native_lighting: false,
+            environment_overrides: BTreeMap::new(),
+            legacy_fog_021: false,
+            legacy_sky_021: false,
+            legacy_clouds_021: false,
+            legacy_scattering_021: false,
+            legacy_particle_fog_021: false,
+            legacy_water_fog_021: false,
+            legacy_rain_albedo_021: false,
+            legacy_ambient_occlusion_021: false,
+            legacy_god_rays_falloff_021: false,
+            legacy_sun_lighting_021: false,
+            legacy_tonemap_021: false,
             map_id: None,
             name: None,
         };
@@ -2138,6 +2784,18 @@ mod tests {
             level: "level_03".into(),
             weather: "day".into(),
             native_lighting: false,
+            environment_overrides: BTreeMap::new(),
+            legacy_fog_021: false,
+            legacy_sky_021: false,
+            legacy_clouds_021: false,
+            legacy_scattering_021: false,
+            legacy_particle_fog_021: false,
+            legacy_water_fog_021: false,
+            legacy_rain_albedo_021: false,
+            legacy_ambient_occlusion_021: false,
+            legacy_god_rays_falloff_021: false,
+            legacy_sun_lighting_021: false,
+            legacy_tonemap_021: false,
             map_id: None,
             name: None,
         };

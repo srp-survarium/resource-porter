@@ -257,7 +257,7 @@ enum Command {
         #[arg(long)]
         preserve_lobby: bool,
     },
-    /// Add the eighteen retail 0.21d map variants to 0.26g using native shaders.
+    /// Add retail 0.21d maps to 0.26g, with optional original fog compatibility.
     BuildSurvarium021Maps {
         #[arg(long)]
         manifest: PathBuf,
