@@ -606,10 +606,11 @@ fn cut_neck(mesh: &mut Vec<u8>, edge: &NeckEdge) -> Result<f64> {
 /// The grafted scalp's surface (an additional model of the bare face).
 const SCALP: &str = "scalp_s";
 /// How far below a face's open top the scalp reaches, tucked under its
-/// edge (m), over the forehead and at the nape: the band under a cap is
-/// painted in its shadow, and over the forehead the native brows begin
-/// below it.
-const SCALP_OVERLAP_FRONT: f64 = 0.012;
+/// edge (m), over the forehead and at the nape: at the nape the band under
+/// the cap is painted in its shadow (over the forehead it is lifted off,
+/// [`lift_cap_shadow`]), and over the forehead the native brows begin
+/// just below it.
+const SCALP_OVERLAP_FRONT: f64 = 0.003;
 const SCALP_OVERLAP_BACK: f64 = 0.016;
 
 /// [`SCALP_OVERLAP_FRONT`] blended round the head to [`SCALP_OVERLAP_BACK`].
@@ -689,19 +690,27 @@ fn graft_scalp(face: &[u8], native_head: &[u8], bind_pose: &[u8]) -> Result<(Vec
         }
     }
     let azimuth = |p: [f64; 3]| p[0].atan2(p[2]);
-    let mut rim: Vec<(f64, f64)> = uses
+    // The open top is the highest open edge round the head, a point in each
+    // 5 degrees: the eyes' openings are open edges too, lower down.
+    const RIM_BINS: usize = 72;
+    let tau = std::f64::consts::TAU;
+    let mut top: Vec<Option<(f64, f64)>> = vec![None; RIM_BINS];
+    for p in uses
         .values()
         .filter(|(n, _, _)| *n == 1)
         .flat_map(|(_, a, b)| [*a, *b])
         .filter(|p| p[1] > 1.6)
-        .map(|p| (azimuth(p), p[1]))
-        .collect();
-    rim.sort_by(|a, b| a.0.total_cmp(&b.0));
-    rim.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-6);
+    {
+        let a = azimuth(p);
+        let bin = (((a + tau / 2.0) / tau * RIM_BINS as f64) as usize).min(RIM_BINS - 1);
+        if top[bin].is_none_or(|(_, y)| p[1] > y) {
+            top[bin] = Some((a, p[1]));
+        }
+    }
+    let rim: Vec<(f64, f64)> = top.into_iter().flatten().collect();
     ensure!(rim.len() >= 8, "the face has no open top");
     let rim_at = |a: f64| -> f64 {
         let n = rim.len();
-        let tau = std::f64::consts::TAU;
         let after = rim.iter().position(|q| q.0 >= a).unwrap_or(n);
         let (lo, hi) = (rim[(after + n - 1) % n], rim[after % n]);
         let span = (hi.0 - lo.0).rem_euclid(tau).max(1e-9);
@@ -1561,7 +1570,11 @@ const SCALP_HAIR_SIZE: (u32, u32) = (420, 170);
 const SCALP_HAIR_AT: &str = "+302+70";
 /// The STK2 face's own forehead in its 2048 colour map (below the cap's
 /// shadow).
-const STK2_FOREHEAD: &str = "250x60+900+900";
+const STK2_FOREHEAD: &str = "150x20+950+860";
+/// The native forehead's lowest skin, stretched over its brows and eyes.
+const NATIVE_BROW_SKIN: &str = "300x16+362+246";
+const NATIVE_BROWS_SIZE: &str = "300x90!";
+const NATIVE_BROWS_AT: &str = "+362+258";
 
 /// The grafted scalp's colour map: the native head's, all hair above the
 /// hairline, toned to the face's own skin (the mean of its forehead over
@@ -1612,6 +1625,19 @@ fn scalp_diffuse(
         &n,
         "-alpha",
         "off",
+        // The brows and eyes under the forehead skin above them: the scalp
+        // comes down to the face's brows at the temples.
+        "(",
+        "+clone",
+        "-crop",
+        NATIVE_BROW_SKIN,
+        "+repage",
+        "-resize",
+        NATIVE_BROWS_SIZE,
+        ")",
+        "-geometry",
+        NATIVE_BROWS_AT,
+        "-composite",
         "(",
         &n,
         "-alpha",
@@ -1751,7 +1777,7 @@ fn donor_maps(
             }
             Ok(out)
         }
-        Donor::Stk2 { texture, .. } => {
+        Donor::Stk2 { texture, scalp, .. } => {
             ensure!(!hair, "STK2 faces have no hair");
             fs::create_dir_all(work)?;
             let mut out = vec![];
@@ -1762,10 +1788,15 @@ fn donor_maps(
                     crate::manifest::TextureCompression::Dxt5Normal,
                 ),
             ] {
-                let source = sources
+                let mut source = sources
                     .stk2_textures
                     .join(STK2_TEXTURES)
                     .join(format!("{texture}{}.tga", role.suffix()));
+                if scalp && role == Role::Diffuse {
+                    let uncapped = work.join(format!("{}_uncapped.ppm", face.key));
+                    uncapped_map(&source, &uncapped)?;
+                    source = uncapped;
+                }
                 let small = work.join(format!("{}{}.tga", face.key, role.suffix()));
                 let result = std::process::Command::new("magick")
                     .arg(&source)
@@ -1788,6 +1819,97 @@ fn donor_maps(
         }
         Donor::Native => bail!("the native head has its maps"),
     }
+}
+
+/// The forehead in a STK2 face's 2048 colour map whose top its cap
+/// shadowed (columns, and the rows its open top and first skin are in),
+/// and the forehead skin that sets the skin's brightness there.
+const STK2_SHADOW_COLUMNS: (usize, usize) = (480, 1580);
+const STK2_SHADOW_ROWS: (usize, usize) = (760, 1000);
+const STK2_FOREHEAD_SKIN: ((usize, usize), (usize, usize)) = ((950, 1100), (860, 880));
+
+/// A capped face's forehead without its cap's shadow: in each column of
+/// [`STK2_SHADOW_COLUMNS`], the band from the chart's top (above 15 % of
+/// the forehead skin's brightness) to its skin (above 70 %) takes the first
+/// skin rows' colours, repeated. `rgb` is the map's rows of RGB bytes.
+fn lift_cap_shadow(rgb: &mut [u8], width: usize) -> usize {
+    let lum = |rgb: &[u8], x: usize, y: usize| {
+        let p = &rgb[(y * width + x) * 3..];
+        (0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2])) / 255.0
+    };
+    let ((x0, x1), (y0, y1)) = STK2_FOREHEAD_SKIN;
+    let mut skin: Vec<f64> = (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+        .map(|(x, y)| lum(rgb, x, y))
+        .collect();
+    skin.sort_by(f64::total_cmp);
+    let reference = skin[skin.len() / 2];
+    let (top, bottom) = STK2_SHADOW_ROWS;
+    let mut lifted = 0;
+    for x in STK2_SHADOW_COLUMNS.0..STK2_SHADOW_COLUMNS.1 {
+        let Some(start) = (top..bottom).find(|&y| lum(rgb, x, y) > 0.15 * reference) else {
+            continue;
+        };
+        let Some(skin_at) = (start..bottom).find(|&y| lum(rgb, x, y) > 0.7 * reference) else {
+            continue;
+        };
+        if skin_at - start > 120 || skin_at - start < 2 {
+            continue;
+        }
+        for y in start.saturating_sub(6)..skin_at {
+            let from = skin_at + 2 + (skin_at - y) % 10;
+            for c in 0..3 {
+                rgb[(y * width + x) * 3 + c] = rgb[(from * width + x) * 3 + c];
+            }
+        }
+        lifted += 1;
+    }
+    lifted
+}
+
+/// A STK2 face's colour map (`source`) as an RGB PPM at `out`, its cap's
+/// shadow lifted ([`lift_cap_shadow`]).
+fn uncapped_map(source: &Path, out: &Path) -> Result<()> {
+    let result = std::process::Command::new("magick")
+        .arg(source)
+        .args(["-alpha", "off", "-depth", "8", "ppm:-"])
+        .output()
+        .context("starting ImageMagick; enter the repository Nix shell")?;
+    ensure!(
+        result.status.success(),
+        "ImageMagick: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let mut ppm = result.stdout;
+    // "P6 <w> <h> 255" and one whitespace byte, then the rows.
+    let mut fields = vec![];
+    let mut at = 0;
+    while fields.len() < 4 {
+        while ppm[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        let start = at;
+        while !ppm[at].is_ascii_whitespace() {
+            at += 1;
+        }
+        fields.push(String::from_utf8_lossy(&ppm[start..at]).into_owned());
+    }
+    at += 1;
+    ensure!(
+        fields[0] == "P6" && fields[3] == "255",
+        "not an 8-bit PPM: {fields:?}"
+    );
+    let width: usize = fields[1].parse()?;
+    let height: usize = fields[2].parse()?;
+    ensure!(
+        width == 2048 && height == 2048,
+        "{}: a {width}x{height} map, not STK2's 2048",
+        source.display()
+    );
+    let lifted = lift_cap_shadow(&mut ppm[at..at + width * height * 3], width);
+    println!("  the cap's shadow lifted off {lifted} columns of the forehead");
+    fs::write(out, ppm)?;
+    Ok(())
 }
 
 /// Bounds as native model properties store them: half a turn about the up

@@ -64,12 +64,14 @@ A missing `data_helmet` or `data_mask` means the bare face, as in 0.69d0.
   back), its neck (36 mm short of the native one) stretched down to the native neck's bottom,
   cut along its edge and skinned as it (`stretch_neck`, `cut_neck`, `native_neck_skin`). His
   knit cap is modelled on his head (the mesh at its top, his skin open under it): `graft_scalp`
-  takes it off and grafts the native head's scalp on, cut along his skin's open top (12 mm under
-  it over the forehead, 16 mm at the nape, over the cap's painted shadow) and lifted 2 mm
-  outside his skin where his skin stands out. The scalp keeps the native head's skin weights
-  and UVs, so it fits every item as the native head does; its colour map is the native one with
-  the forehead painted over by the native side hair (the hairline a forehead's width above his
-  brows), toned to his own skin (`scalp_diffuse`). His face's material is the native head's with
+  takes it off and grafts the native head's scalp on, cut along his skin's open top (the highest
+  open edge round the head; 3 mm under it over the forehead, 16 mm at the nape, over the cap's
+  painted shadow there) and lifted 2 mm outside his skin where his skin stands out. The scalp
+  keeps the native head's skin weights and UVs, so it fits every item as the native head does.
+  Its colour map is the native one with the brows and eyes painted over by the forehead's skin
+  and the upper forehead by the native side hair (the hairline a forehead's width above his
+  brows), toned to his own forehead (`scalp_diffuse`). The shadow his cap painted over the top
+  of his forehead is lifted (`lift_cap_shadow`: the first skin rows' colours carried up). His face's material is the native head's with
   his maps (gloss and Fresnel the native skin's, constant).
 
 ## The fit report (`face_fit`)
