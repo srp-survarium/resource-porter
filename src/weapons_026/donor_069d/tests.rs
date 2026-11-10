@@ -86,27 +86,61 @@ fn only_069d_clips_and_suppressed_sounds_leave_the_item_config() {
 }
 
 #[test]
-fn a_socket_turned_about_x_turns_its_module_the_other_way_in_mesh_space() {
+fn a_module_sits_at_its_locator_in_the_bind_frame_of_the_locators_bone() {
     let loc = Locator {
         name: "mag_point".into(),
         bone: "magazin".into(),
         bone_idx: 3,
         position: [0.0, -0.02, -0.02],
-        rotation: [-0.0652655, 0.0, 0.0],
+        rotation: [0.0; 3],
     };
-    let r = socket_rotation(&loc).unwrap();
-    assert!((r[1][2] - (-(0.0652655f32).sin())).abs() < 1e-6, "{r:?}");
-    let turned = Locator {
-        rotation: [0.0, 0.1, 0.0],
-        ..loc.clone()
-    };
-    assert!(socket_rotation(&turned).is_err());
-    // The socket: the bone's bind translation plus the locator, x and z
-    // negated (mesh space is half a turn about y from the bind frame).
-    let at = socket(&loc, &[("magazin".into(), [0.0, -0.03, 0.25])]).unwrap();
+    let half_turn = [-std::f32::consts::PI, 0.0, -std::f32::consts::PI];
+    let bind = [
+        (
+            "offset".to_owned(),
+            BindFrame {
+                translation: [0.0; 3],
+                rotation: half_turn,
+            },
+        ),
+        (
+            "magazin".to_owned(),
+            BindFrame {
+                translation: [0.0, -0.03, 0.25],
+                rotation: half_turn,
+            },
+        ),
+    ];
+    // The bone's bind translation plus the locator, x and z negated (the
+    // bones are bound half a turn about y from the mesh).
+    let at = socket(&loc, &bind).unwrap();
     assert!(
-        (at[1] + 0.05).abs() < 1e-6 && (at[2] - 0.27).abs() < 1e-6,
+        (at.origin[1] + 0.05).abs() < 1e-6 && (at.origin[2] - 0.27).abs() < 1e-6,
         "{at:?}"
+    );
+    let astray = Locator {
+        bone: "bolt".into(),
+        ..loc
+    };
+    assert!(socket(&astray, &bind).is_err());
+}
+
+#[test]
+fn a_bind_pose_keeps_each_bones_rotation() {
+    let mut bytes = 1u16.to_le_bytes().to_vec();
+    bytes.extend_from_slice(b"magazin\0");
+    for f in [0.0f32, -0.03, 0.25, -3.0, 0.5, 3.0, 1.0, 1.0, 1.0] {
+        bytes.extend_from_slice(&f.to_le_bytes());
+    }
+    assert_eq!(
+        bind_pose(&bytes).unwrap(),
+        [(
+            "magazin".to_owned(),
+            BindFrame {
+                translation: [0.0, -0.03, 0.25],
+                rotation: [-3.0, 0.5, 3.0],
+            }
+        )]
     );
 }
 

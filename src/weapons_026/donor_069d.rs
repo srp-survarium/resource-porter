@@ -28,6 +28,7 @@
 
 pub mod convert;
 pub mod renames;
+pub mod socket;
 
 pub use renames::Renames;
 
@@ -185,8 +186,16 @@ fn encode(root: V) -> Result<Vec<u8>> {
     BinaryConfig { root }.to_bytes()
 }
 
-/// A bind pose: per bone its name and translation.
-pub fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
+/// A bone's bind frame: its translation and its rotation (the engine's
+/// Euler angles, radians). Its scale is 1 (checked).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BindFrame {
+    pub translation: [f32; 3],
+    pub rotation: [f32; 3],
+}
+
+/// A bind pose: per bone its name and bind frame.
+pub fn bind_pose(b: &[u8]) -> Result<Vec<(String, BindFrame)>> {
     ensure!(b.len() >= 2, "bind pose shorter than its count");
     let n = usize::from(u16::from_le_bytes([b[0], b[1]]));
     let mut at = 2;
@@ -209,7 +218,13 @@ pub fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
             f[6..9].iter().all(|s| (s - 1.0).abs() < 1e-4),
             "bone {name} is scaled"
         );
-        out.push((name, [f[0], f[1], f[2]]));
+        out.push((
+            name,
+            BindFrame {
+                translation: [f[0], f[1], f[2]],
+                rotation: [f[3], f[4], f[5]],
+            },
+        ));
     }
     ensure!(at == b.len(), "bind pose has trailing bytes");
     Ok(out)
@@ -328,30 +343,15 @@ fn locator_value(l: &Locator) -> V {
     ])
 }
 
-/// Where a module's origin lands in mesh space: the socket bone's bind
-/// translation plus the locator's position, both in the bind frame.
-fn socket(loc: &Locator, bind: &[(String, [f32; 3])]) -> Result<[f32; 3]> {
-    let (_, t) = bind
+/// Where a module at `loc` lands in mesh space: at the locator's frame in
+/// its bone's bind frame, by the engine's own arithmetic
+/// ([`socket::placement`]).
+fn socket(loc: &Locator, bind: &[(String, BindFrame)]) -> Result<socket::Placement> {
+    let (_, frame) = bind
         .iter()
         .find(|(n, _)| *n == loc.bone)
         .with_context(|| format!("{} names an unknown bone {}", loc.name, loc.bone))?;
-    let p = mesh_from_bind(loc.position);
-    Ok([t[0] + p[0], t[1] + p[1], t[2] + p[2]])
-}
-
-/// A socket's turn in mesh space. Only a turn about the bore's crosswise
-/// axis (x) is met (the PPSh's drum well, -3.7 degrees); in mesh space, half
-/// a turn about y from the bind frame, it is the opposite angle about x.
-fn socket_rotation(loc: &Locator) -> Result<[[f32; 3]; 3]> {
-    let [x, y, z] = loc.rotation;
-    ensure!(
-        y.abs() < 1e-5 && z.abs() < 1e-5,
-        "{} turns about y or z ({:?}); only turns about x are baked",
-        loc.name,
-        loc.rotation
-    );
-    let (s, c) = (-x).sin_cos();
-    Ok([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
+    Ok(socket::placement(loc.rotation, loc.position, frame))
 }
 
 /// Locator names of the 0.26g contract that are made, not copied.
@@ -681,9 +681,9 @@ impl Donor069 {
             // in 0.69d0's bind pose, where the AK clips never take it).
             // Every module of a slot is authored in the slot's frame (the
             // PPSh's 30-round box and 71-round drum alike: rounds along the
-            // bore, the neck in the well), so none is turned beyond it.
-            let origin = socket(loc, &ship_bones)?;
-            let rotation = socket_rotation(loc)?;
+            // bore, the neck in the well), so none is turned beyond it; the
+            // slot's own turn and its bone's are the engine's (`socket`).
+            let at = socket(loc, &ship_bones)?;
             let bone = bind
                 .iter()
                 .position(|(n, _)| *n == loc.bone)
@@ -692,7 +692,7 @@ impl Donor069 {
                 let bytes = self
                     .db
                     .read(&format!("{path}/render/{surface}/converted_model"))?;
-                let mesh = convert::static_069_to_skinned(&bytes, rotation, origin, bone)?;
+                let mesh = convert::static_069_to_skinned(&bytes, at.rotation, at.origin, bone)?;
                 let module_name = module.model.rsplit('/').next().unwrap();
                 let name = format!("{module_name}_{surface}");
                 ensure!(
