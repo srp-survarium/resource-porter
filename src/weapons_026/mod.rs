@@ -31,6 +31,7 @@ pub mod compare;
 pub mod config;
 pub mod donor;
 pub mod donor_069d;
+pub mod hands;
 pub mod icons;
 pub mod manifest;
 pub mod modules;

@@ -8,7 +8,8 @@ Reads `gameplay/game.options` (each weapon's model, skeleton, bundled and
 default modules, clips and sounds) and follows models -> materials ->
 textures and composite sounds -> collections -> single sounds. Writes
 <out> (one path a line; 0.69d's base, antidote, bandage and medkit clips and
-per-location reverbs left out, as the port drops them), for
+per-location reverbs left out, as the port drops them, but for each gun's
+user_animations set and its first-person stance clip), for
 
     vostok-port extract-bundle --db <split> --prefix <each path> --output TREE
     (cp gameplay/game.options in) ; cargo run --example pack-donor-tree -- TREE/overlay donor.db
@@ -123,6 +124,13 @@ for g in guns:
     # The lobby icon of its ui_desc.icon [x, y] (weapon_<y>_<x>.png).
     add(f"flash_movies/textures/ui_icons/items/weapons/weapon_{int(sv(c['ui_desc.icon[1]']))}_{int(sv(c['ui_desc.icon[0]']))}.png")
     add(f"animations/skeletons/{sv(c['object.skeleton'])}.skeleton")
+    # Its user_animations set and the set's first-person stance (stand_hud[0]): the
+    # port compares it with 0.26g's before it plays the hands clips (hands.rs).
+    uas = sv(c['user_animations'])
+    if add(uas):
+        hud = sv(dump(uas)['stand_hud[0]'])[len('resources/'):]
+        add(hud + '.b-spline')
+        add(hud + '.bones_names')
     for k, v in c.items():
         if re.match(r'(bundled|default)_modules\[\d+\]\.module$', k):
             md = mods[sv(v)]
