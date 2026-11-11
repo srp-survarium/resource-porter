@@ -245,8 +245,7 @@
     "particles",
     "recoil",
     "recoil_animations",
-    "weapon_affinities",
-    "user_animations"
+    "weapon_affinities"
    ],
    "lobby_icon": {
     "row": 20,
@@ -263,6 +262,7 @@
     "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
     "death poses: the four on_site death clips the live Kedr, Kiparis and PP-2000 play (the APS's ak/on_site/death_fwd is in no archive)",
     "aim_offset 0: its own 0.69d0 aim locator puts the sights within 2 px (the APS template's -0.1 is for the APS's model)",
+    "its movement set (user_animations) 0.69d0's own, the rifles' (common/rifles.user_animations), not the APS template's pistols_new: 0.69d0 moves the Mauser as a rifle",
     "its empty reload's fifth sound event plays the slide (sound 6): 0.69d0's clip leaves its events' indices at 255"
    ]
   },
