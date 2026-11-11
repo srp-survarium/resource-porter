@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! A gun's hands as 0.26g draws them, and a hands clip moved onto 0.26g's
-//! first-person stance.
+//! A gun's hands as 0.26g draws them, and a later build's hands clip made
+//! to play on 0.26g as its own first view played it.
 //!
 //! What the engine does (0.26g build 2777, read from the exe; names and
 //! addresses in skhid-srp's `tools/re-kit/v026g`):
@@ -33,14 +33,22 @@
 //! were drawn with; [`contact`] measures it). The later builds (0.31a2,
 //! 0.46c2, 0.69d0) draw their guns' hands on a third-person stance
 //! (`base/player/3rd_view/stand/[pistol/]on_site_idle_long`, there within
-//! 0.1 mm) and play them in the first view on another, where the IK covers
-//! the 1 to 26 cm between hand and contact point. Their rifles' first-person
-//! stance holds the gun where 0.26g's does (to 1 mm), so their rifles play
-//! on 0.26g as on the donor; their pistols' holds it 22 cm further out, so
-//! a pistol's clips are re-based ([`rebase`]) onto 0.26g's stance from the
-//! donor's first-person one: the arms and the gun where the donor's first
-//! view has them, relative to the chest (0.26g's head stands on its chest
-//! as the donors' first-person head does, so the view is the donor's too).
+//! 0.1 mm) and play them in the first view on another, the hand IK covering
+//! the 1 to 26 cm between hand and contact point. 0.26g's first view did
+//! not show that IK for 0.46c2's MP-443 (resource-porter faa703a: no hands,
+//! the gun alone, with its idle points in the arms' reach), and where it
+//! does, it bends the arms as the baked clip has them; so a carried clip
+//! whose hands are off the gun has the IK baked in ([`bake_ik`]): each
+//! frame's targets as the clip's events set them and the engine blends them,
+//! the arms bent onto them as the engine bends them.
+//!
+//! The later builds' rifle stance for the first view holds the gun where
+//! 0.26g's does (to 1 mm); their pistols' holds it 22 cm further out, so a
+//! pistol's clips are first re-based ([`rebase`]) from the donor's
+//! first-person stance onto 0.26g's: the arms and the gun where the donor's
+//! first view has them, relative to the chest (0.26g's head stands on its
+//! chest as the donors' first-person head does, so the view is the donor's
+//! too).
 
 use anyhow::{Context, Result, ensure};
 
@@ -217,20 +225,68 @@ impl Stance {
     }
 }
 
-/// A gun's skeleton with its two contact bones.
+/// A gun's skeleton with its two contact bones and the hand locators of its
+/// model (`<Hand>_idle`, `_reload`, ... : the bone and the frame in it).
 pub struct Gun {
     rig: Rig,
     contacts: [usize; 2],
+    locators: Vec<(String, usize, Frame)>,
 }
 
 impl Gun {
-    pub fn new(rig: Rig) -> Result<Self> {
+    /// `properties`: the model's `render/export_properties` (its locators).
+    pub fn new(rig: Rig, properties: &ConfigValue) -> Result<Self> {
         let contact = |name: &str| {
             rig.index(name)
                 .with_context(|| format!("the gun has no {name}"))
         };
         let contacts = [contact(HANDS[0].1)?, contact(HANDS[1].1)?];
-        Ok(Self { rig, contacts })
+        let mut locators = vec![];
+        if let Some(ConfigValue::Indexed(list)) = properties.named("locators") {
+            for l in list {
+                let (
+                    Some(ConfigValue::String(name)),
+                    Some(ConfigValue::String(bone)),
+                    Some(ConfigValue::Float3(position)),
+                    Some(ConfigValue::Float3(rotation)),
+                ) = (
+                    l.named("name"),
+                    l.named("bone_name"),
+                    l.named("position"),
+                    l.named("rotation"),
+                )
+                else {
+                    continue;
+                };
+                if !HANDS
+                    .iter()
+                    .any(|(h, _)| name.starts_with(&format!("{h}_")))
+                {
+                    continue;
+                }
+                // A locator on no bone (0.26g's AK-12 `*_reload`) is on the root.
+                let bone = rig.index(bone).unwrap_or(0);
+                locators.push((name.clone(), bone, (euler_to_basis(*rotation), *position)));
+            }
+        }
+        Ok(Self {
+            rig,
+            contacts,
+            locators,
+        })
+    }
+
+    /// The hand's locator of `kind`, else its `_idle` one (as
+    /// `initialize_locators`, 0x392AE0, fills them).
+    fn locator(&self, hand: usize, kind: Locator) -> Option<(usize, &Frame)> {
+        let find = |suffix: &str| {
+            let name = format!("{}_{suffix}", HANDS[hand].0);
+            self.locators
+                .iter()
+                .find(|l| l.0 == name)
+                .map(|l| (l.1, &l.2))
+        };
+        find(kind.suffix()).or_else(|| find(Locator::Idle.suffix()))
     }
 }
 
@@ -332,41 +388,60 @@ pub fn drift(
     Ok(worst)
 }
 
-/// Each state's (and substate's) hands clips, each with the gun's clip of
-/// the same name in it, else its first.
-pub fn hands_pairs(v: &ConfigValue, out: &mut Vec<(String, String)>) {
-    let ConfigValue::Named(fields) = v else {
-        return;
-    };
-    let strings = |key: &str| -> Vec<String> {
-        match v.named(key) {
-            Some(ConfigValue::Indexed(list)) => list
-                .iter()
-                .filter_map(|c| {
-                    match c {
-                        ConfigValue::String(s) => Some(s.as_str()),
+/// A hands clip of a weapon state: the state (its key under `states`),
+/// the clip and the gun's clip of the same name in the state, else its
+/// first.
+#[derive(Clone, Debug)]
+pub struct HandsClip {
+    pub state: String,
+    pub user: String,
+    pub item: String,
+}
+
+/// Every state's (and substate's) hands clips, in order.
+pub fn hands_pairs(states: &ConfigValue) -> Vec<HandsClip> {
+    fn walk(v: &ConfigValue, state: &str, out: &mut Vec<HandsClip>) {
+        let ConfigValue::Named(fields) = v else {
+            return;
+        };
+        let strings = |key: &str| -> Vec<String> {
+            match v.named(key) {
+                Some(ConfigValue::Indexed(list)) => list
+                    .iter()
+                    .filter_map(|c| match c {
+                        ConfigValue::String(s) => Some(s.clone()),
                         _ => None,
-                    }
-                    .map(str::to_owned)
-                })
-                .collect(),
-            _ => vec![],
+                    })
+                    .collect(),
+                _ => vec![],
+            }
+        };
+        let (users, items) = (strings("user_animations"), strings("animations"));
+        let stem = |p: &str| p.rsplit('/').next().unwrap_or(p).to_owned();
+        for user in &users {
+            let item = items
+                .iter()
+                .find(|i| stem(i) == stem(user))
+                .or(items.first());
+            if let Some(item) = item {
+                out.push(HandsClip {
+                    state: state.to_owned(),
+                    user: user.clone(),
+                    item: item.clone(),
+                });
+            }
         }
-    };
-    let (users, items) = (strings("user_animations"), strings("animations"));
-    let stem = |p: &str| p.rsplit('/').next().unwrap_or(p).to_owned();
-    for user in &users {
-        let item = items
-            .iter()
-            .find(|i| stem(i) == stem(user))
-            .or(items.first());
-        if let Some(item) = item {
-            out.push((user.clone(), item.clone()));
+        for f in fields {
+            walk(&f.value, state, out);
         }
     }
-    for f in fields {
-        hands_pairs(&f.value, out);
+    let mut out = vec![];
+    if let ConfigValue::Named(fields) = states {
+        for f in fields {
+            walk(&f.value, &f.name, &mut out);
+        }
     }
+    out
 }
 
 /// A weapon config's hands clips against its gun, on the first-person
@@ -400,10 +475,16 @@ pub fn gun_contact(
     };
     let skeleton = Skeleton::parse(&read("animations/skeletons/scavengers_01.skeleton")?)?;
     let (model, gun_skeleton) = (string("object.model")?, string("object.skeleton")?);
-    let gun = Gun::new(Rig::parse(
-        &read(&format!("models/{model}.skinned_model/render/bind_pose"))?,
-        &read(&format!("animations/skeletons/{gun_skeleton}.skeleton"))?,
-    )?)?;
+    let gun = Gun::new(
+        Rig::parse(
+            &read(&format!("models/{model}.skinned_model/render/bind_pose"))?,
+            &read(&format!("animations/skeletons/{gun_skeleton}.skeleton"))?,
+        )?,
+        &BinaryConfig::parse(&read(&format!(
+            "models/{model}.skinned_model/render/export_properties"
+        ))?)?
+        .root,
+    )?;
     let body = match stance {
         Some(s) => s.to_owned(),
         None => {
@@ -418,12 +499,9 @@ pub fn gun_contact(
         }
     };
     let stance = Stance::of(&skeleton, &clip(read, &body)?)?;
-    let mut pairs = vec![];
-    if let Some(states) = config.named("states") {
-        hands_pairs(states, &mut pairs);
-    }
+    let pairs = config.named("states").map(hands_pairs).unwrap_or_default();
     let mut out: Vec<(String, Contact)> = vec![];
-    for (user, item) in pairs {
+    for HandsClip { user, item, .. } in pairs {
         if out.iter().any(|(u, _)| *u == user) {
             continue;
         }
@@ -543,6 +621,482 @@ pub fn rebase(skeleton: &Skeleton, hands: &Clip, from: &Stance, to: &Stance) -> 
     Ok(out)
 }
 
+/// Where the engine's hand IK puts a hand (0.26g `hand_to_weapon_ik_solver`,
+/// the modes of 0x392D90).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    /// The hand where the clip puts it (IK off).
+    Own,
+    /// The gun's `*_hand_cont` bone.
+    Contact,
+    /// The model's `<Hand>_<name>` locator (`_idle` where it has no other).
+    Locator(Locator),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Locator {
+    Idle,
+    Reload,
+    ReloadPivot,
+    Lobby,
+}
+
+impl Locator {
+    fn suffix(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Reload => "reload",
+            Self::ReloadPivot => "reload_pivot",
+            Self::Lobby => "lobby",
+        }
+    }
+}
+
+/// How fast a target is taken: an odd event value 100 ms, an even one
+/// 300 ms (0x392CE0: `hands_ik_short` / `_long_transition_time_ms`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Change {
+    target: Target,
+    milliseconds: f32,
+}
+
+/// A `*_hand_ik` event value, as 0x392D90 reads it.
+fn change_of(value: u8) -> Result<Change> {
+    let target = match value / 2 {
+        0 => Target::Own,
+        1 => Target::Contact,
+        2 => Target::Locator(Locator::Idle),
+        3 => Target::Locator(Locator::Reload),
+        4 => Target::Locator(Locator::ReloadPivot),
+        5 => Target::Locator(Locator::Lobby),
+        _ => anyhow::bail!("hand IK event value {value} is none of 0..11"),
+    };
+    let milliseconds = if value % 2 == 1 { 100.0 } else { 300.0 };
+    Ok(Change {
+        target,
+        milliseconds,
+    })
+}
+
+/// One hand's IK: settled on a target, or blending from one to another
+/// until `end` (milliseconds of the clip) over `length`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum HandIk {
+    Settled(Target),
+    Blending {
+        from: Target,
+        to: Target,
+        end: f32,
+        length: f32,
+    },
+}
+
+/// `fermi_interpolator(length, 0.005).interpolated_value(t)`.
+fn fermi(length: f32, t: f32) -> f32 {
+    let epsilon = 0.005f32;
+    let t0 = length / 2.0;
+    let d = t0 / (1.0 / epsilon + 1.0).ln();
+    ((1.0 + 2.0 * epsilon) / (1.0 + (-(t - t0) / d).exp()) - epsilon).clamp(0.0, 1.0)
+}
+
+impl HandIk {
+    /// How far a blend has gone from `from` to `to` at `now` (0x393A80).
+    fn weight(end: f32, length: f32, now: f32) -> f32 {
+        1.0 - fermi(length, end - now)
+    }
+
+    /// The state at `now`: a blend that has ended is settled.
+    fn at(self, now: f32) -> Self {
+        match self {
+            Self::Blending { to, end, .. } if now >= end => Self::Settled(to),
+            s => s,
+        }
+    }
+
+    /// `activate_hand` (0x392CE0): a new target blends in from the current
+    /// one; going back to the one it is blending from takes only the way
+    /// already gone.
+    fn change(self, change: Change, now: f32) -> Self {
+        let length = change.milliseconds;
+        match self.at(now) {
+            Self::Settled(current) if current == change.target => self,
+            Self::Settled(current) => Self::Blending {
+                from: current,
+                to: change.target,
+                end: now + length,
+                length,
+            },
+            Self::Blending { to, .. } if to == change.target => self,
+            Self::Blending {
+                from,
+                to,
+                end,
+                length: old,
+            } => {
+                let back = if from == change.target {
+                    (length * Self::weight(end, old, now) + 0.5).floor()
+                } else {
+                    length
+                };
+                Self::Blending {
+                    from: to,
+                    to: change.target,
+                    end: now + back,
+                    length,
+                }
+            }
+        }
+    }
+}
+
+/// `get_rotation_matrix(from, to)`: the turn taking direction `from` to
+/// `to` (row vectors: `transform(from, &m)` is `to`).
+fn turn_between(from: [f32; 3], to: [f32; 3]) -> Basis {
+    let cross = [
+        from[1] * to[2] - from[2] * to[1],
+        from[2] * to[0] - from[0] * to[2],
+        from[0] * to[1] - from[1] * to[0],
+    ];
+    let cos = (0..3)
+        .map(|k| from[k] * to[k])
+        .sum::<f32>()
+        .clamp(-1.0, 1.0);
+    let sin = (0..3).map(|k| cross[k] * cross[k]).sum::<f32>().sqrt();
+    if sin < 1e-7 {
+        return crate::skeleton_animation::IDENTITY_BASIS;
+    }
+    let axis = cross.map(|c| c / sin);
+    turn_about(axis, sin.atan2(cos))
+}
+
+/// A turn by `angle` about `axis` (unit), row vectors, right-handed: it
+/// takes a direction perpendicular to `axis` toward `axis` x it.
+fn turn_about(axis: [f32; 3], angle: f32) -> Basis {
+    let (s, c) = angle.sin_cos();
+    let [x, y, z] = axis;
+    let t = 1.0 - c;
+    // Column-vector Rodrigues matrix, transposed for row vectors.
+    let m = [
+        [t * x * x + c, t * x * y - s * z, t * x * z + s * y],
+        [t * x * y + s * z, t * y * y + c, t * y * z - s * x],
+        [t * x * z - s * y, t * y * z + s * x, t * z * z + c],
+    ];
+    transpose(&m)
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let l = (0..3).map(|k| v[k] * v[k]).sum::<f32>().sqrt();
+    v.map(|c| c / l)
+}
+
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn length(v: [f32; 3]) -> f32 {
+    (0..3).map(|k| v[k] * v[k]).sum::<f32>().sqrt()
+}
+
+/// A basis as a unit quaternion (x, y, z, w) and back, for the blend's
+/// `slerp`.
+fn quaternion(b: &Basis) -> [f32; 4] {
+    // Row-vector basis: its transpose is the column-vector rotation.
+    let m = transpose(b);
+    let trace = m[0][0] + m[1][1] + m[2][2];
+    let q = if trace > 0.0 {
+        let s = (trace + 1.0).sqrt() * 2.0;
+        [
+            (m[2][1] - m[1][2]) / s,
+            (m[0][2] - m[2][0]) / s,
+            (m[1][0] - m[0][1]) / s,
+            s / 4.0,
+        ]
+    } else if m[0][0] > m[1][1] && m[0][0] > m[2][2] {
+        let s = (1.0 + m[0][0] - m[1][1] - m[2][2]).sqrt() * 2.0;
+        [
+            s / 4.0,
+            (m[0][1] + m[1][0]) / s,
+            (m[0][2] + m[2][0]) / s,
+            (m[2][1] - m[1][2]) / s,
+        ]
+    } else if m[1][1] > m[2][2] {
+        let s = (1.0 + m[1][1] - m[0][0] - m[2][2]).sqrt() * 2.0;
+        [
+            (m[0][1] + m[1][0]) / s,
+            s / 4.0,
+            (m[1][2] + m[2][1]) / s,
+            (m[0][2] - m[2][0]) / s,
+        ]
+    } else {
+        let s = (1.0 + m[2][2] - m[0][0] - m[1][1]).sqrt() * 2.0;
+        [
+            (m[0][2] + m[2][0]) / s,
+            (m[1][2] + m[2][1]) / s,
+            s / 4.0,
+            (m[1][0] - m[0][1]) / s,
+        ]
+    };
+    let l = q.iter().map(|c| c * c).sum::<f32>().sqrt();
+    q.map(|c| c / l)
+}
+
+fn basis_of(q: [f32; 4]) -> Basis {
+    let [x, y, z, w] = q;
+    let m = [
+        [
+            1.0 - 2.0 * (y * y + z * z),
+            2.0 * (x * y - z * w),
+            2.0 * (x * z + y * w),
+        ],
+        [
+            2.0 * (x * y + z * w),
+            1.0 - 2.0 * (x * x + z * z),
+            2.0 * (y * z - x * w),
+        ],
+        [
+            2.0 * (x * z - y * w),
+            2.0 * (y * z + x * w),
+            1.0 - 2.0 * (x * x + y * y),
+        ],
+    ];
+    transpose(&m)
+}
+
+/// `mix_transformations(first, second, k)`: the position along the line,
+/// the turn by `slerp`.
+fn mix(first: &Frame, second: &Frame, k: f32) -> Frame {
+    let (a, mut b) = (quaternion(&first.0), quaternion(&second.0));
+    let mut dot: f32 = (0..4).map(|i| a[i] * b[i]).sum();
+    if dot < 0.0 {
+        b = b.map(|c| -c);
+        dot = -dot;
+    }
+    let q = if dot > 0.9995 {
+        normalize4(std::array::from_fn(|i| a[i] + (b[i] - a[i]) * k))
+    } else {
+        let theta = dot.clamp(-1.0, 1.0).acos();
+        let (sa, sb) = (((1.0 - k) * theta).sin(), (k * theta).sin());
+        normalize4(std::array::from_fn(|i| {
+            (a[i] * sa + b[i] * sb) / theta.sin()
+        }))
+    };
+    (
+        basis_of(q),
+        [0, 1, 2].map(|i| first.1[i] * (1.0 - k) + second.1[i] * k),
+    )
+}
+
+fn normalize4(q: [f32; 4]) -> [f32; 4] {
+    let l = q.iter().map(|c| c * c).sum::<f32>().sqrt();
+    q.map(|c| c / l)
+}
+
+/// `process_hand`: the arm (the hand's grandparent) and the forearm (its
+/// parent) turned so the hand reaches `target`, and the hand turned as
+/// `target`; `frames` are model-space and stay consistent below the hand.
+/// Returns the new locals of the arm, the forearm and the hand.
+fn reach(skeleton: &Skeleton, frames: &[Frame], hand: usize, target: &Frame) -> Option<[Frame; 3]> {
+    let forearm = skeleton.parents[hand]?;
+    let arm = skeleton.parents[forearm]?;
+    let shoulder = skeleton.parents[arm]?;
+    let forearm_len = length(sub(frames[hand].1, frames[forearm].1));
+    let arm_len = length(sub(frames[forearm].1, frames[arm].1));
+    let arm_pos = frames[arm].1;
+    let to_hand = sub(target.1, arm_pos);
+    let to_hand_len = length(to_hand);
+    if to_hand_len < 1e-5 {
+        return None;
+    }
+    let to_hand_dir = normalize(to_hand);
+    let forearm_dir = normalize(sub(frames[forearm].1, arm_pos));
+    let cross = [
+        forearm_dir[1] * to_hand_dir[2] - forearm_dir[2] * to_hand_dir[1],
+        forearm_dir[2] * to_hand_dir[0] - forearm_dir[0] * to_hand_dir[2],
+        forearm_dir[0] * to_hand_dir[1] - forearm_dir[1] * to_hand_dir[0],
+    ];
+    // get_angle: the shoulder's angle between the arm and the line to the hand.
+    let cos = ((arm_len * arm_len + to_hand_len * to_hand_len - forearm_len * forearm_len)
+        / (2.0 * arm_len * to_hand_len))
+        .clamp(-1.0, 1.0);
+    let alpha = cos.acos();
+    // The elbow keeps its side: the new arm direction is the line to the hand
+    // turned back toward the old arm direction by alpha.
+    let new_forearm_dir = if length(cross) < 1e-7 {
+        forearm_dir
+    } else {
+        transform(to_hand_dir, &turn_about(normalize(cross), -alpha))
+    };
+    let arm_turn = turn_between(forearm_dir, new_forearm_dir);
+    let arm_obj = (multiply(&frames[arm].0, &arm_turn), arm_pos);
+    let forearm_local = relative(&frames[forearm], &frames[arm]);
+    let forearm_obj = compose(&forearm_local, &arm_obj);
+    let hand_local = relative(&frames[hand], &frames[forearm]);
+    let hand_pos = compose(&hand_local, &forearm_obj).1;
+    let forearm_turn = turn_between(
+        normalize(sub(hand_pos, forearm_obj.1)),
+        normalize(sub(target.1, forearm_obj.1)),
+    );
+    let forearm_obj = (multiply(&forearm_obj.0, &forearm_turn), forearm_obj.1);
+    let mut hand_new = relative(target, &forearm_obj);
+    let l = length(hand_new.1);
+    if (l - forearm_len).abs() > 1e-5 {
+        hand_new.1 = hand_new.1.map(|c| c / l * forearm_len);
+    }
+    Some([
+        relative(&arm_obj, &frames[shoulder]),
+        relative(&forearm_obj, &arm_obj),
+        hand_new,
+    ])
+}
+
+/// A bone's additive translation and Euler angles at a frame.
+type Sample = ([f32; 3], [f32; 3]);
+
+/// What the hand IK does to `hands` on `stance` with `gun` playing `item`,
+/// baked into the clip: per frame, each hand's target as the clip's
+/// `*_hand_ik` events (`events[hand]`: (frame, value)) set it, blended as
+/// the engine blends, and the arm bent onto it as the engine bends it; the
+/// arms', forearms' and hands' curves of the result. `milliseconds` is a
+/// frame's length as the state plays the clip, `start` the target the
+/// hands hold as the clip starts. With it, how far a hand fell short of its
+/// target at worst (metres; a target out of the arm's reach).
+#[allow(clippy::too_many_arguments)]
+pub fn bake_ik(
+    skeleton: &Skeleton,
+    stance: &Stance,
+    hands: &Clip,
+    events: [&[(f32, u8)]; 2],
+    gun: &Gun,
+    item: &Clip,
+    milliseconds: f32,
+    start: Target,
+) -> Result<(Clip, f32)> {
+    let weapon = skeleton.index(WEAPON)?;
+    let hand_bones = [skeleton.index(HANDS[0].0)?, skeleton.index(HANDS[1].0)?];
+    let chains: Vec<[usize; 3]> = hand_bones
+        .iter()
+        .map(|h| {
+            let forearm = skeleton.parents[*h].context("a hand without a forearm")?;
+            let arm = skeleton.parents[forearm].context("a forearm without an arm")?;
+            Ok([arm, forearm, *h])
+        })
+        .collect::<Result<_>>()?;
+    let changes: Vec<Vec<(f32, Change)>> = events
+        .iter()
+        .map(|e| {
+            e.iter()
+                .map(|(k, v)| Ok((*k, change_of(*v)?)))
+                .collect::<Result<_>>()
+        })
+        .collect::<Result<_>>()?;
+    let times = frames_of(hands);
+    let mut states = [HandIk::Settled(start), HandIk::Settled(start)];
+    let mut next = [0usize, 0];
+    let mut short = 0.0f32;
+    // Per hand, per chain bone, per frame: (translation, angles) additive.
+    let mut samples: [[Vec<Sample>; 3]; 2] = Default::default();
+    for time in &times {
+        let now = time * milliseconds;
+        let mut player = pose(skeleton, stance, hands, *time)?;
+        let carried = (multiply(&HALF_TURN, &player[weapon].0), player[weapon].1);
+        let gun_pose = gun.rig.pose(item, time.min(item.duration()));
+        for side in 0..2 {
+            while let Some((knot, change)) = changes[side].get(next[side]) {
+                if *knot > *time + 1e-4 {
+                    break;
+                }
+                states[side] = states[side].change(*change, knot * milliseconds);
+                next[side] += 1;
+            }
+            let target_of = |t: Target, player: &[Frame]| -> Result<Frame> {
+                Ok(match t {
+                    Target::Own => player[hand_bones[side]],
+                    Target::Contact => compose(&gun_pose[gun.contacts[side]], &carried),
+                    Target::Locator(l) => {
+                        let (bone, frame) = gun
+                            .locator(side, l)
+                            .with_context(|| format!("the gun has no {}_idle", HANDS[side].0))?;
+                        compose(&compose(frame, &gun_pose[bone]), &carried)
+                    }
+                })
+            };
+            let target = match states[side].at(now) {
+                HandIk::Settled(t) => target_of(t, &player)?,
+                HandIk::Blending {
+                    from,
+                    to,
+                    end,
+                    length,
+                } => mix(
+                    &target_of(from, &player)?,
+                    &target_of(to, &player)?,
+                    HandIk::weight(end, length, now),
+                ),
+            };
+            let chain = chains[side];
+            let locals = match reach(skeleton, &player, hand_bones[side], &target) {
+                Some(l) => l,
+                None => [
+                    relative(
+                        &player[chain[0]],
+                        &player[skeleton.parents[chain[0]].unwrap()],
+                    ),
+                    relative(&player[chain[1]], &player[chain[0]]),
+                    relative(&player[chain[2]], &player[chain[1]]),
+                ],
+            };
+            // The chain's new model frames, for the next hand's frames and the samples.
+            let shoulder = skeleton.parents[chain[0]].unwrap();
+            let arm = compose(&locals[0], &player[shoulder]);
+            let forearm = compose(&locals[1], &arm);
+            let hand = compose(&locals[2], &forearm);
+            short = short.max(length(sub(hand.1, target.1)));
+            for (bone, frame) in chain.iter().zip([arm, forearm, hand]) {
+                player[*bone] = frame;
+            }
+            for (k, bone) in chain.iter().enumerate() {
+                let (base_t, base_r) = stance.locals[*bone];
+                let rotation = multiply(&transpose(&euler_to_basis(base_r)), &locals[k].0);
+                let translation = [0, 1, 2].map(|i| locals[k].1[i] - base_t[i]);
+                let name = &skeleton.names[*bone];
+                let near = samples[side][k]
+                    .last()
+                    .map(|s| s.1)
+                    .or_else(|| channels(hands, name, *time).map(|c| c.1))
+                    .unwrap_or([0.0; 3]);
+                let angles = nearest_angles(&rotation, near)
+                    .with_context(|| format!("{name} at frame {time}"))?;
+                samples[side][k].push((translation, angles));
+            }
+        }
+    }
+    let mut out = hands.clone();
+    for side in 0..2 {
+        for (k, bone) in chains[side].iter().enumerate() {
+            let name = &skeleton.names[*bone];
+            let track = out
+                .bones
+                .iter()
+                .position(|b| b == name)
+                .with_context(|| format!("the hands clip does not drive {name}"))?;
+            for c in 0..6 {
+                let values: Vec<f32> = samples[side][k]
+                    .iter()
+                    .map(|(t, r)| if c < 3 { t[c] } else { r[c - 3] })
+                    .collect();
+                let channel = Channel::fit(&times, &values)?;
+                let residual = channel.residual(&times, &values);
+                ensure!(
+                    residual < 1e-4,
+                    "{name}'s IK channel {c} fits within {residual}"
+                );
+                out.tracks[track].channels[c] = channel;
+            }
+        }
+    }
+    Ok((out, short))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -622,7 +1176,13 @@ mod tests {
         let z = [0.0; 3];
         let c = clip(
             &[
-                (ROOT, z, [0.0, std::f32::consts::PI, 0.0], z, [0.0, std::f32::consts::PI, 0.0]),
+                (
+                    ROOT,
+                    z,
+                    [0.0, std::f32::consts::PI, 0.0],
+                    z,
+                    [0.0, std::f32::consts::PI, 0.0],
+                ),
                 (HIP, [0.0, 0.9, 0.0], hip, [0.0, 0.9, 0.0], hip),
                 (CHEST, [0.0, 0.3, 0.0], chest, [0.0, 0.3, 0.0], chest),
                 (
@@ -740,6 +1300,75 @@ mod tests {
                 assert!((a - b).abs() < 1e-4, "channel {k} at {t}: {b} for {a}");
             }
         }
+    }
+
+    #[test]
+    fn the_arm_reaches_its_target_and_keeps_its_lengths() {
+        let s = skeleton();
+        let st = stance(&s, [0.2, 0.0, 0.0], [0.1, 0.05, 0.0]);
+        let none = Clip {
+            bones: vec![],
+            tracks: vec![],
+            animation_type: ADDITIVE,
+        };
+        let frames = pose(&s, &st, &none, 0.0).unwrap();
+        // The test rig's arm: LeftClavicle (as the "arm") - LeftHand has no
+        // forearm, so give the chain Chest - LeftClavicle - LeftHand: hand,
+        // forearm = clavicle, arm = chest.
+        let hand = s.index("LeftHand").unwrap();
+        let (forearm, arm) = (
+            s.parents[hand].unwrap(),
+            s.parents[s.parents[hand].unwrap()].unwrap(),
+        );
+        let upper = length(sub(frames[forearm].1, frames[arm].1));
+        let lower = length(sub(frames[hand].1, frames[forearm].1));
+        let goal = compose(
+            &(euler_to_basis([0.3, -0.2, 0.1]), [0.25, -0.15, 0.2]),
+            &frames[arm],
+        );
+        assert!(length(sub(goal.1, frames[arm].1)) < upper + lower);
+        let [a, f, h] = reach(&s, &frames, hand, &goal).unwrap();
+        let arm_obj = compose(&a, &frames[s.parents[arm].unwrap()]);
+        let forearm_obj = compose(&f, &arm_obj);
+        let hand_obj = compose(&h, &forearm_obj);
+        assert!(
+            length(sub(hand_obj.1, goal.1)) < 1e-4,
+            "{:?} for {:?}",
+            hand_obj.1,
+            goal.1
+        );
+        assert!((length(f.1) - upper).abs() < 1e-5 && (length(h.1) - lower).abs() < 1e-5);
+        let turn = multiply(&hand_obj.0, &transpose(&goal.0));
+        assert!(
+            (turn[0][0] + turn[1][1] + turn[2][2] - 3.0).abs() < 1e-4,
+            "the hand is turned as the target"
+        );
+    }
+
+    #[test]
+    fn a_hand_blends_to_a_new_target_and_settles() {
+        let ik = HandIk::Settled(Target::Locator(Locator::Idle));
+        let ik = ik.change(change_of(2).unwrap(), 1000.0);
+        assert_eq!(
+            ik,
+            HandIk::Blending {
+                from: Target::Locator(Locator::Idle),
+                to: Target::Contact,
+                end: 1300.0,
+                length: 300.0
+            }
+        );
+        let HandIk::Blending { end, length, .. } = ik else {
+            unreachable!()
+        };
+        assert!(HandIk::weight(end, length, 1000.0) < 0.01);
+        assert!((HandIk::weight(end, length, 1150.0) - 0.5).abs() < 0.01);
+        assert!(HandIk::weight(end, length, 1299.0) > 0.99);
+        assert_eq!(ik.at(1300.0), HandIk::Settled(Target::Contact));
+        // An odd value: the short transition.
+        let quick = HandIk::Settled(Target::Contact).change(change_of(1).unwrap(), 0.0);
+        assert!(matches!(quick, HandIk::Blending { to: Target::Own, end, .. } if end == 100.0));
+        assert!(change_of(12).is_err());
     }
 
     #[test]

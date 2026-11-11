@@ -207,3 +207,40 @@ pub fn with_curves(b: &[u8], clip: &crate::skeleton_animation::Clip) -> Result<V
     );
     Ok(out)
 }
+
+/// A 0.26g-layout clip's event channel `name`: its (knot, value) pairs, or
+/// `None` when the clip has no such channel.
+pub fn event_channel(b: &[u8], name: &str) -> Result<Option<Vec<(f32, u8)>>> {
+    let h = clip_header(b)?;
+    let base = 4 + h.bones * BONE_RECORD;
+    for (event, found) in event_names(b)?.iter().enumerate() {
+        if found != name {
+            continue;
+        }
+        let header = base + event * EVENT_HEADER_026;
+        let at = header + u32_at(b, header)? as usize;
+        let knots = usize::from(*b.get(header + 8).context("truncated event header")?);
+        let domains = usize::from(*b.get(header + 10).context("truncated event header")?);
+        ensure!(
+            knots == domains,
+            "{name}: {knots} knots and {domains} values"
+        );
+        return Ok(Some(
+            (0..knots)
+                .map(|k| -> Result<(f32, u8)> {
+                    let t = f32::from_le_bytes(
+                        b.get(at + 4 * k..at + 4 * k + 4)
+                            .context("truncated event knots")?
+                            .try_into()?,
+                    );
+                    Ok((
+                        t,
+                        *b.get(at + 4 * knots + k)
+                            .context("truncated event values")?,
+                    ))
+                })
+                .collect::<Result<_>>()?,
+        ));
+    }
+    Ok(None)
+}
