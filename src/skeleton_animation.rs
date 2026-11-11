@@ -112,8 +112,29 @@ impl Channel {
         spans
     }
 
-    /// `get_spline_params`, transcribed.
+    /// `get_spline_params`, transcribed: the span's cubic coefficients.
     fn span_coefficients(&self, index: usize) -> [f32; 4] {
+        let factors = self.span_factors(index);
+        let p = [
+            self.point(index as isize),
+            self.point(index as isize - 1),
+            self.point(index as isize - 2),
+            self.point(index as isize - 3),
+        ];
+        let combine =
+            |row: &[f32; 4]| row[0] * p[0] + row[1] * p[1] + row[2] * p[2] + row[3] * p[3];
+        [
+            combine(&factors[3]),
+            combine(&factors[2]),
+            combine(&factors[1]),
+            combine(&factors[0]),
+        ]
+    }
+
+    /// The factors of `get_spline_params`: row `3 - k` weighs the span's
+    /// control points (`index`, `index - 1`, `index - 2`, `index - 3`) into
+    /// its cubic's coefficient of `u^k`. They depend on the knots only.
+    fn span_factors(&self, index: usize) -> [[f32; 4]; 4] {
         let dt = [
             self.knot(index as isize - 1) - self.knot(index as isize - 2),
             self.knot(index as isize) - self.knot(index as isize - 1),
@@ -132,7 +153,7 @@ impl Channel {
         let k22 = 1.0 / (d1 * (d1 + d2) * (d1 + d2 + d3));
         let k3 = k22;
 
-        let factors = [
+        [
             [k3, -k20 - k21 - k22, k10 + k11 + k12, -k0],
             [
                 0.0,
@@ -156,21 +177,6 @@ impl Channel {
                 k10 * (d1 * d1 * (dm1 + d0)) + k11 * (d1 * d0 * (d1 + d2)),
                 k0 * d1 * d1 * d1,
             ],
-        ];
-
-        let p = [
-            self.point(index as isize),
-            self.point(index as isize - 1),
-            self.point(index as isize - 2),
-            self.point(index as isize - 3),
-        ];
-        let combine =
-            |row: &[f32; 4]| row[0] * p[0] + row[1] * p[1] + row[2] * p[2] + row[3] * p[3];
-        [
-            combine(&factors[3]),
-            combine(&factors[2]),
-            combine(&factors[1]),
-            combine(&factors[0]),
         ]
     }
 
@@ -199,9 +205,9 @@ impl Channel {
 
     /// Solve for control points whose curve passes through `values` at `times`.
     ///
-    /// The curve is linear in its control points, so the basis is recovered by
-    /// evaluating the engine's own construction once per control point and the
-    /// fit is an ordinary least-squares solve. A small ridge term keeps the
+    /// The curve is linear in its control points: each sample lies in one
+    /// span, which four control points make ([`Self::span_factors`]), so the
+    /// fit is a banded least-squares solve. A small ridge term keeps the
     /// system well conditioned: the layout carries one more control point than
     /// there are samples, so without it the extra degree of freedom is
     /// unconstrained.
@@ -229,22 +235,35 @@ impl Channel {
         let pairs = knots.len();
         let unknowns = pairs - 1;
 
-        // Basis: column j is the curve produced by a unit control point j.
-        let mut basis = vec![vec![0.0_f64; unknowns]; times.len()];
-        for column in 0..unknowns {
-            let mut points = vec![0.0_f32; pairs];
-            points[column] = 1.0;
-            points[pairs - 1] = 0.0;
-            let probe = Channel {
-                knots: knots.clone(),
-                points,
-            };
-            for (row, time) in times.iter().enumerate() {
-                basis[row][column] = f64::from(probe.evaluate(*time));
-            }
-        }
+        // Each sample's row: the weights of its span's four control points,
+        // found as `evaluate` finds the span.
+        let probe = Channel {
+            knots: knots.clone(),
+            points: vec![0.0; pairs],
+        };
+        let spans: Vec<(f32, usize)> = (3..pairs - 1)
+            .filter(|index| knots[index + 1] - knots[*index] >= KNOT_EPS)
+            .map(|index| (knots[index], index))
+            .collect();
+        let (first, last) = (spans[0].0, *knots.last().expect("knots"));
+        let rows: Vec<(usize, [f64; 4])> = times
+            .iter()
+            .map(|time| {
+                let time = time.clamp(first, last);
+                let (start, index) = *spans
+                    .iter()
+                    .rev()
+                    .find(|(start, _)| *start <= time)
+                    .unwrap_or(&spans[0]);
+                let u = time - start;
+                let f = probe.span_factors(index);
+                let weight =
+                    |m: usize| f64::from(f[3][m] + u * (f[2][m] + u * (f[1][m] + u * f[0][m])));
+                (index, [weight(0), weight(1), weight(2), weight(3)])
+            })
+            .collect();
 
-        let solved = least_squares(&basis, values, 1e-6)?;
+        let solved = banded_least_squares(&rows, values, unknowns, 1e-6)?;
         let mut points: Vec<f32> = solved.into_iter().map(|value| value as f32).collect();
         points.push(UNUSED_POINT);
         Ok(Self { knots, points })
@@ -260,60 +279,63 @@ impl Channel {
     }
 }
 
-/// Solve `min ||A x - b||^2 + ridge * ||x||^2` by normal equations.
-fn least_squares(a: &[Vec<f64>], b: &[f32], ridge: f64) -> Result<Vec<f64>> {
-    let columns = a.first().map(Vec::len).unwrap_or_default();
+/// Solve `min ||A x - b||^2 + ridge * ||x||^2` by normal equations, `A`'s
+/// rows given as `(column, weights)`: weight `m` is column `column - m`. The
+/// normal matrix is symmetric positive definite and banded (three off the
+/// diagonal), so elimination needs no pivoting and keeps to the band.
+fn banded_least_squares(
+    rows: &[(usize, [f64; 4])],
+    b: &[f32],
+    columns: usize,
+    ridge: f64,
+) -> Result<Vec<f64>> {
+    const BAND: usize = 3;
     if columns == 0 {
         bail!("least squares needs at least one unknown");
     }
-    let mut normal = vec![vec![0.0_f64; columns + 1]; columns];
-    for row in 0..columns {
-        for column in 0..columns {
-            let mut sum = 0.0;
-            for equation in a {
-                sum += equation[row] * equation[column];
+    // normal[r][c - r + BAND] holds N[r][c] for |r - c| <= BAND.
+    let mut normal = vec![[0.0_f64; 2 * BAND + 1]; columns];
+    let mut rhs = vec![0.0_f64; columns];
+    for ((column, weights), value) in rows.iter().zip(b) {
+        for (m, wm) in weights.iter().enumerate() {
+            let Some(r) = column.checked_sub(m) else {
+                continue;
+            };
+            rhs[r] += wm * f64::from(*value);
+            for (n, wn) in weights.iter().enumerate() {
+                let Some(c) = column.checked_sub(n) else {
+                    continue;
+                };
+                normal[r][c + BAND - r] += wm * wn;
             }
-            normal[row][column] = sum;
         }
-        normal[row][row] += ridge;
-        let mut sum = 0.0;
-        for (equation, value) in a.iter().zip(b) {
-            sum += equation[row] * f64::from(*value);
-        }
-        normal[row][columns] = sum;
     }
-
-    // Gaussian elimination with partial pivoting.
+    for row in &mut normal {
+        row[BAND] += ridge;
+    }
     for pivot in 0..columns {
-        let best = (pivot..columns)
-            .max_by(|left, right| {
-                normal[*left][pivot]
-                    .abs()
-                    .total_cmp(&normal[*right][pivot].abs())
-            })
-            .expect("a pivot row");
-        normal.swap(pivot, best);
-        let head = normal[pivot][pivot];
+        let head = normal[pivot][BAND];
         if head.abs() < 1e-12 {
             bail!("the channel fit is singular at unknown {pivot}");
         }
-        for row in pivot + 1..columns {
-            let factor = normal[row][pivot] / head;
+        for row in pivot + 1..columns.min(pivot + BAND + 1) {
+            let factor = normal[row][pivot + BAND - row] / head;
             if factor == 0.0 {
                 continue;
             }
-            for column in pivot..=columns {
-                normal[row][column] -= factor * normal[pivot][column];
+            for column in pivot..columns.min(pivot + BAND + 1) {
+                normal[row][column + BAND - row] -= factor * normal[pivot][column + BAND - pivot];
             }
+            rhs[row] -= factor * rhs[pivot];
         }
     }
     let mut solved = vec![0.0_f64; columns];
     for row in (0..columns).rev() {
-        let mut value = normal[row][columns];
-        for column in row + 1..columns {
-            value -= normal[row][column] * solved[column];
+        let mut value = rhs[row];
+        for column in row + 1..columns.min(row + BAND + 1) {
+            value -= normal[row][column + BAND - row] * solved[column];
         }
-        solved[row] = value / normal[row][row];
+        solved[row] = value / normal[row][BAND];
     }
     Ok(solved)
 }

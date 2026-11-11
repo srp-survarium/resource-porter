@@ -11,6 +11,7 @@ side view. The code: `src/weapons_026/` (its module docs say each rule and why).
 |---|---|
 | files | everything a gun's config names (model, skeleton, clips, sounds, materials, textures), carried from the donor unless the target (the stock db and the players' patches) has the path |
 | clips | the later builds write an event channel's header in 12 bytes, 0.26g in 16 (`clips.rs`) |
+| hands clips | played as the donor plays them in the first view: a clip is re-based onto 0.26g's first-person stance from the donor's where the two hold the gun apart (0.46c2's pistols); the donor's rifle stance is 0.26g's (`hands.rs`; `vostok-port hand-contact` measures each hand against the gun's contact bones) |
 | meshes | 0.31's statistics chunk 110 dropped; otherwise 0.26g's layout |
 | materials | the donor's on a native material of the same base material's effect keys |
 | sound options | the donor's, less the keys 0.26g's exe does not read (`pitch`, `add_rms`) |

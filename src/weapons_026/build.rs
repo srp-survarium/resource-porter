@@ -30,10 +30,12 @@ use serde_json::json;
 
 use super::config::weapon_config;
 use super::donor::{Donor, is_config};
+use super::hands::{CHEST, Gun, HEAD, Skeleton, Stance, contact, drift, hands_pairs, rebase};
 use super::icons::{cell_png, erase_rects, kill_feed_name, kill_feed_png};
 use super::manifest::{Weapon, WeaponPort};
 use super::{field, get, s, string_of};
 use crate::manifest::BuiltFile;
+use crate::skeleton_animation::{Clip, Rig};
 use crate::weapon::{parse_config, prepare_empty_output, record_file, write_generated_config};
 use crate::{BinaryConfig, ConfigValue as V, ResourceDb};
 
@@ -102,6 +104,9 @@ struct Carry<'a, D: Donor> {
     file_values: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
     warnings: Vec<String>,
     material_templates: BTreeMap<String, V>,
+    /// Hands clips re-based onto 0.26g's stance, by `.b-spline` path: what
+    /// [`Carry::file`] ships for them ([`Carry::hands`]).
+    rebased: BTreeMap<String, Vec<u8>>,
 }
 
 impl<D: Donor> Carry<'_, D> {
@@ -169,7 +174,10 @@ impl<D: Donor> Carry<'_, D> {
             "{path} is in neither the target nor the donor"
         );
         if !is_config(path) {
-            let bytes = self.donor.read(path)?;
+            let bytes = match self.rebased.remove(path) {
+                Some(bytes) => bytes,
+                None => self.donor.read(path)?,
+            };
             return self.raw(path, &bytes);
         }
         let bytes = self.donor.read(path)?;
@@ -323,6 +331,132 @@ impl<D: Donor> Carry<'_, D> {
         Ok(())
     }
 
+    /// A file as the bundle will have it: the target's, else the donor's.
+    fn read_any(&mut self, path: &str) -> Result<Vec<u8>> {
+        if self.target.contains(path) {
+            self.target.read(path)
+        } else {
+            self.donor.read(path)
+        }
+    }
+
+    fn read_clip(&mut self, name: &str) -> Result<Clip> {
+        let name = name.trim_start_matches("resources/");
+        Clip::parse(
+            &self.read_any(&format!("{name}.b-spline"))?,
+            &self.read_any(&format!("{name}.bones_names"))?,
+        )
+        .with_context(|| name.to_owned())
+    }
+
+    /// The first-person stance of a gun's `user_animations` set (its
+    /// `stand_hud[0]`), in `cfg`'s build: the body the hands clips play on
+    /// in the first view.
+    fn stance(&mut self, cfg: &V, skeleton: &Skeleton, donor: bool) -> Result<(String, Stance)> {
+        let set = string_of(cfg.named("user_animations"))
+            .context("user_animations")?
+            .to_owned();
+        let set_cfg = if donor {
+            self.donor.config(&set)?
+        } else {
+            parse_config(self.target, &set, "native user animations")?.root
+        };
+        let clip = string_of(get(&set_cfg, "stand_hud.0"))
+            .with_context(|| format!("{set} has no stand_hud[0]"))?
+            .to_owned();
+        let body = if donor {
+            let name = clip.trim_start_matches("resources/");
+            Clip::parse(
+                &self.donor.read(&format!("{name}.b-spline"))?,
+                &self.donor.read(&format!("{name}.bones_names"))?,
+            )
+            .with_context(|| name.to_owned())?
+        } else {
+            self.read_clip(&clip)?
+        };
+        let stance = Stance::of(skeleton, &body).with_context(|| clip.clone())?;
+        Ok((clip, stance))
+    }
+
+    /// The gun's hands clips the bundle carries, each played as the donor
+    /// played it in the first view ([`super::hands`]): where the donor's
+    /// first-person stance holds the gun elsewhere in the view than 0.26g's
+    /// ([`SAME_STANCE`]; 0.46c2's pistols: 22 cm further out), the clip is
+    /// re-based onto 0.26g's. Where they agree (the rifles of every donor)
+    /// it is the donor's as it is.
+    fn hands(
+        &mut self,
+        cfg: &V,
+        donor_cfg: &V,
+        model: &str,
+        skeleton: &str,
+        notes: &mut Vec<String>,
+    ) -> Result<()> {
+        let player = Skeleton::parse(&self.read_any(super::resources::PLAYER_SKELETON)?)?;
+        let rig = Rig::parse(
+            &self.read_any(&format!("models/{model}.skinned_model/render/bind_pose"))?,
+            &self.read_any(&format!("animations/skeletons/{skeleton}.skeleton"))?,
+        )
+        .context("the gun's rig")?;
+        let gun = Gun::new(rig)?;
+        let mut pairs = vec![];
+        if let Some(states) = cfg.named("states") {
+            hands_pairs(states, &mut pairs);
+        }
+        let mut stances: Option<((String, Stance), (String, Stance))> = None;
+        let mut done = BTreeSet::new();
+        for (user, item) in pairs {
+            let name = user.trim_start_matches("resources/").to_owned();
+            let path = format!("{name}.b-spline");
+            if self.target.contains(&path) || !done.insert(path.clone()) {
+                continue;
+            }
+            let hands = self.read_clip(&user)?;
+            if hands.animation_type != super::hands::ADDITIVE {
+                continue;
+            }
+            let item = self.read_clip(&item)?;
+            if stances.is_none() {
+                stances = Some((
+                    self.stance(donor_cfg, &player, true)?,
+                    self.stance(cfg, &player, false)?,
+                ));
+            }
+            let ((theirs_clip, theirs), (ours_clip, ours)) = stances.as_ref().unwrap();
+            let (apart, turned) = theirs.gun_apart(ours, &player)?;
+            if apart < SAME_STANCE.0 && turned < SAME_STANCE.1 {
+                continue;
+            }
+            let rebased = rebase(&player, &hands, theirs, ours)?;
+            let exact = drift(&player, (theirs, &hands), (ours, &rebased), CHEST)?;
+            ensure!(
+                exact < 1e-3,
+                "{name}: re-based, the arms and the gun are {:.1} mm off the donor's pose",
+                exact * 1000.0
+            );
+            let moved = drift(&player, (ours, &hands), (ours, &rebased), HEAD)?;
+            let mm = |c: f32| c * 1000.0;
+            let (before, after) = (
+                contact(&player, ours, &hands, &gun, &item)?,
+                contact(&player, ours, &rebased, &gun, &item)?,
+            );
+            notes.push(format!(
+                "{name}: re-based from the donor's first-person stance {theirs_clip} onto \
+                 0.26g's {ours_clip}: the hands and the gun move up to {:.1} mm in the view; \
+                 the hands off the gun's contact points {:.1} mm (worst {:.1} mm), before \
+                 {:.1} mm (worst {:.1} mm)",
+                mm(moved),
+                mm(after.median()),
+                mm(after.worst()),
+                mm(before.median()),
+                mm(before.worst())
+            ));
+            let bytes = super::clips::with_curves(&self.donor.read(&path)?, &rebased)?;
+            self.rebased.insert(path, bytes);
+        }
+        Ok(())
+    }
+
     /// The clips and sounds an item config names.
     /// The clips and sounds `cfg` names. A clip the template names that no
     /// archive has (the stock pistols' `on_site/death_fwd`) stays named, as
@@ -358,6 +492,11 @@ impl<D: Donor> Carry<'_, D> {
         Ok(())
     }
 }
+
+/// Two first-person stances that hold the gun within this of each other in
+/// the view (metres, radians) are one: the later builds' rifle stance is
+/// 0.26g's there (to 1 mm and 0.1 degrees), their pistol stance 22 cm off.
+const SAME_STANCE: (f32, f32) = (0.01, 0.0175);
 
 fn collect_sound_lists(v: &V, out: &mut Vec<(i32, String)>) {
     if let V::Named(fields) = v {
@@ -659,6 +798,7 @@ pub fn build<D: Donor>(
         file_values,
         warnings: vec![],
         material_templates: BTreeMap::new(),
+        rebased: BTreeMap::new(),
     };
     let mut report = BuildReport::default();
     let natives: Vec<V> = stock
@@ -717,7 +857,7 @@ pub fn build<D: Donor>(
                     .is_some()
                 && !target.contains(&format!("{path}.b-spline"))
         };
-        let (cfg, notes) = weapon_config(
+        let (cfg, mut notes) = weapon_config(
             carry.donor.rules(),
             w,
             &donor_cfg,
@@ -726,7 +866,6 @@ pub fn build<D: Donor>(
             &foreign,
         )
         .with_context(|| w.name.clone())?;
-        let mut notes = notes;
         let model = string_of(get(&cfg, "object.model"))
             .context("object.model")?
             .to_owned();
@@ -735,6 +874,9 @@ pub fn build<D: Donor>(
             .context("object.skeleton")?
             .to_owned();
         carry.file(&format!("animations/skeletons/{skeleton}.skeleton"))?;
+        carry
+            .hands(&cfg, &donor_cfg, &model, &skeleton, &mut notes)
+            .with_context(|| format!("{}: the hands", w.name))?;
         carry
             .states(&cfg, &template, &mut notes)
             .with_context(|| w.name.clone())?;
