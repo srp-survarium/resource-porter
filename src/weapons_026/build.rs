@@ -30,7 +30,10 @@ use serde_json::json;
 
 use super::config::weapon_config;
 use super::donor::{Donor, is_config};
-use super::hands::{CHEST, Gun, HEAD, Skeleton, Stance, contact, drift, hands_pairs, rebase};
+use super::hands::{
+    CHEST, Gun, HEAD, HandsClip, Skeleton, Stance, Target, bake_ik, contact, drift, hands_pairs,
+    rebase,
+};
 use super::icons::{cell_png, erase_rects, kill_feed_name, kill_feed_png};
 use super::manifest::{Weapon, WeaponPort};
 use super::{field, get, s, string_of};
@@ -378,12 +381,15 @@ impl<D: Donor> Carry<'_, D> {
         Ok((clip, stance))
     }
 
-    /// The gun's hands clips the bundle carries, each played as the donor
-    /// played it in the first view ([`super::hands`]): where the donor's
-    /// first-person stance holds the gun elsewhere in the view than 0.26g's
-    /// ([`SAME_STANCE`]; 0.46c2's pistols: 22 cm further out), the clip is
-    /// re-based onto 0.26g's. Where they agree (the rifles of every donor)
-    /// it is the donor's as it is.
+    /// The gun's hands clips the bundle carries, each made to put the hands
+    /// where the donor's first view shows them ([`super::hands`]): where the
+    /// donor's first-person stance holds the gun elsewhere in the view than
+    /// 0.26g's ([`SAME_STANCE`]; 0.46c2's pistols: 22 cm further out), the
+    /// clip is re-based onto 0.26g's first; then, unless its hands are on
+    /// the gun's contact bones all through ([`ON_THE_GUN`]), what the hand
+    /// IK does to it is baked in ([`bake_ik`]): 0.26g's first view shows the
+    /// clip's own hands. A clip the two change by less than 1 mm (a hand or
+    /// the gun) ships as the donor has it.
     fn hands(
         &mut self,
         cfg: &V,
@@ -393,19 +399,19 @@ impl<D: Donor> Carry<'_, D> {
         notes: &mut Vec<String>,
     ) -> Result<()> {
         let player = Skeleton::parse(&self.read_any(super::resources::PLAYER_SKELETON)?)?;
+        let root = format!("models/{model}.skinned_model/render");
         let rig = Rig::parse(
-            &self.read_any(&format!("models/{model}.skinned_model/render/bind_pose"))?,
+            &self.read_any(&format!("{root}/bind_pose"))?,
             &self.read_any(&format!("animations/skeletons/{skeleton}.skeleton"))?,
         )
         .context("the gun's rig")?;
-        let gun = Gun::new(rig)?;
-        let mut pairs = vec![];
-        if let Some(states) = cfg.named("states") {
-            hands_pairs(states, &mut pairs);
-        }
+        let properties =
+            BinaryConfig::parse(&self.read_any(&format!("{root}/export_properties"))?)?;
+        let gun = Gun::new(rig, &properties.root)?;
+        let pairs = cfg.named("states").map(hands_pairs).unwrap_or_default();
         let mut stances: Option<((String, Stance), (String, Stance))> = None;
         let mut done = BTreeSet::new();
-        for (user, item) in pairs {
+        for HandsClip { state, user, item } in pairs {
             let name = user.trim_start_matches("resources/").to_owned();
             let path = format!("{name}.b-spline");
             if self.target.contains(&path) || !done.insert(path.clone()) {
@@ -424,34 +430,81 @@ impl<D: Donor> Carry<'_, D> {
             }
             let ((theirs_clip, theirs), (ours_clip, ours)) = stances.as_ref().unwrap();
             let (apart, turned) = theirs.gun_apart(ours, &player)?;
-            if apart < SAME_STANCE.0 && turned < SAME_STANCE.1 {
+            let rebased = if apart < SAME_STANCE.0 && turned < SAME_STANCE.1 {
+                None
+            } else {
+                let rebased = rebase(&player, &hands, theirs, ours)?;
+                let exact = drift(&player, (theirs, &hands), (ours, &rebased), CHEST)?;
+                ensure!(
+                    exact < 1e-3,
+                    "{name}: re-based, the arms and the gun are {:.1} mm off the donor's pose",
+                    exact * 1000.0
+                );
+                Some(rebased)
+            };
+            let played = rebased.as_ref().unwrap_or(&hands);
+            let held = contact(&player, ours, played, &gun, &item)?;
+            let bytes = self.donor.read(&path)?;
+            if held.worst() <= ON_THE_GUN {
+                // Its hands are on the gun's contact bones all through: the IK
+                // has nothing to put right (patch 19's 0.29a3 clips).
+                if rebased.is_some() {
+                    notes.push(format!(
+                        "{name}: re-based from the donor's first-person stance {theirs_clip} \
+                         onto 0.26g's {ours_clip}; the hands on the gun's contact bones within \
+                         {:.1} mm",
+                        held.worst() * 1000.0
+                    ));
+                    let bytes = super::clips::with_curves(&bytes, played)?;
+                    self.rebased.insert(path, bytes);
+                }
                 continue;
             }
-            let rebased = rebase(&player, &hands, theirs, ours)?;
-            let exact = drift(&player, (theirs, &hands), (ours, &rebased), CHEST)?;
-            ensure!(
-                exact < 1e-3,
-                "{name}: re-based, the arms and the gun are {:.1} mm off the donor's pose",
-                exact * 1000.0
-            );
-            let moved = drift(&player, (ours, &hands), (ours, &rebased), HEAD)?;
+            let events = [
+                super::clips::event_channel(&bytes, "left_hand_ik")?.unwrap_or_default(),
+                super::clips::event_channel(&bytes, "right_hand_ik")?.unwrap_or_default(),
+            ];
+            let (milliseconds, start) = state_playback(cfg, &state, &name, &hands)?;
+            let (baked, short) = bake_ik(
+                &player,
+                ours,
+                played,
+                [&events[0], &events[1]],
+                &gun,
+                &item,
+                milliseconds,
+                start,
+            )
+            .with_context(|| format!("{name}: the hand IK"))?;
+            let moved = drift(&player, (ours, &hands), (ours, &baked), HEAD)?;
+            if moved < 1e-3 {
+                continue;
+            }
             let mm = |c: f32| c * 1000.0;
             let (before, after) = (
                 contact(&player, ours, &hands, &gun, &item)?,
-                contact(&player, ours, &rebased, &gun, &item)?,
+                contact(&player, ours, &baked, &gun, &item)?,
             );
+            let from = match &rebased {
+                Some(_) => format!(
+                    "re-based from the donor's first-person stance {theirs_clip} onto 0.26g's \
+                     {ours_clip}, "
+                ),
+                None => String::new(),
+            };
             notes.push(format!(
-                "{name}: re-based from the donor's first-person stance {theirs_clip} onto \
-                 0.26g's {ours_clip}: the hands and the gun move up to {:.1} mm in the view; \
-                 the hands off the gun's contact points {:.1} mm (worst {:.1} mm), before \
-                 {:.1} mm (worst {:.1} mm)",
+                "{name}: {from}the hand IK baked in ({state}, {milliseconds:.1} ms a frame): \
+                 the hands move up to {:.1} mm in the view; off the \
+                 gun's contact bones {:.1} mm (worst {:.1} mm), before {:.1} mm (worst {:.1} \
+                 mm); a hand short of its target at worst {:.1} mm",
                 mm(moved),
                 mm(after.median()),
                 mm(after.worst()),
                 mm(before.median()),
-                mm(before.worst())
+                mm(before.worst()),
+                mm(short)
             ));
-            let bytes = super::clips::with_curves(&self.donor.read(&path)?, &rebased)?;
+            let bytes = super::clips::with_curves(&bytes, &baked)?;
             self.rebased.insert(path, bytes);
         }
         Ok(())
@@ -492,6 +545,47 @@ impl<D: Donor> Carry<'_, D> {
         Ok(())
     }
 }
+
+/// How a state plays its hands clip: a frame's length (milliseconds: 30
+/// frames a second, the reload in `reload_time`, the draw in `show_time`,
+/// the holster in `hide_time`, as `computed_*_animation_time_scale`) and
+/// the hands' IK target as it starts (the draw from the hands' own place,
+/// as a holster leaves them; anything else from the idle's locator).
+fn state_playback(cfg: &V, state: &str, hands_name: &str, hands: &Clip) -> Result<(f32, Target)> {
+    let frame = 1000.0 / 30.0;
+    let length = |key: &str| -> Result<Option<f32>> {
+        Ok(match get(cfg, &format!("parameters.{key}")) {
+            Some(V::Float(t)) => Some(*t),
+            Some(V::Integer(t)) => Some(*t as f32),
+            None => None,
+            Some(other) => bail!("parameters.{key} is {other:?}"),
+        })
+    };
+    let lasting = match state {
+        "reload" if hands_is_tactical(hands_name) => length("tactical_reload_time")?
+            .map(Some)
+            .unwrap_or(length("reload_time")?),
+        "reload" => length("reload_time")?,
+        "show" => length("show_time")?,
+        "hide" => length("hide_time")?,
+        _ => None,
+    };
+    let milliseconds = match lasting {
+        Some(seconds) => seconds * 1000.0 / hands.duration(),
+        None => frame,
+    };
+    let start = if state == "show" {
+        Target::Own
+    } else {
+        Target::Locator(super::hands::Locator::Idle)
+    };
+    Ok((milliseconds, start))
+}
+
+/// A hands clip whose hands are never further than this from the gun's
+/// contact bones (metres) holds the gun as it is: 0.26g's own clips and
+/// patch 19's 0.29a3 ones keep them within 0.1 mm.
+const ON_THE_GUN: f32 = 0.001;
 
 /// Two first-person stances that hold the gun within this of each other in
 /// the view (metres, radians) are one: the later builds' rifle stance is
@@ -1024,4 +1118,12 @@ pub fn build<D: Donor>(
     report.files = files.len();
     report.reused = reused.len();
     Ok(report)
+}
+
+/// A two-clip reload's tactical clip (`reload_tactic`), which plays in
+/// `tactical_reload_time` where the gun has one (skhid-srp's exe patch 90).
+fn hands_is_tactical(name: &str) -> bool {
+    name.rsplit('/')
+        .next()
+        .is_some_and(|stem| stem.contains("tactic"))
 }
