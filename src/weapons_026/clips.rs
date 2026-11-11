@@ -139,3 +139,108 @@ pub fn event_names(b: &[u8]) -> Result<Vec<String>> {
         })
         .collect()
 }
+
+/// A 0.26g-layout clip `b` with `clip`'s bone curves: the header's type and
+/// its event channels (headers and data) as `b` has them, each bone slot and
+/// event header pointing at its curve and data again. `clip` drives as many
+/// bones as `b`, in `b`'s order (its `.bones_names` stays).
+pub fn with_curves(b: &[u8], clip: &crate::skeleton_animation::Clip) -> Result<Vec<u8>> {
+    let h = clip_header(b)?;
+    ensure!(
+        clip.bones.len() == h.bones,
+        "the clip drives {} bones, its curves {}",
+        h.bones,
+        clip.bones.len()
+    );
+    let bones = clip.bones.len();
+    let old_data = 4 + h.bones * BONE_RECORD + h.events * EVENT_HEADER_026;
+    // The old curves end where the first event channel's data starts.
+    let mut events_at = b.len();
+    for event in 0..h.events {
+        let header = 4 + h.bones * BONE_RECORD + event * EVENT_HEADER_026;
+        events_at = events_at.min(header + u32_at(b, header)? as usize);
+    }
+    ensure!(
+        events_at >= old_data,
+        "an event channel's data is inside the curves"
+    );
+    let data = 4 + bones * BONE_RECORD + h.events * EVENT_HEADER_026;
+    let mut curves = vec![];
+    let mut starts = vec![];
+    for track in &clip.tracks {
+        for channel in &track.channels {
+            ensure!(
+                channel.knots.len() == channel.points.len() && channel.knots.len() >= 5,
+                "a curve of {} knots and {} points",
+                channel.knots.len(),
+                channel.points.len()
+            );
+            starts.push(data + curves.len());
+            curves.extend_from_slice(&u32::try_from(channel.knots.len())?.to_le_bytes());
+            for (knot, point) in channel.knots.iter().zip(&channel.points) {
+                curves.extend_from_slice(&knot.to_le_bytes());
+                curves.extend_from_slice(&point.to_le_bytes());
+            }
+        }
+    }
+    let mut out = Vec::with_capacity(data + curves.len() + b.len() - events_at);
+    out.extend_from_slice(&u16::try_from(bones)?.to_le_bytes());
+    out.extend_from_slice(&b[2..4]);
+    for (slot, start) in starts.iter().enumerate() {
+        let at = 4 + slot * 8;
+        out.extend_from_slice(&u32::try_from(start - at)?.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes());
+    }
+    let new_events_at = data + curves.len();
+    for event in 0..h.events {
+        let old = 4 + h.bones * BONE_RECORD + event * EVENT_HEADER_026;
+        let new = 4 + bones * BONE_RECORD + event * EVENT_HEADER_026;
+        let target = old + u32_at(b, old)? as usize - events_at + new_events_at;
+        out.extend_from_slice(&u32::try_from(target - new)?.to_le_bytes());
+        out.extend_from_slice(&b[old + 4..old + EVENT_HEADER_026]);
+    }
+    out.extend_from_slice(&curves);
+    out.extend_from_slice(&b[events_at..]);
+    ensure!(
+        event_names(&out)? == event_names(b)?,
+        "the clip lost its event channels"
+    );
+    Ok(out)
+}
+
+/// A 0.26g-layout clip's event channel `name`: its (knot, value) pairs, or
+/// `None` when the clip has no such channel.
+pub fn event_channel(b: &[u8], name: &str) -> Result<Option<Vec<(f32, u8)>>> {
+    let h = clip_header(b)?;
+    let base = 4 + h.bones * BONE_RECORD;
+    for (event, found) in event_names(b)?.iter().enumerate() {
+        if found != name {
+            continue;
+        }
+        let header = base + event * EVENT_HEADER_026;
+        let at = header + u32_at(b, header)? as usize;
+        let knots = usize::from(*b.get(header + 8).context("truncated event header")?);
+        let domains = usize::from(*b.get(header + 10).context("truncated event header")?);
+        ensure!(
+            knots == domains,
+            "{name}: {knots} knots and {domains} values"
+        );
+        return Ok(Some(
+            (0..knots)
+                .map(|k| -> Result<(f32, u8)> {
+                    let t = f32::from_le_bytes(
+                        b.get(at + 4 * k..at + 4 * k + 4)
+                            .context("truncated event knots")?
+                            .try_into()?,
+                    );
+                    Ok((
+                        t,
+                        *b.get(at + 4 * knots + k)
+                            .context("truncated event values")?,
+                    ))
+                })
+                .collect::<Result<_>>()?,
+        ));
+    }
+    Ok(None)
+}
