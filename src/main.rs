@@ -268,6 +268,25 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Where a weapon's hands are against its gun, as 0.26g composes them:
+    /// per hands clip, each hand's distance from the gun's contact bone of
+    /// that hand (`weapons_026::hands`), on the first-person stance of the
+    /// gun's `user_animations` set or on `--stance`.
+    HandContact {
+        /// The stock resources.db, then patches over it, in order.
+        #[arg(long = "db", required = true)]
+        dbs: Vec<PathBuf>,
+        /// Folders of loose files over the archives (a pack's `files`, a
+        /// bundle's `overlay`); the first that has a file serves it.
+        #[arg(long = "files")]
+        files: Vec<PathBuf>,
+        /// The weapon config (`gameplay/items/weapons/wpn_<name>.options`).
+        #[arg(long)]
+        config: String,
+        /// A body clip (no extension) to stand on instead.
+        #[arg(long)]
+        stance: Option<String>,
+    },
     /// Compare a weapon bundle with files players have (a patch), file by
     /// file; exits non-zero on an unexplained difference.
     CompareWeapons {
@@ -1313,6 +1332,39 @@ fn main() -> Result<()> {
                 "Built {}: {} files, {} reused from the target",
                 port.id, report.files, report.reused
             );
+        }
+        Command::HandContact {
+            dbs,
+            files,
+            config,
+            stance,
+        } => {
+            let mut db = vostok_resource_porter::ResourceDb::open_layers(&dbs)?;
+            let mut read = |path: &str| -> Result<Vec<u8>> {
+                for dir in &files {
+                    let file = dir.join(path);
+                    if file.is_file() {
+                        return Ok(std::fs::read(file)?);
+                    }
+                }
+                db.read(path)
+            };
+            let cfg = vostok_resource_porter::BinaryConfig::parse(&read(&config)?)?.root;
+            let rows = vostok_resource_porter::weapons_026::hands::gun_contact(
+                &mut read,
+                &cfg,
+                stance.as_deref(),
+            )?;
+            println!("hands clip\tleft median mm\tleft worst mm\tright median mm\tright worst mm");
+            for (clip, c) in rows {
+                let stats = |v: &[f32]| {
+                    let mut s = v.to_vec();
+                    s.sort_by(f32::total_cmp);
+                    (s[s.len() / 2] * 1000.0, s[s.len() - 1] * 1000.0)
+                };
+                let ((lm, lw), (rm, rw)) = (stats(&c.left), stats(&c.right));
+                println!("{clip}\t{lm:.1}\t{lw:.1}\t{rm:.1}\t{rw:.1}");
+            }
         }
         Command::RenderWeapon {
             model,
