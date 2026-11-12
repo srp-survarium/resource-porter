@@ -78,6 +78,36 @@ def check(fixture):
         receipt = prepare(draw, fixture, root / 'valid')
         assert not receipt['unbound_texture_slots'] and not receipt['unbound_sampler_slots']
         rejected = []
+        # Identical replacement leaves every GPU byte unchanged; a changed
+        # replacement must actually reach the packet.
+        other = root / 'other.post-draw'
+        Path(str(other) + '.dxbc').write_bytes(Path(str(draw) + '.dxbc').read_bytes())
+        Path(str(other) + '.targets.json').write_text(json.dumps(textures))
+        Path(str(other) + '.rt02.bin').write_bytes(Path(str(draw) + '.rt02.bin').read_bytes())
+        prepare(draw, fixture, root / 'same', {'t_frame_color': other})
+        assert (root / 'same/packet.bin').read_bytes() == (root / 'valid/packet.bin').read_bytes()
+        Path(str(other) + '.rt02.bin').write_bytes(bytes([17]) * 64)
+        prepare(draw, fixture, root / 'changed-input', {'t_frame_color': other})
+        assert (root / 'changed-input/packet.bin').read_bytes() != (root / 'valid/packet.bin').read_bytes()
+        for label, overrides in [('unknown-texture', {'not_a_resource': other}),
+                                 ('constant-not-texture', {'$Globals': other})]:
+            try:
+                prepare(draw, fixture, root / label, overrides)
+            except ValueError:
+                assert not (root / label).exists()
+                rejected.append(label)
+            else:
+                raise AssertionError(label + ' accepted')
+        changed_targets = [dict(t) for t in textures]
+        changed_targets[2]['view_format'] = 29
+        Path(str(other) + '.targets.json').write_text(json.dumps(changed_targets))
+        try:
+            prepare(draw, fixture, root / 'incompatible-input', {'t_frame_color': other})
+        except ValueError:
+            assert not (root / 'incompatible-input').exists()
+            rejected.append('incompatible-input')
+        else:
+            raise AssertionError('incompatible replacement accepted')
 
         def reject(label, path, changed):
             original = path.read_bytes()

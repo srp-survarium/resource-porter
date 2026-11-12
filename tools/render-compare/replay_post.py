@@ -28,7 +28,7 @@ def require(condition, reason):
         raise ValueError(reason)
 
 
-def prepare(draw, fixture, output):
+def prepare(draw, fixture, output, texture_overrides=None):
     require(not output.exists(), 'refusing to overwrite a replay or reference')
     require(str(draw).endswith('.post-draw'), 'expected a .post-draw capture base')
     hashes = {}
@@ -108,6 +108,26 @@ def prepare(draw, fixture, output):
     active_textures = {r['slot'] for r in ps_info['resources'].values() if r['kind'] == 2}
     targets = [t for t in metadata('.targets.json') if t['slot'] in active_textures]
     require(len({t['slot'] for t in targets}) == len(targets) <= 16, 'duplicate/excess texture slots')
+    substitutions = {}
+    for name, replacement in (texture_overrides or {}).items():
+        resource = ps_info['resources'].get(name)
+        require(resource and resource['kind'] == 2, 'not an original texture: ' + name)
+        other_info = reflection(read(Path(str(replacement) + '.dxbc')))
+        other = other_info['resources'].get(name)
+        require(other and other['kind'] == 2, 'replacement shader lacks texture: ' + name)
+        original = [t for t in targets if t['slot'] == resource['slot']]
+        other_targets = json.loads(read(Path(str(replacement) + '.targets.json')))
+        selected = [t for t in other_targets if t['slot'] == other['slot']]
+        require(len(original) == len(selected) == 1, 'ambiguous or absent texture: ' + name)
+        # This is an input sensitivity experiment, not a claim that two engines
+        # assign the same meaning to these bytes. Keep the storage contract exact.
+        keys = ('width', 'height', 'depth', 'format', 'array_size', 'mip_levels',
+                'view_format', 'view_dimension', 'view_most_detailed_mip',
+                'view_mip_levels', 'block_width', 'bytes_per_block', 'bytes_per_pixel')
+        require(all(original[0].get(k) == selected[0].get(k) for k in keys),
+                'replacement texture storage differs: ' + name)
+        require(selected[0].get('written'), 'replacement texture was not captured: ' + name)
+        substitutions[resource['slot']] = dict(name=name, draw=str(replacement), slot=other['slot'])
     packet += u32(len(targets))
     for texture in sorted(targets, key=lambda t: t['slot']):
         require(texture.get('written'), 'active texture was not captured')
@@ -132,8 +152,10 @@ def prepare(draw, fixture, output):
             w, h, d = max(1, texture['width'] >> mip), max(1, texture['height'] >> mip), max(1, depth >> mip)
             pitch, rows = ((w + block - 1) // block) * element, (h + block - 1) // block
             kind = 'vol' if dimension == 8 else 'rt'
-            suffix = f'.{kind}{slot:02}.bin' if mip == 0 else f'.{kind}{slot:02}.mip{mip:02}.bin'
-            data = part(suffix)
+            replacement = substitutions.get(slot)
+            input_slot = replacement['slot'] if replacement else slot
+            suffix = f'.{kind}{input_slot:02}.bin' if mip == 0 else f'.{kind}{input_slot:02}.mip{mip:02}.bin'
+            data = read(Path(replacement['draw'] + suffix)) if replacement else part(suffix)
             require(len(data) == pitch * rows * d, 'texture mip extent mismatch: ' + suffix)
             packet += u32(pitch, pitch * rows) + blob(data)
 
@@ -157,7 +179,10 @@ def prepare(draw, fixture, output):
                    packet_sha256=hashlib.sha256(packet).hexdigest(), reference_sha256=hashlib.sha256(after).hexdigest(),
                    unbound_texture_slots=sorted(active_textures - {t['slot'] for t in targets}),
                    unbound_sampler_slots=sorted(active_samplers - {s['slot'] for s in samplers}), files=hashes,
-                   scope='Prepared original-pass replay, not yet GPU executed or compared.')
+                   substitutions=list(substitutions.values()),
+                   scope=('Original shaders with explicitly substituted captured textures; input sensitivity only, '
+                          'not native integration or renderer parity. Original output retained as comparison baseline.'
+                          if substitutions else 'Prepared original-pass replay, not yet GPU executed or compared.'))
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return {k: v for k, v in receipt.items() if k != 'files'}
 
@@ -172,7 +197,9 @@ def compare(prepared, rendered):
     different = sum(a != b for a, b in zip(reference, replay))
     result = dict(byte_identical=reference == replay, differing_bytes=different, total_bytes=len(reference),
                   source_shader_sha256=receipt['pixel_shader_sha256'], rendered_sha256=hashlib.sha256(replay).hexdigest(),
-                  scope='One post draw with captured inputs; not whole-renderer or moving-rain parity.')
+                  scope=('Input substitution compared to the original output; differences are expected. '
+                         'Not native integration or renderer parity.' if receipt.get('substitutions') else
+                         'One post draw with captured inputs; not whole-renderer or moving-rain parity.'))
     if receipt['format'] in (2, 10):
         code = 'f' if receipt['format'] == 2 else 'e'
         pairs = zip(struct.iter_unpack('<' + code, reference), struct.iter_unpack('<' + code, replay))
@@ -197,11 +224,18 @@ if __name__ == '__main__':
     p.add_argument('draw', type=Path)
     p.add_argument('fixture', type=Path)
     p.add_argument('output', type=Path)
+    p.add_argument('--texture', nargs=2, action='append', default=[], metavar=('NAME', 'CAPTURE'),
+                   help='sensitivity experiment: substitute this named texture from another draw')
     p = sub.add_parser('compare')
     p.add_argument('prepared', type=Path)
     p.add_argument('rendered', type=Path)
     args = parser.parse_args()
-    result = prepare(args.draw, args.fixture, args.output) if args.operation == 'prepare' else compare(args.prepared, args.rendered)
+    if args.operation == 'prepare':
+        overrides = {name: Path(capture) for name, capture in args.texture}
+        require(len(overrides) == len(args.texture), 'duplicate texture substitution')
+        result = prepare(args.draw, args.fixture, args.output, overrides)
+    else:
+        result = compare(args.prepared, args.rendered)
     print(json.dumps(result, indent=2))
     if args.operation == 'compare' and not result['byte_identical']:
         raise SystemExit(1)
