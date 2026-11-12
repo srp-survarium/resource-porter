@@ -38,7 +38,10 @@ def main():
                    help='read-only shader observer: capture per-stage buffers for poses that ask')
     p.add_argument('--rain', action='store_true', help='include all observed original rain draws; requires --stages')
     p.add_argument('--probes', action='store_true', help='capture every original probe draw and its cubemap/state; requires --stages')
+    p.add_argument('--capture-timeout', type=int, default=30, help='seconds per pose including settling and GPU readback (1..300)')
     a = p.parse_args()
+    if not 1 <= a.capture_timeout <= 300:
+        p.error('--capture-timeout must be between 1 and 300 seconds')
     recipe = json.loads(a.recipe.read_text())
     if a.probes and not a.stages:
         p.error('--probes requires --stages')
@@ -158,7 +161,7 @@ def main():
                 subprocess.run([str(wine), win(root/'viewport.exe')], env=env, check=True, timeout=15)
                 poses = load_poses(name)
                 warmup = dict(poses[0], name='readiness-warmup', settle_ms=5000)
-                capture.capture(control, [warmup], out/'warmup', timeout=30)
+                capture.capture(control, [warmup], out/'warmup', timeout=a.capture_timeout)
                 if a.poses_dir:
                     # One stuck view must not lose the rest: skip it and record why.
                     skipped, groups = {}, {}
@@ -166,12 +169,12 @@ def main():
                         groups.setdefault(pose['name'].split('~')[0], []).append(pose)
                     for base, group in groups.items():
                         try:
-                            capture.capture(control, group, out/'poses', timeout=30)
+                            capture.capture(control, group, out/'poses', timeout=a.capture_timeout)
                         except (TimeoutError, RuntimeError) as error:
                             skipped[base] = str(error)
                     (out/'skipped.json').write_text(json.dumps(skipped, indent=2)+'\n')
                 else:
-                    capture.capture(control, poses, out/'poses', timeout=30)
+                    capture.capture(control, poses, out/'poses', timeout=a.capture_timeout)
                 if a.stages:
                     for pose in poses:
                         if not pose.get('buffers', True):

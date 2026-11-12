@@ -995,3 +995,18 @@ stencil at `.stencil.bin`, plus the usual intermediate AO/history outputs.
 Compare the stencil byte separately. Previous temporal history, probe-index
 texture and each volume's pre-draw mask are still captured inputs. This harness
 does not establish live native probe integration or complete scene fidelity.
+
+With the original 0.11e observer, `--probes` also records the probe-index and
+volume-mask producers. A mask is selected by both original `dumb.ps` and
+`accum_mask.vs` identities; other uses of the generic pixel shader are excluded.
+Additional bases are `.probe-index-draw-N` and `.volume-mask-draw-N`, with
+corresponding before/output targets and depth-stencil. `.probe-pipeline.jsonl`
+records request/Present IDs, draw order, kind, variant and capture-cap status.
+Index/mask caps are 128 each; reject a truncated or mixed-frame diagnostic.
+Masks after the final probe can belong to other lighting stages.
+
+Full producer readback can exceed 30 seconds. `--capture-timeout 120` increases
+that limit for settling plus GPU readback (accepted range 1..300); it does not
+change the game's render settings. Use a new output directory after any failure.
+These captures document the source; matching every intermediate is not required
+for a visually close weather port, and producer replay is currently deferred.

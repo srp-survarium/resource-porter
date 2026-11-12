@@ -27,6 +27,8 @@ FAMILIES = {
     'skylight.ps': 16,
     'accum_sun_mask.ps': 17,
     'temporal_mask.ps': 18,
+    'environment_probe_index.ps': 19,
+    'dumb.ps': 20,
 }
 
 def catalog_index(database, catalog):
