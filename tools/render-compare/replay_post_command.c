@@ -43,6 +43,15 @@ int main(int argc,char **argv) {
     check(ID3D11Device_CreateShaderResourceView(device,sentinel_texture,NULL,&sentinel_srv),"sentinel texture view");
     ID3D11DeviceContext_PSSetShaderResources(context,5,1,&sentinel_srv);
     ID3D11DeviceContext_IASetPrimitiveTopology(context,D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+    D3D11_DEPTH_STENCIL_DESC dsd={0};dsd.DepthEnable=TRUE;dsd.DepthFunc=D3D11_COMPARISON_GREATER;
+    ID3D11DepthStencilState *sentinel_depth=NULL;
+    check(ID3D11Device_CreateDepthStencilState(device,&dsd,&sentinel_depth),"sentinel depth state");
+    ID3D11DeviceContext_OMSetDepthStencilState(context,sentinel_depth,37);
+    D3D11_BLEND_DESC bd={0};bd.RenderTarget[0].RenderTargetWriteMask=8;
+    ID3D11BlendState *sentinel_blend=NULL;
+    check(ID3D11Device_CreateBlendState(device,&bd,&sentinel_blend),"sentinel blend state");
+    const float sentinel_factors[4]={0.25f,0.5f,0.75f,1};
+    ID3D11DeviceContext_OMSetBlendState(context,sentinel_blend,sentinel_factors,0x12345678);
     for (unsigned repeat=0;repeat<2;++repeat) {
         ID3D11DeviceContext_ExecuteCommandList(context,replay->commands,TRUE);
         D3D11_VIEWPORT actual={0};UINT count=1;ID3D11DeviceContext_RSGetViewports(context,&count,&actual);
@@ -55,6 +64,14 @@ int main(int argc,char **argv) {
         ID3D11RenderTargetView *rt=NULL;ID3D11DeviceContext_OMGetRenderTargets(context,1,&rt,NULL);
         D3D11_PRIMITIVE_TOPOLOGY topology;ID3D11DeviceContext_IAGetPrimitiveTopology(context,&topology);
         same=same && cb==sentinel_cb && srv==sentinel_srv && !vs && !rt && topology==D3D11_PRIMITIVE_TOPOLOGY_LINELIST;
+        ID3D11DepthStencilState *actual_depth=NULL;UINT actual_reference=0;
+        ID3D11DeviceContext_OMGetDepthStencilState(context,&actual_depth,&actual_reference);
+        ID3D11BlendState *actual_blend=NULL;float actual_factors[4];UINT actual_mask=0;
+        ID3D11DeviceContext_OMGetBlendState(context,&actual_blend,actual_factors,&actual_mask);
+        same=same && actual_depth==sentinel_depth && actual_reference==37 && actual_blend==sentinel_blend &&
+            !memcmp(actual_factors,sentinel_factors,sizeof(actual_factors)) && actual_mask==0x12345678;
+        if (actual_depth) ID3D11DepthStencilState_Release(actual_depth);
+        if (actual_blend) ID3D11BlendState_Release(actual_blend);
         if (cb) ID3D11Buffer_Release(cb);
         if (srv) ID3D11ShaderResourceView_Release(srv);
         if (vs) ID3D11VertexShader_Release(vs);
@@ -73,6 +90,7 @@ int main(int argc,char **argv) {
     ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
     ID3D11DeviceContext_ClearState(context);ID3D11DeviceContext_Flush(context);
     ID3D11Texture2D_Release(staging);ID3D11RasterizerState_Release(rs);
+    ID3D11DepthStencilState_Release(sentinel_depth);ID3D11BlendState_Release(sentinel_blend);
     ID3D11Buffer_Release(sentinel_cb);ID3D11ShaderResourceView_Release(sentinel_srv);post_replay_release(replay);
     ID3D11DeviceContext_Release(context);ID3D11Device_Release(device);
     puts("original post command list: two executions, state restored, five malformed packets rejected");return 0;

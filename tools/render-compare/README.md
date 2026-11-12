@@ -80,6 +80,23 @@ it records post draws and gamma presentations separately. Gamma replacement
 requires a successful original post in the same frame. Compilation or requesting
 the environment variables alone proves nothing.
 
+`replay_skylight.py prepare DRAW_BASE ORIGINAL_SKYLIGHT_VS NEW_DIRECTORY`
+prepares the unchanged 0.11e skylight VS/PS, captured clip quad and constants,
+three input textures, RGB-only write mask and the original nonzero-stencil
+coverage. `SRP_CAPTURE_POST_GEOMETRY=1` also collects this skylight geometry and
+depth/stencil evidence. Run the packet with `replay_post_command.exe`, then
+`replay_skylight.py compare PREPARED_DIRECTORY OUTPUT_RAW`. The default refuses
+missing or different geometry/state. `--reconstructed` is an explicit older
+diagnostic which omits stencil coverage and constructs a clip quad; it must not
+be described as an exact captured draw. No input/reference file is overwritten.
+
+`check_skylight_replay.py DRAW_BASE ORIGINAL_SKYLIGHT_VS` checks preparation
+and rejects malformed shaders, constants, texture contracts, geometry and
+stencil state. The command-list GPU harness also checks depth/stencil and blend
+state restoration. Eight complete 0.11e evening/rain skylight draws matched
+their captured targets byte-for-byte; see `docs/investigation/v011e-radar-weather.md`.
+This establishes the original pass contract, not a live native lighting adapter.
+
 1. Build `camera_hook.dll` with `bash build.sh` and an x86 MinGW compiler.
 2. Run `python3 prepare_client.py --build 010b SOURCE_EXE NEW_EXE` (or `026g`).
    It checks the executable hash, appends a DLL import and startup stub, and

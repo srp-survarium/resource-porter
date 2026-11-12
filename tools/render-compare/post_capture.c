@@ -2,6 +2,45 @@
 // Existing mip-zero dumps keep their format; additional mip files are separate.
 static int capture_post_geometry_enabled;
 
+// Skylight coverage depends on the original depth/stencil state. Save it and
+// its bound surface as additional evidence; never modify engine resources.
+static void capture_post_depth(ID3D11DeviceContext *context,const char *base,ID3D11DepthStencilView *view) {
+    ID3D11DepthStencilState *state=NULL;UINT reference=0;
+    ID3D11DeviceContext_OMGetDepthStencilState(context,&state,&reference);
+    D3D11_DEPTH_STENCIL_DESC desc={0};
+    desc.DepthEnable=TRUE;desc.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL;desc.DepthFunc=D3D11_COMPARISON_LESS;
+    desc.StencilReadMask=desc.StencilWriteMask=255;
+    desc.FrontFace.StencilFailOp=desc.FrontFace.StencilDepthFailOp=desc.FrontFace.StencilPassOp=D3D11_STENCIL_OP_KEEP;
+    desc.FrontFace.StencilFunc=D3D11_COMPARISON_ALWAYS;desc.BackFace=desc.FrontFace;
+    if (state) { ID3D11DepthStencilState_GetDesc(state,&desc);ID3D11DepthStencilState_Release(state); }
+    char path[MAX_PATH+96],depth_base[MAX_PATH+64];
+    snprintf(path,sizeof(path),"%s.depth-state.bin",base);
+    if (!write_bytes(path,&desc,sizeof(desc))) error("cannot save depth/stencil state");
+    D3D11_DEPTH_STENCIL_VIEW_DESC vd={0};if (view) ID3D11DepthStencilView_GetDesc(view,&vd);
+    snprintf(path,sizeof(path),"%s.depth-state.json",base);FILE *file=fopen(path,"w");
+    if (file) {
+        fprintf(file,"{\"bound\":%s,\"reference\":%u,\"depth_enabled\":%s,\"depth_function\":%u,\"depth_write_mask\":%u,\"stencil_enabled\":%s,\"read_mask\":%u,\"write_mask\":%u,\"front\":[%u,%u,%u,%u],\"back\":[%u,%u,%u,%u],\"view_format\":%u,\"view_dimension\":%u,\"view_flags\":%u,\"mip_slice\":%u}\n",
+                view?"true":"false",reference,desc.DepthEnable?"true":"false",desc.DepthFunc,desc.DepthWriteMask,
+                desc.StencilEnable?"true":"false",desc.StencilReadMask,desc.StencilWriteMask,
+                desc.FrontFace.StencilFailOp,desc.FrontFace.StencilDepthFailOp,desc.FrontFace.StencilPassOp,desc.FrontFace.StencilFunc,
+                desc.BackFace.StencilFailOp,desc.BackFace.StencilDepthFailOp,desc.BackFace.StencilPassOp,desc.BackFace.StencilFunc,
+                vd.Format,vd.ViewDimension,vd.Flags,vd.Texture2D.MipSlice);
+        fclose(file);
+    } else error("cannot save depth/stencil metadata");
+    if (!view) return;
+    ID3D11Resource *resource=NULL;ID3D11Texture2D *texture=NULL;
+    ID3D11DepthStencilView_GetResource(view,&resource);
+    if (SUCCEEDED(ID3D11Resource_QueryInterface(resource,&IID_ID3D11Texture2D,(void **)&texture))) {
+        snprintf(depth_base,sizeof(depth_base),"%s.depth",base);
+        snprintf(path,sizeof(path),"%s.targets.json",depth_base);file=fopen(path,"w");
+        if (file) {
+            fputs("[",file);dump_texture(texture,depth_base,file,"depth_stencil",0,NULL);fputs("]\n",file);fclose(file);
+        } else error("cannot save depth/stencil texture index");
+        ID3D11Texture2D_Release(texture);
+    }
+    ID3D11Resource_Release(resource);
+}
+
 static void capture_post_mips(ID3D11DeviceContext *context,const char *base) {
     ID3D11ShaderResourceView *views[16]={0};
     ID3D11DeviceContext_PSGetShaderResources(context,0,16,views);
@@ -64,6 +103,7 @@ static void capture_post_state(ID3D11DeviceContext *context,const char *base,UIN
     ID3D11DepthStencilView *depth=NULL;
     ID3D11DeviceContext_OMGetRenderTargets(context,1,&target,&depth);
     int depth_bound=depth!=NULL;
+    capture_post_depth(context,base,depth);
     if (depth) ID3D11DepthStencilView_Release(depth);
     ID3D11BlendState *blend=NULL;float factor[4];UINT sample_mask;
     ID3D11DeviceContext_OMGetBlendState(context,&blend,factor,&sample_mask);

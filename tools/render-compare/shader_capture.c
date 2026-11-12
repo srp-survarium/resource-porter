@@ -477,7 +477,8 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     if (((kind==8 || kind==1 || kind==12) && capture_materials_enabled) ||
         (kind==1 && capture_rain_enabled)) capture_material_vertex(context,base);
     if (kind==12 && capture_materials_enabled) capture_rain_geometry(context,base,count,start,base_vertex,indexed);
-    if (kind==0 && capture_post_geometry_enabled) capture_post_state(context,base,count,start,base_vertex,indexed);
+    if (capture_post_geometry_enabled && (kind==0 || (reference_capture?kind==16:kind==6)))
+        capture_post_state(context,base,count,start,base_vertex,indexed);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);
     if (!ok) { error("cannot save active post-process shader"); return; }

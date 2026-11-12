@@ -1,5 +1,5 @@
-// Own an unchanged original post draw as a reusable D3D11 command list.
-// Diagnostic only: packets come from replay_post.py. No engine addresses.
+// Own an unchanged original draw as a reusable D3D11 command list.
+// Diagnostic packets: replay_post.py / replay_skylight.py. No engine addresses.
 // Creating a draw never modifies the caller's immediate-context state.
 // The caller may update compatible owned textures before executing the list.
 #ifndef SRP_POST_REPLAY_H
@@ -93,11 +93,14 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
 #define POST_CREATE(call,object) do { POST_REQUIRE(SUCCEEDED(call)); POST_REQUIRE(post_keep(replay,(object))); } while (0)
     ID3D11Device_AddRef(device);POST_REQUIRE(post_keep(replay,device));replay->device=device;
     const void *magic=post_take(&reader,8);
-    POST_REQUIRE(magic && !memcmp(magic,"PST011E1",8));
+    POST_REQUIRE(magic);
+    int skylight_state=!memcmp(magic,"SKY011E2",8);
+    int skylight=skylight_state || !memcmp(magic,"SKY011E1",8);
+    POST_REQUIRE(skylight || !memcmp(magic,"PST011E1",8));
     UINT h[15]; for (unsigned i=0;i<15;++i) POST_WORD(h[i]);
     replay->width=h[0];replay->height=h[1];replay->format=h[2];replay->pixel_bytes=h[4];
     UINT width=h[0],height=h[1],pixel_bytes=h[4],block,element;
-    POST_REQUIRE(width && height && width<=4096 && height<=4096 && h[8]==6 && h[11]==28 && (h[13]==42 || h[13]==57));
+    POST_REQUIRE(width && height && width<=4096 && height<=4096 && h[8]==6 && h[11]==(skylight?24u:28u) && (h[13]==42 || h[13]==57));
     POST_REQUIRE(h[5]>=1 && h[5]<=3 && h[6]<=1 && h[7]<=1);
     POST_REQUIRE(post_texel_layout(h[2],&block,&element) && block==1 && element==pixel_bytes);
     POST_REQUIRE(SUCCEEDED(ID3D11Device_CreateDeferredContext(device,0,&deferred)));
@@ -113,8 +116,12 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
         {"COLOR",0,DXGI_FORMAT_R8G8B8A8_UNORM,0,16,D3D11_INPUT_PER_VERTEX_DATA,0},
         {"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,0,20,D3D11_INPUT_PER_VERTEX_DATA,0},
     };
+    const D3D11_INPUT_ELEMENT_DESC sky_elements[]={
+        {"POSITION",0,DXGI_FORMAT_R32G32B32A32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0},
+        {"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,0,16,D3D11_INPUT_PER_VERTEX_DATA,0},
+    };
     ID3D11InputLayout *layout=NULL;
-    POST_CREATE(ID3D11Device_CreateInputLayout(device,elements,3,code,size,&layout),layout);
+    POST_CREATE(ID3D11Device_CreateInputLayout(device,skylight?sky_elements:elements,skylight?2:3,code,size,&layout),layout);
     ID3D11DeviceContext_VSSetShader(deferred,vs,NULL,0);
     ID3D11DeviceContext_IASetInputLayout(deferred,layout);
     for (unsigned stage=0;stage<2;++stage) {
@@ -183,7 +190,33 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
         ID3D11DeviceContext_PSSetSamplers(deferred,slot,1,&sampler);
     }
     const void *before=post_blob(&reader,&size);
-    POST_REQUIRE(before && (uint64_t)width*height*pixel_bytes==size && reader.at==reader.size);
+    POST_REQUIRE(before && (uint64_t)width*height*pixel_bytes==size);
+    ID3D11DepthStencilView *depth_view=NULL;
+    if (skylight_state) {
+        UINT write_mask,reference;POST_WORD(write_mask);POST_WORD(reference);
+        POST_REQUIRE(write_mask==7 && reference==0);
+        const void *state=post_blob(&reader,&size);POST_REQUIRE(state && size==sizeof(D3D11_DEPTH_STENCIL_DESC));
+        D3D11_DEPTH_STENCIL_DESC ds;memcpy(&ds,state,sizeof(ds));
+        POST_REQUIRE(!ds.DepthEnable && ds.StencilEnable && ds.StencilReadMask==255 && !ds.StencilWriteMask &&
+                     ds.FrontFace.StencilFunc==D3D11_COMPARISON_NOT_EQUAL && ds.BackFace.StencilFunc==D3D11_COMPARISON_NOT_EQUAL &&
+                     ds.FrontFace.StencilFailOp==D3D11_STENCIL_OP_KEEP && ds.FrontFace.StencilDepthFailOp==D3D11_STENCIL_OP_KEEP && ds.FrontFace.StencilPassOp==D3D11_STENCIL_OP_KEEP &&
+                     ds.BackFace.StencilFailOp==D3D11_STENCIL_OP_KEEP && ds.BackFace.StencilDepthFailOp==D3D11_STENCIL_OP_KEEP && ds.BackFace.StencilPassOp==D3D11_STENCIL_OP_KEEP);
+        ID3D11DepthStencilState *depth_state=NULL;
+        POST_CREATE(ID3D11Device_CreateDepthStencilState(device,&ds,&depth_state),depth_state);
+        ID3D11DeviceContext_OMSetDepthStencilState(deferred,depth_state,reference);
+        const void *depth_data=post_blob(&reader,&size);POST_REQUIRE(depth_data && (uint64_t)width*height*4==size);
+        D3D11_TEXTURE2D_DESC dd={0};dd.Width=width;dd.Height=height;dd.MipLevels=dd.ArraySize=1;
+        dd.Format=DXGI_FORMAT_R24G8_TYPELESS;dd.SampleDesc.Count=1;dd.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+        D3D11_SUBRESOURCE_DATA di={depth_data,width*4,0};ID3D11Texture2D *depth_texture=NULL;
+        POST_CREATE(ID3D11Device_CreateTexture2D(device,&dd,&di,&depth_texture),depth_texture);
+        D3D11_DEPTH_STENCIL_VIEW_DESC vd={0};vd.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;vd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
+        POST_CREATE(ID3D11Device_CreateDepthStencilView(device,(ID3D11Resource *)depth_texture,&vd,&depth_view),depth_view);
+        D3D11_BLEND_DESC bd={0};bd.RenderTarget[0].RenderTargetWriteMask=(UINT8)write_mask;
+        ID3D11BlendState *blend=NULL;
+        POST_CREATE(ID3D11Device_CreateBlendState(device,&bd,&blend),blend);
+        ID3D11DeviceContext_OMSetBlendState(deferred,blend,NULL,0xffffffff);
+    }
+    POST_REQUIRE(reader.at==reader.size);
     D3D11_TEXTURE2D_DESC desc={0};desc.Width=width;desc.Height=height;desc.MipLevels=1;desc.ArraySize=1;
     desc.Format=h[2];desc.SampleDesc.Count=1;desc.BindFlags=D3D11_BIND_RENDER_TARGET;
     D3D11_SUBRESOURCE_DATA initial={before,width*pixel_bytes,0};
@@ -191,7 +224,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
     D3D11_RENDER_TARGET_VIEW_DESC rtd={0};rtd.Format=h[3];rtd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
     ID3D11RenderTargetView *target=NULL;
     POST_CREATE(ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)replay->output,&rtd,&target),target);
-    ID3D11DeviceContext_OMSetRenderTargets(deferred,1,&target,NULL);
+    ID3D11DeviceContext_OMSetRenderTargets(deferred,1,&target,depth_view);
     D3D11_VIEWPORT viewport={0,0,(float)width,(float)height,0,1};ID3D11DeviceContext_RSSetViewports(deferred,1,&viewport);
     D3D11_RASTERIZER_DESC raster={0};raster.FillMode=D3D11_FILL_SOLID;raster.CullMode=h[5];raster.FrontCounterClockwise=h[6];raster.DepthClipEnable=h[7];
     ID3D11RasterizerState *rs=NULL;
