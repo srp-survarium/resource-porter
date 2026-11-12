@@ -97,6 +97,26 @@ state restoration. Eight complete 0.11e evening/rain skylight draws matched
 their captured targets byte-for-byte; see `docs/investigation/v011e-radar-weather.md`.
 This establishes the original pass contract, not a live native lighting adapter.
 
+For the original 0.11e temporal SSAO profile, use
+`replay_ssao_011e.py prepare DRAW_BASE ORIGINAL_SHADER_FIXTURE NEW_DIRECTORY`.
+Supported captured stages are `ssao-accumulation`, `ssao-history-mask` and
+`ssao-temporal`. The preparer retains the original vertex layout, viewport,
+constant buffers, noise/history inputs and depth/stencil state. In particular,
+accumulation has a full-size viewport over a half-size target. Temporal resolve
+writes both AO and saved depth. `replay_post_command.exe` writes target 1 to
+`OUTPUT_RAW.rt01.bin`; `replay_ssao_011e.py compare` checks both outputs.
+`check_ssao_011e_replay.py FRAME_BMP_BASE ORIGINAL_SHADER_FIXTURE` checks the
+three preparation paths and 31 rejection cases.
+
+`replay_ssao_chain.exe ACCUM_PACKET MASK_PACKET TEMPORAL_PACKET SKY_PACKET OUTPUT`
+connects the produced accumulation/mask to temporal resolve and its produced AO
+to the original skylight. It runs twice and writes skylight to `OUTPUT`, AO to
+`OUTPUT.ao.bin`, and saved depth to `OUTPUT.depth.bin`. Eight chains match the
+original outputs byte-for-byte. Previous-frame AO/depth are still captured
+inputs; this does not verify temporal-history initialization, camera movement,
+scene transitions or native integration. The older `legacy_ssao.c` spatial
+helper omits the temporal path and cannot establish this profile's full parity.
+
 1. Build `camera_hook.dll` with `bash build.sh` and an x86 MinGW compiler.
 2. Run `python3 prepare_client.py --build 010b SOURCE_EXE NEW_EXE` (or `026g`).
    It checks the executable hash, appends a DLL import and startup stub, and

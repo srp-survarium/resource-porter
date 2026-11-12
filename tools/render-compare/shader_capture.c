@@ -61,7 +61,7 @@ static int capture_emissives_enabled;
 static unsigned emissive_request_id, emissive_draw_count, emissive_draw_variant;
 static void *grainless_aberration_code[8];
 static unsigned grainless_aberration_uses;
-static const char *reference_labels[]={"post","cloud","probe","fog-add","sky","ssao-temporal","fog-mul","composition","material","present","ssao-accumulation","ssao-upsample","volume","probe","sun","translucency","skylight","sun-mask"};
+static const char *reference_labels[]={"post","cloud","probe","fog-add","sky","ssao-temporal","fog-mul","composition","material","present","ssao-accumulation","ssao-upsample","volume","probe","sun","translucency","skylight","sun-mask","ssao-history-mask"};
 static void capture_draw_target(ID3D11DeviceContext *context,const Camera *camera,unsigned kind,const char *suffix);
 static unsigned post_output_pending, post_output_kind;
 static unsigned probe_request_id, probe_shader_count;
@@ -477,7 +477,7 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     if (((kind==8 || kind==1 || kind==12) && capture_materials_enabled) ||
         (kind==1 && capture_rain_enabled)) capture_material_vertex(context,base);
     if (kind==12 && capture_materials_enabled) capture_rain_geometry(context,base,count,start,base_vertex,indexed);
-    if (capture_post_geometry_enabled && (kind==0 || (reference_capture?kind==16:kind==6)))
+    if (capture_post_geometry_enabled && (kind==0 || (reference_capture?(kind==5 || kind==10 || kind==11 || kind==16 || kind==18):kind==6)))
         capture_post_state(context,base,count,start,base_vertex,indexed);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);

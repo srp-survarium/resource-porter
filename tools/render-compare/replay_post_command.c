@@ -78,18 +78,25 @@ int main(int argc,char **argv) {
         if (rt) ID3D11RenderTargetView_Release(rt);
         if (!same) { fprintf(stderr,"immediate-context state was not restored\n");return 1; }
     }
-    D3D11_TEXTURE2D_DESC desc;ID3D11Texture2D_GetDesc(replay->output,&desc);
-    desc.BindFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
-    ID3D11Texture2D *staging=NULL;check(ID3D11Device_CreateTexture2D(device,&desc,NULL,&staging),"readback");
-    ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)staging,(ID3D11Resource *)replay->output);
-    D3D11_MAPPED_SUBRESOURCE mapped;check(ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped),"map");
-    file=fopen(argv[2],"wb");if (!file) return 2;
-    for (UINT y=0;y<replay->height;++y)
-        if (fwrite((char *)mapped.pData+y*mapped.RowPitch,replay->width*replay->pixel_bytes,1,file)!=1) return 2;
-    if (fclose(file)) return 2;
-    ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
+    ID3D11Texture2D *outputs[]={replay->output,replay->secondary_output};
+    for (unsigned slot=0;slot<2 && outputs[slot];++slot) {
+        UINT pixel_bytes=slot?replay->secondary_pixel_bytes:replay->pixel_bytes;
+        D3D11_TEXTURE2D_DESC desc;ID3D11Texture2D_GetDesc(outputs[slot],&desc);
+        desc.BindFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ID3D11Texture2D *staging=NULL;check(ID3D11Device_CreateTexture2D(device,&desc,NULL,&staging),"readback");
+        ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)staging,(ID3D11Resource *)outputs[slot]);
+        D3D11_MAPPED_SUBRESOURCE mapped;check(ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped),"map");
+        char path[4096];int path_size=snprintf(path,sizeof(path),slot?"%s.rt01.bin":"%s",argv[2]);
+        if (path_size<0 || path_size>=(int)sizeof(path)) return 2;
+        file=fopen(path,"wb");if (!file) return 2;
+        for (UINT y=0;y<replay->height;++y)
+            if (fwrite((char *)mapped.pData+y*mapped.RowPitch,replay->width*pixel_bytes,1,file)!=1) return 2;
+        if (fclose(file)) return 2;
+        ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
+        ID3D11Texture2D_Release(staging);
+    }
     ID3D11DeviceContext_ClearState(context);ID3D11DeviceContext_Flush(context);
-    ID3D11Texture2D_Release(staging);ID3D11RasterizerState_Release(rs);
+    ID3D11RasterizerState_Release(rs);
     ID3D11DepthStencilState_Release(sentinel_depth);ID3D11BlendState_Release(sentinel_blend);
     ID3D11Buffer_Release(sentinel_cb);ID3D11ShaderResourceView_Release(sentinel_srv);post_replay_release(replay);
     ID3D11DeviceContext_Release(context);ID3D11Device_Release(device);

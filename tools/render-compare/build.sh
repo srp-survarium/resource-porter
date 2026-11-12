@@ -22,3 +22,6 @@ cd -- "$(dirname -- "$0")"
 # shellcheck disable=SC2086
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror -static replay_post_command.c \
   -o replay_post_command.exe ${LDFLAGS:-} -ld3d11 -ldxgi -ldxguid
+# shellcheck disable=SC2086
+"$CC" -std=c11 -O2 -Wall -Wextra -Werror -static replay_ssao_chain.c \
+  -o replay_ssao_chain.exe ${LDFLAGS:-} -ld3d11 -ldxgi -ldxguid
