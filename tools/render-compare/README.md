@@ -1010,3 +1010,8 @@ that limit for settling plus GPU readback (accepted range 1..300); it does not
 change the game's render settings. Use a new output directory after any failure.
 These captures document the source; matching every intermediate is not required
 for a visually close weather port, and producer replay is currently deferred.
+
+`capture.py` tolerates a missing or partially written status JSON while the hook
+rewrites it. Retries stay within the existing per-pose timeout; explicit hook
+errors still fail immediately. This does not acknowledge a capture until its
+request ID, image, position, field of view and resolution pass the normal checks.
