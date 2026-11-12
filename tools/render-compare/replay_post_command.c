@@ -39,7 +39,8 @@ int main(int argc,char **argv) {
     ID3D11Buffer *sentinel_cb=NULL;check(ID3D11Device_CreateBuffer(device,&cbd,NULL,&sentinel_cb),"sentinel constants");
     ID3D11DeviceContext_PSSetConstantBuffers(context,0,1,&sentinel_cb);
     ID3D11ShaderResourceView *sentinel_srv=NULL;
-    check(ID3D11Device_CreateShaderResourceView(device,replay->inputs[2],NULL,&sentinel_srv),"sentinel texture view");
+    ID3D11Resource *sentinel_texture=replay->inputs[2]?replay->inputs[2]:replay->inputs[0];
+    check(ID3D11Device_CreateShaderResourceView(device,sentinel_texture,NULL,&sentinel_srv),"sentinel texture view");
     ID3D11DeviceContext_PSSetShaderResources(context,5,1,&sentinel_srv);
     ID3D11DeviceContext_IASetPrimitiveTopology(context,D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
     for (unsigned repeat=0;repeat<2;++repeat) {

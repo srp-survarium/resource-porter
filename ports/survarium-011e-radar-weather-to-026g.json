@@ -372,6 +372,11 @@
       "dxbc_sha256": "29abfee6fb6bbf38274bcaca3dce5bb647a6099751b83a0beb6e2e571b2e3714"
     },
     {
+      "source": "shaders/sm_4_0/copy_image.ps/____________________________________________________________________",
+      "blob_sha256": "c9972f5302e0c8c1810a694dea4817d964b7f218c229ba51ee950f36e9726fc2",
+      "dxbc_sha256": "685c00b3451a1fb3291f40696e7b4ae34b0b18f6bad32ab62e634b5f8f9cb451"
+    },
+    {
       "source": "shaders/sm_4_0/present.ps/____________________________________________________________________",
       "blob_sha256": "56a13d8660188e4894c364cbd07aa1be316d18c760dfe7d54b4d884d705e805e",
       "dxbc_sha256": "0a747779f1f1c05f61b8208fab09f784ab448c1d1d337bf22490cd9af85747dc"

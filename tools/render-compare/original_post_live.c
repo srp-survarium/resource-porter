@@ -1,52 +1,65 @@
 // Opt-in, fixed-resolution diagnostic bridge for the unchanged 011e post.
 // Not a production renderer: scene constants come from a validated packet,
-// lens flares are absent, and the native downstream presentation still runs.
+// lens flares are absent, and native intermediate passes still run.
 #include "post_replay.h"
 
 typedef struct {
     PostReplay *pass;
+    PostReplay *presentation;
     ID3D11ShaderResourceView *position;
     unsigned position_present;
+    struct {
+        enum { POST_FRAME_EMPTY, POST_FRAME_DRAWN } phase;
+        union { unsigned present; } data;
+    } frame;
 } OriginalPostReady;
 static struct {
     enum { ORIGINAL_POST_OFF, ORIGINAL_POST_WAITING, ORIGINAL_POST_READY, ORIGINAL_POST_FAILED } phase;
     union {
-        struct { void *bytes;size_t size; } waiting;
+        struct { void *bytes[2];size_t size[2]; } waiting;
         OriginalPostReady ready;
     } state;
-    unsigned draws,rejected;
+    unsigned draws,presentations,rejected;
 } original_post;
 
-static int configure_original_post(void) {
-    char path[MAX_PATH];DWORD length=GetEnvironmentVariableA("SRP_DIAGNOSTIC_ORIGINAL_POST_PACKET",path,sizeof(path));
-    if (!length) return 1;
-    if (length>=sizeof(path) || strcmp(build,"026g")) return 0;
+static void *load_original_post_packet(const char *path,UINT expected_size,const unsigned char digest[16],size_t *length) {
     FILE *file=fopen(path,"rb");if (!file) return 0;
     int ok=!fseek(file,0,SEEK_END);long size=ftell(file);rewind(file);
     if (!ok || size<72 || size>128*1024*1024) { fclose(file);return 0; }
     void *bytes=malloc((size_t)size);
     ok=bytes && fread(bytes,1,(size_t)size,file)==(size_t)size;fclose(file);
-    // Quality-3 grain+bokeh program observed in both original weather scenes.
-    const unsigned char digest[]={0x2d,0xc8,0xb9,0xac,0xba,0xfe,0x20,0xb8,0x39,0xdf,0x4c,0xa8,0x0b,0xc8,0xac,0xd1};
     UINT code_size=0;if (ok) memcpy(&code_size,(char *)bytes+68,4);
-    if (!ok || size<72+6744 || code_size!=6744 || memcmp((char *)bytes+72,"DXBC",4) || memcmp((char *)bytes+76,digest,16)) {
+    if (!ok || (size_t)size<72+expected_size || code_size!=expected_size || memcmp((char *)bytes+72,"DXBC",4) || memcmp((char *)bytes+76,digest,16)) {
         free(bytes);return 0;
     }
+    *length=(size_t)size;return bytes;
+}
+static int configure_original_post(void) {
+    char path[MAX_PATH];DWORD length=GetEnvironmentVariableA("SRP_DIAGNOSTIC_ORIGINAL_POST_PACKET",path,sizeof(path));
+    if (!length) return 1;
+    if (length>=sizeof(path) || strcmp(build,"026g")) return 0;
+    const unsigned char post_digest[]={0x2d,0xc8,0xb9,0xac,0xba,0xfe,0x20,0xb8,0x39,0xdf,0x4c,0xa8,0x0b,0xc8,0xac,0xd1};
+    const unsigned char present_digest[]={0x6d,0xad,0x5c,0x1f,0xba,0x04,0xc4,0x5b,0x0d,0x9d,0x55,0x90,0x73,0x85,0x14,0x5f};
+    size_t sizes[2];void *packets[2]={load_original_post_packet(path,6744,post_digest,&sizes[0]),NULL};
+    length=GetEnvironmentVariableA("SRP_DIAGNOSTIC_ORIGINAL_PRESENT_PACKET",path,sizeof(path));
+    if (length && length<sizeof(path)) packets[1]=load_original_post_packet(path,944,present_digest,&sizes[1]);
+    if (!packets[0] || !packets[1]) { free(packets[0]);free(packets[1]);return 0; }
     original_post.phase=ORIGINAL_POST_WAITING;
-    original_post.state.waiting.bytes=bytes;original_post.state.waiting.size=(size_t)size;
+    for (unsigned i=0;i<2;++i) { original_post.state.waiting.bytes[i]=packets[i];original_post.state.waiting.size[i]=sizes[i]; }
     return 1;
 }
 static void report_original_post(void) {
     char path[MAX_PATH+48];snprintf(path,sizeof(path),"%s.original-post-live.json",control);
     FILE *file=fopen(path,"w");if (!file) return;
-    fprintf(file,"{\"phase\":%u,\"draws\":%u,\"rejected\":%u,\"present\":%u,\"scope\":\"Diagnostic original q3 post: live frame/depth/luminance/grading, converted live scattering, original grain/bokeh assets and authored constants. Lens flares absent; native downstream presentation retained. Not full renderer parity.\"}\n",
-            original_post.phase,original_post.draws,original_post.rejected,present_calls);fclose(file);
+    fprintf(file,"{\"phase\":%u,\"draws\":%u,\"presentations\":%u,\"rejected\":%u,\"present\":%u,\"scope\":\"Diagnostic original q3 post and gamma copy: live frame/depth/luminance/grading, converted live scattering, original grain/bokeh assets and authored constants. Lens flares absent; native intermediate passes retained. Not full renderer parity.\"}\n",
+            original_post.phase,original_post.draws,original_post.presentations,original_post.rejected,present_calls);fclose(file);
 }
 static void fail_original_post(const char *reason) {
-    if (original_post.phase==ORIGINAL_POST_WAITING) free(original_post.state.waiting.bytes);
+    if (original_post.phase==ORIGINAL_POST_WAITING) for (unsigned i=0;i<2;++i) free(original_post.state.waiting.bytes[i]);
     if (original_post.phase==ORIGINAL_POST_READY) {
         if (original_post.state.ready.position) ID3D11ShaderResourceView_Release(original_post.state.ready.position);
         post_replay_release(original_post.state.ready.pass);
+        post_replay_release(original_post.state.ready.presentation);
     }
     original_post.phase=ORIGINAL_POST_FAILED;error(reason);report_original_post();
 }
@@ -60,12 +73,16 @@ static int zero_original_post_texture(ID3D11DeviceContext *context,ID3D11Resourc
 }
 static int start_original_post(ID3D11DeviceContext *context) {
     ID3D11Device *device=NULL;ID3D11DeviceContext_GetDevice(context,&device);
-    PostReplay *pass=post_replay_create(device,original_post.state.waiting.bytes,original_post.state.waiting.size,draw_indexed,original_draw_indexed);
+    PostReplay *pass=post_replay_create(device,original_post.state.waiting.bytes[0],original_post.state.waiting.size[0],draw_indexed,original_draw_indexed);
+    PostReplay *presentation=pass?post_replay_create(device,original_post.state.waiting.bytes[1],original_post.state.waiting.size[1],draw_indexed,original_draw_indexed):NULL;
     ID3D11Device_Release(device);
-    if (!pass) { fail_original_post("original post packet could not create GPU resources");return 0; }
-    free(original_post.state.waiting.bytes);
+    if (!pass || !presentation || pass->width!=presentation->width || pass->height!=presentation->height || presentation->pixel_sizes[0]!=16) {
+        post_replay_release(pass);post_replay_release(presentation);
+        fail_original_post("original post/presentation packets are incompatible");return 0;
+    }
+    for (unsigned i=0;i<2;++i) free(original_post.state.waiting.bytes[i]);
     original_post.phase=ORIGINAL_POST_READY;
-    original_post.state.ready=(OriginalPostReady){pass,NULL,0};
+    original_post.state.ready=(OriginalPostReady){.pass=pass,.presentation=presentation};
     if (!pass->pixel_data[0] || pass->pixel_sizes[0]<304 || !zero_original_post_texture(context,pass->inputs[6])) {
         fail_original_post("original post packet lacks required constants or flare target");return 0;
     }
@@ -90,6 +107,44 @@ static ID3D11Resource *original_post_source(ID3D11ShaderResourceView *view,ID3D1
     }
     if (!same) { ID3D11Resource_Release(source);return NULL; }
     return source;
+}
+static int draw_original_presentation(ID3D11DeviceContext *context,OriginalPostReady *ready) {
+    if (ready->frame.phase!=POST_FRAME_DRAWN || ready->frame.data.present!=present_calls) return 0;
+    PostReplay *pass=ready->presentation;
+    ID3D11ShaderResourceView *view=NULL;ID3D11DeviceContext_PSGetShaderResources(context,0,1,&view);
+    ID3D11Resource *source=original_post_source(view,pass->inputs[0]);
+    ID3D11Buffer *gamma=NULL;ID3D11DeviceContext_PSGetConstantBuffers(context,0,1,&gamma);
+    ID3D11RenderTargetView *targets[8]={0};ID3D11DepthStencilView *depth=NULL;
+    ID3D11DeviceContext_OMGetRenderTargets(context,8,targets,&depth);
+    ID3D11Resource *output=NULL;if (targets[0]) ID3D11RenderTargetView_GetResource(targets[0],&output);
+    ID3D11Texture2D *texture=NULL;int ok=source && gamma && output &&
+        SUCCEEDED(ID3D11Resource_QueryInterface(output,&IID_ID3D11Texture2D,(void **)&texture));
+    if (ok) {
+        D3D11_TEXTURE2D_DESC desc;ID3D11Texture2D_GetDesc(texture,&desc);
+        D3D11_BUFFER_DESC constants;ID3D11Buffer_GetDesc(gamma,&constants);
+        D3D11_VIEWPORT viewport={0};UINT count=1;ID3D11DeviceContext_RSGetViewports(context,&count,&viewport);
+        ok=desc.Width==pass->width && desc.Height==pass->height && desc.Format==pass->format && desc.MipLevels==1 && desc.ArraySize==1 && desc.SampleDesc.Count==1 &&
+            constants.ByteWidth==16 && count==1 && viewport.TopLeftX==0 && viewport.TopLeftY==0 && viewport.Width==pass->width && viewport.Height==pass->height && viewport.MinDepth==0 && viewport.MaxDepth==1;
+        for (unsigned i=1;i<8;++i) ok=ok && !targets[i];
+    }
+    if (ok) {
+        ID3D11DeviceContext_CopyResource(context,pass->inputs[0],source);
+        ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)pass->pixel_constants[0],(ID3D11Resource *)gamma);
+        ID3D11DeviceContext_ExecuteCommandList(context,pass->commands,TRUE);
+        ID3D11DeviceContext_OMSetRenderTargets(context,0,NULL,NULL);
+        ID3D11DeviceContext_CopyResource(context,output,(ID3D11Resource *)pass->output);
+        ID3D11DeviceContext_OMSetRenderTargets(context,8,targets,depth);
+        ready->frame.phase=POST_FRAME_EMPTY;++original_post.presentations;
+    } else ++original_post.rejected;
+    if (source) ID3D11Resource_Release(source);
+    if (view) ID3D11ShaderResourceView_Release(view);
+    if (gamma) ID3D11Buffer_Release(gamma);
+    if (output) ID3D11Resource_Release(output);
+    if (texture) ID3D11Texture2D_Release(texture);
+    for (unsigned i=0;i<8;++i) if (targets[i]) ID3D11RenderTargetView_Release(targets[i]);
+    if (depth) ID3D11DepthStencilView_Release(depth);
+    if (original_post.presentations==1 || (original_post.presentations && original_post.presentations%60==0) || original_post.rejected==1) report_original_post();
+    return ok;
 }
 static float original_post_unsigned_float(unsigned code,unsigned mantissa) {
     unsigned exponent=code>>mantissa,fraction=code&((1u<<mantissa)-1);
@@ -162,19 +217,23 @@ static int draw_original_post(ID3D11DeviceContext *context) {
     if (!enabled) return 0;
     ID3D11PixelShader *shader=NULL;ID3D11DeviceContext_PSGetShader(context,&shader,NULL,NULL);if (!shader) return 0;
     UINT size=0;HRESULT hr=ID3D11PixelShader_GetPrivateData(shader,&post_code_guid,&size,NULL);
-    unsigned char code[8416];int known=SUCCEEDED(hr) && (size==3972 || size==8416);
+    unsigned char code[8416];int known=SUCCEEDED(hr) && (size==3972 || size==8416 || size==976);
     if (known) known=SUCCEEDED(ID3D11PixelShader_GetPrivateData(shader,&post_code_guid,&size,code));
     ID3D11PixelShader_Release(shader);if (!known) return 0;
     const unsigned char composition[]={0xde,0x3e,0x7a,0x63,0x18,0x34,0xe1,0x5d,0xb4,0xae,0x34,0x73,0x59,0x86,0x7c,0x30};
     const unsigned char post[]={0x22,0xa1,0xd1,0x39,0x98,0x9d,0x32,0x3c,0x71,0xb8,0x68,0x2b,0x30,0xbe,0xeb,0x48};
+    const unsigned char presentation[]={0x20,0x02,0x37,0x28,0x32,0x61,0xd9,0xb2,0x6a,0x85,0xaf,0xf8,0x8a,0x85,0x99,0x29};
     int is_composition=size==8416 && !memcmp(code+4,composition,16);
     int is_post=size==3972 && !memcmp(code+4,post,16);
-    if (!is_composition && !is_post) return 0;
+    int is_presentation=size==976 && !memcmp(code+4,presentation,16);
+    if (!is_composition && !is_post && !is_presentation) return 0;
+    if (is_presentation && original_post.phase!=ORIGINAL_POST_READY) return 0;
     if (original_post.phase==ORIGINAL_POST_WAITING && !start_original_post(context)) return 0;
     OriginalPostReady *ready=&original_post.state.ready;PostReplay *pass=ready->pass;
     ID3D11Device *device=NULL;ID3D11DeviceContext_GetDevice(context,&device);
     int same_device=device==pass->device;ID3D11Device_Release(device);
     if (!same_device) { fail_original_post("original post diagnostic device changed");return 0; }
+    if (is_presentation) return draw_original_presentation(context,ready);
     if (is_composition) {
         if (ready->position) ID3D11ShaderResourceView_Release(ready->position);
         ready->position=NULL;ID3D11DeviceContext_PSGetShaderResources(context,3,1,&ready->position);
@@ -202,6 +261,7 @@ static int draw_original_post(ID3D11DeviceContext *context) {
         ID3D11DeviceContext_OMSetRenderTargets(context,0,NULL,NULL);
         ID3D11DeviceContext_CopyResource(context,output,(ID3D11Resource *)pass->output);
         ID3D11DeviceContext_OMSetRenderTargets(context,8,targets,depth);++original_post.draws;
+        ready->frame.phase=POST_FRAME_DRAWN;ready->frame.data.present=present_calls;
     } else ++original_post.rejected;
     for (unsigned i=0;i<4;++i) { if (native[i]) ID3D11ShaderResourceView_Release(native[i]);if (sources[i]) ID3D11Resource_Release(sources[i]); }
     for (unsigned i=0;i<8;++i) if (targets[i]) ID3D11RenderTargetView_Release(targets[i]);

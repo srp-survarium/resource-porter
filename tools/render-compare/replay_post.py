@@ -16,6 +16,7 @@ import struct
 from extract_011e_weather_shaders import reflection
 
 VERTEX_SHA = '29abfee6fb6bbf38274bcaca3dce5bb647a6099751b83a0beb6e2e571b2e3714'
+PRESENT_SHA = '685c00b3451a1fb3291f40696e7b4ae34b0b18f6bad32ab62e634b5f8f9cb451'
 TEXEL_LAYOUT = {2: (1, 16), **{f: (1, 8) for f in (10, 16, 19, 20)},
                 **{f: (1, 4) for f in (44, 45, 34, 41, 24, 26, 28, 29, 87, 90, 91)},
                 **{f: (1, 2) for f in (54, 53, 56, 49)}, 61: (1, 1),
@@ -28,9 +29,14 @@ def require(condition, reason):
         raise ValueError(reason)
 
 
-def prepare(draw, fixture, output, texture_overrides=None):
+def prepare(draw, fixture, output, texture_overrides=None, geometry_draw=None):
     require(not output.exists(), 'refusing to overwrite a replay or reference')
-    require(str(draw).endswith('.post-draw'), 'expected a .post-draw capture base')
+    presentation = str(draw).endswith('.present-draw')
+    require(presentation or str(draw).endswith('.post-draw'), 'expected a post or present capture base')
+    require(presentation == (geometry_draw is not None), 'presentation requires an explicit matching post geometry capture')
+    if presentation:
+        require(str(draw)[:-len('.present-draw')] == str(geometry_draw)[:-len('.post-draw')] and
+                str(geometry_draw).endswith('.post-draw'), 'presentation geometry must belong to the same captured frame')
     hashes = {}
 
     def read(path):
@@ -44,6 +50,9 @@ def prepare(draw, fixture, output, texture_overrides=None):
     def metadata(suffix):
         return json.loads(part(suffix))
 
+    def geometry_part(suffix):
+        return read(Path(str(geometry_draw or draw) + suffix))
+
     def u32(*values):
         return struct.pack('<' + 'I' * len(values), *values)
 
@@ -52,19 +61,28 @@ def prepare(draw, fixture, output, texture_overrides=None):
         return u32(len(data)) + data
 
     manifest = json.loads(read(fixture / 'manifest.json'))
-    ps, vs = part('.dxbc'), part('.vs.dxbc')
+    ps, vs = part('.dxbc'), geometry_part('.vs.dxbc')
     ps_sha = hashlib.sha256(ps).hexdigest()
     source = manifest['shaders'].get(ps_sha)
-    require(source and source['name'] == 'complex_post_process_blend.ps', 'not an archived original post shader')
+    # The observer's present label is the gamma copy_image pass. The archive's
+    # separately named present.ps is a plain blit with a different signature.
+    family = 'copy_image.ps' if presentation else 'complex_post_process_blend.ps'
+    require(source and source['name'] == family, 'not the expected archived original shader')
+    require(not presentation or ps_sha == PRESENT_SHA, 'not the observed original gamma copy')
     require(read(fixture / source['file']) == ps, 'shader fixture differs from the captured program')
     require(hashlib.sha256(vs).hexdigest() == VERTEX_SHA, 'not the original copy_image vertex program')
     ps_info, vs_info = reflection(ps), reflection(vs)
-    state, geometry = metadata('.post-state.json'), metadata('.geometry.json')
+    state = json.loads(geometry_part('.post-state.json'))
+    geometry = json.loads(geometry_part('.geometry.json'))
     stem = str(draw)[:-len('-draw')]
     before_rows = json.loads(read(Path(stem + '-before.targets.json')))
     after_rows = json.loads(read(Path(stem + '-output.targets.json')))
     require(len(before_rows) == len(after_rows) == 1, 'expected one post target')
     target, after_target = before_rows[0], after_rows[0]
+    if presentation:
+        # The original full-screen quad is reused explicitly; its correctness
+        # for presentation is established only by the subsequent GPU comparison.
+        state['target_view_format'] = target['format']
     require(target == after_target and target['slot'] == 0 and target.get('written'), 'post target changed or was not captured')
     width, height, pixel_bytes = target['width'], target['height'], target['bytes_per_pixel']
     require(0 < width <= 4096 and 0 < height <= 4096 and pixel_bytes in (4, 8, 16), 'unsupported post target')
@@ -79,7 +97,7 @@ def prepare(draw, fixture, output, texture_overrides=None):
     require(geometry['indexed'] and geometry['count'] == 6 and geometry['stride'] == 28 and geometry['topology'] == 4,
             'not the original indexed TL quad')
     require(geometry['index_format'] in (42, 57), 'unsupported index format')
-    vertices, indices = part('.vertices.bin'), part('.indices.bin')
+    vertices, indices = geometry_part('.vertices.bin'), geometry_part('.indices.bin')
     index_bytes, index_code = (4, 'I') if geometry['index_format'] == 42 else (2, 'H')
     first = geometry['index_offset'] + geometry['start'] * index_bytes
     require(first >= 0 and first + 6 * index_bytes <= len(indices), 'quad indices out of bounds')
@@ -100,7 +118,7 @@ def prepare(draw, fixture, output, texture_overrides=None):
         require(len(buffers) <= 4 and all(slot < 4 for slot, _ in buffers), 'unsupported constant slots')
         packet += u32(len(buffers))
         for slot, required in buffers:
-            data = part(f'{prefix}.cb{slot}.bin')
+            data = (geometry_part if prefix else part)(f'{prefix}.cb{slot}.bin')
             require(required <= len(data) <= 65536 and len(data) % 16 == 0, 'constant buffer extent mismatch')
             packet += u32(slot) + blob(data)
     packet += blob(vertices) + blob(indices)
@@ -180,9 +198,13 @@ def prepare(draw, fixture, output, texture_overrides=None):
                    unbound_texture_slots=sorted(active_textures - {t['slot'] for t in targets}),
                    unbound_sampler_slots=sorted(active_samplers - {s['slot'] for s in samplers}), files=hashes,
                    substitutions=list(substitutions.values()),
+                   geometry_source=str(geometry_draw or draw),
+                   geometry_inherited=presentation,
                    scope=('Original shaders with explicitly substituted captured textures; input sensitivity only, '
                           'not native integration or renderer parity. Original output retained as comparison baseline.'
-                          if substitutions else 'Prepared original-pass replay, not yet GPU executed or compared.'))
+                          if substitutions else
+                          'Original presentation with the same frame\'s post quad; geometry reuse requires a GPU comparison.'
+                          if presentation else 'Prepared original-pass replay, not yet GPU executed or compared.'))
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     return {k: v for k, v in receipt.items() if k != 'files'}
 
@@ -226,6 +248,8 @@ if __name__ == '__main__':
     p.add_argument('output', type=Path)
     p.add_argument('--texture', nargs=2, action='append', default=[], metavar=('NAME', 'CAPTURE'),
                    help='sensitivity experiment: substitute this named texture from another draw')
+    p.add_argument('--geometry-from', type=Path,
+                   help='for presentation only: reuse this same frame\'s original post quad')
     p = sub.add_parser('compare')
     p.add_argument('prepared', type=Path)
     p.add_argument('rendered', type=Path)
@@ -233,7 +257,7 @@ if __name__ == '__main__':
     if args.operation == 'prepare':
         overrides = {name: Path(capture) for name, capture in args.texture}
         require(len(overrides) == len(args.texture), 'duplicate texture substitution')
-        result = prepare(args.draw, args.fixture, args.output, overrides)
+        result = prepare(args.draw, args.fixture, args.output, overrides, args.geometry_from)
     else:
         result = compare(args.prepared, args.rendered)
     print(json.dumps(result, indent=2))

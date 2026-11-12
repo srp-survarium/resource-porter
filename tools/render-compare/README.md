@@ -25,6 +25,13 @@ TL quad. It preserves all captured texture formats and sampler values,
 including intentionally unbound slots, and rejects unsupported state. The
 packet receipt hashes every input. It never starts Wine or uses the GPU.
 
+For the observer's `.present-draw` capture, add `--geometry-from` naming the
+same frame's `.post-draw`. This explicitly reuses the verified original TL
+quad/VS with the captured presentation PS, constants, textures and output.
+The receipt records inherited geometry; GPU equality against the captured
+presentation output must establish whether that reuse is correct. This pass
+is the archive's **`copy_image.ps`** (gamma 2.2), not its plain `present.ps` blit.
+
 Build `replay_post.exe` with `build.sh`. Under the same guarded, isolated
 headless GPU workflow as captures, run it with the prepared `packet.bin`
 and a new raw-output filename. Use a dedicated Wine prefix and the matching
@@ -51,8 +58,10 @@ construction on failure; the deferred context uses its own draw implementation.
 For an isolated **diagnostic** native run,
 `SRP_DIAGNOSTIC_ORIGINAL_POST_PACKET=Z:\\path\\to\\packet.bin` enables the
 unchanged original quality-3 post while the capture camera is enabled. Keep
-`SRP_CAPTURE_BUFFERS=1`; use a validated original packet for the same weather
-and resolution. The bridge takes the current frame, depth, luminance and full
+`SRP_CAPTURE_BUFFERS=1` and also supply
+`SRP_DIAGNOSTIC_ORIGINAL_PRESENT_PACKET` with the matching original gamma-copy
+packet; use validated packets for the same weather and resolution. The bridge
+takes the current frame, depth, luminance and full
 grading volume from native resources. It converts current scattering from
 linear R11G11B10 to the original encoded R10G10B10 contract and advances grain
 phase from native constants while retaining the original authored intensity.
@@ -62,12 +71,14 @@ native draw and increment the report's rejection count.
 
 This is an intermediate visual experiment, not the production renderer.
 Scattering conversion currently reads back on the CPU; lens flares are zero;
-native downstream presentation remains; scene selection and teardown still
+native intermediate passes remain; scene selection and teardown still
 belong in the production adapter. The live bridge intercepts the native post
-draw, so ordinary `.post-draw` captures do not describe its executed command
+and gamma-copy draws, so ordinary `.post-draw` captures do not describe its executed command
 list. Use screenshots and `CONTROL.original-post-live.json` alongside the
 separate original-command replay checks. The report must show executed draws;
-compilation or requesting the environment variable alone proves nothing.
+it records post draws and gamma presentations separately. Gamma replacement
+requires a successful original post in the same frame. Compilation or requesting
+the environment variables alone proves nothing.
 
 1. Build `camera_hook.dll` with `bash build.sh` and an x86 MinGW compiler.
 2. Run `python3 prepare_client.py --build 010b SOURCE_EXE NEW_EXE` (or `026g`).

@@ -12,7 +12,7 @@ import subprocess
 import sys
 import tempfile
 
-from replay_post import prepare, compare, VERTEX_SHA
+from replay_post import prepare, compare, VERTEX_SHA, PRESENT_SHA
 
 POST_SHA = '8696aa4bd4c7ca1091957cd27659b1658e0a461d1a7c8014f2ba82a19fcae105'
 
@@ -78,6 +78,27 @@ def check(fixture):
         receipt = prepare(draw, fixture, root / 'valid')
         assert not receipt['unbound_texture_slots'] and not receipt['unbound_sampler_slots']
         rejected = []
+        present = root / 'synthetic.bmp.present-draw'
+        Path(str(present) + '.dxbc').write_bytes((fixture / source[PRESENT_SHA]['file']).read_bytes())
+        Path(str(present) + '.cb0.bin').write_bytes(struct.pack('<4f', 1, 0, 0, 0))
+        Path(str(present) + '.targets.json').write_text(json.dumps([textures[0]]))
+        Path(str(present) + '.rt00.bin').write_bytes(bytes(64))
+        Path(str(present) + '.samplers.json').write_bytes(Path(str(draw) + '.samplers.json').read_bytes())
+        for phase in ('before', 'output'):
+            (root / f'synthetic.bmp.present-{phase}.targets.json').write_text(json.dumps([dict(target[0], format=28, bytes_per_pixel=4)]))
+            (root / f'synthetic.bmp.present-{phase}.rt00.bin').write_bytes(bytes(64))
+        presentation = prepare(present, fixture, root / 'presentation', geometry_draw=draw)
+        assert presentation['pixel_shader_sha256'] == PRESENT_SHA and presentation['geometry_inherited']
+        assert presentation['format'] == 28 and presentation['pixel_bytes'] == 4
+        for label, geometry_source in [('missing-presentation-geometry', None),
+                                        ('different-frame-geometry', root / 'other.bmp.post-draw')]:
+            try:
+                prepare(present, fixture, root / label, geometry_draw=geometry_source)
+            except ValueError:
+                assert not (root / label).exists()
+                rejected.append(label)
+            else:
+                raise AssertionError(label + ' accepted')
         # Identical replacement leaves every GPU byte unchanged; a changed
         # replacement must actually reach the packet.
         other = root / 'other.post-draw'
