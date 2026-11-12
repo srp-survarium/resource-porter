@@ -932,7 +932,9 @@ static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base);
 #include "original_post_live.c"
 #include "original_ambient_live.c"
+#include "original_fog_live.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
+    if (draw_original_fog(context,count,start,0,0)) return;
     if (draw_original_post(context)) return;
     draw_original_ambient(context);
     observe_local_fresnel_one(context);
@@ -956,6 +958,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     capture_composition_outputs(context,count,start,0,0); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
+    if (draw_original_fog(context,count,start,base,1)) return;
     if (draw_original_post(context)) return;
     draw_original_ambient(context);
     observe_local_fresnel_one(context);
@@ -1130,6 +1133,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     }
     if (!configure_local_fresnel_one()) return 0;
     if (!configure_original_post()) { error("invalid diagnostic original post packet");return 0; }
+    if (!configure_original_fog()) { error("invalid diagnostic original fog directory");return 0; }
     if (!configure_original_ambient()) { error("invalid diagnostic original ambient packets");return 0; }
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;

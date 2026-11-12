@@ -173,6 +173,19 @@ as modes `1` (fixed view with buffers) and `2` (fixed view, screenshot only), bu
 ignores the supplied pose. Mode `0` follows the player without taking a screenshot.
 Use fresh request IDs and wait for the match to start before testing movement.
 
+The opt-in `SRP_DIAGNOSTIC_ORIGINAL_FOG_DIR` experiment replaces the exact
+captured native fog PS with the original 0.11e multiplicative and additive
+scattering shaders. Prepare its directory with
+`prepare_fog_011e.py FRAME.fog-add-draw NEW_DIRECTORY`. It retains live native
+depth, inverse view, eye position, viewport, draw geometry and coverage; the
+weather lookup textures come from the pinned original capture. The helper
+preserves the original Mie table's NaNs in its last two RGB columns and records
+their presence. Native shader/resource/constant/sampler/blend bindings are
+restored after drawing. `CONTROL.original-fog-live.json` reports executed and
+rejected draws. This is a visual diagnostic, not a scene-owned production
+adapter or a claim of complete atmosphere matching: native sky/cloud shading
+remains active and must be compared at the horizon as well as on geometry.
+
 `capture_gameplay.py --control PATH --output NEW_DIRECTORY --wine WINE
 --exe ABSOLUTE_WINDOWS_EXE_PATH` records seven actual-player views and rain
 telemetry around four 2.5-second WASD inputs. Its `walk_client.exe` helper requires
