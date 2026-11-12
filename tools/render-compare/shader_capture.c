@@ -873,7 +873,10 @@ static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *
     }
 }
 #include "remains_texture_capture.c"
+static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base);
+#include "original_post_live.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
+    if (draw_original_post(context)) return;
     observe_local_fresnel_one(context);
     if (encoded_light_draw(context,count,start,0,0)) return;
     capture_remains_texture(context);
@@ -895,6 +898,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
     capture_composition_outputs(context,count,start,0,0); restore_full_diffuse(context,&full); restore_extra(context,&state); restore_translucency(context,&translucency); restore_volume(context,&volume);
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
+    if (draw_original_post(context)) return;
     observe_local_fresnel_one(context);
     if (encoded_light_draw(context,count,start,base,1)) return;
     capture_remains_texture(context);
@@ -1065,6 +1069,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
         error("source diffuse comparison requires reference shader and sun/translucency auxiliary"); return 0;
     }
     if (!configure_local_fresnel_one()) return 0;
+    if (!configure_original_post()) { error("invalid diagnostic original post packet");return 0; }
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&

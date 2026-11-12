@@ -40,6 +40,35 @@ that individual pass with those inputs, not the whole renderer or moving rain.
 rejection paths with real original bytecode and synthetic capture data. This
 is a CPU check; it is not a GPU replay or a visual comparison.
 
+`replay_post_command.exe PACKET OUTPUT_RAW` exercises the reusable command-list
+implementation in `post_replay.h`. It rejects five malformed packet extents,
+executes the original pass twice, and checks that the immediate context's
+viewport, rasterizer, constant buffer, texture, vertex shader, render target and
+topology are restored. Compare its output with `replay_post.py compare` just as
+for the standalone replay. The header owns its resources and releases partial
+construction on failure; the deferred context uses its own draw implementation.
+
+For an isolated **diagnostic** native run,
+`SRP_DIAGNOSTIC_ORIGINAL_POST_PACKET=Z:\\path\\to\\packet.bin` enables the
+unchanged original quality-3 post while the capture camera is enabled. Keep
+`SRP_CAPTURE_BUFFERS=1`; use a validated original packet for the same weather
+and resolution. The bridge takes the current frame, depth, luminance and full
+grading volume from native resources. It converts current scattering from
+linear R11G11B10 to the original encoded R10G10B10 contract and advances grain
+phase from native constants while retaining the original authored intensity.
+The original grain and bokeh textures, shaders, fullscreen geometry and other
+authored constants come from the packet. Failed input contracts retain the
+native draw and increment the report's rejection count.
+
+This is an intermediate visual experiment, not the production renderer.
+Scattering conversion currently reads back on the CPU; lens flares are zero;
+native downstream presentation remains; scene selection and teardown still
+belong in the production adapter. The live bridge intercepts the native post
+draw, so ordinary `.post-draw` captures do not describe its executed command
+list. Use screenshots and `CONTROL.original-post-live.json` alongside the
+separate original-command replay checks. The report must show executed draws;
+compilation or requesting the environment variable alone proves nothing.
+
 1. Build `camera_hook.dll` with `bash build.sh` and an x86 MinGW compiler.
 2. Run `python3 prepare_client.py --build 010b SOURCE_EXE NEW_EXE` (or `026g`).
    It checks the executable hash, appends a DLL import and startup stub, and
