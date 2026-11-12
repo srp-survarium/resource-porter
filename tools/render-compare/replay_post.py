@@ -62,7 +62,7 @@ def prepare(draw, fixture, output):
     state, geometry = metadata('.post-state.json'), metadata('.geometry.json')
     stem = str(draw)[:-len('-draw')]
     before_rows = json.loads(read(Path(stem + '-before.targets.json')))
-    after_rows = json.loads(read(Path(stem + '-after.targets.json')))
+    after_rows = json.loads(read(Path(stem + '-output.targets.json')))
     require(len(before_rows) == len(after_rows) == 1, 'expected one post target')
     target, after_target = before_rows[0], after_rows[0]
     require(target == after_target and target['slot'] == 0 and target.get('written'), 'post target changed or was not captured')
@@ -120,7 +120,6 @@ def prepare(draw, fixture, output):
         if view_mips == 0xffffffff:
             view_mips = mip_count - first_mip
         require(1 <= mip_count <= 13 and 0 <= first_mip < mip_count and 1 <= view_mips <= mip_count - first_mip, 'invalid mip range')
-        require(dimension != 8 or mip_count == 1, 'volume mip chain was not captured')
         require(dimension != 4 or texture['array_size'] == 1, 'texture arrays are unsupported')
         block = texture.get('block_width', 1)
         element = texture['bytes_per_block'] if block != 1 else texture['bytes_per_pixel']
@@ -132,8 +131,8 @@ def prepare(draw, fixture, output):
         for mip in range(mip_count):
             w, h, d = max(1, texture['width'] >> mip), max(1, texture['height'] >> mip), max(1, depth >> mip)
             pitch, rows = ((w + block - 1) // block) * element, (h + block - 1) // block
-            suffix = f'.vol{slot:02}.bin' if dimension == 8 else (
-                f'.rt{slot:02}.bin' if mip == 0 else f'.rt{slot:02}.mip{mip:02}.bin')
+            kind = 'vol' if dimension == 8 else 'rt'
+            suffix = f'.{kind}{slot:02}.bin' if mip == 0 else f'.{kind}{slot:02}.mip{mip:02}.bin'
             data = part(suffix)
             require(len(data) == pitch * rows * d, 'texture mip extent mismatch: ' + suffix)
             packet += u32(pitch, pitch * rows) + blob(data)
@@ -147,7 +146,7 @@ def prepare(draw, fixture, output):
         packet += struct.pack('<4If2I6f', sampler['filter'], *sampler['address'], sampler['mip_bias'],
                               sampler['max_anisotropy'], sampler['comparison'], *sampler['border'],
                               sampler['min_lod'], sampler['max_lod'])
-    before, after = read(Path(stem + '-before.rt00.bin')), read(Path(stem + '-after.rt00.bin'))
+    before, after = read(Path(stem + '-before.rt00.bin')), read(Path(stem + '-output.rt00.bin'))
     require(len(before) == len(after) == width * height * pixel_bytes, 'target payload extent mismatch')
     packet += blob(before)
     output.mkdir(parents=True)

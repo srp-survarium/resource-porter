@@ -331,23 +331,32 @@ static void dump_volume(ID3D11Texture3D *texture,const char *base,FILE *index,un
     }
     ID3D11Device *device=NULL; ID3D11DeviceContext *context=NULL; ID3D11Texture3D *staging=NULL;
     ID3D11Texture3D_GetDevice(texture,&device); ID3D11Device_GetImmediateContext(device,&context);
-    desc.Usage=D3D11_USAGE_STAGING; desc.BindFlags=0; desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ; desc.MiscFlags=0; desc.MipLevels=1;
-    HRESULT hr=ID3D11Device_CreateTexture3D(device,&desc,NULL,&staging); int ok=0;
+    desc.Usage=D3D11_USAGE_STAGING; desc.BindFlags=0; desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ; desc.MiscFlags=0;
+    if (!capture_post_geometry_enabled) desc.MipLevels=1;
+    HRESULT hr=ID3D11Device_CreateTexture3D(device,&desc,NULL,&staging); int ok=SUCCEEDED(hr);
     if (SUCCEEDED(hr)) {
-        ID3D11DeviceContext_CopySubresourceRegion(context,(ID3D11Resource *)staging,0,0,0,0,(ID3D11Resource *)texture,0,NULL);
+      for (UINT mip=0;mip<desc.MipLevels && ok;++mip) {
+        ID3D11DeviceContext_CopySubresourceRegion(context,(ID3D11Resource *)staging,mip,0,0,0,(ID3D11Resource *)texture,mip,NULL);
         D3D11_MAPPED_SUBRESOURCE mapped;
-        hr=ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped);
+        hr=ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,mip,D3D11_MAP_READ,0,&mapped);
         if (SUCCEEDED(hr)) {
-            char path[MAX_PATH+80]; snprintf(path,sizeof(path),"%s.vol%02u.bin",base,slot);
+            char path[MAX_PATH+96];
+            if (mip) snprintf(path,sizeof(path),"%s.vol%02u.mip%02u.bin",base,slot,mip);
+            else snprintf(path,sizeof(path),"%s.vol%02u.bin",base,slot);
             FILE *file=fopen(path,"wb");
+            UINT width=desc.Width>>mip,height=desc.Height>>mip,depth=desc.Depth>>mip;
+            if (!width) width=1;
+            if (!height) height=1;
+            if (!depth) depth=1;
+            ok=file!=NULL;
             if (file) {
-                ok=1;
-                for (UINT z=0;z<desc.Depth;++z) for (UINT y=0;y<desc.Height;++y)
-                    if (fwrite((char *)mapped.pData+z*mapped.DepthPitch+y*mapped.RowPitch,desc.Width*4,1,file)!=1) ok=0;
+                for (UINT z=0;z<depth;++z) for (UINT y=0;y<height;++y)
+                    if (fwrite((char *)mapped.pData+z*mapped.DepthPitch+y*mapped.RowPitch,width*4,1,file)!=1) ok=0;
                 if (fclose(file)) ok=0;
             }
-            ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
-        }
+            ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,mip);
+        } else ok=0;
+      }
     }
     fprintf(index,",\"bytes_per_pixel\":4,\"written\":%s,\"hresult\":%ld}",ok?"true":"false",hr);
     if (staging) ID3D11Texture3D_Release(staging);

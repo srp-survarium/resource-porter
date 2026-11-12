@@ -9,10 +9,13 @@ tools. Use local test servers and disposable executable copies.
 
 `SRP_CAPTURE_POST_GEOMETRY=1` adds the post draw's vertex program/constants,
 indexed TL geometry, rasterizer/target state and complete supported 2D texture
-mip chains to a stage capture. Sampler metadata includes bias, anisotropy,
+and 3D colour-grading mip chains to a stage capture. Sampler metadata includes bias, anisotropy,
 comparison and border colour. `run_reference_011e.py --stages` enables this
 read-only evidence. The normal mip-zero file format is unchanged; further
-mips use `.rtNN.mipNN.bin`. Original reference frames remain immutable.
+mips use `.rtNN.mipNN.bin` or `.volNN.mipNN.bin`. Original reference frames remain immutable.
+The 0.11e initialization path arms the read-only frame observer without native
+stage hooks. The reference runner fails if requested post-stage evidence is
+missing; an image alone does not establish a successful stage capture.
 
 `replay_post.py prepare DRAW_BASE ORIGINAL_SHADER_FIXTURE NEW_DIRECTORY`
 accepts a `.post-draw` base and a fixture from
@@ -29,7 +32,7 @@ DXVK libraries. It runs the unchanged original shaders and captured geometry,
 without a client, shader recompilation or presentation conversion.
 
 `replay_post.py compare PREPARED_DIRECTORY OUTPUT_RAW` compares against the
-original draw's saved output. It reports byte equality and float error when
+original draw's saved `.post-output` target. It reports byte equality and float error when
 applicable, and exits nonzero on a mismatch. A successful comparison proves
 that individual pass with those inputs, not the whole renderer or moving rain.
 

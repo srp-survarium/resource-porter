@@ -48,14 +48,14 @@ def check(fixture):
         write('.post-state.json', state)
         target = [dict(slot=0, name='draw_target', width=4, height=4, format=10,
                        array_size=1, mip_levels=1, bytes_per_pixel=8, written=True, hresult=0)]
-        for phase in ('before', 'after'):
+        for phase in ('before', 'output'):
             (root / f'synthetic.bmp.post-{phase}.targets.json').write_text(json.dumps(target))
             (root / f'synthetic.bmp.post-{phase}.rt00.bin').write_bytes(bytes(4 * 4 * 8))
         textures = []
         for slot in range(8):
             compressed, volume = slot in (1, 5), slot == 7
             dimension, width, height, depth = (8, 2, 2, 2) if volume else (4, 4, 4, 1)
-            mips = 3 if compressed else 1
+            mips = 3 if compressed else 2 if volume else 1
             texture = dict(slot=slot, width=width, height=height, format=71 if compressed else 28,
                            array_size=1, mip_levels=mips, view_format=71 if compressed else 28,
                            view_dimension=dimension, view_most_detailed_mip=0, view_mip_levels=mips, written=True)
@@ -66,9 +66,10 @@ def check(fixture):
             if volume:
                 texture['depth'] = depth
             for mip in range(mips):
-                suffix = f'.vol{slot:02}.bin' if volume else (
-                    f'.rt{slot:02}.bin' if mip == 0 else f'.rt{slot:02}.mip{mip:02}.bin')
-                write(suffix, bytes(8 if compressed else width * height * depth * 4))
+                kind = 'vol' if volume else 'rt'
+                suffix = f'.{kind}{slot:02}.bin' if mip == 0 else f'.{kind}{slot:02}.mip{mip:02}.bin'
+                size = 8 if compressed else max(1,width>>mip) * max(1,height>>mip) * max(1,depth>>mip) * 4
+                write(suffix, bytes(size))
             textures.append(texture)
         write('.targets.json', textures)
         write('.samplers.json', [dict(slot=i, filter=0, address=[3, 3, 3], mip_bias=0,
@@ -96,6 +97,7 @@ def check(fixture):
                 path.write_bytes(original)
 
         reject('missing-grain-mip', Path(str(draw) + '.rt01.mip01.bin'), None)
+        reject('missing-volume-mip', Path(str(draw) + '.vol07.mip01.bin'), None)
         reject('missing-vertex-constants', Path(str(draw) + '.vs.cb0.bin'), None)
         reject('altered-shader', Path(str(draw) + '.dxbc'), b'not the original shader')
         reject('vertex-out-of-bounds', Path(str(draw) + '.indices.bin'), bytes(4) + struct.pack('<6H', *([65535] * 6)))

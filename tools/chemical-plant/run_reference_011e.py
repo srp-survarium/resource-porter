@@ -167,6 +167,15 @@ def main():
                     (out/'skipped.json').write_text(json.dumps(skipped, indent=2)+'\n')
                 else:
                     capture.capture(control, poses, out/'poses', timeout=30)
+                if a.stages:
+                    for pose in poses:
+                        if not pose.get('buffers', True):
+                            continue
+                        base = out/'poses'/(pose['name']+'.bmp.post-draw')
+                        for suffix in ('.dxbc', '.vs.dxbc', '.geometry.json', '.post-state.json'):
+                            artifact = Path(str(base)+suffix)
+                            if not artifact.is_file():
+                                raise RuntimeError('requested stage evidence missing: '+str(artifact))
                 (out/'final-status.json').write_bytes(status_path.read_bytes())
             finally:
                 # Stop only the prefix owned by this recipe, then its own server process.
