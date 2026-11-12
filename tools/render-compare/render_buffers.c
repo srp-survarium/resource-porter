@@ -78,6 +78,39 @@ static int dump_texture(ID3D11Texture2D *buffer, const char *base, FILE *index, 
         case DXGI_FORMAT_R8_UNORM: bytes=1; break;
         default: fprintf(index,",\"skipped\":\"format\"}"); return 0;
     }
+    // Cubemaps need every face/mip. Keep the existing 2D mip-zero naming intact.
+    if (view && view->ViewDimension==D3D11_SRV_DIMENSION_TEXTURECUBE && desc.ArraySize==6 &&
+        (desc.MiscFlags&D3D11_RESOURCE_MISC_TEXTURECUBE) && desc.SampleDesc.Count==1 &&
+        desc.Width==desc.Height && desc.Width<=1024 && desc.MipLevels<=11) {
+        ID3D11Device *device=NULL;ID3D11DeviceContext *context=NULL;ID3D11Texture2D *staging=NULL;
+        ID3D11Texture2D_GetDevice(buffer,&device);ID3D11Device_GetImmediateContext(device,&context);
+        D3D11_TEXTURE2D_DESC copy=desc;copy.Usage=D3D11_USAGE_STAGING;copy.BindFlags=0;
+        copy.CPUAccessFlags=D3D11_CPU_ACCESS_READ;copy.MiscFlags=0;
+        HRESULT hr=ID3D11Device_CreateTexture2D(device,&copy,NULL,&staging);int ok=SUCCEEDED(hr);unsigned written=0;
+        if (ok) ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)staging,(ID3D11Resource *)buffer);
+        for (unsigned face=0;face<6 && ok;++face) for (unsigned mip=0;mip<desc.MipLevels && ok;++mip) {
+            unsigned subresource=face*desc.MipLevels+mip;
+            D3D11_MAPPED_SUBRESOURCE mapped;hr=ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,subresource,D3D11_MAP_READ,0,&mapped);
+            ok=SUCCEEDED(hr);if (!ok) break;
+            unsigned width=desc.Width>>mip,height=desc.Height>>mip;if (!width) width=1;if (!height) height=1;
+            unsigned rows=(height+block-1)/block,pitch=((width+block-1)/block)*bytes;
+            char path[MAX_PATH+96];snprintf(path,sizeof(path),"%s.rt%02u.face%u.mip%02u.bin",base,slot,face,mip);
+            FILE *file=fopen(path,"wb");ok=file!=NULL;
+            if (file) {
+                for (unsigned y=0;y<rows;++y) if (fwrite((char *)mapped.pData+y*mapped.RowPitch,pitch,1,file)!=1) ok=0;
+                if (fclose(file)) ok=0;
+            }
+            ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,subresource);
+            if (ok) ++written;
+        }
+        if (block==1) fprintf(index,",\"bytes_per_pixel\":%u",bytes);
+        else fprintf(index,",\"block_width\":4,\"block_height\":4,\"bytes_per_block\":%u",bytes);
+        fprintf(index,",\"cube_faces\":6,\"written_subresources\":%u,\"written\":%s,\"hresult\":%ld}",written,ok?"true":"false",hr);
+        if (staging) ID3D11Texture2D_Release(staging);
+        ID3D11DeviceContext_Release(context);ID3D11Device_Release(device);
+        if (!ok) error("cannot capture complete cubemap");
+        return ok;
+    }
     if (desc.SampleDesc.Count!=1 || desc.ArraySize!=1 || desc.Width>4096 || desc.Height>4096) {
         fprintf(index,",\"skipped\":\"dimensions\"}"); return 0;
     }

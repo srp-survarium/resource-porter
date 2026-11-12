@@ -109,6 +109,10 @@ static void capture_post_state(ID3D11DeviceContext *context,const char *base,UIN
     ID3D11DeviceContext_OMGetBlendState(context,&blend,factor,&sample_mask);
     D3D11_BLEND_DESC bs={0};bs.RenderTarget[0].RenderTargetWriteMask=15;
     if (blend) { ID3D11BlendState_GetDesc(blend,&bs);ID3D11BlendState_Release(blend); }
+    char blend_path[MAX_PATH+96];snprintf(blend_path,sizeof(blend_path),"%s.blend-state.bin",base);
+    if (!write_bytes(blend_path,&bs,sizeof(bs))) error("cannot save full blend state");
+    snprintf(blend_path,sizeof(blend_path),"%s.blend-factors.bin",base);
+    if (!write_bytes(blend_path,factor,sizeof(factor))) error("cannot save blend factors");
     D3D11_RENDER_TARGET_VIEW_DESC rt={0};
     if (target) { ID3D11RenderTargetView_GetDesc(target,&rt);ID3D11RenderTargetView_Release(target); }
     ID3D11RasterizerState *raster=NULL;D3D11_RASTERIZER_DESC rs={0};

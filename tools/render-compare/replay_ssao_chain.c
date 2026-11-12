@@ -1,6 +1,6 @@
 // Execute unchanged original SSAO accumulation -> temporal mask -> resolve ->
-// skylight, passing produced GPU resources between draws. History remains a
-// captured input: this harness does not claim a moving temporal sequence.
+// skylight and optional original probes, passing produced GPU resources between
+// draws. History and pre-probe volume-mask stencil remain captured inputs.
 #define COBJMACROS
 #include <windows.h>
 #include <d3d11.h>
@@ -33,6 +33,13 @@ static void connect_pass(ID3D11DeviceContext *context,PostReplay *source,PostRep
     ID3D11DeviceContext_CopyResource(context,destination->inputs[slot],(ID3D11Resource *)source->output);
     ID3D11Texture2D_Release(target);
 }
+static void copy_target(ID3D11DeviceContext *context,ID3D11Texture2D *source,ID3D11Texture2D *target) {
+    if (!source || !target) exit(1);
+    D3D11_TEXTURE2D_DESC a,b;ID3D11Texture2D_GetDesc(source,&a);ID3D11Texture2D_GetDesc(target,&b);
+    if (a.Width!=b.Width || a.Height!=b.Height || a.Format!=b.Format || a.MipLevels!=b.MipLevels ||
+        a.ArraySize!=b.ArraySize || a.SampleDesc.Count!=b.SampleDesc.Count || a.SampleDesc.Quality!=b.SampleDesc.Quality) exit(1);
+    ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)target,(ID3D11Resource *)source);
+}
 static void save(ID3D11Device *device,ID3D11DeviceContext *context,ID3D11Texture2D *texture,UINT bytes,const char *base,const char *suffix) {
     D3D11_TEXTURE2D_DESC desc;ID3D11Texture2D_GetDesc(texture,&desc);
     desc.BindFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
@@ -48,12 +55,14 @@ static void save(ID3D11Device *device,ID3D11DeviceContext *context,ID3D11Texture
 }
 int main(int argc,char **argv) {
     int reset=argc==7 && !strcmp(argv[6],"--reset-history");
-    if (argc!=6 && !reset) { fprintf(stderr,"usage: replay_ssao_chain ACCUM_PACKET MASK_PACKET TEMPORAL_PACKET SKY_PACKET OUTPUT_BASE [--reset-history]\n");return 2; }
+    unsigned probe_count=argc>7 && !strcmp(argv[6],"--probes")?(unsigned)argc-7:0;
+    if (probe_count>64 || (argc!=6 && !reset && !probe_count)) { fprintf(stderr,"usage: replay_ssao_chain ACCUM_PACKET MASK_PACKET TEMPORAL_PACKET SKY_PACKET OUTPUT_BASE [--reset-history | --probes PROBE_PACKET ...]\n");return 2; }
     ID3D11Device *device=NULL;ID3D11DeviceContext *context=NULL;D3D_FEATURE_LEVEL feature;
     check(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,D3D11_SDK_VERSION,&device,&feature,&context),"device");
     PostReplay *passes[4];for (unsigned i=0;i<4;++i) passes[i]=load(device,argv[i+1]);
     if (!passes[2]->secondary_output) { fprintf(stderr,"temporal depth output absent\n");return 1; }
-    for (unsigned repeat=0;repeat<2;++repeat) {
+    PostReplay *probes[64]={0};for (unsigned i=0;i<probe_count;++i) probes[i]=load(device,argv[7+i]);
+    for (unsigned repeat=0;repeat<(probe_count?1u:2u);++repeat) {
         ID3D11DeviceContext_ExecuteCommandList(context,passes[0]->commands,TRUE);
         ID3D11DeviceContext_ExecuteCommandList(context,passes[1]->commands,TRUE);
         if (reset) {
@@ -65,13 +74,27 @@ int main(int argc,char **argv) {
         connect_pass(context,passes[2],passes[3],2);
         ID3D11DeviceContext_ExecuteCommandList(context,passes[3]->commands,TRUE);
     }
+    for (unsigned i=0;i<probe_count;++i) {
+        // Probe volume-mask passes are not replayed here: each packet retains
+        // its captured pre-draw stencil. Produced lighting and AO are connected.
+        connect_pass(context,passes[2],probes[i],4);
+        copy_target(context,i?probes[i-1]->output:passes[3]->output,probes[i]->output);
+        if (i) copy_target(context,probes[i-1]->secondary_output,probes[i]->secondary_output);
+        ID3D11DeviceContext_ExecuteCommandList(context,probes[i]->commands,TRUE);
+    }
+    PostReplay *last=probe_count?probes[probe_count-1]:passes[3];
+    if (probe_count) {
+        save(device,context,last->secondary_output,last->secondary_pixel_bytes,argv[5],".spec.bin");
+        save(device,context,last->depth_input,4,argv[5],".stencil.bin");
+    }
     save(device,context,passes[0]->output,passes[0]->pixel_bytes,argv[5],".accum.bin");
     save(device,context,passes[1]->output,passes[1]->pixel_bytes,argv[5],".mask.bin");
-    save(device,context,passes[3]->output,passes[3]->pixel_bytes,argv[5],"");
+    save(device,context,last->output,last->pixel_bytes,argv[5],"");
     save(device,context,passes[2]->output,passes[2]->pixel_bytes,argv[5],".ao.bin");
     save(device,context,passes[2]->secondary_output,passes[2]->secondary_pixel_bytes,argv[5],".depth.bin");
     ID3D11DeviceContext_ClearState(context);ID3D11DeviceContext_Flush(context);
+    for (unsigned i=0;i<probe_count;++i) post_replay_release(probes[i]);
     for (unsigned i=0;i<4;++i) post_replay_release(passes[i]);
     ID3D11DeviceContext_Release(context);ID3D11Device_Release(device);
-    puts("original SSAO -> skylight chain executed twice; history is captured input");return 0;
+    printf("original SSAO -> skylight -> %u probes; history and pre-probe masks are captured inputs\n",probe_count);return 0;
 }

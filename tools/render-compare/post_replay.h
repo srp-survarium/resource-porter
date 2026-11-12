@@ -108,13 +108,14 @@ static PostReplay *post_replay_create_contract(ID3D11Device *device,const void *
     int skylight_state=!memcmp(magic,"SKY011E2",8);
     int skylight=skylight_state || !memcmp(magic,"SKY011E1",8);
     int ssao=!memcmp(magic,"SSA011E1",8);
-    POST_REQUIRE(skylight || ssao || !memcmp(magic,"PST011E1",8));
+    int probe=!memcmp(magic,"PRB011E1",8);
+    POST_REQUIRE(skylight || ssao || probe || !memcmp(magic,"PST011E1",8));
     POST_REQUIRE(contract==POST_CAPTURED_INPUTS || (contract==POST_NATIVE_SKYLIGHT_NORMAL && skylight_state));
     UINT h[15]; for (unsigned i=0;i<15;++i) POST_WORD(h[i]);
     replay->width=h[0];replay->height=h[1];replay->format=h[2];replay->pixel_bytes=h[4];
     UINT width=h[0],height=h[1],pixel_bytes=h[4],block,element;
-    POST_REQUIRE(width && height && width<=4096 && height<=4096 && h[8]==6 &&
-                 (ssao?(h[11]==24 || h[11]==36):h[11]==(skylight?24u:28u)) && (h[13]==42 || h[13]==57));
+    POST_REQUIRE(width && height && width<=4096 && height<=4096 && (probe?(h[8]>0 && h[8]<=1000000):h[8]==6) &&
+                 (probe?h[11]==12:ssao?(h[11]==24 || h[11]==36):h[11]==(skylight?24u:28u)) && (h[13]==42 || h[13]==57));
     POST_REQUIRE(h[5]>=1 && h[5]<=3 && h[6]<=1 && h[7]<=1);
     POST_REQUIRE(post_texel_layout(h[2],&block,&element) && block==1 && element==pixel_bytes);
     POST_REQUIRE(SUCCEEDED(ID3D11Device_CreateDeferredContext(device,0,&deferred)));
@@ -139,9 +140,10 @@ static PostReplay *post_replay_create_contract(ID3D11Device *device,const void *
         {"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,16,D3D11_INPUT_PER_VERTEX_DATA,0},
         {"TEXCOORD",0,DXGI_FORMAT_R32G32_FLOAT,0,28,D3D11_INPUT_PER_VERTEX_DATA,0},
     };
+    const D3D11_INPUT_ELEMENT_DESC probe_element={"POSITION",0,DXGI_FORMAT_R32G32B32_FLOAT,0,0,D3D11_INPUT_PER_VERTEX_DATA,0};
     ID3D11InputLayout *layout=NULL;
-    const D3D11_INPUT_ELEMENT_DESC *selected=h[11]==24?sky_elements:h[11]==36?eye_elements:elements;
-    POST_CREATE(ID3D11Device_CreateInputLayout(device,selected,h[11]==24?2:3,code,size,&layout),layout);
+    const D3D11_INPUT_ELEMENT_DESC *selected=probe?&probe_element:h[11]==24?sky_elements:h[11]==36?eye_elements:elements;
+    POST_CREATE(ID3D11Device_CreateInputLayout(device,selected,probe?1:h[11]==24?2:3,code,size,&layout),layout);
     ID3D11DeviceContext_VSSetShader(deferred,vs,NULL,0);
     ID3D11DeviceContext_IASetInputLayout(deferred,layout);
     for (unsigned stage=0;stage<2;++stage) {
@@ -187,15 +189,17 @@ static PostReplay *post_replay_create_contract(ID3D11Device *device,const void *
         UINT slot=t[0],dimension=t[1],w=t[2],he=t[3],depth=t[4],mips=t[5];
         POST_REQUIRE(slot<16 && !replay->inputs[slot] && w && he && w<=4096 && he<=4096 && mips && mips<=13);
         POST_REQUIRE(t[8]<mips && t[9] && t[9]<=mips-t[8]);
-        POST_REQUIRE((dimension==2 && depth==1) || (dimension==3 && depth && depth<=64 && w<=64 && he<=64));
+        int cube=dimension==4;
+        POST_REQUIRE((cube && probe && depth==6 && w==he && w<=1024 && mips<=11) || (dimension==2 && depth==1) || (dimension==3 && depth && depth<=64 && w<=64 && he<=64));
         POST_REQUIRE(post_texel_layout(t[6],&block,&element));
-        D3D11_SUBRESOURCE_DATA initial[13]={0};
-        for (unsigned mip=0;mip<mips;++mip) {
-            POST_WORD(initial[mip].SysMemPitch);POST_WORD(initial[mip].SysMemSlicePitch);
-            initial[mip].pSysMem=post_blob(&reader,&size);POST_REQUIRE(initial[mip].pSysMem);
-            UINT mw=w>>mip,mh=he>>mip,md=depth>>mip;if (!mw) mw=1;if (!mh) mh=1;if (!md) md=1;
+        D3D11_SUBRESOURCE_DATA initial[78]={0};
+        for (unsigned sub=0;sub<mips*(cube?6u:1u);++sub) {
+            unsigned mip=sub%mips;
+            POST_WORD(initial[sub].SysMemPitch);POST_WORD(initial[sub].SysMemSlicePitch);
+            initial[sub].pSysMem=post_blob(&reader,&size);POST_REQUIRE(initial[sub].pSysMem);
+            UINT mw=w>>mip,mh=he>>mip,md=cube?1:depth>>mip;if (!mw) mw=1;if (!mh) mh=1;if (!md) md=1;
             UINT pitch=((mw+block-1)/block)*element,slice=pitch*((mh+block-1)/block);
-            POST_REQUIRE(initial[mip].SysMemPitch==pitch && initial[mip].SysMemSlicePitch==slice && (uint64_t)slice*md==size);
+            POST_REQUIRE(initial[sub].SysMemPitch==pitch && initial[sub].SysMemSlicePitch==slice && (uint64_t)slice*md==size);
         }
         // The original skylight reads only sphere-map normal XY. Native stores
         // those components as R16G16_FLOAT. Keep the unchanged shader and copy
@@ -207,12 +211,13 @@ static PostReplay *post_replay_create_contract(ID3D11Device *device,const void *
             initial[0].pSysMem=normal_zero;t[6]=t[7]=DXGI_FORMAT_R16G16_FLOAT;
         }
         ID3D11Resource *resource=NULL;D3D11_SHADER_RESOURCE_VIEW_DESC view={0};view.Format=t[7];
-        if (dimension==2) {
-            D3D11_TEXTURE2D_DESC desc={0};desc.Width=w;desc.Height=he;desc.MipLevels=mips;desc.ArraySize=1;
+        if (dimension==2 || cube) {
+            D3D11_TEXTURE2D_DESC desc={0};desc.Width=w;desc.Height=he;desc.MipLevels=mips;desc.ArraySize=cube?6:1;
+            desc.MiscFlags=cube?D3D11_RESOURCE_MISC_TEXTURECUBE:0;
             desc.Format=t[6];desc.SampleDesc.Count=1;desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
             ID3D11Texture2D *texture=NULL;
             POST_CREATE(ID3D11Device_CreateTexture2D(device,&desc,initial,&texture),texture);
-            resource=(ID3D11Resource *)texture;view.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;
+            resource=(ID3D11Resource *)texture;view.ViewDimension=cube?D3D11_SRV_DIMENSION_TEXTURECUBE:D3D11_SRV_DIMENSION_TEXTURE2D;
             view.Texture2D.MostDetailedMip=t[8];view.Texture2D.MipLevels=t[9];
         } else {
             D3D11_TEXTURE3D_DESC desc={0};desc.Width=w;desc.Height=he;desc.Depth=depth;desc.MipLevels=mips;
@@ -280,6 +285,31 @@ static PostReplay *post_replay_create_contract(ID3D11Device *device,const void *
             D3D11_DEPTH_STENCIL_VIEW_DESC vd={0};vd.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;vd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
             POST_CREATE(ID3D11Device_CreateDepthStencilView(device,(ID3D11Resource *)texture,&vd,&depth_view),depth_view);
         }
+    }
+    if (probe) {
+        POST_REQUIRE(h[2]==DXGI_FORMAT_R10G10B10A2_UNORM && h[3]==h[2] && pixel_bytes==4);
+        const void *data=post_blob(&reader,&size);POST_REQUIRE(data && (uint64_t)width*height*4==size);
+        D3D11_TEXTURE2D_DESC td={0};td.Width=width;td.Height=height;td.MipLevels=td.ArraySize=td.SampleDesc.Count=1;
+        td.Format=h[2];td.BindFlags=D3D11_BIND_RENDER_TARGET;
+        D3D11_SUBRESOURCE_DATA initial={data,width*4,0};
+        POST_CREATE(ID3D11Device_CreateTexture2D(device,&td,&initial,&replay->secondary_output),replay->secondary_output);
+        POST_CREATE(ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)replay->secondary_output,NULL,&secondary_target),secondary_target);
+        replay->secondary_view=secondary_target;replay->secondary_pixel_bytes=4;
+        data=post_blob(&reader,&size);POST_REQUIRE(data && size==sizeof(D3D11_BLEND_DESC));
+        D3D11_BLEND_DESC bd;memcpy(&bd,data,sizeof(bd));ID3D11BlendState *blend=NULL;
+        POST_CREATE(ID3D11Device_CreateBlendState(device,&bd,&blend),blend);
+        data=post_blob(&reader,&size);POST_REQUIRE(data && size==16);float factors[4];memcpy(factors,data,16);
+        ID3D11DeviceContext_OMSetBlendState(deferred,blend,factors,0xffffffff);
+        UINT reference;POST_WORD(reference);POST_REQUIRE(reference<=255);
+        data=post_blob(&reader,&size);POST_REQUIRE(data && size==sizeof(D3D11_DEPTH_STENCIL_DESC));
+        D3D11_DEPTH_STENCIL_DESC ds;memcpy(&ds,data,sizeof(ds));ID3D11DepthStencilState *state=NULL;
+        POST_CREATE(ID3D11Device_CreateDepthStencilState(device,&ds,&state),state);
+        ID3D11DeviceContext_OMSetDepthStencilState(deferred,state,reference);
+        data=post_blob(&reader,&size);POST_REQUIRE(data && (uint64_t)width*height*4==size);
+        td.Format=DXGI_FORMAT_R24G8_TYPELESS;td.BindFlags=D3D11_BIND_DEPTH_STENCIL;initial.pSysMem=data;
+        POST_CREATE(ID3D11Device_CreateTexture2D(device,&td,&initial,&replay->depth_input),replay->depth_input);
+        D3D11_DEPTH_STENCIL_VIEW_DESC vd={0};vd.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;vd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
+        POST_CREATE(ID3D11Device_CreateDepthStencilView(device,(ID3D11Resource *)replay->depth_input,&vd,&depth_view),depth_view);
     }
     if (skylight_state) {
         UINT write_mask,reference;POST_WORD(write_mask);POST_WORD(reference);

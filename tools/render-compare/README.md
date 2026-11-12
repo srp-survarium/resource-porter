@@ -966,3 +966,32 @@ only queues records; a writer thread reads game memory through
 `ReadProcessMemory` and writes the lines. `test_step_diagnostic.c` runs the
 stubs against the real `get_pair` bytes under Wine (console only):
 `test_step_diagnostic.exe <survarium-capture.exe> <log directory>`.
+
+## Original 0.11e probe replay
+
+Use `run_reference_011e.py --stages --probes` in a new diagnostic directory to
+capture all probe draws (up to 64), full cube faces/mips, two lighting targets,
+volume geometry and blend/depth/stencil state. `FRAME.bmp.probe-counts.json`
+records the count and first/last Present IDs; require one Present and a count
+below the cap. Earlier reference captures must remain untouched.
+
+```
+python replay_probe_011e.py prepare FRAME.bmp.probe-draw SHADER_FIXTURE NEW_DIR
+replay_post_command.exe NEW_DIR/packet.bin NEW_DIR/actual.bin
+python replay_probe_011e.py compare NEW_DIR NEW_DIR/actual.bin
+python check_probe_011e_replay.py SHADER_FIXTURE DRAW_BASE...
+```
+
+Later draw bases use `.probe-draw-N`. Probe packets execute once, with the
+original sphere/box shaders, full cubemap, captured previous lighting and mask.
+Comparison requires exact diffuse/specular and stencil bytes. It separately
+reports D24 upload rounding measured before drawing and requires unchanged
+source/replay depth; it does not claim exact packed depth/stencil bytes.
+
+`replay_ssao_chain.exe ACCUM MASK TEMPORAL SKY OUTPUT --probes PACKET...`
+connects GPU-produced AO and both lighting accumulators through ordered probes.
+It writes final diffuse at `OUTPUT`, specular at `.spec.bin`, packed depth and
+stencil at `.stencil.bin`, plus the usual intermediate AO/history outputs.
+Compare the stencil byte separately. Previous temporal history, probe-index
+texture and each volume's pre-draw mask are still captured inputs. This harness
+does not establish live native probe integration or complete scene fidelity.

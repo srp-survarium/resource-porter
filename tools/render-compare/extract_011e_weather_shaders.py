@@ -64,7 +64,7 @@ def extract(database, catalog, output):
     families = set(FAMILIES) | {'rain.ps', 'rain.vs', 'rain_resolve.ps', 'rain_resolve.vs',
                                'wet_sufrace.ps', 'wet_surface.ps', 'present.ps',
                                'complex_post_process_blend.vs', 'copy_image.vs', 'present.vs',
-                               'post_process0.vs', 'post_process_fxaa.vs', 'skylight.vs'}
+                               'post_process0.vs', 'post_process_fxaa.vs', 'skylight.vs', 'light.vs'}
     shaders = {}
     with gzip.open(catalog, 'rt') as stream, database.open('rb') as archive:
         for line in stream:

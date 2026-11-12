@@ -37,8 +37,11 @@ def main():
     p.add_argument('--stages', action='store_true',
                    help='read-only shader observer: capture per-stage buffers for poses that ask')
     p.add_argument('--rain', action='store_true', help='include all observed original rain draws; requires --stages')
+    p.add_argument('--probes', action='store_true', help='capture every original probe draw and its cubemap/state; requires --stages')
     a = p.parse_args()
     recipe = json.loads(a.recipe.read_text())
+    if a.probes and not a.stages:
+        p.error('--probes requires --stages')
     if a.rain and not a.stages:
         p.error('--rain requires --stages')
     if any(name not in recipe['maps'] for name in a.maps):
@@ -98,6 +101,8 @@ def main():
         env['SRP_CAPTURE_011E_STAGES'] = '1'
         env['SRP_CAPTURE_BUFFERS'] = '1'
         env['SRP_CAPTURE_POST_GEOMETRY'] = '1'
+    if a.probes:
+        env['SRP_CAPTURE_ALL_PROBES'] = '1'
     if a.rain:
         env['SRP_CAPTURE_RAIN'] = '1'
     if recipe.get('stock_spectator_profiles', False):

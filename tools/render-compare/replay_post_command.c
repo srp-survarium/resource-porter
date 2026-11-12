@@ -11,6 +11,20 @@
 static void check(HRESULT result,const char *name) {
     if (FAILED(result)) { fprintf(stderr,"%s: %08lx\n",name,(unsigned long)result);exit(1); }
 }
+static void save_texture(ID3D11Device *device,ID3D11DeviceContext *context,ID3D11Texture2D *texture,
+                         UINT bytes,const char *base,const char *suffix) {
+    D3D11_TEXTURE2D_DESC desc;ID3D11Texture2D_GetDesc(texture,&desc);
+    desc.BindFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+    ID3D11Texture2D *staging=NULL;check(ID3D11Device_CreateTexture2D(device,&desc,NULL,&staging),"readback");
+    ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)staging,(ID3D11Resource *)texture);
+    D3D11_MAPPED_SUBRESOURCE mapped;check(ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped),"map");
+    char path[4096];int length=snprintf(path,sizeof(path),"%s%s",base,suffix);if (length<0 || length>=(int)sizeof(path)) exit(2);
+    FILE *file=fopen(path,"wb");if (!file) exit(2);
+    for (UINT y=0;y<desc.Height;++y)
+        if (fwrite((char *)mapped.pData+y*mapped.RowPitch,desc.Width*bytes,1,file)!=1) exit(2);
+    if (fclose(file)) exit(2);
+    ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);ID3D11Texture2D_Release(staging);
+}
 int main(int argc,char **argv) {
     if (argc!=3) { fprintf(stderr,"usage: replay_post_command PACKET OUTPUT_RAW\n");return 2; }
     FILE *file=fopen(argv[1],"rb");if (!file) return 2;
@@ -27,6 +41,7 @@ int main(int argc,char **argv) {
         PostReplay *bad=post_replay_create(device,packet,rejected_sizes[i],NULL,NULL);
         if (bad) { post_replay_release(bad);fprintf(stderr,"malformed packet accepted\n");return 1; }
     }
+    int probe=!memcmp(packet,"PRB011E1",8);
     PostReplay *replay=post_replay_create(device,packet,(size_t)length,NULL,NULL);free(packet);
     if (!replay) { fprintf(stderr,"valid packet rejected\n");return 1; }
     // RestoreContextState must preserve the native engine's cached pipeline.
@@ -52,7 +67,9 @@ int main(int argc,char **argv) {
     check(ID3D11Device_CreateBlendState(device,&bd,&sentinel_blend),"sentinel blend state");
     const float sentinel_factors[4]={0.25f,0.5f,0.75f,1};
     ID3D11DeviceContext_OMSetBlendState(context,sentinel_blend,sentinel_factors,0x12345678);
-    for (unsigned repeat=0;repeat<2;++repeat) {
+    if (probe) save_texture(device,context,replay->depth_input,4,argv[2],".depth-before.bin");
+    unsigned repetitions=probe?1:2; // Blended probe draws also mutate their stencil input.
+    for (unsigned repeat=0;repeat<repetitions;++repeat) {
         ID3D11DeviceContext_ExecuteCommandList(context,replay->commands,TRUE);
         D3D11_VIEWPORT actual={0};UINT count=1;ID3D11DeviceContext_RSGetViewports(context,&count,&actual);
         ID3D11RasterizerState *actual_rs=NULL;ID3D11DeviceContext_RSGetState(context,&actual_rs);
@@ -78,27 +95,15 @@ int main(int argc,char **argv) {
         if (rt) ID3D11RenderTargetView_Release(rt);
         if (!same) { fprintf(stderr,"immediate-context state was not restored\n");return 1; }
     }
-    ID3D11Texture2D *outputs[]={replay->output,replay->secondary_output};
-    for (unsigned slot=0;slot<2 && outputs[slot];++slot) {
-        UINT pixel_bytes=slot?replay->secondary_pixel_bytes:replay->pixel_bytes;
-        D3D11_TEXTURE2D_DESC desc;ID3D11Texture2D_GetDesc(outputs[slot],&desc);
-        desc.BindFlags=0;desc.Usage=D3D11_USAGE_STAGING;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
-        ID3D11Texture2D *staging=NULL;check(ID3D11Device_CreateTexture2D(device,&desc,NULL,&staging),"readback");
-        ID3D11DeviceContext_CopyResource(context,(ID3D11Resource *)staging,(ID3D11Resource *)outputs[slot]);
-        D3D11_MAPPED_SUBRESOURCE mapped;check(ID3D11DeviceContext_Map(context,(ID3D11Resource *)staging,0,D3D11_MAP_READ,0,&mapped),"map");
-        char path[4096];int path_size=snprintf(path,sizeof(path),slot?"%s.rt01.bin":"%s",argv[2]);
-        if (path_size<0 || path_size>=(int)sizeof(path)) return 2;
-        file=fopen(path,"wb");if (!file) return 2;
-        for (UINT y=0;y<replay->height;++y)
-            if (fwrite((char *)mapped.pData+y*mapped.RowPitch,replay->width*pixel_bytes,1,file)!=1) return 2;
-        if (fclose(file)) return 2;
-        ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);
-        ID3D11Texture2D_Release(staging);
+    ID3D11Texture2D *outputs[]={replay->output,replay->secondary_output,probe?replay->depth_input:NULL};
+    for (unsigned slot=0;slot<3 && outputs[slot];++slot) {
+        UINT pixel_bytes=slot==2?4:slot?replay->secondary_pixel_bytes:replay->pixel_bytes;
+        save_texture(device,context,outputs[slot],pixel_bytes,argv[2],slot==2?".depth.bin":slot?".rt01.bin":"");
     }
     ID3D11DeviceContext_ClearState(context);ID3D11DeviceContext_Flush(context);
     ID3D11RasterizerState_Release(rs);
     ID3D11DepthStencilState_Release(sentinel_depth);ID3D11BlendState_Release(sentinel_blend);
     ID3D11Buffer_Release(sentinel_cb);ID3D11ShaderResourceView_Release(sentinel_srv);post_replay_release(replay);
     ID3D11DeviceContext_Release(context);ID3D11Device_Release(device);
-    puts("original post command list: two executions, state restored, five malformed packets rejected");return 0;
+    printf("original command list: %u executions, state restored, five malformed packets rejected\n",repetitions);return 0;
 }
