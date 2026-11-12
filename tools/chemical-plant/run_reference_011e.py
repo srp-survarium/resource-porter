@@ -28,15 +28,21 @@ def win(path):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('recipe', type=Path)
-    p.add_argument('--maps', nargs='+', choices=['chemical', 'radar'], default=['chemical', 'radar'])
+    p.add_argument('--maps', nargs='+', default=['chemical', 'radar'],
+                   help='map keys from the prepared recipe')
     p.add_argument('--launch', action='store_true')
     p.add_argument('--poses-dir', type=Path, help='use DIR/<map>.json instead of the recipe poses')
     p.add_argument('--output', type=Path, help='write DIR/capture-<map> instead of next to the recipe')
     p.add_argument('--frames', type=int, default=1, help='frames per pose (later frames reuse the settled camera)')
     p.add_argument('--stages', action='store_true',
-                   help='diagnostic hook only: capture per-stage buffers (SRP_CAPTURE_011E_STAGES=1) for poses that ask')
+                   help='read-only shader observer: capture per-stage buffers for poses that ask')
+    p.add_argument('--rain', action='store_true', help='include all observed original rain draws; requires --stages')
     a = p.parse_args()
     recipe = json.loads(a.recipe.read_text())
+    if a.rain and not a.stages:
+        p.error('--rain requires --stages')
+    if any(name not in recipe['maps'] for name in a.maps):
+        p.error('--maps must name keys present in the prepared recipe')
     root = a.recipe.resolve().parent
     binary = root/'client/binaries/win32'
     prefix = Path(recipe['prefix'])
@@ -58,7 +64,8 @@ def main():
         return frames
     for name in a.maps:
         load_poses(name)
-    print('Verified bounded original011e recipe; screenshot-only views.', flush=True)
+    print('Verified bounded original011e recipe; ' +
+          ('read-only stage capture.' if a.stages else 'screenshot-only views.'), flush=True)
     if not a.launch:
         return
     # Never attach to an active prefix, including one used for a previous attempt.
@@ -79,7 +86,9 @@ def main():
     capture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(capture)
     env = {k: v for k, v in os.environ.items() if not k.startswith(('SRP_', 'WINEPREFIX'))}
-    env.update(WINEPREFIX=str(prefix), DISPLAY=':0', WINEDEBUG='-all',
+    if not os.environ.get('DISPLAY'):
+        raise RuntimeError('an isolated capture DISPLAY is required')
+    env.update(WINEPREFIX=str(prefix), DISPLAY=os.environ['DISPLAY'], WINEDEBUG='-all',
                WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi=n,b',
                VK_ICD_FILENAMES='/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json',
                DXVK_FRAME_RATE='60', PULSE_LATENCY_MSEC='60', SRP_CAPTURE_BUILD='011e',
@@ -88,6 +97,12 @@ def main():
     if a.stages:
         env['SRP_CAPTURE_011E_STAGES'] = '1'
         env['SRP_CAPTURE_BUFFERS'] = '1'
+        env['SRP_CAPTURE_POST_GEOMETRY'] = '1'
+    if a.rain:
+        env['SRP_CAPTURE_RAIN'] = '1'
+    if recipe.get('stock_spectator_profiles', False):
+        env['SRP_STOCK_PROFILE_ONLY'] = '1'
+        env['SRP_MATCH_LOADOUT_PROFILE'] = 'stock-v0100b'
     env.pop('VK_DRIVER_FILES', None)
     try:
         cfg.write_bytes((root/'reference-user.cfg').read_bytes())

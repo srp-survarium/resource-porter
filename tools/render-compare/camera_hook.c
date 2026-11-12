@@ -289,8 +289,8 @@ static int install_present(void) {
     DWORD protection;
     int ok=VirtualProtect(&vtable[8],sizeof(void *),PAGE_READWRITE,&protection);
     if (ok) { vtable[8]=(void *)present; VirtualProtect(&vtable[8],sizeof(void *),protection,&protection); }
-    // Original 0.11e references are screenshot-only: no shader observers or replacements.
-    if (ok && strcmp(build,"011e")) ok=install_shader_capture(device,context);
+    // Early builds use the read-only observer; 011e never installs native replacements.
+    if (ok) ok=install_shader_capture(device,context);
     ID3D11DeviceContext_Release(context);
     ID3D11Device_Release(device);
     IDXGISwapChain_Release(swapchain);

@@ -5,6 +5,38 @@ They control the view at `base_game_scene::apply_camera` and capture the DXGI
 backbuffer before Present. Original game archives are never patched by these
 tools. Use local test servers and disposable executable copies.
 
+## Original 0.11e post draw replay
+
+`SRP_CAPTURE_POST_GEOMETRY=1` adds the post draw's vertex program/constants,
+indexed TL geometry, rasterizer/target state and complete supported 2D texture
+mip chains to a stage capture. Sampler metadata includes bias, anisotropy,
+comparison and border colour. `run_reference_011e.py --stages` enables this
+read-only evidence. The normal mip-zero file format is unchanged; further
+mips use `.rtNN.mipNN.bin`. Original reference frames remain immutable.
+
+`replay_post.py prepare DRAW_BASE ORIGINAL_SHADER_FIXTURE NEW_DIRECTORY`
+accepts a `.post-draw` base and a fixture from
+`extract_011e_weather_shaders.py`. It verifies the original VS/PS identities,
+all required captured buffers and mips, a full-target viewport and an indexed
+TL quad. It preserves all captured texture formats and sampler values,
+including intentionally unbound slots, and rejects unsupported state. The
+packet receipt hashes every input. It never starts Wine or uses the GPU.
+
+Build `replay_post.exe` with `build.sh`. Under the same guarded, isolated
+headless GPU workflow as captures, run it with the prepared `packet.bin`
+and a new raw-output filename. Use a dedicated Wine prefix and the matching
+DXVK libraries. It runs the unchanged original shaders and captured geometry,
+without a client, shader recompilation or presentation conversion.
+
+`replay_post.py compare PREPARED_DIRECTORY OUTPUT_RAW` compares against the
+original draw's saved output. It reports byte equality and float error when
+applicable, and exits nonzero on a mismatch. A successful comparison proves
+that individual pass with those inputs, not the whole renderer or moving rain.
+
+`check_post_replay.py ORIGINAL_SHADER_FIXTURE` exercises preparation and
+rejection paths with real original bytecode and synthetic capture data. This
+is a CPU check; it is not a GPU replay or a visual comparison.
+
 1. Build `camera_hook.dll` with `bash build.sh` and an x86 MinGW compiler.
 2. Run `python3 prepare_client.py --build 010b SOURCE_EXE NEW_EXE` (or `026g`).
    It checks the executable hash, appends a DLL import and startup stub, and

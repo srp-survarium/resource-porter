@@ -16,6 +16,7 @@ static const GUID reference_kind_guid={0x9cd670e9,0x301a,0x4f11,{0x98,0xc5,0x33,
 #include "native_aberration_index.h"
 #include "native_emissive_index.h"
 #include "rain_shader_index.h"
+#include "reference_011e_shader_index.h"
 #include "volume_capture_filter.c"
 static void *legacy_local_diffuse_code;
 static size_t legacy_local_diffuse_size;
@@ -117,6 +118,19 @@ static int contains(const void *data, size_t length, const char *text) {
 #include "legacy_translucency.c"
 #include "legacy_volume.c"
 
+static int reference_shader_kind(const void *code, SIZE_T size) {
+    if (!strcmp(build,"011e")) {
+        for (unsigned i=0;i<sizeof(reference_011e_shaders)/sizeof(reference_011e_shaders[0]);++i)
+            if (size==reference_011e_shaders[i].size && !memcmp((const char *)code+4,reference_011e_shaders[i].digest,16))
+                return (int)reference_011e_shaders[i].kind;
+    } else {
+        for (unsigned i=0;i<sizeof(reference_shaders)/sizeof(reference_shaders[0]);++i)
+            if (size==reference_shaders[i].size && !memcmp((const char *)code+4,reference_shaders[i].digest,16))
+                return (int)reference_shaders[i].kind;
+    }
+    return -1;
+}
+
 static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code,SIZE_T size,ID3D11ClassLinkage *linkage,ID3D11PixelShader **shader) {
     const unsigned char expected[]={0x18,0x28,0x29,0x05,0xd7,0x75,0xeb,0xa6,0xbb,0x7b,0x12,0xe0,0x57,0x71,0x0d,0xfe};
     const unsigned char present_expected[]={0x20,0x02,0x37,0x28,0x32,0x61,0xd9,0xb2,0x6a,0x85,0xaf,0xf8,0x8a,0x85,0x99,0x29};
@@ -130,13 +144,12 @@ static HRESULT STDMETHODCALLTYPE create_ps(ID3D11Device *device,const void *code
                 ID3D11PixelShader_SetPrivateData(*shader,&post_code_guid,(UINT)size,code);
                 ID3D11PixelShader_SetPrivateData(*shader,&reference_kind_guid,sizeof(rain),&rain);
             }
-            for (unsigned i=0;i<sizeof(reference_shaders)/sizeof(reference_shaders[0]);++i)
-                if (size==reference_shaders[i].size && !memcmp((const char *)code+4,reference_shaders[i].digest,16)) {
-                    unsigned kind=reference_shaders[i].kind;
-                    ID3D11PixelShader_SetPrivateData(*shader,&post_code_guid,(UINT)size,code);
-                    ID3D11PixelShader_SetPrivateData(*shader,&reference_kind_guid,sizeof(kind),&kind);
-                    break;
-                }
+            int matched=reference_shader_kind(code,size);
+            if (matched>=0) {
+                unsigned kind=(unsigned)matched;
+                ID3D11PixelShader_SetPrivateData(*shader,&post_code_guid,(UINT)size,code);
+                ID3D11PixelShader_SetPrivateData(*shader,&reference_kind_guid,sizeof(kind),&kind);
+            }
         }
         return result;
     }
@@ -288,6 +301,7 @@ static int write_bytes(const char *path,const void *data,size_t size) {
 
 #include "material_vertex_capture.c"
 #include "rain_geometry_capture.c"
+#include "post_capture.c"
 
 static void capture_probe_initial(ID3D11DeviceContext *context,const char *output) {
     ID3D11RenderTargetView *views[2]={0};
@@ -311,7 +325,7 @@ static void capture_probe_initial(ID3D11DeviceContext *context,const char *outpu
 
 static void dump_volume(ID3D11Texture3D *texture,const char *base,FILE *index,unsigned slot,const D3D11_SHADER_RESOURCE_VIEW_DESC *view) {
     D3D11_TEXTURE3D_DESC desc; ID3D11Texture3D_GetDesc(texture,&desc);
-    fprintf(index,"{\"slot\":%u,\"name\":\"volume_input_%u\",\"width\":%u,\"height\":%u,\"depth\":%u,\"format\":%u,\"view_format\":%u,\"view_dimension\":%u,\"view_most_detailed_mip\":%u",slot,slot,desc.Width,desc.Height,desc.Depth,desc.Format,view->Format,view->ViewDimension,view->Texture3D.MostDetailedMip);
+    fprintf(index,"{\"slot\":%u,\"name\":\"volume_input_%u\",\"width\":%u,\"height\":%u,\"depth\":%u,\"format\":%u,\"mip_levels\":%u,\"view_format\":%u,\"view_dimension\":%u,\"view_most_detailed_mip\":%u,\"view_mip_levels\":%u",slot,slot,desc.Width,desc.Height,desc.Depth,desc.Format,desc.MipLevels,view->Format,view->ViewDimension,view->Texture3D.MostDetailedMip,view->Texture3D.MipLevels);
     if (desc.Width>64 || desc.Height>64 || desc.Depth>64 || (desc.Format!=DXGI_FORMAT_R8G8B8A8_UNORM && desc.Format!=DXGI_FORMAT_B8G8R8A8_UNORM) || view->Texture3D.MostDetailedMip) {
         fputs(",\"skipped\":\"volume contract\"}",index); return;
     }
@@ -454,6 +468,7 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     if (((kind==8 || kind==1 || kind==12) && capture_materials_enabled) ||
         (kind==1 && capture_rain_enabled)) capture_material_vertex(context,base);
     if (kind==12 && capture_materials_enabled) capture_rain_geometry(context,base,count,start,base_vertex,indexed);
+    if (kind==0 && capture_post_geometry_enabled) capture_post_state(context,base,count,start,base_vertex,indexed);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);
     if (!ok) { error("cannot save active post-process shader"); return; }
@@ -494,7 +509,7 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
             for (unsigned i=0;i<16;++i) if (samplers[i]) {
                 D3D11_SAMPLER_DESC desc; ID3D11SamplerState_GetDesc(samplers[i],&desc);
                 if (count++) fputs(",",file);
-                fprintf(file,"{\"slot\":%u,\"filter\":%u,\"address\":[%u,%u,%u],\"min_lod\":%.9g,\"max_lod\":%.9g}",i,desc.Filter,desc.AddressU,desc.AddressV,desc.AddressW,desc.MinLOD,desc.MaxLOD);
+                fprintf(file,"{\"slot\":%u,\"filter\":%u,\"address\":[%u,%u,%u],\"min_lod\":%.9g,\"max_lod\":%.9g,\"mip_bias\":%.9g,\"max_anisotropy\":%u,\"comparison\":%u,\"border\":[%.9g,%.9g,%.9g,%.9g]}",i,desc.Filter,desc.AddressU,desc.AddressV,desc.AddressW,desc.MinLOD,desc.MaxLOD,desc.MipLODBias,desc.MaxAnisotropy,desc.ComparisonFunc,desc.BorderColor[0],desc.BorderColor[1],desc.BorderColor[2],desc.BorderColor[3]);
                 ID3D11SamplerState_Release(samplers[i]);
             }
             fputs("]\n",file); fclose(file);
@@ -946,12 +961,13 @@ static int configure_grainless_aberration(int original_tail) {
 static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *context) {
     char enabled[8];
     if (!GetEnvironmentVariableA("SRP_CAPTURE_BUFFERS",enabled,sizeof(enabled)) || strcmp(enabled,"1")) return 1;
-    reference_capture=!strcmp(build,"010b") || !strcmp(build,"011a");
+    reference_capture=!strcmp(build,"010b") || !strcmp(build,"011a") || !strcmp(build,"011e");
     capture_materials_enabled=GetEnvironmentVariableA("SRP_CAPTURE_MATERIALS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     capture_rain_enabled=GetEnvironmentVariableA("SRP_CAPTURE_RAIN",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
+    capture_post_geometry_enabled=GetEnvironmentVariableA("SRP_CAPTURE_POST_GEOMETRY",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     capture_local_lights_enabled=GetEnvironmentVariableA("SRP_CAPTURE_LOCAL_LIGHTS",enabled,sizeof(enabled)) && !strcmp(enabled,"1");
     if (capture_local_lights_enabled && strcmp(build,"026g")) { error("local-light observer requires native 026g"); return 0; }
-    if ((capture_materials_enabled || capture_rain_enabled || capture_local_lights_enabled) && !replace_method(device,offsetof(ID3D11DeviceVtbl,CreateVertexShader),create_material_vs,(void **)&original_create_vs)) return 0;
+    if ((capture_materials_enabled || capture_rain_enabled || capture_local_lights_enabled || capture_post_geometry_enabled) && !replace_method(device,offsetof(ID3D11DeviceVtbl,CreateVertexShader),create_material_vs,(void **)&original_create_vs)) return 0;
     if (reference_capture) {
         return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
             replace_method(context,offsetof(ID3D11DeviceContextVtbl,Draw),draw,(void **)&original_draw) &&

@@ -56,11 +56,37 @@ impl SourceBuild {
     }
 }
 
+/// One safe resource path component, parsed once at the manifest boundary.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(try_from = "String")]
+pub struct ResourceNamespace(String);
+
+impl TryFrom<String> for ResourceNamespace {
+    type Error = String;
+    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+        if value.is_empty() || value.len() > 16
+            || !value.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
+        {
+            return Err("namespace must be 1-16 lowercase ASCII letters, digits or underscores".into());
+        }
+        Ok(Self(value))
+    }
+}
+
+impl std::fmt::Display for ResourceNamespace {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
     #[serde(default)]
     pub source_build: SourceBuild,
+    /// Independent asset namespace for alternate conversions of the same donor.
+    #[serde(default)]
+    pub namespace: Option<ResourceNamespace>,
     pub donor_sha256: String,
     pub target_sha256: String,
     #[serde(default)]
@@ -79,6 +105,16 @@ pub struct Manifest {
     /// Surfaces audited to use repeating UVs; integer island offsets preserve sampling.
     #[serde(default)]
     pub wrapped_uv_surfaces: BTreeSet<String>,
+    /// Reviewed streamed textures whose existing lower mips fit native pools.
+    #[serde(default)]
+    pub texture_mip_limits: BTreeMap<String, crate::dds_mips::NativeMipLimit>,
+    /// Exact original programs for an explicit renderer adapter. These get new
+    /// shader-family names; ordinary imported materials keep native shaders.
+    #[serde(default)]
+    pub original_shaders: Vec<crate::original_shader::OriginalShader>,
+    /// Fixed source textures used by the original shader adapters, with options.
+    #[serde(default)]
+    pub original_shader_textures: Vec<crate::original_shader::OriginalTexture>,
     /// Donor collision directories replaced by the developers' re-authored
     /// collision of the same model in the target build, pinned by both
     /// primitive payload hashes. Used only for audited authored defects.
@@ -179,6 +215,10 @@ pub struct ServerProjectFallback {
     pub donor_sha256: String,
     /// Only these missing server projects may be read, each pinned by payload hash.
     pub projects: BTreeMap<String, String>,
+    /// Reviewed collision-zone mesh changes present in the primary client.
+    /// Server project -> zone full_name -> reason. Other fields must agree.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub primary_zone_meshes: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -291,7 +331,7 @@ impl Map {
     fn target_project(&self) -> String {
         format!("projects/{}/{}_2/client_project", self.level, self.weather)
     }
-    fn project_name(&self, source: SourceBuild) -> String {
+    fn project_name(&self, source: SourceBuild, prefix: &str) -> String {
         let root = if source.early() {
             self.donor_project(source)
                 .trim_start_matches("projects/")
@@ -300,18 +340,18 @@ impl Map {
         } else {
             self.level.clone()
         };
-        format!("{}_{root}/{}_2", source.prefix(), self.weather)
+        format!("{prefix}_{root}/{}_2", self.weather)
     }
-    fn output_project(&self, source: SourceBuild) -> String {
-        format!("projects/{}/client_project", self.project_name(source))
+    fn output_project(&self, source: SourceBuild, prefix: &str) -> String {
+        format!("projects/{}/client_project", self.project_name(source, prefix))
     }
     /// The Team Deathmatch project's name: the battery project's with mode 4.
-    fn deathmatch_project_name(&self, source: SourceBuild) -> String {
-        let battery = self.project_name(source);
+    fn deathmatch_project_name(&self, source: SourceBuild, prefix: &str) -> String {
+        let battery = self.project_name(source, prefix);
         format!("{}_4", battery.strip_suffix("_2").expect("battery projects end in _2"))
     }
-    fn deathmatch_output_project(&self, source: SourceBuild) -> String {
-        format!("projects/{}/client_project", self.deathmatch_project_name(source))
+    fn deathmatch_output_project(&self, source: SourceBuild, prefix: &str) -> String {
+        format!("projects/{}/client_project", self.deathmatch_project_name(source, prefix))
     }
     /// The native Team Deathmatch mode of the level and weather.
     fn deathmatch_mode(&self) -> String {
@@ -1065,6 +1105,7 @@ fn emit_collision_successors(
     donor: &mut ResourceDb,
     target: &mut ResourceDb,
     source: SourceBuild,
+    prefix: &str,
     output: &Path,
     files: &mut Vec<BuiltFile>,
     repairs: &mut BTreeMap<String, String>,
@@ -1090,14 +1131,14 @@ fn emit_collision_successors(
             digest(&target.read(&primitives)?) == pin.target_primitives_sha256,
             "target successor collision changed: {dir}"
         );
-        let prefix = format!("{dir}/");
+        let collision_prefix = format!("{dir}/");
         let paths: Vec<String> = target
-            .paths_with_prefix(&prefix)
+            .paths_with_prefix(&collision_prefix)
             .filter(|p| target.is_file(p))
             .map(str::to_owned)
             .collect();
         for path in paths {
-            let dest = relocate_path(&path, source);
+            let dest = relocate_path(&path, source, prefix);
             ensure!(
                 !target.contains(&dest),
                 "would overwrite native resource {dest}"
@@ -1114,8 +1155,8 @@ fn emit_collision_successors(
     Ok(dirs)
 }
 
-fn relocate_path(path: &str, source: SourceBuild) -> String {
-    let namespace = format!("ported/{}", source.prefix());
+fn relocate_path(path: &str, source: SourceBuild, prefix: &str) -> String {
+    let namespace = format!("ported/{prefix}");
     for family in ["sounds/single/", "sounds/collections/", "sounds/composite/"] {
         if let Some(tail) = path.strip_prefix(family) {
             if source.early() && family == "sounds/single/" {
@@ -1128,23 +1169,23 @@ fn relocate_path(path: &str, source: SourceBuild) -> String {
     }
     let (family, tail) = path.split_once('/').expect("resource has a family");
     if family == "projects" {
-        format!("projects/{}_{tail}", source.prefix())
+        format!("projects/{prefix}_{tail}")
     } else {
         format!("{family}/{namespace}/{tail}")
     }
 }
 
-fn replacements(paths: &BTreeSet<String>, source: SourceBuild) -> BTreeMap<String, String> {
+fn replacements(paths: &BTreeSet<String>, source: SourceBuild, prefix: &str) -> BTreeMap<String, String> {
     let mut result = BTreeMap::new();
     for path in paths {
-        let dest = relocate_path(path, source);
+        let dest = relocate_path(path, source, prefix);
         result.insert(path.clone(), dest.clone());
         result.insert(format!("resources/{path}"), format!("resources/{dest}"));
         for marker in [".model/", ".skinned_model/"] {
             if let Some((model, _)) = path.split_once(marker) {
                 let model_ext = &marker[..marker.len() - 1];
                 let full = format!("{model}{model_ext}");
-                let relocated = relocate_path(&full, source);
+                let relocated = relocate_path(&full, source, prefix);
                 result.insert(full.clone(), relocated.clone());
                 result.insert(
                     format!("resources/{full}"),
@@ -1945,6 +1986,7 @@ pub fn build_with_fill(
     fill_paths: &[std::path::PathBuf],
 ) -> Result<Record> {
     let m: Manifest = serde_json::from_reader(fs::File::open(manifest_path)?)?;
+    let prefix = m.namespace.as_ref().map_or(m.source_build.prefix(), |n| n.0.as_str()).to_owned();
     let fills: Vec<fill::FillPack> = fill_paths
         .iter()
         .map(|p| -> Result<_> {
@@ -1974,6 +2016,10 @@ pub fn build_with_fill(
     let mut ids = BTreeSet::new();
     let mut projects = BTreeSet::new();
     for map in &m.maps {
+        ensure!(
+            map.project_name(m.source_build, &prefix).len() <= 31,
+            "namespaced project exceeds the engine's 31-byte map name"
+        );
         ensure!(
             matches!(
                 map.level.as_str(),
@@ -2097,7 +2143,13 @@ pub fn build_with_fill(
                     format!("{:x}", Sha256::digest(&bytes)) == *expected,
                     "fallback server payload hash mismatch"
                 );
-                let server = BinaryConfig::parse(&bytes)?.root;
+                let mut server = BinaryConfig::parse(&bytes)?.root;
+                if let Some(zones) = fallback.primary_zone_meshes.get(&server_path) {
+                    early::take_primary_zone_meshes(&raw, &mut server, zones)?;
+                    for (zone, reason) in zones {
+                        compatibility_notes.push(format!("{server_path}: {zone} uses primary client collision meshes: {reason}"));
+                    }
+                }
                 early::validate_server_fallback(&raw, &server)?;
                 compatibility_notes.push(format!("{server_path}: absent from {}; gameplay uses pinned {} server project {expected}; respawns, collectors and zones exactly match the primary client", m.source_build.label(), fallback.source_build.label()));
                 server
@@ -2157,11 +2209,11 @@ pub fn build_with_fill(
             ensure!(stripped.containers == 2, "a deathmatch variant of {} found {} battery containers", map.level, stripped.containers);
             compatibility_notes.push(format!(
                 "{}: Team Deathmatch {}: {} battery containers, {} zones, {} container models and collisions, {} battery object groups removed",
-                map.deathmatch_output_project(m.source_build), dm.id, stripped.containers, stripped.zones, stripped.container_models, stripped.server_objects
+                map.deathmatch_output_project(m.source_build, &prefix), dm.id, stripped.containers, stripped.zones, stripped.container_models, stripped.server_objects
             ));
             apply_fill_packs(&mut deathmatch, &fills, dm.id, &mut target, &mut compatibility_notes, &mut fill_models)?;
             rewrite(&mut deathmatch, &m.reference_replacements);
-            deathmatch_projects.push((map.deathmatch_output_project(m.source_build), deathmatch));
+            deathmatch_projects.push((map.deathmatch_output_project(m.source_build, &prefix), deathmatch));
         }
         apply_fill_packs(&mut project, &fills, map.id, &mut target, &mut compatibility_notes, &mut fill_models)?;
         rewrite(&mut project, &m.reference_replacements);
@@ -2195,7 +2247,7 @@ pub fn build_with_fill(
     catalog.set_runtime_proven_switches(m.runtime_proven_switches.iter().map(|(material, entry)| {
         (material.as_str(), entry.shader_catalog_sha256.as_str(), &entry.switches)
     }))?;
-    let null_texture = format!("ported/{}/srp/null", m.source_build.prefix());
+    let null_texture = format!("ported/{prefix}/srp/null");
     catalog.set_null_texture(Some(null_texture.clone()));
     eprintln!("Resolving map dependencies...");
     let first = crate::dependency::scan_with_forced_donor_and_overrides(
@@ -2363,11 +2415,11 @@ pub fn build_with_fill(
             );
         }
     }
-    let mut substitutions = replacements(&plan.donor_files, m.source_build);
+    let mut substitutions = replacements(&plan.donor_files, m.source_build, &prefix);
     for map in &m.maps {
         substitutions.insert(
             map.donor_project(m.source_build),
-            map.output_project(m.source_build),
+            map.output_project(m.source_build, &prefix),
         );
     }
     // Grass loading prepends the project resource directory to filenames.
@@ -2424,6 +2476,28 @@ pub fn build_with_fill(
     let mut adapted_particles = BTreeSet::new();
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
+    let mut shader_destinations = BTreeSet::new();
+    for shader in &m.original_shaders {
+        let namespace = m.namespace.as_ref().context("original shaders require an explicit namespace")?;
+        let dest = shader.destination(namespace);
+        ensure!(shader_destinations.insert(dest.clone()), "duplicate original shader destination {dest}");
+        let family = dest.rsplit_once('/').expect("derived shader path").0;
+        ensure!(!target.contains(family), "original shader reuses native family {family}");
+        let bytes = donor.read(shader.source())?;
+        shader.verify(&bytes)?;
+        emit(output, &dest, &bytes, &format!("{}-original-shader", m.source_build.label()), &mut files)?;
+        compatibility_notes.push(format!("{} -> {dest}: complete original shader resource copied unchanged; requires an explicit renderer binding adapter", shader.source()));
+    }
+    for texture in &m.original_shader_textures {
+        let namespace = m.namespace.as_ref().context("original shader textures require an explicit namespace")?;
+        for file in texture.files(&mut donor, namespace)? {
+            ensure!(!plan.donor_files.contains(&file.source), "renderer texture already imported by the map: {}", file.source);
+            ensure!(shader_destinations.insert(file.destination.clone()), "duplicate renderer asset {}", file.destination);
+            ensure!(!target.contains(&file.destination), "renderer texture overwrites native resource {}", file.destination);
+            emit(output, &file.destination, &file.bytes, &format!("{}-original-shader-texture", m.source_build.label()), &mut files)?;
+            compatibility_notes.push(format!("{} -> {}: original renderer texture resource copied unchanged", file.source, file.destination));
+        }
+    }
     let mut converted_geometry = BTreeSet::new();
     let mut overlay_lods: BTreeMap<String, BTreeMap<String, f32>> = BTreeMap::new();
     let mut vegetation_instances = BTreeMap::new();
@@ -2437,6 +2511,10 @@ pub fn build_with_fill(
             "wrapped UV surface must name a selected early geometry resource: {path}"
         );
     }
+    for path in m.texture_mip_limits.keys() {
+        ensure!(path.starts_with("textures/") && path.ends_with(".dds") && plan.donor_files.contains(path),
+                "mip limit must name a selected donor texture: {path}");
+    }
     for dir in m.collision_primitive_overrides.keys() {
         ensure!(
             plan.donor_files.contains(&format!("{dir}/exported_primitives")),
@@ -2449,6 +2527,7 @@ pub fn build_with_fill(
         &mut donor,
         &mut target,
         m.source_build,
+        &prefix,
         output,
         &mut files,
         &mut collision_repairs,
@@ -2523,6 +2602,13 @@ pub fn build_with_fill(
                 compatibility_notes.push(format!(
                     "{path}: BC2 re-encoded as BC3 for the 0.26 texture streamer (colour blocks, mips and sRGB byte kept; {} blocks, max alpha error {:.1}/255, {} alpha-test threshold crossings)",
                     report.blocks, report.max_alpha_error, report.threshold_crossings
+                ));
+            }
+            if let Some(&limit) = m.texture_mip_limits.get(path) {
+                bytes = crate::dds_mips::select_native_mips(&bytes, limit)
+                    .with_context(|| format!("selecting native streaming mips for {path}"))?;
+                compatibility_notes.push(format!(
+                    "{path}: selected existing lower mips for native streaming pool {limit:?}; retained mip payload and sRGB trailer byte for byte"
                 ));
             }
         }
@@ -2721,11 +2807,10 @@ pub fn build_with_fill(
         )?;
     }
     for map in &m.maps {
-        let prefix = m.source_build.prefix();
         // The battery mode, and the Team Deathmatch one if the map has it.
-        let mut modes = vec![(map.id, map.mode(), format!("{prefix}_{}_2", map.level), map.project_name(m.source_build))];
+        let mut modes = vec![(map.id, map.mode(), format!("{prefix}_{}_2", map.level), map.project_name(m.source_build, &prefix))];
         if let Some(dm) = &map.deathmatch {
-            modes.push((dm.id, map.deathmatch_mode(), format!("{prefix}_{}_4", map.level), map.deathmatch_project_name(m.source_build)));
+            modes.push((dm.id, map.deathmatch_mode(), format!("{prefix}_{}_4", map.level), map.deathmatch_project_name(m.source_build, &prefix)));
         }
         for (id, native_mode, name, project_name) in modes {
             let mode_name = format!("{prefix}_{native_mode}");
@@ -2803,7 +2888,7 @@ pub fn build_with_fill(
     }
     let record = Record {
         format_version: 1,
-        asset_id: format!("retail-{}-maps-to-026g", m.source_build.prefix()),
+        asset_id: format!("retail-{prefix}-maps-to-026g"),
         donor_build: m.source_build.label().into(),
         target_build: "0.26g0-2777".into(),
         target_db_sha256: m.target_sha256,
@@ -2832,6 +2917,34 @@ pub fn build_with_fill(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn independent_namespace_relocates_references_and_weather_grass() {
+        let paths = BTreeSet::from([
+            "models/props/cover/tyres_cover_d.model/settings".into(),
+            "textures/vehicle/vehicles.dds".into(),
+            "projects/level_03_rain/vegetation/grass.veg".into(),
+        ]);
+        let names = replacements(&paths, SourceBuild::V011e, "v011w");
+        let mut model = ConfigValue::String("props/cover/tyres_cover_d".into());
+        rewrite(&mut model, &names);
+        assert_eq!(model, ConfigValue::String("ported/v011w/props/cover/tyres_cover_d".into()));
+        assert_eq!(names["vehicle/vehicles"], "ported/v011w/vehicle/vehicles");
+        assert_eq!(names["projects/level_03_rain/vegetation/grass.veg"],
+                   "projects/v011w_level_03_rain/vegetation/grass.veg");
+        assert!(!names.values().any(|name| name.contains("v011e")));
+        assert_eq!(relocate_path("sounds/single/weather/rain.single_sound_options",
+                                SourceBuild::V011e, "v011w"),
+                   "sounds/single/ported/v011w/weather/rain.raw_options");
+    }
+
+    #[test]
+    fn namespace_is_a_single_safe_path_component() {
+        for bad in ["", "../v011e", "v011e/day", "V011E", "abcdefghijklmnopq"] {
+            assert!(serde_json::from_value::<ResourceNamespace>(serde_json::json!(bad)).is_err());
+        }
+        assert!(serde_json::from_value::<ResourceNamespace>(serde_json::json!("v011w")).is_ok());
+    }
 
     #[test]
     fn a_probe_override_names_one_probe_and_says_why() {
@@ -2904,7 +3017,7 @@ mod tests {
         ]);
         rewrite_inner(
             &mut scene,
-            &replacements(&paths, SourceBuild::V021d),
+            &replacements(&paths, SourceBuild::V021d, "v021d"),
             true,
             None,
         );
@@ -2923,7 +3036,7 @@ mod tests {
         ]);
         rewrite_inner(
             &mut scene,
-            &replacements(&paths, SourceBuild::V021d),
+            &replacements(&paths, SourceBuild::V021d, "v021d"),
             true,
             None,
         );
@@ -3005,11 +3118,11 @@ mod tests {
         let output = adapt_project(donor.clone(), &donor, &map, &[], [0., 0.12, 0.]).unwrap();
         assert_eq!(string(&output, "project_name"), Some("level_02"));
         assert_eq!(
-            map.output_project(SourceBuild::V021d),
+            map.output_project(SourceBuild::V021d, "v021d"),
             "projects/v021d_level_02/rain_2/client_project"
         );
         assert_eq!(
-            map.project_name(SourceBuild::V021d),
+            map.project_name(SourceBuild::V021d, "v021d"),
             "v021d_level_02/rain_2"
         );
     }
@@ -3439,6 +3552,7 @@ mod tests {
                 &mut donor,
                 &mut target,
                 SourceBuild::V011e,
+                "v011e",
                 &output,
                 &mut files,
                 &mut BTreeMap::new(),
@@ -3839,7 +3953,7 @@ mod tests {
             "textures/a.dds".into(),
             "material_instances/a.material".into(),
         ]);
-        let swaps = replacements(&paths, SourceBuild::V021d);
+        let swaps = replacements(&paths, SourceBuild::V021d, "v021d");
         for (before, after) in [
             ("item/quest/container", "ported/v021d/item/quest/container"),
             (
