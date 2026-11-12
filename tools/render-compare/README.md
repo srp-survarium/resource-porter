@@ -911,6 +911,47 @@ selects the exact outdoor cone after rejecting two other origins. Both hangar
 views reject their unrelated cones and correctly produce no selected-volume
 readback. The capture checkpoint preserves this evidence and the loaded DLL.
 
+
+## Original ambient passes on live native inputs
+
+`SRP_DIAGNOSTIC_ORIGINAL_AMBIENT_DIR=Z:\path\to\packets` enables the
+original accumulation, history mask, temporal resolve and skylight while the
+capture camera is active. The directory contains `accum.bin`, `mask.bin`,
+`temporal.bin` and `sky.bin`, prepared from the same original weather/resolution.
+This diagnostic writes private targets; native probes and composition continue.
+Do not interpret its counters as final lighting parity.
+
+At the first recognized native probe each frame, the owner copies live depth,
+normal and stencil, maps camera constants, and updates the accumulation quad's
+eye rays while retaining the captured index/base-vertex offsets. It keeps the
+original shaders and authored weather settings. Native float2 normal storage
+replaces the original packed UNORM input without changing sphere-map XY.
+Previous AO, depth and view belong to one history state. Initialization, skipped
+frames and capture-camera ID changes clear history and force the original
+resolve's current-AO-only path through a zero mask. Device, resolution, shader
+or input mismatches stop the diagnostic and release its passes.
+
+`CONTROL.original-ambient-live.json` reports executed frames, resets and rejected
+contracts. A settled capture writes `FRAME.bmp.original-ambient.*`; a reset
+writes `FRAME.bmp.original-ambient-reset-PRESENT.*`. Each snapshot includes the
+five outputs, previous AO/depth, current depth/normal/stencil, mapped constants
+and current eye-ray vertices. Reset snapshots are separate from settled frames.
+
+```
+python replay_live_ambient.py prepare PACKETS SNAPSHOT_BASE NEW_DIRECTORY
+replay_ssao_chain.exe NEW_DIRECTORY/accum.bin NEW_DIRECTORY/mask.bin \
+  NEW_DIRECTORY/temporal.bin NEW_DIRECTORY/sky.bin OUTPUT [--reset-history]
+python replay_live_ambient.py compare NEW_DIRECTORY OUTPUT
+```
+
+Pass `--reset-history` exactly when the snapshot receipt says `history_reset`.
+The chain saves accumulation, mask, temporal AO, saved depth and skylight for
+byte comparisons. `check_live_ambient_replay.py PACKETS RESET_BASE STEADY_BASE`
+checks both preparation paths, stale eye rays, retained reset history, missing
+or truncated inputs and packet boundaries. A snapshot replay checks the captured
+live history, not every intervening frame or a moving-rain sequence. Production
+scene lifecycle and composition integration remain separate work.
+
 ## Footstep diagnostics (0.26 only)
 
 `SRP_STEP_LOG=1` appends one JSON line per footstep query to `step.log` next to

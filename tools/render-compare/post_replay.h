@@ -17,11 +17,17 @@ typedef struct {
     ID3D11CommandList *commands;
     ID3D11Texture2D *output;
     ID3D11Texture2D *secondary_output;
+    ID3D11Texture2D *depth_input;
+    ID3D11RenderTargetView *target_view,*secondary_view;
     UINT secondary_pixel_bytes;
     ID3D11Resource *inputs[16];
     ID3D11Buffer *pixel_constants[4];
     unsigned char *pixel_data[4];
     UINT pixel_sizes[4];
+    ID3D11Buffer *vertices;
+    unsigned char *vertex_data;
+    UINT vertex_size;
+    unsigned char *eye_vertices;
     unsigned width, height, pixel_bytes;
     DXGI_FORMAT format;
 } PostReplay;
@@ -43,6 +49,7 @@ static void post_replay_release(PostReplay *replay) {
     if (!replay) return;
     for (unsigned i=0;i<4;++i) free(replay->pixel_data[i]);
     for (unsigned i=replay->object_count;i;--i) IUnknown_Release(replay->objects[i-1]);
+    free(replay->vertex_data);
     free(replay);
 }
 // Takes the newly created reference, including on capacity failure.
@@ -83,12 +90,14 @@ static ID3D11Buffer *post_buffer(PostReplay *replay,PostReader *reader,ID3D11Dev
 }
 
 typedef void (STDMETHODCALLTYPE *PostDrawIndexed)(ID3D11DeviceContext *,UINT,UINT,INT);
+typedef enum { POST_CAPTURED_INPUTS, POST_NATIVE_SKYLIGHT_NORMAL } PostInputContract;
 
-static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,size_t packet_size,
-                                     PostDrawIndexed intercepted,PostDrawIndexed original) {
+static PostReplay *post_replay_create_contract(ID3D11Device *device,const void *packet,size_t packet_size,
+                                     PostDrawIndexed intercepted,PostDrawIndexed original,PostInputContract contract) {
     PostReader reader={packet,packet_size,0};
     PostReplay *replay=calloc(1,sizeof(*replay));
     ID3D11DeviceContext *deferred=NULL;
+    void *normal_zero=NULL;
     if (!replay) return NULL;
 #define POST_REQUIRE(condition) do { if (!(condition)) goto failure; } while (0)
 #define POST_WORD(value) POST_REQUIRE(post_word(&reader,&(value)))
@@ -100,6 +109,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
     int skylight=skylight_state || !memcmp(magic,"SKY011E1",8);
     int ssao=!memcmp(magic,"SSA011E1",8);
     POST_REQUIRE(skylight || ssao || !memcmp(magic,"PST011E1",8));
+    POST_REQUIRE(contract==POST_CAPTURED_INPUTS || (contract==POST_NATIVE_SKYLIGHT_NORMAL && skylight_state));
     UINT h[15]; for (unsigned i=0;i<15;++i) POST_WORD(h[i]);
     replay->width=h[0];replay->height=h[1];replay->format=h[2];replay->pixel_bytes=h[4];
     UINT width=h[0],height=h[1],pixel_bytes=h[4],block,element;
@@ -149,8 +159,25 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
             }
         }
     }
+    size_t vertex_begin=reader.at;
     ID3D11Buffer *vertices=post_buffer(replay,&reader,device,D3D11_BIND_VERTEX_BUFFER); POST_REQUIRE(vertices);
+    replay->vertices=vertices;replay->vertex_size=(UINT)(reader.at-vertex_begin-4);
+    replay->vertex_data=malloc(replay->vertex_size);POST_REQUIRE(replay->vertex_data);
+    memcpy(replay->vertex_data,reader.bytes+vertex_begin+4,replay->vertex_size);
+    size_t index_begin=reader.at;
     ID3D11Buffer *indices=post_buffer(replay,&reader,device,D3D11_BIND_INDEX_BUFFER); POST_REQUIRE(indices);
+    if (ssao && h[11]==36 && h[13]==57) {
+        uint64_t first=(uint64_t)h[14]+(uint64_t)h[9]*2;
+        size_t index_size=reader.at-index_begin-4;
+        if (first<=index_size && index_size-first>=12) {
+            unsigned short used[6];memcpy(used,reader.bytes+index_begin+4+(size_t)first,sizeof(used));
+            const unsigned short relative[]={0,1,2,3,2,1};int quad=1;
+            for (unsigned i=0;i<6;++i) quad=quad && used[i]==(unsigned)used[0]+relative[i];
+            int64_t offset=(int64_t)h[12]+((int64_t)(INT)h[10]+used[0])*36;
+            if (quad && offset>=0 && (uint64_t)offset+144<=replay->vertex_size)
+                replay->eye_vertices=replay->vertex_data+(size_t)offset;
+        }
+    }
     ID3D11DeviceContext_IASetVertexBuffers(deferred,0,1,&vertices,&h[11],&h[12]);
     ID3D11DeviceContext_IASetIndexBuffer(deferred,indices,h[13],h[14]);
     ID3D11DeviceContext_IASetPrimitiveTopology(deferred,D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -170,6 +197,15 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
             UINT pitch=((mw+block-1)/block)*element,slice=pitch*((mh+block-1)/block);
             POST_REQUIRE(initial[mip].SysMemPitch==pitch && initial[mip].SysMemSlicePitch==slice && (uint64_t)slice*md==size);
         }
+        // The original skylight reads only sphere-map normal XY. Native stores
+        // those components as R16G16_FLOAT. Keep the unchanged shader and copy
+        // current native floats directly; the live owner must supply them before
+        // execution. Captured-mode replays retain the original UNORM texture.
+        if (contract==POST_NATIVE_SKYLIGHT_NORMAL && slot==1) {
+            POST_REQUIRE(dimension==2 && t[6]==DXGI_FORMAT_R10G10B10A2_UNORM && t[7]==t[6] && mips==1);
+            normal_zero=calloc((size_t)w*he,4);POST_REQUIRE(normal_zero);
+            initial[0].pSysMem=normal_zero;t[6]=t[7]=DXGI_FORMAT_R16G16_FLOAT;
+        }
         ID3D11Resource *resource=NULL;D3D11_SHADER_RESOURCE_VIEW_DESC view={0};view.Format=t[7];
         if (dimension==2) {
             D3D11_TEXTURE2D_DESC desc={0};desc.Width=w;desc.Height=he;desc.MipLevels=mips;desc.ArraySize=1;
@@ -186,6 +222,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
             resource=(ID3D11Resource *)texture;view.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE3D;
             view.Texture3D.MostDetailedMip=t[8];view.Texture3D.MipLevels=t[9];
         }
+        free(normal_zero);normal_zero=NULL;
         replay->inputs[slot]=resource;ID3D11ShaderResourceView *srv=NULL;
         POST_CREATE(ID3D11Device_CreateShaderResourceView(device,resource,&view,&srv),srv);
         ID3D11DeviceContext_PSSetShaderResources(deferred,slot,1,&srv);
@@ -218,6 +255,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
             D3D11_SUBRESOURCE_DATA initial={data,width*bytes,0};
             POST_CREATE(ID3D11Device_CreateTexture2D(device,&td,&initial,&replay->secondary_output),replay->secondary_output);
             POST_CREATE(ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)replay->secondary_output,NULL,&secondary_target),secondary_target);
+            replay->secondary_view=secondary_target;
             replay->secondary_pixel_bytes=bytes;
         }
         UINT bound;POST_WORD(bound);POST_REQUIRE(bound<=1);
@@ -238,6 +276,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
             td.Format=DXGI_FORMAT_R24G8_TYPELESS;td.BindFlags=D3D11_BIND_DEPTH_STENCIL;
             D3D11_SUBRESOURCE_DATA initial={data,width*4,0};ID3D11Texture2D *texture=NULL;
             POST_CREATE(ID3D11Device_CreateTexture2D(device,&td,&initial,&texture),texture);
+            replay->depth_input=texture;
             D3D11_DEPTH_STENCIL_VIEW_DESC vd={0};vd.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;vd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
             POST_CREATE(ID3D11Device_CreateDepthStencilView(device,(ID3D11Resource *)texture,&vd,&depth_view),depth_view);
         }
@@ -259,6 +298,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
         dd.Format=DXGI_FORMAT_R24G8_TYPELESS;dd.SampleDesc.Count=1;dd.BindFlags=D3D11_BIND_DEPTH_STENCIL;
         D3D11_SUBRESOURCE_DATA di={depth_data,width*4,0};ID3D11Texture2D *depth_texture=NULL;
         POST_CREATE(ID3D11Device_CreateTexture2D(device,&dd,&di,&depth_texture),depth_texture);
+        replay->depth_input=depth_texture;
         D3D11_DEPTH_STENCIL_VIEW_DESC vd={0};vd.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;vd.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
         POST_CREATE(ID3D11Device_CreateDepthStencilView(device,(ID3D11Resource *)depth_texture,&vd,&depth_view),depth_view);
         D3D11_BLEND_DESC bd={0};bd.RenderTarget[0].RenderTargetWriteMask=(UINT8)write_mask;
@@ -274,6 +314,7 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
     D3D11_RENDER_TARGET_VIEW_DESC rtd={0};rtd.Format=h[3];rtd.ViewDimension=D3D11_RTV_DIMENSION_TEXTURE2D;
     ID3D11RenderTargetView *target=NULL;
     POST_CREATE(ID3D11Device_CreateRenderTargetView(device,(ID3D11Resource *)replay->output,&rtd,&target),target);
+    replay->target_view=target;
     ID3D11RenderTargetView *targets[]={target,secondary_target};
     ID3D11DeviceContext_OMSetRenderTargets(deferred,secondary_target?2:1,targets,depth_view);
     ID3D11DeviceContext_RSSetViewports(deferred,1,&viewport);
@@ -290,10 +331,15 @@ static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,si
     ID3D11DeviceContext_Release(deferred);
     return replay;
 failure:
+    free(normal_zero);
     if (deferred) ID3D11DeviceContext_Release(deferred);
     post_replay_release(replay);return NULL;
 #undef POST_REQUIRE
 #undef POST_WORD
 #undef POST_CREATE
+}
+static PostReplay *post_replay_create(ID3D11Device *device,const void *packet,size_t packet_size,
+                                     PostDrawIndexed intercepted,PostDrawIndexed original) {
+    return post_replay_create_contract(device,packet,packet_size,intercepted,original,POST_CAPTURED_INPUTS);
 }
 #endif

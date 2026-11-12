@@ -47,7 +47,8 @@ static void save(ID3D11Device *device,ID3D11DeviceContext *context,ID3D11Texture
     ID3D11DeviceContext_Unmap(context,(ID3D11Resource *)staging,0);ID3D11Texture2D_Release(staging);
 }
 int main(int argc,char **argv) {
-    if (argc!=6) { fprintf(stderr,"usage: replay_ssao_chain ACCUM_PACKET MASK_PACKET TEMPORAL_PACKET SKY_PACKET OUTPUT_BASE\n");return 2; }
+    int reset=argc==7 && !strcmp(argv[6],"--reset-history");
+    if (argc!=6 && !reset) { fprintf(stderr,"usage: replay_ssao_chain ACCUM_PACKET MASK_PACKET TEMPORAL_PACKET SKY_PACKET OUTPUT_BASE [--reset-history]\n");return 2; }
     ID3D11Device *device=NULL;ID3D11DeviceContext *context=NULL;D3D_FEATURE_LEVEL feature;
     check(D3D11CreateDevice(NULL,D3D_DRIVER_TYPE_HARDWARE,NULL,0,NULL,0,D3D11_SDK_VERSION,&device,&feature,&context),"device");
     PostReplay *passes[4];for (unsigned i=0;i<4;++i) passes[i]=load(device,argv[i+1]);
@@ -55,11 +56,17 @@ int main(int argc,char **argv) {
     for (unsigned repeat=0;repeat<2;++repeat) {
         ID3D11DeviceContext_ExecuteCommandList(context,passes[0]->commands,TRUE);
         ID3D11DeviceContext_ExecuteCommandList(context,passes[1]->commands,TRUE);
+        if (reset) {
+            const float zero[4]={0};
+            ID3D11DeviceContext_ClearRenderTargetView(context,passes[1]->target_view,zero);
+        }
         connect_pass(context,passes[0],passes[2],1);connect_pass(context,passes[1],passes[2],3);
         ID3D11DeviceContext_ExecuteCommandList(context,passes[2]->commands,TRUE);
         connect_pass(context,passes[2],passes[3],2);
         ID3D11DeviceContext_ExecuteCommandList(context,passes[3]->commands,TRUE);
     }
+    save(device,context,passes[0]->output,passes[0]->pixel_bytes,argv[5],".accum.bin");
+    save(device,context,passes[1]->output,passes[1]->pixel_bytes,argv[5],".mask.bin");
     save(device,context,passes[3]->output,passes[3]->pixel_bytes,argv[5],"");
     save(device,context,passes[2]->output,passes[2]->pixel_bytes,argv[5],".ao.bin");
     save(device,context,passes[2]->secondary_output,passes[2]->secondary_pixel_bytes,argv[5],".depth.bin");

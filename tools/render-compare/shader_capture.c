@@ -477,7 +477,7 @@ static void capture_post_draw(ID3D11DeviceContext *context,UINT count,UINT start
     if (((kind==8 || kind==1 || kind==12) && capture_materials_enabled) ||
         (kind==1 && capture_rain_enabled)) capture_material_vertex(context,base);
     if (kind==12 && capture_materials_enabled) capture_rain_geometry(context,base,count,start,base_vertex,indexed);
-    if (capture_post_geometry_enabled && (kind==0 || (reference_capture?(kind==5 || kind==10 || kind==11 || kind==16 || kind==18):kind==6)))
+    if (capture_post_geometry_enabled && (kind==0 || (reference_capture?(kind==5 || kind==10 || kind==11 || kind==16 || kind==18):(kind==2 || kind==6))))
         capture_post_state(context,base,count,start,base_vertex,indexed);
     snprintf(path,sizeof(path),"%s.dxbc",base);
     int ok=SUCCEEDED(hr) && write_bytes(path,code,size); free(code);
@@ -876,8 +876,10 @@ static void restore_full_diffuse(ID3D11DeviceContext *context,FullDiffuseState *
 #include "remains_texture_capture.c"
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base);
 #include "original_post_live.c"
+#include "original_ambient_live.c"
 static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT start) {
     if (draw_original_post(context)) return;
+    draw_original_ambient(context);
     observe_local_fresnel_one(context);
     if (encoded_light_draw(context,count,start,0,0)) return;
     capture_remains_texture(context);
@@ -900,6 +902,7 @@ static void STDMETHODCALLTYPE draw(ID3D11DeviceContext *context,UINT count,UINT 
 }
 static void STDMETHODCALLTYPE draw_indexed(ID3D11DeviceContext *context,UINT count,UINT start,INT base) {
     if (draw_original_post(context)) return;
+    draw_original_ambient(context);
     observe_local_fresnel_one(context);
     if (encoded_light_draw(context,count,start,base,1)) return;
     capture_remains_texture(context);
@@ -1071,6 +1074,7 @@ static int install_shader_capture(ID3D11Device *device,ID3D11DeviceContext *cont
     }
     if (!configure_local_fresnel_one()) return 0;
     if (!configure_original_post()) { error("invalid diagnostic original post packet");return 0; }
+    if (!configure_original_ambient()) { error("invalid diagnostic original ambient packets");return 0; }
     legacy_ambient_decode_enabled=legacy_ambient_decode_code!=NULL;
     legacy_fog_enabled=legacy_fog_code!=NULL;
     return replace_method(device,offsetof(ID3D11DeviceVtbl,CreatePixelShader),create_ps,(void **)&original_create_ps) &&
