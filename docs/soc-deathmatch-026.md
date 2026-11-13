@@ -264,8 +264,13 @@ line.
 what a walker reaches from the respawns over the converted collision,
 walker ramps included (0.25 m cells, 0.5 m steps on ≤45° faces, 1.7 m
 headroom), with its holes filled. Training Camp has no border (its meadow
-runs past any margin), so there the area is cut 45 m around the respawns.
-Each cell shows the highest render surface at most 1.2 m above its lowest
+runs past any margin), so there the area is cut 45 m around the respawns
+(two circles, one per team), unless the map is framed on an outline:
+`--map 212 --frame-outline training-arena.tsv` (skhid's crater wall) frames
+it on the wall + 15 m (`--frame-margin`) and shows all the ground there,
+fading over 40 px (`--fade`) to nothing at the tab map's 460 px circle, so
+neither the tab map nor the round HUD minimap shows an edge. Skhid's Training
+Camp minimap is made so. Each cell shows the highest render surface at most 1.2 m above its lowest
 reachable floor (interiors show their floor, not the roof; terrain uses the
 full colour map), covered floors are darker, and anything unreachable inside
 the area is dark. The scale is at most 3.5 px/m and the play area fits

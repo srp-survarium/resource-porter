@@ -83,6 +83,18 @@ class SocDeathmatchTooling(unittest.TestCase):
         big = mm.hud_entry((-114.67, -258.08, 109.58, 50.92))
         self.assertLessEqual(308.997 * 512 / (2 * big['size']), mm.TAB_AREA + 1e-6)
 
+    def test_minimap_framed_on_an_outline_fades_inside_the_tab_map(self):
+        import numpy as np
+        mm = load('tools/playable-map-pack/render_minimap.py', 'render_minimap')
+        square = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        cells = mm.inside_outline(square, 5.0, np.array([-3.0, 5.0, 12.0, 16.0]), np.array([5.0]))
+        self.assertEqual(cells[0].tolist(), [True, True, True, False])
+        alpha = mm.fade_to_tab_circle(np.full((512, 512), 87.0), 40)
+        ys, xs = np.nonzero(alpha > 0)
+        self.assertLessEqual(xs.max() + 1 - xs.min(), mm.TAB_PANEL)
+        self.assertLessEqual(ys.max() + 1 - ys.min(), mm.TAB_PANEL)
+        self.assertEqual(alpha[256, 256], 87.0)
+
     def test_own_hud_keys_and_names_are_new_and_unique(self):
         m = json.loads((ROOT/'ports/soc-cs-dm-to-026g.json').read_text())
         native = {'default', 'test', 'level_03_evn', 'level_03_rain'} | {f'level_0{i}' for i in range(1, 10)}
