@@ -28,8 +28,17 @@ and anything not walkable inside the play area are flat (27,27,27) at alpha
 The play area is what a walker can reach from the map's respawn points over
 the converted collision (0.25 m cells, 0.5 m steps, 1.7 m headroom), including
 the invisible walker ramps. Its holes (buildings, blocks) are filled.
+
+A map played inside a boundary its ground runs past (Training Camp's crater)
+is framed on that outline instead: --frame-outline (an x/z TSV, e.g. skhid's
+training-arena.tsv) widened by --frame-margin metres gives the frame, the
+bitmap shows all the reachable ground in it, with no border line, and fades
+out over --fade px to nothing at the tab map's 460 px circle, so neither the
+tab map (which centres the non-black rect in 460 px) nor the round HUD
+minimap shows an edge.
 """
 import argparse
+import csv
 import json
 import math
 from pathlib import Path
@@ -50,6 +59,7 @@ KEYS = {197: 'pool-soc-dm', 198: 'training-camp-cs-dm', 199: 'rembasa-cs-dm',
 IMAGE = 512                 # native minimaps are 458-567 px; level_03 is 512
 MAX_SCALE = 3.5             # natives: 2.08-2.78 px/m (level_03 2.56)
 TAB_AREA = 440              # the tab map lays the bitmap 1:1 into 460 px
+TAB_PANEL = 460             # HUD.updateFullMinimapLayout: the non-black rect is centred in it
 CELL = 0.25                 # reachability grid (m)
 STEP = 0.5                  # walkable step between neighbouring cells (m)
 HEADROOM = 1.7              # free height above a floor (m)
@@ -75,6 +85,29 @@ def hud_entry(bounds, width=IMAGE, height=IMAGE):
     size = width / (2 * scale)
     return {'size': round(float(size), 3), 'posX': round(float(xmin + xmax) / 2, 3),
             'posY': round(float(zmin + zmax) / 2, 3)}
+
+
+def inside_outline(outline, margin, xs, zs):
+    """Cells (centres xs x zs) inside the closed x/z polygon outline or
+    within margin metres of it."""
+    x, z = np.meshgrid(xs, zs)
+    inside = np.zeros(x.shape, bool)
+    near = np.full(x.shape, np.inf)
+    for (ax, az), (bx, bz) in zip(outline, outline[1:] + outline[:1]):
+        dx, dz = bx - ax, bz - az
+        if dz:
+            inside ^= ((az > z) != (bz > z)) & (x < ax + (z - az) * dx / dz)
+        t = np.clip(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz), 0, 1)
+        near = np.minimum(near, np.hypot(x - ax - t * dx, z - az - t * dz))
+    return inside | (near <= margin)
+
+
+def fade_to_tab_circle(alpha, fade):
+    """alpha faded over `fade` px to 0 at the tab map's TAB_PANEL circle."""
+    yy, xx = np.mgrid[0:alpha.shape[0], 0:alpha.shape[1]] + 0.5
+    r = np.hypot(xx - alpha.shape[1] / 2, yy - alpha.shape[0] / 2)
+    t = np.clip((TAB_PANEL / 2 - r) / fade, 0, 1)
+    return alpha * t * t * (3 - 2 * t)
 
 
 # ---------------------------------------------------------------- geometry
@@ -385,7 +418,9 @@ def disk(r):
     return x * x + y * y <= r * r
 
 
-def render_map(overlay, spec_map, out):
+def render_map(overlay, spec_map, out, frame=None, fade=None):
+    """frame: (outline, margin) to frame on that outline (see the module
+    docstring), with fade: the fade width in px."""
     key = KEYS.get(spec_map['id'], spec_map.get('hud_key'))
     project = config((overlay / 'projects' / f"v010b_{spec_map['donor_project']}" / 'day_4' /
                       'client_project').read_bytes())
@@ -398,7 +433,7 @@ def render_map(overlay, spec_map, out):
     out.mkdir(parents=True, exist_ok=True)
     floor_h, covered = play_area(collision_triangles(overlay, project), spawns, bounds)
     reach = np.isfinite(floor_h)
-    if reach[0].any() or reach[-1].any() or reach[:, 0].any() or reach[:, -1].any():
+    if frame is None and (reach[0].any() or reach[-1].any() or reach[:, 0].any() or reach[:, -1].any()):
         # No border: open terrain runs past the margin (Training Camp's
         # meadow). Keep what lies within CLIP metres of a respawn point.
         near = np.zeros_like(reach)
@@ -411,7 +446,12 @@ def render_map(overlay, spec_map, out):
     # Close small gaps (fences, posts) and fill enclosed holes (buildings).
     region = ndimage.binary_fill_holes(ndimage.binary_closing(reach, disk(6)))
     region = ndimage.binary_opening(region, disk(2)) | reach
-    ys, xs = np.nonzero(region)
+    if frame is not None:
+        framed = inside_outline(frame[0], frame[1], x0 + (np.arange(region.shape[1]) + 0.5) * CELL,
+                                z1 - (np.arange(region.shape[0]) + 0.5) * CELL)
+        ys, xs = np.nonzero(framed & region)
+    else:
+        ys, xs = np.nonzero(region)
     area = (x0 + xs.min() * CELL, z1 - (ys.max() + 1) * CELL, x0 + (xs.max() + 1) * CELL, z1 - ys.min() * CELL)
     entry = hud_entry(area)
     size, pos_x, pos_y = entry['size'], entry['posX'], entry['posY']
@@ -496,6 +536,8 @@ def render_map(overlay, spec_map, out):
         rgb = rgb * (1 - e[..., None]) + np.array(LINE) * e[..., None]
         alpha = alpha * (1 - e) + a * e
     alpha = alpha * np.clip(region_i * 2.5, 0, 1)
+    if frame is not None:
+        alpha = fade_to_tab_circle(alpha, fade)
     rgba[..., :3] = rgb; rgba[..., 3] = alpha
     rgba[rgba[..., 3] < 1] = 0
     final = Image.fromarray(rgba.round().clip(0, 255).astype(np.uint8), 'RGBA')
@@ -524,12 +566,21 @@ def main():
     ap.add_argument('--spec', type=Path, required=True)
     ap.add_argument('--output', type=Path, required=True)
     ap.add_argument('--map', type=int, action='append')
+    ap.add_argument('--frame-outline', type=Path, help='x/z TSV of the boundary to frame one --map on')
+    ap.add_argument('--frame-margin', type=float, default=15.0, help='metres around the outline (default 15)')
+    ap.add_argument('--fade', type=float, default=40.0, help='px of fade inside the tab map circle (default 40)')
     a = ap.parse_args()
+    frame = None
+    if a.frame_outline:
+        if not a.map or len(a.map) != 1:
+            ap.error('--frame-outline frames one --map')
+        with a.frame_outline.open() as f:
+            frame = ([(float(r['x']), float(r['z'])) for r in csv.DictReader(f, delimiter='\t')], a.frame_margin)
     spec = json.loads(a.spec.read_text())
     for m in spec['maps']:
         if a.map and m['id'] not in a.map:
             continue
-        print(json.dumps(render_map(a.overlay, m, a.output)), flush=True)
+        print(json.dumps(render_map(a.overlay, m, a.output, frame, a.fade)), flush=True)
 
 
 if __name__ == '__main__':
