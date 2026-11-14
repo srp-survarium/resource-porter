@@ -58,6 +58,6 @@
     "terrain": "material.g_stage.effect.texture_diffuse_0.value"
   },
   "detail_objects": {
-    "density": 0.5
+    "density": 1.0
   }
 }
