@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# The STALKER team-deathmatch maps as one Skhid content pack, stalker-maps@N:
-# every map of ports/stalker-tdm/maps.json from its bundle (port-map.sh),
-# with the spawns and ammo stashes of ports/stalker-tdm/spots.json (the map
-# spot planner's list). One pack, because the maps share converted textures
-# and materials (separate packs would add the same files twice).
+# The STALKER team-deathmatch maps as Skhid content packs, <pack>@N: every
+# map of ports/stalker-tdm/maps.json whose `pack` is <pack> (stalker-maps
+# when a map names none) from its bundle (port-map.sh), with the spawns and
+# ammo stashes of ports/stalker-tdm/spots.json (the map spot planner's list).
+# A pack's maps share converted textures and materials (separate packs
+# would add the same files twice); a released pack is never rebuilt with
+# other maps (players' files would change), so maps added later go into a
+# pack of their own (stalker-maps-2: Dark Valley, Vehicle Station, Fire
+# Station, Sports Center).
 #
-#   scripts/stalker-tdm/build-pack.sh [--version N] [--keep-donor]
+#   scripts/stalker-tdm/build-pack.sh [--pack NAME] [--version N] [--keep-donor]
 #
-# --keep-donor: reuse donor/stalker-maps.db when no bundle changed (new
+# --keep-donor: reuse donor/<pack>.db when no bundle changed (new
 # spots, names or ids only).
 #
 # Writes under $OUT:
-#   donor/stalker-maps.db        compose (Training Camp's meadow first), prune-collision, apply, verify
-#   specs/stalker-maps.json      material templates matched on the donor + make_spec.py
-#   bundles026/stalker-maps      build-survarium-maps-026 (team deathmatch, ids of maps.json)
-#   packs/stalker-maps-N         pack from-bundle, checked over every live patch
+#   donor/<pack>.db              compose (Training Camp's meadow first), prune-collision, apply, verify
+#   specs/<pack>.json            material templates matched on the donor + make_spec.py
+#   bundles026/<pack>            build-survarium-maps-026 (team deathmatch, ids of maps.json)
+#   packs/<pack>-N               pack from-bundle, checked over every live patch
 #   minimaps/<project>.png/json  the HUD minimaps (render_minimap.py), for skhid's ui_images.py
 #
 # Inputs (environment):
@@ -30,9 +34,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-VERSION=1; KEEP_DONOR=''
+VERSION=1; KEEP_DONOR=''; NAME=stalker-maps
 while (($#)); do
   case $1 in
+    --pack) NAME=$2; shift 2 ;;
     --version) VERSION=$2; shift 2 ;;
     --keep-donor) KEEP_DONOR=1; shift ;;
     *) echo "unknown argument $1" >&2; exit 1 ;;
@@ -48,7 +53,8 @@ PACK_VP=${PACK_VP:?vostok-port with pack subcommands}
 PYTHON=${PYTHON:-python3}
 mkdir -p "$OUT"/{donor,specs,bundles026,packs,logs,minimaps}
 
-MAPS=$("$PYTHON" -c "import json; print(' '.join(json.load(open('ports/stalker-tdm/maps.json'))['maps']))")
+MAPS=$("$PYTHON" -c "import json; print(' '.join(k for k, m in json.load(open('ports/stalker-tdm/maps.json'))['maps'].items() if m.get('pack', 'stalker-maps') == '$NAME'))")
+[ -n "$MAPS" ] || { echo "no map of maps.json is in pack $NAME" >&2; exit 1; }
 BUNDLES=(); PREFIXES=()
 for map in $MAPS; do
   [ -d "$OUT/bundles/$map" ] || { echo "$map: no bundle; run port-map.sh $map first" >&2; exit 1; }
@@ -59,25 +65,25 @@ for map in $MAPS; do
 done
 
 # 1. One v0.100b donor database of every map.
-DONOR=$OUT/donor/stalker-maps.db
+DONOR=$OUT/donor/$NAME.db
 if [ -n "$KEEP_DONOR" ] && [ -f "$DONOR" ]; then
   echo "keeping $DONOR"
 else
-rm -rf "$OUT/composed" "$OUT/donor-work" "$DONOR"
-"$VP" compose "${BUNDLES[@]}" --output "$OUT/composed" > "$OUT/logs/compose.log"
-"$VP" prune-collision --base-db "$TARGET010" --bundle "$OUT/composed" > "$OUT/logs/prune.log"
-"$VP" apply --base-db "$TARGET010" --bundle "$OUT/composed" --work-dir "$OUT/donor-work" \
-  --output-db "$DONOR" > "$OUT/logs/donor.log"
-"$VP" verify --db "$DONOR" --bundle "$OUT/composed" > "$OUT/logs/donor-verify.log"
-rm -rf "$OUT/donor-work" "$OUT/composed"
+rm -rf "$OUT/composed-$NAME" "$OUT/donor-work-$NAME" "$DONOR"
+"$VP" compose "${BUNDLES[@]}" --output "$OUT/composed-$NAME" > "$OUT/logs/$NAME-compose.log"
+"$VP" prune-collision --base-db "$TARGET010" --bundle "$OUT/composed-$NAME" > "$OUT/logs/$NAME-prune.log"
+"$VP" apply --base-db "$TARGET010" --bundle "$OUT/composed-$NAME" --work-dir "$OUT/donor-work-$NAME" \
+  --output-db "$DONOR" > "$OUT/logs/$NAME-donor.log"
+"$VP" verify --db "$DONOR" --bundle "$OUT/composed-$NAME" > "$OUT/logs/$NAME-donor-verify.log"
+rm -rf "$OUT/donor-work-$NAME" "$OUT/composed-$NAME"
 fi
 DONOR_SHA=$(sha256sum "$DONOR" | cut -d' ' -f1)
 
 # 2. The spec: material templates matched on the donor (the meadow's as the
 #    reviewed soc-cs-dm spec names them), spawns and stashes from the planner.
 "$PYTHON" tools/playable-map-pack/xray_material_templates.py --porter "$VP" "$DONOR" "$TARGET026" \
-  "${PREFIXES[@]}" > "$OUT/specs/stalker-maps.templates.json" 2> "$OUT/logs/templates.log"
-"$PYTHON" - "$OUT/specs/stalker-maps.templates.json" <<'EOF'
+  "${PREFIXES[@]}" > "$OUT/specs/$NAME.templates.json" 2> "$OUT/logs/$NAME-templates.log"
+"$PYTHON" - "$OUT/specs/$NAME.templates.json" <<'EOF'
 import json, sys
 p = sys.argv[1]; t = json.load(open(p))
 old = json.load(open('ports/soc-cs-dm-to-026g.json'))['material_templates']
@@ -85,25 +91,30 @@ t.update({k: v for k, v in old.items() if not k.startswith('material_instances/p
 json.dump(t, open(p, 'w'), indent=1)
 EOF
 "$PYTHON" tools/stalker-tdm/make_spec.py $MAPS --donor-sha256 "$DONOR_SHA" \
-  --templates "$OUT/specs/stalker-maps.templates.json" --output "$OUT/specs/stalker-maps.json"
+  --templates "$OUT/specs/$NAME.templates.json" --output "$OUT/specs/$NAME.json"
 
 # 3. The 0.26g maps.
-rm -rf "$OUT/bundles026/stalker-maps"
-"$VP" build-survarium-maps-026 --manifest "$OUT/specs/stalker-maps.json" --donor-db "$DONOR" \
-  --target-db "$TARGET026" --output "$OUT/bundles026/stalker-maps" > "$OUT/logs/026g.log"
+rm -rf "$OUT/bundles026/$NAME"
+"$VP" build-survarium-maps-026 --manifest "$OUT/specs/$NAME.json" --donor-db "$DONOR" \
+  --target-db "$TARGET026" --output "$OUT/bundles026/$NAME" > "$OUT/logs/$NAME-026g.log"
 
-# 4. The content pack, checked over every live patch.
-PACK=$OUT/packs/stalker-maps-$VERSION
+# 4. The content pack, checked over every live patch. The files players have
+#    byte for byte (the v0.100b template textures a released pack of these
+#    maps added) are left out of it (leave_out_live.py).
+PACK=$OUT/packs/$NAME-$VERSION
 rm -rf "$PACK"
 "$PACK_VP" pack from-bundle --base-db "$STOCK_DB" --build-base-db "$TARGET026" \
-  --bundle "$OUT/bundles026/stalker-maps" --output "$PACK" --id stalker-maps --version "$VERSION" > "$OUT/logs/pack.log"
-LIVE=()
-for p in $(ls "$PATCHES" | grep -E '^resources\.db\.patch_[0-9]+$' | sort -t_ -k2 -n); do LIVE+=(--base-patch "$PATCHES/$p"); done
+  --bundle "$OUT/bundles026/$NAME" --output "$PACK" --id "$NAME" --version "$VERSION" > "$OUT/logs/$NAME-pack.log"
+LIVE=(); LIVE_PATCHES=()
+for p in $(ls "$PATCHES" | grep -E '^resources\.db\.patch_[0-9]+$' | sort -t_ -k2 -n); do LIVE+=(--base-patch "$PATCHES/$p"); LIVE_PATCHES+=(--patch "$PATCHES/$p"); done
+"$PYTHON" tools/stalker-tdm/leave_out_live.py --pack "$PACK" --stock "$STOCK_DB" "${LIVE_PATCHES[@]}" --vostok-port "$VP" \
+  > "$OUT/logs/$NAME-left-out.log"
+tail -1 "$OUT/logs/$NAME-left-out.log"
 "$PACK_VP" pack check --pack "$PACK" --base-db "$STOCK_DB" "${LIVE[@]}"
 
 # 5. The HUD minimaps (0.26 style, framed on what a walker reaches from the spawns).
-for id in $("$PYTHON" -c "import json; print(' '.join(str(m['id']) for m in json.load(open('$OUT/specs/stalker-maps.json'))['maps']))"); do
-  PYTHONDONTWRITEBYTECODE=1 "$PYTHON" tools/playable-map-pack/render_minimap.py --overlay "$OUT/bundles026/stalker-maps/overlay" \
-    --spec "$OUT/specs/stalker-maps.json" --output "$OUT/minimaps" --map "$id" > "$OUT/logs/minimap-$id.log" 2>&1
+for id in $("$PYTHON" -c "import json; print(' '.join(str(m['id']) for m in json.load(open('$OUT/specs/$NAME.json'))['maps']))"); do
+  PYTHONDONTWRITEBYTECODE=1 "$PYTHON" tools/playable-map-pack/render_minimap.py --overlay "$OUT/bundles026/$NAME/overlay" \
+    --spec "$OUT/specs/$NAME.json" --output "$OUT/minimaps" --map "$id" > "$OUT/logs/minimap-$id.log" 2>&1
 done
 echo "pack $PACK (pack.json sha256 $(sha256sum "$PACK/pack.json" | cut -d' ' -f1)); minimaps in $OUT/minimaps"

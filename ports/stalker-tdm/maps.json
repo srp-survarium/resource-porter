@@ -1,5 +1,5 @@
 {
- "note": "Static settings per map for ports/stalker-tdm/<map>.json (tools/stalker-tdm/make_spec.py). ids: maps_dict 210-215 (free in skhid); level_number: match_making_params.map_id 14-19 (live uses 1-13). Tall ladders stay as they are, except where a map lists added geometry (walker_ramps, walker_boxes, props, cuts: make_spec.py passes them to the importer): Experimental Pool's cave-in, team 1's way to the roof at ladder clmbl#8 (the owner's pick of 2026-10-27). loading_screen_id 30-35: the lobby movie built from source (srp-026g/flash/lobby_menu) holds their pictures. Names other than English: translations for the owner to check. The game keeps its texts in Windows-1251: a German or Polish name with letters outside it takes the English one.",
+ "note": "Static settings per map for ports/stalker-tdm/<map>.json (tools/stalker-tdm/make_spec.py). ids: maps_dict 210-215 (free in skhid); level_number: match_making_params.map_id 14-19 (live uses 1-13; skhid's modes.tsv renumbers them 15-20). A map with `pack` stalker-maps-2 (Dark Valley, Vehicle Station, Fire Station, Sports Center: maps_dict 33-36, levels 21-24, loading_screen_id 37-40) is built into that pack (build-pack.sh --pack stalker-maps-2), after the released stalker-maps@6, which it does not change. Tall ladders stay as they are, except where a map lists added geometry (walker_ramps, walker_boxes, props, cuts: make_spec.py passes them to the importer): Experimental Pool's cave-in, team 1's way to the roof at ladder clmbl#8 (the owner's pick of 2026-10-27); Dark Valley's planks over the main block's parapet from both wings; Sports Center's ramps and hatch routes and Fire Station's west roof ramp and ladder slabs, as the earlier package had them (soc-cs-dm-to-026g.json). loading_screen_id 30-35: the lobby movie built from source (srp-026g/flash/lobby_menu) holds their pictures. Names other than English: translations for the owner to check. The game keeps its texts in Windows-1251: a German or Polish name with letters outside it takes the English one.",
  "maps": {
   "cs-mp_bath": {
    "recipe": "cs-mp_bath-to-0100b",
@@ -720,6 +720,1197 @@
     "interiors": []
    },
    "loading_screen_id": 35
+  },
+  "cs-mp_darkvalley": {
+   "pack": "stalker-maps-2",
+   "recipe": "cs-mp_darkvalley-to-0100b",
+   "game": "cs",
+   "level": "mp_darkvalley",
+   "id": 33,
+   "level_number": 21,
+   "project": "cs_mp_darkvalley",
+   "map_name": "Dark Valley",
+   "map_names": {
+    "ukrainian": "Темна долина",
+    "russian": "Тёмная долина",
+    "german": "Dunkles Tal",
+    "polish": "Dolina Mroku"
+   },
+   "skylight_probe": {
+    "gain": 0.8,
+    "native_tint": true,
+    "interiors": []
+   },
+   "loading_screen_id": 37,
+   "walker_ramps": [
+    {
+     "name": "w_roof_ramp",
+     "from": [
+      267.6,
+      9.58,
+      -215.5
+     ],
+     "to": [
+      273.1,
+      12.95,
+      -215.5
+     ],
+     "width": 1.2,
+     "planks": true,
+     "reason": "the way up beside ladder clmbl#1 (273.0, -219.1), which stays: planks from a fallen roof slab on the west wing's roof (9.05; the slab 0.53 m up) to the top of the main block's parapet (12.91), 31.5 deg; the main block's roof (11.93, 688 m2) was reached only by the two ladders"
+    },
+    {
+     "name": "w_deck_ramp",
+     "from": [
+      276.6,
+      11.93,
+      -215.5
+     ],
+     "to": [
+      274.7,
+      12.95,
+      -215.5
+     ],
+     "width": 1.2,
+     "planks": true,
+     "reason": "planks from the main block's roof up to the deck over the parapet, 28.2 deg: walked both ways"
+    },
+    {
+     "name": "e_roof_ramp",
+     "from": [
+      301.4,
+      9.58,
+      -215.5
+     ],
+     "to": [
+      295.9,
+      12.95,
+      -215.5
+     ],
+     "width": 1.2,
+     "planks": true,
+     "reason": "the way up beside ladder clmbl#0 (295.9, -219.1), which stays: planks from a fallen roof slab on the east wing's roof (9.05; the slab 0.53 m up) to the top of the main block's parapet (12.91), 31.5 deg; the main block's roof (11.93, 688 m2) was reached only by the two ladders"
+    },
+    {
+     "name": "e_deck_ramp",
+     "from": [
+      292.4,
+      11.93,
+      -215.5
+     ],
+     "to": [
+      294.3,
+      12.95,
+      -215.5
+     ],
+     "width": 1.2,
+     "planks": true,
+     "reason": "planks from the main block's roof up to the deck over the parapet, 28.2 deg: walked both ways"
+    }
+   ],
+   "walker_boxes": [
+    {
+     "name": "w_parapet_deck",
+     "centre": [
+      273.9,
+      12.9,
+      -215.5
+     ],
+     "half": [
+      0.8,
+      0.05,
+      0.6
+     ],
+     "yaw": 0.0,
+     "planks": true,
+     "reason": "a plank deck over the main block's parapet (x 273.2-273.6 east of the west wing, mirrored in the east; top 12.91, 1 m over the roof; a pipe runs 1.1 m over it from z -236.5 to -220, the deck is north of it), joining the two ramps at 12.95"
+    },
+    {
+     "name": "e_parapet_deck",
+     "centre": [
+      295.1,
+      12.9,
+      -215.5
+     ],
+     "half": [
+      0.8,
+      0.05,
+      0.6
+     ],
+     "yaw": 0.0,
+     "planks": true,
+     "reason": "a plank deck over the main block's parapet (x 273.2-273.6 east of the west wing, mirrored in the east; top 12.91, 1 m over the roof; a pipe runs 1.1 m over it from z -236.5 to -220, the deck is north of it), joining the two ramps at 12.95"
+    }
+   ],
+   "props": [
+    {
+     "name": "w_ramp_foot",
+     "model": "props/cover/concrete_tray_01",
+     "position": [
+      266.85,
+      9.05,
+      -215.6
+     ],
+     "yaw": 1.5708,
+     "reason": "a slab of the main block's roof edge, fallen onto the wing's roof: the ramp starts on it (0.53 m up)"
+    },
+    {
+     "name": "w_rubble",
+     "model": "props/garbage/concrete_wrecks",
+     "position": [
+      271.8,
+      9.05,
+      -217.4
+     ],
+     "yaw": 1.2,
+     "reason": "rubble at the foot of the main block's wall, under the broken edge"
+    },
+    {
+     "name": "w_chunk_a",
+     "model": "props/garbage/concrete_wreck2",
+     "position": [
+      270.0,
+      9.05,
+      -218.1
+     ],
+     "yaw": 1.1,
+     "reason": "a broken slab by the wing's south parapet"
+    },
+    {
+     "name": "w_chunk_b",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      271.4,
+      9.05,
+      -213.3
+     ],
+     "yaw": 1.65,
+     "reason": "a broken slab with rebar north of the ramp"
+    },
+    {
+     "name": "w_rim_rebar",
+     "model": "props/garbage/concrete_wreck3",
+     "position": [
+      275.0,
+      11.93,
+      -217.3
+     ],
+     "yaw": 0.3,
+     "reason": "rebar and broken bits on the main block's roof, beside the planks"
+    },
+    {
+     "name": "w_rim_slab",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      275.4,
+      11.93,
+      -213.6
+     ],
+     "yaw": 0.4,
+     "reason": "a broken slab with rebar on the main block's roof, north of the planks"
+    },
+    {
+     "name": "e_ramp_foot",
+     "model": "props/cover/concrete_tray_01",
+     "position": [
+      302.15,
+      9.05,
+      -215.6
+     ],
+     "yaw": 1.5708,
+     "reason": "a slab of the main block's roof edge, fallen onto the wing's roof: the ramp starts on it (0.53 m up)"
+    },
+    {
+     "name": "e_rubble",
+     "model": "props/garbage/concrete_wrecks",
+     "position": [
+      297.2,
+      9.05,
+      -217.4
+     ],
+     "yaw": -1.2,
+     "reason": "rubble at the foot of the main block's wall, under the broken edge"
+    },
+    {
+     "name": "e_chunk_a",
+     "model": "props/garbage/concrete_wreck2",
+     "position": [
+      299.0,
+      9.05,
+      -218.1
+     ],
+     "yaw": -1.1,
+     "reason": "a broken slab by the wing's south parapet"
+    },
+    {
+     "name": "e_chunk_b",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      297.6,
+      9.05,
+      -213.3
+     ],
+     "yaw": -1.65,
+     "reason": "a broken slab with rebar north of the ramp"
+    },
+    {
+     "name": "e_rim_rebar",
+     "model": "props/garbage/concrete_wreck3",
+     "position": [
+      294.0,
+      11.93,
+      -217.3
+     ],
+     "yaw": -0.3,
+     "reason": "rebar and broken bits on the main block's roof, beside the planks"
+    },
+    {
+     "name": "e_rim_slab",
+     "model": "props/garbage/concrete_wreck1",
+     "position": [
+      293.6,
+      11.93,
+      -213.6
+     ],
+     "yaw": -0.4,
+     "reason": "a broken slab with rebar on the main block's roof, north of the planks"
+    }
+   ]
+  },
+  "cs-mp_atp": {
+   "pack": "stalker-maps-2",
+   "recipe": "cs-mp_atp-to-0100b",
+   "game": "cs",
+   "level": "mp_atp",
+   "id": 34,
+   "level_number": 22,
+   "project": "cs_mp_atp",
+   "map_name": "Vehicle Station",
+   "map_names": {
+    "ukrainian": "АТП",
+    "russian": "АТП",
+    "german": "Parkplatz",
+    "polish": "Dworzec autobusowy"
+   },
+   "skylight_probe": {
+    "gain": 0.8,
+    "native_tint": true,
+    "interiors": []
+   },
+   "loading_screen_id": 38
+  },
+  "cs-mp_firestation": {
+   "pack": "stalker-maps-2",
+   "recipe": "cs-mp_firestation-to-0100b",
+   "game": "cs",
+   "level": "mp_firestation",
+   "id": 35,
+   "level_number": 23,
+   "project": "cs_mp_firestation",
+   "map_name": "Fire Station",
+   "map_names": {
+    "ukrainian": "Пожежна станція",
+    "russian": "Пожарная станция",
+    "german": "Feuerwehrwache",
+    "polish": "Remiza"
+   },
+   "skylight_probe": {
+    "gain": 0.8,
+    "native_tint": true,
+    "interiors": [
+     {
+      "name": "room_00",
+      "centre": [
+       -18.5,
+       6.87,
+       7.34
+      ],
+      "half": [
+       8.0,
+       3.2,
+       18.5
+      ],
+      "diffuse": 0.46,
+      "reason": "interior_probes.py: 592 m2 under cover, mean sky visibility 0.01 (83% of the box covered)"
+     },
+     {
+      "name": "room_01",
+      "centre": [
+       29.0,
+       1.55,
+       16.84
+      ],
+      "half": [
+       10.5,
+       2.7,
+       13.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 546 m2 under cover, mean sky visibility 0.00 (78% of the box covered)"
+     },
+     {
+      "name": "room_02",
+      "centre": [
+       -19.0,
+       8.62,
+       29.34
+      ],
+      "half": [
+       7.5,
+       2.45,
+       4.5
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 135 m2 under cover, mean sky visibility 0.00 (94% of the box covered)"
+     },
+     {
+      "name": "room_03",
+      "centre": [
+       10.0,
+       7.02,
+       13.34
+      ],
+      "half": [
+       5.5,
+       3.26,
+       5.5
+      ],
+      "diffuse": 0.46,
+      "reason": "interior_probes.py: 121 m2 under cover, mean sky visibility 0.01 (76% of the box covered)"
+     },
+     {
+      "name": "room_04",
+      "centre": [
+       10.5,
+       11.94,
+       27.84
+      ],
+      "half": [
+       5.0,
+       2.2,
+       5.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 100 m2 under cover, mean sky visibility 0.00 (90% of the box covered)"
+     },
+     {
+      "name": "room_05",
+      "centre": [
+       43.0,
+       1.55,
+       18.84
+      ],
+      "half": [
+       4.5,
+       2.7,
+       5.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 90 m2 under cover, mean sky visibility 0.00 (97% of the box covered)"
+     },
+     {
+      "name": "room_06",
+      "centre": [
+       44.0,
+       9.3,
+       10.84
+      ],
+      "half": [
+       7.5,
+       2.75,
+       3.0
+      ],
+      "diffuse": 0.46,
+      "reason": "interior_probes.py: 90 m2 under cover, mean sky visibility 0.00 (70% of the box covered)"
+     },
+     {
+      "name": "room_07",
+      "centre": [
+       -61.0,
+       12.56,
+       16.84
+      ],
+      "half": [
+       4.5,
+       2.2,
+       4.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 72 m2 under cover, mean sky visibility 0.00 (79% of the box covered)"
+     },
+     {
+      "name": "room_08",
+      "centre": [
+       -30.5,
+       8.93,
+       20.84
+      ],
+      "half": [
+       4.0,
+       2.7,
+       4.0
+      ],
+      "diffuse": 0.46,
+      "reason": "interior_probes.py: 64 m2 under cover, mean sky visibility 0.01 (86% of the box covered)"
+     },
+     {
+      "name": "room_09",
+      "centre": [
+       -62.0,
+       10.14,
+       40.34
+      ],
+      "half": [
+       4.5,
+       3.63,
+       3.5
+      ],
+      "diffuse": 0.57,
+      "reason": "interior_probes.py: 63 m2 under cover, mean sky visibility 0.08 (88% of the box covered)"
+     },
+     {
+      "name": "room_10",
+      "centre": [
+       -53.0,
+       7.95,
+       8.84
+      ],
+      "half": [
+       5.5,
+       3.19,
+       2.0
+      ],
+      "diffuse": 0.54,
+      "reason": "interior_probes.py: 44 m2 under cover, mean sky visibility 0.06 (87% of the box covered)"
+     },
+     {
+      "name": "room_11",
+      "centre": [
+       -65.0,
+       11.57,
+       29.84
+      ],
+      "half": [
+       3.5,
+       3.19,
+       3.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 42 m2 under cover, mean sky visibility 0.00 (70% of the box covered)"
+     }
+    ]
+   },
+   "loading_screen_id": 39,
+   "walker_ramps": [
+    {
+     "name": "roof_west_ramp",
+     "from": [
+      -33.0,
+      6.66,
+      28.0
+     ],
+     "to": [
+      -26.22,
+      11.23,
+      28.0
+     ],
+     "width": 1.0,
+     "reason": "replaces ladder clmbl#1 (6.66 to the 11.23 roof edge, 4.6 m) 3.6 m south of it, rising east against the west wall at 34 degrees; opens the 678 m2 west roof (also the top of clmbl#0, 5.8 m) with 3 DM spawns"
+    },
+    {
+     "name": "ladder0_planks",
+     "from": [
+      -35.14,
+      5.48,
+      15.27
+     ],
+     "to": [
+      -26.39,
+      10.52,
+      15.27
+     ],
+     "width": 0.6,
+     "reason": "two planks over ladder clmbl#0 (5.48 to the 10.52 roof behind it), 30 deg, 8.75 m; the roof is already reached by roof_west_ramp",
+     "planks": true
+    }
+   ],
+   "walker_boxes": [
+    {
+     "name": "ladder2_rungs",
+     "centre": [
+      -63.67,
+      11.08,
+      42.79
+     ],
+     "half": [
+      0.25,
+      3.54,
+      0.61
+     ],
+     "reason": "slab over the rungs of clmbl#2 (7.5 to the 14.6 roof, 97 m2, blocked; its spawn dropped)"
+    },
+    {
+     "name": "ladder7_rungs",
+     "centre": [
+      50.07,
+      4.56,
+      18.59
+     ],
+     "half": [
+      0.25,
+      5.12,
+      0.66
+     ],
+     "reason": "slab over the rungs of clmbl#7, the bottom of the 17.5 m tower chain (-0.6 to 9.7, then clmbl#8 to the 16.9 tower top); tower top blocked"
+    },
+    {
+     "name": "ladder9_rungs",
+     "centre": [
+      50.03,
+      10.32,
+      11.55
+     ],
+     "half": [
+      0.66,
+      2.16,
+      0.25
+     ],
+     "reason": "slab over the rungs of clmbl#9 (8.2 stairwell landing to a 1 m2 ledge at 12.5, then clmbl#10 to the tower top); blocked"
+    }
+   ]
+  },
+  "cs-mp_sport_center": {
+   "pack": "stalker-maps-2",
+   "recipe": "cs-mp_sport_center-to-0100b",
+   "game": "cs",
+   "level": "mp_sport_center",
+   "id": 36,
+   "level_number": 24,
+   "project": "cs_mp_sport_center",
+   "map_name": "Sports Center",
+   "map_names": {
+    "ukrainian": "Спортивний центр",
+    "russian": "Спортивный центр",
+    "german": "Sportzentrum",
+    "polish": "Centrum sportowe"
+   },
+   "skylight_probe": {
+    "gain": 0.8,
+    "native_tint": true,
+    "interiors": [
+     {
+      "name": "room_00",
+      "centre": [
+       -82.26,
+       5.45,
+       -44.04
+      ],
+      "half": [
+       19.0,
+       7.2,
+       17.5
+      ],
+      "diffuse": 0.55,
+      "reason": "interior_probes.py: 1330 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+     },
+     {
+      "name": "room_01",
+      "centre": [
+       -49.76,
+       6.2,
+       -36.04
+      ],
+      "half": [
+       14.5,
+       7.94,
+       17.5
+      ],
+      "diffuse": 0.55,
+      "reason": "interior_probes.py: 1015 m2 under cover, mean sky visibility 0.00 (95% of the box covered)"
+     },
+     {
+      "name": "room_02",
+      "centre": [
+       -76.26,
+       2.07,
+       -19.54
+      ],
+      "half": [
+       13.0,
+       2.58,
+       8.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 416 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+     },
+     {
+      "name": "room_03",
+      "centre": [
+       -47.76,
+       6.57,
+       -57.54
+      ],
+      "half": [
+       20.5,
+       3.2,
+       4.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 328 m2 under cover, mean sky visibility 0.00 (99% of the box covered)"
+     },
+     {
+      "name": "room_04",
+      "centre": [
+       -25.26,
+       1.82,
+       -26.54
+      ],
+      "half": [
+       9.0,
+       2.33,
+       8.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 288 m2 under cover, mean sky visibility 0.00 (71% of the box covered)"
+     },
+     {
+      "name": "room_05",
+      "centre": [
+       -47.76,
+       6.57,
+       -15.04
+      ],
+      "half": [
+       20.5,
+       3.2,
+       3.5
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 287 m2 under cover, mean sky visibility 0.00 (99% of the box covered)"
+     },
+     {
+      "name": "room_06",
+      "centre": [
+       -25.26,
+       1.82,
+       -45.04
+      ],
+      "half": [
+       9.0,
+       2.33,
+       7.5
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 270 m2 under cover, mean sky visibility 0.00 (72% of the box covered)"
+     },
+     {
+      "name": "room_07",
+      "centre": [
+       -87.76,
+       3.97,
+       -33.54
+      ],
+      "half": [
+       8.5,
+       8.22,
+       7.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 238 m2 under cover, mean sky visibility 0.00 (74% of the box covered)"
+     },
+     {
+      "name": "room_08",
+      "centre": [
+       -87.76,
+       3.32,
+       -25.04
+      ],
+      "half": [
+       8.5,
+       8.46,
+       5.5
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 187 m2 under cover, mean sky visibility 0.00 (84% of the box covered)"
+     },
+     {
+      "name": "room_09",
+      "centre": [
+       -94.76,
+       6.08,
+       -17.54
+      ],
+      "half": [
+       6.5,
+       6.58,
+       5.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 130 m2 under cover, mean sky visibility 0.00 (84% of the box covered)"
+     },
+     {
+      "name": "room_10",
+      "centre": [
+       -22.26,
+       5.8,
+       -57.54
+      ],
+      "half": [
+       6.0,
+       4.99,
+       4.0
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 96 m2 under cover, mean sky visibility 0.00 (82% of the box covered)"
+     },
+     {
+      "name": "room_11",
+      "centre": [
+       -22.26,
+       6.25,
+       -15.04
+      ],
+      "half": [
+       6.0,
+       5.37,
+       3.5
+      ],
+      "diffuse": 0.45,
+      "reason": "interior_probes.py: 84 m2 under cover, mean sky visibility 0.00 (85% of the box covered)"
+     }
+    ]
+   },
+   "loading_screen_id": 40,
+   "walker_ramps": [
+    {
+     "name": "basin_exit_west",
+     "from": [
+      -93.05,
+      -1.24,
+      -48.0
+     ],
+     "to": [
+      -96.05,
+      0.44,
+      -48.0
+     ],
+     "width": 1.0,
+     "planks": true,
+     "reason": "replaces ladders clmbl#7 (-95.8,-45.2) and #6 (deep end, via the basin slope): basin shallow floor -1.24 to the west rim 0.44, 29.2 deg"
+    },
+    {
+     "name": "basin_exit_east",
+     "from": [
+      -83.35,
+      -1.24,
+      -46.5
+     ],
+     "to": [
+      -80.35,
+      0.44,
+      -46.5
+     ],
+     "width": 1.0,
+     "planks": true,
+     "reason": "replaces ladders clmbl#4 (-80.6,-45.2) and #5 (deep end, via the basin slope): basin shallow floor to the east rim 0.44, 29.2 deg; set at z -46.5 to clear the gravel heap at the wall"
+    },
+    {
+     "name": "stand_ramp",
+     "from": [
+      -78.4,
+      4.16,
+      -42.95
+     ],
+     "to": [
+      -78.4,
+      9.42,
+      -49.35
+     ],
+     "width": 0.8,
+     "planks": true,
+     "reason": "replaces ladders clmbl#2/#3 (gallery 4.16 to the tribune 9.2) and gives access to the whole upper level (2,684 m2, 4 spawns) that otherwise only ladders clmbl#0-#3 reach; 39.4 deg: tribune joists every 2.3 m (underside 9.2) leave no room for a 30 deg run, so this is the shallowest that clears them; 0.8 m wide, leaves 1.2 m and 2.0 m of gallery free on either side"
+    },
+    {
+     "name": "steel_stair_south",
+     "from": [
+      -87.45,
+      0.0,
+      -59.08
+     ],
+     "to": [
+      -80.25,
+      4.16,
+      -59.08
+     ],
+     "width": 0.9,
+     "planks": true,
+     "reason": "steep metal stair 0 to 4.16 (61.3 deg fake-material plane over the steel treads at x -82.68..-80.56, z -59.87..-58.74; over the 50 deg walk limit): 30 deg, foot run out 4.8 m along the hall floor; lane at z -59.08 clears the pillar at x -84.5..-83.9, z < -59.6"
+    },
+    {
+     "name": "steel_stair_north",
+     "from": [
+      -87.45,
+      0.0,
+      -14.0
+     ],
+     "to": [
+      -80.25,
+      4.16,
+      -14.0
+     ],
+     "width": 0.9,
+     "planks": true,
+     "reason": "mirror of steel_stair_south: steep metal stair 0 to 4.16 (61.3 deg, x -82.68..-80.56, z -14.35..-13.22): 30 deg, lane at z -14.0 clears the mirrored pillar"
+    },
+    {
+     "name": "steel_stair_west_lower",
+     "from": [
+      -77.95,
+      0.0,
+      -15.16
+     ],
+     "to": [
+      -84.45,
+      4.72,
+      -15.16
+     ],
+     "width": 0.9,
+     "planks": true,
+     "reason": "steep metal stair 0 to the 4.67 landing (61.0 deg, x -81.72..-84.23, z -15.72..-14.59): 36 deg, the gentlest whose foot (under the 4.16 gallery, underside 3.47) keeps 1.8 m headroom; top set 5 cm over the landing so the stair's top edge stays under the planks"
+    },
+    {
+     "name": "steel_stair_west_upper",
+     "from": [
+      -85.13,
+      4.67,
+      -15.16
+     ],
+     "to": [
+      -89.15,
+      6.99,
+      -15.16
+     ],
+     "width": 0.9,
+     "planks": true,
+     "reason": "second flight from the 4.67 landing to 6.99 (59.7 deg, x -87.65..-88.87): 30 deg, foot on the landing"
+    },
+    {
+     "name": "hatch_south_plank",
+     "from": [
+      -17.75,
+      9.36,
+      -49.43
+     ],
+     "to": [
+      -21.0,
+      11.63,
+      -49.43
+     ],
+     "width": 0.6,
+     "planks": true,
+     "reason": "replaces ladder clmbl#0 (stair landing 7.68 to the third floor 11.61): from the top of the four-column crate stack hatch_south_crate_* along the north wall up through the widened hatch hatch_south_opening, 34.9 deg, 2.41 m headroom"
+    },
+    {
+     "name": "hatch_north_plank",
+     "from": [
+      -17.75,
+      9.36,
+      -22.78
+     ],
+     "to": [
+      -21.0,
+      11.63,
+      -22.78
+     ],
+     "width": 0.6,
+     "planks": true,
+     "reason": "mirror of hatch_south_plank for ladder clmbl#1 through hatch_north_opening, 34.9 deg"
+    }
+   ],
+   "props": [
+    {
+     "name": "hatch_south_crate_10",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -51.0
+     ],
+     "yaw": -0.03,
+     "reason": "step 1 of 4 (top 8.10) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_20",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -50.46
+     ],
+     "yaw": -0.01,
+     "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_21",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.1,
+      -50.46
+     ],
+     "yaw": 0.01,
+     "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_30",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -49.92
+     ],
+     "yaw": 0.03,
+     "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_31",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.1,
+      -49.92
+     ],
+     "yaw": -0.02,
+     "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_32",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.52,
+      -49.92
+     ],
+     "yaw": 0.0,
+     "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_40",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -49.38
+     ],
+     "yaw": 0.02,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_41",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.1,
+      -49.38
+     ],
+     "yaw": -0.03,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_42",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.52,
+      -49.38
+     ],
+     "yaw": -0.01,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_south_crate_43",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.94,
+      -49.38
+     ],
+     "yaw": 0.01,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_south_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_10",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -21.21
+     ],
+     "yaw": -0.03,
+     "reason": "step 1 of 4 (top 8.10) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_20",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -21.75
+     ],
+     "yaw": -0.01,
+     "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_21",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.1,
+      -21.75
+     ],
+     "yaw": 0.01,
+     "reason": "step 2 of 4 (top 8.52) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_30",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -22.29
+     ],
+     "yaw": 0.03,
+     "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_31",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.1,
+      -22.29
+     ],
+     "yaw": -0.02,
+     "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_32",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.52,
+      -22.29
+     ],
+     "yaw": 0.0,
+     "reason": "step 3 of 4 (top 8.94) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_40",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      7.68,
+      -22.83
+     ],
+     "yaw": 0.02,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_41",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.1,
+      -22.83
+     ],
+     "yaw": -0.03,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_42",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.52,
+      -22.83
+     ],
+     "yaw": -0.01,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    },
+    {
+     "name": "hatch_north_crate_43",
+     "model": "props/box/woodbox",
+     "position": [
+      -17.84,
+      8.94,
+      -22.83
+     ],
+     "yaw": 0.01,
+     "reason": "step 4 of 4 (top 9.36) of the crate stack up to hatch_north_plank; 0.42 m rises, 0.54 m treads"
+    }
+   ],
+   "cuts": [
+    {
+     "name": "hatch_south_opening",
+     "models": "models/ported/cs/sport_center/",
+     "centre": [
+      -19.195,
+      11.45,
+      -50.03
+     ],
+     "half": [
+      1.765,
+      0.35,
+      0.93
+     ],
+     "reason": "ladder clmbl#0's 1.5 m hatch widened to the stair landing below (x -20.96..-17.43, z -50.96..-49.10, the slab 11.1..11.8 with its kerb) so hatch_south_plank keeps 1.8 m headroom"
+    },
+    {
+     "name": "hatch_north_opening",
+     "models": "models/ported/cs/sport_center/",
+     "centre": [
+      -19.195,
+      11.45,
+      -22.18
+     ],
+     "half": [
+      1.765,
+      0.35,
+      0.93
+     ],
+     "reason": "mirror of hatch_south_opening for ladder clmbl#1"
+    },
+    {
+     "name": "ladder_south_removed",
+     "models": "models/ported/cs/sport_center/",
+     "centre": [
+      -17.59,
+      9.655,
+      -50.075
+     ],
+     "half": [
+      0.17,
+      1.965,
+      0.575
+     ],
+     "reason": "ladder clmbl#0 (0.26g has no ladders) removed so the hatch_south_crate_* stack stands against the wall; stops 1 cm short of the wall plane x -17.41"
+    },
+    {
+     "name": "ladder_north_removed",
+     "models": "models/ported/cs/sport_center/",
+     "centre": [
+      -17.59,
+      9.655,
+      -22.135
+     ],
+     "half": [
+      0.17,
+      1.965,
+      0.575
+     ],
+     "reason": "mirror of ladder_south_removed for ladder clmbl#1"
+    }
+   ]
   }
  }
 }
