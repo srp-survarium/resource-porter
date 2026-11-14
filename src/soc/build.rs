@@ -19,7 +19,7 @@ use crate::binary_config::{BinaryConfig, ConfigValue, NamedValue};
 use crate::manifest::BuiltFile;
 use crate::weapon::{record_file, reject_duplicate_outputs};
 
-use super::codec::{blender, cform, gamemtl, level, ogf};
+use super::codec::{blender, cform, gamemtl, level, ogf, texture_metadata};
 use super::convert::collision;
 use super::convert::game_material::{self, CollisionMaterialBinding};
 use super::convert::render_material::{self, MaterialPlan, RenderFamily};
@@ -694,7 +694,7 @@ pub fn probe_level(source: &mut SocSource, level_name: &str) -> Result<LevelProb
 /// `CBlender_BmmD` samples `<base>_mask` (`strconcat(L_textures[0], "_mask")`)
 /// and the vertex shader scales the detail UV by `dt_params`, which
 /// `CTextureDescrMngr` reads from the base texture's `[association]` line in
-/// `textures.ltx` (`<base> = <detail>, <scale>`).
+/// `textures.ltx` (`<base> = <detail>, <scale>`) or its .thm metadata.
 fn complete_terrain_sources(
     manifest: &SocMapManifest,
     source: &mut SocSource,
@@ -717,6 +717,16 @@ fn complete_terrain_sources(
             terrain.mask = Some(mask);
         }
         terrain.detail_scale = scales.get(&source::normalize(base)).copied();
+        // CTextureDescrMngr loads THM after textures.ltx. Clear Sky keeps
+        // the authored repeat count here (Military Warehouses: 57, not the
+        // metre-based fallback's 142).
+        let thm = format!("textures/{}.thm", source::normalize(base));
+        if source.contains(&thm)
+            && let Some(scale) = texture_metadata::detail_scale(&source.read(&thm)?)
+                .with_context(|| format!("reading {thm}"))?
+        {
+            terrain.detail_scale = Some(scale);
+        }
         println!(
             "terrain {} base={base} mask={:?} scale={:?} layers={:?}",
             plan.source_shader, terrain.mask, terrain.detail_scale, terrain.layers
@@ -815,6 +825,11 @@ fn plan_textures(
         wanted.extend(with_normals);
     }
 
+    let terrain_normals: BTreeSet<String> = plans
+        .iter()
+        .filter_map(|plan| plan.terrain.as_ref())
+        .flat_map(|terrain| terrain.layers.iter().map(|layer| format!("{layer}_bump")))
+        .collect();
     let mut textures = Vec::with_capacity(wanted.len());
     let mut missing = Vec::new();
     for name in &wanted {
@@ -824,6 +839,26 @@ fn plan_textures(
             continue;
         };
         let is_normal = name.ends_with("_bump");
+        if is_normal && terrain_normals.contains(name) {
+            // Terrain's shader doubles the normal's slope. Use a distinct
+            // texture: another surface may also use the ordinary bump.
+            let terrain_name = terrain_normal_name(name);
+            let bytes =
+                source::repack_normal_dds(&bytes, source::NormalPacking::XRayTerrainBump, name)?;
+            let info = source::parse_dds(&bytes, name)?;
+            let bytes = source::canonicalize_dds(&bytes, info, false)?;
+            let target_dds = source::target_texture_path(&manifest.namespace, &terrain_name)?;
+            let target_options = target_dds.strip_suffix(".dds").unwrap().to_owned() + ".options";
+            textures.push(TexturePlan {
+                source_name: terrain_name,
+                target_dds,
+                target_options,
+                info,
+                bytes,
+                is_normal: true,
+                srgb: false,
+            });
+        }
         let bytes = if is_normal {
             source::repack_normal_dds(&bytes, source::NormalPacking::XRayBump, name)?
         } else {
@@ -1493,7 +1528,10 @@ pub(crate) fn write_materials(
                         bind_texture(
                             &mut material,
                             &format!("material.g_stage.effect.texture_normal_{layer}.value"),
-                            &source::target_texture_path(&manifest.namespace, &bump)?,
+                            &source::target_texture_path(
+                                &manifest.namespace,
+                                &terrain_normal_name(&bump),
+                            )?,
                             template_path,
                         )?;
                     }
@@ -1525,6 +1563,21 @@ pub(crate) fn write_materials(
                     )?;
                 }
             }
+            if plan.terrain.is_some() {
+                // Retail Clear Sky's deffer_impl_flat (R2 and R3) uses no
+                // parallax for this terrain. Retain the shipped permutation,
+                // but give its height lookup a constant 1: zero UV offset.
+                // The template's unrelated soil/debris heights must not warp
+                // these grass/asphalt/earth textures.
+                for layer in 0..4 {
+                    bind_texture(
+                        &mut material,
+                        &format!("material.g_stage.effect.texture_height_{layer}.value"),
+                        &controls.flat_height,
+                        template_path,
+                    )?;
+                }
+            }
             // The tiled layers repeat at a fixed size on the ground rather than
             // a fixed number of times, because the UV range a terrain shader
             // covers differs per shader and per map. `constant_tile_N` is a
@@ -1532,9 +1585,15 @@ pub(crate) fn write_materials(
             // metre-sized repeat is the shader's world span per UV unit divided
             // by the size wanted.
             let density = uv_density.get(&plan.shader_id).copied().unwrap_or(0.0);
-            // X-Ray's own repeat count where `textures.ltx` gives it: the
+            // X-Ray's own repeat count from textures.ltx or .thm: the
             // detail UV is the mesh UV times that scale, for all four layers.
             if let Some(scale) = plan.terrain.as_ref().and_then(|source| source.detail_scale) {
+                anyhow::ensure!(
+                    scale.is_finite() && scale > 0.,
+                    "invalid terrain detail scale {scale}"
+                );
+                // Keep the native config type. The 0.26g material schema
+                // stores the repeat count as an integer.
                 let tile = (scale.round() as i32).clamp(1, MAX_TERRAIN_TILE);
                 for layer in 0..4 {
                     material
@@ -1672,12 +1731,17 @@ fn write_constant_texture(
     Ok(format!("{}/{name}", manifest.namespace))
 }
 
-/// The two constants a converted terrain material needs, and their paths.
+/// The generated blend mask and neutral parallax height, and their paths.
 pub(crate) struct TerrainControls {
     mask: String,
+    flat_height: String,
 }
 
-/// Generate the blend mask and the exposure multiplier for this map's terrain.
+fn terrain_normal_name(bump: &str) -> String {
+    format!("{bump}_terrain")
+}
+
+/// Generate the blend mask and neutral parallax height for this map's terrain.
 ///
 /// `terrain_gbuffer_pass` weights its four layers by a mask sampled at the
 /// *untiled* mesh UV, and level_03's mask is a 2048x2048 painting of level_03's
@@ -1701,6 +1765,16 @@ fn write_terrain_controls(
     println!("terrain_mask={weights:?} channel_sum={weight_sum}");
 
     Ok(TerrainControls {
+        flat_height: write_constant_texture(
+            manifest,
+            target,
+            overlay,
+            "terrain_flat_height",
+            [255; 4],
+            false,
+            "generated:xray-terrain-no-parallax",
+            files,
+        )?,
         mask: write_constant_texture(
             manifest,
             target,
