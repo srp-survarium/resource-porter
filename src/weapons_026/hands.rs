@@ -418,11 +418,14 @@ pub fn hands_pairs(states: &ConfigValue) -> Vec<HandsClip> {
         };
         let (users, items) = (strings("user_animations"), strings("animations"));
         let stem = |p: &str| p.rsplit('/').next().unwrap_or(p).to_owned();
-        for user in &users {
+        for (slot, user) in users.iter().enumerate() {
+            // The gun's clip of the same name, else of the same slot (a
+            // two-clip reload's `[tactical, empty] x 4` hands play its
+            // `[tactical, empty]` items by the magazine, 0x30FE90).
             let item = items
                 .iter()
                 .find(|i| stem(i) == stem(user))
-                .or(items.first());
+                .or(items.get(slot % items.len().max(1)));
             if let Some(item) = item {
                 out.push(HandsClip {
                     state: state.to_owned(),
@@ -1377,5 +1380,42 @@ mod tests {
         let st = stance(&s, [0.0; 3], [0.0; 3]);
         let full = clip(&[("LeftHand", [0.0; 3], [0.0; 3], [0.0; 3], [0.0; 3])], 0);
         assert!(pose(&s, &st, &full, 0.0).is_err());
+    }
+
+    #[test]
+    fn a_reload_hands_clip_plays_the_item_clip_of_its_slot() {
+        // The Beretta's own copies are named otherwise than its gun's clips:
+        // the empty hands go with the empty item, not the first.
+        let list = |names: &[&str]| {
+            ConfigValue::Indexed(
+                names
+                    .iter()
+                    .map(|n| ConfigValue::String((*n).into()))
+                    .collect(),
+            )
+        };
+        let states = ConfigValue::Named(vec![NamedValue {
+            name: "reload".into(),
+            value: ConfigValue::Named(vec![
+                NamedValue {
+                    name: "user_animations".into(),
+                    value: list(&[
+                        "h/reload_b",
+                        "h/reload_empty_b",
+                        "h/reload_b",
+                        "h/reload_empty_b",
+                    ]),
+                },
+                NamedValue {
+                    name: "animations".into(),
+                    value: list(&["i/reload", "i/reload_empty"]),
+                },
+            ]),
+        }]);
+        let items: Vec<String> = hands_pairs(&states).into_iter().map(|p| p.item).collect();
+        assert_eq!(
+            items,
+            ["i/reload", "i/reload_empty", "i/reload", "i/reload_empty"]
+        );
     }
 }
