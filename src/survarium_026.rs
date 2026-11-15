@@ -17,6 +17,7 @@ mod early;
 mod skylight;
 mod campfire;
 mod grade;
+mod grass;
 pub use campfire::Campfires;
 pub use grade::Grade;
 pub use cuts::Cut;
@@ -115,6 +116,25 @@ pub struct Manifest {
     /// their surroundings once 0.26 lights them.
     #[serde(default)]
     pub texture_grades: BTreeMap<String, Grade>,
+}
+
+/// Set the number at a dotted path that holds one: a whole value keeps an
+/// integer an integer, any other value makes it a float (0.26 reads either
+/// for a number; a fraction is never cut to an integer).
+pub(crate) fn set_number(root: &mut ConfigValue, path: &str, value: f32) -> Result<()> {
+    ensure!(value.is_finite(), "{path}: {value} is not a finite number");
+    let current = path
+        .split('.')
+        .try_fold(&*root, |v, part| v.named(part))
+        .with_context(|| format!("{path}: no such value"))?;
+    let new = match current {
+        ConfigValue::Integer(_) if value.fract() == 0. && value.abs() < 2f32.powi(31) => {
+            ConfigValue::Integer(value as i32)
+        }
+        ConfigValue::Integer(_) | ConfigValue::Float(_) => ConfigValue::Float(value),
+        _ => bail!("{path} is not a number"),
+    };
+    root.set_path(path, new)
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -2734,6 +2754,18 @@ pub fn build(
     let mut cut_hits = vec![(0usize, 0usize); map_cuts.len()];
     let mut cut_counts: BTreeMap<String, cuts::SurfaceCounts> = BTreeMap::new();
     let mut cut_collision: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let grass_plan = {
+        let mut layers = Vec::new();
+        for path in plan.donor_files.iter().filter(|p| p.ends_with(".veg")) {
+            let bytes = match overrides.get(path) {
+                Some(b) => b.clone(),
+                None => donor.read(path)?,
+            };
+            layers.push((path.as_str(), grass::instances(&bytes).with_context(|| format!("counting {path}"))?));
+        }
+        grass::Plan::new(layers)?
+    };
+    let mut thinned_grass = BTreeMap::new();
     for path in &plan.donor_files {
         if successor_dirs
             .iter()
@@ -2873,9 +2905,13 @@ pub fn build(
         if path.ends_with(".veg") {
             vegetation_instances.insert(
                 path.clone(),
-                early::vegetation_instances(&bytes)
+                grass::instances(&bytes)
                     .with_context(|| format!("checking original vegetation {path}"))?,
             );
+            bytes = grass_plan.layer(path, &bytes)?;
+            if let Some((total, kept)) = grass_plan.map_of(path).filter(|(total, kept)| total > kept) {
+                thinned_grass.insert(path.rsplit_once("/vegetation/").map_or(path.as_str(), |(map, _)| map).to_owned(), (total, kept));
+            }
         }
         if m.source_build.early() && path.ends_with(".single_sound_options") {
             bytes = target.read("sounds/single/weather/wind/wind_day.raw_options")?;
@@ -2913,6 +2949,15 @@ pub fn build(
         if is_config_resource(path) {
             let mut c =
                 BinaryConfig::parse(&bytes).with_context(|| format!("decoding config {path}"))?;
+            if m.source_build.early()
+                && path.starts_with("material_instances/")
+                && early::matte_colour_gloss(&mut c.root).with_context(|| format!("the gloss of {path}"))?
+            {
+                compatibility_notes.push(format!(
+                    "{path}: its colour texture is its gloss map: gloss {} at both ends of the range",
+                    early::COLOUR_GLOSS
+                ));
+            }
             if let Some(overrides) = path
                 .strip_suffix("/exported_primitives")
                 .and_then(|dir| m.collision_primitive_overrides.get(dir))
@@ -3199,6 +3244,11 @@ pub fn build(
     for path in m.texture_grades.keys() {
         ensure!(plan.donor_files.contains(path), "texture grade names a texture the maps do not import: {path}");
     }
+    for (map, (total, kept)) in &thinned_grass {
+        compatibility_notes.push(format!(
+            "{map}: grass thinned evenly from {total} to {kept} instances (0.26's grass cook overflows its 2 MiB thread at about 130,000)"
+        ));
+    }
     if !hidden_campfire_materials.is_empty() {
         ensure!(hidden_campfire_surfaces > 0, "no surface uses the campfire materials {hidden_campfire_materials:?}");
         compatibility_notes.push(format!("{hidden_campfire_surfaces} X-Ray campfire log surfaces hidden (empty material)"));
@@ -3259,6 +3309,33 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_set_number_keeps_an_integer_only_for_a_whole_value() {
+        let mut root = named(vec![
+            ("ao_saturation", ConfigValue::Integer(2)),
+            ("lens_flares_multiplier", ConfigValue::Integer(2)),
+            ("god_rays_intensity", ConfigValue::Float(1.)),
+            ("effect", named(vec![("min", named(vec![("value", ConfigValue::Integer(1))]))])),
+            ("use_sun", ConfigValue::Boolean(true)),
+        ]);
+        set_number(&mut root, "ao_saturation", 1.).unwrap();
+        set_number(&mut root, "lens_flares_multiplier", 0.7).unwrap();
+        set_number(&mut root, "god_rays_intensity", 3.).unwrap();
+        set_number(&mut root, "effect.min.value", 0.04).unwrap();
+        assert_eq!(root.named("ao_saturation"), Some(&ConfigValue::Integer(1)));
+        assert_eq!(root.named("lens_flares_multiplier"), Some(&ConfigValue::Float(0.7)));
+        assert_eq!(root.named("god_rays_intensity"), Some(&ConfigValue::Float(3.)));
+        assert_eq!(
+            root.named("effect").and_then(|e| e.named("min")).and_then(|m| m.named("value")),
+            Some(&ConfigValue::Float(0.04))
+        );
+        // Only a number that is there: no new key, no other type.
+        assert!(set_number(&mut root, "god_rays_attenuation", 3.).is_err());
+        assert!(set_number(&mut root, "use_sun", 0.).is_err());
+        assert!(set_number(&mut root, "ao_saturation", f32::NAN).is_err());
+        assert!(root.named("god_rays_attenuation").is_none());
+    }
+
     #[test]
     fn shared_particle_and_texture_names_do_not_follow_a_material_alias() {
         let paths = BTreeSet::from(["material_instances/fx/lights/oil_lamp.material".into()]);

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Leave out of a pack the files players have already, byte for byte.
 
-    leave_out_live.py --pack PACK --stock DB --patch resources.db.patch_<n>... --vostok-port VP
+    leave_out_live.py --pack PACK --stock DB --patch resources.db.patch_<n>... --vostok-port VP [--after PACK]
 
 A pack of maps added after a released one (stalker-maps-2 after stalker-maps)
 converts the same v0.100b template files (`textures/ported/v010b/...`, a
@@ -11,8 +11,10 @@ live patches refuses an add of a path players have. Each `add_file` of the
 pack whose path a live archive holds (the newest of the patches, else the
 stock db) is compared with that file: the same bytes, the operation and its
 file are left out (players keep theirs); other bytes stop it (the pack would
-change a file players have). pack.json is rewritten in place; it prints what
-was left out.
+change a file players have), unless they are the bytes of the pack it is
+built after (--after: the new version of stalker-maps, which makes that file
+for players): the file is then that pack's, and left out too. pack.json is
+rewritten in place; it prints what was left out.
 """
 import argparse
 import json
@@ -34,6 +36,7 @@ def main():
     ap.add_argument('--stock', type=Path, required=True)
     ap.add_argument('--patch', type=Path, action='append', default=[])
     ap.add_argument('--vostok-port', required=True)
+    ap.add_argument('--after', type=Path)
     a = ap.parse_args()
     number = lambda p: int(re.fullmatch(r'resources\.db\.patch_(\d+)', p.name)[1])
     archives = sorted(a.patch, key=number, reverse=True) + [a.stock]   # newest first
@@ -49,7 +52,14 @@ def main():
             live = Path(tmp) / 'live'
             subprocess.run([a.vostok_port, 'extract', '--db', str(db), '--path', path, '--output', str(live)],
                            check=True, stdout=subprocess.DEVNULL)
-            (same if live.read_bytes() == (a.pack / 'files' / path).read_bytes() else differ).append((path, db.name))
+            mine = (a.pack / 'files' / path).read_bytes()
+            theirs = a.after / 'files' / path if a.after else None
+            if live.read_bytes() == mine:
+                same.append((path, db.name))
+            elif theirs is not None and theirs.is_file() and theirs.read_bytes() == mine:
+                same.append((path, f'{a.after.name}, changed from {db.name}'))
+            else:
+                differ.append((path, db.name))
     for path, db in differ:
         print(f'differs from players\' file ({db}): {path}', file=sys.stderr)
     if differ:

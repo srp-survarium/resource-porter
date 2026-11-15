@@ -10,7 +10,8 @@ come from spots.json, the map spot planner's list: every spot of the map, by
 team (team 0 = team 1). TEMPLATES.json is xray_material_templates.py's output
 for the map's donor. A map's added geometry (`walker_ramps`, `walker_boxes`,
 `props`, `cuts` in maps.json, e.g. a way up where only a ladder was) goes into
-the spec as it is; otherwise ladders stay as the source has them.
+the spec as it is; otherwise ladders stay as the source has them (a map's `held`
+geometry is not built).
 """
 import argparse
 import json
@@ -75,7 +76,9 @@ def entry_of(key, m, all_spots):
         if m.get(k):
             entry[k] = m[k]
     added = ', '.join(f'{len(m[k])} {k}' for k in GEOMETRY if m.get(k))
-    print(f'map {m["id"]} {m["project"]}: {len(teams[0])}+{len(teams[1])} spawns, {len(stashes)} stashes' + (f'; {added}' if added else ''))
+    held = ', '.join(f'{len(v)} {k}' for k, v in m.get('held', {}).items() if k in GEOMETRY)
+    print(f'map {m["id"]} {m["project"]}: {len(teams[0])}+{len(teams[1])} spawns, {len(stashes)} stashes'
+          + (f'; {added}' if added else '') + (f'; held, not built: {held}' if held else ''))
     return entry
 
 
