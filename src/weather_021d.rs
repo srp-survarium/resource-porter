@@ -15,7 +15,8 @@
 //! What the weather adds is the donor's own: its environment as authored
 //! (only the 0.21 conversions the importer manifest opts into and the keys
 //! [`Manifest::environment_kept`] names on top), its lighting with its own
-//! cubemaps for every key the project loads, its rain particles, material
+//! cubemaps for every key the project loads (the lights 0.26 kept and
+//! retuned with 0.26's values), its rain particles, material
 //! and textures under `ported/v021d` where the target's differ. The weather
 //! shaders are the importer's guarded conversions, built over the bytes
 //! players have; they replace the shared native files, so the pack records
@@ -143,6 +144,128 @@ fn kind(o: &ConfigValue) -> &str {
 }
 fn full_name(o: &ConfigValue) -> &str {
     string(o, "full_name").unwrap_or("?")
+}
+
+/// A donor light that the target's native project still has (the same
+/// `full_name` within 10 cm of where the layout puts the native one) becomes
+/// the native object: 0.26 retuned some 0.21 lights for its renderer. On
+/// Vostok the radar building's upper lamp reaches 7 m instead of 10.7, which
+/// lit the room below through its floor, and that room's own lamp is 2
+/// instead of 0.2. The layout offset is the most common difference of the
+/// lights named once on both sides. Returns the names of the lights that
+/// changed.
+fn native_light_tuning(lights: &mut [ConfigValue], native: &ConfigValue) -> Result<Vec<String>> {
+    let position = |o: &ConfigValue| match o.named("position") {
+        Some(ConfigValue::Float3(p)) => Some(*p),
+        _ => None,
+    };
+    let native_lights: Vec<&ConfigValue> = objects(native)?
+        .iter()
+        .filter(|o| kind(o) == "light")
+        .collect();
+    let once = |list: &[&ConfigValue]| -> BTreeMap<String, [f32; 3]> {
+        let mut seen: BTreeMap<String, Option<[f32; 3]>> = BTreeMap::new();
+        for o in list {
+            seen.entry(full_name(o).to_owned())
+                .and_modify(|p| *p = None)
+                .or_insert(position(o));
+        }
+        seen.into_iter()
+            .filter_map(|(n, p)| Some((n, p?)))
+            .collect()
+    };
+    let donor_once = once(
+        &lights
+            .iter()
+            .filter(|o| kind(o) == "light")
+            .collect::<Vec<_>>(),
+    );
+    let native_once = once(&native_lights);
+    let mut votes: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    let mut pairs = 0;
+    for (name, at) in &donor_once {
+        if let Some(other) = native_once.get(name) {
+            pairs += 1;
+            *votes
+                .entry([0, 1, 2].map(|i| ((at[i] - other[i]) * 100.).round() as i64))
+                .or_default() += 1;
+        }
+    }
+    let (key, count) = votes
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .context("no light named once in both projects")?;
+    ensure!(
+        count >= 3 && count * 2 >= pairs,
+        "the native lights do not match the donor's: the best common offset has {count} of {pairs}"
+    );
+    let offset = key.map(|v| v as f32 / 100.);
+    let native_lights: Vec<ConfigValue> = native_lights
+        .into_iter()
+        .cloned()
+        .map(|mut o| {
+            if let Some(ConfigValue::Float3(p)) = o.named_mut("position") {
+                for i in 0..3 {
+                    p[i] += offset[i];
+                }
+            }
+            o
+        })
+        .collect();
+    let mut retuned = Vec::new();
+    for o in lights.iter_mut().filter(|o| kind(o) == "light") {
+        let at = position(o).with_context(|| format!("light {} has no position", full_name(o)))?;
+        let same: Vec<&ConfigValue> = native_lights
+            .iter()
+            .filter(|n| {
+                full_name(n) == full_name(o)
+                    && position(n)
+                        .is_some_and(|p| (0..3).map(|i| (p[i] - at[i]).powi(2)).sum::<f32>() < 0.01)
+            })
+            .collect();
+        match same.as_slice() {
+            [] => {}
+            [n] => {
+                if retuned_from(o, n) {
+                    retuned.push(full_name(o).to_owned());
+                    *o = (*n).clone();
+                }
+            }
+            _ => bail!(
+                "light {} is placed twice in the native project",
+                full_name(o)
+            ),
+        }
+    }
+    Ok(retuned)
+}
+
+/// Whether the native object sets a field to another value than the donor's
+/// (numbers by value: 0.26 stores some whole floats as integers; fields only
+/// the donor has are 0.21's and the 0.26 loader skips them).
+fn retuned_from(donor: &ConfigValue, native: &ConfigValue) -> bool {
+    fn same(a: &ConfigValue, b: &ConfigValue) -> bool {
+        let number = |v: &ConfigValue| match v {
+            ConfigValue::Integer(i) => Some(*i as f32),
+            ConfigValue::Float(f) => Some(*f),
+            _ => None,
+        };
+        match (a, b, number(a), number(b)) {
+            (_, _, Some(x), Some(y)) => (x - y).abs() < 1e-4,
+            (ConfigValue::Float3(x), ConfigValue::Float3(y), _, _) => {
+                x.iter().zip(y).all(|(x, y)| (x - y).abs() < 1e-4)
+            }
+            _ => a == b,
+        }
+    }
+    let ConfigValue::Named(fields) = native else {
+        return donor != native;
+    };
+    fields.iter().any(|f| {
+        donor
+            .named(&f.name)
+            .is_none_or(|value| !same(value, &f.value))
+    })
 }
 
 /// The objects a weather swaps: its environment, its layer's objects, the
@@ -653,6 +776,12 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         }
         swapped.push(o);
     }
+    let native_path = format!("projects/{level}/{weather}_2/client_project");
+    let native = cfg(&mut target, &native_path)?;
+    let retuned = native_light_tuning(&mut swapped, &native)?;
+    summary.say(format!(
+        "{weather}: the donor lights 0.26 retuned take {native_path}'s: {retuned:?}"
+    ));
     summary.say(format!(
         "{weather}: {} objects of the weather and lighting ({}), {} cubemaps; {particles_placed} particles and {materials_named} material references moved to {NAMESPACE}",
         swapped.len(),
@@ -1233,6 +1362,52 @@ mod tests {
         )]);
         assert_eq!(rename(&mut c, Some("lib_name"), &names), 1);
         assert_eq!(c.named("other"), Some(&s("fx/environment/rain")));
+    }
+
+    #[test]
+    fn lights_0_26_kept_take_its_tuning() {
+        let light = |name: &str, at: [f32; 3], range: f32| {
+            named(vec![
+                ("game_object_type", s("light")),
+                ("full_name", s(name)),
+                ("position", ConfigValue::Float3(at)),
+                ("range", ConfigValue::Float(range)),
+            ])
+        };
+        // The native layout is 2 m higher, as 0.26 level_06 is.
+        let native = named(vec![(
+            "client_objects",
+            ConfigValue::Indexed(vec![
+                light("upper", [0.0, 2.0625, 0.0], 7.0),
+                light("a", [5.0, 2.0, 0.0], 10.7),
+                light("b", [6.0, 2.0, 0.0], 10.7),
+                // The same 10 m, stored as an integer.
+                named(vec![
+                    ("game_object_type", s("light")),
+                    ("full_name", s("c")),
+                    ("position", ConfigValue::Float3([7.0, 2.0, 0.0])),
+                    ("range", ConfigValue::Integer(10)),
+                ]),
+                light("moved", [9.0, 2.0, 0.0], 3.0),
+            ]),
+        )]);
+        let mut c = light("c", [7.0, 0.0, 0.0], 10.0);
+        // A 0.21 field the 0.26 loader skips.
+        c.set_path("offset", ConfigValue::Float3([0.0, -0.265, 0.0]))
+            .unwrap();
+        let mut lights = vec![
+            light("upper", [0.0, 0.0, 0.0], 10.7),
+            light("a", [5.0, 0.0, 0.0], 10.7),
+            light("b", [6.0, 0.0, 0.0], 10.7),
+            c,
+            light("moved", [0.0, 0.0, 9.0], 10.7),
+            light("sun", [1.0, 1.0, 1.0], 300.0),
+        ];
+        let before = lights.clone();
+        let retuned = native_light_tuning(&mut lights, &native).unwrap();
+        assert_eq!(retuned, ["upper"]);
+        assert_eq!(lights[0], light("upper", [0.0, 0.0625, 0.0], 7.0));
+        assert_eq!(lights[1..], before[1..]);
     }
 
     #[test]
