@@ -763,22 +763,6 @@
      "reason": "the way up beside ladder clmbl#1 (273.0, -219.1), which stays: planks from a fallen roof slab on the west wing's roof (9.05; the slab 0.53 m up) to the top of the main block's parapet (12.91), 31.5 deg; the main block's roof (11.93, 688 m2) was reached only by the two ladders"
     },
     {
-     "name": "w_deck_ramp",
-     "from": [
-      276.6,
-      11.93,
-      -215.5
-     ],
-     "to": [
-      274.7,
-      12.95,
-      -215.5
-     ],
-     "width": 1.2,
-     "planks": true,
-     "reason": "planks from the main block's roof up to the deck over the parapet, 28.2 deg: walked both ways"
-    },
-    {
      "name": "e_roof_ramp",
      "from": [
       301.4,
@@ -793,56 +777,6 @@
      "width": 1.2,
      "planks": true,
      "reason": "the way up beside ladder clmbl#0 (295.9, -219.1), which stays: planks from a fallen roof slab on the east wing's roof (9.05; the slab 0.53 m up) to the top of the main block's parapet (12.91), 31.5 deg; the main block's roof (11.93, 688 m2) was reached only by the two ladders"
-    },
-    {
-     "name": "e_deck_ramp",
-     "from": [
-      292.4,
-      11.93,
-      -215.5
-     ],
-     "to": [
-      294.3,
-      12.95,
-      -215.5
-     ],
-     "width": 1.2,
-     "planks": true,
-     "reason": "planks from the main block's roof up to the deck over the parapet, 28.2 deg: walked both ways"
-    }
-   ],
-   "walker_boxes": [
-    {
-     "name": "w_parapet_deck",
-     "centre": [
-      273.9,
-      12.9,
-      -215.5
-     ],
-     "half": [
-      0.8,
-      0.05,
-      0.6
-     ],
-     "yaw": 0.0,
-     "planks": true,
-     "reason": "a plank deck over the main block's parapet (x 273.2-273.6 east of the west wing, mirrored in the east; top 12.91, 1 m over the roof; a pipe runs 1.1 m over it from z -236.5 to -220, the deck is north of it), joining the two ramps at 12.95"
-    },
-    {
-     "name": "e_parapet_deck",
-     "centre": [
-      295.1,
-      12.9,
-      -215.5
-     ],
-     "half": [
-      0.8,
-      0.05,
-      0.6
-     ],
-     "yaw": 0.0,
-     "planks": true,
-     "reason": "a plank deck over the main block's parapet (x 273.2-273.6 east of the west wing, mirrored in the east; top 12.91, 1 m over the roof; a pipe runs 1.1 m over it from z -236.5 to -220, the deck is north of it), joining the two ramps at 12.95"
     }
    ],
    "props": [
