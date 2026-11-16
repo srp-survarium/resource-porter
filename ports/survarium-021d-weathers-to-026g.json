@@ -2,7 +2,7 @@
   "pack": {
     "id": "maps-021d-weathers",
     "version": "1",
-    "description": "the 0.21d Radar (v021d_level_03) and Mamayev Kurgan (v021d_level_06) in their 0.21d rain and evening: Radar maps 170 and 172 (Protective device) and 171 and 173 (team deathmatch), Mamayev maps 179 and 253 (Protective device) and 180 and 254 (team deathmatch); projects v021d_<level>/rain_2, rain_4, evening_2 and evening_4 = the shipped day_2 and day_4 with the 0.21d weather environment, weather objects and lighting (probes with their own cubemaps; the lights 0.26 retuned with 0.26 values), the guarded 0.21 weather shader conversions (marker of each map: -32021 - its rain or evening batteries id), 0.21d rain particles, material and textures under ported/v021d, the 0.21d engine textures rain_drop and water_waves2 under ported/v021d/engine, the 0.21d grass vertex shaders and wet-surface pixel shader under _v021d names (for the exe patch)"
+    "description": "the 0.21d Radar (v021d_level_03), Mamayev Kurgan (v021d_level_06), School (v021d_level_02) and Tarakanovsky Fort (v021d_level_05) in their 0.21d rain and evening: Radar maps 170 and 172 (Protective device) and 171 and 173 (team deathmatch), Mamayev maps 179 and 253 and 180 and 254, School maps 1 and 3 and 2 and 4, Fort maps 5 and 7 and 6 and 8; projects v021d_<level>/rain_2, rain_4, evening_2 and evening_4 = the shipped day_2 and day_4 with the 0.21d weather environment, weather objects and lighting (probes with their own cubemaps; the lights 0.26 retuned with 0.26 values), the guarded 0.21 weather shader conversions (marker of each map: -32021 - its rain or evening batteries id), 0.21d rain particles, material and textures under ported/v021d, the 0.21d engine textures rain_drop and water_waves2 under ported/v021d/engine, the 0.21d grass vertex shaders and wet-surface pixel shader under _v021d names (for the exe patch)"
   },
   "import": {
     "donor_sha256": "e28cc2878e0e2f04ab9ab0a1861034622af487a491bf230ea24f44e9af9715a4",
@@ -67,6 +67,64 @@
         "legacy_ambient_occlusion_021": true,
         "legacy_god_rays_falloff_021": true,
         "legacy_sun_lighting_021": true
+      },
+      {
+        "id": 1,
+        "level": "level_02",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 25,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true
+      },
+      {
+        "id": 3,
+        "level": "level_02",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 25,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true
+      },
+      {
+        "id": 5,
+        "level": "level_05",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 26,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true
+      },
+      {
+        "id": 7,
+        "level": "level_05",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 26,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true
       }
     ],
     "material_templates": {
@@ -200,6 +258,86 @@
         },
         {
           "id": 254,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_02",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 1,
+          "mode": 2
+        },
+        {
+          "id": 2,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_02",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 3,
+          "mode": 2
+        },
+        {
+          "id": 4,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_05",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 5,
+          "mode": 2
+        },
+        {
+          "id": 6,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_05",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 7,
+          "mode": 2
+        },
+        {
+          "id": 8,
           "mode": 4
         }
       ],

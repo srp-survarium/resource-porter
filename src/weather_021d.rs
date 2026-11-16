@@ -210,10 +210,11 @@ fn native_light_tuning(lights: &mut [ConfigValue], native: &ConfigValue) -> Resu
                 .or_default() += 1;
         }
     }
-    let (key, count) = votes
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .context("no light named once in both projects")?;
+    // No light of the donor's is the native project's (the Fort's lights are
+    // its fires' particles): nothing 0.26 could have retuned.
+    let Some((key, count)) = votes.into_iter().max_by_key(|(_, count)| *count) else {
+        return Ok(Vec::new());
+    };
     ensure!(
         count >= 3 && count * 2 >= pairs,
         "the native lights do not match the donor's: the best common offset has {count} of {pairs}"
@@ -324,15 +325,43 @@ fn check_donor_weathers(
         names(a) == names(b),
         "donor {from} and {to} have other groups"
     );
+    // A group of placed objects may differ by whole objects (School's rain
+    // hangs two lamps, the Fort's day has three barrel stacks of its own): the
+    // new projects keep the shipped day's geometry, so every weather of a map
+    // plays the same; the difference is reported.
+    let mut geometry = Vec::new();
     for field in a {
         if field.name == "client_objects" {
             continue;
         }
-        ensure!(
-            weather.named(&field.name) == Some(&field.value),
-            "donor {from} and {to} differ in {}",
-            field.name
+        let theirs = weather.named(&field.name);
+        if theirs == Some(&field.value) {
+            continue;
+        }
+        let (ConfigValue::Indexed(x), Some(ConfigValue::Indexed(y))) = (&field.value, theirs) else {
+            bail!("donor {from} and {to} differ in {}", field.name);
+        };
+        let (x, y) = (
+            multiset(&x.iter().collect::<Vec<_>>())?,
+            multiset(&y.iter().collect::<Vec<_>>())?,
         );
+        let only = |p: &BTreeMap<Vec<u8>, usize>, q: &BTreeMap<Vec<u8>, usize>| -> usize {
+            p.iter()
+                .map(|(k, n)| n.saturating_sub(q.get(k).copied().unwrap_or(0)))
+                .sum()
+        };
+        geometry.push(format!(
+            "{}: {to} adds {} and lacks {} of {from}'s",
+            field.name,
+            only(&y, &x),
+            only(&x, &y)
+        ));
+    }
+    if !geometry.is_empty() {
+        summary.say(format!(
+            "donor: {} (the shipped {from}'s geometry is kept)",
+            geometry.join("; ")
+        ));
     }
     let split = |p: &ConfigValue, w: &str| -> Result<(Vec<ConfigValue>, Vec<ConfigValue>)> {
         let mut shared = Vec::new();
@@ -431,16 +460,15 @@ fn donor_environment(
             dropped.push(name.to_owned());
         }
     }
+    // A kept key the target's own environment of this weather lacks (native
+    // School rain has no use_bokeh_template_image) is not filled: the engine's
+    // default stands, as on the native map.
     let filled: Vec<&String> = kept
         .keys()
-        .filter(|name| !authored.contains(name.as_str()))
+        .filter(|name| {
+            !authored.contains(name.as_str()) && adapted.iter().any(|f| &f.name == *name)
+        })
         .collect();
-    for name in &filled {
-        ensure!(
-            adapted.iter().any(|f| &f.name == *name),
-            "environment_kept names {name}, which the importer does not fill"
-        );
-    }
     for name in converted {
         ensure!(
             out.iter().any(|f| f.name == *name),
