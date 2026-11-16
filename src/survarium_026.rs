@@ -45,7 +45,7 @@ pub struct Manifest {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Map {
-    pub id: u8,
+    pub id: u16,
     pub level: String,
     pub weather: String,
     /// Take the lighting objects (environment probes, ambient lights, lights)
@@ -249,7 +249,14 @@ fn fill_missing_empty_groups(value: &mut ConfigValue, template: &ConfigValue) {
     }
 }
 
-fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result<()> {
+/// Adapt each object to its 0.26 template. An object of a `replaced` type
+/// (the donor's lighting under `Map::native_lighting`, which the native's
+/// replaces later) may have none: it is left as it is.
+fn adapt_objects(
+    objects: &mut ConfigValue,
+    templates: &[ConfigValue],
+    replaced: &[&str],
+) -> Result<()> {
     let ConfigValue::Indexed(objects) = objects else {
         return Ok(());
     };
@@ -267,8 +274,14 @@ fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result
                 templates
                     .iter()
                     .find(|p| string(p, "game_object_type") == Some(&kind))
-            })
-            .with_context(|| format!("no 0.26 object template for {kind}"))?;
+            });
+        let Some(template) = template else {
+            ensure!(
+                replaced.contains(&kind.as_str()),
+                "no 0.26 object template for {kind}"
+            );
+            continue;
+        };
         // A new nested world-space transform must come from this spawn, never
         // from an unrelated point in the template map.
         if kind == "victory_item_spawner" && object.named("spawned_item").is_none() {
@@ -416,7 +429,12 @@ fn adapt_project(
     let donor_objects = donor
         .named_mut("client_objects")
         .context("0.21 project lacks client_objects")?;
-    adapt_objects(donor_objects, &templates)?;
+    let replaced: &[&str] = if map.native_lighting {
+        &LIGHTING_OBJECT_TYPES
+    } else {
+        &[]
+    };
+    adapt_objects(donor_objects, &templates, replaced)?;
     let ConfigValue::Named(groups) = donor
         .named_mut("server_objects")
         .context("0.21 project lacks server_objects")?
@@ -424,7 +442,7 @@ fn adapt_project(
         bail!("invalid server_objects")
     };
     for group in groups {
-        adapt_objects(&mut group.value, &templates)?;
+        adapt_objects(&mut group.value, &templates, replaced)?;
     }
     // Add root-level fields only. Recursing across heterogeneous object arrays
     // would incorrectly copy another map's objects and transforms.
@@ -1444,7 +1462,7 @@ pub fn build(
     for entry in registered {
         if let Some(ConfigValue::Integer(id)) = entry.named("id") {
             ensure!(
-                !ids.contains(&u8::try_from(*id)?),
+                !ids.contains(&u16::try_from(*id)?),
                 "map ID {id} already used"
             );
         }
@@ -2890,6 +2908,15 @@ mod tests {
         );
     }
     #[test]
+    fn a_replaced_type_needs_no_template() {
+        // Retail 0.21d level_01 has a "light" (its sun) that native level_01
+        // has no template for; under native_lighting the native's replaces it.
+        let light = named(vec![("game_object_type", ConfigValue::String("light".into()))]);
+        let mut objects = ConfigValue::Indexed(vec![light]);
+        assert!(adapt_objects(&mut objects, &[], &[]).is_err());
+        adapt_objects(&mut objects, &[], &LIGHTING_OBJECT_TYPES).unwrap();
+    }
+    #[test]
     fn battery_spawn_uses_its_own_transform() {
         let make = |x| {
             named(vec![
@@ -2913,7 +2940,7 @@ mod tests {
             )
             .unwrap();
         let mut objects = ConfigValue::Indexed(vec![donor]);
-        adapt_objects(&mut objects, &[template]).unwrap();
+        adapt_objects(&mut objects, &[template], &[]).unwrap();
         let o = &array(&objects).unwrap()[0];
         assert_eq!(
             o.named("spawned_item").unwrap().named("position"),

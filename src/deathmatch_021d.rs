@@ -33,7 +33,7 @@ use crate::{BinaryConfig, ConfigValue, ResourceDb};
 pub struct Variant {
     pub level: String,
     pub weather: String,
-    pub id: u8,
+    pub id: u16,
 }
 
 impl std::str::FromStr for Variant {
@@ -91,7 +91,7 @@ impl Variant {
 
 #[derive(Debug, Default)]
 pub struct Summary {
-    pub id: u8,
+    pub id: u16,
     pub project: String,
     pub options: String,
     pub respawn_points: usize,
