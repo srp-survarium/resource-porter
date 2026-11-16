@@ -47,6 +47,11 @@ pub struct Manifest {
     pub lod0_promotions: BTreeSet<String>,
     #[serde(default)]
     pub missing_collision_resources: BTreeSet<String>,
+    /// Donor models imported (with their dependencies, under the namespace)
+    /// though no map places them: the state a game swaps an imported model
+    /// into (Skhid's breakable lamps put `alarm_broken` where `alarm_red` was).
+    #[serde(default)]
+    pub extra_models: BTreeSet<String>,
     /// A reviewed constant finish for a donor material 0.26g has no material
     /// of (a material of the same path takes the native finish).
     #[serde(default)]
@@ -1447,6 +1452,19 @@ pub fn build(
     }
     let mut donor = ResourceDb::open(donor_path)?;
     let mut target = ResourceDb::open(target_path)?;
+    // The dependency scan's roots: the maps' projects and every file of the
+    // extra models.
+    let mut roots = projects.clone();
+    for model in &m.extra_models {
+        let prefix = format!("models/{model}.model/");
+        let files: Vec<String> = donor
+            .paths_with_prefix(&prefix)
+            .filter(|p| donor.is_file(p))
+            .map(str::to_owned)
+            .collect();
+        ensure!(!files.is_empty(), "extra model {model}: the donor has no {prefix}");
+        roots.extend(files);
+    }
     let mut dictionary = cfg(&mut target, DICTIONARY)?;
     let ConfigValue::Indexed(registered) = dictionary
         .named("maps_dict")
@@ -1786,7 +1804,7 @@ pub fn build(
     let first = crate::dependency::scan_with_forced_donor_and_overrides(
         &mut donor,
         &mut target,
-        projects.clone(),
+        roots.clone(),
         forced.clone(),
         &overrides,
     )?;
@@ -1884,7 +1902,7 @@ pub fn build(
     let plan = crate::dependency::scan_with_forced_donor_and_overrides(
         &mut donor,
         &mut target,
-        projects.clone(),
+        roots.clone(),
         forced,
         &scan_overrides,
     )?;
