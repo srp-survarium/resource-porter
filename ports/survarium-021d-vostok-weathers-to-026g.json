@@ -1,8 +1,8 @@
 {
   "pack": {
-    "id": "maps-021d-rain",
+    "id": "maps-021d-weathers",
     "version": "1",
-    "description": "the 0.21d Radar (v021d_level_03) in 0.21d rain: maps 170 (Protective device) and 171 (team deathmatch), projects v021d_level_03/rain_2 and rain_4 = the shipped day_2 and day_4 with 0.21d rain environment, rain objects and lighting (probes with their own cubemaps), the guarded 0.21 weather shader conversions (marker -32191), 0.21d rain particles, material and textures under ported/v021d, the 0.21d engine textures rain_drop and water_waves2 under ported/v021d/engine, the 0.21d grass vertex shaders and wet-surface pixel shader under _v021d names (for the exe patch)"
+    "description": "the 0.21d Radar (v021d_level_03) in 0.21d rain and evening: maps 170 and 172 (Protective device) and 171 and 173 (team deathmatch), projects v021d_level_03/rain_2, rain_4, evening_2 and evening_4 = the shipped day_2 and day_4 with the 0.21d weather environment, weather objects and lighting (probes with their own cubemaps), the guarded 0.21 weather shader conversions (markers -32191 rain, -32193 evening), 0.21d rain particles, material and textures under ported/v021d, the 0.21d engine textures rain_drop and water_waves2 under ported/v021d/engine, the 0.21d grass vertex shaders and wet-surface pixel shader under _v021d names (for the exe patch)"
   },
   "import": {
     "donor_sha256": "e28cc2878e0e2f04ab9ab0a1861034622af487a491bf230ea24f44e9af9715a4",
@@ -23,6 +23,20 @@
         "legacy_rain_albedo_021": true,
         "legacy_ambient_occlusion_021": true,
         "legacy_tonemap_021": true
+      },
+      {
+        "id": 172,
+        "level": "level_03",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 10,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true
       }
     ],
     "material_templates": {
@@ -67,40 +81,66 @@
     }
   },
   "from_weather": "day",
-  "variants": [
+  "weathers": [
     {
-      "id": 170,
-      "mode": 2
+      "level": "level_03",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 170,
+          "mode": 2
+        },
+        {
+          "id": 171,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ],
+      "particles": [
+        "fx/environment/rain",
+        "fx/environment/rain_mini",
+        "fx/environment/rain_small",
+        "fx/environment/rain_small_long"
+      ],
+      "materials": {
+        "fx/environment/rain": [
+          "fx/environment/rein"
+        ],
+        "decals/puddle": [
+          "decal/puddle"
+        ]
+      }
     },
     {
-      "id": 171,
-      "mode": 4
+      "level": "level_03",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 172,
+          "mode": 2
+        },
+        {
+          "id": 173,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
     }
   ],
   "renderer_key": "srp_renderer_v021d",
   "environment_kept": {
     "lens_flares_mask_texture": "every native 0.26g environment names it (73 of 73); the loader reads it only if present, but no shipped map runs without it. Unused here: the donor sets use_dynamic_lens_flare false",
     "use_bokeh_template_image": "0.26g defaults it to true (environment_properties ctor 0x34d9a0 stores 1 at +0x254); 0.21d has no bokeh template image, so false keeps the 0.21 bokeh"
-  },
-  "probe_keys": [
-    "rain_2",
-    "rain_3",
-    "rain_4",
-    "default"
-  ],
-  "particles": [
-    "fx/environment/rain",
-    "fx/environment/rain_mini",
-    "fx/environment/rain_small",
-    "fx/environment/rain_small_long"
-  ],
-  "materials": {
-    "fx/environment/rain": [
-      "fx/environment/rein"
-    ],
-    "decals/puddle": [
-      "decal/puddle"
-    ]
   },
   "donor_copies": [
     {

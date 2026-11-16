@@ -15,6 +15,20 @@ use std::{
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";
 const NAMESPACE: &str = "ported/v021d";
 
+/// The weather-shader marker of a map with the 0.21 conversions:
+/// `MARKER_BASE - id` (maps_dict id), written in its environment's
+/// `mie_fog_base_height` (a native fog field these maps do not use) and
+/// compared by every converted shader. One per map and weather, not one for
+/// all: each marker selects that weather's own constants baked into the
+/// shaders (the forward fog's 0.21 Rayleigh colour, the scattering's
+/// Rayleigh sun gain), which 0.26g's CPU does not upload. Ids 0-255 give
+/// -32021 to -32276, below any height a map has.
+pub const MARKER_BASE: f32 = -32021.0;
+
+pub fn map_marker(id: u8) -> f32 {
+    MARKER_BASE - f32::from(id)
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
@@ -516,7 +530,7 @@ fn mark_legacy_fog(project: &mut ConfigValue, map: &Map) -> Result<crate::weathe
     };
     let color = [color[0].powf(2.2), color[1].powf(2.2), color[2].powf(2.2)];
     ensure!(color.iter().all(|v| v.is_finite() && *v >= 0.0), "invalid original Rayleigh color");
-    let marker = -32021.0 - f32::from(map.id);
+    let marker = map_marker(map.id);
     ensure!(properties.named("mie_fog_base_height").is_some(), "missing native fog marker field");
     properties.set_path("mie_fog_base_height", ConfigValue::Float(marker))?;
     Ok(crate::weather_fog_021::Profile { marker, color })
@@ -1656,7 +1670,7 @@ pub fn build(
     }
     for map in &m.maps {
         if map.legacy_tonemap_021 {
-            tonemap_markers.push(-32021.0 - f32::from(map.id));
+            tonemap_markers.push(map_marker(map.id));
         }
     }
     let mut tonemap_shaders = Vec::new();
