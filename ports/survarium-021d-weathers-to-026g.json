@@ -351,7 +351,6 @@
   ],
   "renderer_key": "srp_renderer_v021d",
   "environment_kept": {
-    "lens_flares_mask_texture": "every native 0.26g environment names it (73 of 73); the loader reads it only if present, but no shipped map runs without it. Unused here: the donor sets use_dynamic_lens_flare false",
     "use_bokeh_template_image": "0.26g defaults it to true (environment_properties ctor 0x34d9a0 stores 1 at +0x254); 0.21d has no bokeh template image, so false keeps the 0.21 bokeh"
   },
   "donor_copies": [
