@@ -917,14 +917,22 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
                 .collect();
             list.retain(|o| !is_weather_object(o, &m.from_weather));
             let kept = list.len();
-            let weather_only: Vec<&str> = removed
+            // Besides the lighting: the environment and the day's own layer
+            // (Mamayev's day sounds), which the donor weather's replace.
+            let weather_only: Vec<&ConfigValue> = removed
                 .iter()
                 .filter(|o| !LIGHTING_OBJECT_TYPES.contains(&kind(o)))
-                .map(kind)
                 .collect();
+            let environments = weather_only
+                .iter()
+                .filter(|o| kind(o) == "environment")
+                .count();
             ensure!(
-                weather_only == ["environment"],
-                "{day_path}: the day's weather objects besides the lighting are {weather_only:?}, not its environment"
+                environments == 1
+                    && weather_only.iter().all(|o| kind(o) == "environment"
+                        || string(o, "layer") == Some(m.from_weather.as_str())),
+                "{day_path}: the day's weather objects besides the lighting are {:?}, not its environment and its layer's",
+                weather_only.iter().map(|o| kind(o)).collect::<Vec<_>>()
             );
             list.extend(swapped.iter().cloned());
             ensure!(
@@ -955,7 +963,7 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
             ensure!(kept_day == kept_new, "kept objects changed");
             let path = format!("projects/v021d_{level}/{weather}_{}/client_project", v.mode);
             summary.say(format!(
-                "{path} ({}): {kept} of {before} objects of {day_path} kept as they are, {} of its lighting and environment out, {} in; every other group as shipped; {} = true",
+                "{path} ({}): {kept} of {before} objects of {day_path} kept as they are, {} of its lighting, environment and day layer out, {} in; every other group as shipped; {} = true",
                 v.id,
                 removed.len(),
                 swapped.len(),
