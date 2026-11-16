@@ -3,7 +3,8 @@
 #
 # The STALKER team-deathmatch maps as Skhid content packs, <pack>@N: every
 # map of ports/stalker-tdm/maps.json whose `pack` is <pack> (stalker-maps
-# when a map names none) from its bundle (port-map.sh), with the spawns and
+# when a map names none) and that names no `hold` (a map held out: not built,
+# not shipped) from its bundle (port-map.sh), with the spawns and
 # ammo stashes of ports/stalker-tdm/spots.json (the map spot planner's list).
 # A pack's maps share converted textures and materials (separate packs
 # would add the same files twice); a released pack is never rebuilt with
@@ -53,7 +54,7 @@ PACK_VP=${PACK_VP:?vostok-port with pack subcommands}
 PYTHON=${PYTHON:-python3}
 mkdir -p "$OUT"/{donor,specs,bundles026,packs,logs,minimaps}
 
-MAPS=$("$PYTHON" -c "import json; print(' '.join(k for k, m in json.load(open('ports/stalker-tdm/maps.json'))['maps'].items() if m.get('pack', 'stalker-maps') == '$NAME'))")
+MAPS=$("$PYTHON" -c "import json; print(' '.join(k for k, m in json.load(open('ports/stalker-tdm/maps.json'))['maps'].items() if m.get('pack', 'stalker-maps') == '$NAME' and not m.get('hold')))")
 [ -n "$MAPS" ] || { echo "no map of maps.json is in pack $NAME" >&2; exit 1; }
 BUNDLES=(); PREFIXES=()
 for map in $MAPS; do

@@ -1,5 +1,5 @@
 {
- "note": "Static settings per map for ports/stalker-tdm/<map>.json (tools/stalker-tdm/make_spec.py). ids: maps_dict 210-215 (free in skhid); level_number: match_making_params.map_id 14-19 (live uses 1-13; skhid's modes.tsv renumbers them 15-20). A map with `pack` stalker-maps-2 (Dark Valley, Vehicle Station, Fire Station, Sports Center: maps_dict 33-36, levels 21-24, loading_screen_id 37-40) is built into that pack (build-pack.sh --pack stalker-maps-2), after the released stalker-maps@6, which it does not change. Tall ladders stay as they are, except where a map lists added geometry (walker_ramps, walker_boxes, props, cuts: make_spec.py passes them to the importer): Experimental Pool's cave-in, team 1's way to the roof at ladder clmbl#8 (the owner's pick of 2026-10-27); Dark Valley's planks over the main block's parapet from both wings; Sports Center's ramps and hatch routes and Fire Station's west roof ramp and ladder slabs, as the earlier package had them (soc-cs-dm-to-026g.json). loading_screen_id 30-35: the lobby movie built from source (srp-026g/flash/lobby_menu) holds their pictures. Names other than English: translations for the owner to check. The game keeps its texts in Windows-1251: a German or Polish name with letters outside it takes the English one.",
+ "note": "Static settings per map for ports/stalker-tdm/<map>.json (tools/stalker-tdm/make_spec.py). ids: maps_dict 210-215 (free in skhid); level_number: match_making_params.map_id 14-19 (live uses 1-13; skhid's modes.tsv renumbers them 15-20). A map with `pack` stalker-maps-2 (Dark Valley, Vehicle Station, Fire Station, Sports Center: maps_dict 33-36, levels 21-24, loading_screen_id 37-40) is built into that pack (build-pack.sh --pack stalker-maps-2) unless it names a `hold` (Dark Valley, Vehicle Station and Sports Center for now: Fire Station alone ships), after the released stalker-maps@6, which it does not change. Tall ladders stay as they are, except where a map lists added geometry (walker_ramps, walker_boxes, props, cuts: make_spec.py passes them to the importer): Experimental Pool's cave-in, team 1's way to the roof at ladder clmbl#8 (the owner's pick of 2026-10-27); Dark Valley's planks over the main block's parapet from both wings; Sports Center's ramps and hatch routes and Fire Station's west roof ramp and ladder slabs, as the earlier package had them (soc-cs-dm-to-026g.json). loading_screen_id 30-35: the lobby movie built from source (srp-026g/flash/lobby_menu) holds their pictures. Names other than English: translations for the owner to check. The game keeps its texts in Windows-1251: a German or Polish name with letters outside it takes the English one.",
  "maps": {
   "cs-mp_bath": {
    "recipe": "cs-mp_bath-to-0100b",
@@ -723,6 +723,7 @@
   },
   "cs-mp_darkvalley": {
    "pack": "stalker-maps-2",
+   "hold": "held out of the pack (the owner, 2026-11-16: \"let's merge only single map for now which is fire station\"): built again when this goes",
    "recipe": "cs-mp_darkvalley-to-0100b",
    "game": "cs",
    "level": "mp_darkvalley",
@@ -979,6 +980,7 @@
   },
   "cs-mp_atp": {
    "pack": "stalker-maps-2",
+   "hold": "held out of the pack (the owner, 2026-11-16: \"let's merge only single map for now which is fire station\"): built again when this goes",
    "recipe": "cs-mp_atp-to-0100b",
    "game": "cs",
    "level": "mp_atp",
@@ -1281,6 +1283,7 @@
   },
   "cs-mp_sport_center": {
    "pack": "stalker-maps-2",
+   "hold": "held out of the pack (the owner, 2026-11-16: \"let's merge only single map for now which is fire station\"): built again when this goes",
    "recipe": "cs-mp_sport_center-to-0100b",
    "game": "cs",
    "level": "mp_sport_center",
