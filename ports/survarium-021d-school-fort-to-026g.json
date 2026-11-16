@@ -49,6 +49,9 @@
     "models/flora/poplar_04_sux.model/collision",
     "models/flora/poplar_06_sux.model/collision"
   ],
+  "extra_models": [
+    "props/light/alarm_broken"
+  ],
   "material_finishes": {
     "material_instances/vehicle/truck/uaz_459/wh_rubber.material": {
       "gloss": 0.29,
