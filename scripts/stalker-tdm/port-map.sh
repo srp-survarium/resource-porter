@@ -9,7 +9,8 @@
 #   scripts/stalker-tdm/port-map.sh MAP [LEVEL_FOLDER [TEXTURES_FOLDER]] [--version N] [--no-pack]
 #
 # MAP: a key of ports/stalker-tdm/maps.json (cs-mp_bath, cs-mp_military_1,
-# training-camp-cs-dm, rembasa-cs-dm, dl-mp_station, dl-mp_depository).
+# training-camp-cs-dm, rembasa-cs-dm, dl-mp_station, dl-mp_depository; pack
+# stalker-maps-2: cs-mp_darkvalley, cs-mp_atp, cs-mp_firestation, cs-mp_sport_center).
 # LEVEL_FOLDER: the compiled level (level, level.cform, level.game,
 # level.spawn, level.geom, ...); its files are read over the game's own
 # archives. Without it the installed game's level is used (the community
@@ -17,6 +18,7 @@
 # TEXTURES_FOLDER: gamedata/textures files the level brings (a user map's
 # terrain, intro and map pictures), read over the game's.
 # --no-pack: the bundle only (several maps in a row, then build-pack.sh once).
+# Without it, the map's pack is built again (maps.json `pack`, stalker-maps if none).
 #
 # Writes under $OUT (never into the inputs):
 #   sources/MAP.sha256   every source file used, with its sha256
@@ -46,7 +48,7 @@ VP=${VP:?vostok-port of this branch}
 PYTHON=${PYTHON:-python3}
 
 field() { "$PYTHON" -c "import json,sys; m=json.load(open('ports/stalker-tdm/maps.json'))['maps']['$MAP']; v=m.get('$1'); print('' if v is None else v)"; }
-RECIPE=$(field recipe); GAME=$(field game); LEVEL=$(field level); ADDON=$(field addon)
+RECIPE=$(field recipe); GAME=$(field game); LEVEL=$(field level); ADDON=$(field addon); PACK=$(field pack)
 [ -n "$RECIPE" ] || { echo "unknown map $MAP" >&2; exit 1; }
 case $GAME in soc) GAME_ROOT=$SOC ;; cs) GAME_ROOT=$CS ;; *) echo "game $GAME" >&2; exit 1 ;; esac
 mkdir -p "$OUT"/{sources,bundles,logs,src}
@@ -86,4 +88,4 @@ if [ "$ADDON" = meadow ]; then
 fi
 echo "$MAP: bundle $B"
 
-[ -n "$NO_PACK" ] || exec bash scripts/stalker-tdm/build-pack.sh "${PACK_ARGS[@]}"
+[ -n "$NO_PACK" ] || exec bash scripts/stalker-tdm/build-pack.sh --pack "${PACK:-stalker-maps}" "${PACK_ARGS[@]}"

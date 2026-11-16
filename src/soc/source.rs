@@ -396,6 +396,9 @@ pub enum NormalPacking {
     /// plank joints) then read as ridges whose shading slides against the
     /// geometry as the camera moves.
     XRayBump,
+    /// Clear Sky's terrain shader uses normalize((bump.wzy - .5) * (1,1,.5)).
+    /// Bake that stronger slope into a separate DXT5nm texture.
+    XRayTerrainBump,
     /// Plain RGB: X red, Y green, Z blue (F.E.A.R. `_n`).
     Rgb,
 }
@@ -413,7 +416,7 @@ pub fn repack_normal_dds(bytes: &[u8], packing: NormalPacking, label: &str) -> R
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let info = parse_dds(bytes, label)?;
     let swap = match packing {
-        NormalPacking::XRayBump => "green<=>blue",
+        NormalPacking::XRayBump | NormalPacking::XRayTerrainBump => "green<=>blue",
         NormalPacking::Rgb => "red<=>alpha",
     };
     // Beside the work, not in TMPDIR: a nix-shell TMPDIR is not always visible
@@ -428,15 +431,51 @@ pub fn repack_normal_dds(bytes: &[u8], packing: NormalPacking, label: &str) -> R
     let input = stem.with_extension("in.dds");
     let output = stem.with_extension("out.dds");
     fs::write(&input, bytes)?;
-    let result = std::process::Command::new("magick")
-        .arg(&input)
-        .args(["-channel-fx", swap, "-define", "dds:compression=dxt5"])
+    let raw = stem.with_extension("rgba");
+    let mut command = std::process::Command::new("magick");
+    if packing == NormalPacking::XRayTerrainBump {
+        let decoded = std::process::Command::new("magick")
+            .arg(format!("{}[0]", input.display()))
+            .args(["-depth", "8", "rgba:-"])
+            .output()
+            .context("decoding an X-Ray terrain normal map")?;
+        if !decoded.status.success() {
+            let _ = fs::remove_file(&input);
+            bail!(
+                "could not decode {label}: {}",
+                String::from_utf8_lossy(&decoded.stderr)
+            );
+        }
+        let mut pixels = decoded.stdout;
+        ensure!(
+            pixels.len() == info.width as usize * info.height as usize * 4,
+            "unexpected RGBA size for {label}"
+        );
+        for pixel in pixels.chunks_exact_mut(4) {
+            let converted = xray_terrain_normal((&*pixel).try_into().unwrap());
+            pixel.copy_from_slice(&converted);
+        }
+        fs::write(&raw, pixels)?;
+        command
+            .args([
+                "-size",
+                &format!("{}x{}", info.width, info.height),
+                "-depth",
+                "8",
+            ])
+            .arg(format!("rgba:{}", raw.display()));
+    } else {
+        command.arg(&input).args(["-channel-fx", swap]);
+    }
+    let result = command
+        .args(["-define", "dds:compression=dxt5"])
         .arg("-define")
         .arg(format!("dds:mipmaps={}", info.mip_levels.saturating_sub(1)))
         .arg(&output)
         .output()
         .context("starting ImageMagick to repack a normal map")?;
     let _ = fs::remove_file(&input);
+    let _ = fs::remove_file(&raw);
     if !result.status.success() {
         let _ = fs::remove_file(&output);
         bail!(
@@ -450,6 +489,18 @@ pub fn repack_normal_dds(bytes: &[u8], packing: NormalPacking, label: &str) -> R
         negate_dxt5_green(&mut repacked).with_context(|| format!("flipping the Y of {label}"))?;
     }
     Ok(repacked)
+}
+
+/// Source WZY, doubled slope, and the target's opposite Y convention.
+/// Red and blue are unused by DXT5nm; keep them constant so BC3's colour
+/// endpoints spend their precision on the green (Y) channel.
+fn xray_terrain_normal(pixel: [u8; 4]) -> [u8; 4] {
+    let x = f32::from(pixel[3]) / 127.5 - 1.;
+    let y = f32::from(pixel[2]) / 127.5 - 1.;
+    let z = f32::from(pixel[1]) / 255. - 0.5;
+    let length = (x * x + y * y + z * z).sqrt().max(f32::EPSILON);
+    let encode = |v: f32| ((v / length * 0.5 + 0.5) * 255.).round().clamp(0., 255.) as u8;
+    [0, encode(-y), 0, encode(x)]
 }
 
 /// Negate the green channel (DXT5nm Y) of every block of a DXT5 chain,
@@ -563,6 +614,36 @@ pub fn parse_dds(bytes: &[u8], label: &str) -> Result<DdsInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terrain_normal_preserves_xrays_doubled_slope_and_target_handedness() {
+        for source in [
+            [0, 255, 128, 128],
+            [15, 240, 160, 200],
+            [90, 240, 96, 56],
+            [255, 200, 180, 80],
+        ] {
+            let encoded = xray_terrain_normal(source);
+            let x = f32::from(encoded[3]) / 127.5 - 1.;
+            // The target shader negates Y when it unpacks DXT5nm.
+            let y = -(f32::from(encoded[1]) / 127.5 - 1.);
+            let actual = [x, y, (1. - x * x - y * y).max(0.).sqrt()];
+            let mut expected = [
+                f32::from(source[3]) / 255. - 0.5,
+                f32::from(source[2]) / 255. - 0.5,
+                (f32::from(source[1]) / 255. - 0.5) * 0.5,
+            ];
+            let length = expected.iter().map(|v| v * v).sum::<f32>().sqrt();
+            for value in &mut expected {
+                *value /= length;
+            }
+            let dot = actual.iter().zip(expected).map(|(a, b)| a * b).sum::<f32>();
+            assert!(
+                dot > 0.999,
+                "source {source:?}, encoded {encoded:?}, dot {dot}"
+            );
+        }
+    }
 
     fn dds(width: u32, height: u32, mips: u32, four_cc: &[u8; 4]) -> Vec<u8> {
         let mut bytes = vec![0_u8; 128];

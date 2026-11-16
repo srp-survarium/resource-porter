@@ -762,6 +762,61 @@ pub fn collector_visual<'a>(
     Ok(visual)
 }
 
+/// Film grain intensity and update frequency of every stock 0.26 day map.
+const STOCK_DAY_GRAIN: (f32, i32) = (0.02, 1);
+/// The sun's rays and flares and the ambient occlusion's strength of every
+/// early map (`transfer_environment`).
+const EARLY_LOOK: [(&str, f32); 4] = [
+    ("god_rays_intensity", 0.2),
+    ("god_rays_attenuation", 3.0),
+    ("lens_flares_multiplier", 0.7),
+    ("ao_saturation", 1.0),
+];
+/// The gloss of a material whose colour texture is its gloss map: stock
+/// `flora/grass_l03_alt`'s average (its own map is near black).
+pub(super) const COLOUR_GLOSS: f32 = 0.04;
+
+/// A converted material whose gloss map (`texture_roughness`: in 0.26 the
+/// "roughness" is gloss, high a mirror) is its colour texture, and drives
+/// its gloss (`use_troughness`, a range wider than nothing), gets
+/// `COLOUR_GLOSS` at both ends of its range, whatever the texture. The early
+/// builds (0.10b's own `flora/grass_l03_alt`, the X-Ray grass the porter
+/// writes as its copy) read the colour as gloss: `gbuffer_pass.ps` writes 1 -
+/// (min + range x the map's green) and `composition.ps` takes it as the
+/// sun's GGX roughness, so grass of colour 0.23 over a floor of 0.3 had gloss
+/// 0.46, a sharp highlight of about 3 x the sun that turns whole patches the
+/// sun's colour. Glass (`tiled/window/glass`, 1 at both ends) keeps its
+/// constant. Returns whether it changed the material.
+pub(super) fn matte_colour_gloss(root: &mut ConfigValue) -> Result<bool> {
+    let effect = |root: &ConfigValue, name: &str| {
+        ["material", "g_stage", "effect", name, "value"]
+            .into_iter()
+            .try_fold(root, |v, part| v.named(part))
+            .and_then(|v| match v {
+                ConfigValue::String(s) if !s.is_empty() => Some(s.clone()),
+                _ => None,
+            })
+    };
+    let (Some(gloss), Some(colour)) = (effect(root, "texture_roughness"), effect(root, "texture_diffuse")) else {
+        return Ok(false);
+    };
+    let value = |name: &str| {
+        ["material", "g_stage", "effect", name, "value"].into_iter().try_fold(&*root, |v, part| v.named(part))
+    };
+    let drives = !matches!(value("use_troughness"), Some(ConfigValue::Boolean(false)));
+    let range = match (value("constant_roughness_min"), value("constant_roughness_max")) {
+        (Some(min), Some(max)) => number(max)? - number(min)?,
+        _ => 1.0,
+    };
+    if gloss != colour || !drives || range == 0.0 {
+        return Ok(false);
+    }
+    for end in ["constant_roughness_min", "constant_roughness_max"] {
+        super::set_number(root, &format!("material.g_stage.effect.{end}.value"), COLOUR_GLOSS)?;
+    }
+    Ok(true)
+}
+
 fn transfer_environment(
     dst: &mut ConfigValue,
     old: &ConfigValue,
@@ -858,6 +913,26 @@ fn transfer_environment(
         dst.set_path(key, ConfigValue::Boolean(value))?;
     }
     dst.set_path("sky_clouds_rotation_speed", ConfigValue::Float(0.0))?;
+    // Film grain: 0.26 adds it last, noise x colour^0.6 x intensity
+    // (aberration.ps), where the early builds' renderers drew it weaker.
+    // Their 0.08 at update frequency 2 (0.10b and 0.11e alike) is four times
+    // a stock 0.26 day map's and shows as noise on the sky and the haze; every
+    // stock day map has 0.02 at 1 (stock rain at most 0.065).
+    dst.set_path("image_grain_intensity", ConfigValue::Float(STOCK_DAY_GRAIN.0))?;
+    dst.set_path("image_grain_update_frequency", ConfigValue::Integer(STOCK_DAY_GRAIN.1))?;
+    // The sun's rays and flares: a ray is colour x intensity x (1 - screen
+    // distance to the sun)^attenuation x the sky between the pixel and the
+    // sun (god_rays.ps, god_rays_mask.ps), added before the tone curve. The
+    // 0.10b weathers' 1.0 at 1.0 and flares x2 give 0.23 half a screen from
+    // an open sun and wash the frame toward it; 0.11e's day weather (Vostok
+    // v0.11, the same sun) has 0.2 at 3.0 and x0.7: 0.01 there (stock
+    // level_03 0.05). Ambient occlusion: `ao_saturation` is the exponent of
+    // both 0.26 occlusion shaders' (1 - occluded); the early builds' 1.3 to 2
+    // draw its sample pattern as stripes on far flat walls, stock maps have
+    // 1 to 1.29 (level_03: 1).
+    for (key, value) in EARLY_LOOK {
+        super::set_number(dst, key, value)?;
+    }
     let get = |name: &str| {
         old.named(name)
             .and_then(|v| v.named("value"))
@@ -1467,37 +1542,6 @@ pub(crate) fn environment_hazards(properties: &ConfigValue) -> Vec<String> {
 
 /// The runtime consumes float3 positions (0x58) and normals (0x59).
 /// 0x4d/0x4e are editor painting data; retain them without resampling.
-pub(super) fn vegetation_instances(bytes: &[u8]) -> Result<usize> {
-    let mut chunks = BTreeMap::new();
-    let mut remaining = bytes;
-    while !remaining.is_empty() {
-        ensure!(remaining.len() >= 8, "truncated vegetation chunk header");
-        let id = u32::from_le_bytes(remaining[..4].try_into().unwrap());
-        let size = u32::from_le_bytes(remaining[4..8].try_into().unwrap()) as usize;
-        ensure!(size <= remaining.len() - 8, "truncated vegetation chunk");
-        ensure!(
-            chunks.insert(id, &remaining[8..8 + size]).is_none(),
-            "duplicate vegetation chunk"
-        );
-        remaining = &remaining[8 + size..];
-    }
-    let positions = chunks.get(&0x58).context("missing vegetation positions")?;
-    let normals = chunks.get(&0x59).context("missing vegetation normals")?;
-    ensure!(
-        positions.len() % 12 == 0 && positions.len() == normals.len(),
-        "vegetation position/normal count mismatch"
-    );
-    for values in [positions, normals] {
-        ensure!(
-            values
-                .chunks_exact(4)
-                .all(|v| f32::from_le_bytes(v.try_into().unwrap()).is_finite()),
-            "nonfinite vegetation coordinates"
-        );
-    }
-    Ok(positions.len() / 12)
-}
-
 /// The DDS container every retail v0.100b and 0.26 texture uses: flags
 /// 0xA100F (caps, height, width, pitch, pixel format, mip count, linear size)
 /// and `dwPitchOrLinearSize` = every byte after the 128-byte header, i.e. the
@@ -1688,6 +1732,48 @@ mod tests {
         let v = [0, 1, 2].map(|i| t[i] * texel[0] + b[i] * texel[1] + n[i] * texel[2]);
         let r = 1. / dot3(v, v).sqrt();
         v.map(|c| c * r)
+    }
+
+    #[test]
+    fn a_colour_texture_as_gloss_map_is_matte_at_both_ends() {
+        let material = |gloss: &str| {
+            let table = |entries: Vec<(&str, ConfigValue)>| {
+                ConfigValue::Named(
+                    entries.into_iter().map(|(name, value)| NamedValue { name: name.into(), value }).collect(),
+                )
+            };
+            let effect = table(
+                [
+                    ("texture_diffuse", ConfigValue::String("ported/cs/bath/build_details".into())),
+                    ("texture_roughness", ConfigValue::String(gloss.into())),
+                    ("constant_roughness_min", ConfigValue::Float(0.3)),
+                    ("constant_roughness_max", ConfigValue::Integer(1)),
+                ]
+                .into_iter()
+                .map(|(name, value)| (name, table(vec![("value", value)])))
+                .collect(),
+            );
+            table(vec![("material", table(vec![("g_stage", table(vec![("effect", effect)]))]))])
+        };
+        let end = |root: &ConfigValue, name: &str| {
+            root.named("material").and_then(|m| m.named("g_stage")).and_then(|g| g.named("effect"))
+                .and_then(|e| e.named(name)).and_then(|c| c.named("value")).cloned()
+        };
+        let mut grass = material("ported/cs/bath/build_details");
+        assert!(matte_colour_gloss(&mut grass).unwrap());
+        assert_eq!(end(&grass, "constant_roughness_min"), Some(ConfigValue::Float(COLOUR_GLOSS)));
+        assert_eq!(end(&grass, "constant_roughness_max"), Some(ConfigValue::Float(COLOUR_GLOSS)));
+        // A gloss map of its own (an X-Ray specular map) is the material's.
+        let mut concrete = material("ported/v010b/tiled/concrete/concrete_01_spec");
+        assert!(!matte_colour_gloss(&mut concrete).unwrap());
+        assert_eq!(end(&concrete, "constant_roughness_max"), Some(ConfigValue::Integer(1)));
+        // Glass's map is its colour, but its gloss is the constant at both ends.
+        let mut glass = material("ported/cs/bath/build_details");
+        for end in ["constant_roughness_min", "constant_roughness_max"] {
+            crate::survarium_026::set_number(&mut glass, &format!("material.g_stage.effect.{end}.value"), 1.).unwrap();
+        }
+        assert!(!matte_colour_gloss(&mut glass).unwrap());
+        assert_eq!(end(&glass, "constant_roughness_min"), Some(ConfigValue::Float(1.)));
     }
 
     #[test]
@@ -2216,6 +2302,8 @@ mod tests {
             ),
             ("sky_clouds_color_multiplier", ConfigValue::Integer(3)),
             ("dof_near_blurriness_far", ConfigValue::Float(0.8)),
+            ("image_grain_scale", ConfigValue::Float(0.08)),
+            ("image_grain_update_frequency", ConfigValue::Integer(2)),
         ] {
             old.set_path(
                 name,
@@ -2226,7 +2314,19 @@ mod tests {
             )
             .unwrap();
         }
+        // The 0.26 template's look values, as the early weathers leave them.
+        let look = |env: &mut ConfigValue| {
+            for (key, value) in [
+                ("god_rays_intensity", ConfigValue::Float(1.)),
+                ("god_rays_attenuation", ConfigValue::Float(1.)),
+                ("lens_flares_multiplier", ConfigValue::Integer(2)),
+                ("ao_saturation", ConfigValue::Integer(2)),
+            ] {
+                env.set_path(key, value).unwrap();
+            }
+        };
         let mut dst = ConfigValue::Named(Vec::new());
+        look(&mut dst);
         dst.set_path("use_height_based_ambient", ConfigValue::Boolean(true))
             .unwrap();
         dst.set_path("sky_clouds_color", ConfigValue::Float4([1.; 4]))
@@ -2244,10 +2344,22 @@ mod tests {
         }
         transfer_environment(&mut dst, &old, Some(&sun), &mut Vec::new(), "test", super::EnvironmentLook::Source).unwrap();
         let mut legacy = ConfigValue::Named(Vec::new());
+        look(&mut legacy);
         legacy.set_path("rayleigh_fog_near_distance", ConfigValue::Float(35.)).unwrap();
         legacy.set_path("sky_clouds_color", ConfigValue::Float4([1.; 4])).unwrap();
         transfer_environment(&mut legacy, &old, Some(&sun), &mut Vec::new(), "test", super::EnvironmentLook::Legacy010bAtmosphere).unwrap();
         assert_eq!(legacy.named("rayleigh_fog_near_distance"), Some(&ConfigValue::Float(35.)));
+        // The source's grain (0.08 at 2) is drawn four times a stock day
+        // map's in 0.26: every early port has the stock day grain, and the
+        // early look's sun and occlusion (an integer stays one when whole).
+        for env in [&dst, &legacy] {
+            assert_eq!(env.named("image_grain_intensity"), Some(&ConfigValue::Float(0.02)));
+            assert_eq!(env.named("image_grain_update_frequency"), Some(&ConfigValue::Integer(1)));
+            assert_eq!(env.named("god_rays_intensity"), Some(&ConfigValue::Float(0.2)));
+            assert_eq!(env.named("god_rays_attenuation"), Some(&ConfigValue::Float(3.)));
+            assert_eq!(env.named("lens_flares_multiplier"), Some(&ConfigValue::Float(0.7)));
+            assert_eq!(env.named("ao_saturation"), Some(&ConfigValue::Integer(1)));
+        }
         // Bug fixes are not part of the look.
         assert_eq!(legacy.named("height_based_ambient_high_color"), dst.named("height_based_ambient_high_color"));
         let az = number(dst.named("sun_position_azimut").unwrap())
@@ -2680,26 +2792,6 @@ mod tests {
             relocate_path("projects/level_03_evn/vegetation/a.veg", SourceBuild::V010b),
             "projects/v010b_level_03_evn/vegetation/a.veg"
         );
-    }
-
-    #[test]
-    fn vegetation_keeps_authored_positions_and_rejects_truncation() {
-        let mut bytes = Vec::new();
-        for (id, values) in [
-            (0x4du32, vec![]),
-            (0x58, vec![12f32, 2., -9.]),
-            (0x59, vec![0., 1., 0.]),
-        ] {
-            bytes.extend(id.to_le_bytes());
-            bytes.extend(((values.len() * 4) as u32).to_le_bytes());
-            for v in values {
-                bytes.extend(v.to_le_bytes());
-            }
-        }
-        assert_eq!(vegetation_instances(&bytes).unwrap(), 1);
-        assert!(vegetation_instances(&bytes[..bytes.len() - 1]).is_err());
-        bytes[12..16].copy_from_slice(&0u32.to_le_bytes());
-        assert!(vegetation_instances(&bytes).is_err());
     }
 
     #[test]

@@ -59,7 +59,8 @@ def main():
         if not ramps:
             continue
         project = rm.config((a.bundle / 'projects' / f"v010b_{m['donor_project']}" / 'day_4' / 'client_project').read_bytes())
-        spawns = [r[:3] for r in m['deathmatch']['respawns']]
+        dm = m['deathmatch']   # the soc-cs-dm spec's respawns, or the STALKER maps' spawns by team
+        spawns = [r[:3] for r in dm['respawns']] if 'respawns' in dm else [s[:3] for team in dm['teams'] for s in team]
         sx = [s[0] for s in spawns]; sz = [s[2] for s in spawns]
         bounds = (min(sx) - 150, min(sz) - 150, max(sx) + 150, max(sz) + 150)
         tris = rm.collision_triangles(a.bundle, project, native)
@@ -128,8 +129,11 @@ def main():
             print(f"{m['id']} route {r['name']:20s} crate top {start[1]:.2f}: floor below {'ok' if ok_down else 'NO'}, "
                   f"past plank top {'ok' if ok_up else 'NO'}")
         for p in props:
-            # Only the top of each stack is a floor; its top face is within a
-            # step of its origin.
+            # The crates are steps: only the top of each stack is a floor; its
+            # top face is within a step of its origin. Other props (rubble,
+            # broken slabs) dress a route and are no step of it.
+            if not p['model'].startswith('props/box/'):
+                continue
             x, y, z = p['position']
             if any(math.hypot(q['position'][0] - x, q['position'][2] - z) < 0.1 and q['position'][1] > y for q in props):
                 continue

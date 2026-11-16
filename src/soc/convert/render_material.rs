@@ -234,6 +234,9 @@ pub fn default_name_overrides() -> BTreeMap<String, RenderFamily> {
         // Shares `S_SET` priority 2 / sorted with the water shaders, but it is
         // a wallmark laid over other geometry, not a surface in its own right.
         ("effects\\wallmarkblend", RenderFamily::Decal),
+        // Clear Sky's puddles and stains: unsorted, so the state reads as an
+        // additive effect, but it is a wallmark on the ground (lifted as one).
+        ("effects\\wallmarkmult", RenderFamily::Decal),
         // The water shaders share that same state, so only the name separates
         // them from any other blended overlay. They go to the target's own
         // water shader rather than to a blended texture; see
@@ -292,6 +295,7 @@ pub const KNOWN_SHADERS: &[(&str, &str, i32, bool)] = &[
     ("def_shaders\\def_objects_lod", "D_TREE", 1, false),
     ("def_shaders\\def_refl_alpha_heli", "LmEbB", 1, false),
     ("effects\\wallmarkblend", "S_SET", 2, true),
+    ("effects\\wallmarkmult", "S_SET", 2, false),
     ("effects\\water", "S_SET", 2, true),
     ("effects\\waterstuden", "S_SET", 2, true),
     ("effects\\waterryaska", "S_SET", 2, true),
@@ -562,7 +566,7 @@ mod tests {
             // The object that *has* an impostor, not the impostor: solid props
             // on the tree render path.
             "def_shaders\\def_objects_lod" => RenderFamily::Opaque,
-            "effects\\wallmarkblend" => RenderFamily::Decal,
+            "effects\\wallmarkblend" | "effects\\wallmarkmult" => RenderFamily::Decal,
             "effects\\water" | "effects\\waterstuden" | "effects\\waterryaska" => {
                 RenderFamily::Water
             }
@@ -598,7 +602,7 @@ mod tests {
 
     #[test]
     fn the_roster_covers_every_shader_the_game_binds() {
-        assert_eq!(KNOWN_SHADERS.len(), 70);
+        assert_eq!(KNOWN_SHADERS.len(), 71);
         let classes: std::collections::BTreeSet<&str> = KNOWN_SHADERS
             .iter()
             .map(|(_, class, _, _)| *class)
