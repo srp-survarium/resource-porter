@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Add retail 0.21d maps to 0.26g, with opt-in legacy fog compatibility.
+pub mod fill;
+
 use crate::manifest::BuiltFile;
 use crate::{BinaryConfig, ConfigValue, NamedValue, ResourceDb};
 use anyhow::{Context, Result, bail, ensure};
