@@ -17,6 +17,7 @@ mod early;
 mod skylight;
 mod campfire;
 mod grade;
+mod grass;
 pub use campfire::Campfires;
 pub use grade::Grade;
 pub use cuts::Cut;
@@ -115,6 +116,25 @@ pub struct Manifest {
     /// their surroundings once 0.26 lights them.
     #[serde(default)]
     pub texture_grades: BTreeMap<String, Grade>,
+}
+
+/// Set the number at a dotted path that holds one: a whole value keeps an
+/// integer an integer, any other value makes it a float (0.26 reads either
+/// for a number; a fraction is never cut to an integer).
+pub(crate) fn set_number(root: &mut ConfigValue, path: &str, value: f32) -> Result<()> {
+    ensure!(value.is_finite(), "{path}: {value} is not a finite number");
+    let current = path
+        .split('.')
+        .try_fold(&*root, |v, part| v.named(part))
+        .with_context(|| format!("{path}: no such value"))?;
+    let new = match current {
+        ConfigValue::Integer(_) if value.fract() == 0. && value.abs() < 2f32.powi(31) => {
+            ConfigValue::Integer(value as i32)
+        }
+        ConfigValue::Integer(_) | ConfigValue::Float(_) => ConfigValue::Float(value),
+        _ => bail!("{path} is not a number"),
+    };
+    root.set_path(path, new)
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -627,6 +647,51 @@ pub fn check_hash(path: &Path, expected: &str) -> Result<()> {
         path.display()
     );
     Ok(())
+}
+
+/// An early donor's static surface in the 0.26 layout (`early::geometry`),
+/// its broken tangent frames rebuilt and its wall overlays lifted.
+fn early_surface(
+    path: &str,
+    mut bytes: Vec<u8>,
+    m: &Manifest,
+    donor: &mut ResourceDb,
+    overlay_lods: &mut BTreeMap<String, BTreeMap<String, f32>>,
+    notes: &mut Vec<String>,
+) -> Result<Vec<u8>> {
+    bytes = early::geometry(&bytes, m.wrapped_uv_surfaces.contains(path))
+        .with_context(|| format!("converting early geometry {path}"))?;
+    if m.wrapped_uv_surfaces.contains(path) {
+        notes.push(format!("{path}: integer UV island offsets removed before half packing; repeating material sampling preserved"));
+    }
+    if m.strict_finite {
+        let repaired = early::repair_tangent_frames(&mut bytes)
+            .with_context(|| format!("repairing tangent frames of {path}"))?;
+        if repaired > 0 {
+            notes.push(format!("{path}: {repaired} degenerate tangent frames rebuilt orthonormal around the kept normal (a parallel or zero-length tangent/binormal can normalise to NaN in the 0.26 g-buffer)"));
+        }
+    }
+    if let Some((model, surface)) = path
+        .strip_suffix("/converted_model")
+        .and_then(|p| p.split_once(".model/render/"))
+    {
+        if !overlay_lods.contains_key(model) {
+            let settings = format!("{model}.model/settings");
+            let surfaces = if donor.is_file(&settings) {
+                early::wall_overlay_lifts(&cfg(donor, &settings)?)
+                    .with_context(|| format!("reading LOD surfaces of {settings}"))?
+            } else {
+                BTreeMap::new()
+            };
+            overlay_lods.insert(model.to_owned(), surfaces);
+        }
+        if let Some(&lift) = overlay_lods[model].get(surface) {
+            let vertices = early::lift_along_normals(&mut bytes, lift)
+                .with_context(|| format!("lifting wall overlay {path}"))?;
+            notes.push(format!("{path}: wall-overlay surface lifted {lift} m along its normals ({vertices} vertices; the authored moss sits up to 1.2 cm (LOD0) / 8.2 cm (LOD1) inside the wall and flickers in 0.26)"));
+        }
+    }
+    Ok(bytes)
 }
 
 fn cfg(db: &mut ResourceDb, path: &str) -> Result<ConfigValue> {
@@ -2730,102 +2795,94 @@ pub fn build(
     for cut in &map_cuts {
         cut.validate()?;
     }
-    // Per cut: (render surfaces, collision meshes) it changed.
-    let mut cut_hits = vec![(0usize, 0usize); map_cuts.len()];
+    // Per cut: what it did to the render surfaces and to the collision.
+    let mut cut_hits = vec![(cuts::Opened::default(), cuts::Opened::default()); map_cuts.len()];
     let mut cut_counts: BTreeMap<String, cuts::SurfaceCounts> = BTreeMap::new();
-    let mut cut_collision: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    let successor = |path: &str| successor_dirs.iter().any(|dir| path.starts_with(&format!("{dir}/")));
+    // The surfaces and collision under the cuts' models, made first: a cut's
+    // caps come from every surface it opens, so those are cut together.
+    let mut prepared: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    if !map_cuts.is_empty() {
+        let under_cut = |path: &str| !successor(path) && map_cuts.iter().any(|c| path.starts_with(&c.models));
+        let mut surfaces = Vec::new();
+        for path in plan.donor_files.iter().filter(|p| p.ends_with("/converted_model") && under_cut(p)) {
+            let mut bytes = match overrides.get(path) {
+                Some(b) => b.clone(),
+                None => donor.read(path)?,
+            };
+            if m.source_build.early() {
+                bytes = early_surface(path, bytes, &m, &mut donor, &mut overlay_lods, &mut compatibility_notes)?;
+                converted_geometry.insert(path.clone());
+            }
+            let surface = cuts::StaticSurface::parse(&bytes).with_context(|| format!("reading {path} to cut"))?;
+            surfaces.push((path.clone(), bytes, surface));
+        }
+        let mut collisions = Vec::new();
+        for path in plan.donor_files.iter().filter(|p| p.ends_with("/collision/vertices") && under_cut(p)) {
+            let base = path.trim_end_matches("/vertices").to_owned();
+            let mut read = |name: &str| donor.read(&format!("{base}/{name}"));
+            let (v, i, f) = (read("vertices")?, read("indices")?, read("face_data")?);
+            let mesh = cuts::CollisionMesh::parse(&v, &i, &f).with_context(|| format!("reading {base} to cut"))?;
+            collisions.push((base, mesh));
+        }
+        for (k, cut) in map_cuts.iter().enumerate() {
+            let mut opened: Vec<_> =
+                surfaces.iter_mut().filter(|(p, ..)| p.starts_with(&cut.models)).map(|(.., s)| s).collect();
+            cut_hits[k].0 = cuts::cut_surfaces(&mut opened, cut);
+            let mut opened: Vec<_> =
+                collisions.iter_mut().filter(|(p, _)| p.starts_with(&cut.models)).map(|(_, c)| c).collect();
+            cut_hits[k].1 = cuts::cut_collisions(&mut opened, cut);
+        }
+        for (path, bytes, surface) in surfaces {
+            let bytes = match surface.into_bytes().with_context(|| format!("writing cut {path}"))? {
+                Some((cut, counts)) => {
+                    let properties = path.trim_end_matches("converted_model").to_owned() + "export_properties";
+                    ensure!(plan.donor_files.contains(&properties), "cut surface {path} has no export_properties");
+                    cut_counts.insert(properties, counts);
+                    cut
+                }
+                None => bytes,
+            };
+            prepared.insert(path, bytes);
+        }
+        for (base, mesh) in collisions {
+            if let Some((v, i, f)) = mesh.into_bytes().with_context(|| format!("writing cut {base}"))? {
+                prepared.insert(format!("{base}/vertices"), v);
+                prepared.insert(format!("{base}/indices"), i);
+                prepared.insert(format!("{base}/face_data"), f);
+            }
+        }
+    }
+    let grass_plan = {
+        let mut layers = Vec::new();
+        for path in plan.donor_files.iter().filter(|p| p.ends_with(".veg")) {
+            let bytes = match overrides.get(path) {
+                Some(b) => b.clone(),
+                None => donor.read(path)?,
+            };
+            layers.push((path.as_str(), grass::instances(&bytes).with_context(|| format!("counting {path}"))?));
+        }
+        grass::Plan::new(layers)?
+    };
+    let mut thinned_grass = BTreeMap::new();
     for path in &plan.donor_files {
-        if successor_dirs
-            .iter()
-            .any(|dir| path.starts_with(&format!("{dir}/")))
-        {
+        if successor(path) {
             continue;
         }
-        let mut bytes = if let Some(b) = overrides.get(path) {
-            b.clone()
+        let mut bytes = if let Some(b) = prepared.remove(path) {
+            b
         } else {
-            donor.read(path)?
+            let b = match overrides.get(path) {
+                Some(b) => b.clone(),
+                None => donor.read(path)?,
+            };
+            if m.source_build.early() && path.ends_with("/converted_model") {
+                converted_geometry.insert(path.clone());
+                early_surface(path, b, &m, &mut donor, &mut overlay_lods, &mut compatibility_notes)?
+            } else {
+                b
+            }
         };
-        if m.source_build.early() && path.ends_with("/converted_model") {
-            bytes = early::geometry(&bytes, m.wrapped_uv_surfaces.contains(path))
-                .with_context(|| format!("converting early geometry {path}"))?;
-            if m.wrapped_uv_surfaces.contains(path) {
-                compatibility_notes.push(format!("{path}: integer UV island offsets removed before half packing; repeating material sampling preserved"));
-            }
-            if m.strict_finite {
-                let repaired = early::repair_tangent_frames(&mut bytes)
-                    .with_context(|| format!("repairing tangent frames of {path}"))?;
-                if repaired > 0 {
-                    compatibility_notes.push(format!("{path}: {repaired} degenerate tangent frames rebuilt orthonormal around the kept normal (a parallel or zero-length tangent/binormal can normalise to NaN in the 0.26 g-buffer)"));
-                }
-            }
-            converted_geometry.insert(path.clone());
-            if let Some((model, surface)) = path
-                .strip_suffix("/converted_model")
-                .and_then(|p| p.split_once(".model/render/"))
-            {
-                if !overlay_lods.contains_key(model) {
-                    let settings = format!("{model}.model/settings");
-                    let surfaces = if donor.is_file(&settings) {
-                        early::wall_overlay_lifts(&cfg(&mut donor, &settings)?)
-                            .with_context(|| format!("reading LOD surfaces of {settings}"))?
-                    } else {
-                        BTreeMap::new()
-                    };
-                    overlay_lods.insert(model.to_owned(), surfaces);
-                }
-                if let Some(&lift) = overlay_lods[model].get(surface) {
-                    let vertices = early::lift_along_normals(&mut bytes, lift)
-                        .with_context(|| format!("lifting wall overlay {path}"))?;
-                    compatibility_notes.push(format!("{path}: wall-overlay surface lifted {lift} m along its normals ({vertices} vertices; the authored moss sits up to 1.2 cm (LOD0) / 8.2 cm (LOD1) inside the wall and flickers in 0.26)"));
-                }
-            }
-        }
-        let path_cuts: Vec<usize> = (0..map_cuts.len())
-            .filter(|&i| path.starts_with(&map_cuts[i].models))
-            .collect();
-        if !path_cuts.is_empty() && path.ends_with("/converted_model") {
-            let mut counts = None;
-            for &i in &path_cuts {
-                if let Some((cut, c)) = cuts::cut_static(&bytes, std::slice::from_ref(map_cuts[i]))
-                    .with_context(|| format!("cutting {} out of {path}", map_cuts[i].name))?
-                {
-                    bytes = cut;
-                    counts = Some(c);
-                    cut_hits[i].0 += 1;
-                }
-            }
-            if let Some(c) = counts {
-                let properties = path.trim_end_matches("converted_model").to_owned() + "export_properties";
-                ensure!(plan.donor_files.contains(&properties), "cut surface {path} has no export_properties");
-                cut_counts.insert(properties, c);
-            }
-        }
-        if let Some(dir) = path
-            .strip_suffix("/collision/vertices")
-            .or_else(|| path.strip_suffix("/collision/indices"))
-            .or_else(|| path.strip_suffix("/collision/face_data"))
-            .filter(|_| !path_cuts.is_empty())
-        {
-            let base = format!("{dir}/collision");
-            if !cut_collision.contains_key(path) {
-                let read = |donor: &mut ResourceDb, name: &str| donor.read(&format!("{base}/{name}"));
-                let (mut v, mut i, mut f) =
-                    (read(&mut donor, "vertices")?, read(&mut donor, "indices")?, read(&mut donor, "face_data")?);
-                for &k in &path_cuts {
-                    if let Some(cut) = cuts::cut_collision(&v, &i, &f, std::slice::from_ref(map_cuts[k]))
-                        .with_context(|| format!("cutting {} out of {base}", map_cuts[k].name))?
-                    {
-                        (v, i, f) = cut;
-                        cut_hits[k].1 += 1;
-                    }
-                }
-                cut_collision.insert(format!("{base}/vertices"), v);
-                cut_collision.insert(format!("{base}/indices"), i);
-                cut_collision.insert(format!("{base}/face_data"), f);
-            }
-            bytes = cut_collision[path].clone();
-        }
         if let Some(stem) = path
             .strip_prefix("textures/")
             .and_then(|p| p.strip_suffix(".options"))
@@ -2873,9 +2930,13 @@ pub fn build(
         if path.ends_with(".veg") {
             vegetation_instances.insert(
                 path.clone(),
-                early::vegetation_instances(&bytes)
+                grass::instances(&bytes)
                     .with_context(|| format!("checking original vegetation {path}"))?,
             );
+            bytes = grass_plan.layer(path, &bytes)?;
+            if let Some((total, kept)) = grass_plan.map_of(path).filter(|(total, kept)| total > kept) {
+                thinned_grass.insert(path.rsplit_once("/vegetation/").map_or(path.as_str(), |(map, _)| map).to_owned(), (total, kept));
+            }
         }
         if m.source_build.early() && path.ends_with(".single_sound_options") {
             bytes = target.read("sounds/single/weather/wind/wind_day.raw_options")?;
@@ -2913,6 +2974,15 @@ pub fn build(
         if is_config_resource(path) {
             let mut c =
                 BinaryConfig::parse(&bytes).with_context(|| format!("decoding config {path}"))?;
+            if m.source_build.early()
+                && path.starts_with("material_instances/")
+                && early::matte_colour_gloss(&mut c.root).with_context(|| format!("the gloss of {path}"))?
+            {
+                compatibility_notes.push(format!(
+                    "{path}: its colour texture is its gloss map: gloss {} at both ends of the range",
+                    early::COLOUR_GLOSS
+                ));
+            }
             if let Some(overrides) = path
                 .strip_suffix("/exported_primitives")
                 .and_then(|dir| m.collision_primitive_overrides.get(dir))
@@ -3199,19 +3269,26 @@ pub fn build(
     for path in m.texture_grades.keys() {
         ensure!(plan.donor_files.contains(path), "texture grade names a texture the maps do not import: {path}");
     }
+    for (map, (total, kept)) in &thinned_grass {
+        compatibility_notes.push(format!(
+            "{map}: grass thinned evenly from {total} to {kept} instances (0.26's grass cook overflows its 2 MiB thread at about 130,000)"
+        ));
+    }
     if !hidden_campfire_materials.is_empty() {
         ensure!(hidden_campfire_surfaces > 0, "no surface uses the campfire materials {hidden_campfire_materials:?}");
         compatibility_notes.push(format!("{hidden_campfire_surfaces} X-Ray campfire log surfaces hidden (empty material)"));
     }
     for (cut, (surfaces, meshes)) in map_cuts.iter().zip(&cut_hits) {
         ensure!(
-            *surfaces > 0 && *meshes > 0,
-            "cut {} changes {surfaces} render surfaces and {meshes} collision meshes; it must open both",
-            cut.name
+            surfaces.meshes > 0 && meshes.meshes > 0,
+            "cut {} changes {} render surfaces and {} collision meshes; it must open both",
+            cut.name,
+            surfaces.meshes,
+            meshes.meshes
         );
         compatibility_notes.push(format!(
-            "cut {}: box {:?} +- {:?} removed from {surfaces} static surfaces and {meshes} collision meshes under {} ({})",
-            cut.name, cut.centre, cut.half, cut.models, cut.reason
+            "cut {}: box {:?} +- {:?} removed from {} static surfaces and {} collision meshes under {} ({}); closed where it goes through something solid with {} render and {} collision cap triangles ({} / {} edges left uncapped: a nearer surface faces them)",
+            cut.name, cut.centre, cut.half, surfaces.meshes, meshes.meshes, cut.models, cut.reason, surfaces.caps, meshes.caps, surfaces.uncapped, meshes.uncapped
         ));
     }
     if dds_headers_fixed > 0 {
@@ -3259,6 +3336,33 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_set_number_keeps_an_integer_only_for_a_whole_value() {
+        let mut root = named(vec![
+            ("ao_saturation", ConfigValue::Integer(2)),
+            ("lens_flares_multiplier", ConfigValue::Integer(2)),
+            ("god_rays_intensity", ConfigValue::Float(1.)),
+            ("effect", named(vec![("min", named(vec![("value", ConfigValue::Integer(1))]))])),
+            ("use_sun", ConfigValue::Boolean(true)),
+        ]);
+        set_number(&mut root, "ao_saturation", 1.).unwrap();
+        set_number(&mut root, "lens_flares_multiplier", 0.7).unwrap();
+        set_number(&mut root, "god_rays_intensity", 3.).unwrap();
+        set_number(&mut root, "effect.min.value", 0.04).unwrap();
+        assert_eq!(root.named("ao_saturation"), Some(&ConfigValue::Integer(1)));
+        assert_eq!(root.named("lens_flares_multiplier"), Some(&ConfigValue::Float(0.7)));
+        assert_eq!(root.named("god_rays_intensity"), Some(&ConfigValue::Float(3.)));
+        assert_eq!(
+            root.named("effect").and_then(|e| e.named("min")).and_then(|m| m.named("value")),
+            Some(&ConfigValue::Float(0.04))
+        );
+        // Only a number that is there: no new key, no other type.
+        assert!(set_number(&mut root, "god_rays_attenuation", 3.).is_err());
+        assert!(set_number(&mut root, "use_sun", 0.).is_err());
+        assert!(set_number(&mut root, "ao_saturation", f32::NAN).is_err());
+        assert!(root.named("god_rays_attenuation").is_none());
+    }
+
     #[test]
     fn shared_particle_and_texture_names_do_not_follow_a_material_alias() {
         let paths = BTreeSet::from(["material_instances/fx/lights/oil_lamp.material".into()]);
