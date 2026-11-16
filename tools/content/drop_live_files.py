@@ -19,7 +19,7 @@ while rest and rest[0] == '--keep-live':
 patches = rest
 listing = {}
 for patch in patches:
-    for path in subprocess.run([porter, 'list', '--db', patch], check=True, capture_output=True, text=True).stdout.split():
+    for path in subprocess.run([porter, 'list', '--db', patch], check=True, capture_output=True, text=True).stdout.splitlines():
         listing[path] = patch
 manifest = json.loads((pack / 'pack.json').read_text())
 kept, dropped, differ = [], [], []
