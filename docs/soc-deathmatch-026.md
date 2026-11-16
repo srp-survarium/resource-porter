@@ -81,7 +81,16 @@ All of it is opt-in per map and off for the existing 0.10b–0.11e maps:
   triangles keep their attributes and face materials; the surfaces'
   `export_properties` vertex and index counts follow). The converted maps'
   static models sit at the origin, so the box is in map coordinates. Each
-  cut must open both render and collision. Edges are left open.
+  cut must open both render and collision. Where the box goes through
+  something solid (a slab's thickness, a wall), the box's faces close it:
+  each face is split along the edges the cut leaves on it, and each piece
+  whose nearest surface (along the face, or out of the box) faces away from
+  it lies in the solid and gets a cap, with the material and face material
+  of that surface, its texture folded round the edge. Render surfaces and
+  collision are capped alike, each from its own triangles, so the opening
+  shows no void and has no invisible wall. The build notes count the caps
+  and the edges left uncapped (where a nearer surface faces the edge, as a
+  ladder rail open at its back against the wall).
 - **Generated materials** (`material_instances/ported/...`) have no path
   domain, so the importer cannot choose a template for them by itself.
   `xray_material_templates.py` matches each one to the v0.100b family
@@ -204,7 +213,8 @@ also walked confined to 3 m around its plank, from the lowest crate: it
 must reach the landing below and the third floor past the plank (and does
 not without the plank). The 0.54 m crate treads alias on the 0.25 m grid,
 so with props a floor also counts when it is reachable on the grid shifted
-by half a cell. No static collision may remain inside a cut. All pass.
+by half a cell. No static collision may remain inside a cut (the caps lie on
+its faces). All pass.
 
 
 0.26g has no ladder gameplay. In v0.100b, `player::use_ladder` is empty (see
