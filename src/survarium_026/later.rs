@@ -238,7 +238,7 @@ pub struct MaterialConstants {
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MapSpec {
-    pub id: u8,
+    pub id: u16,
     /// HUD key; 0.26 has no minimap for it.
     pub level: String,
     pub donor_project: String,
@@ -315,7 +315,7 @@ pub struct NativeObjects {
 #[serde(deny_unknown_fields)]
 pub struct ModeSpec {
     /// `maps_dict` id.
-    pub id: u8,
+    pub id: u16,
     pub native_project: String,
     pub native_mode: String,
     pub output_project: String,
@@ -3525,7 +3525,7 @@ fn emit_modes(
     output: &Path,
     files: &mut Vec<BuiltFile>,
     notes: &mut Vec<String>,
-) -> Result<Vec<(u8, String)>> {
+) -> Result<Vec<(u16, String)>> {
     let template = cfg(sources, &spec.template_project)?;
     let mut registered = Vec::new();
     for mode in &spec.modes {

@@ -166,7 +166,7 @@ pub struct ServerProjectFallback {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Map {
-    pub id: u8,
+    pub id: u16,
     pub level: String,
     pub weather: String,
     /// Look-defining environment choices for early donors. Bug fixes apply
@@ -1607,7 +1607,7 @@ pub fn build(
     for entry in registered {
         if let Some(ConfigValue::Integer(id)) = entry.named("id") {
             ensure!(
-                !ids.contains(&u8::try_from(*id)?),
+                !ids.contains(&u16::try_from(*id)?),
                 "map ID {id} already used"
             );
         }
