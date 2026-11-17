@@ -6,7 +6,7 @@
       "id": 260,
       "level": "level_01",
       "weather": "day",
-      "native_lighting": true,
+      "native_lighting": false,
       "map_id": 29,
       "name": {
         "key": "st_level_29_name",
@@ -49,5 +49,8 @@
       "fresnel": 0.05,
       "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
     }
-  }
+  },
+  "object_template_projects": [
+    "projects/level_02/day_2/client_project"
+  ]
 }

@@ -23,6 +23,10 @@ pub struct Manifest {
     pub donor_sha256: String,
     pub target_sha256: String,
     pub maps: Vec<Map>,
+    /// Additional native projects supplying missing object schemas, after the
+    /// selected maps' own templates. No objects or placements are imported.
+    #[serde(default)]
+    pub object_template_projects: BTreeSet<String>,
     #[serde(default)]
     pub reference_replacements: BTreeMap<String, String>,
     #[serde(default)]
@@ -309,10 +313,15 @@ fn adapt_objects(
                     .filter(|v| matches!(v.name.as_str(), "day" | "evening" | "rain"))
                     .cloned()
                     .collect();
-                for mut entry in old {
-                    entry.name.push_str("_2");
-                    textures.retain(|v| v.name != entry.name);
-                    textures.push(entry);
+                for entry in old {
+                    // 0.21 bakes by weather, not mode. Never leave a native
+                    // template's cubemap on a later TDM or FFA project copy.
+                    for mode in [2, 3, 4, 5, 8] {
+                        let mut alias = entry.clone();
+                        alias.name = format!("{}_{mode}", entry.name);
+                        textures.retain(|v| v.name != alias.name);
+                        textures.push(alias);
+                    }
                 }
             }
         }
@@ -408,23 +417,23 @@ fn adopt_native_lighting(
     Ok((removed, added))
 }
 
+fn object_templates(project: &ConfigValue) -> Result<Vec<ConfigValue>> {
+    let mut templates = array(project.named("client_objects").context("target objects missing")?)?.to_vec();
+    if let Some(ConfigValue::Named(groups)) = project.named("server_objects") {
+        for group in groups {
+            templates.extend(array(&group.value)?.iter().cloned());
+        }
+    }
+    Ok(templates)
+}
+
 fn adapt_project(
     mut donor: ConfigValue,
     target: &ConfigValue,
     map: &Map,
     all_templates: &[ConfigValue],
 ) -> Result<ConfigValue> {
-    let mut templates = array(
-        target
-            .named("client_objects")
-            .context("target objects missing")?,
-    )?
-    .to_vec();
-    if let Some(ConfigValue::Named(groups)) = target.named("server_objects") {
-        for group in groups {
-            templates.extend(array(&group.value)?.iter().cloned());
-        }
-    }
+    let mut templates = object_templates(target)?;
     templates.extend_from_slice(all_templates);
     let donor_objects = donor
         .named_mut("client_objects")
@@ -846,7 +855,7 @@ fn rewrite_inner(
                     Some("particle")
                 } else if f.name.starts_with("texture_") || f.name.ends_with("_texture") {
                     Some("texture")
-                } else if f.name == "material_name" {
+                } else if f.name == "material_name" || f.name == "Material" {
                     Some("material")
                 } else if f.name == "sound_name" {
                     Some("sound")
@@ -1538,21 +1547,11 @@ pub fn build(
     let mut target_projects = BTreeMap::new();
     for map in &m.maps {
         let project = cfg(&mut target, &map.target_project())?;
-        templates.extend(
-            array(
-                project
-                    .named("client_objects")
-                    .context("target objects missing")?,
-            )?
-            .iter()
-            .cloned(),
-        );
-        if let Some(ConfigValue::Named(groups)) = project.named("server_objects") {
-            for group in groups {
-                templates.extend(array(&group.value)?.iter().cloned());
-            }
-        }
+        templates.extend(object_templates(&project)?);
         target_projects.insert(map.target_project(), project);
+    }
+    for path in &m.object_template_projects {
+        templates.extend(object_templates(&cfg(&mut target, path)?)?);
     }
     let mut overrides = BTreeMap::new();
     let mut collision_repairs = BTreeMap::new();
@@ -2319,6 +2318,69 @@ mod tests {
             string(scene.named("texture_diffuse").unwrap(), "value"),
             Some("ported/v021d/fx/lights/oil_lamp")
         );
+    }
+
+    #[test]
+    fn particle_material_keeps_native_material_when_only_particle_is_imported() {
+        // School's point effect and its shared native material have the same
+        // short name. A particle alias must not turn its Material into a
+        // missing ported material (the engine draws opaque fallback quads).
+        let paths = BTreeSet::from([
+            "particles/fx/level_2_anomaly_2/points_small.particle".into(),
+            "material_instances/fx/level_2_anomaly_2/plasma.material".into(),
+        ]);
+        for (before, after) in [
+            ("fx/level_2_anomaly_2/points_small", "fx/level_2_anomaly_2/points_small"),
+            ("fx/level_2_anomaly_2/plasma", "ported/v021d/fx/level_2_anomaly_2/plasma"),
+        ] {
+            let mut emitter = named(vec![("properties", named(vec![(
+                "Material", ConfigValue::String(before.into()),
+            )]))]);
+            rewrite_inner(&mut emitter, &replacements(&paths), true, None);
+            assert_eq!(string(emitter.named("properties").unwrap(), "Material"), Some(after));
+        }
+    }
+
+    #[test]
+    fn extra_project_templates_fill_schema_without_replacing_authored_light() {
+        let mut donor = ConfigValue::Indexed(vec![named(vec![
+            ("game_object_type", ConfigValue::String("light".into())),
+            ("position", ConfigValue::Float3([1., 2., 3.])),
+            ("properties", named(vec![("intensity", ConfigValue::Float(7.5))])),
+        ])]);
+        assert!(adapt_objects(&mut donor.clone(), &[], &[]).is_err());
+        let extra = named(vec![("client_objects", ConfigValue::Indexed(vec![named(vec![
+            ("game_object_type", ConfigValue::String("light".into())),
+            ("position", ConfigValue::Float3([9., 9., 9.])),
+            ("properties", named(vec![
+                ("intensity", ConfigValue::Float(1.)),
+                ("is_editor_visible", ConfigValue::Boolean(true)),
+            ])),
+        ])]))]);
+        adapt_objects(&mut donor, &object_templates(&extra).unwrap(), &[]).unwrap();
+        let objects = array(&donor).unwrap();
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].named("position"), Some(&ConfigValue::Float3([1., 2., 3.])));
+        let properties = objects[0].named("properties").unwrap();
+        assert_eq!(properties.named("intensity"), Some(&ConfigValue::Float(7.5)));
+        assert_eq!(properties.named("is_editor_visible"), Some(&ConfigValue::Boolean(true)));
+    }
+
+    #[test]
+    fn donor_probe_cubemaps_follow_every_mode_copy() {
+        let mut donor = ConfigValue::Indexed(vec![named(vec![
+            ("game_object_type", ConfigValue::String("environment_probe".into())),
+            ("textures", named(vec![("day", ConfigValue::String("donor/day".into()))])),
+        ])]);
+        let native = named(vec![
+            ("game_object_type", ConfigValue::String("environment_probe".into())),
+            ("textures", named(vec![("day_4", ConfigValue::String("native/tdm".into()))])),
+        ]);
+        adapt_objects(&mut donor, &[native], &[]).unwrap();
+        let textures = array(&donor).unwrap()[0].named("textures").unwrap();
+        for key in ["day", "day_2", "day_3", "day_4", "day_5", "day_8"] {
+            assert_eq!(textures.named(key), Some(&ConfigValue::String("donor/day".into())));
+        }
     }
 
     fn named(fields: Vec<(&str, ConfigValue)>) -> ConfigValue {
