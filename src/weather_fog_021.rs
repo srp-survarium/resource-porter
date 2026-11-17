@@ -4,6 +4,8 @@
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 mod tone_map;
+mod local_lights;
+pub use local_lights::{local_light_pairs, build_local_light};
 pub use tone_map::{TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap};
 
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
