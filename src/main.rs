@@ -207,8 +207,12 @@ enum Command {
     Scan {
         #[arg(long)]
         donor_db: PathBuf,
+        #[arg(long = "donor-patch")]
+        donor_patches: Vec<PathBuf>,
         #[arg(long)]
         target_db: PathBuf,
+        #[arg(long = "target-patch")]
+        target_patches: Vec<PathBuf>,
         #[arg(long = "root", required = true)]
         roots: Vec<String>,
         #[arg(long)]
@@ -1191,12 +1195,14 @@ fn main() -> Result<()> {
         }
         Command::Scan {
             donor_db,
+            donor_patches,
             target_db,
+            target_patches,
             roots,
             output,
         } => {
-            let mut donor = ResourceDb::open(donor_db)?;
-            let mut target = ResourceDb::open(target_db)?;
+            let mut donor = ResourceDb::open_layers(&[vec![donor_db], donor_patches].concat())?;
+            let mut target = ResourceDb::open_layers(&[vec![target_db], target_patches].concat())?;
             let plan = dependency::scan(&mut donor, &mut target, roots)?;
             let json = serde_json::to_string_pretty(&plan)?;
             if let Some(output) = output {
