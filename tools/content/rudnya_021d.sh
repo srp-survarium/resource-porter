@@ -12,7 +12,7 @@
 #      native's spots on 0.21d's floor (the layouts match: the importer's layout offset is 0), team 0's moved with
 #      0.21d's team 0 spawns (27 m from native's);
 #   5. the description, the pack check over stock + the live patches, SHA256SUMS.
-#   rudnya_021d.sh BUILD_DIR SKHID_SRP   (SKHID_SRP: release/patches.tsv names the live patches)
+#   rudnya_021d.sh BUILD_DIR SKHID_SRP SCHOOL_FORT_PACK   (SKHID_SRP: release/patches.tsv names the live patches)
 set -euo pipefail
 BUILD=$(realpath -m "$1"); SRP=$(realpath "$2"); mkdir -p "$BUILD"
 HERE=$(cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -24,17 +24,18 @@ STOCK=${STOCK:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}
 DONOR=${DONOR:-"/mnt/hdd/Projects/Survarium Builds/survarium_full_021d/game/resources.db"}
 PATCH_DIR=${PATCH_DIR:-$HOME/.cache/skhid-release/patches}
 PATCHES=(); for n in $(awk -F'\t' '!/^#/ && NF {print $1}' "$SRP/release/patches.tsv"); do PATCHES+=("$PATCH_DIR/$n"); done
-OUT=$BUILD/maps-021d-rudnya-3
+SHARED=$(realpath "${3:?School/Fort pack folder required}")
+OUT=$BUILD/maps-021d-rudnya-4
 
 rm -rf "$BUILD/bundle" "$OUT" "$BUILD/fill"
 "$PORTER" build-survarium021-maps --manifest "$HERE/ports/survarium-021d-rudnya-to-026g.json" \
   --donor-db "$DONOR" --target-db "$STOCK" --output "$BUILD/bundle"
 "$PORTER" pack from-bundle --base-db "$STOCK" --build-base-db "$STOCK" --bundle "$BUILD/bundle" --output "$OUT" \
-  --id maps-021d-rudnya --version 3
+  --id maps-021d-rudnya --version 4
 $P -I "$HERE/tools/content/drop_live_files.py" "$OUT" "$PORTER" \
   --keep-live material_instances/ported/v021d/tiled/metal/metal_column_05.material \
   --keep-live material_instances/ported/v021d/tiled/floor/floor_trash_burned_vc.material "${PATCHES[@]}"
-"$PORTER" add-021d-deathmatch --pack "$OUT" --target-db "$STOCK" --variant level_01:day:261 --version 3
+"$PORTER" add-021d-deathmatch --pack "$OUT" --target-db "$STOCK" --variant level_01:day:261 --version 4
 $P -I "$HERE/tools/content/native_crates.py" "$STOCK" "$BUILD/bundle/overlay" "$BUILD/fill" level_01:260:261
 (cd "$HERE" && "$EDIT" "$OUT" "$BUILD/fill/plan.json" "$STOCK")
 
@@ -48,8 +49,9 @@ m['description'] = ('Rudnya (level_01) of retail 0.21d, day: maps_dict 260 (batt
                     'files patch_20 holds are shared, not repeated')
 p.write_text(json.dumps(m, indent=2, ensure_ascii=False) + '\n')
 PY
+"$P" -I "$HERE/tools/content/share_pack_files.py" "$OUT" "$SHARED" "$HERE/tools/content/rudnya_shared_finishes.json"
 BASE=(); for f in "${PATCHES[@]}"; do BASE+=(--base-patch "$f"); done
-"$PORTER" pack check --pack "$OUT" --base-db "$STOCK" "${BASE[@]}" | tail -3
-(cd "$BUILD" && find maps-021d-rudnya-3 -type f -print0 | sort -z | xargs -0 sha256sum > maps-021d-rudnya-3.files.sha256 \
-  && sha256sum maps-021d-rudnya-3/pack.json maps-021d-rudnya-3.files.sha256 > maps-021d-rudnya-3.SHA256SUMS)
-cat "$BUILD/maps-021d-rudnya-3.SHA256SUMS"
+"$PORTER" pack check --pack "$SHARED" --pack "$OUT" --base-db "$STOCK" "${BASE[@]}" | tail -3
+(cd "$BUILD" && find maps-021d-rudnya-4 -type f -print0 | sort -z | xargs -0 sha256sum > maps-021d-rudnya-4.files.sha256 \
+  && sha256sum maps-021d-rudnya-4/pack.json maps-021d-rudnya-4.files.sha256 > maps-021d-rudnya-4.SHA256SUMS)
+cat "$BUILD/maps-021d-rudnya-4.SHA256SUMS"

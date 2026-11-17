@@ -1,0 +1,14 @@
+[
+  {
+    "path": "material_instances/ported/v021d/vehicle/uaz_452.material",
+    "from_sha256": "9b495cb4bb8b0356c12cb33863ee9ec3a09557e551b59508442f863228776b00",
+    "to_sha256": "b0ecda6ce21042d40f9799363f68068aea907259bb62b316f8052b99580cf5ed",
+    "why": "Use the native 0.26 Fresnel map, as the material conversion specifies. The two decoded materials differ only in texture_fresnel.value: Rudnya accidentally rebound it to the donor map because another material uses that name. School/Fort keeps the native binding."
+  },
+  {
+    "path": "material_instances/ported/v021d/vehicle/uaz_452_med.material",
+    "from_sha256": "6fb6e2be14dc4fcdb286f56f938c625f469b1dd78ef1dd8a609a497a770c85a1",
+    "to_sha256": "c15e9104a304db0f2dbcb563139fca8c8061f92b1f1a68168110639ac843fc3b",
+    "why": "Use the native 0.26 Fresnel map, as the material conversion specifies. The two decoded materials differ only in texture_fresnel.value: Rudnya accidentally rebound it to the donor map because another material uses that name. School/Fort keeps the native binding."
+  }
+]
