@@ -35,6 +35,7 @@ pub mod survarium_026;
 pub mod target_native_map;
 pub mod terrain_surface_patch;
 pub mod weapon;
+pub mod vertex_blend_021;
 pub mod weather_021d;
 pub mod weather_fog_021;
 
