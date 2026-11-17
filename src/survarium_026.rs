@@ -171,6 +171,8 @@ pub struct Record {
     pub maps: Vec<Map>,
     pub files: Vec<BuiltFile>,
     pub converted_materials: BTreeMap<String, String>,
+    /// Original unmasked diffuse/normal blend restored with a generated zero mask.
+    pub linear_vertex_materials: BTreeSet<String>,
     pub shared_dependencies: BTreeSet<String>,
     pub repaired_model_settings: BTreeSet<String>,
     pub adapted_particles: BTreeSet<String>,
@@ -1106,6 +1108,7 @@ fn texture_options(dds: &str) -> String {
 
 struct ConvertedMaterial {
     root: ConfigValue,
+    vertex_blend: crate::vertex_blend_021::Compatibility,
     template_path: String,
     /// The native maps it binds ([`crate::material_finish::adopt_native_finish`]).
     native_maps: BTreeSet<String>,
@@ -1148,8 +1151,10 @@ fn convert_material(
         crate::material_finish::apply_finish_exception(&mut root, exception)
             .with_context(|| format!("finish exception of {path}"))?;
     }
+    let vertex_blend = crate::vertex_blend_021::classify(&BinaryConfig::parse(bytes)?.root, &root)?;
     Ok(ConvertedMaterial {
         root,
+        vertex_blend,
         template_path: converted.template_path,
         native_maps,
         native_finish: native,
@@ -1200,7 +1205,10 @@ fn native_equivalents(
     }
     let mut native_materials = BTreeSet::new();
     for (path, converted) in materials {
-        if !target.is_file(path) || cfg(target, path)? != converted.root {
+        if converted.vertex_blend == crate::vertex_blend_021::Compatibility::Linear
+            || !target.is_file(path)
+            || cfg(target, path)? != converted.root
+        {
             continue;
         }
         let all_native = crate::material_finish::material_textures(&converted.root)
@@ -2044,6 +2052,7 @@ pub fn build(
         emit(output, crate::weather_fog_021::AO_PATH, &shader,
              "0.21d-quality1-ambient-occlusion+native-unmarked-fallback", &mut files)?;
     }
+    let mut linear_vertex_materials = BTreeSet::new();
     let mut converted_materials = BTreeMap::new();
     let mut repaired_model_settings = BTreeSet::new();
     for path in &plan.donor_files {
@@ -2053,10 +2062,14 @@ pub fn build(
             donor.read(path)?
         };
         if is_material(path) {
-            let converted = match converted_roots.remove(path) {
+            let mut converted = match converted_roots.remove(path) {
                 Some(converted) => converted,
                 None => convert_material(&m, &catalog, &donor, &mut target, path, &bytes)?,
             };
+            if converted.vertex_blend == crate::vertex_blend_021::Compatibility::Linear {
+                linear_vertex_materials.insert(path.clone());
+            }
+            converted.vertex_blend.apply(&mut converted.root)?;
             bytes = BinaryConfig {
                 root: converted.root,
             }
@@ -2134,6 +2147,19 @@ pub fn build(
         );
         emit(output, dest, &bytes, "0.21d+0.26g-adapter", &mut files)?;
     }
+    if !linear_vertex_materials.is_empty() {
+        let mask = crate::vertex_blend_021::MASK;
+        emit(
+            output, &format!("textures/{mask}.dds"),
+            &crate::vertex_blend_021::black_mask(),
+            "0.21d-linear-vertex-blend-adapter", &mut files,
+        )?;
+        emit(
+            output, &format!("textures/{mask}.options"),
+            &target.read(crate::vertex_blend_021::MASK_OPTIONS)?,
+            "0.21d-linear-vertex-blend-adapter", &mut files,
+        )?;
+    }
     for map in &m.maps {
         let mode_name = format!("v021d_{}", map.mode());
         let mut mode = cfg(&mut target, &format!("gameplay/game_modes/{}", map.mode()))?;
@@ -2210,6 +2236,7 @@ pub fn build(
         maps: m.maps,
         files,
         converted_materials,
+        linear_vertex_materials,
         shared_dependencies: plan.target_files,
         repaired_model_settings,
         adapted_particles,
@@ -2777,6 +2804,61 @@ mod tests {
                 "map -> resources/models/tree.model/walker_collision#[1.67][1.67][1.67]",
             ]
         );
+    }
+
+    #[test]
+    fn linear_vertex_material_cannot_be_reused_as_a_native_alias() {
+        use crate::vertex_blend_021::Compatibility;
+        use resources_db::write::{Stored, write_to};
+        let path = "material_instances/test.material".to_owned();
+        let root = named(vec![]);
+        let bytes = BinaryConfig { root: root.clone() }.to_bytes().unwrap();
+        let table = BTreeMap::from([(
+            path.clone(),
+            Stored {
+                size: bytes.len() as u32,
+                hash: resources_db::crc32(&bytes),
+                share: None,
+            },
+        )]);
+        let temp = tempfile::TempDir::new().unwrap();
+        let file = temp.path().join("native.db");
+        write_to(
+            &mut fs::File::create(&file).unwrap(),
+            &table,
+            &BTreeSet::new(),
+            |_| Ok(bytes.clone()),
+        )
+        .unwrap();
+        let mut donor = ResourceDb::open(&file).unwrap();
+        let mut native = ResourceDb::open(&file).unwrap();
+        let material = ConvertedMaterial {
+            root,
+            vertex_blend: Compatibility::Linear,
+            template_path: path.clone(),
+            native_maps: BTreeSet::new(),
+            native_finish: true,
+        };
+        let mut materials = BTreeMap::from([(path.clone(), material)]);
+        let (_, aliases) = native_equivalents(
+            &mut donor,
+            &mut native,
+            &BTreeSet::new(),
+            &materials,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert!(aliases.is_empty());
+        materials.get_mut(&path).unwrap().vertex_blend = Compatibility::Unchanged;
+        let (_, aliases) = native_equivalents(
+            &mut donor,
+            &mut native,
+            &BTreeSet::new(),
+            &materials,
+            &BTreeSet::new(),
+        )
+        .unwrap();
+        assert_eq!(aliases, BTreeSet::from([path]));
     }
 
     #[test]
