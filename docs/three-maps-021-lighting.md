@@ -3,14 +3,16 @@
 `examples/lighting-021-pack.rs` makes the small shader pack described by
 `ports/three-maps-021-lighting.json`. It reuses the fingerprinted original
 shader adapters; it does not rebuild the map packs or change individual
-objects. Version 3 has 88 guarded shader replacements:
+objects. Version 4 has 88 guarded shader replacements and covers all five
+ported 0.21 day maps: Rudnya, School, Vostok, Fort and Mamayev. The pack keeps
+its historical `three-maps-021-lighting` identifier.
 
 The acceptance target is a close match using stock 0.21 values and as few
 renderer changes as practical, not pixel identity. The owner approved the
 @3 Rudnya interior comparisons as the desired standard on 2026-11-17.
 Further changes require a noticeable compatibility defect, not merely a
-small numerical image difference. School, Fort and native-map isolation
-still require their final review.
+small numerical image difference. The final five-map sweep and native-map
+isolation review remain pending.
 
 | Pass | Resources / scope |
 | --- | --- |
@@ -46,7 +48,9 @@ The environment lists select a whole day map using `mie_fog_base_height`:
 | --- | --- |
 | `level_01/day` | -32281 |
 | `level_02/day` | -32195 |
+| `level_03/day` | -32187 |
 | `level_05/day` | -32198 |
+| `level_06/day` | -32196 |
 
 Every day-mode alias of a level uses its same marker. Original authored fog
 inputs must be preserved when enabling it. Other scenes keep the native
@@ -69,7 +73,25 @@ curve, whose native dark-scene luminance floor differs from the original.
 It changes no geometry, local light intensity, material finish or gameplay.
 Probe shading, remaining native permutations and the
 parts named in the table are not claimed to be transplanted. Visual acceptance is recorded in the
-Skhid three-map review, not inferred from successful shader generation.
+Skhid map review, not inferred from successful shader generation.
+
+The older Vostok/Mamayev day ports substituted native lighting objects.
+`examples/restore-021-day-lights.rs DONOR_DB STOCK_DB COMPOSED_LAYERS_JSON OUT`
+restores their donor lights and probes through `original_lighting_objects`,
+which calls the same schema/mode-alias conversion as a new port. The composed
+input is used only for removal identities, counts, environment before-values
+and fixture bindings: no geometry or gameplay objects are copied from it.
+Use the pre-restoration layered content; the tool rejects an already marked
+project. It emits guarded source edits plus `maps-021d-original-probes@2`
+(240 original DDS/options resources, including implicit diffuse cubemaps). That pack has no active-pack dependency:
+the older `maps-021d@7` content is already in the published base.
+
+`tools/content/two_maps_021_environment.py OUT EDIT_OUTPUT` uses the same
+environment conversion, preserving original numeric values and current
+resource bindings. An absent marker field is added with native integer type.
+Skhid's `scripts/breakable-lamps/rebind_021.py` then uses the existing shared
+nearest-fixture rule to update six guarded light-coordinate scalars: one lamp
+in each map, across its three day modes. Fixture identities/counts remain.
 
 The native fallback check reads every built shader, resolves only the explicit
 marker branches to their unmarked path, and compares all executable
@@ -92,7 +114,7 @@ screen UV reconstruction. Its original arithmetic, including shadow sampling,
 is otherwise copied verbatim from the user's donor archive. Each guarded
 branch returns before the unchanged native fallback.
 
-An independent disassembly check compares all three marked branches against
+An independent disassembly check compares all five marked branches against
 each original point/spot program, permitting only these binding/input changes:
 
 ```sh
@@ -100,5 +122,7 @@ python3 tools/content/check_021_local_lights.py \
   PORTER DONOR_DB NATIVE_DB PACK ports/three-maps-021-lighting.json CACHE_DIR VKD3D_COMPILER
 ```
 
-All 32 pairs passed; the final source reproduced the complete @3 pack exactly.
+All 32 pairs passed. `check_021_profile_preservation.py OLD_PACK OLD_MANIFEST
+NEW_PACK NEW_MANIFEST` additionally proves that all 88 resources preserve every
+executable instruction for the three previously approved map profiles.
 Clippy retained the 44 pre-existing library warnings and introduced none.

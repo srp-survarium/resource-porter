@@ -32,8 +32,8 @@ def instructions(blob):
     raise ValueError("missing SHDR")
 
 
-def unmarked(ops, markers):
-    """Resolve only the explicit marker guards; retain all native control flow."""
+def unmarked(ops, markers, selected=None):
+    """Resolve explicit marker guards; None selects the native fallback."""
     result, cursor, guards = [], 0, 0
     while cursor < len(ops):
         op = ops[cursor]
@@ -58,8 +58,14 @@ def unmarked(ops, markers):
             if opcode == 18 and depth == 1:
                 otherwise = end
             end += 1
-        if otherwise is not None:
-            body, nested = unmarked(ops[otherwise + 1:end - 1], markers)
+        if selected == op[-1]:
+            branch = ops[cursor + 2:otherwise if otherwise is not None else end - 1]
+        elif otherwise is not None:
+            branch = ops[otherwise + 1:end - 1]
+        else:
+            branch = []
+        if branch:
+            body, nested = unmarked(branch, markers, selected)
             result.extend(body)
             guards += nested
         guards += 1

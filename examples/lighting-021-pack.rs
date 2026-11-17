@@ -247,7 +247,7 @@ fn main() -> Result<()> {
     let pack = PackManifest {
         format_version: 1, id: manifest.id, version: manifest.version,
         target_build: TARGET_BUILD.into(),
-        description: Some("Original 0.21 atmosphere, direct-sun lighting, quality-1 AO, ray falloff and tone curve for the three day maps; unchanged native shader fallback for unmarked scenes".into()),
+        description: Some("Original 0.21 atmosphere, direct-sun lighting, quality-1 AO, ray falloff and tone curve for all five day ports; unchanged native shader fallback for unmarked scenes".into()),
         requires: vec!["maps-021d-school-fort".into(), "maps-021d-rudnya".into()],
         base_db_sha256: Some(manifest.target_sha256), operations, server: None,
         notes: vec!["Built by examples/lighting-021-pack.rs from fingerprinted retail programs. Projects opt in with their explicit mie_fog_base_height marker; authored fog inputs are preserved by the content edit lists.".into()],

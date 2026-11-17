@@ -287,6 +287,28 @@ fn resolve_project_relative_reference(
     None
 }
 
+/// Texture files requested by the engine, including a probe's implicit
+/// diffuse cubemap. Missing required companions remain in the result so the
+/// caller reports them instead of silently producing an incomplete pack.
+pub fn texture_companions(base: &str, donor: &ResourceDb, target: &ResourceDb) -> Vec<String> {
+    let mut files = Vec::new();
+    if donor.is_file(&format!("{base}.dds"))
+        || donor.is_file(&format!("{base}.options"))
+        || target.is_file(&format!("{base}.dds"))
+        || target.is_file(&format!("{base}.options"))
+    {
+        files.extend([format!("{base}.dds"), format!("{base}.options")]);
+    }
+    if base.contains("/environment_probes/")
+        && !base.ends_with("_diffuse")
+        && (donor.is_file(&format!("{base}_diffuse.dds"))
+            || target.is_file(&format!("{base}_diffuse.dds")))
+    {
+        files.extend([format!("{base}_diffuse.dds"), format!("{base}_diffuse.options")]);
+    }
+    files
+}
+
 fn resolve_global_candidates(
     reference: &str,
     donor: &ResourceDb,
@@ -370,16 +392,7 @@ fn resolve_global_candidates(
             format!("{animation_base}.b-spline"),
             format!("{animation_base}.bones_names"),
         ]);
-        if donor.is_file(&format!("{texture_base}.dds"))
-            || donor.is_file(&format!("{texture_base}.options"))
-            || target.is_file(&format!("{texture_base}.dds"))
-            || target.is_file(&format!("{texture_base}.options"))
-        {
-            required_companions.extend([
-                format!("{texture_base}.dds"),
-                format!("{texture_base}.options"),
-            ]);
-        }
+        required_companions.extend(texture_companions(&texture_base, donor, target));
         if donor.is_file(&format!("{single_sound_base}.high.ogg"))
             || donor.is_file(&format!("{single_sound_base}.single_sound_options"))
             || target.is_file(&format!("{single_sound_base}.high.ogg"))
@@ -401,16 +414,6 @@ fn resolve_global_candidates(
             if native {
                 required_companions.push(format!("{single_sound_base}.high.rms"));
             }
-        }
-        if texture_base.contains("/environment_probes/")
-            && !texture_base.ends_with("_diffuse")
-            && (donor.is_file(&format!("{texture_base}_diffuse.dds"))
-                || target.is_file(&format!("{texture_base}_diffuse.dds")))
-        {
-            required_companions.extend([
-                format!("{texture_base}_diffuse.dds"),
-                format!("{texture_base}_diffuse.options"),
-            ]);
         }
         if animation_base.starts_with("animations/single/")
             && (donor.is_file(&format!("{animation_base}.b-spline"))

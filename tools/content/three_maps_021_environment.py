@@ -34,6 +34,21 @@ def equal(a, b):
     return a == b
 
 
+def compatibility_values(source, marker):
+    """Coordinate/schema conventions and defaults, shared by all five ports."""
+    return {
+        "mie_fog_base_height": int(marker),
+        "sky_clouds_rotation": round((90 - source["sky_clouds_rotation"]) % 360, 6),
+        "stratosphere_rotation": round((90 - source["stratosphere_rotation"]) % 360, 6),
+        "sky_clouds_fog_color": source.get("sky_clouds_fog_color", [1, 1, 1, 1]),
+        "use_sky_clouds_lighting": source.get("use_sky_clouds_lighting", False),
+        "sky_clouds_sunlight": 1,
+        # Original ctor 0x215157, optional loader 0x2157F7.
+        "height_based_ambient_low_color": source.get("height_based_ambient_low_color", [0, 0, 0, 1]),
+        "height_based_ambient_high_color": source.get("height_based_ambient_high_color", [1, 1, 1, 1]),
+    }
+
+
 def main():
     porter, donor, school_fort, rudnya, out = sys.argv[1:]
     root = Path(__file__).resolve().parents[2]
@@ -42,6 +57,8 @@ def main():
              for name in ("v021d-rudnya-environment-1.json", "v021d-school-fort-environment-1.json")}
     for profile in profiles:
         level = profile["project"].split("/")[1]
+        if level in ("level_03", "level_06"):
+            continue  # two_maps_021_environment.py handles the restored older ports.
         _, source = environment([porter, "dump-db-config", "--db", donor, "--path", profile["project"]])
         pack, modes, name = (rudnya, (2, 4), "v021d-rudnya-environment-1.json") if level == "level_01" else (school_fort, (2, 4, 8), "v021d-school-fort-environment-1.json")
         path = f"projects/v021d_{level}/day_2/client_project"
@@ -53,21 +70,7 @@ def main():
             if any(word in key for word in ("color", "intensity", "multiplier", "blueshift")):
                 if not equal(before[key], value):
                     raise ValueError(f"{level}: authored {key} was changed by the map pack")
-        converted = {
-            "mie_fog_base_height": int(profile["marker"]),
-            # Original uploads (cos,sin); native uploads (sin,cos).
-            "sky_clouds_rotation": round((90 - source["sky_clouds_rotation"]) % 360, 6),
-            "stratosphere_rotation": round((90 - source["stratosphere_rotation"]) % 360, 6),
-            # Defaults established by the original draw/loader. The extra
-            # native sunlight multiplier must be neutral, not artistically set.
-            "sky_clouds_fog_color": source.get("sky_clouds_fog_color", [1, 1, 1, 1]),
-            "use_sky_clouds_lighting": source.get("use_sky_clouds_lighting", False),
-            "sky_clouds_sunlight": 1,
-            # Original ctor 0x215157 initializes +178h to black, +188h to white;
-            # loader 0x2157F7 keeps them when these optional keys are absent.
-            "height_based_ambient_low_color": source.get("height_based_ambient_low_color", [0, 0, 0, 1]),
-            "height_based_ambient_high_color": source.get("height_based_ambient_high_color", [1, 1, 1, 1]),
-        }
+        converted = compatibility_values(source, profile["marker"])
         changed = {key: value for key, value in converted.items() if key in before and not equal(before[key], value)}
         booleans = {key: value for key, value in changed.items() if isinstance(value, bool)}
         changed = {key: value for key, value in changed.items() if key not in booleans}

@@ -320,6 +320,19 @@ fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result
 /// Lighting object types replaced by `Map::native_lighting`.
 pub(crate) const LIGHTING_OBJECT_TYPES: [&str; 3] = ["environment_probe", "ambient_light", "light"];
 
+/// Restore authored lighting in an already ported project without importing
+/// geometry or gameplay again. Uses the same schema and probe-alias conversion
+/// as a map built with donor lighting from the start.
+pub fn original_lighting_objects(donor: &ConfigValue, native: &ConfigValue) -> Result<ConfigValue> {
+    let objects = array(donor.named("client_objects").context("donor client objects")?)?;
+    let templates = array(native.named("client_objects").context("native client objects")?)?;
+    let mut lighting = ConfigValue::Indexed(objects.iter().filter(|object| {
+        string(object, "game_object_type").is_some_and(|kind| LIGHTING_OBJECT_TYPES.contains(&kind))
+    }).cloned().collect());
+    adapt_objects(&mut lighting, templates)?;
+    Ok(lighting)
+}
+
 /// Translation from the native project's layout to the donor's: the most
 /// common position difference of models placed exactly once in both. 0.26
 /// level_03 matches 0.21d exactly; 0.26 level_06 is the same layout raised by
