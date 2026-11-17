@@ -23,16 +23,16 @@ STOCK=${STOCK:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}
 DONOR=${DONOR:-"/mnt/hdd/Projects/Survarium Builds/survarium_full_021d/game/resources.db"}
 PATCH_DIR=${PATCH_DIR:-$HOME/.cache/skhid-release/patches}
 PATCHES=(); for n in $(awk -F'\t' '!/^#/ && NF {print $1}' "$SRP/release/patches.tsv"); do PATCHES+=("$PATCH_DIR/$n"); done
-OUT=$BUILD/maps-021d-school-fort-3
+OUT=$BUILD/maps-021d-school-fort-4
 
 rm -rf "$BUILD/bundle" "$OUT" "$BUILD/fill"
 "$PORTER" build-survarium021-maps --manifest "$HERE/ports/survarium-021d-school-fort-to-026g.json" \
   --donor-db "$DONOR" --target-db "$STOCK" --output "$BUILD/bundle"
 "$PORTER" pack from-bundle --base-db "$STOCK" --build-base-db "$STOCK" --bundle "$BUILD/bundle" --output "$OUT" \
-  --id maps-021d-school-fort --version 3
+  --id maps-021d-school-fort --version 4
 $P -I "$HERE/tools/content/drop_live_files.py" "$OUT" "$PORTER" \
   --keep-live material_instances/ported/v021d/tiled/metal/metal_column_05.material "${PATCHES[@]}"
-"$PORTER" add-021d-deathmatch --pack "$OUT" --target-db "$STOCK" --variant level_02:day:176 --variant level_05:day:178 --version 3
+"$PORTER" add-021d-deathmatch --pack "$OUT" --target-db "$STOCK" --variant level_02:day:176 --variant level_05:day:178 --version 4
 $P -I "$HERE/tools/content/native_crates.py" "$STOCK" "$BUILD/bundle/overlay" "$BUILD/fill" level_02:174:176 level_05:177:178
 (cd "$HERE" && "$EDIT" "$OUT" "$BUILD/fill/plan.json" "$STOCK")
 
@@ -48,6 +48,6 @@ p.write_text(json.dumps(m, indent=2, ensure_ascii=False) + '\n')
 PY
 BASE=(); for f in "${PATCHES[@]}"; do BASE+=(--base-patch "$f"); done
 "$PORTER" pack check --pack "$OUT" --base-db "$STOCK" "${BASE[@]}" | tail -3
-(cd "$BUILD" && find maps-021d-school-fort-3 -type f -print0 | sort -z | xargs -0 sha256sum > maps-021d-school-fort-3.files.sha256 \
-  && sha256sum maps-021d-school-fort-3/pack.json maps-021d-school-fort-3.files.sha256 > maps-021d-school-fort-3.SHA256SUMS)
-cat "$BUILD/maps-021d-school-fort-3.SHA256SUMS"
+(cd "$BUILD" && find maps-021d-school-fort-4 -type f -print0 | sort -z | xargs -0 sha256sum > maps-021d-school-fort-4.files.sha256 \
+  && sha256sum maps-021d-school-fort-4/pack.json maps-021d-school-fort-4.files.sha256 > maps-021d-school-fort-4.SHA256SUMS)
+cat "$BUILD/maps-021d-school-fort-4.SHA256SUMS"

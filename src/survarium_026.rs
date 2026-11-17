@@ -301,10 +301,15 @@ fn adapt_objects(objects: &mut ConfigValue, templates: &[ConfigValue]) -> Result
                     .filter(|v| matches!(v.name.as_str(), "day" | "evening" | "rain"))
                     .cloned()
                     .collect();
-                for mut entry in old {
-                    entry.name.push_str("_2");
-                    textures.retain(|v| v.name != entry.name);
-                    textures.push(entry);
+                for entry in old {
+                    // 0.21 bakes by weather, not mode. Never leave a native
+                    // template's cubemap on a later TDM or FFA project copy.
+                    for mode in [2, 3, 4, 5, 8] {
+                        let mut alias = entry.clone();
+                        alias.name = format!("{}_{mode}", entry.name);
+                        textures.retain(|v| v.name != alias.name);
+                        textures.push(alias);
+                    }
                 }
             }
         }
@@ -2339,6 +2344,23 @@ mod tests {
             )]))]);
             rewrite_inner(&mut emitter, &replacements(&paths), true, None);
             assert_eq!(string(emitter.named("properties").unwrap(), "Material"), Some(after));
+        }
+    }
+
+    #[test]
+    fn donor_probe_cubemaps_follow_every_mode_copy() {
+        let mut donor = ConfigValue::Indexed(vec![named(vec![
+            ("game_object_type", ConfigValue::String("environment_probe".into())),
+            ("textures", named(vec![("day", ConfigValue::String("donor/day".into()))])),
+        ])]);
+        let native = named(vec![
+            ("game_object_type", ConfigValue::String("environment_probe".into())),
+            ("textures", named(vec![("day_4", ConfigValue::String("native/tdm".into()))])),
+        ]);
+        adapt_objects(&mut donor, &[native]).unwrap();
+        let textures = array(&donor).unwrap()[0].named("textures").unwrap();
+        for key in ["day", "day_2", "day_3", "day_4", "day_5", "day_8"] {
+            assert_eq!(textures.named(key), Some(&ConfigValue::String("donor/day".into())));
         }
     }
 
