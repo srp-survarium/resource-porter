@@ -354,6 +354,28 @@ fn socket(loc: &Locator, bind: &[(String, BindFrame)]) -> Result<socket::Placeme
     Ok(socket::placement(loc.rotation, loc.position, frame))
 }
 
+/// `loc` on the gun's body bone (`offset`, where every gun's rails hang),
+/// which must be bound as its own bone, so it stays where it was.
+fn on_body(loc: &Locator, bind: &[(String, BindFrame)]) -> Result<Locator> {
+    let index = |name: &str| {
+        bind.iter()
+            .position(|(n, _)| n == name)
+            .with_context(|| format!("{} names an unknown bone {name}", loc.name))
+    };
+    let (body, own) = (index("offset")?, index(&loc.bone)?);
+    ensure!(
+        bind[body].1 == bind[own].1,
+        "{} hangs on {}, bound otherwise than offset",
+        loc.name,
+        loc.bone
+    );
+    Ok(Locator {
+        bone: "offset".into(),
+        bone_idx: i32::try_from(body)?,
+        ..loc.clone()
+    })
+}
+
 /// Locator names of the 0.26g contract that are made, not copied.
 const CONTRACT: [&str; 4] = ["aim", "barrel_point", "scope_point", "handguard_point"];
 /// Donor locators a kit attachment can use.
@@ -722,10 +744,16 @@ impl Donor069 {
         // model's on a live rig).
         let muzzle = find("muzzle_point").or_else(|_| find("fire_point"))?;
         let aim = find("aim")?;
-        let scope = ["scope_picatinnyrail_point", "picatinny_scope_point"]
+        // A gun with no scope rail draws its scope at the eye, on the gun's
+        // body: 0.69d0's aim hangs on the root bone, which the clips leave
+        // behind when they move the gun (the AKMSU's reload, 2026-11-16).
+        let scope = match ["scope_picatinnyrail_point", "picatinny_scope_point"]
             .iter()
             .find_map(|n| find(n).ok())
-            .unwrap_or(aim);
+        {
+            Some(rail) => rail.clone(),
+            None => on_body(aim, &ship_bones)?,
+        };
         let handguard = ["handguard_point", "forend_point", "LeftHand_idle"]
             .iter()
             .find_map(|n| find(n).ok())
@@ -743,7 +771,7 @@ impl Donor069 {
             Locator {
                 name: "scope_point".into(),
                 rotation: [0.0; 3],
-                ..scope.clone()
+                ..scope
             },
             Locator {
                 name: "handguard_point".into(),
