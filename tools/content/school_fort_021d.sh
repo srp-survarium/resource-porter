@@ -2,7 +2,7 @@
 # School (level_02) and Tarakanovsky Fort (level_05) of retail 0.21d as the pack maps-021d-school-fort, built over
 # the live patches the way maps-021d (Vostok Radar Station, Mamayev Kurgan) was:
 #   1. build-survarium021-maps with ports/survarium-021d-school-fort-to-026g.json (the two-maps manifest's shared
-#      settings; 0.26 lighting; maps_dict 174 and 177, map numbers 25 and 26, st_level_25/26_name);
+#      settings; donor local lighting; maps_dict 174 and 177, map numbers 25 and 26, st_level_25/26_name);
 #   2. pack from-bundle against the stock archive (over the live patches the bundle would seem to remove their
 #      dictionaries), then drop_live_files.py: the shared ported/v021d files patch_20 already holds are left out;
 #      metal_column_05.material keeps the live bytes (Vostok's and Mamayev's bind 0.21d's metal_column_05_spec,
@@ -23,16 +23,16 @@ STOCK=${STOCK:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}
 DONOR=${DONOR:-"/mnt/hdd/Projects/Survarium Builds/survarium_full_021d/game/resources.db"}
 PATCH_DIR=${PATCH_DIR:-$HOME/.cache/skhid-release/patches}
 PATCHES=(); for n in $(awk -F'\t' '!/^#/ && NF {print $1}' "$SRP/release/patches.tsv"); do PATCHES+=("$PATCH_DIR/$n"); done
-OUT=$BUILD/maps-021d-school-fort-1
+OUT=$BUILD/maps-021d-school-fort-3
 
 rm -rf "$BUILD/bundle" "$OUT" "$BUILD/fill"
 "$PORTER" build-survarium021-maps --manifest "$HERE/ports/survarium-021d-school-fort-to-026g.json" \
   --donor-db "$DONOR" --target-db "$STOCK" --output "$BUILD/bundle"
 "$PORTER" pack from-bundle --base-db "$STOCK" --build-base-db "$STOCK" --bundle "$BUILD/bundle" --output "$OUT" \
-  --id maps-021d-school-fort --version 1
+  --id maps-021d-school-fort --version 3
 $P -I "$HERE/tools/content/drop_live_files.py" "$OUT" "$PORTER" \
   --keep-live material_instances/ported/v021d/tiled/metal/metal_column_05.material "${PATCHES[@]}"
-"$PORTER" add-021d-deathmatch --pack "$OUT" --target-db "$STOCK" --variant level_02:day:176 --variant level_05:day:178 --version 1
+"$PORTER" add-021d-deathmatch --pack "$OUT" --target-db "$STOCK" --variant level_02:day:176 --variant level_05:day:178 --version 3
 $P -I "$HERE/tools/content/native_crates.py" "$STOCK" "$BUILD/bundle/overlay" "$BUILD/fill" level_02:174:176 level_05:177:178
 (cd "$HERE" && "$EDIT" "$OUT" "$BUILD/fill/plan.json" "$STOCK")
 
@@ -42,12 +42,12 @@ from pathlib import Path
 p = Path(sys.argv[1]) / 'pack.json'; m = json.loads(p.read_text())
 m['description'] = ('School (level_02) and Tarakanovsky Fort (level_05) of retail 0.21d, day: maps_dict 174 and 177 '
                     '(batteries), 176 and 178 (Team Deathmatch), map numbers 25 and 26, as maps-021d made Vostok Radar '
-                    'Station and Mamayev Kurgan (0.26 lighting and finish, native ammo crates at native spots); '
+                    'Station and Mamayev Kurgan (0.21 local lighting, 0.26 material finish, native ammo crates at native spots); '
                     'the ported/v021d files patch_20 holds are shared, not repeated')
 p.write_text(json.dumps(m, indent=2, ensure_ascii=False) + '\n')
 PY
 BASE=(); for f in "${PATCHES[@]}"; do BASE+=(--base-patch "$f"); done
 "$PORTER" pack check --pack "$OUT" --base-db "$STOCK" "${BASE[@]}" | tail -3
-(cd "$BUILD" && find maps-021d-school-fort-1 -type f -print0 | sort -z | xargs -0 sha256sum > maps-021d-school-fort-1.files.sha256 \
-  && sha256sum maps-021d-school-fort-1/pack.json maps-021d-school-fort-1.files.sha256 > maps-021d-school-fort-1.SHA256SUMS)
-cat "$BUILD/maps-021d-school-fort-1.SHA256SUMS"
+(cd "$BUILD" && find maps-021d-school-fort-3 -type f -print0 | sort -z | xargs -0 sha256sum > maps-021d-school-fort-3.files.sha256 \
+  && sha256sum maps-021d-school-fort-3/pack.json maps-021d-school-fort-3.files.sha256 > maps-021d-school-fort-3.SHA256SUMS)
+cat "$BUILD/maps-021d-school-fort-3.SHA256SUMS"

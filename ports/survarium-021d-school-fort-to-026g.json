@@ -6,7 +6,7 @@
       "id": 174,
       "level": "level_02",
       "weather": "day",
-      "native_lighting": true,
+      "native_lighting": false,
       "map_id": 25,
       "name": {
         "key": "st_level_25_name",
@@ -21,7 +21,7 @@
       "id": 177,
       "level": "level_05",
       "weather": "day",
-      "native_lighting": true,
+      "native_lighting": false,
       "map_id": 26,
       "name": {
         "key": "st_level_26_name",
