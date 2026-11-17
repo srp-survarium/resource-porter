@@ -316,6 +316,9 @@ enum Command {
         /// The new pack folder.
         #[arg(long)]
         output: PathBuf,
+        /// Day projects/options rebuilt from the content source manifest.
+        #[arg(long)]
+        project_source: Option<PathBuf>,
     },
     /// Give native 0.26g School an overcast environment and map-wide volume fog.
     BuildSurvarium026Fog {
@@ -1318,8 +1321,13 @@ fn main() -> Result<()> {
             live_patches,
             work,
             output,
+            project_source,
         } => {
-            anyhow::ensure!(!work.exists(), "{}: exists; give a new folder", work.display());
+            anyhow::ensure!(
+                !work.exists(),
+                "{}: exists; give a new folder",
+                work.display()
+            );
             vostok_resource_porter::weather_021d::build(
                 &manifest,
                 &vostok_resource_porter::weather_021d::Inputs {
@@ -1329,6 +1337,7 @@ fn main() -> Result<()> {
                     live_patches: &live_patches,
                     work: &work,
                     output: &output,
+                    project_source: project_source.as_deref(),
                 },
             )?;
             println!("pack={}", output.display());

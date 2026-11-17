@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Another weather of a shipped 0.21 map, as a content pack of its own.
+//! Other weathers of a shipped 0.21 map, as a content pack of their own.
 //!
 //! In retail 0.21d a level's weathers are one map: `projects/level_03/day`
 //! and `rain` have the same `render_visuals`, `collision_objects`,
@@ -7,21 +7,20 @@
 //! only in the environment, the objects of the weather's layer
 //! (`layer "rain"`: its particles, decals and sounds) and the lighting
 //! (probes, ambient lights, lights). [`build`] checks that of the donor, then
-//! makes `<weather>_<mode>` of the shipped `day_<mode>` projects (the bytes
-//! the packs give players, so every later fix of the day map is kept): the
+//! makes `<weather>_<mode>` from the authored `day_<mode>` source export,
+//! retaining the ordered content edits and their gameplay/fixture fixes: the
 //! day's weather and lighting objects out, the importer's adapted donor ones
-//! in, every other group and object kept byte for byte.
+//! in, every other group and object preserved semantically.
 //!
 //! What the weather adds is the donor's own: its environment as authored
 //! (only the 0.21 conversions the importer manifest opts into and the keys
 //! [`Manifest::environment_kept`] names on top), its lighting with its own
-//! cubemaps for every key the project loads (the lights 0.26 kept and
-//! retuned with 0.26's values), its rain particles, material
+//! cubemaps for every key the project loads (original lights unless a legacy
+//! manifest requests native retuning), its rain particles, material
 //! and textures under `ported/v021d` where the target's differ. The weather
-//! shaders are the importer's guarded conversions, built over the bytes
-//! players have; they replace the shared native files, so the pack records
-//! those bytes and each marked map's marker is checked to be in every
-//! converted shader and in no other project.
+//! shaders use the same original adapters as the day maps. A shared lighting
+//! pack can own all day/weather guards; otherwise the legacy weather pack
+//! owns its conversions. Every marker must be absent from existing projects.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -41,28 +40,51 @@ const NAMESPACE: &str = "ported/v021d";
 pub struct Manifest {
     pub pack: PackInfo,
     /// The importer manifest (`build-survarium021-maps`) of the donor
-    /// weather: one map, its 0.21 conversions.
+    /// weathers: one map per weather, its 0.21 conversions. The weathers
+    /// share one pack: their converted shaders are the same shared files,
+    /// each carrying every weather's marker.
     pub import: Json,
-    /// The shipped weather the new one is made of (`day`).
+    /// The shipped weather the new ones are made of (`day`).
     pub from_weather: String,
-    /// The new projects: maps_dict id and mode of each.
-    pub variants: Vec<Variant>,
+    /// The new weathers, each one map of the import; any levels, each a
+    /// shipped 0.21 map (`v021d_<level>/<from_weather>_<mode>`).
+    pub weathers: Vec<Weather>,
     /// A key set to `true` at each new project's root, for the client.
-    pub renderer_key: String,
+    pub renderer_key: Option<String>,
+    /// A separately built shader pack that includes both day and weather profiles.
+    #[serde(default)]
+    pub shared_shader_pack: Option<String>,
+    /// Keep original authored lights; older manifests used native retuning.
+    #[serde(default)]
+    pub original_lights: bool,
     /// Environment keys the donor does not author kept from the target's
     /// schema fill, each with the reason. Every other filled key is left out
     /// (the 0.26g loader reads each key only if present).
     pub environment_kept: BTreeMap<String, String>,
+    /// Donor files copied byte for byte to a new path.
+    pub donor_copies: Vec<DonorCopy>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Weather {
+    /// The level (`level_03`) and donor weather (`rain`): the import's map
+    /// of that level and weather.
+    pub level: String,
+    pub weather: String,
+    /// The new projects: maps_dict id and mode of each; the import map's id
+    /// (its marker's) is one of them.
+    pub variants: Vec<Variant>,
     /// The probes' `textures` keys, each the probe's donor cubemap.
     pub probe_keys: Vec<String>,
     /// Donor particles (`fx/environment/rain`) the weather's objects place,
     /// imported under `ported/v021d` instead of the target's of that name.
+    #[serde(default)]
     pub particles: Vec<String>,
     /// Materials the weather's objects and particles use, each with the
     /// textures of it imported under `ported/v021d` (the donor's bytes).
+    #[serde(default)]
     pub materials: BTreeMap<String, Vec<String>>,
-    /// Donor files copied byte for byte to a new path.
-    pub donor_copies: Vec<DonorCopy>,
 }
 
 #[derive(Deserialize)]
@@ -76,7 +98,7 @@ pub struct PackInfo {
 #[derive(Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Variant {
-    pub id: u8,
+    pub id: u16,
     pub mode: u8,
 }
 
@@ -99,6 +121,8 @@ pub struct Inputs<'a> {
     pub live_patches: &'a [PathBuf],
     pub work: &'a Path,
     pub output: &'a Path,
+    /// Day resources exported by release/content.tsv, before this weather pack.
+    pub project_source: Option<&'a Path>,
 }
 
 #[derive(Debug, Default)]
@@ -191,10 +215,11 @@ fn native_light_tuning(lights: &mut [ConfigValue], native: &ConfigValue) -> Resu
                 .or_default() += 1;
         }
     }
-    let (key, count) = votes
-        .into_iter()
-        .max_by_key(|(_, count)| *count)
-        .context("no light named once in both projects")?;
+    // No light of the donor's is the native project's (the Fort's lights are
+    // its fires' particles): nothing 0.26 could have retuned.
+    let Some((key, count)) = votes.into_iter().max_by_key(|(_, count)| *count) else {
+        return Ok(Vec::new());
+    };
     ensure!(
         count >= 3 && count * 2 >= pairs,
         "the native lights do not match the donor's: the best common offset has {count} of {pairs}"
@@ -305,15 +330,44 @@ fn check_donor_weathers(
         names(a) == names(b),
         "donor {from} and {to} have other groups"
     );
+    // A group of placed objects may differ by whole objects (School's rain
+    // hangs two lamps, the Fort's day has three barrel stacks of its own): the
+    // new projects keep the shipped day's geometry, so every weather of a map
+    // plays the same; the difference is reported.
+    let mut geometry = Vec::new();
     for field in a {
         if field.name == "client_objects" {
             continue;
         }
-        ensure!(
-            weather.named(&field.name) == Some(&field.value),
-            "donor {from} and {to} differ in {}",
-            field.name
+        let theirs = weather.named(&field.name);
+        if theirs == Some(&field.value) {
+            continue;
+        }
+        let (ConfigValue::Indexed(x), Some(ConfigValue::Indexed(y))) = (&field.value, theirs)
+        else {
+            bail!("donor {from} and {to} differ in {}", field.name);
+        };
+        let (x, y) = (
+            multiset(&x.iter().collect::<Vec<_>>())?,
+            multiset(&y.iter().collect::<Vec<_>>())?,
         );
+        let only = |p: &BTreeMap<Vec<u8>, usize>, q: &BTreeMap<Vec<u8>, usize>| -> usize {
+            p.iter()
+                .map(|(k, n)| n.saturating_sub(q.get(k).copied().unwrap_or(0)))
+                .sum()
+        };
+        geometry.push(format!(
+            "{}: {to} adds {} and lacks {} of {from}'s",
+            field.name,
+            only(&y, &x),
+            only(&x, &y)
+        ));
+    }
+    if !geometry.is_empty() {
+        summary.say(format!(
+            "donor: {} (the shipped {from}'s geometry is kept)",
+            geometry.join("; ")
+        ));
     }
     let split = |p: &ConfigValue, w: &str| -> Result<(Vec<ConfigValue>, Vec<ConfigValue>)> {
         let mut shared = Vec::new();
@@ -375,7 +429,8 @@ fn check_donor_weathers(
 
 /// The environment as the donor authored it: the importer's adapted
 /// properties (references relocated, the opted-in 0.21 conversions) without
-/// the keys the importer filled from the target's schema, but `kept`.
+/// the keys the importer filled from the target's schema, but `kept` (a kept
+/// key a weather's donor authors is the donor's).
 fn donor_environment(
     adapted: &ConfigValue,
     donor: &ConfigValue,
@@ -411,16 +466,15 @@ fn donor_environment(
             dropped.push(name.to_owned());
         }
     }
-    for name in kept.keys() {
-        ensure!(
-            !authored.contains(name.as_str()),
-            "environment_kept names {name}, which the donor authors"
-        );
-        ensure!(
-            adapted.iter().any(|f| &f.name == name),
-            "environment_kept names {name}, which the importer does not fill"
-        );
-    }
+    // A kept key the target's own environment of this weather lacks (native
+    // School rain has no use_bokeh_template_image) is not filled: the engine's
+    // default stands, as on the native map.
+    let filled: Vec<&String> = kept
+        .keys()
+        .filter(|name| {
+            !authored.contains(name.as_str()) && adapted.iter().any(|f| &f.name == *name)
+        })
+        .collect();
     for name in converted {
         ensure!(
             out.iter().any(|f| f.name == *name),
@@ -433,8 +487,8 @@ fn donor_environment(
         authored.len(),
         converted.iter().filter(|k| !authored.contains(*k)).count(),
         converted,
-        kept.len(),
-        kept.keys().collect::<Vec<_>>()
+        filled.len(),
+        filled
     ));
     Ok(ConfigValue::Named(out))
 }
@@ -478,21 +532,41 @@ fn weather_options(
         path: &str,
         changes: &mut Vec<String>,
     ) -> Result<ConfigValue> {
+        if native_day == native && !matches!(native_day, ConfigValue::Named(_)) {
+            if shipped_day != native_day {
+                changes.push(format!("{path}: authored day value retained"));
+            }
+            return Ok(shipped_day.clone());
+        }
         match (native_day, shipped_day, native) {
             (ConfigValue::Named(a), ConfigValue::Named(b), ConfigValue::Named(c)) => {
-                ensure!(
-                    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.name == y.name),
-                    "{path}: the shipped day options are not the native ones' shape"
-                );
-                let mut out = c.clone();
-                for (x, y) in a.iter().zip(b) {
-                    let at = format!("{path}.{}", x.name);
-                    let field = out
-                        .iter_mut()
-                        .find(|f| f.name == x.name)
-                        .with_context(|| format!("{at}: the native weather options lack it"))?;
-                    field.value = walk(&x.value, &y.value, &field.value, &at, changes)?;
+                let mut out = Vec::new();
+                for y in b {
+                    let original = a.iter().find(|f| f.name == y.name);
+                    let seasonal = c.iter().find(|f| f.name == y.name);
+                    let at = format!("{path}.{}", y.name);
+                    let value = match (original, seasonal) {
+                        (Some(x), Some(z)) => walk(&x.value, &y.value, &z.value, &at, changes)?,
+                        (None, None) => y.value.clone(), // e.g. the authored loading music
+                        (None, Some(z)) if z.value == y.value => y.value.clone(),
+                        (Some(x), None) if x.value == y.value => continue,
+                        _ => bail!("{at}: incompatible day-source and weather edits"),
+                    };
+                    out.push(NamedValue {
+                        name: y.name.clone(),
+                        value,
+                    });
                 }
+                // Keep weather-only native keys. An authored removal of an
+                // original key remains removed in every weather.
+                out.extend(
+                    c.iter()
+                        .filter(|z| {
+                            !a.iter().any(|x| x.name == z.name)
+                                && !b.iter().any(|y| y.name == z.name)
+                        })
+                        .cloned(),
+                );
                 Ok(ConfigValue::Named(out))
             }
             (ConfigValue::Indexed(a), ConfigValue::Indexed(b), ConfigValue::Indexed(c)) => {
@@ -611,11 +685,46 @@ impl Bundle {
             })
             .collect())
     }
+    /// The importer's match of a target texture the donor's art (its
+    /// `native_textures`: `identical`, `same_top_level`).
+    fn native_texture(&self, path: &str) -> Option<&str> {
+        self.record["native_textures"][path].as_str()
+    }
     fn native_material(&self, path: &str) -> bool {
         self.record["native_materials"]
             .as_array()
             .is_some_and(|v| v.iter().any(|p| p == path))
     }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectSource {
+    manifest_sha256: String,
+    files: BTreeMap<String, String>,
+}
+
+fn source_read(inputs: &Inputs<'_>, base: &mut ResourceDb, path: &str) -> Result<Vec<u8>> {
+    let Some(root) = inputs.project_source else {
+        return base.read(path);
+    };
+    let source: ProjectSource = serde_json::from_slice(&fs::read(root.join("source.json"))?)?;
+    ensure!(
+        source.manifest_sha256.len() == 64,
+        "source manifest fingerprint missing"
+    );
+    let expected = source
+        .files
+        .get(path)
+        .with_context(|| format!("{path} is not in the authored source export"))?;
+    let bytes = fs::read(crate::archive::safe_join(root, path)?).with_context(|| {
+        format!("authored source missing {path}; regenerate source_projects.py")
+    })?;
+    ensure!(
+        sha256_hex(&bytes) == *expected,
+        "{path}: authored source checksum differs"
+    );
+    Ok(bytes)
 }
 
 pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
@@ -626,23 +735,52 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
     .with_context(|| format!("reading {}", manifest_path.display()))?;
     let import: survarium_026::Manifest = serde_json::from_value(m.import.clone())
         .context("the import manifest is not an importer manifest")?;
-    let [map] = import.maps.as_slice() else {
-        bail!("the import manifest must have one map, the donor weather")
-    };
+    ensure!(!m.weathers.is_empty(), "no weathers");
     ensure!(
-        !map.native_lighting,
-        "the weather keeps the donor's lighting"
+        import.maps.len() == m.weathers.len(),
+        "the import manifest must have one map per weather"
     );
-    ensure!(
-        map.weather != m.from_weather,
-        "the import is the shipped weather itself"
-    );
-    let weather = map.weather.clone();
-    let level = map.level.clone();
-    ensure!(!m.variants.is_empty(), "no variants");
-    for v in &m.variants {
-        ensure!(matches!(v.mode, 2..=5), "mode {} of {}", v.mode, v.id);
+    // Each weather with its import map.
+    let mut weathers = Vec::new();
+    for w in &m.weathers {
+        let [map] = import
+            .maps
+            .iter()
+            .filter(|map| map.level == w.level && map.weather == w.weather)
+            .collect::<Vec<_>>()[..]
+        else {
+            bail!(
+                "the import manifest must have one map of {} {}",
+                w.level,
+                w.weather
+            )
+        };
+        ensure!(
+            !map.native_lighting,
+            "{}: the weather keeps the donor's lighting",
+            w.weather
+        );
+        ensure!(
+            map.weather != m.from_weather,
+            "the import is the shipped weather itself"
+        );
+        ensure!(!w.variants.is_empty(), "{}: no variants", w.weather);
+        ensure!(
+            w.variants.iter().any(|v| v.id == map.id),
+            "{}: the import map's id {} is none of its variants'",
+            w.weather,
+            map.id
+        );
+        for v in &w.variants {
+            ensure!(matches!(v.mode, 2..=5), "mode {} of {}", v.mode, v.id);
+        }
+        weathers.push((w, map));
     }
+    let variants: Vec<Variant> = m
+        .weathers
+        .iter()
+        .flat_map(|w| w.variants.iter().copied())
+        .collect();
     let live_names: BTreeSet<_> = inputs
         .live_patches
         .iter()
@@ -667,7 +805,7 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         inputs.live_patches,
     )?)?;
 
-    // 1. The importer's donor weather, its shaders over the live bytes.
+    // 1. Import donor assets and shader conversions over the published base.
     fs::create_dir_all(inputs.work)?;
     let import_path = inputs.work.join("import.json");
     fs::write(&import_path, serde_json::to_vec_pretty(&m.import)?)?;
@@ -676,274 +814,344 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         &import_path,
         inputs.donor_db,
         inputs.target_db,
-        inputs.live_patches,
+        inputs.base_patches,
         &bundle_root,
     )
-    .context("importing the donor weather")?;
+    .context("importing the donor weathers")?;
     let bundle = Bundle {
         record: serde_json::from_slice(&fs::read(bundle_root.join("port-manifest.json"))?)?,
         root: bundle_root,
     };
-    let adapted_path = format!("projects/v021d_{level}/{weather}_2/client_project");
-    let adapted = cfg_bytes(&bundle.read(&adapted_path)?, &adapted_path)?;
-
-    // 2. The donor's weathers are one map.
-    let donor_day = cfg(
-        &mut donor,
-        &format!("projects/{level}/{}/client_project", m.from_weather),
-    )?;
-    let donor_weather = cfg(
-        &mut donor,
-        &format!("projects/{level}/{weather}/client_project"),
-    )?;
-    check_donor_weathers(
-        &donor_day,
-        &donor_weather,
-        &m.from_weather,
-        &weather,
-        &mut summary,
-    )?;
-
-    // 3. The weather's objects, as the new projects take them.
-    let donor_env = objects(&donor_weather)?
-        .iter()
-        .find(|o| kind(o) == "environment")
-        .and_then(|o| o.named("properties"))
-        .context("the donor weather has no environment")?
-        .clone();
-    let mut converted: BTreeSet<&str> = converted_keys(map, &donor_env);
-    converted.extend(map.environment_overrides.keys().map(String::as_str));
-    let particle_names: BTreeMap<String, String> = m
-        .particles
-        .iter()
-        .map(|p| (p.clone(), relocated(p)))
-        .collect();
-    let material_names: BTreeMap<String, String> = m
-        .materials
-        .keys()
-        .map(|p| (p.clone(), relocated(p)))
-        .collect();
-    let mut swapped = Vec::new();
-    let mut cubemaps = BTreeSet::new();
-    let (mut particles_placed, mut materials_named) = (0, 0);
-    for o in objects(&adapted)? {
-        if !is_weather_object(o, &weather) {
-            continue;
-        }
-        let mut o = o.clone();
-        let object_kind = kind(&o).to_owned();
-        match object_kind.as_str() {
-            "environment" => {
-                let properties = donor_environment(
-                    o.named("properties")
-                        .context("environment without properties")?,
-                    &donor_env,
-                    &converted,
-                    &m.environment_kept,
-                    &mut summary,
-                )?;
-                o.set_path("properties", properties)?;
-            }
-            "environment_probe" => {
-                let key = format!("{weather}_2");
-                let cubemap = o
-                    .named("textures")
-                    .and_then(|t| string(t, &key))
-                    .with_context(|| format!("probe {} has no {key}", full_name(&o)))?
-                    .to_owned();
-                ensure!(
-                    cubemap.starts_with(&format!("{NAMESPACE}/environment_probes/")),
-                    "probe {}: {key} is {cubemap}, not the donor's",
-                    full_name(&o)
-                );
-                o.set_path(
-                    "textures",
-                    ConfigValue::Named(
-                        m.probe_keys
-                            .iter()
-                            .map(|k| NamedValue {
-                                name: k.clone(),
-                                value: ConfigValue::String(cubemap.clone()),
-                            })
-                            .collect(),
-                    ),
-                )?;
-                o.set_path("texture", ConfigValue::String(cubemap.clone()))?;
-                cubemaps.insert(cubemap);
-            }
-            "particle" => particles_placed += rename(&mut o, Some("lib_name"), &particle_names),
-            _ => materials_named += rename(&mut o, None, &material_names),
-        }
-        swapped.push(o);
-    }
-    let native_path = format!("projects/{level}/{weather}_2/client_project");
-    let native = cfg(&mut target, &native_path)?;
-    let retuned = native_light_tuning(&mut swapped, &native)?;
-    summary.say(format!(
-        "{weather}: the donor lights 0.26 retuned take {native_path}'s: {retuned:?}"
-    ));
-    summary.say(format!(
-        "{weather}: {} objects of the weather and lighting ({}), {} cubemaps; {particles_placed} particles and {materials_named} material references moved to {NAMESPACE}",
-        swapped.len(),
-        {
-            let mut by = BTreeMap::<&str, usize>::new();
-            for o in &swapped {
-                *by.entry(kind(o)).or_default() += 1;
-            }
-            format!("{by:?}")
-        },
-        cubemaps.len()
-    ));
-    ensure!(
-        particles_placed > 0,
-        "no placed particle is one of {:?}",
-        m.particles
-    );
-    let markers: BTreeSet<u32> = swapped
-        .iter()
-        .filter(|o| kind(o) == "environment")
-        .flat_map(|o| {
-            markers_of(&ConfigValue::Named(vec![NamedValue {
-                name: "client_objects".into(),
-                value: ConfigValue::Indexed(vec![o.clone()]),
-            }]))
-        })
-        .map(f32::to_bits)
-        .collect();
-    let marker = if map.legacy_fog_021 {
-        let expected = -32021.0 - f32::from(map.id);
-        ensure!(
-            markers == BTreeSet::from([expected.to_bits()]),
-            "the environment's marker is not {expected}"
-        );
-        Some(expected)
-    } else {
-        None
-    };
-
-    // 4. The new files.
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    // Weathers may share a donor file (two maps' rain particles); never
+    // with other bytes.
     fn add(files: &mut BTreeMap<String, Vec<u8>>, path: String, bytes: Vec<u8>) -> Result<()> {
-        ensure!(
-            files.insert(path.clone(), bytes).is_none(),
-            "{path} made twice"
-        );
+        match files.get(&path) {
+            Some(made) => ensure!(made == &bytes, "{path} made twice, differently"),
+            None => {
+                files.insert(path, bytes);
+            }
+        }
         Ok(())
     }
     let mut dictionary = Vec::new();
-    for v in &m.variants {
-        let day_path = format!(
-            "projects/v021d_{level}/{}_{}/client_project",
-            m.from_weather, v.mode
-        );
-        let day_bytes = base.read(&day_path)?;
-        let day = cfg_bytes(&day_bytes, &day_path)?;
-        ensure!(
-            BinaryConfig { root: day.clone() }.to_bytes()? == day_bytes,
-            "{day_path} does not encode back to its bytes"
-        );
-        let mut project = day.clone();
-        let list = objects_mut(&mut project)?;
-        let before = list.len();
-        let removed: Vec<ConfigValue> = list
-            .iter()
-            .filter(|o| is_weather_object(o, &m.from_weather))
-            .cloned()
-            .collect();
-        list.retain(|o| !is_weather_object(o, &m.from_weather));
-        let kept = list.len();
-        let weather_only: Vec<&str> = removed
-            .iter()
-            .filter(|o| !LIGHTING_OBJECT_TYPES.contains(&kind(o)))
-            .map(kind)
-            .collect();
-        ensure!(
-            weather_only == ["environment"],
-            "{day_path}: the day's weather objects besides the lighting are {weather_only:?}, not its environment"
-        );
-        list.extend(swapped.iter().cloned());
-        ensure!(
-            project.named(&m.renderer_key).is_none(),
-            "{day_path} has {} already",
-            m.renderer_key
-        );
-        project.set_path(&m.renderer_key, ConfigValue::Boolean(true))?;
-        // Everything else is the shipped day's, byte for byte.
-        let (ConfigValue::Named(a), ConfigValue::Named(b)) = (&day, &project) else {
-            unreachable!()
-        };
-        for field in a {
-            if field.name != "client_objects" {
-                ensure!(
-                    project.named(&field.name) == Some(&field.value),
-                    "{}: changed",
-                    field.name
-                );
-            }
-        }
-        ensure!(b.len() == a.len() + 1, "the new project has other groups");
-        let kept_day: Vec<&ConfigValue> = objects(&day)?
-            .iter()
-            .filter(|o| !is_weather_object(o, &m.from_weather))
-            .collect();
-        let kept_new: Vec<&ConfigValue> = objects(&project)?[..kept].iter().collect();
-        ensure!(kept_day == kept_new, "kept objects changed");
-        let path = format!("projects/v021d_{level}/{weather}_{}/client_project", v.mode);
-        summary.say(format!(
-            "{path} ({}): {kept} of {before} objects of {day_path} kept as they are, {} of its lighting and environment out, {} in; every other group as shipped; {} = true",
-            v.id,
-            removed.len(),
-            swapped.len(),
-            m.renderer_key
-        ));
-        add(&mut files, path, BinaryConfig { root: project }.to_bytes()?)?;
-
-        // The options.
-        let options = |w: &str, mode: u8| {
-            format!(
-                "{level}_{}_{mode}.options",
-                if w == "evening" { "evn" } else { w }
-            )
-        };
-        let native_day = cfg(
-            &mut target,
-            &format!("gameplay/game_modes/{}", options(&m.from_weather, v.mode)),
+    let mut cubemaps = BTreeSet::new();
+    let mut markers = Vec::new();
+    // Each weather's objects alone, for the reference check.
+    let mut weather_objects = Vec::new();
+    for (w, map) in &weathers {
+        let (level, weather) = (w.level.as_str(), w.weather.as_str());
+        let donor_day = cfg(
+            &mut donor,
+            &format!("projects/{level}/{}/client_project", m.from_weather),
         )?;
-        let shipped_day = cfg(
-            &mut base,
-            &format!(
+        let adapted_path = format!("projects/v021d_{level}/{weather}_2/client_project");
+        let adapted = cfg_bytes(&bundle.read(&adapted_path)?, &adapted_path)?;
+
+        // 2. The donor's weathers are one map.
+        let donor_weather = cfg(
+            &mut donor,
+            &format!("projects/{level}/{weather}/client_project"),
+        )?;
+        check_donor_weathers(
+            &donor_day,
+            &donor_weather,
+            &m.from_weather,
+            weather,
+            &mut summary,
+        )?;
+
+        // 3. The weather's objects, as the new projects take them.
+        let donor_env = objects(&donor_weather)?
+            .iter()
+            .find(|o| kind(o) == "environment")
+            .and_then(|o| o.named("properties"))
+            .context("the donor weather has no environment")?
+            .clone();
+        let mut converted: BTreeSet<&str> = converted_keys(map, &donor_env);
+        converted.extend(map.environment_overrides.keys().map(String::as_str));
+        let particle_names: BTreeMap<String, String> = w
+            .particles
+            .iter()
+            .map(|p| (p.clone(), relocated(p)))
+            .collect();
+        let material_names: BTreeMap<String, String> = w
+            .materials
+            .keys()
+            .map(|p| (p.clone(), relocated(p)))
+            .collect();
+        let mut swapped = Vec::new();
+        let mut weather_cubemaps = BTreeSet::new();
+        let (mut particles_placed, mut materials_named) = (0, 0);
+        for o in objects(&adapted)? {
+            if !is_weather_object(o, weather) {
+                continue;
+            }
+            let mut o = o.clone();
+            let object_kind = kind(&o).to_owned();
+            match object_kind.as_str() {
+                "environment" => {
+                    let properties = donor_environment(
+                        o.named("properties")
+                            .context("environment without properties")?,
+                        &donor_env,
+                        &converted,
+                        &m.environment_kept,
+                        &mut summary,
+                    )?;
+                    o.set_path("properties", properties)?;
+                }
+                "environment_probe" => {
+                    let key = format!("{weather}_2");
+                    let cubemap = o
+                        .named("textures")
+                        .and_then(|t| string(t, &key))
+                        .with_context(|| format!("probe {} has no {key}", full_name(&o)))?
+                        .to_owned();
+                    ensure!(
+                        cubemap.starts_with(&format!("{NAMESPACE}/environment_probes/")),
+                        "probe {}: {key} is {cubemap}, not the donor's",
+                        full_name(&o)
+                    );
+                    let cubemap = cubemap.replacen(
+                        &format!("{NAMESPACE}/"),
+                        &format!("{NAMESPACE}/weather/"),
+                        1,
+                    );
+                    o.set_path(
+                        "textures",
+                        ConfigValue::Named(
+                            w.probe_keys
+                                .iter()
+                                .map(|k| NamedValue {
+                                    name: k.clone(),
+                                    value: ConfigValue::String(cubemap.clone()),
+                                })
+                                .collect(),
+                        ),
+                    )?;
+                    o.set_path("texture", ConfigValue::String(cubemap.clone()))?;
+                    weather_cubemaps.insert(cubemap);
+                }
+                "particle" => particles_placed += rename(&mut o, Some("lib_name"), &particle_names),
+                _ => materials_named += rename(&mut o, None, &material_names),
+            }
+            swapped.push(o);
+        }
+        let native_path = format!("projects/{level}/{weather}_2/client_project");
+        let native = cfg(&mut target, &native_path)?;
+        let retuned = if m.original_lights {
+            Vec::new()
+        } else {
+            native_light_tuning(&mut swapped, &native)?
+        };
+        summary.say(format!(
+            "{weather}: the donor lights 0.26 retuned take {native_path}'s: {retuned:?}"
+        ));
+        summary.say(format!(
+            "{weather}: {} objects of the weather and lighting ({}), {} cubemaps; {particles_placed} particles and {materials_named} material references moved to {NAMESPACE}",
+            swapped.len(),
+            {
+                let mut by = BTreeMap::<&str, usize>::new();
+                for o in &swapped {
+                    *by.entry(kind(o)).or_default() += 1;
+                }
+                format!("{by:?}")
+            },
+            weather_cubemaps.len()
+        ));
+        ensure!(
+            w.particles.is_empty() || particles_placed > 0,
+            "{weather}: no placed particle is one of {:?}",
+            w.particles
+        );
+        let found: BTreeSet<u32> = swapped
+            .iter()
+            .filter(|o| kind(o) == "environment")
+            .flat_map(|o| {
+                markers_of(&ConfigValue::Named(vec![NamedValue {
+                    name: "client_objects".into(),
+                    value: ConfigValue::Indexed(vec![o.clone()]),
+                }]))
+            })
+            .map(f32::to_bits)
+            .collect();
+        if map.legacy_fog_021 {
+            let expected = survarium_026::map_marker(map.id);
+            ensure!(
+                found == BTreeSet::from([expected.to_bits()]),
+                "{weather}: the environment's marker is not {expected}"
+            );
+            markers.push(expected);
+        }
+        cubemaps.extend(weather_cubemaps);
+
+        // 4. The new files.
+        for v in &w.variants {
+            let day_path = format!(
+                "projects/v021d_{level}/{}_{}/client_project",
+                m.from_weather, v.mode
+            );
+            let day_bytes = source_read(inputs, &mut base, &day_path)?;
+            let day = cfg_bytes(&day_bytes, &day_path)?;
+            let mut project = day.clone();
+            let list = objects_mut(&mut project)?;
+            let before = list.len();
+            let removed: Vec<ConfigValue> = list
+                .iter()
+                .filter(|o| is_weather_object(o, &m.from_weather))
+                .cloned()
+                .collect();
+            list.retain(|o| !is_weather_object(o, &m.from_weather));
+            let kept = list.len();
+            // Besides the lighting: the environment and the day's own layer
+            // (Mamayev's day sounds), which the donor weather's replace.
+            let weather_only: Vec<&ConfigValue> = removed
+                .iter()
+                .filter(|o| !LIGHTING_OBJECT_TYPES.contains(&kind(o)))
+                .collect();
+            let environments = weather_only
+                .iter()
+                .filter(|o| kind(o) == "environment")
+                .count();
+            ensure!(
+                environments == 1
+                    && weather_only.iter().all(|o| kind(o) == "environment"
+                        || string(o, "layer") == Some(m.from_weather.as_str())),
+                "{day_path}: the day's weather objects besides the lighting are {:?}, not its environment and its layer's",
+                weather_only.iter().map(|o| kind(o)).collect::<Vec<_>>()
+            );
+            list.extend(swapped.iter().cloned());
+            if let Some(key) = &m.renderer_key {
+                ensure!(project.named(key).is_none(), "{day_path} has {key} already");
+                project.set_path(key, ConfigValue::Boolean(true))?;
+            }
+            // Every other group is semantically identical to the authored day source.
+            let (ConfigValue::Named(a), ConfigValue::Named(b)) = (&day, &project) else {
+                unreachable!()
+            };
+            for field in a {
+                if field.name != "client_objects" {
+                    ensure!(
+                        project.named(&field.name) == Some(&field.value),
+                        "{}: changed",
+                        field.name
+                    );
+                }
+            }
+            ensure!(
+                b.len() == a.len() + usize::from(m.renderer_key.is_some()),
+                "the new project has other groups"
+            );
+            let kept_day: Vec<&ConfigValue> = objects(&day)?
+                .iter()
+                .filter(|o| !is_weather_object(o, &m.from_weather))
+                .collect();
+            let kept_new: Vec<&ConfigValue> = objects(&project)?[..kept].iter().collect();
+            ensure!(kept_day == kept_new, "kept objects changed");
+            let path = format!("projects/v021d_{level}/{weather}_{}/client_project", v.mode);
+            summary.say(format!(
+                "{path} ({}): {kept} of {before} objects of {day_path} kept as they are, {} of its lighting, environment and day layer out, {} in; every other group as authored; renderer selector {}",
+                v.id,
+                removed.len(),
+                swapped.len(),
+                m.renderer_key.as_deref().unwrap_or("not required")
+            ));
+            add(&mut files, path, BinaryConfig { root: project }.to_bytes()?)?;
+
+            // The options.
+            let options = |w: &str, mode: u8| {
+                format!(
+                    "{level}_{}_{mode}.options",
+                    if w == "evening" { "evn" } else { w }
+                )
+            };
+            let native_day = cfg(
+                &mut target,
+                &format!("gameplay/game_modes/{}", options(&m.from_weather, v.mode)),
+            )?;
+            let source_path = format!(
                 "gameplay/game_modes/v021d_{}",
                 options(&m.from_weather, v.mode)
-            ),
-        )?;
-        let native_weather = cfg(
-            &mut target,
-            &format!("gameplay/game_modes/{}", options(&weather, v.mode)),
-        )?;
-        let mut changes = Vec::new();
-        let new = weather_options(&native_day, &shipped_day, &native_weather, &mut changes)?;
-        let map_name = format!("v021d_{level}/{weather}_{}", v.mode);
-        ensure!(
-            new.named("mode")
-                .and_then(|m| m.named("match_making_params"))
-                .and_then(|p| string(p, "map_name"))
-                == Some(map_name.as_str()),
-            "the new options do not name {map_name}"
-        );
-        let name = format!("v021d_{}", options(&weather, v.mode));
-        summary.say(format!(
-            "gameplay/game_modes/{name}: native {} with {changes:?}",
-            options(&weather, v.mode)
-        ));
-        add(
-            &mut files,
-            format!("gameplay/game_modes/{name}"),
-            BinaryConfig { root: new }.to_bytes()?,
-        )?;
-        let mut entry = Map::new();
-        entry.insert("cfg_mode_name".into(), Json::String(name));
-        entry.insert("id".into(), Json::from(v.id));
-        dictionary.push(entry);
+            );
+            let shipped_day =
+                cfg_bytes(&source_read(inputs, &mut base, &source_path)?, &source_path)?;
+            let native_weather = cfg(
+                &mut target,
+                &format!("gameplay/game_modes/{}", options(weather, v.mode)),
+            )?;
+            let mut changes = Vec::new();
+            let new = weather_options(&native_day, &shipped_day, &native_weather, &mut changes)?;
+            let map_name = format!("v021d_{level}/{weather}_{}", v.mode);
+            ensure!(
+                new.named("mode")
+                    .and_then(|m| m.named("match_making_params"))
+                    .and_then(|p| string(p, "map_name"))
+                    == Some(map_name.as_str()),
+                "the new options do not name {map_name}"
+            );
+            let name = format!("v021d_{}", options(weather, v.mode));
+            summary.say(format!(
+                "gameplay/game_modes/{name}: native {} with {changes:?}",
+                options(weather, v.mode)
+            ));
+            add(
+                &mut files,
+                format!("gameplay/game_modes/{name}"),
+                BinaryConfig { root: new }.to_bytes()?,
+            )?;
+            let mut entry = Map::new();
+            entry.insert("cfg_mode_name".into(), Json::String(name));
+            entry.insert("id".into(), Json::from(v.id));
+            dictionary.push(entry);
+        }
+
+        // The particles, the donor's, as the importer adapts a donor particle.
+        let defaults = survarium_026::particle_defaults(&mut target)?;
+        for name in &w.particles {
+            let path = format!("particles/{name}.particle");
+            let mut c = cfg(&mut donor, &path)?;
+            survarium_026::adapt_particle(&mut c, &defaults)?;
+            let n = rename(&mut c, Some("Material"), &material_names);
+            ensure!(n > 0, "{path} uses none of the moved materials");
+            add(
+                &mut files,
+                format!("particles/{}.particle", relocated(name)),
+                BinaryConfig { root: c }.to_bytes()?,
+            )?;
+        }
+        // The materials, with their textures the donor's.
+        for (name, textures) in &w.materials {
+            let ported = format!("material_instances/{}.material", relocated(name));
+            let native = format!("material_instances/{name}.material");
+            let bytes = match bundle.read(&ported) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    ensure!(
+                        bundle.native_material(&native),
+                        "the importer has neither {ported} nor {native} as its conversion"
+                    );
+                    base.read(&native)?
+                }
+            };
+            let mut c = cfg_bytes(&bytes, &ported)?;
+            let names: BTreeMap<String, String> =
+                textures.iter().map(|t| (t.clone(), relocated(t))).collect();
+            let n = rename(&mut c, None, &names);
+            ensure!(n > 0, "{name} binds none of {textures:?}");
+            add(&mut files, ported, BinaryConfig { root: c }.to_bytes()?)?;
+            for texture in textures {
+                for extension in ["dds", "options"] {
+                    let from = format!("textures/{texture}.{extension}");
+                    add(
+                        &mut files,
+                        format!("textures/{}.{extension}", relocated(texture)),
+                        donor.read(&from)?,
+                    )?;
+                }
+            }
+        }
+        weather_objects.push((format!("{level}_{weather}"), swapped));
     }
 
     // The probes' cubemaps (each `.dds`, `.options` and its `_diffuse`).
@@ -951,52 +1159,12 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         for suffix in ["", "_diffuse"] {
             for extension in ["dds", "options"] {
                 let path = format!("textures/{cubemap}{suffix}.{extension}");
-                add(&mut files, path.clone(), bundle.read(&path)?)?;
-            }
-        }
-    }
-    // The particles, the donor's, as the importer adapts a donor particle.
-    let defaults = survarium_026::particle_defaults(&mut target)?;
-    for name in &m.particles {
-        let path = format!("particles/{name}.particle");
-        let mut c = cfg(&mut donor, &path)?;
-        survarium_026::adapt_particle(&mut c, &defaults)?;
-        let n = rename(&mut c, Some("Material"), &material_names);
-        ensure!(n > 0, "{path} uses none of the moved materials");
-        add(
-            &mut files,
-            format!("particles/{}.particle", relocated(name)),
-            BinaryConfig { root: c }.to_bytes()?,
-        )?;
-    }
-    // The materials, with their textures the donor's.
-    for (name, textures) in &m.materials {
-        let ported = format!("material_instances/{}.material", relocated(name));
-        let native = format!("material_instances/{name}.material");
-        let bytes = match bundle.read(&ported) {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                ensure!(
-                    bundle.native_material(&native),
-                    "the importer has neither {ported} nor {native} as its conversion"
+                let source = path.replacen(
+                    &format!("/{NAMESPACE}/weather/"),
+                    &format!("/{NAMESPACE}/"),
+                    1,
                 );
-                base.read(&native)?
-            }
-        };
-        let mut c = cfg_bytes(&bytes, &ported)?;
-        let names: BTreeMap<String, String> =
-            textures.iter().map(|t| (t.clone(), relocated(t))).collect();
-        let n = rename(&mut c, None, &names);
-        ensure!(n > 0, "{name} binds none of {textures:?}");
-        add(&mut files, ported, BinaryConfig { root: c }.to_bytes()?)?;
-        for texture in textures {
-            for extension in ["dds", "options"] {
-                let from = format!("textures/{texture}.{extension}");
-                add(
-                    &mut files,
-                    format!("textures/{}.{extension}", relocated(texture)),
-                    donor.read(&from)?,
-                )?;
+                add(&mut files, path.clone(), bundle.read(&source)?)?;
             }
         }
     }
@@ -1012,38 +1180,66 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         }
         add(&mut files, copy.to.clone(), bytes)?;
     }
-    for path in files.keys() {
-        ensure!(
-            !live.contains(path),
-            "{path} is a live file; the pack only adds files"
-        );
-        ensure!(!base.contains(path), "{path} is a base file");
+    let mut shared = Vec::new();
+    for (path, bytes) in &files {
+        if live.contains(path) {
+            ensure!(
+                live.read(path)? == *bytes,
+                "{path}: an existing shared resource differs"
+            );
+            shared.push(path.clone());
+        }
+    }
+    for path in shared {
+        files.remove(&path);
     }
 
     // The converted shaders replace the shared files players have.
+    // Each carries the marker of every weather converted by it (a weather
+    // opts into its own conversions), and every marker is in some.
     let mut replaced = BTreeMap::new();
-    for path in bundle.shaders()? {
+    let mut marked = BTreeMap::<u32, usize>::new();
+    for path in if m.shared_shader_pack.is_some() {
+        Vec::new()
+    } else {
+        bundle.shaders()?
+    } {
         let bytes = bundle.read(&path)?;
         let now = live.read(&path)?;
         ensure!(
             base.read(&path)? == now,
             "{path}: the base and players' bytes differ"
         );
-        if let Some(marker) = marker {
-            ensure!(
-                contains_marker(&bytes, marker),
-                "{path} has no marker {marker}"
-            );
+        let carried: Vec<f32> = markers
+            .iter()
+            .copied()
+            .filter(|marker| contains_marker(&bytes, *marker))
+            .collect();
+        ensure!(
+            markers.is_empty() || !carried.is_empty(),
+            "{path} has none of the markers {markers:?}"
+        );
+        for marker in carried {
+            *marked.entry(marker.to_bits()).or_default() += 1;
         }
         replaced.insert(path, (sha256_hex(&now), bytes));
     }
+    for marker in markers.iter().filter(|_| m.shared_shader_pack.is_none()) {
+        ensure!(
+            marked.contains_key(&marker.to_bits()),
+            "no converted shader carries the marker {marker}"
+        );
+    }
     summary.say(format!(
-        "{} weather shaders converted over players' bytes, each with marker {:?}",
+        "{} weather shaders converted over players' bytes; shaders per marker: {:?}",
         replaced.len(),
-        marker
+        markers
+            .iter()
+            .map(|m| (*m, marked.get(&m.to_bits()).copied().unwrap_or(0)))
+            .collect::<Vec<_>>()
     ));
-    // No other project carries the marker: unmarked maps keep the native path.
-    if let Some(marker) = marker {
+    // No other project carries a marker: unmarked maps keep the native path.
+    if !markers.is_empty() {
         let projects: Vec<String> = live
             .paths_with_prefix("projects/")
             .filter(|p| p.ends_with("/client_project") && live.is_file(p))
@@ -1051,13 +1247,16 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
             .collect();
         for path in &projects {
             let project = cfg(&mut live, path)?;
-            ensure!(
-                !markers_of(&project).contains(&marker),
-                "{path} carries the marker {marker} already"
-            );
+            let carried = markers_of(&project);
+            for marker in &markers {
+                ensure!(
+                    !carried.contains(marker),
+                    "{path} carries the marker {marker} already"
+                );
+            }
         }
         summary.say(format!(
-            "marker {marker}: in none of the {} projects players have",
+            "markers {markers:?}: in none of the {} projects players have",
             projects.len()
         ));
     }
@@ -1068,14 +1267,20 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         for entry in entries {
             if let Some(ConfigValue::Integer(id)) = entry.named("id") {
                 ensure!(
-                    !m.variants.iter().any(|v| i32::from(v.id) == *id),
+                    !variants.iter().any(|v| i32::from(v.id) == *id),
                     "maps_dict {id} is taken"
                 );
             }
         }
     }
+    let mut ids: Vec<u16> = variants.iter().map(|v| v.id).collect();
+    ids.sort_unstable();
+    ensure!(
+        ids.windows(2).all(|p| p[0] != p[1]),
+        "a maps_dict id is given twice"
+    );
 
-    // 5. Every reference resolves over what players have, and what the
+    // 5. Every reference resolves over what players have, and what each
     //    weather adds is the donor's art.
     let check = inputs.work.join("check.patch");
     if check.exists() {
@@ -1085,17 +1290,19 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
     for (path, (_, bytes)) in &replaced {
         overlay.insert(path.clone(), bytes.clone());
     }
-    let only = format!("projects/v021d_{level}/__{weather}_objects/client_project");
-    overlay.insert(
-        only.clone(),
-        BinaryConfig {
-            root: ConfigValue::Named(vec![NamedValue {
-                name: "client_objects".into(),
-                value: ConfigValue::Indexed(swapped.clone()),
-            }]),
-        }
-        .to_bytes()?,
-    );
+    let only_path = |what: &str| format!("projects/v021d__{what}_objects/client_project");
+    for (weather, swapped) in &weather_objects {
+        overlay.insert(
+            only_path(weather),
+            BinaryConfig {
+                root: ConfigValue::Named(vec![NamedValue {
+                    name: "client_objects".into(),
+                    value: ConfigValue::Indexed(swapped.clone()),
+                }]),
+            }
+            .to_bytes()?,
+        );
+    }
     crate::archive::write_patch(&overlay, &check)?;
     let mut layers = content_pack::patch::base_layers(inputs.target_db, inputs.live_patches)?;
     layers.push(check.clone());
@@ -1121,37 +1328,51 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         "references: the new projects and options resolve over players' files ({} files), every probe cubemap is there",
         plan.donor_files.len() + plan.target_files.len()
     ));
-    let weather_plan = crate::dependency::scan(&mut composed, &mut composed2, [only.clone()])?;
-    ensure!(
-        weather_plan.unresolved_references.is_empty(),
-        "the weather's objects: unresolved {:?}",
-        weather_plan.unresolved_references
-    );
-    let mut art = 0;
-    let mut not_donor = Vec::new();
-    for path in weather_plan
-        .donor_files
-        .iter()
-        .chain(&weather_plan.target_files)
-    {
-        if !(path.ends_with(".dds") || path.ends_with(".ogg")) {
-            continue;
-        }
-        let original = path.replacen(&format!("/{NAMESPACE}/"), "/", 1);
-        if !donor.is_file(&original) {
-            not_donor.push(path.clone());
-            continue;
-        }
-        art += 1;
+    for (weather, _) in &weather_objects {
+        let weather_plan =
+            crate::dependency::scan(&mut composed, &mut composed2, [only_path(weather)])?;
         ensure!(
-            composed.read(path)? == donor.read(&original)?,
-            "{path}: the weather's objects use bytes other than the donor's {original}"
+            weather_plan.unresolved_references.is_empty(),
+            "the {weather} objects: unresolved {:?}",
+            weather_plan.unresolved_references
         );
+        let mut art = 0;
+        let mut not_donor = Vec::new();
+        let mut native = Vec::new();
+        for path in weather_plan
+            .donor_files
+            .iter()
+            .chain(&weather_plan.target_files)
+        {
+            if !(path.ends_with(".dds") || path.ends_with(".ogg")) {
+                continue;
+            }
+            let original = path
+                .replacen(&format!("/{NAMESPACE}/weather/"), "/", 1)
+                .replacen(&format!("/{NAMESPACE}/"), "/", 1);
+            if !donor.is_file(&original) {
+                not_donor.push(path.clone());
+                continue;
+            }
+            art += 1;
+            if composed.read(path)? != donor.read(&original)? {
+                // The target's own file, which the importer matched to the
+                // donor's for every object of the map.
+                let matched = (path == &original)
+                    .then(|| bundle.native_texture(path))
+                    .flatten()
+                    .with_context(|| {
+                        format!("{path}: the {weather} objects use bytes other than the donor's {original}")
+                    })?;
+                native.push(format!("{path} ({matched})"));
+            }
+        }
+        summary.say(format!(
+            "the {weather} objects: {art} textures and sounds, the donor's bytes but {} the importer matched to the target's ({native:?}); {} the donor lacks: {not_donor:?}",
+            native.len(),
+            not_donor.len()
+        ));
     }
-    summary.say(format!(
-        "the weather's objects: {art} textures and sounds, each the donor's bytes; {} the donor lacks: {not_donor:?}",
-        not_donor.len()
-    ));
     fs::remove_file(&check)?;
 
     // 6. The pack.
@@ -1191,14 +1412,14 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         version: m.pack.version.clone(),
         target_build: content_pack::TARGET_BUILD.into(),
         description: Some(m.pack.description.clone()),
-        requires: Vec::new(),
+        requires: m.shared_shader_pack.iter().cloned().collect(),
         base_db_sha256: Some(import.target_sha256.clone()),
         operations,
         server: Some(serde_json::json!({
-            "maps": m.variants.iter().map(|v| serde_json::json!({"id": v.id})).collect::<Vec<_>>()
+            "maps": variants.iter().map(|v| serde_json::json!({"id": v.id})).collect::<Vec<_>>()
         })),
         notes: vec![format!(
-            "made by resource-porter vostok-port build-021d-weather --manifest {} from the shipped {} projects (the base patches {}) and the donor's {weather}",
+            "made by resource-porter vostok-port build-021d-weather --manifest {} from the authored {} projects (base patches {}) and the donor's {}",
             manifest_path.display(),
             m.from_weather,
             inputs
@@ -1206,7 +1427,12 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
                 .iter()
                 .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
                 .collect::<Vec<_>>()
-                .join(", ")
+                .join(", "),
+            m.weathers
+                .iter()
+                .map(|w| w.weather.as_str())
+                .collect::<Vec<_>>()
+                .join(" and ")
         )],
     };
     fs::write(
@@ -1219,7 +1445,7 @@ pub fn build(manifest_path: &Path, inputs: &Inputs<'_>) -> Result<Summary> {
         m.pack.version,
         files.len(),
         replaced.len(),
-        m.variants.iter().map(|v| v.id).collect::<Vec<_>>()
+        variants.iter().map(|v| v.id).collect::<Vec<_>>()
     ));
     Ok(summary)
 }
@@ -1296,6 +1522,33 @@ mod tests {
         assert!(
             weather_options(&native_day, &shipped_screen, &native_rain, &mut Vec::new()).is_err()
         );
+    }
+
+    #[test]
+    fn options_keep_authored_fields_and_deleted_keys() {
+        let day = named(vec![
+            ("unchanged", ConfigValue::Integer(1)),
+            ("removed", s("old")),
+        ]);
+        let source = named(vec![
+            ("unchanged", ConfigValue::Integer(2)),
+            ("loading_music", s("music")),
+        ]);
+        let rain = named(vec![
+            ("unchanged", ConfigValue::Integer(1)),
+            ("removed", s("old")),
+            ("rain", ConfigValue::Boolean(true)),
+        ]);
+        assert_eq!(
+            weather_options(&day, &source, &rain, &mut Vec::new()).unwrap(),
+            named(vec![
+                ("unchanged", ConfigValue::Integer(2)),
+                ("loading_music", s("music")),
+                ("rain", ConfigValue::Boolean(true))
+            ])
+        );
+        let conflict = named(vec![("unchanged", ConfigValue::Integer(3))]);
+        assert!(weather_options(&day, &source, &conflict, &mut Vec::new()).is_err());
     }
 
     #[test]
@@ -1417,5 +1670,77 @@ mod tests {
         blob.extend(marker.to_le_bytes());
         assert!(contains_marker(&blob, marker));
         assert!(!contains_marker(&blob[..10], marker));
+    }
+}
+
+#[cfg(test)]
+mod five_map_manifest_tests {
+    use super::*;
+
+    #[test]
+    fn five_maps_have_both_weathers_and_unique_modes_and_shader_profiles() {
+        let weather: Manifest = serde_json::from_str(include_str!(
+            "../ports/survarium-021d-weathers-to-026g.json"
+        ))
+        .unwrap();
+        let shader: Json =
+            serde_json::from_str(include_str!("../ports/three-maps-021-lighting.json")).unwrap();
+        let importer: survarium_026::Manifest = serde_json::from_value(weather.import).unwrap();
+        let levels = BTreeSet::from(["level_01", "level_02", "level_03", "level_05", "level_06"]);
+        let expected: BTreeSet<_> = levels
+            .iter()
+            .flat_map(|level| [(*level, "rain"), (*level, "evening")])
+            .collect();
+        let actual: BTreeSet<_> = weather
+            .weathers
+            .iter()
+            .map(|w| (w.level.as_str(), w.weather.as_str()))
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(weather.weathers.len(), expected.len());
+        assert_eq!(importer.maps.len(), expected.len());
+        assert_eq!(weather.shared_shader_pack.as_deref(), shader["id"].as_str());
+        assert!(weather.original_lights);
+        assert!(weather.renderer_key.is_none());
+        let mut ids = BTreeSet::new();
+        for w in weather.weathers {
+            assert_eq!(
+                w.variants.iter().map(|v| v.mode).collect::<BTreeSet<_>>(),
+                BTreeSet::from([2, 4])
+            );
+            assert_eq!(w.variants.len(), 2);
+            for v in w.variants {
+                assert!(ids.insert(v.id), "duplicate map id {}", v.id);
+            }
+            let maps: Vec<_> = importer
+                .maps
+                .iter()
+                .filter(|m| m.level == w.level && m.weather == w.weather)
+                .collect();
+            assert_eq!(maps.len(), 1);
+            let marker = survarium_026::map_marker(maps[0].id);
+            let project = format!("projects/{}/{}/client_project", w.level, w.weather);
+            let profiles: Vec<_> = shader["profiles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|p| p["project"] == project)
+                .collect();
+            assert_eq!(profiles.len(), 1);
+            assert_eq!(profiles[0]["marker"].as_f64().unwrap() as f32, marker);
+        }
+        assert_eq!(ids.len(), 20);
+        assert!(ids.contains(&262), "Rudnya requires the wide map-id path");
+        let profiles = shader["profiles"].as_array().unwrap();
+        assert_eq!(profiles.len(), 15);
+        let markers: BTreeSet<_> = profiles
+            .iter()
+            .map(|p| (p["marker"].as_f64().unwrap() as f32).to_bits())
+            .collect();
+        assert_eq!(markers.len(), 15);
+        for level in levels {
+            let day = format!("projects/{level}/day/client_project");
+            assert_eq!(profiles.iter().filter(|p| p["project"] == day).count(), 1);
+        }
     }
 }

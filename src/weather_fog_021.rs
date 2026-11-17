@@ -526,9 +526,11 @@ pub fn build_composition(
         .iter()
         .position(|ins| ins[0] & 2047 == 104)
         .context("missing sun temporaries")?;
-    let scratch = if rain_markers.is_empty() { 9 } else { 10 };
+    // Sun's saved roughness is dead before the final rain guard. Reuse r9
+    // so extending a day-only pack preserves its original instruction path.
+    let scratch = 9;
     ensure!(
-        ops[temps] == [0x02000068, scratch],
+        ops[temps] == [0x02000068, if rain_markers.is_empty() { 9 } else { 10 }],
         "sun temporary layout changed"
     );
     let body = source_ops
@@ -1996,7 +1998,7 @@ mod tests {
     }
     #[test]
     #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
-    fn retail_direct_sun_matches_rendered_program_and_preserves_fallback() {
+    fn retail_direct_sun_preserves_original_block_and_native_fallback() {
         let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
         let rain =
             std::fs::read(root.join("original-9b8cf18c143307ad19ccea92c7c24600.blob")).unwrap();
@@ -2012,20 +2014,10 @@ mod tests {
                 .unwrap()
         };
         let original_sun = decode(&sun[so..]);
-        let result = build_composition(
-            &rain,
-            &sun,
-            &native,
-            &native,
-            &[-32189.0, -32198.0],
-            &[-32197.0],
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            result[offset..],
-            std::fs::read(root.join("trial24-direct-sun.dxbc")).unwrap()
-        );
+        // Compare the original retail block and every native fallback
+        // instruction directly. Scratch allocation is shared with rain now,
+        // so the historical rendered trial's register numbers are not a byte
+        // identity target.
         for rain_markers in [&[][..], &[-32189.0, -32198.0][..]] {
             let base = if rain_markers.is_empty() {
                 native.clone()
@@ -2045,7 +2037,7 @@ mod tests {
                     result[offset + 4..offset + 20]
                 );
                 let mut ops = decode(&result[offset..]);
-                let scratch = if rain_markers.is_empty() { 9 } else { 10 };
+                let scratch = 9;
                 let mut at = 43;
                 for marker in markers {
                     assert_eq!(
@@ -2082,7 +2074,7 @@ mod tests {
                 ops.drain(43..at);
                 let temps = ops.iter_mut().find(|ins| ins[0] & 2047 == 104).unwrap();
                 assert_eq!(temps[1], scratch + 1);
-                temps[1] = scratch;
+                temps[1] = if rain_markers.is_empty() { 9 } else { 10 };
                 assert_eq!(ops, decode(&base[offset..]));
                 for ((tag, a), (new_tag, b)) in chunks(&base[offset..])
                     .unwrap()
