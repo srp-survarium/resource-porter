@@ -117,7 +117,7 @@ fn main() -> Result<()> {
         "expected all15 day/rain/evening profiles"
     );
     let mut operations = Vec::new();
-    for kind in [Kind::Base, Kind::Probe, Kind::Direct] {
+    for kind in [Kind::Base, Kind::Particle, Kind::Probe, Kind::Direct] {
         let (source_path, native_path) = kind.paths();
         let source = donor.read(source_path)?;
         let template = layers[0].db.read(native_path)?;
@@ -175,7 +175,7 @@ fn main() -> Result<()> {
         )?,
     )?;
     let pack = PackManifest {
-        format_version: 1, id: "v021d-forward-fog".into(), version: "2".into(), target_build: TARGET_BUILD.into(),
+        format_version: 1, id: "v021d-forward-fog".into(), version: "3".into(), target_build: TARGET_BUILD.into(),
         description: Some("Original fog in exact matching forward base, probe and direct-lighting programs, scoped to15 original0.21 day/rain/evening scene markers".into()),
         requires: vec!["three-maps-021-lighting".into()], base_db_sha256: Some(manifest.target_sha256), operations, server: None,
         notes: vec!["Built by examples/forward-fog-021-pack.rs using the original lighting profile source and pinned original/native shader blocks. Retains native lighting, transparency, bindings and complete unmarked native fog fallback. Uses the same original Rayleigh RGB upload, far-distance schema conversion and observed infinite height multiplier as the established day fullscreen/particle/water adapters. The complete effective stock/published shader layers are enumerated, including published aliases; every source archive contributing a shader is hash-verified and recorded in source-archives.json. Nonmatching forward permutations are not claimed adapted.".into()],

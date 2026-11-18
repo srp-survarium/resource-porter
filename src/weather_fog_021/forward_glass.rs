@@ -1,11 +1,14 @@
-//! Original forward fog for the three passes observed on 0.21 vehicle glass.
-//! Lighting and transparency stay native; only exact matching fog blocks change.
+//! Original forward fog for the three passes observed on 0.21 vehicle glass and
+//! for the particle base programs. Lighting and transparency stay native; only
+//! exact matching fog blocks change.
 use super::{Profile, assemble, bytes, checksum, chunks, instructions, pinned_code, u32_at, words};
 use anyhow::{Context, Result, ensure};
 
 #[derive(Clone, Copy)]
 pub enum Kind {
     Base,
+    /// Particle base programs: their tail blends towards the fog colour.
+    Particle,
     Probe,
     Direct,
 }
@@ -16,6 +19,10 @@ impl Kind {
             Self::Base => (
                 "shaders/sm_4_0/forward_base.ps/______0________1__010__1________0_0_____________1__0_0_0________0__",
                 "shaders/sm_4_0/forward_base.ps/______0________1_010__1________0_0______________1__0_0_0________0__",
+            ),
+            Self::Particle => (
+                "shaders/sm_4_0/forward_base.ps/______0________2__010__3________0_0_____________0__0_0_0________0__",
+                "shaders/sm_4_0/forward_base.ps/______0________2_010__3________0_0______________0__0_0_0________0__",
             ),
             Self::Probe => (
                 "shaders/sm_4_0/forward_probe_lighting.ps/_0___11_0___001___00___1________0_0_____________0__0_0_____________",
@@ -43,6 +50,13 @@ impl Kind {
                 "11a0d17017593951bf8c850e2a5b5f7646413f03a196a1b236995822f5c88028",
                 13..61,
                 14..70,
+                2,
+            ),
+            Self::Particle => (
+                "22698bac066933e07f1785714f743ee0767809bd2579d0c55c70ab134454d6d9",
+                "3c12ca61033cb5c2bef08e2e96839a40bedce5ce3e6ce5a4e17912b469715bc2",
+                10..55,
+                11..64,
                 2,
             ),
             Self::Probe => (
@@ -112,21 +126,36 @@ pub fn build(
     ensure!(matches.len() == 1, "ambiguous forward fog block");
     let start = matches[0];
     let end = start + native_block.len();
-    if matches!(kind, Kind::Base) {
-        if ops.get(end)
-            != Some(&vec![
-                0x08000038, 0x00100062, 0, 0x00101106, 0, 0x00208ba6, 2, 14,
-            ])
-        {
-            // Another transparency variant may share its fog prefix. Leave
-            // it native until its live-register continuation is reviewed.
-            return Ok(None);
+    match kind {
+        Kind::Base => {
+            if ops.get(end)
+                != Some(&vec![
+                    0x08000038, 0x00100062, 0, 0x00101106, 0, 0x00208ba6, 2, 14,
+                ])
+            {
+                // Another transparency variant may share its fog prefix. Leave
+                // it native until its live-register continuation is reviewed.
+                return Ok(None);
+            }
         }
-    } else {
-        ensure!(
+        Kind::Particle => {
+            // The reviewed tails read the fog colour r0.xzw and amount r0.y
+            // and write every other temporary before reading it. They start
+            // with the texture coordinates or with `add r0.xzw, r0.xxzw, -cb1[0].xxyz`.
+            let reviewed = [
+                reference_ops[kind.specification().3.end].clone(),
+                vec![
+                    0x09000000, 0x001000d2, 0, 0x00100e06, 0, 0x80208906, 0x41, 1, 0,
+                ],
+            ];
+            if !ops.get(end).is_some_and(|next| reviewed.contains(next)) {
+                return Ok(None);
+            }
+        }
+        Kind::Probe | Kind::Direct => ensure!(
             ops[end..] == [vec![0x0100003e]],
             "lighting fog must end before return"
-        );
+        ),
     }
     let temp = ops
         .iter()
@@ -243,13 +272,27 @@ pub fn build(
             profile.color[2].to_bits(),
             f32::INFINITY.to_bits(),
         ]);
-        if !matches!(kind, Kind::Base) {
+        if matches!(kind, Kind::Probe | Kind::Direct) {
             updated.extend([0x05000036, 0x001000f2, scratch, 0x00100e46, 0]);
         }
         updated.extend(body.iter().flatten());
-        if matches!(kind, Kind::Base) {
+        match kind {
             // The unchanged native transparency tail consumes only r0.x.
-            updated.extend([0x05000036, 0x00100012, 0, 0x0010000a, scratch]);
+            Kind::Base => updated.extend([0x05000036, 0x00100012, 0, 0x0010000a, scratch]),
+            // The original leaves the colour in r0.xyz and the amount in r1.y.
+            Kind::Particle => updated.extend([
+                0x05000036,
+                0x001000d2,
+                0,
+                0x00100906,
+                scratch,
+                0x05000036,
+                0x00100022,
+                0,
+                0x0010001a,
+                scratch + 1,
+            ]),
+            Kind::Probe | Kind::Direct => {}
         }
         updated.push(0x01000012);
     }
