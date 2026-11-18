@@ -1023,13 +1023,15 @@ pub fn fit_all(view: &mut ResourceDb, sources: &Sources<'_>, faces: &[Face]) -> 
             .get(&State::Helmet)
             .cloned()
             .unwrap_or_else(|| without_hair(format!("{} helmet", face.key)));
-        // Under a mask the face is the one drawn under a helmet: 0.69d0's
-        // own mask variants push the nose, lips and chin in under its masks
-        // by up to 34 mm, and under the live masks that leave them in sight
-        // the face would be another one. A mask that does not fit a face
-        // gets a model for it instead (0.69d0's `models.head_<n>`).
-        // FACES_DONOR_MASK: 0.69d0's mask variants, for the numbers.
-        let mask = if std::env::var_os("FACES_DONOR_MASK").is_some() {
+        // Under a mask, with the masks made for the face, the face is the
+        // one drawn under a helmet: 0.69d0's own mask heads push the nose,
+        // lips and chin in under its masks, and under the live masks that
+        // leave them in sight the face is another one. Without those masks
+        // (FACES_NO_ITEMS: the game's cook does not draw them yet) it is
+        // 0.69d0's mask head, as 0.69d0 draws a masked face: seen in the
+        // game, the face as it is shows through the live masks far more.
+        // FACES_DONOR_MASK: 0.69d0's mask heads whatever the items.
+        let mask = if no_items || std::env::var_os("FACES_DONOR_MASK").is_some() {
             donor
                 .get(&State::Mask)
                 .cloned()

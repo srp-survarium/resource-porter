@@ -72,12 +72,17 @@ helmets have it too.
   0.9 or more is not touched: the function fails if one differs from the donor's in any bit, so
   the face, the ears, the teeth, eyes and mouth and the skull are 0.69d0's, vertex for vertex.
 - **Under a helmet** a face is 0.69d0's own helmet head where it has one (`head_default`,
-  `head_04` .. `head_07`: the hair and scalp pressed, the face as it is), else the bare face;
-  **under a mask** it is the same model. 0.69d0's own mask heads are not used: they are the bare
-  head with the face itself pushed in under 0.69d0's masks (1,000 to 1,800 vertices by more than
-  half a millimetre, up to 8 to 18 mm; the build prints each), and every one of those vertices
-  is in sight under at least one live mask. A mask that does not fit a face gets a model for
-  that face instead.
+  `head_04` .. `head_07`: the hair and scalp pressed, the face as it is), else the bare face.
+- **Under a mask**, two ways, by what the pack holds:
+  - *without the masks made for faces* (`FACES_NO_ITEMS=1`, the pack today): 0.69d0's own mask
+    head where it has one (`head_default`, `head_05` .. `head_07`), as 0.69d0 draws a masked
+    face, else the helmet head. 0.69d0's mask heads are the bare head with the face itself
+    pushed in under masks (1,000 to 1,800 vertices by more than half a millimetre, up to 8 to
+    18 mm; the build prints each), every one of those vertices in sight under at least one
+    live mask. Kept all the same: in the game the face as it is shows through the live masks
+    far more (the nose through a balaclava);
+  - *with them* (the default build): the helmet head, the face as it is, and each mask that
+    does not fit it as its model for the face.
 - **Covered skin** (`face_fit::covered`, `face_shape::cut_covered`). Skin no one can see under
   any helmet (96 sight lines from each vertex over the half space outside it, all of them
   meeting each helmet, and so for its neighbours two rings round) is left out of the helmet
