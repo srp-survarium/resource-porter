@@ -22,6 +22,7 @@ impl AlphaInput {
 enum Component {
     X,
     Y,
+    Z,
     W,
 }
 
@@ -30,6 +31,7 @@ impl Component {
         match self {
             Self::X => 0,
             Self::Y => 1,
+            Self::Z => 2,
             Self::W => 3,
         }
     }
@@ -54,6 +56,8 @@ pub struct LinearProgram {
     weight_register: Temporary,
     weight_component: Component,
     scratch: Temporary,
+    /// The constant buffer holding the material's blend parameters: 0, or 1 in a parallax program.
+    material_buffer: u32,
 }
 
 /// Verifies the original equation once, then owns all parsed native contracts.
@@ -63,10 +67,19 @@ pub struct LinearPrograms {
 
 impl LinearPrograms {
     pub fn new(original: &[u8]) -> Result<Self> {
+        Self::parse(original, include_str!("linear-programs.tsv"), 0)
+    }
+
+    /// The parallax programs: the same weight, with the material constants in cb1.
+    pub fn parallax(original: &[u8]) -> Result<Self> {
+        Self::parse(original, include_str!("parallax-linear-programs.tsv"), 1)
+    }
+
+    fn parse(original: &[u8], table: &'static str, material_buffer: u32) -> Result<Self> {
         super::verify_original_linear(original)?;
         let mut paths = BTreeSet::new();
         let mut programs = Vec::new();
-        for line in include_str!("linear-programs.tsv")
+        for line in table
             .lines()
             .filter(|line| !line.starts_with('#') && !line.is_empty())
         {
@@ -92,6 +105,7 @@ impl LinearPrograms {
             let weight_component = match fields[4] {
                 "x" => Component::X,
                 "y" => Component::Y,
+                "z" => Component::Z,
                 "w" => Component::W,
                 _ => anyhow::bail!("unsupported native blend-weight component"),
             };
@@ -107,6 +121,7 @@ impl LinearPrograms {
                 weight_register,
                 weight_component,
                 scratch,
+                material_buffer,
             });
         }
         ensure!(!programs.is_empty(), "empty native shader set");
@@ -150,7 +165,7 @@ impl LinearProgram {
             self.weight_component.scalar_source(),
             self.weight_register.0,
             0x0020801a,
-            0,
+            self.material_buffer,
             14,
         ];
         let sites: Vec<_> = ops
@@ -179,7 +194,7 @@ impl LinearProgram {
                 0x00100012,
                 self.scratch.0,
                 0x0020801a,
-                0,
+                self.material_buffer,
                 14,
                 0x00004001,
                 ORIGINAL_LINEAR.to_bits(),

@@ -228,6 +228,42 @@ fn main() -> Result<()> {
             converted.len() - start == compatible,
             "unexpected compatible variant count for {prefix}"
         );
+        if prefix == shaders::PARTICLE_PREFIX {
+            // The family's other fogged programs: the same fog found by what it
+            // computes, in whatever registers; the 24 above keep their bytes.
+            use shaders::forward_glass::VertexFog;
+            let pinned = [
+                native.read(VertexFog::NATIVE[0])?,
+                native.read(VertexFog::NATIVE[1])?,
+            ];
+            let mut fog = VertexFog::new(&donor.read(VertexFog::ORIGINAL)?, [&pinned[0], &pinned[1]])?;
+            let done: std::collections::BTreeSet<String> =
+                converted[start..].iter().map(|(path, _, _)| path.clone()).collect();
+            let paths: Vec<String> = native
+                .paths_with_prefix(prefix)
+                .filter(|p| native.is_file(p) && !done.contains(*p))
+                .map(str::to_owned)
+                .collect();
+            // Both adaptations of the 24 agree byte for byte.
+            for (path, before, after) in &converted[start..] {
+                ensure!(
+                    fog.build(before, &profiles)?.as_ref() == Some(after),
+                    "the two particle fog adaptations differ for {path}"
+                );
+            }
+            let more = converted.len();
+            for path in paths {
+                let before = native.read(&path)?;
+                if let Some(after) = fog.build(&before, &profiles)? {
+                    converted.push((path, before, after));
+                }
+            }
+            ensure!(
+                converted.len() - more == 40,
+                "unexpected count of other fogged particle programs: {}",
+                converted.len() - more
+            );
+        }
     }
     let pairs = shaders::local_light_pairs()?;
     ensure!(pairs.len() == 32, "unexpected local-light variant count");
