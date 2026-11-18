@@ -24,9 +24,18 @@ while IFS=$'\t' read -r name rest; do
     [[ $name == resources.db.patch_* ]] || continue
     LIVE+=(--live-patch "$PATCH_DIR/$name")
 done < "$SRP/release/patches.tsv"
-"$LIGHTING" "$HERE/ports/three-maps-021-lighting.json" "$DONOR" "$STOCK" \
-    "$BUILD/three-maps-021-lighting-5" "${SHADER_BASE[@]}"
-"$PORTER" build-021d-weather --manifest "$HERE/ports/survarium-021d-weathers-to-026g.json" \
+# A day map not released yet: the quick build-content patch of the same checkout that holds its pack
+# (the weather projects' models and materials resolve over the live patches and it).
+for patch in ${UNRELEASED_DAY_PATCH:-}; do LIVE+=(--live-patch "$patch"); done
+# Each pack's folder is named by its manifest's id and version. WEATHER_MANIFEST: another map's weathers
+# by the same builder (ports/survarium-021d-chemical-weathers-to-026g.json).
+field() { sed -n 's/.*"'"$2"'": *"\([^"]*\)".*/\1/p' "$1" | head -1; }
+WEATHER_MANIFEST=${WEATHER_MANIFEST:-$HERE/ports/survarium-021d-weathers-to-026g.json}
+LIGHTING_MANIFEST=$HERE/ports/three-maps-021-lighting.json
+LIGHTING_PACK=$BUILD/$(field "$LIGHTING_MANIFEST" id)-$(field "$LIGHTING_MANIFEST" version)
+WEATHER_PACK=$BUILD/$(field "$WEATHER_MANIFEST" id)-$(field "$WEATHER_MANIFEST" version)
+"$LIGHTING" "$LIGHTING_MANIFEST" "$DONOR" "$STOCK" "$LIGHTING_PACK" "${SHADER_BASE[@]}"
+"$PORTER" build-021d-weather --manifest "$WEATHER_MANIFEST" \
     --donor-db "$DONOR" --target-db "$STOCK" "${BASE[@]}" "${LIVE[@]}" \
-    --project-source "$SOURCE" --work "$BUILD/weather-work" --output "$BUILD/maps-021d-weathers-2"
-sha256sum "$BUILD/three-maps-021-lighting-5/pack.json" "$BUILD/maps-021d-weathers-2/pack.json"
+    --project-source "$SOURCE" --work "$BUILD/weather-work" --output "$WEATHER_PACK"
+sha256sum "$LIGHTING_PACK/pack.json" "$WEATHER_PACK/pack.json"

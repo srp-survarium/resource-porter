@@ -1674,70 +1674,78 @@ mod tests {
 }
 
 #[cfg(test)]
-mod five_map_manifest_tests {
+mod map_manifest_tests {
     use super::*;
 
+    /// Each weather pack's manifest against the shared lighting profiles: the
+    /// five maps' pack and Chemical Plant's.
     #[test]
-    fn five_maps_have_both_weathers_and_unique_modes_and_shader_profiles() {
-        let weather: Manifest = serde_json::from_str(include_str!(
-            "../ports/survarium-021d-weathers-to-026g.json"
-        ))
-        .unwrap();
+    fn every_map_has_both_weathers_and_unique_modes_and_shader_profiles() {
         let shader: Json =
             serde_json::from_str(include_str!("../ports/three-maps-021-lighting.json")).unwrap();
-        let importer: survarium_026::Manifest = serde_json::from_value(weather.import).unwrap();
-        let levels = BTreeSet::from(["level_01", "level_02", "level_03", "level_05", "level_06"]);
-        let expected: BTreeSet<_> = levels
-            .iter()
-            .flat_map(|level| [(*level, "rain"), (*level, "evening")])
-            .collect();
-        let actual: BTreeSet<_> = weather
-            .weathers
-            .iter()
-            .map(|w| (w.level.as_str(), w.weather.as_str()))
-            .collect();
-        assert_eq!(actual, expected);
-        assert_eq!(weather.weathers.len(), expected.len());
-        assert_eq!(importer.maps.len(), expected.len());
-        assert_eq!(weather.shared_shader_pack.as_deref(), shader["id"].as_str());
-        assert!(weather.original_lights);
-        assert!(weather.renderer_key.is_none());
-        let mut ids = BTreeSet::new();
-        for w in weather.weathers {
-            assert_eq!(
-                w.variants.iter().map(|v| v.mode).collect::<BTreeSet<_>>(),
-                BTreeSet::from([2, 4])
-            );
-            assert_eq!(w.variants.len(), 2);
-            for v in w.variants {
-                assert!(ids.insert(v.id), "duplicate map id {}", v.id);
-            }
-            let maps: Vec<_> = importer
-                .maps
-                .iter()
-                .filter(|m| m.level == w.level && m.weather == w.weather)
-                .collect();
-            assert_eq!(maps.len(), 1);
-            let marker = survarium_026::map_marker(maps[0].id);
-            let project = format!("projects/{}/{}/client_project", w.level, w.weather);
-            let profiles: Vec<_> = shader["profiles"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|p| p["project"] == project)
-                .collect();
-            assert_eq!(profiles.len(), 1);
-            assert_eq!(profiles[0]["marker"].as_f64().unwrap() as f32, marker);
-        }
-        assert_eq!(ids.len(), 20);
-        assert!(ids.contains(&262), "Rudnya requires the wide map-id path");
         let profiles = shader["profiles"].as_array().unwrap();
-        assert_eq!(profiles.len(), 15);
+        let mut ids = BTreeSet::new();
+        let mut levels = BTreeSet::new();
+        for (source, expected_levels) in [
+            (
+                include_str!("../ports/survarium-021d-weathers-to-026g.json"),
+                &["level_01", "level_02", "level_03", "level_05", "level_06"][..],
+            ),
+            (
+                include_str!("../ports/survarium-021d-chemical-weathers-to-026g.json"),
+                &["level_04"][..],
+            ),
+        ] {
+            let weather: Manifest = serde_json::from_str(source).unwrap();
+            let importer: survarium_026::Manifest =
+                serde_json::from_value(weather.import).unwrap();
+            let expected: BTreeSet<_> = expected_levels
+                .iter()
+                .flat_map(|level| [(*level, "rain"), (*level, "evening")])
+                .collect();
+            let actual: BTreeSet<_> = weather
+                .weathers
+                .iter()
+                .map(|w| (w.level.as_str(), w.weather.as_str()))
+                .collect();
+            assert_eq!(actual, expected);
+            assert_eq!(weather.weathers.len(), expected.len());
+            assert_eq!(importer.maps.len(), expected.len());
+            assert_eq!(weather.shared_shader_pack.as_deref(), shader["id"].as_str());
+            assert!(weather.original_lights);
+            assert!(weather.renderer_key.is_none());
+            for w in weather.weathers {
+                assert_eq!(
+                    w.variants.iter().map(|v| v.mode).collect::<BTreeSet<_>>(),
+                    BTreeSet::from([2, 4])
+                );
+                assert_eq!(w.variants.len(), 2);
+                for v in w.variants {
+                    assert!(ids.insert(v.id), "duplicate map id {}", v.id);
+                }
+                let maps: Vec<_> = importer
+                    .maps
+                    .iter()
+                    .filter(|m| m.level == w.level && m.weather == w.weather)
+                    .collect();
+                assert_eq!(maps.len(), 1);
+                let marker = survarium_026::map_marker(maps[0].id);
+                let project = format!("projects/{}/{}/client_project", w.level, w.weather);
+                let matching: Vec<_> =
+                    profiles.iter().filter(|p| p["project"] == project).collect();
+                assert_eq!(matching.len(), 1);
+                assert_eq!(matching[0]["marker"].as_f64().unwrap() as f32, marker);
+            }
+            levels.extend(expected_levels.iter().copied());
+        }
+        assert_eq!(ids.len(), 4 * levels.len());
+        assert!(ids.contains(&262), "Rudnya requires the wide map-id path");
+        assert_eq!(profiles.len(), 3 * levels.len());
         let markers: BTreeSet<_> = profiles
             .iter()
             .map(|p| (p["marker"].as_f64().unwrap() as f32).to_bits())
             .collect();
-        assert_eq!(markers.len(), 15);
+        assert_eq!(markers.len(), profiles.len());
         for level in levels {
             let day = format!("projects/{level}/day/client_project");
             assert_eq!(profiles.iter().filter(|p| p["project"] == day).count(), 1);

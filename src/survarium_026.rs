@@ -1167,6 +1167,21 @@ fn preserve_material_visibility(donor: &ConfigValue, converted: &mut ConfigValue
     apply(donor, converted, "root")
 }
 
+/// Whether `template` has each of the donor's render stages that hold a
+/// visibility selector ([`preserve_material_visibility`] needs them).
+fn has_visibility_stages(donor: &ConfigValue, template: &ConfigValue) -> bool {
+    fn holds_visibility(value: &ConfigValue) -> bool {
+        match value {
+            ConfigValue::Named(fields) => fields.iter().any(|f|
+                visibility_selector(&f.name) || holds_visibility(&f.value)),
+            _ => false,
+        }
+    }
+    let Some(ConfigValue::Named(stages)) = donor.named("material") else { return true };
+    stages.iter().all(|stage| !holds_visibility(&stage.value)
+        || template.named("material").is_some_and(|m| m.named(&stage.name).is_some()))
+}
+
 /// A donor material on its 0.26 template, with the finish of the target's
 /// material of the same path, or the manifest's reviewed constant finish.
 fn convert_material(
@@ -1177,7 +1192,14 @@ fn convert_material(
     path: &str,
     bytes: &[u8],
 ) -> Result<ConvertedMaterial> {
-    let native = target.is_file(path);
+    // The target's material of the same path is the template only while it
+    // has every donor render stage that carries visibility. Chemical Plant's
+    // green_smoke is a forward particle in 0.21 and a lit one in 0.26: on that
+    // template the donor's stage and its visibility would be gone. Such a
+    // material is converted like one the target does not have.
+    let donor_root = BinaryConfig::parse(bytes)?.root;
+    let native = target.is_file(path)
+        && has_visibility_stages(&donor_root, &cfg(target, path)?);
     let explicit = m
         .material_templates
         .get(path)
@@ -1203,7 +1225,7 @@ fn convert_material(
         crate::material_finish::apply_finish_exception(&mut root, exception)
             .with_context(|| format!("finish exception of {path}"))?;
     }
-    preserve_material_visibility(&BinaryConfig::parse(bytes)?.root, &mut root)
+    preserve_material_visibility(&donor_root, &mut root)
         .with_context(|| format!("original visibility of {path}"))?;
     Ok(ConvertedMaterial {
         root,
@@ -2349,6 +2371,22 @@ mod tests {
         let mut supported = donor.clone();
         preserve_material_visibility(&donor, &mut supported).unwrap();
         assert_eq!(donor, supported);
+    }
+
+    #[test]
+    fn same_path_template_needs_the_donor_stages_that_carry_visibility() {
+        // Chemical Plant's green_smoke: a forward particle in 0.21, a lit one in 0.26.
+        let stage = |name| named(vec![(name, named(vec![
+            ("two_sided", named(vec![("value", ConfigValue::Boolean(true))])),
+        ]))]);
+        let donor = named(vec![("material", stage("forward"))]);
+        assert!(has_visibility_stages(&donor, &donor));
+        assert!(!has_visibility_stages(&donor, &named(vec![("material", stage("lighting"))])));
+        // A donor stage without visibility (walker_collision's debug stage) asks nothing of the template.
+        let plain = named(vec![("material", named(vec![
+            ("debug", named(vec![("draw_mode", named(vec![("value", ConfigValue::Integer(0))]))])),
+        ]))]);
+        assert!(has_visibility_stages(&plain, &named(vec![("material", stage("lighting"))])));
     }
 
     #[test]
