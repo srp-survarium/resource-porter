@@ -103,8 +103,11 @@ helmets have it too.
   his skin open under it): `graft_scalp` takes it off and joins the native head's scalp on. The
   scalp is cut along his skin's open top (the loop of open edges with the highest point), its
   cut edge laid on that open edge and the rest of it moved with the edge (each vertex by the
-  mean of its neighbours' moves): no step and no gap where the two meet, and a scalp the size
-  of his skull. Its colour map is the native one with the brows and eyes painted over by the
+  mean of its neighbours' moves): a scalp the size of his skull, without the ledge the first
+  graft hung over his forehead and temples. **Not right yet:** the cut follows his open edge's
+  height round the head, and behind the ears that edge runs lower than its height there, so a
+  dark gap stays between the two from above the ear to the nape; and the band his cap shadowed
+  stays a pale strip across his forehead (his own colour map). Its colour map is the native one with the brows and eyes painted over by the
   forehead's skin and the upper forehead by the native side hair (the hairline a forehead's
   width above his brows), toned to his own forehead (`scalp_diffuse`). The shadow his cap
   painted over the top of his forehead is lifted (`lift_cap_shadow`: the first skin rows'

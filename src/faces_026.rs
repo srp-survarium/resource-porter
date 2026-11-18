@@ -501,10 +501,12 @@ const SCALP_SETTLE: usize = 400;
 /// without the mesh at its top (the Novice's knit cap, modelled on his
 /// head), and the native head cut along the face's open top, its cut edge
 /// laid on that open edge and the rest of it moved with the edge (each
-/// vertex by the mean of its neighbours' moves, the edge's held: no step
-/// and no gap where the two meet, and a scalp the size of his skull). The
-/// scalp keeps the native head's skin, basis and UVs and draws with the
-/// native head's material.
+/// vertex by the mean of its neighbours' moves, the edge's held: a scalp
+/// the size of his skull, with no ledge over his skin). The cut follows
+/// the open edge's height round the head: where that edge runs lower than
+/// its height there (behind the Novice's ears) a gap stays, which is not
+/// right yet. The scalp keeps the native head's skin, basis and UVs and
+/// draws with the native head's material.
 fn graft_scalp(face: &[u8], native_head: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     let key = |p: [f64; 3]| p.map(|v| (v * 1e5).round() as i64);
     let mesh = parse_mesh(face, 48, "face")?;
