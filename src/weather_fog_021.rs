@@ -5,6 +5,10 @@ use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 mod tone_map;
 mod local_lights;
+pub mod visibility;
+pub mod forward_glass;
+pub mod vertex_blend;
+pub mod vertex_alpha;
 pub use local_lights::{local_light_pairs, build_local_light};
 pub use tone_map::{TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap};
 
@@ -464,8 +468,9 @@ pub fn build_rain_albedo(
 
 /// Compose independently selected original sun and rain behavior. Sun lighting
 /// copies the pinned source diffuse/specular block. Native material roughness is
-/// restored because that source block uses its register as scratch. All later
-/// foliage, accumulation and rain operations remain native or already adapted.
+/// restored because that source block uses its register as scratch. The foliage
+/// block takes the original translucency. All later accumulation and rain
+/// operations remain native or already adapted.
 pub fn build_composition(
     rain_source: &[u8],
     sun_source: &[u8],
@@ -526,9 +531,11 @@ pub fn build_composition(
         .iter()
         .position(|ins| ins[0] & 2047 == 104)
         .context("missing sun temporaries")?;
-    let scratch = if rain_markers.is_empty() { 9 } else { 10 };
+    // Sun's saved roughness is dead before the final rain guard. Reuse r9
+    // so extending a day-only pack preserves its original instruction path.
+    let scratch = 9;
     ensure!(
-        ops[temps] == [0x02000068, scratch],
+        ops[temps] == [0x02000068, if rain_markers.is_empty() { 9 } else { 10 }],
         "sun temporary layout changed"
     );
     let body = source_ops
@@ -566,7 +573,45 @@ pub fn build_composition(
     }
     updated.extend(ops[43..106].iter().flatten());
     updated.extend(std::iter::repeat_n(0x01000015, sun_markers.len()));
-    updated.extend(ops[106..].iter().flatten());
+    // Foliage translucency follows the sun block. The original scatters 0.005 of the
+    // sun through a leaf; the native block scatters 0.02 and adds a sky term under
+    // the leaf that the original does not have. Both share the test and the diffuse
+    // lines before, and the empty branch after.
+    let original = source_ops
+        .get(100..112)
+        .context("truncated original foliage block")?;
+    let scatter = |value: f32| vec![0x07000038, 0x00100082, 0, 0x0010002a, 3, 0x00004001, value.to_bits()];
+    ensure!(
+        ops.len() > 128
+            && ops[106..112] == original[..6]
+            && original[6] == scatter(0.005)
+            && ops[112] == scatter(0.02)
+            && ops[113..115] == original[7..9]
+            && ops[125..128] == original[9..]
+            && ops[115..125].iter().all(|op| !matches!(op[0] & 2047, 18 | 21 | 31)),
+        "foliage block boundary changed"
+    );
+    updated.extend(ops[106..112].iter().flatten());
+    for marker in sun_markers {
+        updated.extend([
+            0x08000018,
+            0x00100012,
+            scratch,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010000a,
+            scratch,
+        ]);
+        updated.extend(original[6..9].iter().flatten());
+        updated.push(0x01000012);
+    }
+    updated.extend(ops[112..125].iter().flatten());
+    updated.extend(std::iter::repeat_n(0x01000015, sun_markers.len()));
+    updated.extend(ops[125..].iter().flatten());
     updated[1] = updated.len() as u32;
     instructions(&updated)?;
     entries[si].1 = bytes(&updated);
@@ -1996,7 +2041,7 @@ mod tests {
     }
     #[test]
     #[ignore = "requires WEATHER_SHADER_AUDIT with extracted pinned retail shader blobs"]
-    fn retail_direct_sun_matches_rendered_program_and_preserves_fallback() {
+    fn retail_direct_sun_preserves_original_block_and_native_fallback() {
         let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
         let rain =
             std::fs::read(root.join("original-9b8cf18c143307ad19ccea92c7c24600.blob")).unwrap();
@@ -2012,20 +2057,10 @@ mod tests {
                 .unwrap()
         };
         let original_sun = decode(&sun[so..]);
-        let result = build_composition(
-            &rain,
-            &sun,
-            &native,
-            &native,
-            &[-32189.0, -32198.0],
-            &[-32197.0],
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            result[offset..],
-            std::fs::read(root.join("trial24-direct-sun.dxbc")).unwrap()
-        );
+        // Compare the original retail block and every native fallback
+        // instruction directly. Scratch allocation is shared with rain now,
+        // so the historical rendered trial's register numbers are not a byte
+        // identity target.
         for rain_markers in [&[][..], &[-32189.0, -32198.0][..]] {
             let base = if rain_markers.is_empty() {
                 native.clone()
@@ -2045,7 +2080,7 @@ mod tests {
                     result[offset + 4..offset + 20]
                 );
                 let mut ops = decode(&result[offset..]);
-                let scratch = if rain_markers.is_empty() { 9 } else { 10 };
+                let scratch = 9;
                 let mut at = 43;
                 for marker in markers {
                     assert_eq!(
@@ -2082,7 +2117,7 @@ mod tests {
                 ops.drain(43..at);
                 let temps = ops.iter_mut().find(|ins| ins[0] & 2047 == 104).unwrap();
                 assert_eq!(temps[1], scratch + 1);
-                temps[1] = scratch;
+                temps[1] = if rain_markers.is_empty() { 9 } else { 10 };
                 assert_eq!(ops, decode(&base[offset..]));
                 for ((tag, a), (new_tag, b)) in chunks(&base[offset..])
                     .unwrap()

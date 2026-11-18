@@ -44,6 +44,7 @@ fn main() -> Result<()> {
     let mut profiles = Vec::new();
     let mut scattering = Vec::new();
     let mut markers = BTreeSet::new();
+    let mut rain_markers = Vec::new();
     for spec in &manifest.profiles {
         ensure!(
             spec.marker.is_finite() && spec.marker < -32021.0 && spec.marker.fract() == 0.0,
@@ -53,6 +54,9 @@ fn main() -> Result<()> {
             markers.insert(spec.marker as i32),
             "duplicate profile marker"
         );
+        if spec.project.contains("/rain/") {
+            rain_markers.push(spec.marker);
+        }
         let project = BinaryConfig::parse(&donor.read(&spec.project)?)?;
         let Some(ConfigValue::Indexed(objects)) = project.root.named("client_objects") else {
             anyhow::bail!("{} has no client objects", spec.project);
@@ -174,7 +178,7 @@ fn main() -> Result<()> {
     for path in paths {
         let before = native.read(&path)?;
         if let Some(after) =
-            shaders::build_composition(&source, &sun, &before, &template, &[], &markers)?
+            shaders::build_composition(&source, &sun, &before, &template, &rain_markers, &markers)?
         {
             converted.push((path, before, after));
         }
@@ -224,6 +228,42 @@ fn main() -> Result<()> {
             converted.len() - start == compatible,
             "unexpected compatible variant count for {prefix}"
         );
+        if prefix == shaders::PARTICLE_PREFIX {
+            // The family's other fogged programs: the same fog found by what it
+            // computes, in whatever registers; the 24 above keep their bytes.
+            use shaders::forward_glass::VertexFog;
+            let pinned = [
+                native.read(VertexFog::NATIVE[0])?,
+                native.read(VertexFog::NATIVE[1])?,
+            ];
+            let mut fog = VertexFog::new(&donor.read(VertexFog::ORIGINAL)?, [&pinned[0], &pinned[1]])?;
+            let done: std::collections::BTreeSet<String> =
+                converted[start..].iter().map(|(path, _, _)| path.clone()).collect();
+            let paths: Vec<String> = native
+                .paths_with_prefix(prefix)
+                .filter(|p| native.is_file(p) && !done.contains(*p))
+                .map(str::to_owned)
+                .collect();
+            // Both adaptations of the 24 agree byte for byte.
+            for (path, before, after) in &converted[start..] {
+                ensure!(
+                    fog.build(before, &profiles)?.as_ref() == Some(after),
+                    "the two particle fog adaptations differ for {path}"
+                );
+            }
+            let more = converted.len();
+            for path in paths {
+                let before = native.read(&path)?;
+                if let Some(after) = fog.build(&before, &profiles)? {
+                    converted.push((path, before, after));
+                }
+            }
+            ensure!(
+                converted.len() - more == 40,
+                "unexpected count of other fogged particle programs: {}",
+                converted.len() - more
+            );
+        }
     }
     let pairs = shaders::local_light_pairs()?;
     ensure!(pairs.len() == 32, "unexpected local-light variant count");
@@ -247,7 +287,7 @@ fn main() -> Result<()> {
     let pack = PackManifest {
         format_version: 1, id: manifest.id, version: manifest.version,
         target_build: TARGET_BUILD.into(),
-        description: Some("Original 0.21 atmosphere, direct-sun lighting, quality-1 AO, ray falloff and tone curve for all five day ports; unchanged native shader fallback for unmarked scenes".into()),
+        description: Some("Original 0.21 atmosphere, direct-sun lighting, quality-1 AO, ray falloff and tone curve for all five 0.21 maps in day, rain and evening; unchanged native shader fallback for unmarked scenes".into()),
         requires: vec!["maps-021d-school-fort".into(), "maps-021d-rudnya".into()],
         base_db_sha256: Some(manifest.target_sha256), operations, server: None,
         notes: vec!["Built by examples/lighting-021-pack.rs from fingerprinted retail programs. Projects opt in with their explicit mie_fog_base_height marker; authored fog inputs are preserved by the content edit lists.".into()],

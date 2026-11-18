@@ -1,0 +1,720 @@
+{
+  "donor_db_sha256": "e28cc2878e0e2f04ab9ab0a1861034622af487a491bf230ea24f44e9af9715a4",
+  "stock_db_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "textures": [
+    {
+      "texture": "anomaly/anomaly_stalactite_moss",
+      "original_sha256": "565a238613378fd956bd6b4883e49d0889a304393ce5a8cb9465d12ea0315425",
+      "native_sha256": "e109f8792bbc1483925d1278637cb0fdd377e5337bd2028a9b04b3cf9d1d3045",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "character/human/remains/rag",
+      "original_sha256": "f99974b079af82d01fcd53018e04861acf057c3854f50ed4a7585f08b0b38cf7",
+      "native_sha256": "995f49b5d8c2cec2d38fc167cd893850d72380cfb99ccfda8ef40a95de0259db",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "character/human/remains/skeleton",
+      "original_sha256": "6e4aa4178973afe67c5babdb297f4f584dbf3500bebcce9994e9f2e284335d9a",
+      "native_sha256": "5334889712d907ca64ed44ef04833402bd723019bf997a42e9079e3dc7719ae3",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "debris/debup",
+      "original_sha256": "2d6416d2504db5c2a94b8097cb3e3a1dcf18968cc2723146919f2d48e2f0b40c",
+      "native_sha256": "884841360a4a685a2bc8f12f65d7bcaf5575709f63665ba60210e5701552e008",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/concreat_decals",
+      "original_sha256": "95dffd82c00e1377bfae723010b039262b71f2234e335a6f75b0b30841eb5ced",
+      "native_sha256": "b4dea952aefe60ac680a3c2dd66eab063beeea7a4bb40eb704fbf4627651bd1d",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/concreat_decals1",
+      "original_sha256": "32c72590b135d42e825a9fb8bb9ee728b80f1dbffa0a434594b177238f0265da",
+      "native_sha256": "b9ed5482a72ba712a658dafbeb9fcbe447a39b721ff8452a55e6bc46434b6050",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/damaged",
+      "original_sha256": "9bd9529b5b775f1c3f79129ccbe7ae75254f6608a4b255254305cae6aa96e6fc",
+      "native_sha256": "d57d55030d837ed416b0d2481268bc90ea4a38ead3992e5b2009f3bca7702dd1",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/decal_bottom_dirt",
+      "original_sha256": "f28b5cfe2b96c3ddae37db76738b4dfbe3f79125834f07cefe1943a70dacd4c1",
+      "native_sha256": "ef835ba7e39da70ed32caeae464a5be946c5c372aa8093b79817d1db070df10a",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/decal_cracks",
+      "original_sha256": "96ad9383b77fb99f47524893133802b1e9fefdb329c139fc2ae3c546cc630f8b",
+      "native_sha256": "44fc474d2b74149db8187964088c4a92c62b1dfe7dbb4e257976239aae1850b0",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/decal_leaking",
+      "original_sha256": "1b6647c5c562f5b83cb9b29dfce0b467e19ac8dad935f879f2c7a5b8134d7d55",
+      "native_sha256": "bb7948a1999a885c80a7776f13b565c9b476c61037964cc2d1ee434a3eea0a3b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/decal_spider_web",
+      "original_sha256": "cc808bfdda5848de490210b88bd79a7f91f7519fb5cba0f3bb0f5e5e05495930",
+      "native_sha256": "522cfde8d49458f625a1c55cc575a53227d857ba0516c09c3650f2987836cf16",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/decal_spot1",
+      "original_sha256": "15fd368d930868f8ab22028c40b67978066deaa8e51dea41c20a0233be034a3f",
+      "native_sha256": "e106b119da41e534a00df2f1abbd6a4f09ce3fdb3aa321d7f5ea6eb182e7d11e",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/decal_trash",
+      "original_sha256": "2f96d79f5449a4c7032d87b63c634091ced24d7d187949b7e44a35ba3780da9c",
+      "native_sha256": "f0f6bc1bb59ec480077c24477a4300f416c6bca00212ff02232906564056a86e",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/moss_3",
+      "original_sha256": "249f68393a037dc7824f7b4a6c9f7af9f0b90b17ea0cadaf7f9863c2e979bca9",
+      "native_sha256": "f0c46f7de7b5987d44a0a52b211dbc367c2951c8afd9743339635330c3256e87",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "decal/paper",
+      "original_sha256": "5987d4f686f95e1bf17d9391079df906c817cf22f23309c6989dc8fb0211ac14",
+      "native_sha256": "c10a8d6beae944f8fe9d18515cf2afdb995cc7d7aaf8714b1d04a04ff0cf813f",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "fabric/fabric",
+      "original_sha256": "4b307e6264354670f422294bc7a458b79edc4f0989aeb3e8c50f65ac668bb870",
+      "native_sha256": "b27f2ed7302615454bc885637043e0bc4b95e6ae5a2c83e10f813732f939ebd3",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/backtrees_l01",
+      "original_sha256": "49972b7ed9e5b3df975a9165adb8999bf4c1d400b0aafba17e271a2cd2710fdc",
+      "native_sha256": "fca171575579071ae4b0f21c82f713f4ab6c1fbe6175d642d297b1fffa7fb3ff",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/backtrees_l02",
+      "original_sha256": "31e2a53b5b65399793c901dd021ee9d166809776573e5ff9871a0597428c11e2",
+      "native_sha256": "5f36e4a7ce57ba2f1b238b55956983747e82fc5fe3c5e6c4169f0bd8d2b0c31b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/backtrees_l06",
+      "original_sha256": "f38493927cad717b9b5e27c935ee93fab93c4fb3cef22b64f8930a90001ee9f4",
+      "native_sha256": "6eb3eedc6a341ffe2d8c503d042eb978b0b8fbaf8cf61727d687fae782dfafb9",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/bark_end_aref",
+      "original_sha256": "61d55788f3dd2d7216937e3e9d5413d40a626fb6d945fd1339d0c0c5bc700c4c",
+      "native_sha256": "f7447762cf4ff0498d955b0465fa0cefb9f46aa29e2e9344827f5fcd317a889b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/bark_end_aref_tile",
+      "original_sha256": "915d0825f6bbd5593f7b88c34d1086d7bafeec572f525826992eb87d058543ce",
+      "native_sha256": "50b199a5fcf178a335d4288af47f205e1608813e8f3dfbd0edc711d9fcc59596",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/bark_roots_5_aref",
+      "original_sha256": "16df5ffdea03fe6935287da7e52f4d2fdb0f7fae4207e7dbbc05d2ef78a065c5",
+      "native_sha256": "ce2f8f92d7a45a4920e08ce89a0a6cbd70a8299186ba41dce6e1ace6a1e40469",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/bark_sosna",
+      "original_sha256": "7f58f4ee814497a2b62f46868c48df90ecc86682daaa2f2086af75b603583fae",
+      "native_sha256": "a5d7d4cc8f2a03195a45603db22aaa414fdfcad63cda0b4d3b78cc53c008d54e",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/bark_sosna_lod",
+      "original_sha256": "025c3bd71a43ab6e5467e649887bdcf07cd796b161c2440a328a5cdd06db4f81",
+      "native_sha256": "66257ab4aa056ecc7f4e8ca47a4ddd9c8c616af265222b541462035c5b44c1c7",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/big_oak_leaves",
+      "original_sha256": "e80e2fbade5dadf084a44e6ba6550fc518cb54d13419134c3dc9d2333c5528e3",
+      "native_sha256": "39c0cb9c41b32465a60b8bb15bf506d91cfdf541d3e3c511437667a4f73d35d1",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/bush_small",
+      "original_sha256": "23388ffb191f4bcae00bda145f50d476855d277c1265314bbb2c7840b5ba1644",
+      "native_sha256": "b063ba5f63511887f5e0d70d8ba9b710d66c3e4b97194c164669323fe515bd89",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/fir",
+      "original_sha256": "e4a058cf2208e24e3c45a067b34c6a68bee3b5a88fd06ad1a149e7e5202f1fe2",
+      "native_sha256": "7a941cd1566bfbd5952c5ccff3f6a3c6f45952f8100d7cda0557ba50c83dee9c",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/flora_korni",
+      "original_sha256": "bc81b5a690675c66bd38bdb3ee09a0e111e08e0703201771059439f96e75c175",
+      "native_sha256": "dbbbaf1da78941f6efe948b7bc0fcd90c7f0deef7b5e7ec81766efb4d2d4ff47",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/flora_moss",
+      "original_sha256": "c7c906565ef7df2901b14bae040d1306d55d3beb190ded87d85660fb27c35e7e",
+      "native_sha256": "b49db1bcceebed3acbee672c382ecd02b9a23e3badd1dbe3f70e0c5fa7b2e887",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/fruit_green_lod",
+      "original_sha256": "b0fa15f6e720ccbf4dbaca8b1d1e396f52c1d388c65cf96ea3bae279fcc1ef96",
+      "native_sha256": "842f271dad7578804b72b7937a24ae93b13f1a7c302e95cea43233647591ff12",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/fruit_grey_lod",
+      "original_sha256": "5e55bf85248c88b82a74d7064343628b0df7caec1fd93556c71ddd1c4d7087bf",
+      "native_sha256": "cadfb394975cbc39b10afd8b13aacce09d360e46851702b4a2b8981ae07d15f2",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/fruit_leaves2",
+      "original_sha256": "2f8c060a08966e503aa765c2d4f1795258feea509a7e02bf9d954b2dcd67e721",
+      "native_sha256": "e15251a6cff02072785f80988becb0568ac0ad991bc7358db36b271550a40cde",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/fruit_yabl_lod",
+      "original_sha256": "24e6e2a74fc4d0670ea689f7baa627a4fc57aed3a414425e19da71c2b1c8e7a6",
+      "native_sha256": "695333991a0085d024237cf4142d2b6c8350b01cd1b180efc812e93a546cf79b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/grass_l03_alt",
+      "original_sha256": "52689d61da8345a0b20bbd2a75eb6059e44c107ab53e8f7d11d75ff9d1e6a3fe",
+      "native_sha256": "a64ab23e0691efeba0794fe85ea175de28b5aec2434de796d21f612a72268447",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/liana",
+      "original_sha256": "0d1db558603eb16fbf6c9c29b95dcafa960c65bd22e5762e455d0d14184e7399",
+      "native_sha256": "e549f2b81bd640485fe767c7dd30e942abd53ec3799914b58bff66cae9671e34",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/poplar_leaves_01",
+      "original_sha256": "1fc3f99316738167a9a66ab7a5be9dd4775041cb17d1fed47c053c7806b9d06c",
+      "native_sha256": "36af07786c1364a8cdc65038fd00fdf8a78a75d7ff09548bde0310d3da91c077",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/poplar_leaves_02",
+      "original_sha256": "a7da009f90819bcdc3c04a44e8dd3a6c1b62f3e30179bbc07a39c6ae019f0148",
+      "native_sha256": "090680b264fb14ca244b58adfb0ca2c16b4d90492bd000a86033639f7d6ed52e",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/roots_tile",
+      "original_sha256": "87d8a379a2883de21984b1d60ef6afa4d5c56f7afd66ac57cf2db13dc4f716fd",
+      "native_sha256": "058a86b5860a0b892a2479def257dd0bb09aa56340cce1ff8ea3e7f298fde0af",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/spanish_moss",
+      "original_sha256": "7e787dae9fdbcb4900eb34d9b818d52aecc082ca7906aa2478a0fb5472b1deb2",
+      "native_sha256": "6f54bad8686a5d068ea085127ab15f6f66b59db7b3a1294fbd7b699a10367e59",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/vine_leaves",
+      "original_sha256": "b27e8aeecef9d464ace9cd552008e5ddd7af15122aa198c5e0ee8ba6ec805594",
+      "native_sha256": "85bc36a756ee7f03c5964cd638fbb571188ebd77a970005f6c609cb0b1b48f1d",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "flora/waterplant_01",
+      "original_sha256": "b27b8e4cf2b79662b7cab6ec7af9e1177fb77b03f6d62331142d6bcb0d91e09d",
+      "native_sha256": "4528e54968e8677c3435e7a7e739bbb47af47817c34ca57aa7def3b5f9fb9808",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "fx/level_01_anomaly/smoke_column",
+      "original_sha256": "37bdcbfa1a5e6fc66c8583bfce3951f5126b44d2b006a7b898e5fb4b2bea8ac2",
+      "native_sha256": "785e4a3c7983457e8aaa7d02d45a372f2a538474bcad9205b66ae3b4af488f35",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "fx/level_05_anomaly/cylinder_alpha_border_mirored",
+      "original_sha256": "2eb564e9f4876d6b9313cf1ac8899f544ee2466c14d14efedc22ac3670638c23",
+      "native_sha256": "8c86666c73c78abde0358e3327d61a88a6a270e1825845625ace7de0ce539a44",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "level/05/level_05_wheel",
+      "original_sha256": "8b2aea53b58b39c3e5ac66785ad9caa81de4ee78a52054188ec03306e1a95de9",
+      "native_sha256": "0e853ab21cb8769c4a96c8072a9d83848f9b65fdfe64f49bf392bf2f11dcdf4f",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/bag/sandbag",
+      "original_sha256": "975a7b767cfcfb5982e1a2410b686e2c326295c679997a6fb28c2051ed19b81a",
+      "native_sha256": "3a43ea4617b07c67cb8298063c2b13900cc604edd31a3e402b3423d81e1968ff",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/barrel/metal_barrel_chemical_01",
+      "original_sha256": "307823083e45d80c501737b3908eb09ff2a9d9ffcd434f7e991b16d8979a77f3",
+      "native_sha256": "741348f93653f73649564863f1d32e762c748c7838ec87033a4818aebd6bf6b9",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/covers/plywood",
+      "original_sha256": "dd56fb5c48fb7a472d5ef6ee8ef2f55048763e49facab9d29049515442397c8f",
+      "native_sha256": "a38f689f2618cc53fa64ce3b559a6749c0fd7b3311bbf861ba18aea50f81e546",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/electric/electric_cables_01",
+      "original_sha256": "31ec7eadfcfa9eefdac969fe4fec3ac9ed1bb3c75a8cac56ed9301103a0cb9b0",
+      "native_sha256": "50f21a6d8e8e7da37704eb82ae554ad4fca47bf395b681aa0d6ed0dfcd0c48f9",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/electric/electrical_cabinet_02",
+      "original_sha256": "05cb013c9f6b84cfd32f6f84a027c7f77cc0e0c0b00a1c399f8a4dcf40187a79",
+      "native_sha256": "5bca2f0b2d0526f8c96e3940e1e8e6c9973c12c1fdc5cc3401419245a94a634f",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/furniture/battery",
+      "original_sha256": "06f7bae5efcb26f65e44cfce5f4e397d554b023fff0529c1caa78fe329039c08",
+      "native_sha256": "6032cad63901423e2cd327d467b664b18d4b51f09474e88d94bb9d7f6d7190b8",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/furniture/bed1",
+      "original_sha256": "31a3d3a6c5a0832b0fa2b30de66243cbfeced1aaf9d2e6af168851948ac622b3",
+      "native_sha256": "17eda96f066a75e66c0fbbda60ec15989c22f2b192803fcb18d56f039b65c21f",
+      "options_sha256": "c3a49b1b1d80bf4a36dc0f739b94ec4c3f66296859ff0247b9e71dff5d234c3d",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/kitchen/dishes_02",
+      "original_sha256": "09c93fb13614024ffd3354e1d21e2b2beab6dbc2adf3eac047eccf01442aab49",
+      "native_sha256": "7062122f678fa6b5c786d8d92ea7ef2af357e15dd681466f58fea825d3cc946a",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/kitchen/refrigerator",
+      "original_sha256": "8a4ffb7226417aadbb9c867f0bc7879fa26db51a1019ce00e24f4de4450d78d0",
+      "native_sha256": "f9d02df4d92dd6aeb91b7f8c3a784d6d4bf490a69f23ad1e44d5ab399424c511",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/light/bonefire",
+      "original_sha256": "ecfb3550389b52b7f1fb350efc14e0b713b3f04f4467ce3cd7e03ac4c53aafb3",
+      "native_sha256": "a903df2930dc67501366bd9856b66207bb13aa8b2b4524483669522eec597671",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/light/light_emitters",
+      "original_sha256": "36017dfbd034fae2ecb8caf34c18c2ae876c08150bddf76d4810d85c71c67149",
+      "native_sha256": "02034aa163b835ab95498650c8f989e00d992eeba9f9b65d3bb182d51359fced",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/signboard/industrial_signs",
+      "original_sha256": "c7f115257bda1074526b318a7d5f4daef1854cc51a1c67334cb396992addf524",
+      "native_sha256": "c35aad3db115e7b1dd3f544e5b0a43d494780e64ac34dd538c539d54ea1bf6b1",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/signboard/signboard_02",
+      "original_sha256": "0370341139a2d2ca77ed7d2be9eba588c5d256715d132a470b27e2724b950f56",
+      "native_sha256": "6eb2e120391e4fec5b9c8a8ef5c2abca7cb9564b905bd7ef96e7b0811ad03553",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/signboard/signboard_danger",
+      "original_sha256": "320cfda528de6875d75ea87574dee89f102e02bf85b0930b184f7a25249862d3",
+      "native_sha256": "5dafdc5d870205bb8012500d8d1cbb9aea3f512b96c4cbe30c2d223d1f25918a",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/tool/gymnasium_tools",
+      "original_sha256": "e5bd549ce68e6418f5a55cf7df9382541fe9a24feb986dfe8b31aa72977cac29",
+      "native_sha256": "4abecdb90044e59dde8aea08268e1609144bfcf85ef59c6f18f94b354d5bfaba",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/tool/playground_sport",
+      "original_sha256": "49028bb38e23607250a760073640a564833a3d9c6eabffabb57cdb02f406c933",
+      "native_sha256": "5d036e4b1c066c43931f094643919c90401149132520d5866558285467006b86",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "props/tool/setka_football",
+      "original_sha256": "3d7f032d80db5ae593eab17875427ed44281a0f55dbbf286bd583f8d5042ded6",
+      "native_sha256": "500903d09933221782f6f6c9d1076061b50e0e4e3f81e95b7e17308daea2da17",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "terrain/ground_02_tile",
+      "original_sha256": "ddcbf531354eb179b1e7cb742a683668fc0f3888419d4d4f8b4ecbc282d639ec",
+      "native_sha256": "29c171d62b8d194d8283a0e1f6e7eab68062a360ef7671e932be991ab0180d66",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "terrain/ground_moss",
+      "original_sha256": "c9f56c5377edb0568fea00679855d0d47acab3e23143f50cff7ef8ecefa756f5",
+      "native_sha256": "1dc69bade16a857c58936e8519bf86acff983951a745cb137d628935f5b80373",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "terrain_tiled/l_03_alfa_buter/ground",
+      "original_sha256": "029cb880c4570ae977e1ef40433c97e0a893ea15fd6dd7eb18319c49813360d4",
+      "native_sha256": "16998786524673138bbef7ed937ff0adc51b28d37d37842c04f83df5ee16067b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "terrain_tiled/l_03_alfa_buter/trash_dirt",
+      "original_sha256": "fe1174f1610404efb41c1995a4358462002651899980ec67adb096a942fbbc93",
+      "native_sha256": "ef2d03abdbc272f55ce2c1206bfa6dbc8ca11005f14f4116de361729a13d2da6",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/concrete/concrete_alpha",
+      "original_sha256": "c0ca092503fa1f22106e6886fd09531897fc32d55aabefed3ccb1e2197142bb1",
+      "native_sha256": "305d59d7965ff703e06a40d0c730c98c384a4110b0c068fdbfc5847283494970",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/floor/floor_brick05",
+      "original_sha256": "ce7ed5428f2fc7f430c6b4fd20038d44416b5952cdb2bd678be77d5d72e18276",
+      "native_sha256": "f6248cbeba26a3244b9d3214422234dc67731d7dfdfff667ecfd195c219bc289",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/floor/floor_brick_gr",
+      "original_sha256": "f1744d7abd4fb01dd0d40b209fcef2bb5507f6300e7ea3219d55f20c698268d9",
+      "native_sha256": "6d666b5a3c9c536b0f55d98403c989de8f919ab18630693ee3ff018e04893b2c",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/floor/floor_trash",
+      "original_sha256": "b57ac650989aeb975124970bbaec8cfbbfe1838a5607d9912b95cd13c20a7de4",
+      "native_sha256": "65985270467a13b55dfcf3bca413378ab9b6de0447cec12766eafe572b32ed63",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/alpha_metal",
+      "original_sha256": "6b11a0a5b7b9727a2acd5523e7ff9eae2449e1de5eb8ad5f0fd11a1ceef3de96",
+      "native_sha256": "9b51aa3a3da778089c008e3e8dc272519dc0b66b5ed5ffdce95b079316e16c8f",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/armature",
+      "original_sha256": "8f101da4e0900450342f667ffa47b1070041e2a2159b2e3c9ea56b9b555e0559",
+      "native_sha256": "ab032d184048a3ceffc870a7a2efcae349ee859887dde093664758f22826871b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/big_cables",
+      "original_sha256": "911743decef2f13c6eb021aef6798731743ac247c16b6386c3921d48abbbeeaf",
+      "native_sha256": "94a21e6e6ec98277d426bbe49d55472f1e1184f6785b5301f6d99784635c7c26",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/m_rabica",
+      "original_sha256": "e7ae1445af1149e78cead9d2488852bfec8ea21b6b2c84182d0ec0b59c29d4d1",
+      "native_sha256": "bd9eb0c036078cca75851ae2ed129e8391f6a4096d5c6c02264f5c25f0e2db15",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/metal_alpha_f",
+      "original_sha256": "ec11f40abd0cf41866dfebaa0b74d4ab09e3d8607e62586d2a46f0ae3f942180",
+      "native_sha256": "42be99543bbfb1b438904e95db4c0e73927f7496df00374dc1e1f8a13477fd15",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/metal_b",
+      "original_sha256": "f005ba849a9dfbce6ab5b483a8987ff8f786d90bda075e8cf23e474967522408",
+      "native_sha256": "c8b97f76fe8e72cd1f7934b3837cc73db910387cf1e243d402c984ded4a9b0bf",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/metal/metal_balls",
+      "original_sha256": "97203511f7154877b3546d57fe76d965e90975953e9e622a38a0e20778d152c8",
+      "native_sha256": "d2bfb12356787348e5904214e7fd3abbef2a24cd2348cbd1c775f684ab9c007a",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/roof/roof_01",
+      "original_sha256": "dfd2f5712fff8e6dbc3d80656bbf233e419b230e3f618dbe5b3aa81906ff0f5a",
+      "native_sha256": "de7fbb688deaef417cb08cbe1a5ebd5ce2dfbffd95491491114a5d09cc24c7bd",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/roof/roof_03",
+      "original_sha256": "6ed875295e0b77e13c740a4e50b16a5f3d2e202c974f6662cca773d2308910b3",
+      "native_sha256": "0479915bb0f611560da1ce31f7f5560b8822893bd47558418bffc4a0eb531eae",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/roof/roof_broken",
+      "original_sha256": "4121511133473d16b17baf2f6c9ab49aab53a1821fc8684d4a73c30c98e086d9",
+      "native_sha256": "4d6e6215eb5ab04c1aee4b17031a6a29da1a108f9561267bdffd1dc62392ae8e",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/roof/roof_camouflage_01",
+      "original_sha256": "20f97e234f53cebea3bdb4eb8bde35c88c625449d081ec26be64c3fc8a6c1952",
+      "native_sha256": "29ba609385c4d72b976f9a892ecba33240e6d3d34a4eaa7834fd83b70b00a5ce",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/roof/roof_ruberoid",
+      "original_sha256": "9169ef4e43e4cd62004db7e7122b9547c3a5e7cdf64f87700357d82c83aa4c0d",
+      "native_sha256": "be90e377dcdcf45b376e701fe8b92cd850355d6c218b5c4dcfb7f143055b0ac5",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/stucco/stucco_03",
+      "original_sha256": "8eda4260136ad51fffcbeb12a117b196ae5231548f3c6f5492a8c0a7e3514868",
+      "native_sha256": "ae85dedabf096ab7d141c5c65ff6d147a7d9d582cd2eb910f4bcd37aeadfd608",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/stucco/stucco_wood",
+      "original_sha256": "df4a31ccb453e48b71736eae102a19a2234887af4a3423a5c886caf0526188d3",
+      "native_sha256": "3fd314eac8b3dd8777e2c5fe9ec88b10a71478c01ab70368e33dd0a6d0afaeed",
+      "options_sha256": "5dc5dc37a069cb8092715f0dc765ed19adcb75836fb06ad438ccbc14d1ff168d",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash",
+      "original_sha256": "dd41b629e86ccaca9e592c16a8dc2af28353dd4111b4befc56c1e14818337f39",
+      "native_sha256": "4ae5f999ab18fd6c1da74177793f7208e89d7a2966d81080d4cecb2b474d71a6",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash_brick",
+      "original_sha256": "44647bc2dcb4d7d38233028b10788450697d10a605e940ad9bb1a47e11007e5d",
+      "native_sha256": "baa8ff406eeb71d1c7bb0b8dcd02c5da15938a390ffad6ba7181361108d418ad",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash_brick_alpha",
+      "original_sha256": "e2c2749330923ecc74c2fc7e1bae4dfdef532514f277d306cb3b2e5cd23f67f0",
+      "native_sha256": "4e67523ed2982b132d8c1d49a33e8489d238180a7c6403fdf352dc38e49e67bd",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash_concrete_alpha",
+      "original_sha256": "475624db78fb49a9c3fd6a4169fc4102c9b36633dcf24a44eef5df1512d2a2f6",
+      "native_sha256": "a0ff4eb32e1e47339b108c93e3a3258fdce338eca64bba6e6d4c28058b72124b",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash_debris",
+      "original_sha256": "adab03a70982a39cf912aac4b2b2ca6ba8de3d36143a3acb6e276996028a3848",
+      "native_sha256": "b8a5189953a876296a9cd0eb99d5d1e61ab07a99bcf127f52184f27329e72f80",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash_debrisstone",
+      "original_sha256": "3dd84ad65030c3c5ac669e39ef587ce18445d6838714460648ab0134baf4bb6c",
+      "native_sha256": "34f36a257d91c29e76f281195f1c13106f637a902ccda42a0e00af05749d1fa6",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/trash/trash_foliage",
+      "original_sha256": "a18b6ee79fddf5d5aba9c43f83ecf60bb571bfc7c874db225b466e7dd2187cf6",
+      "native_sha256": "25a2a5339fe2293018218a1d5d538aaac0441ed1181b356694811ce3e3bc90b5",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/wall/cult_centr",
+      "original_sha256": "85590959c57c2fcd4ec8c6843c5b1f3e86fc3e25c2500996e5a31265103bdba0",
+      "native_sha256": "3ef0d2f9f23749069ad5862d3b25d339d106798a7ebcfeb81f31377cbc71f68c",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/wall/wall_tile02",
+      "original_sha256": "d6e709cebfd2f1293ee449ad098687d6114528ae9b028926d3fb543a5198fc60",
+      "native_sha256": "5ca11282cd72b8dd45ddbaede3b11a000929fe4e11d3da644fcf6f47f3000e0d",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "tiled/window/glass",
+      "original_sha256": "010f90f27b33316a01eabc1ab0f3886c2da7dcfc3884e99f878d21e90e4414c8",
+      "native_sha256": "5a591ec6b233bcc12db96b26c7705466570cf7eea034cf8f70b2048d63446a95",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/common/trailers",
+      "original_sha256": "75c8e0057d6d7dfb39d73b7e7be318d3b9f3741baaa70127f3c354211b264792",
+      "native_sha256": "4472d86f51da30147191d3e40597119fdf5010ce10d50e3b92cf5d6279c90981",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/construct&utility/2pts",
+      "original_sha256": "91d2aab6768f7465c9098af4bc756bd0f599733296b8854294ca28084597fedd",
+      "native_sha256": "ff1ed1b4f6f7207c46dc7547f87dbeefaac733b39d91f5380a9286f6ce5bb55d",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/construct&utility/plug",
+      "original_sha256": "e0f87bfaed00a36fcfbbc0c53d2a1055816619c003960ea6ac8b304dc564bde5",
+      "native_sha256": "3399e490583b1ed9ed8379f91ca858873ea77257c18ec26ab5423e7b38e99be3",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/construct&utility/umz",
+      "original_sha256": "00cdf8981d4639dd78dabe849e8f5a353bf0e4f67d941a277ea6b1d5ad56cd36",
+      "native_sha256": "9269d5d620550ef5e1dae1c1c6fe6a0509602a1e9b613bf1279d7ceed52a65af",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/military/t80_track",
+      "original_sha256": "a053702a847d2fe430ae61b037c421eadb4b4bcba1b135829a8d500d8b2b22e3",
+      "native_sha256": "436768c7a516b6f3d019834bf5dbc9cb5fdd318c30967431f34a82bdbbdb4bb0",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/military/t80ud",
+      "original_sha256": "950f685e26a9806dd2e02949d1cd488f065c6a908b3a4cdc3ce5ce0a14fcbaea",
+      "native_sha256": "a49f33d10f10db7c5591190a5ea9f7bbbdcd2304218382ad21d75a94341526fc",
+      "options_sha256": "5dc5dc37a069cb8092715f0dc765ed19adcb75836fb06ad438ccbc14d1ff168d",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/truck/grid",
+      "original_sha256": "de2c66f3ab51c63e5c300c10a9ced8201877346b57e5584f8439cc7bc2d73617",
+      "native_sha256": "7759fc99462d8c33650af7dd74c3efd71cd96fc30378194a0e37f6c5d264d413",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/truck/truck_tent",
+      "original_sha256": "f3ad27eaefab12731b045374be8f117cf96b0fd30cb9fd3d66808a3e4a0a8c00",
+      "native_sha256": "e8aed44fc4cf1b5ac30f8b0287a11388419464939f4dbc52cb2a8323866153c1",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    },
+    {
+      "texture": "vehicle/vaz_2109/vaz_2109",
+      "original_sha256": "2908278a9af9f28ebb857ecae2f90c11ae268489139102be5868822d9a51a21f",
+      "native_sha256": "f7528bcfef36700fcdc7d1e8e4d8da5f2b6ad4a9e7d26ee4ccdcd4443e347157",
+      "options_sha256": "0b9f2bda0af335eef5481af61154d6e68a6cbebaf4eec6ddf865c8c06a68a2d2",
+      "reason": "Original alpha-test/transparency binding; equal full-resolution image but different lower-level alpha coverage"
+    }
+  ]
+}

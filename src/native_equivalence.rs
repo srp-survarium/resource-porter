@@ -16,6 +16,15 @@
 //! donor's art.
 use serde::Serialize;
 
+/// Whether the material reads a texture's alpha as coverage or blend information.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextureUsage {
+    /// Native regenerated smaller levels remain an established colour adaptation.
+    Colour,
+    /// Alpha-test, transparency or masked blending retains the original mip chain.
+    Alpha,
+}
+
 /// Why a donor texture may be replaced by the target's of the same path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,12 +68,19 @@ pub fn texture_match(
     donor_options: Option<&[u8]>,
     target_dds: &[u8],
     target_options: Option<&[u8]>,
+    usage: TextureUsage,
 ) -> Option<TextureMatch> {
     if donor_options != target_options {
         return None;
     }
     if donor_dds == target_dds {
         return Some(TextureMatch::Identical);
+    }
+    // Equal full-resolution alpha does not imply equal cutout coverage at a
+    // distance. The native trailer canopy's regenerated levels perforate the
+    // original solid canopy despite the same mesh, sampler and alpha cutoff.
+    if usage == TextureUsage::Alpha {
+        return None;
     }
     let (header, size) = top_level(donor_dds)?;
     (donor_dds.len() == target_dds.len()
@@ -98,27 +114,65 @@ mod tests {
         let options = Some(&b"opts"[..]);
         let native = dxt1(1, 2, 0);
         assert_eq!(
-            texture_match(&native, options, &native, options),
+            texture_match(&native, options, &native, options, TextureUsage::Colour),
             Some(TextureMatch::Identical)
         );
         assert_eq!(
-            texture_match(&dxt1(1, 9, 0), options, &native, options),
+            texture_match(
+                &dxt1(1, 9, 0),
+                options,
+                &native,
+                options,
+                TextureUsage::Colour
+            ),
             Some(TextureMatch::SameTopLevel)
         );
         // 0.26 re-flagged it linear: the shader samples other values.
         assert_eq!(
-            texture_match(&dxt1(1, 2, 1), options, &native, options),
+            texture_match(
+                &dxt1(1, 2, 1),
+                options,
+                &native,
+                options,
+                TextureUsage::Colour
+            ),
             None
         );
         // Different art at full resolution.
         assert_eq!(
-            texture_match(&dxt1(7, 2, 0), options, &native, options),
+            texture_match(
+                &dxt1(7, 2, 0),
+                options,
+                &native,
+                options,
+                TextureUsage::Colour
+            ),
             None
         );
         // Different conversion options.
         assert_eq!(
-            texture_match(&native, Some(&b"srgb"[..]), &native, options),
+            texture_match(
+                &native,
+                Some(&b"srgb"[..]),
+                &native,
+                options,
+                TextureUsage::Colour
+            ),
             None
+        );
+    }
+
+    #[test]
+    fn visibility_requires_the_original_complete_mip_chain() {
+        let donor = dxt1(1, 9, 0);
+        let native = dxt1(1, 2, 0);
+        assert_eq!(
+            texture_match(&donor, None, &native, None, TextureUsage::Alpha),
+            None
+        );
+        assert_eq!(
+            texture_match(&donor, None, &donor, None, TextureUsage::Alpha),
+            Some(TextureMatch::Identical)
         );
     }
 }

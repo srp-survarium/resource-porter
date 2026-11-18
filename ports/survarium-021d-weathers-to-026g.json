@@ -1,0 +1,461 @@
+{
+  "pack": {
+    "id": "maps-021d-weathers",
+    "version": "2",
+    "description": "Rain and evening for all five original 0.21 maps: Rudnya, School, Vostok, Tarakanovsky Fort and Mamayev Kurgan. Geometry and gameplay come from the current authored day-map source; original weather environments, lights and probes come from the pinned 0.21 donor. Shared shader profiles are supplied by three-maps-021-lighting@5, including all five day profiles."
+  },
+  "import": {
+    "donor_sha256": "e28cc2878e0e2f04ab9ab0a1861034622af487a491bf230ea24f44e9af9715a4",
+    "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+    "maps": [
+      {
+        "id": 170,
+        "level": "level_03",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 10,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true
+      },
+      {
+        "id": 172,
+        "level": "level_03",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 10,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_sun_lighting_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_rain_albedo_021": false
+      },
+      {
+        "id": 179,
+        "level": "level_06",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 11,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true
+      },
+      {
+        "id": 253,
+        "level": "level_06",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 11,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_rain_albedo_021": false
+      },
+      {
+        "id": 1,
+        "level": "level_02",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 25,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true
+      },
+      {
+        "id": 3,
+        "level": "level_02",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 25,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_sun_lighting_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_rain_albedo_021": false
+      },
+      {
+        "id": 5,
+        "level": "level_05",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 26,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true
+      },
+      {
+        "id": 7,
+        "level": "level_05",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 26,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_sun_lighting_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_rain_albedo_021": false
+      },
+      {
+        "id": 262,
+        "level": "level_01",
+        "weather": "rain",
+        "native_lighting": false,
+        "map_id": 29,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": true,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true
+      },
+      {
+        "id": 264,
+        "level": "level_01",
+        "weather": "evening",
+        "native_lighting": false,
+        "map_id": 29,
+        "legacy_fog_021": true,
+        "legacy_sky_021": true,
+        "legacy_clouds_021": true,
+        "legacy_scattering_021": true,
+        "legacy_particle_fog_021": true,
+        "legacy_water_fog_021": true,
+        "legacy_rain_albedo_021": false,
+        "legacy_ambient_occlusion_021": true,
+        "legacy_tonemap_021": true,
+        "legacy_god_rays_falloff_021": true,
+        "legacy_sun_lighting_021": true
+      }
+    ],
+    "material_templates": {
+      "material_instances/flora/bark_yabl_dark.material": "material_instances/flora/bark_yabl_dark_det_moss.material",
+      "material_instances/tiled/metal/metal_column_05.material": "material_instances/tiled/metal/metal_rust_07_breakmetall_vc.material"
+    },
+    "surface_renames": {
+      "models/level/04/level_border.model/settings": {
+        "anomaly_moss_base_sg": "donotwalkhere_sg"
+      }
+    },
+    "lod0_promotions": [
+      "models/vehicle/uaz_452_med.model/settings"
+    ],
+    "missing_collision_resources": [
+      "models/flora/poplar_04_sux.model/collision",
+      "models/flora/poplar_06_sux.model/collision"
+    ],
+    "material_finishes": {
+      "material_instances/vehicle/truck/uaz_459/wh_rubber.material": {
+        "gloss": 0.29,
+        "fresnel": 0.11
+      },
+      "material_instances/vehicle/truck/kamaz/wheel.material": {
+        "gloss": 0.11,
+        "fresnel": 0.013
+      },
+      "material_instances/tiled/metal/metal_column_05_destr_red.material": {
+        "fresnel": 0.04,
+        "gloss": 0.055
+      }
+    },
+    "finish_exceptions": {
+      "material_instances/props/electric/electrical_cabinet_01.material": {
+        "fresnel": 0.05,
+        "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
+      },
+      "material_instances/props/electric/electrical_cabinet_02.material": {
+        "fresnel": 0.05,
+        "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
+      },
+      "material_instances/props/electric/mech_cabinet_01.material": {
+        "fresnel": 0.05,
+        "reason": "The owner's choice of 2026-10-17 (gallery rev17-metal-fix, column v0.26-ported): the electrical cabinets keep a little reflectance over the native finish, whose dark rooms hid them"
+      }
+    }
+  },
+  "from_weather": "day",
+  "weathers": [
+    {
+      "level": "level_03",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 170,
+          "mode": 2
+        },
+        {
+          "id": 171,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ],
+      "particles": [
+        "fx/environment/rain",
+        "fx/environment/rain_mini",
+        "fx/environment/rain_small",
+        "fx/environment/rain_small_long"
+      ],
+      "materials": {
+        "fx/environment/rain": [
+          "fx/environment/rein"
+        ],
+        "decals/puddle": [
+          "decal/puddle"
+        ]
+      }
+    },
+    {
+      "level": "level_03",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 172,
+          "mode": 2
+        },
+        {
+          "id": 173,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_06",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 179,
+          "mode": 2
+        },
+        {
+          "id": 180,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_06",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 253,
+          "mode": 2
+        },
+        {
+          "id": 254,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_02",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 1,
+          "mode": 2
+        },
+        {
+          "id": 2,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_02",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 3,
+          "mode": 2
+        },
+        {
+          "id": 4,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_05",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 5,
+          "mode": 2
+        },
+        {
+          "id": 6,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_05",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 7,
+          "mode": 2
+        },
+        {
+          "id": 8,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_01",
+      "weather": "rain",
+      "variants": [
+        {
+          "id": 262,
+          "mode": 2
+        },
+        {
+          "id": 263,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "rain_2",
+        "rain_3",
+        "rain_4",
+        "default"
+      ]
+    },
+    {
+      "level": "level_01",
+      "weather": "evening",
+      "variants": [
+        {
+          "id": 264,
+          "mode": 2
+        },
+        {
+          "id": 265,
+          "mode": 4
+        }
+      ],
+      "probe_keys": [
+        "evening_2",
+        "evening_3",
+        "evening_4",
+        "default"
+      ]
+    }
+  ],
+  "renderer_key": null,
+  "environment_kept": {
+    "use_bokeh_template_image": "0.26g defaults it to true (environment_properties ctor 0x34d9a0 stores 1 at +0x254); 0.21d has no bokeh template image, so false keeps the 0.21 bokeh"
+  },
+  "donor_copies": [],
+  "shared_shader_pack": "three-maps-021-lighting",
+  "original_lights": true
+}

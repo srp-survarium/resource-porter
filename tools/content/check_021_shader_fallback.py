@@ -37,6 +37,15 @@ def unmarked(ops, markers, selected=None):
     result, cursor, guards = [], 0, 0
     while cursor < len(ops):
         op = ops[cursor]
+        # The rain converter preserves native r0.w except for named rain
+        # profiles: ne r9.x, marker, selected; and r0.w, r0.w, r9.x.
+        if (len(op) == 8 and op[:7] == (0x08000039, 0x00100012, 9,
+                0x0020803a, 1, 18, 0x00004001) and op[-1] in markers):
+            assert ops[cursor + 1] == (0x07000001, 0x00100082, 0, 0x0010003a, 0, 0x0010000a, 9)
+            assert selected != op[-1], "rain-branch comparison needs explicit conditional evaluation"
+            cursor += 2
+            guards += 1
+            continue
         if not (len(op) == 8 and op[0] == 0x08000018
                 and op[3:7] == (0x0020803a, 1, 18, 0x00004001)
                 and op[-1] in markers):
@@ -107,7 +116,16 @@ def main():
         assert hashlib.sha256(native).hexdigest() == operation["base_sha256"], path
         old = instructions(native)
         new, guards = unmarked(instructions((pack / "files" / path).read_bytes()), markers)
-        assert guards == len(markers), (path, guards)
+        rain = {struct.unpack("<I", struct.pack("<f", p["marker"]))[0]
+                for p in profiles if "/rain/" in p["project"]}
+        raw = instructions((pack / "files" / path).read_bytes())
+        rain_guards = [op[-1] for op in raw if len(op) == 8 and op[:7] ==
+                       (0x08000039, 0x00100012, 9, 0x0020803a, 1, 18, 0x00004001)]
+        expected_rain = rain if "/composition.ps/" in path else set()
+        assert set(rain_guards) == expected_rain and len(rain_guards) == len(expected_rain), path
+        # composition.ps guards the sun block and the foliage block, each once per marker
+        blocks = 2 if "/composition.ps/" in path else 1
+        assert guards == blocks * len(markers) + len(expected_rain), (path, guards)
         check_declarations(path, old, new)
         # Scratch allocation and the guarded branch's extra/expanded static CB
         # are declarations only. Every executable native instruction must match.

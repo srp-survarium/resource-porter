@@ -2,8 +2,7 @@
 pub fn local_test(players: u8, local_slot: u8) -> Result<Vec<u8>, &'static str> {
     if players != 1 || local_slot != 0 { return Err("one spectator required"); }
     let project = std::env::var("SRP_REFERENCE_PROJECT").unwrap_or("level_06/evening".into());
-    if !["level_03/evening", "level_03/rain", "level_06/evening", "level_06/rain"].contains(&project.as_str()) { return Err("unreviewed project"); }
-    let picture = match project.as_str() { "level_06/evening" => 35, "level_06/rain" => 36, "level_03/evening" => 8, "level_03/rain" => 9, _ => unreachable!() };
+    let picture = picture(&project).ok_or("unreviewed project")?;
     let mut b = vec![picture];
     string(&mut b, &project);
     b.extend([2, 1, 5, 10]);
@@ -19,3 +18,16 @@ pub fn local_test(players: u8, local_slot: u8) -> Result<Vec<u8>, &'static str> 
     Ok(b)
 }
 fn string(b: &mut Vec<u8>, s: &str) { b.push(s.len() as u8); b.extend(s.as_bytes()); }
+
+/// The loading picture (`switch_to_level_loading`) of each 0.21d project, as
+/// srp-021d's `match_start::MAPS` lists them (variants day, rain, evening).
+fn picture(project: &str) -> Option<u8> {
+    const MAPS: [(&str, [u8; 3]); 6] = [
+        ("level_01", [0x01, 0x13, 0x14]), ("level_02", [0x03, 0x15, 0x16]),
+        ("level_03", [0x05, 0x09, 0x08]), ("level_04", [0x0A, 0x17, 0x18]),
+        ("level_05", [0x19, 0x1B, 0x1A]), ("level_06", [0x1D, 0x24, 0x23]),
+    ];
+    let (level, weather) = project.split_once('/')?;
+    let variant = ["day", "rain", "evening"].iter().position(|w| *w == weather)?;
+    MAPS.iter().find(|(l, _)| *l == level).map(|(_, p)| p[variant])
+}
