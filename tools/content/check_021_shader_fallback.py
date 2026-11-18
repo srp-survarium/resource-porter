@@ -123,7 +123,9 @@ def main():
                        (0x08000039, 0x00100012, 9, 0x0020803a, 1, 18, 0x00004001)]
         expected_rain = rain if "/composition.ps/" in path else set()
         assert set(rain_guards) == expected_rain and len(rain_guards) == len(expected_rain), path
-        assert guards == len(markers) + len(expected_rain), (path, guards)
+        # composition.ps guards the sun block and the foliage block, each once per marker
+        blocks = 2 if "/composition.ps/" in path else 1
+        assert guards == blocks * len(markers) + len(expected_rain), (path, guards)
         check_declarations(path, old, new)
         # Scratch allocation and the guarded branch's extra/expanded static CB
         # are declarations only. Every executable native instruction must match.
