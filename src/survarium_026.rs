@@ -1126,6 +1126,47 @@ struct ConvertedMaterial {
     native_finish: bool,
 }
 
+fn visibility_selector(name: &str) -> bool {
+    matches!(name, "two_sided" | "is_cast_shadow" | "use_alpha_test"
+        | "use_vertex_alpha_test" | "texture_alpha_multiply_vertex_alpha"
+        | "use_alphablended_diffuse" | "use_alphablended_normal" | "use_soft_edges")
+}
+
+/// A same-path native template supplies the schema and finish, not the donor's
+/// visibility contract. In particular stucco_06 became two-sided after 0.21;
+/// copying that selector draws the backs of School's basement ceilings. Do this
+/// before native-equivalence deduplication so a differing contract stays private.
+fn preserve_material_visibility(donor: &ConfigValue, converted: &mut ConfigValue) -> Result<()> {
+    fn apply(source: &ConfigValue, target: &mut ConfigValue, path: &str) -> Result<()> {
+        let ConfigValue::Named(fields) = source else { return Ok(()) };
+        for field in fields {
+            let path = format!("{path}.{}", field.name);
+            if visibility_selector(&field.name) {
+                let value = field.value.named("value").context(format!("{path}.value missing"))?;
+                ensure!(matches!(value, ConfigValue::Boolean(_)), "{path}.value is not boolean");
+                let destination = target.named_mut(&field.name)
+                    .with_context(|| format!("native schema cannot preserve {path}"))?;
+                ensure!(matches!(destination.named("value"), Some(ConfigValue::Boolean(_))),
+                    "native schema cannot preserve boolean {path}.value");
+                destination.set_path("value", value.clone())?;
+            } else if let Some(destination) = target.named_mut(&field.name) {
+                apply(&field.value, destination, &path)?;
+            } else if contains_visibility(&field.value) {
+                bail!("native schema cannot preserve visibility stage {path}");
+            }
+        }
+        Ok(())
+    }
+    fn contains_visibility(value: &ConfigValue) -> bool {
+        match value {
+            ConfigValue::Named(fields) => fields.iter().any(|f|
+                visibility_selector(&f.name) || contains_visibility(&f.value)),
+            _ => false,
+        }
+    }
+    apply(donor, converted, "root")
+}
+
 /// A donor material on its 0.26 template, with the finish of the target's
 /// material of the same path, or the manifest's reviewed constant finish.
 fn convert_material(
@@ -1162,6 +1203,8 @@ fn convert_material(
         crate::material_finish::apply_finish_exception(&mut root, exception)
             .with_context(|| format!("finish exception of {path}"))?;
     }
+    preserve_material_visibility(&BinaryConfig::parse(bytes)?.root, &mut root)
+        .with_context(|| format!("original visibility of {path}"))?;
     Ok(ConvertedMaterial {
         root,
         template_path: converted.template_path,
@@ -1184,6 +1227,10 @@ fn native_equivalents(
     BTreeMap<String, crate::native_equivalence::TextureMatch>,
     BTreeSet<String>,
 )> {
+    let visibility_textures: BTreeSet<_> = materials.values()
+        .flat_map(|converted| crate::material_finish::material_alpha_textures(&converted.root))
+        .map(|name| format!("textures/{name}.dds"))
+        .collect();
     let mut textures = BTreeMap::new();
     for path in donor_files
         .iter()
@@ -1208,6 +1255,11 @@ fn native_equivalents(
             donor_options.as_deref(),
             &target.read(path)?,
             target_options.as_deref(),
+            if visibility_textures.contains(path) {
+                crate::native_equivalence::TextureUsage::Alpha
+            } else {
+                crate::native_equivalence::TextureUsage::Colour
+            },
         ) {
             textures.insert(path.clone(), kind);
         }
@@ -2013,6 +2065,18 @@ pub fn build(
     let mut adapted_particles = BTreeSet::new();
     crate::weapon::prepare_empty_output(output)?;
     let mut files = Vec::new();
+    if converted_roots.get("material_instances/terrain_tiled/dirt_vc.material")
+        .and_then(|m| m.root.named("material"))
+        .and_then(|m| m.named("g_stage"))
+        .and_then(|m| m.named("effect"))
+        .and_then(|m| m.named("use_alpha_test"))
+        .and_then(|m| m.named("value")) == Some(&ConfigValue::Boolean(true))
+    {
+        for (path, shader) in crate::weather_fog_021::visibility::build(&mut shaders)? {
+            emit(output, &path, &shader,
+                "original-dirt-alpha-contract+native-parallax-and-bindings", &mut files)?;
+        }
+    }
     if let Some(shader) = fog_shader {
         emit(output, crate::weather_fog_021::PATH, &shader,
              "0.21d-fog-equations+unchanged-0.26g-fallback", &mut files)?;
@@ -2242,6 +2306,65 @@ pub fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn original_material_visibility_survives_native_template_and_dedup() {
+        let material = |two_sided, shadow, finish| {
+            let property = |v| named(vec![("value", ConfigValue::Boolean(v))]);
+            named(vec![("material", named(vec![("g_stage", named(vec![
+                ("effect", named(vec![
+                    ("two_sided", property(two_sided)),
+                    ("use_tfresnel", property(finish)),
+                    ("use_alpha_test", property(two_sided)),
+                ])),
+                ("is_cast_shadow", property(shadow)),
+            ]))]))])
+        };
+        // Both mismatches exist in the five maps: stucco_06 gained backfaces,
+        // whereas concrete_blocks lost them. Native finish remains deliberate.
+        for donor_two_sided in [false, true] {
+            let donor = material(donor_two_sided, false, false);
+            let native = material(!donor_two_sided, true, true);
+            let mut converted = native.clone();
+            preserve_material_visibility(&donor, &mut converted).unwrap();
+            assert_eq!(converted, material(donor_two_sided, false, true));
+            assert_ne!(converted, native, "must not deduplicate to native material");
+            assert_eq!(native, material(!donor_two_sided, true, true));
+            let unchanged = converted.clone();
+            preserve_material_visibility(&donor, &mut converted).unwrap();
+            assert_eq!(converted, unchanged);
+        }
+    }
+
+    #[test]
+    fn original_material_visibility_rejects_unsupported_native_schema() {
+        let donor = named(vec![("material", named(vec![("forward", named(vec![
+            ("two_sided", named(vec![("value", ConfigValue::Boolean(true))])),
+        ]))]))]);
+        let mut missing = ConfigValue::Named(vec![]);
+        assert!(preserve_material_visibility(&donor, &mut missing).is_err());
+        let mut wrong_type = donor.clone();
+        wrong_type.set_path("material.forward.two_sided.value", ConfigValue::Integer(1)).unwrap();
+        assert!(preserve_material_visibility(&donor, &mut wrong_type).is_err());
+        let mut supported = donor.clone();
+        preserve_material_visibility(&donor, &mut supported).unwrap();
+        assert_eq!(donor, supported);
+    }
+
+    #[test]
+    fn original_glass_soft_edges_survive_native_template() {
+        let donor = named(vec![("material", named(vec![("forward", named(vec![
+            ("effect", named(vec![("use_soft_edges", named(vec![
+                ("value", ConfigValue::Boolean(true)),
+            ]))])),
+        ]))]))]);
+        let mut native = donor.clone();
+        native.set_path("material.forward.effect.use_soft_edges.value", ConfigValue::Boolean(false)).unwrap();
+        let mut converted = native.clone();
+        preserve_material_visibility(&donor, &mut converted).unwrap();
+        assert_eq!(converted, donor);
+        assert_ne!(converted, native, "native glass remains unchanged");
+    }
 
     #[test]
     fn native_lighting_replaces_only_lighting_objects() {

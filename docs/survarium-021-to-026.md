@@ -132,9 +132,25 @@ fixtures have been extended. This importer does not modify SRP.
 * All 56 old physical-material names retain the same IDs in 0.26 (which adds
   six). Collision material IDs therefore need no remapping.
 * Materials start from 0.26 templates. Texture bindings and numeric appearance
-  parameters are transferred; shader feature switches remain from the template.
+  parameters are transferred; shader feature switches remain from the template
+  except the original visibility contract (`two_sided`, `is_cast_shadow`, alpha
+  testing and alpha-blend switches). Those supported boolean selectors are copied
+  from the donor before native-material deduplication; a missing native field
+  rejects the conversion. Native finish switches retain the policy below.
   Two reviewed alternatives retain vertex-colour support that the same-named
   0.26 materials lost. A visual match to 0.21 is not guaranteed.
+
+  The visibility correction was identified by original-versus-port sweeps:
+  School's `stucco_06` drew basement backfaces that the original culled, and
+  Rudnya's `tractor_umz` lost its alpha-tested broken windshield. The fifteen
+  day/rain/evening projects reference 912 original models and 618 materials;
+  46 materials differ in 52 such selectors. Existing published packs receive
+  the source-authored `v021d-material-visibility-1.json` retrofit in skhid-srp:
+  eight shared materials get private copies and bindings; already private
+  materials keep their names. This retrofit avoids rebuilding unrelated legacy
+  packs, while the importer-boundary fix makes future imports preserve the same
+  contract. The native materials, reviewed finishes and other schema fields are
+  unchanged. Visual acceptance of the corrected content is still in progress.
 * A material 0.26 ships under the same path takes 0.26's finish: gloss
   (`*_roughness`, which 0.26g reads as gloss), Fresnel reflectance, specular
   colour and their maps (`material_finish::adopt_native_finish`); its colour,
@@ -169,7 +185,17 @@ fixtures have been extended. This importer does not modify SRP.
 * A donor texture 0.26g has under the same path is referenced, not imported,
   when it is byte-identical, or has the same size, header, full-resolution
   level, colour-space byte and `.options` with only smaller mip levels
-  regenerated (`native_equivalence`). For RLS Vostok and Mamayev Kurgan: 408
+  regenerated (`native_equivalence`). Alpha-test diffuse and explicit
+  transparency bindings now require the entire original DDS and options to
+  match: equal full-resolution alpha does not preserve cutout coverage at a
+  distance. The original trailer canopy and native port used identical LOD0
+  vertices, cutoff 0.46 and sampler settings, but the native regenerated mips
+  made the solid original canopy perforated. The five-map audit identified 102
+  shared alpha-sensitive textures with differing lower-level alpha. The
+  `alpha-textures-021-pack` example and authored private-material reference
+  edit preserve their exact original mipchains, without changing shared native
+  resources. Opaque colour bindings retain the original sharing rule.
+  Before this visibility correction, RLS Vostok and Mamayev Kurgan had 408
   identical and 178 re-mipped of 803 (773 MB). 42 re-flagged from sRGB to
   linear, 10 with other `.options` and 130 re-encoded or re-authored stay the
   donor's. A converted material that equals the native material and binds

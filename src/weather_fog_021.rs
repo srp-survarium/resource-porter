@@ -5,6 +5,10 @@ use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 mod tone_map;
 mod local_lights;
+pub mod visibility;
+pub mod forward_glass;
+pub mod vertex_blend;
+pub mod vertex_alpha;
 pub use local_lights::{local_light_pairs, build_local_light};
 pub use tone_map::{TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap};
 

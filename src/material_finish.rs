@@ -311,6 +311,36 @@ pub fn material_textures(material: &ConfigValue) -> BTreeSet<String> {
         .collect()
 }
 
+/// Texture alpha that controls coverage, transparency or original masked blending.
+/// These bindings cannot share a texture based only on full-resolution colour.
+pub fn material_alpha_textures(material: &ConfigValue) -> BTreeSet<String> {
+    fn walk(node: &ConfigValue, out: &mut BTreeSet<String>) {
+        if let ConfigValue::Named(children) = node {
+            for (selector, texture) in [
+                ("use_alpha_test", "texture_diffuse"),
+                ("use_ttransparency", "texture_transparency"),
+                ("use_vertex_blended_mask", "texture_diffuse"),
+            ] {
+                if value(node, selector) == Some(&ConfigValue::Boolean(true))
+                    && (selector != "use_vertex_blended_mask"
+                        || value(node, "use_vertex_blended_textures")
+                            == Some(&ConfigValue::Boolean(true)))
+                    && let Some(ConfigValue::String(name)) = value(node, texture)
+                    && !name.is_empty()
+                {
+                    out.insert(name.replace('\\', "/"));
+                }
+            }
+            for child in children {
+                walk(&child.value, out);
+            }
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(material, &mut out);
+    out
+}
+
 /// Every (slot, texture) a material binds, in any stage.
 pub fn material_texture_slots(material: &ConfigValue) -> BTreeSet<(String, String)> {
     fn walk(node: &ConfigValue, parameter: &str, out: &mut BTreeSet<(String, String)>) {
@@ -389,6 +419,55 @@ mod tests {
         ConfigValue::String(text.into())
     }
     use ConfigValue::{Boolean as B, Float as F, Integer as I};
+
+    #[test]
+    fn visibility_texture_usage_tracks_active_alpha_bindings_only() {
+        let original = material(vec![
+            ("use_alpha_test", B(true)),
+            ("texture_diffuse", s("vehicle\\canopy")),
+            ("texture_normal", s("vehicle/canopy_normal")),
+            ("use_ttransparency", B(false)),
+            ("texture_transparency", s("unused_transparency")),
+        ]);
+        assert_eq!(
+            material_alpha_textures(&original),
+            BTreeSet::from(["vehicle/canopy".into()])
+        );
+        let translucent = material(vec![
+            ("use_alpha_test", B(false)),
+            ("texture_diffuse", s("opaque_colour")),
+            ("use_ttransparency", B(true)),
+            ("texture_transparency", s("window")),
+        ]);
+        assert_eq!(
+            material_alpha_textures(&translucent),
+            BTreeSet::from(["window".into()])
+        );
+    }
+
+    #[test]
+    fn original_masked_blending_requires_base_alpha_without_alpha_test() {
+        let mut surface = material(vec![
+            ("use_alpha_test", B(false)),
+            ("use_ttransparency", B(false)),
+            ("use_vertex_blended_textures", B(true)),
+            ("use_vertex_blended_mask", B(true)),
+            ("texture_diffuse", s("stucco/masked_base")),
+        ]);
+        assert_eq!(
+            material_alpha_textures(&surface),
+            BTreeSet::from(["stucco/masked_base".into()])
+        );
+        let effect = surface
+            .named_mut("material")
+            .unwrap()
+            .named_mut("g_stage")
+            .unwrap()
+            .named_mut("effect")
+            .unwrap();
+        set_value(effect, "use_vertex_blended_textures", B(false));
+        assert!(material_alpha_textures(&surface).is_empty());
+    }
 
     /// 0.21d `tiled/metal/metal_column_02` against its 0.26g namesake: the
     /// donor's polished-metal Fresnel and bright gloss map give way to the
