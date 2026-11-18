@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     );
     let manifest: Profiles = serde_json::from_slice(&fs::read(&args[0])?)?;
     ensure!(
-        manifest.id == "three-maps-021-lighting" && manifest.version == "6",
+        manifest.id == "three-maps-021-lighting" && manifest.version == "7",
         "unsupported profile source"
     );
     vostok_resource_porter::survarium_026::check_hash(&args[1], &manifest.donor_sha256)?;
