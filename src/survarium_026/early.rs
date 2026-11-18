@@ -349,6 +349,39 @@ pub(super) fn native_ambient_fill(client: &mut Vec<ConfigValue>, native: &[Confi
     added
 }
 
+/// A pinned older server may lag a reviewed zone's authored client meshes.
+/// Require the same named zone and every other field before taking its meshes.
+pub(super) fn take_primary_zone_meshes(
+    client: &ConfigValue,
+    server: &mut ConfigValue,
+    zones: &BTreeMap<String, String>,
+) -> Result<()> {
+    let objects = array(client.named("objects").context("primary client objects")?)?;
+    let groups = server.named_mut("objects").context("fallback server groups")?;
+    let ConfigValue::Indexed(targets) = groups.named_mut("collision_geometry")
+        .context("fallback collision geometry")? else { bail!("fallback zones are not an array") };
+    for (name, reason) in zones {
+        ensure!(!reason.trim().is_empty(), "primary zone mesh replacement needs a reason");
+        let originals: Vec<_> = objects.iter().filter(|o|
+            string(o, "game_object_type") == Some("collision_geometry")
+                && string(o, "full_name") == Some(name)).collect();
+        let matching: Vec<_> = targets.iter().enumerate().filter(|(_, o)|
+            string(o, "full_name") == Some(name)).map(|(i, _)| i).collect();
+        ensure!(originals.len() == 1 && matching.len() == 1,
+                "primary zone {name} must identify exactly one zone in both projects");
+        let original = originals[0];
+        let target = &mut targets[matching[0]];
+        let mut old = target.clone();
+        let old_meshes = remove(&mut old, "meshes").context("fallback zone meshes")?;
+        let mut new = original.clone();
+        let new_meshes = remove(&mut new, "meshes").context("primary zone meshes")?;
+        ensure!(old == new, "primary zone {name} differs outside its meshes");
+        ensure!(old_meshes != new_meshes, "primary zone {name} meshes already agree");
+        target.set_path("meshes", new_meshes)?;
+    }
+    Ok(())
+}
+
 pub(super) fn validate_server_fallback(client: &ConfigValue, server: &ConfigValue) -> Result<()> {
     let groups = server.named("objects").context("fallback server groups")?;
     ensure!(
@@ -1171,6 +1204,32 @@ mod tests {
     }
 
     #[test]
+    fn fallback_zone_update_takes_only_reviewed_primary_meshes() {
+        let mut zone = ConfigValue::Named(vec![]);
+        for (key, value) in [("game_object_type", "collision_geometry"), ("full_name", "team1/zone")] {
+            zone.set_path(key, ConfigValue::String(value.into())).unwrap();
+        }
+        zone.set_path("meshes", ConfigValue::Indexed(vec![ConfigValue::Float3([1., 2., 3.])])).unwrap();
+        let mut server = ConfigValue::Named(vec![]);
+        server.set_path("objects", ConfigValue::Named(vec![])).unwrap();
+        server.set_path("objects.collision_geometry", ConfigValue::Indexed(vec![zone.clone()])).unwrap();
+        zone.set_path("meshes", ConfigValue::Indexed(vec![ConfigValue::Float3([4., 2., 3.])])).unwrap();
+        let mut client = ConfigValue::Named(vec![]);
+        client.set_path("objects", ConfigValue::Indexed(vec![zone.clone()])).unwrap();
+        let review = BTreeMap::from([("team1/zone".into(), "Primary authored box was widened".into())]);
+        let original_server = server.clone();
+        take_primary_zone_meshes(&client, &mut server, &review).unwrap();
+        assert_eq!(server.named("objects").unwrap().named("collision_geometry"),
+                   Some(&ConfigValue::Indexed(vec![zone.clone()])));
+        assert!(take_primary_zone_meshes(&client, &mut server, &review).is_err());
+        let unknown = BTreeMap::from([("missing".into(), "reason".into())]);
+        assert!(take_primary_zone_meshes(&client, &mut original_server.clone(), &unknown).is_err());
+        zone.set_path("position", ConfigValue::Float3([1., 0., 0.])).unwrap();
+        client.set_path("objects", ConfigValue::Indexed(vec![zone])).unwrap();
+        assert!(take_primary_zone_meshes(&client, &mut original_server.clone(), &review).is_err());
+    }
+
+    #[test]
     fn early_respawn_protection_uses_native_seconds() {
         let point = |value: Option<i32>| {
             let mut point = ConfigValue::Named(vec![]);
@@ -1687,7 +1746,7 @@ mod tests {
         let mut name = ConfigValue::String("weather/rain/rain".into());
         rewrite_inner(
             &mut name,
-            &replacements(&paths, SourceBuild::V010b),
+            &replacements(&paths, SourceBuild::V010b, "v010b"),
             true,
             Some("sound"),
         );
@@ -1927,7 +1986,7 @@ mod tests {
             hud_key: None,
         };
         assert_eq!(
-            chemical.output_project(SourceBuild::V011e),
+            chemical.output_project(SourceBuild::V011e, "v011e"),
             "projects/v011e_level_04/day_2/client_project"
         );
         assert_eq!(SourceBuild::V011e.label(), "0.11e-884");
@@ -1949,11 +2008,11 @@ mod tests {
             hud_key: None,
         };
         assert_eq!(
-            map.output_project(SourceBuild::V010b),
+            map.output_project(SourceBuild::V010b, "v010b"),
             "projects/v010b_level_03_evn/evening_2/client_project"
         );
         assert_eq!(
-            relocate_path("projects/level_03_evn/vegetation/a.veg", SourceBuild::V010b),
+            relocate_path("projects/level_03_evn/vegetation/a.veg", SourceBuild::V010b, "v010b"),
             "projects/v010b_level_03_evn/vegetation/a.veg"
         );
     }

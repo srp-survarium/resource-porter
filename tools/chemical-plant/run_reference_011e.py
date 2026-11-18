@@ -28,15 +28,27 @@ def win(path):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('recipe', type=Path)
-    p.add_argument('--maps', nargs='+', choices=['chemical', 'radar'], default=['chemical', 'radar'])
+    p.add_argument('--maps', nargs='+', default=['chemical', 'radar'],
+                   help='map keys from the prepared recipe')
     p.add_argument('--launch', action='store_true')
     p.add_argument('--poses-dir', type=Path, help='use DIR/<map>.json instead of the recipe poses')
     p.add_argument('--output', type=Path, help='write DIR/capture-<map> instead of next to the recipe')
     p.add_argument('--frames', type=int, default=1, help='frames per pose (later frames reuse the settled camera)')
     p.add_argument('--stages', action='store_true',
-                   help='diagnostic hook only: capture per-stage buffers (SRP_CAPTURE_011E_STAGES=1) for poses that ask')
+                   help='read-only shader observer: capture per-stage buffers for poses that ask')
+    p.add_argument('--rain', action='store_true', help='include all observed original rain draws; requires --stages')
+    p.add_argument('--probes', action='store_true', help='capture every original probe draw and its cubemap/state; requires --stages')
+    p.add_argument('--capture-timeout', type=int, default=30, help='seconds per pose including settling and GPU readback (1..300)')
     a = p.parse_args()
+    if not 1 <= a.capture_timeout <= 300:
+        p.error('--capture-timeout must be between 1 and 300 seconds')
     recipe = json.loads(a.recipe.read_text())
+    if a.probes and not a.stages:
+        p.error('--probes requires --stages')
+    if a.rain and not a.stages:
+        p.error('--rain requires --stages')
+    if any(name not in recipe['maps'] for name in a.maps):
+        p.error('--maps must name keys present in the prepared recipe')
     root = a.recipe.resolve().parent
     binary = root/'client/binaries/win32'
     prefix = Path(recipe['prefix'])
@@ -58,7 +70,8 @@ def main():
         return frames
     for name in a.maps:
         load_poses(name)
-    print('Verified bounded original011e recipe; screenshot-only views.', flush=True)
+    print('Verified bounded original011e recipe; ' +
+          ('read-only stage capture.' if a.stages else 'screenshot-only views.'), flush=True)
     if not a.launch:
         return
     # Never attach to an active prefix, including one used for a previous attempt.
@@ -79,7 +92,9 @@ def main():
     capture = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(capture)
     env = {k: v for k, v in os.environ.items() if not k.startswith(('SRP_', 'WINEPREFIX'))}
-    env.update(WINEPREFIX=str(prefix), DISPLAY=':0', WINEDEBUG='-all',
+    if not os.environ.get('DISPLAY'):
+        raise RuntimeError('an isolated capture DISPLAY is required')
+    env.update(WINEPREFIX=str(prefix), DISPLAY=os.environ['DISPLAY'], WINEDEBUG='-all',
                WINEDLLOVERRIDES='mscoree,mshtml=;winemenubuilder.exe=d;d3d11,dxgi=n,b',
                VK_ICD_FILENAMES='/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json',
                DXVK_FRAME_RATE='60', PULSE_LATENCY_MSEC='60', SRP_CAPTURE_BUILD='011e',
@@ -88,6 +103,14 @@ def main():
     if a.stages:
         env['SRP_CAPTURE_011E_STAGES'] = '1'
         env['SRP_CAPTURE_BUFFERS'] = '1'
+        env['SRP_CAPTURE_POST_GEOMETRY'] = '1'
+    if a.probes:
+        env['SRP_CAPTURE_ALL_PROBES'] = '1'
+    if a.rain:
+        env['SRP_CAPTURE_RAIN'] = '1'
+    if recipe.get('stock_spectator_profiles', False):
+        env['SRP_STOCK_PROFILE_ONLY'] = '1'
+        env['SRP_MATCH_LOADOUT_PROFILE'] = 'stock-v0100b'
     env.pop('VK_DRIVER_FILES', None)
     try:
         cfg.write_bytes((root/'reference-user.cfg').read_bytes())
@@ -138,7 +161,7 @@ def main():
                 subprocess.run([str(wine), win(root/'viewport.exe')], env=env, check=True, timeout=15)
                 poses = load_poses(name)
                 warmup = dict(poses[0], name='readiness-warmup', settle_ms=5000)
-                capture.capture(control, [warmup], out/'warmup', timeout=30)
+                capture.capture(control, [warmup], out/'warmup', timeout=a.capture_timeout)
                 if a.poses_dir:
                     # One stuck view must not lose the rest: skip it and record why.
                     skipped, groups = {}, {}
@@ -146,12 +169,21 @@ def main():
                         groups.setdefault(pose['name'].split('~')[0], []).append(pose)
                     for base, group in groups.items():
                         try:
-                            capture.capture(control, group, out/'poses', timeout=30)
+                            capture.capture(control, group, out/'poses', timeout=a.capture_timeout)
                         except (TimeoutError, RuntimeError) as error:
                             skipped[base] = str(error)
                     (out/'skipped.json').write_text(json.dumps(skipped, indent=2)+'\n')
                 else:
-                    capture.capture(control, poses, out/'poses', timeout=30)
+                    capture.capture(control, poses, out/'poses', timeout=a.capture_timeout)
+                if a.stages:
+                    for pose in poses:
+                        if not pose.get('buffers', True):
+                            continue
+                        base = out/'poses'/(pose['name']+'.bmp.post-draw')
+                        for suffix in ('.dxbc', '.vs.dxbc', '.geometry.json', '.post-state.json'):
+                            artifact = Path(str(base)+suffix)
+                            if not artifact.is_file():
+                                raise RuntimeError('requested stage evidence missing: '+str(artifact))
                 (out/'final-status.json').write_bytes(status_path.read_bytes())
             finally:
                 # Stop only the prefix owned by this recipe, then its own server process.

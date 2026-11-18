@@ -168,8 +168,8 @@ fn float3(o: &ConfigValue, key: &str) -> Option<[f32; 3]> {
 
 impl FillPack {
     /// Whether the pack applies to map `id`.
-    pub fn applies_to(&self, id: u8) -> bool {
-        self.map_id == id || self.also_map_ids.contains(&id)
+    pub fn applies_to(&self, id: u16) -> bool {
+        u16::from(self.map_id) == id || self.also_map_ids.iter().any(|&other| u16::from(other) == id)
     }
 }
 

@@ -28,7 +28,13 @@ def capture(control, poses, output, timeout=30):
         temporary.replace(control)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            status = json.loads(status_path.read_text())
+            # The hook rewrites this file in place. A reader can observe an
+            # empty or partial write; retry within the existing pose deadline.
+            try:
+                status = json.loads(status_path.read_text())
+            except (FileNotFoundError, json.JSONDecodeError):
+                time.sleep(.1)
+                continue
             if status['error']:
                 raise RuntimeError(status['error'])
             if status['captured_id'] == request:

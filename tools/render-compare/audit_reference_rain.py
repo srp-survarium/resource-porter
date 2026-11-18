@@ -22,11 +22,14 @@ def audit(report):
         if shader[:4] != b'DXBC' or shader[4:20].hex() != RAIN_PS:
             raise ValueError('unexpected rain shader; constant offsets are version-specific')
         pixel = Path(base + '.cb0.bin').read_bytes()
+        globals_ = Path(base + '.cb1.bin').read_bytes()
         vertex = Path(base + '.vs-cb0.bin').read_bytes()
         uv_u, uv_v, radius, density, speed = struct.unpack_from('<5f', pixel, 16)
         layers.append({
             'index': index, 'uv_scale': [uv_u, uv_v], 'radius': radius,
             'density': density, 'speed': speed,
+            'scene_time': struct.unpack_from('<f', globals_, 284)[0],
+            'eye_position': list(struct.unpack_from('<3f', globals_, 240)),
             'view_to_shadow_rows': [list(struct.unpack_from('<4f', pixel, 48 + row * 16)) for row in range(4)],
             'world_rows': [list(struct.unpack_from('<4f', vertex, 112 + row * 16)) for row in range(3)],
             'geometry': json.loads(Path(base + '.geometry.json').read_text()),

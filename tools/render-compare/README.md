@@ -5,6 +5,118 @@ They control the view at `base_game_scene::apply_camera` and capture the DXGI
 backbuffer before Present. Original game archives are never patched by these
 tools. Use local test servers and disposable executable copies.
 
+## Original 0.11e post draw replay
+
+`SRP_CAPTURE_POST_GEOMETRY=1` adds the post draw's vertex program/constants,
+indexed TL geometry, rasterizer/target state and complete supported 2D texture
+and 3D colour-grading mip chains to a stage capture. Sampler metadata includes bias, anisotropy,
+comparison and border colour. `run_reference_011e.py --stages` enables this
+read-only evidence. The normal mip-zero file format is unchanged; further
+mips use `.rtNN.mipNN.bin` or `.volNN.mipNN.bin`. Original reference frames remain immutable.
+The 0.11e initialization path arms the read-only frame observer without native
+stage hooks. The reference runner fails if requested post-stage evidence is
+missing; an image alone does not establish a successful stage capture.
+
+`replay_post.py prepare DRAW_BASE ORIGINAL_SHADER_FIXTURE NEW_DIRECTORY`
+accepts a `.post-draw` base and a fixture from
+`extract_011e_weather_shaders.py`. It verifies the original VS/PS identities,
+all required captured buffers and mips, a full-target viewport and an indexed
+TL quad. It preserves all captured texture formats and sampler values,
+including intentionally unbound slots, and rejects unsupported state. The
+packet receipt hashes every input. It never starts Wine or uses the GPU.
+
+For the observer's `.present-draw` capture, add `--geometry-from` naming the
+same frame's `.post-draw`. This explicitly reuses the verified original TL
+quad/VS with the captured presentation PS, constants, textures and output.
+The receipt records inherited geometry; GPU equality against the captured
+presentation output must establish whether that reuse is correct. This pass
+is the archive's **`copy_image.ps`** (gamma 2.2), not its plain `present.ps` blit.
+
+Build `replay_post.exe` with `build.sh`. Under the same guarded, isolated
+headless GPU workflow as captures, run it with the prepared `packet.bin`
+and a new raw-output filename. Use a dedicated Wine prefix and the matching
+DXVK libraries. It runs the unchanged original shaders and captured geometry,
+without a client, shader recompilation or presentation conversion.
+
+`replay_post.py compare PREPARED_DIRECTORY OUTPUT_RAW` compares against the
+original draw's saved `.post-output` target. It reports byte equality and float error when
+applicable, and exits nonzero on a mismatch. A successful comparison proves
+that individual pass with those inputs, not the whole renderer or moving rain.
+
+`check_post_replay.py ORIGINAL_SHADER_FIXTURE` exercises preparation and
+rejection paths with real original bytecode and synthetic capture data. This
+is a CPU check; it is not a GPU replay or a visual comparison.
+
+`replay_post_command.exe PACKET OUTPUT_RAW` exercises the reusable command-list
+implementation in `post_replay.h`. It rejects five malformed packet extents,
+executes the original pass twice, and checks that the immediate context's
+viewport, rasterizer, constant buffer, texture, vertex shader, render target and
+topology are restored. Compare its output with `replay_post.py compare` just as
+for the standalone replay. The header owns its resources and releases partial
+construction on failure; the deferred context uses its own draw implementation.
+
+For an isolated **diagnostic** native run,
+`SRP_DIAGNOSTIC_ORIGINAL_POST_PACKET=Z:\\path\\to\\packet.bin` enables the
+unchanged original quality-3 post while the capture camera is enabled. Keep
+`SRP_CAPTURE_BUFFERS=1` and also supply
+`SRP_DIAGNOSTIC_ORIGINAL_PRESENT_PACKET` with the matching original gamma-copy
+packet; use validated packets for the same weather and resolution. The bridge
+takes the current frame, depth, luminance and full
+grading volume from native resources. It converts current scattering from
+linear R11G11B10 to the original encoded R10G10B10 contract and advances grain
+phase from native constants while retaining the original authored intensity.
+The original grain and bokeh textures, shaders, fullscreen geometry and other
+authored constants come from the packet. Failed input contracts retain the
+native draw and increment the report's rejection count.
+
+This is an intermediate visual experiment, not the production renderer.
+Scattering conversion currently reads back on the CPU; lens flares are zero;
+native intermediate passes remain; scene selection and teardown still
+belong in the production adapter. The live bridge intercepts the native post
+and gamma-copy draws, so ordinary `.post-draw` captures do not describe its executed command
+list. Use screenshots and `CONTROL.original-post-live.json` alongside the
+separate original-command replay checks. The report must show executed draws;
+it records post draws and gamma presentations separately. Gamma replacement
+requires a successful original post in the same frame. Compilation or requesting
+the environment variables alone proves nothing.
+
+`replay_skylight.py prepare DRAW_BASE ORIGINAL_SKYLIGHT_VS NEW_DIRECTORY`
+prepares the unchanged 0.11e skylight VS/PS, captured clip quad and constants,
+three input textures, RGB-only write mask and the original nonzero-stencil
+coverage. `SRP_CAPTURE_POST_GEOMETRY=1` also collects this skylight geometry and
+depth/stencil evidence. Run the packet with `replay_post_command.exe`, then
+`replay_skylight.py compare PREPARED_DIRECTORY OUTPUT_RAW`. The default refuses
+missing or different geometry/state. `--reconstructed` is an explicit older
+diagnostic which omits stencil coverage and constructs a clip quad; it must not
+be described as an exact captured draw. No input/reference file is overwritten.
+
+`check_skylight_replay.py DRAW_BASE ORIGINAL_SKYLIGHT_VS` checks preparation
+and rejects malformed shaders, constants, texture contracts, geometry and
+stencil state. The command-list GPU harness also checks depth/stencil and blend
+state restoration. Eight complete 0.11e evening/rain skylight draws matched
+their captured targets byte-for-byte; see `docs/investigation/v011e-radar-weather.md`.
+This establishes the original pass contract, not a live native lighting adapter.
+
+For the original 0.11e temporal SSAO profile, use
+`replay_ssao_011e.py prepare DRAW_BASE ORIGINAL_SHADER_FIXTURE NEW_DIRECTORY`.
+Supported captured stages are `ssao-accumulation`, `ssao-history-mask` and
+`ssao-temporal`. The preparer retains the original vertex layout, viewport,
+constant buffers, noise/history inputs and depth/stencil state. In particular,
+accumulation has a full-size viewport over a half-size target. Temporal resolve
+writes both AO and saved depth. `replay_post_command.exe` writes target 1 to
+`OUTPUT_RAW.rt01.bin`; `replay_ssao_011e.py compare` checks both outputs.
+`check_ssao_011e_replay.py FRAME_BMP_BASE ORIGINAL_SHADER_FIXTURE` checks the
+three preparation paths and 31 rejection cases.
+
+`replay_ssao_chain.exe ACCUM_PACKET MASK_PACKET TEMPORAL_PACKET SKY_PACKET OUTPUT`
+connects the produced accumulation/mask to temporal resolve and its produced AO
+to the original skylight. It runs twice and writes skylight to `OUTPUT`, AO to
+`OUTPUT.ao.bin`, and saved depth to `OUTPUT.depth.bin`. Eight chains match the
+original outputs byte-for-byte. Previous-frame AO/depth are still captured
+inputs; this does not verify temporal-history initialization, camera movement,
+scene transitions or native integration. The older `legacy_ssao.c` spatial
+helper omits the temporal path and cannot establish this profile's full parity.
+
 1. Build `camera_hook.dll` with `bash build.sh` and an x86 MinGW compiler.
 2. Run `python3 prepare_client.py --build 010b SOURCE_EXE NEW_EXE` (or `026g`).
    It checks the executable hash, appends a DLL import and startup stub, and
@@ -60,6 +172,19 @@ writing its view or projection. It uses the same request fields and acknowledgme
 as modes `1` (fixed view with buffers) and `2` (fixed view, screenshot only), but
 ignores the supplied pose. Mode `0` follows the player without taking a screenshot.
 Use fresh request IDs and wait for the match to start before testing movement.
+
+The opt-in `SRP_DIAGNOSTIC_ORIGINAL_FOG_DIR` experiment replaces the exact
+captured native fog PS with the original 0.11e multiplicative and additive
+scattering shaders. Prepare its directory with
+`prepare_fog_011e.py FRAME.fog-add-draw NEW_DIRECTORY`. It retains live native
+depth, inverse view, eye position, viewport, draw geometry and coverage; the
+weather lookup textures come from the pinned original capture. The helper
+preserves the original Mie table's NaNs in its last two RGB columns and records
+their presence. Native shader/resource/constant/sampler/blend bindings are
+restored after drawing. `CONTROL.original-fog-live.json` reports executed and
+rejected draws. This is a visual diagnostic, not a scene-owned production
+adapter or a claim of complete atmosphere matching: native sky/cloud shading
+remains active and must be compared at the horizon as well as on geometry.
 
 `capture_gameplay.py --control PATH --output NEW_DIRECTORY --wine WINE
 --exe ABSOLUTE_WINDOWS_EXE_PATH` records seven actual-player views and rain
@@ -799,6 +924,47 @@ selects the exact outdoor cone after rejecting two other origins. Both hangar
 views reject their unrelated cones and correctly produce no selected-volume
 readback. The capture checkpoint preserves this evidence and the loaded DLL.
 
+
+## Original ambient passes on live native inputs
+
+`SRP_DIAGNOSTIC_ORIGINAL_AMBIENT_DIR=Z:\path\to\packets` enables the
+original accumulation, history mask, temporal resolve and skylight while the
+capture camera is active. The directory contains `accum.bin`, `mask.bin`,
+`temporal.bin` and `sky.bin`, prepared from the same original weather/resolution.
+This diagnostic writes private targets; native probes and composition continue.
+Do not interpret its counters as final lighting parity.
+
+At the first recognized native probe each frame, the owner copies live depth,
+normal and stencil, maps camera constants, and updates the accumulation quad's
+eye rays while retaining the captured index/base-vertex offsets. It keeps the
+original shaders and authored weather settings. Native float2 normal storage
+replaces the original packed UNORM input without changing sphere-map XY.
+Previous AO, depth and view belong to one history state. Initialization, skipped
+frames and capture-camera ID changes clear history and force the original
+resolve's current-AO-only path through a zero mask. Device, resolution, shader
+or input mismatches stop the diagnostic and release its passes.
+
+`CONTROL.original-ambient-live.json` reports executed frames, resets and rejected
+contracts. A settled capture writes `FRAME.bmp.original-ambient.*`; a reset
+writes `FRAME.bmp.original-ambient-reset-PRESENT.*`. Each snapshot includes the
+five outputs, previous AO/depth, current depth/normal/stencil, mapped constants
+and current eye-ray vertices. Reset snapshots are separate from settled frames.
+
+```
+python replay_live_ambient.py prepare PACKETS SNAPSHOT_BASE NEW_DIRECTORY
+replay_ssao_chain.exe NEW_DIRECTORY/accum.bin NEW_DIRECTORY/mask.bin \
+  NEW_DIRECTORY/temporal.bin NEW_DIRECTORY/sky.bin OUTPUT [--reset-history]
+python replay_live_ambient.py compare NEW_DIRECTORY OUTPUT
+```
+
+Pass `--reset-history` exactly when the snapshot receipt says `history_reset`.
+The chain saves accumulation, mask, temporal AO, saved depth and skylight for
+byte comparisons. `check_live_ambient_replay.py PACKETS RESET_BASE STEADY_BASE`
+checks both preparation paths, stale eye rays, retained reset history, missing
+or truncated inputs and packet boundaries. A snapshot replay checks the captured
+live history, not every intervening frame or a moving-rain sequence. Production
+scene lifecycle and composition integration remain separate work.
+
 ## Footstep diagnostics (0.26 only)
 
 `SRP_STEP_LOG=1` appends one JSON line per footstep query to `step.log` next to
@@ -813,3 +979,52 @@ only queues records; a writer thread reads game memory through
 `ReadProcessMemory` and writes the lines. `test_step_diagnostic.c` runs the
 stubs against the real `get_pair` bytes under Wine (console only):
 `test_step_diagnostic.exe <survarium-capture.exe> <log directory>`.
+
+## Original 0.11e probe replay
+
+Use `run_reference_011e.py --stages --probes` in a new diagnostic directory to
+capture all probe draws (up to 64), full cube faces/mips, two lighting targets,
+volume geometry and blend/depth/stencil state. `FRAME.bmp.probe-counts.json`
+records the count and first/last Present IDs; require one Present and a count
+below the cap. Earlier reference captures must remain untouched.
+
+```
+python replay_probe_011e.py prepare FRAME.bmp.probe-draw SHADER_FIXTURE NEW_DIR
+replay_post_command.exe NEW_DIR/packet.bin NEW_DIR/actual.bin
+python replay_probe_011e.py compare NEW_DIR NEW_DIR/actual.bin
+python check_probe_011e_replay.py SHADER_FIXTURE DRAW_BASE...
+```
+
+Later draw bases use `.probe-draw-N`. Probe packets execute once, with the
+original sphere/box shaders, full cubemap, captured previous lighting and mask.
+Comparison requires exact diffuse/specular and stencil bytes. It separately
+reports D24 upload rounding measured before drawing and requires unchanged
+source/replay depth; it does not claim exact packed depth/stencil bytes.
+
+`replay_ssao_chain.exe ACCUM MASK TEMPORAL SKY OUTPUT --probes PACKET...`
+connects GPU-produced AO and both lighting accumulators through ordered probes.
+It writes final diffuse at `OUTPUT`, specular at `.spec.bin`, packed depth and
+stencil at `.stencil.bin`, plus the usual intermediate AO/history outputs.
+Compare the stencil byte separately. Previous temporal history, probe-index
+texture and each volume's pre-draw mask are still captured inputs. This harness
+does not establish live native probe integration or complete scene fidelity.
+
+With the original 0.11e observer, `--probes` also records the probe-index and
+volume-mask producers. A mask is selected by both original `dumb.ps` and
+`accum_mask.vs` identities; other uses of the generic pixel shader are excluded.
+Additional bases are `.probe-index-draw-N` and `.volume-mask-draw-N`, with
+corresponding before/output targets and depth-stencil. `.probe-pipeline.jsonl`
+records request/Present IDs, draw order, kind, variant and capture-cap status.
+Index/mask caps are 128 each; reject a truncated or mixed-frame diagnostic.
+Masks after the final probe can belong to other lighting stages.
+
+Full producer readback can exceed 30 seconds. `--capture-timeout 120` increases
+that limit for settling plus GPU readback (accepted range 1..300); it does not
+change the game's render settings. Use a new output directory after any failure.
+These captures document the source; matching every intermediate is not required
+for a visually close weather port, and producer replay is currently deferred.
+
+`capture.py` tolerates a missing or partially written status JSON while the hook
+rewrites it. Retries stay within the existing per-pose timeout; explicit hook
+errors still fail immediately. This does not acknowledge a capture until its
+request ID, image, position, field of view and resolution pass the normal checks.

@@ -289,8 +289,8 @@ static int install_present(void) {
     DWORD protection;
     int ok=VirtualProtect(&vtable[8],sizeof(void *),PAGE_READWRITE,&protection);
     if (ok) { vtable[8]=(void *)present; VirtualProtect(&vtable[8],sizeof(void *),protection,&protection); }
-    // Original 0.11e references are screenshot-only: no shader observers or replacements.
-    if (ok && strcmp(build,"011e")) ok=install_shader_capture(device,context);
+    // Early builds use the read-only observer; 011e never installs native replacements.
+    if (ok) ok=install_shader_capture(device,context);
     ID3D11DeviceContext_Release(context);
     ID3D11Device_Release(device);
     IDXGISwapChain_Release(swapchain);
@@ -420,7 +420,7 @@ __declspec(dllexport) void __cdecl SRPCaptureInitialize(void) {
     snprintf(status_path,sizeof(status_path),"%s.status.json",control);
     int ok;
     if (!strcmp(build,"011e")) {
-        ok=control[0] && install_camera() && install_present();
+        ok=control[0] && install_camera() && install_present() && install_post();
     } else {
         ok=control[0] && configure_capture_background() && install_factory_020e_ambient() && install_factory_020e_clouds() && install_legacy_probe_sort() && install_factory_rain_shadow() && install_factory_rain_cache() && install_factory_rain_casters() && install_factory_rain_selection() && install_camera() && install_present() && install_post();
     }
