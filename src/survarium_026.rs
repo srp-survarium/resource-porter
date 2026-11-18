@@ -224,7 +224,7 @@ pub struct ServerProjectFallback {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Map {
-    pub id: u8,
+    pub id: u16,
     pub level: String,
     pub weather: String,
     /// Look-defining environment choices for early donors. Bug fixes apply
@@ -294,7 +294,7 @@ impl MapName {
 #[serde(deny_unknown_fields)]
 pub struct Deathmatch {
     /// Its `maps_dict` id.
-    pub id: u8,
+    pub id: u16,
 }
 
 /// Named environment looks. `source` follows the donor; the legacy look
@@ -1785,7 +1785,7 @@ fn null_texture_dds() -> Vec<u8> {
 fn apply_fill_packs(
     project: &mut ConfigValue,
     fills: &[fill::FillPack],
-    id: u8,
+    id: u16,
     target: &mut ResourceDb,
     notes: &mut Vec<String>,
     fill_models: &mut BTreeSet<String>,
@@ -2075,7 +2075,7 @@ pub fn build_with_fill(
     for entry in registered {
         if let Some(ConfigValue::Integer(id)) = entry.named("id") {
             ensure!(
-                !ids.contains(&u8::try_from(*id)?),
+                !ids.contains(&u16::try_from(*id)?),
                 "map ID {id} already used"
             );
         }
