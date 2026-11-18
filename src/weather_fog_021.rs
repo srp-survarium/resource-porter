@@ -468,8 +468,9 @@ pub fn build_rain_albedo(
 
 /// Compose independently selected original sun and rain behavior. Sun lighting
 /// copies the pinned source diffuse/specular block. Native material roughness is
-/// restored because that source block uses its register as scratch. All later
-/// foliage, accumulation and rain operations remain native or already adapted.
+/// restored because that source block uses its register as scratch. The foliage
+/// block takes the original translucency. All later accumulation and rain
+/// operations remain native or already adapted.
 pub fn build_composition(
     rain_source: &[u8],
     sun_source: &[u8],
@@ -572,7 +573,45 @@ pub fn build_composition(
     }
     updated.extend(ops[43..106].iter().flatten());
     updated.extend(std::iter::repeat_n(0x01000015, sun_markers.len()));
-    updated.extend(ops[106..].iter().flatten());
+    // Foliage translucency follows the sun block. The original scatters 0.005 of the
+    // sun through a leaf; the native block scatters 0.02 and adds a sky term under
+    // the leaf that the original does not have. Both share the test and the diffuse
+    // lines before, and the empty branch after.
+    let original = source_ops
+        .get(100..112)
+        .context("truncated original foliage block")?;
+    let scatter = |value: f32| vec![0x07000038, 0x00100082, 0, 0x0010002a, 3, 0x00004001, value.to_bits()];
+    ensure!(
+        ops.len() > 128
+            && ops[106..112] == original[..6]
+            && original[6] == scatter(0.005)
+            && ops[112] == scatter(0.02)
+            && ops[113..115] == original[7..9]
+            && ops[125..128] == original[9..]
+            && ops[115..125].iter().all(|op| !matches!(op[0] & 2047, 18 | 21 | 31)),
+        "foliage block boundary changed"
+    );
+    updated.extend(ops[106..112].iter().flatten());
+    for marker in sun_markers {
+        updated.extend([
+            0x08000018,
+            0x00100012,
+            scratch,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            marker.to_bits(),
+            0x0304001f,
+            0x0010000a,
+            scratch,
+        ]);
+        updated.extend(original[6..9].iter().flatten());
+        updated.push(0x01000012);
+    }
+    updated.extend(ops[112..125].iter().flatten());
+    updated.extend(std::iter::repeat_n(0x01000015, sun_markers.len()));
+    updated.extend(ops[125..].iter().flatten());
     updated[1] = updated.len() as u32;
     instructions(&updated)?;
     entries[si].1 = bytes(&updated);
