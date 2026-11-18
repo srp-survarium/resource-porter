@@ -10,7 +10,7 @@ use anyhow::{Context, Result, ensure};
 use serde_json::json;
 use vostok_resource_porter::{
     ResourceDb,
-    content_pack::{Operation, PackManifest, TARGET_BUILD},
+    content_pack::{Operation, PackManifest, TARGET_BUILD, sha256_hex},
     probe_specular,
 };
 
@@ -30,11 +30,16 @@ fn main() -> Result<()> {
     ensure!(keys.len() == 16, "{} reflection-only permutations, expected 16", keys.len());
     let mut operations = Vec::new();
     for path in &keys {
-        let built = probe_specular::build(&db.read(path)?).with_context(|| path.clone())?;
+        let shipped = db.read(path)?;
+        let built = probe_specular::build(&shipped).with_context(|| path.clone())?;
         let at = vostok_resource_porter::archive::safe_join(&output.join("files"), path)?;
         fs::create_dir_all(at.parent().context("parent")?)?;
         fs::write(&at, built)?;
-        operations.push(Operation::AddFile { path: path.clone(), source: None });
+        operations.push(Operation::ReplaceFile {
+            path: path.clone(),
+            source: None,
+            base_sha256: sha256_hex(&shipped),
+        });
     }
     let pack = PackManifest {
         format_version: 1,
