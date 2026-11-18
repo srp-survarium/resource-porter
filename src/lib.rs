@@ -14,6 +14,7 @@ pub mod dependency;
 pub mod duty_026;
 pub mod face_fit;
 pub mod face_items_069d;
+pub mod face_shape;
 pub mod faces_026;
 pub mod hat_fit;
 pub mod lilith;

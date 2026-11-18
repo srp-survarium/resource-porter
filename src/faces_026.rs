@@ -29,6 +29,7 @@
 use crate::bandit_026::{HEAD_MODEL, SampledPoses};
 use crate::face_fit::{self, Drawn, Job, Measure, Posable, Rig, State, Wardrobe};
 use crate::face_items_069d::same_rig_for;
+use crate::face_shape::{Carried, NeckJoin, Seam, join_native_neck};
 use crate::manifest::BuiltFile;
 use crate::mask_fit::{dot, parse_mesh, read_u32, sub};
 use crate::outfit_026::{Writer, s};
@@ -201,18 +202,33 @@ fn variant_name(state: State) -> &'static str {
     }
 }
 
+/// What a donor gives of a face: the drawn surfaces of each state, and how
+/// each one's neck was joined.
+type Donated = (BTreeMap<State, Drawn>, Vec<(String, NeckJoin)>);
+
 /// A face as its donor gives it: the drawn surfaces of each state it has
-/// a model for (always the bare one).
+/// a model for (always the bare one), their necks joined to the body.
 fn donor_faces(
     sources: &Sources<'_>,
     bind_pose: &[u8],
     native_head: &[u8],
-    above: f64,
+    rig: &Rig,
     face: &Face,
-) -> Result<BTreeMap<State, Drawn>> {
+) -> Result<Donated> {
     let mut out = BTreeMap::new();
     let native = parse_mesh(native_head, 40, "native head")?;
-    let edge = NeckEdge::new(&native)?;
+    let seam = Seam::new(&native)?;
+    let mut joins = vec![];
+    // FACES_NO_NECK: the donors' own necks, for the numbers before.
+    let no_neck = std::env::var_os("FACES_NO_NECK").is_some();
+    let mut join = |label: &str, mesh: &[u8]| -> Result<Vec<u8>> {
+        if no_neck {
+            return Ok(mesh.to_vec());
+        }
+        let (joined, how) = join_native_neck(mesh, native_head, rig, label)?;
+        joins.push((label.to_owned(), how));
+        Ok(joined)
+    };
     match face.donor {
         Donor::Native => bail!("the native head is not built"),
         Donor::V069 {
@@ -242,7 +258,10 @@ fn donor_faces(
                 // As 0.69d0 draws it: its vertices, skin, basis and UVs.
                 crate::v069d_skinned::to_026_four_bone(&parsed)
             };
-            let mut bare = vec![(surface.to_owned(), read(model, surface)?)];
+            let mut bare = vec![(
+                surface.to_owned(),
+                join(&format!("{} bare", face.key), &read(model, surface)?)?,
+            )];
             if let Some(h) = hair {
                 bare.push((h.to_owned(), read(model, h)?));
             }
@@ -253,7 +272,13 @@ fn donor_faces(
                         state,
                         Drawn::new(
                             format!("{} {state:?}", face.key).to_lowercase(),
-                            vec![(surface.to_owned(), read(m, surface)?)],
+                            vec![(
+                                surface.to_owned(),
+                                join(
+                                    &format!("{} {state:?}", face.key).to_lowercase(),
+                                    &read(m, surface)?,
+                                )?,
+                            )],
                         ),
                     );
                 }
@@ -277,11 +302,10 @@ fn donor_faces(
             ));
             let bytes = fs::read(&path).with_context(|| path.display().to_string())?;
             let (mut mesh, ..) = crate::duty_026::rotate_mesh(&bytes, bones)?;
-            let (t, rms) = align_onto(&mesh, &native.positions, &native.triangles, above)?;
+            let (t, rms) = align_onto(&mesh, &native.positions, &native.triangles, rig.head_y())?;
             translate(&mut mesh, t)?;
-            let stretched = stretch_neck(&mut mesh, &edge)?;
-            cut_neck(&mut mesh, &edge)?;
-            native_neck_skin(&mut mesh, native_head)?;
+            let stretched = stretch_neck(&mut mesh, seam.bottom() - STRETCH_BELOW_SEAM)?;
+            let mesh = join(&format!("{} bare", face.key), &mesh)?;
             println!(
                 "{}: moved {:.1} {:.1} {:.1} mm onto the native skull ({:.1} mm apart after); neck stretched down {:.1} mm",
                 face.key,
@@ -292,7 +316,7 @@ fn donor_faces(
                 stretched * 1000.0
             );
             let surfaces = if scalp {
-                let (bare, grafted) = graft_scalp(&mesh, native_head, bind_pose)?;
+                let (bare, grafted) = graft_scalp(&mesh, native_head)?;
                 vec![(surface.to_owned(), bare), (SCALP.to_owned(), grafted)]
             } else {
                 vec![(surface.to_owned(), mesh)]
@@ -303,8 +327,12 @@ fn donor_faces(
             );
         }
     }
-    Ok(out)
+    Ok((out, joins))
 }
+
+/// How far below the native neck's edge a short neck is stretched (m),
+/// so the cut along the edge takes it all round.
+const STRETCH_BELOW_SEAM: f64 = 0.005;
 
 /// Positions of a 48-byte surface moved by `t`.
 fn translate(mesh: &mut [u8], t: [f64; 3]) -> Result<()> {
@@ -435,11 +463,11 @@ fn align_onto(
     Ok((t, rms))
 }
 
-/// Stretches a neck that ends above the native one down to the native
-/// neck's bottom: heights below the native chin's (`NECK_TOP`) are mapped
-/// linearly from the face's bottom to the native bottom. Returns how far
-/// the bottom came down (m).
-fn stretch_neck(mesh: &mut [u8], edge: &NeckEdge) -> Result<f64> {
+/// Stretches a neck that ends above the native one down to `target` (below
+/// the native neck's edge, which it is then cut on): heights below the
+/// native chin's (`NECK_TOP`) are mapped linearly from the face's bottom to
+/// it. Returns how far the bottom came down (m).
+fn stretch_neck(mesh: &mut [u8], target: f64) -> Result<f64> {
     /// Above this height nothing moves (m).
     const NECK_TOP: f64 = 1.56;
     let n = read_u32(mesh, 8)?;
@@ -449,7 +477,6 @@ fn stretch_neck(mesh: &mut [u8], edge: &NeckEdge) -> Result<f64> {
         ))
     };
     let bottom = (0..n).map(|i| y(mesh, i)).fold(f64::INFINITY, f64::min);
-    let target = edge.bottom();
     if bottom <= target {
         return Ok(0.0);
     }
@@ -466,168 +493,19 @@ fn stretch_neck(mesh: &mut [u8], edge: &NeckEdge) -> Result<f64> {
     Ok(bottom - target)
 }
 
-/// Below this height (m) a face's neck takes the native neck's skin, fully
-/// below [`NECK_SKIN_FULL`]: the native head's neck follows the chest as
-/// the collars made over it do, and a donor's neck that kept its own
-/// skin swung out through them when the head turned.
-const NECK_SKIN_TOP: f64 = 1.56;
-const NECK_SKIN_FULL: f64 = 1.52;
-
-/// Gives the face's neck the native neck's skin ([`NECK_SKIN_TOP`]).
-/// Returns how many vertices changed.
-fn native_neck_skin(mesh: &mut [u8], native_head: &[u8]) -> Result<usize> {
-    let mut native = mesh.to_vec();
-    crate::mask_fit::follow_head_weights(&mut native, native_head)?;
-    let own = crate::mask_fit::skins(mesh, 48)?;
-    let theirs = crate::mask_fit::skins(&native, 48)?;
-    let face = parse_mesh(mesh, 48, "face")?;
-    let mut changed = 0;
-    for (i, p) in face.positions.iter().enumerate() {
-        if p[1] >= NECK_SKIN_TOP {
-            continue;
-        }
-        let w = ((NECK_SKIN_TOP - p[1]) / (NECK_SKIN_TOP - NECK_SKIN_FULL)).clamp(0.0, 1.0);
-        let mut mixed: BTreeMap<u8, f64> = BTreeMap::new();
-        for &(b, x) in &own[i] {
-            *mixed.entry(b).or_default() += x * (1.0 - w);
-        }
-        for &(b, x) in &theirs[i] {
-            *mixed.entry(b).or_default() += x * w;
-        }
-        let skin: Vec<(u8, f64)> = mixed.into_iter().filter(|(_, x)| *x > 1e-6).collect();
-        crate::mask_fit::put_skin(&mut mesh[12 + i * 48..12 + (i + 1) * 48], &skin);
-        changed += 1;
-    }
-    Ok(changed)
-}
-
-/// The native neck's open edge: its height (m) round the neck, by the
-/// angle round the neck's axis. The native neck ends aslant, at 1.480 m
-/// under the chin and 1.524 m at the nape; a face's neck ends 3 mm above it
-/// all round ([`cut_neck`]), so every ray through the face's last ring
-/// still meets the native neck the rule compares it with.
-pub(crate) struct NeckEdge {
-    /// (angle in radians, height), by angle.
-    points: Vec<(f64, f64)>,
-}
-
-impl NeckEdge {
-    /// The axis the angle is taken round (x, z), behind the throat.
-    const AXIS: [f64; 2] = [0.0, -0.04];
-    const ABOVE: f64 = 0.003;
-
-    fn new(native: &crate::mask_fit::Mesh) -> Result<Self> {
-        let key = |p: [f64; 3]| p.map(|v| (v * 1e5).round() as i64);
-        // Each welded edge: how many triangles use it, and its ends.
-        type Edge = (usize, [f64; 3], [f64; 3]);
-        let mut edges: BTreeMap<([i64; 3], [i64; 3]), Edge> = BTreeMap::new();
-        for t in &native.triangles {
-            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                let (pa, pb) = (native.positions[a], native.positions[b]);
-                let k = if key(pa) < key(pb) {
-                    (key(pa), key(pb))
-                } else {
-                    (key(pb), key(pa))
-                };
-                edges.entry(k).or_insert((0, pa, pb)).0 += 1;
-            }
-        }
-        let mut points: Vec<(f64, f64)> = edges
-            .values()
-            .filter(|(n, _, _)| *n == 1)
-            .flat_map(|(_, a, b)| [*a, *b])
-            .filter(|p| p[1] < 1.56)
-            .map(|p| (Self::angle(p), p[1]))
-            .collect();
-        points.sort_by(|a, b| a.0.total_cmp(&b.0));
-        points.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-6);
-        ensure!(points.len() >= 8, "the native neck has no open edge");
-        Ok(Self { points })
-    }
-
-    fn angle(p: [f64; 3]) -> f64 {
-        (p[0] - Self::AXIS[0]).atan2(p[2] - Self::AXIS[1])
-    }
-
-    /// Where a face's neck ends below `p`.
-    fn cut_at(&self, p: [f64; 3]) -> f64 {
-        let a = Self::angle(p);
-        let n = self.points.len();
-        let tau = std::f64::consts::TAU;
-        let after = self.points.iter().position(|q| q.0 >= a).unwrap_or(n);
-        let (lo, hi) = (self.points[(after + n - 1) % n], self.points[after % n]);
-        let span = (hi.0 - lo.0).rem_euclid(tau).max(1e-9);
-        let t = ((a - lo.0).rem_euclid(tau) / span).clamp(0.0, 1.0);
-        lo.1 + t * (hi.1 - lo.1) + Self::ABOVE
-    }
-
-    /// The lowest the face's neck ends (m).
-    fn bottom(&self) -> f64 {
-        self.points
-            .iter()
-            .map(|p| p.1)
-            .fold(f64::INFINITY, f64::min)
-            + Self::ABOVE
-    }
-}
-
-/// Cuts a neck that reaches below the native one along the native neck's
-/// edge ([`NeckEdge`]): a STK2 neck stretched down to it ends on it.
-/// Triangles wholly below go; the corners of those across the cut come up
-/// onto it. Returns the most cut off (m).
-fn cut_neck(mesh: &mut Vec<u8>, edge: &NeckEdge) -> Result<f64> {
-    let face = parse_mesh(mesh, 48, "face")?;
-    let below = |p: &[f64; 3]| p[1] < edge.cut_at(*p);
-    let cut = face
-        .positions
-        .iter()
-        .filter(|p| below(p))
-        .map(|p| edge.cut_at(*p) - p[1])
-        .fold(0.0, f64::max);
-    if cut == 0.0 {
-        return Ok(0.0);
-    }
-    *mesh = crate::outfit_026::keep_triangles(mesh, |c| c.iter().any(|(p, _)| !below(p)))?;
-    let n = read_u32(mesh, 8)?;
-    for i in 0..n {
-        let at = 12 + i * 48;
-        let p = [0, 1, 2].map(|k| {
-            f64::from(f32::from_le_bytes(
-                mesh[at + 4 * k..at + 4 * k + 4].try_into().unwrap(),
-            ))
-        });
-        if below(&p) {
-            mesh[at + 4..at + 8].copy_from_slice(&(edge.cut_at(p) as f32).to_le_bytes());
-        }
-    }
-    Ok(cut)
-}
-
 /// The grafted scalp's surface (an additional model of the bare face).
 const SCALP: &str = "scalp_s";
-/// How far below a face's open top the scalp reaches, tucked under its
-/// edge (m), over the forehead and at the nape: at the nape the band under
-/// the cap is painted in its shadow (over the forehead it is lifted off,
-/// [`lift_cap_shadow`]), and over the forehead the native brows begin
-/// just below it.
-const SCALP_OVERLAP_FRONT: f64 = 0.003;
-const SCALP_OVERLAP_BACK: f64 = 0.016;
-
-/// [`SCALP_OVERLAP_FRONT`] blended round the head to [`SCALP_OVERLAP_BACK`].
-fn scalp_overlap(azimuth: f64) -> f64 {
-    SCALP_OVERLAP_FRONT + (SCALP_OVERLAP_BACK - SCALP_OVERLAP_FRONT) * (1.0 - azimuth.cos()) / 2.0
-}
-/// The least the scalp stays outside the face's skin where both are (m).
-const SCALP_GAP: f64 = 0.002;
-
-/// A face's own skin top and a native-head scalp over it: the face without
-/// the mesh at its top (the Novice's knit cap, modelled on his head), and
-/// the native head cut along the face's open top (less
-/// [`scalp_overlap`]), each scalp vertex lifted [`SCALP_GAP`] outside the
-/// face's skin where the skin is outside it. The scalp keeps the native
-/// head's skin, basis and UVs: it draws with the native head's material,
-/// and fits every item as the native head does.
-fn graft_scalp(face: &[u8], native_head: &[u8], bind_pose: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+/// Rounds in which the scalp settles round its edge.
+const SCALP_SETTLE: usize = 400;
+/// A face's own skin top and a native-head scalp joined to it: the face
+/// without the mesh at its top (the Novice's knit cap, modelled on his
+/// head), and the native head cut along the face's open top, its cut edge
+/// laid on that open edge and the rest of it moved with the edge (each
+/// vertex by the mean of its neighbours' moves, the edge's held: no step
+/// and no gap where the two meet, and a scalp the size of his skull). The
+/// scalp keeps the native head's skin, basis and UVs and draws with the
+/// native head's material.
+fn graft_scalp(face: &[u8], native_head: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
     let key = |p: [f64; 3]| p.map(|v| (v * 1e5).round() as i64);
     let mesh = parse_mesh(face, 48, "face")?;
     let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
@@ -690,18 +568,59 @@ fn graft_scalp(face: &[u8], native_head: &[u8], bind_pose: &[u8]) -> Result<(Vec
         }
     }
     let azimuth = |p: [f64; 3]| p[0].atan2(p[2]);
-    // The open top is the highest open edge round the head, a point in each
-    // 5 degrees: the eyes' openings are open edges too, lower down.
+    // The open top is the loop of open edges with the highest point (the
+    // eyes' openings and the neck's end are loops of their own).
+    let open: Vec<[[f64; 3]; 2]> = uses
+        .values()
+        .filter(|(n, _, _)| *n == 1)
+        .map(|(_, a, b)| [*a, *b])
+        .collect();
+    let mut loop_of: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    let mut loops = 0;
+    for start in open.iter().flatten() {
+        if loop_of.contains_key(&key(*start)) {
+            continue;
+        }
+        loop_of.insert(key(*start), loops);
+        let mut grew = true;
+        while grew {
+            grew = false;
+            for [a, b] in &open {
+                match (
+                    loop_of.get(&key(*a)).copied(),
+                    loop_of.get(&key(*b)).copied(),
+                ) {
+                    (Some(l), None) if l == loops => {
+                        loop_of.insert(key(*b), l);
+                        grew = true;
+                    }
+                    (None, Some(l)) if l == loops => {
+                        loop_of.insert(key(*a), l);
+                        grew = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        loops += 1;
+    }
+    let highest = open
+        .iter()
+        .flatten()
+        .max_by(|a, b| a[1].total_cmp(&b[1]))
+        .context("the face has no open edge")?;
+    let top_loop = loop_of[&key(*highest)];
+    let rim_segments: Vec<[[f64; 3]; 2]> = open
+        .iter()
+        .filter(|[a, _]| loop_of[&key(*a)] == top_loop)
+        .copied()
+        .collect();
+    // Its height round the head, a point in each 5 degrees.
     const RIM_BINS: usize = 72;
     let tau = std::f64::consts::TAU;
     let mut top: Vec<Option<(f64, f64)>> = vec![None; RIM_BINS];
-    for p in uses
-        .values()
-        .filter(|(n, _, _)| *n == 1)
-        .flat_map(|(_, a, b)| [*a, *b])
-        .filter(|p| p[1] > 1.6)
-    {
-        let a = azimuth(p);
+    for p in rim_segments.iter().flatten() {
+        let a = azimuth(*p);
         let bin = (((a + tau / 2.0) / tau * RIM_BINS as f64) as usize).min(RIM_BINS - 1);
         if top[bin].is_none_or(|(_, y)| p[1] > y) {
             top[bin] = Some((a, p[1]));
@@ -724,7 +643,7 @@ fn graft_scalp(face: &[u8], native_head: &[u8], bind_pose: &[u8]) -> Result<(Vec
     let above: Vec<f64> = head
         .positions
         .iter()
-        .map(|&p| p[1] - (rim_at(azimuth(p)) - scalp_overlap(azimuth(p))))
+        .map(|&p| p[1] - rim_at(azimuth(p)))
         .collect();
     let vertex = |i: usize| native[12 + i * 48..12 + (i + 1) * 48].to_vec();
     let mut vertices: Vec<Vec<u8>> = vec![];
@@ -773,50 +692,71 @@ fn graft_scalp(face: &[u8], native_head: &[u8], bind_pose: &[u8]) -> Result<(Vec
     }
     ensure!(!triangles.is_empty(), "no native scalp above the face");
 
-    // Lifted outside the face's skin, along rays from the skull's middle.
-    let origins = crate::armor::bind_pose_origins(bind_pose, "native head bind pose")?;
-    let eye = |n: &str| {
-        origins
-            .iter()
-            .find(|(name, _)| name == n)
-            .map(|(_, p)| f64::from(p[1]))
-    };
-    let eyes =
-        (eye("LeftEye").context("no LeftEye")? + eye("RightEye").context("no RightEye")?) / 2.0;
-    let centre = [0.0, eyes, 0.0];
-    let skin_tris: Vec<[[f64; 3]; 3]> = kept
-        .triangles
-        .iter()
-        .map(|t| t.map(|v| kept.positions[v]))
-        .collect();
-    let mut lifted = 0;
-    for v in &mut vertices {
-        let p = [0, 1, 2]
-            .map(|k| f64::from(f32::from_le_bytes(v[4 * k..4 * k + 4].try_into().unwrap())));
-        let d = sub(p, centre);
-        let r = dot(d, d).sqrt();
-        let dir = d.map(|x| x / r);
-        let Some(skin_r) = skin_tris
-            .iter()
-            .filter_map(|t| ray_hit(centre, dir, t))
-            .reduce(f64::max)
-        else {
-            continue;
-        };
-        if skin_r + SCALP_GAP > r {
-            for k in 0..3 {
-                let x = (centre[k] + dir[k] * (skin_r + SCALP_GAP)) as f32;
-                v[4 * k..4 * k + 4].copy_from_slice(&x.to_le_bytes());
+    // The cut edge onto the face's open edge, the rest of the scalp with it.
+    let on_rim = |p: [f64; 3]| -> [f64; 3] {
+        let mut best = (f64::INFINITY, p);
+        for [a, b] in &rim_segments {
+            let ab = sub(*b, *a);
+            let t = (dot(sub(p, *a), ab) / dot(ab, ab).max(1e-18)).clamp(0.0, 1.0);
+            let q = [0, 1, 2].map(|k| a[k] + t * ab[k]);
+            let d = sub(p, q);
+            let d = dot(d, d);
+            if d < best.0 {
+                best = (d, q);
             }
-            lifted += 1;
+        }
+        best.1
+    };
+    let at = |v: &[u8]| {
+        [0, 1, 2].map(|k| f64::from(f32::from_le_bytes(v[4 * k..4 * k + 4].try_into().unwrap())))
+    };
+    let positions: Vec<[f64; 3]> = vertices.iter().map(|v| at(v)).collect();
+    let cut_edge: std::collections::HashSet<[i64; 3]> = index
+        .iter()
+        .filter(|((a, b), _)| a != b)
+        .map(|(_, i)| key(positions[usize::from(*i)]))
+        .collect();
+    let scalp = crate::mask_fit::Mesh {
+        positions: positions.clone(),
+        triangles: triangles.iter().map(|t| t.map(usize::from)).collect(),
+    };
+    let (weld, neighbours) = crate::mask_fit::weld_vertices(&scalp);
+    let mut held = vec![false; neighbours.len()];
+    let mut moves = vec![[0.0_f64; 3]; neighbours.len()];
+    for (i, p) in positions.iter().enumerate() {
+        if cut_edge.contains(&key(*p)) {
+            held[weld[i]] = true;
+            moves[weld[i]] = sub(on_rim(*p), *p);
+        }
+    }
+    for _ in 0..SCALP_SETTLE {
+        moves = (0..moves.len())
+            .map(|k| {
+                if held[k] || neighbours[k].is_empty() {
+                    return moves[k];
+                }
+                let n = neighbours[k].len() as f64;
+                [0, 1, 2].map(|j| neighbours[k].iter().map(|&u| moves[u][j]).sum::<f64>() / n)
+            })
+            .collect();
+    }
+    let mut farthest = 0.0_f64;
+    for (i, v) in vertices.iter_mut().enumerate() {
+        let m = moves[weld[i]];
+        farthest = farthest.max(dot(m, m).sqrt());
+        for k in 0..3 {
+            let x = (positions[i][k] + m[k]) as f32;
+            v[4 * k..4 * k + 4].copy_from_slice(&x.to_le_bytes());
         }
     }
     println!(
-        "  scalp: cap of {} vertices off; {} native triangles over the face's top ({:.3} to {:.3} m), {lifted} vertices lifted over its skin",
+        "  scalp: cap of {} vertices off; {} native triangles over the face's top ({:.3} to {:.3} m), its cut edge ({} vertices) on the face's open edge, the scalp moved with it by up to {:.1} mm",
         capped.len(),
         triangles.len(),
         rim.iter().map(|r| r.1).fold(f64::INFINITY, f64::min),
-        rim.iter().map(|r| r.1).fold(f64::NEG_INFINITY, f64::max)
+        rim.iter().map(|r| r.1).fold(f64::NEG_INFINITY, f64::max),
+        held.iter().filter(|h| **h).count(),
+        farthest * 1000.0
     );
     let mut out = vec![];
     let push = |out: &mut Vec<u8>, v: usize| -> Result<()> {
@@ -836,29 +776,6 @@ fn graft_scalp(face: &[u8], native_head: &[u8], bind_pose: &[u8]) -> Result<(Vec
         out.extend_from_slice(&i.to_le_bytes());
     }
     Ok((bare, out))
-}
-
-/// Where a ray from `o` along unit `d` meets triangle `t`, if ahead.
-fn ray_hit(o: [f64; 3], d: [f64; 3], t: &[[f64; 3]; 3]) -> Option<f64> {
-    let cross = |a: [f64; 3], b: [f64; 3]| {
-        [
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0],
-        ]
-    };
-    let (e1, e2) = (sub(t[1], t[0]), sub(t[2], t[0]));
-    let p = cross(d, e2);
-    let det = dot(e1, p);
-    if det.abs() < 1e-12 {
-        return None;
-    }
-    let s = sub(o, t[0]);
-    let u = dot(s, p) / det;
-    let q = cross(s, e1);
-    let v = dot(d, q) / det;
-    let along = dot(e2, q) / det;
-    (u >= 0.0 && v >= 0.0 && u + v <= 1.0 && along > 0.0).then_some(along)
 }
 
 /// A two-bone (40-byte) native surface in the four-bone (48-byte) layout:
@@ -883,10 +800,46 @@ fn widen_to_four_bone(model: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-/// Every face's drawn surfaces per state, and the fit report.
+/// Every face's drawn surfaces per state, the items made for a face, and
+/// the fit record.
 pub struct Fitted {
     pub faces: Vec<(Face, BTreeMap<State, Drawn>)>,
+    pub items: Vec<FaceItem>,
     pub record: serde_json::Value,
+    /// What still shows through or stands off: the gate fails on any that
+    /// the open list does not name ([`build`]).
+    pub failures: Vec<Misfit>,
+}
+
+/// A face that does not fit something.
+#[derive(Clone, Debug, Serialize)]
+pub struct Misfit {
+    pub face: String,
+    pub state: State,
+    /// The worn set it shows through, or `<item> stands off`.
+    pub what: String,
+    /// How far through, or how much farther off (mm).
+    pub mm: f64,
+    pub pose: String,
+}
+
+/// An item's model made for one face ([`crate::face_shape::Carry`]).
+pub struct FaceItem {
+    pub face: Face,
+    /// The item's label (`helmet/<name>`), its config and the entry the
+    /// model is drawn from.
+    pub label: String,
+    pub config: String,
+    pub key: String,
+    /// The entry's parts (model, surface), and every surface of their
+    /// models (the lower levels of detail too) carried, by (model, surface).
+    pub parts: Vec<(String, String)>,
+    pub surfaces: BTreeMap<(String, String), Vec<u8>>,
+    pub smooth: usize,
+    pub carried: Carried,
+    /// The rounds it took to settle on the face ([`face_fit::settle`]) and
+    /// the farthest a vertex moved in them (m).
+    pub settled: (usize, f64),
 }
 
 #[derive(Serialize)]
@@ -897,39 +850,96 @@ struct StateRecord {
     worst: Vec<Measure>,
     worn_sets: usize,
     through: usize,
+    /// Triangles of covered skin left out of this state's model.
+    cut: usize,
+    /// Chin and jaw against collars in a pose (not covered by them in the
+    /// bind pose): the sets it happens in and the deepest (mm).
+    contact_sets: usize,
+    contact_mm: f64,
+    /// Items whose seen edge stands off the skin, with the excess (mm).
+    stand_off: Vec<face_fit::StandOff>,
 }
 
-/// The surfaces a face draws in `state`: its variant, or its bare face.
-fn effective(variants: &BTreeMap<State, Drawn>, state: State) -> &Drawn {
-    variants.get(&state).unwrap_or(&variants[&State::Bare])
+/// One face while it is fitted.
+struct Shaped {
+    face: Face,
+    /// What each state is drawn with before covered skin is cut.
+    whole: BTreeMap<State, Drawn>,
+    /// What each state is drawn with.
+    drawn: BTreeMap<State, Drawn>,
+    cut: BTreeMap<State, usize>,
+    /// The wardrobe's covers drawn with a model made for this face.
+    swaps: BTreeMap<usize, usize>,
+    /// How many models were made for a cover, and the last one.
+    tries: BTreeMap<usize, usize>,
+    items: BTreeMap<usize, FaceItem>,
+    stand_off: BTreeMap<usize, face_fit::StandOff>,
 }
 
-/// Loads every face as its donor has it and measures it under every live
-/// item that draws the head ([`face_fit::sweep`]): a report, which never
-/// changes a face.
+/// The smoothing of an item's carry, tried in turn until it fits: one
+/// level, since [`face_fit::settle`] moves out what the smooth carry left
+/// under the skin.
+const CARRY_LEVELS: [usize; 1] = [crate::face_shape::CARRY_SMOOTH];
+/// A variant's vertex its maker moved by more than this (m) is moved.
+const MOVED: f64 = 0.0005;
+
+fn merged_mesh(drawn: &Drawn) -> Result<crate::mask_fit::Mesh> {
+    let mut out = crate::mask_fit::Mesh {
+        positions: vec![],
+        triangles: vec![],
+    };
+    for (label, bytes) in &drawn.surfaces {
+        let m = parse_mesh(bytes, 48, label)?;
+        let base = out.positions.len();
+        out.positions.extend(m.positions);
+        out.triangles
+            .extend(m.triangles.into_iter().map(|t| t.map(|v| v + base)));
+    }
+    Ok(out)
+}
+
+/// Loads every face as its donor has it, joins its neck to the body
+/// where the native head's is, leaves the skin no one can see under any
+/// helmet (or any mask) out of that state's model, makes a model of each
+/// helmet and mask that does not fit a face for that face, and measures
+/// every face in every state under every live item that draws the head
+/// ([`face_fit::sweep`], [`face_fit::stand_off`]).
 pub fn fit_all(view: &mut ResourceDb, sources: &Sources<'_>, faces: &[Face]) -> Result<Fitted> {
     let bind_pose = view.read(HEAD_BIND_POSE)?;
     let native_head = view.read(HEAD_MODEL)?;
     let rig = Rig::new(&bind_pose, &native_head)?;
     let mut built: Vec<(Face, BTreeMap<State, Drawn>)> = vec![];
+    let mut necks: Vec<(String, NeckJoin)> = vec![];
     for face in faces {
         if matches!(face.donor, Donor::Native) {
             continue;
         }
-        built.push((
-            *face,
-            donor_faces(sources, &bind_pose, &native_head, rig.head_y(), face)?,
-        ));
+        let (variants, joins) = donor_faces(sources, &bind_pose, &native_head, &rig, face)?;
+        for (label, j) in &joins {
+            println!(
+                "  {label}: neck cut {:.1} mm below the native edge ({} triangles), {} vertices laid onto the native neck (up to {:.1} mm, none above {:.3} m), {} that follow the Head as the donor made them",
+                j.below * 1000.0,
+                j.cut,
+                j.moved,
+                j.farthest * 1000.0,
+                j.highest_moved,
+                j.kept
+            );
+        }
+        necks.extend(joins);
+        built.push((*face, variants));
     }
     // FACES_NO_REPORT: the faces without the fit report, while looking at
     // their pictures.
     if std::env::var_os("FACES_NO_REPORT").is_some() {
         return Ok(Fitted {
             faces: built,
+            items: vec![],
             record: json!({ "report": "skipped" }),
+            failures: vec![],
         });
     }
-    let wardrobe = Wardrobe::read(view, &rig)?;
+    let mut wardrobe = Wardrobe::read(view, &rig)?;
     println!(
         "Measuring under {} helmets, {} masks, {} torso and back models ({} worn sets; {} items draw no head: {})",
         wardrobe.count(|s| matches!(s, face_fit::Slot::Helmet { .. })),
@@ -941,62 +951,526 @@ pub fn fit_all(view: &mut ResourceDb, sources: &Sources<'_>, faces: &[Face]) -> 
     );
     let poses = SampledPoses::read(view)?;
     let native = Posable::parse(&rig, "native head", &native_head, &bind_pose)?;
-    let jobs: Vec<Job<'_>> = built
-        .iter()
-        .flat_map(|(_, v)| {
-            State::ALL.map(|state| Job {
-                drawn: effective(v, state),
-                state,
-            })
-        })
-        .collect();
-    let sweeps = face_fit::sweep(&rig, &poses, &native, &wardrobe, &jobs)?;
-    let mut states = vec![];
-    for (k, (job, sweep)) in jobs.iter().zip(&sweeps).enumerate() {
-        let (face, variants) = &built[k / 3];
-        let mut worst: Vec<Measure> = sweep.measures.clone();
-        worst.sort_by(|a, b| a.margin.total_cmp(&b.margin));
-        let through = worst.iter().filter(|m| m.margin < 0.0).count();
-        let model = if variants.contains_key(&job.state) {
-            format!("{}{}", face.key, variant_name(job.state))
+    let native_mesh = parse_mesh(&native_head, 40, "native head")?;
+    let is_helmet: fn(&face_fit::Slot) -> bool = |s| matches!(s, face_fit::Slot::Helmet { .. });
+    let is_mask: fn(&face_fit::Slot) -> bool = |s| matches!(s, face_fit::Slot::Mask { .. });
+    let slot_of = |state: State| {
+        if state == State::Helmet {
+            is_helmet
         } else {
-            face.key.to_owned()
-        };
-        if let Some(w) = worst.first() {
-            println!(
-                "  {} {:?} ({model}): through {through} of {} worn sets; worst {:.1} mm under {} ({})",
-                face.key,
-                job.state,
-                worst.len(),
-                w.margin * 1000.0,
-                w.worn,
-                w.pose
-            );
+            is_mask
         }
-        states.push(StateRecord {
-            face: face.key.to_owned(),
-            state: job.state,
-            model,
-            worn_sets: sweep.measures.len(),
-            through,
-            worst: worst.into_iter().take(5).collect(),
+    };
+    // FACES_NO_CUT, FACES_NO_ITEMS: the numbers without one step.
+    let (no_cut, no_items) = (
+        std::env::var_os("FACES_NO_CUT").is_some(),
+        std::env::var_os("FACES_NO_ITEMS").is_some(),
+    );
+
+    let mut donor_moves = vec![];
+    let mut shaped: Vec<Shaped> = vec![];
+    for (face, donor) in built {
+        let bare = donor[&State::Bare].clone();
+        // 0.69d0's hair is a surface of the bare face only, as in 0.69d0.
+        let skins = match face.donor {
+            Donor::V069 { .. } => 1,
+            _ => bare.surfaces.len(),
+        };
+        let without_hair = |label: String| Drawn::new(label, bare.surfaces[..skins].to_vec());
+        // What the donor's own variants moved, and whether it is in sight.
+        for state in [State::Helmet, State::Mask] {
+            let Some(variant) = donor.get(&state) else {
+                continue;
+            };
+            let moved = crate::face_shape::moved_from(&bare.surfaces[0].1, &variant.surfaces[0].1)?;
+            let sight = face_fit::covered(&wardrobe, variant, slot_of(state))?;
+            let (mut count, mut seen, mut farthest, mut seen_farthest) = (0, 0, 0.0_f64, 0.0_f64);
+            let mut under: BTreeMap<usize, usize> = BTreeMap::new();
+            for (m, s) in moved.iter().zip(&sight.seen_under[0]) {
+                let Some(m) = *m else { continue };
+                if m <= MOVED {
+                    continue;
+                }
+                count += 1;
+                farthest = farthest.max(m);
+                if !s.is_empty() {
+                    seen += 1;
+                    seen_farthest = seen_farthest.max(m);
+                    for &i in s {
+                        *under.entry(i).or_default() += 1;
+                    }
+                }
+            }
+            println!(
+                "  {}: 0.69d0 moved {count} vertices of it (up to {:.1} mm); {seen} of them in sight under one of {} live items (up to {:.1} mm)",
+                variant.label,
+                farthest * 1000.0,
+                under.len(),
+                seen_farthest * 1000.0
+            );
+            donor_moves.push(json!({
+                "variant": variant.label,
+                "moved": count,
+                "farthest_mm": farthest * 1000.0,
+                "in_sight": seen,
+                "in_sight_farthest_mm": seen_farthest * 1000.0,
+                "in_sight_under": under.iter().map(|(i, n)| json!([wardrobe.covers[*i].label, n])).collect::<Vec<_>>(),
+            }));
+        }
+        let helmet = donor
+            .get(&State::Helmet)
+            .cloned()
+            .unwrap_or_else(|| without_hair(format!("{} helmet", face.key)));
+        // Under a mask the face is the one drawn under a helmet: 0.69d0's
+        // own mask variants push the nose, lips and chin in under its masks
+        // by up to 34 mm, and under the live masks that leave them in sight
+        // the face would be another one. A mask that does not fit a face
+        // gets a model for it instead (0.69d0's `models.head_<n>`).
+        // FACES_DONOR_MASK: 0.69d0's mask variants, for the numbers.
+        let mask = if std::env::var_os("FACES_DONOR_MASK").is_some() {
+            donor
+                .get(&State::Mask)
+                .cloned()
+                .unwrap_or_else(|| helmet.clone())
+        } else {
+            Drawn::new(format!("{} mask", face.key), helmet.surfaces.clone())
+        };
+        let whole = BTreeMap::from([
+            (State::Bare, bare),
+            (State::Helmet, helmet),
+            (State::Mask, mask),
+        ]);
+        let mut drawn = whole.clone();
+        let mut cut = BTreeMap::new();
+        for state in [State::Helmet, State::Mask] {
+            if no_cut {
+                continue;
+            }
+            let sight = face_fit::covered(&wardrobe, &whole[&state], slot_of(state))?;
+            let d = drawn.get_mut(&state).unwrap();
+            let mut gone = 0;
+            for ((label, bytes), covered) in d.surfaces.iter_mut().zip(&sight.covered) {
+                if let Some((kept, n)) = crate::face_shape::cut_covered(bytes, covered, label)? {
+                    *bytes = kept;
+                    gone += n;
+                }
+            }
+            // The item that leaves the most of this face in sight: what
+            // limits the cut.
+            let mut seen_by: BTreeMap<usize, usize> = BTreeMap::new();
+            for s in sight.seen_under.iter().flatten() {
+                for &i in s {
+                    *seen_by.entry(i).or_default() += 1;
+                }
+            }
+            let least = seen_by.iter().max_by_key(|(_, n)| **n);
+            println!(
+                "  {}: {gone} triangles no one can see under any item of the slot left out{}",
+                d.label,
+                least.map_or(String::new(), |(i, n)| format!(
+                    " ({} leaves {n} vertices in sight)",
+                    wardrobe.covers[*i].label
+                ))
+            );
+            cut.insert(state, gone);
+        }
+        shaped.push(Shaped {
+            face,
+            whole,
+            drawn,
+            cut,
+            swaps: BTreeMap::new(),
+            tries: BTreeMap::new(),
+            items: BTreeMap::new(),
+            stand_off: BTreeMap::new(),
         });
     }
+
+    let slot_covers = |w: &Wardrobe, slot: fn(&face_fit::Slot) -> bool| -> Vec<usize> {
+        (0..w.items).filter(|&i| slot(&w.covers[i].slot)).collect()
+    };
+    let helmets = slot_covers(&wardrobe, is_helmet);
+    let masks = slot_covers(&wardrobe, is_mask);
+    let edges: BTreeMap<usize, face_fit::SkinEdges> = helmets
+        .iter()
+        .chain(&masks)
+        .map(|&i| (i, face_fit::skin_edges(&wardrobe.covers[i], &native)))
+        .collect();
+    let whole_posable = |d: &Drawn| -> Result<Vec<Posable>> {
+        d.surfaces
+            .iter()
+            .map(|(label, bytes)| Posable::parse(&rig, label, bytes, &bind_pose))
+            .collect()
+    };
+
+    // An item made for a face is settled on it in the bind pose: how it
+    // sits on the face. Settled in the sampled poses too, cloth that
+    // follows the neck (a hood's drape, a flap) was pushed centimetres out
+    // of the way of a jaw that only meets it when the head bows.
+    let settle_poses: Vec<&[crate::skeleton_animation::Frame]> = poses.all().take(1).collect();
+    let mut sweeps: Vec<Option<face_fit::Sweep>> = (0..shaped.len() * 3).map(|_| None).collect();
+    let mut open: Vec<usize> = (0..shaped.len()).collect();
+    for round in 0.. {
+        // The seen edges of each helmet and mask on each open face.
+        for &f in &open {
+            let face = &mut shaped[f];
+            for (state, covers) in [(State::Helmet, &helmets), (State::Mask, &masks)] {
+                let skin = whole_posable(&face.whole[&state])?;
+                for &i in covers {
+                    if round > 0 && !face.swaps.contains_key(&i) {
+                        continue;
+                    }
+                    let now = &wardrobe.covers[face.swaps.get(&i).copied().unwrap_or(i)];
+                    let mut off = face_fit::stand_off(&edges[&i], now, &skin);
+                    off.item.clone_from(&wardrobe.covers[i].label);
+                    face.stand_off.insert(i, off);
+                }
+            }
+        }
+        let jobs: Vec<Job<'_>> = open
+            .iter()
+            .flat_map(|&f| {
+                let face = &shaped[f];
+                State::ALL.map(|state| Job {
+                    drawn: &face.drawn[&state],
+                    state,
+                    swaps: &face.swaps,
+                    only: None,
+                })
+            })
+            .collect();
+        let swept = face_fit::sweep(&rig, &poses, &native, &wardrobe, &jobs)?;
+        drop(jobs);
+        for (k, sweep) in swept.into_iter().enumerate() {
+            sweeps[open[k / 3] * 3 + k % 3] = Some(sweep);
+        }
+        // The helmets and masks that do not fit a face yet.
+        let mut next = vec![];
+        for &f in &open {
+            let mut need: std::collections::BTreeSet<usize> = shaped[f]
+                .stand_off
+                .iter()
+                .filter(|(_, o)| o.off > 0)
+                .map(|(i, _)| *i)
+                .collect();
+            let stood_off = need.len();
+            // A helmet or a mask the face shows through when it is worn
+            // alone; then, of a helmet over a mask that each fit alone, both.
+            let mut together = vec![];
+            for (state, at) in [(State::Helmet, 1), (State::Mask, 2)] {
+                let sweep = sweeps[f * 3 + at].as_ref().unwrap();
+                for (w, m) in wardrobe.worn[&state].iter().zip(&sweep.measures) {
+                    if m.margin >= 0.0 {
+                        continue;
+                    }
+                    match w.covers[..] {
+                        [i] if wardrobe.covers[i].slot != face_fit::Slot::Body => {
+                            need.insert(i);
+                        }
+                        [_] => {}
+                        _ => together.push(w.covers.clone()),
+                    }
+                }
+            }
+            for covers in together {
+                if !covers.iter().any(|i| need.contains(i)) {
+                    need.extend(covers);
+                }
+            }
+            // What each needs read (the surfaces of its models, their
+            // bind poses), then each made on a thread of its own.
+            struct Todo {
+                cover: usize,
+                tried: usize,
+                state: State,
+                surfaces: BTreeMap<(String, String), Vec<u8>>,
+                binds: Vec<Vec<u8>>,
+            }
+            let mut todo = vec![];
+            for i in need {
+                let tried = shaped[f].tries.get(&i).copied().unwrap_or(0);
+                if no_items || tried >= CARRY_LEVELS.len() {
+                    continue;
+                }
+                let cover = &wardrobe.covers[i];
+                let mut surfaces = BTreeMap::new();
+                for (model, _) in &cover.parts {
+                    let root = format!("models/{model}.skinned_model/render/");
+                    let all: Vec<String> = view
+                        .paths_with_prefix(&root)
+                        .filter_map(|p| p[root.len()..].strip_suffix("/converted_model"))
+                        .map(str::to_owned)
+                        .collect();
+                    for surface in all {
+                        if let std::collections::btree_map::Entry::Vacant(e) =
+                            surfaces.entry((model.clone(), surface))
+                        {
+                            let bytes =
+                                view.read(&format!("{root}{}/converted_model", e.key().1))?;
+                            e.insert(bytes);
+                        }
+                    }
+                }
+                let binds = cover
+                    .parts
+                    .iter()
+                    .map(|(model, _)| {
+                        view.read(&format!("models/{model}.skinned_model/render/bind_pose"))
+                    })
+                    .collect::<Result<_>>()?;
+                todo.push(Todo {
+                    cover: i,
+                    tried,
+                    state: if is_helmet(&cover.slot) {
+                        State::Helmet
+                    } else {
+                        State::Mask
+                    },
+                    surfaces,
+                    binds,
+                });
+            }
+            let face = &shaped[f];
+            let make = |t: Todo| -> Result<(usize, usize, FaceItem, face_fit::Cover)> {
+                let smooth = CARRY_LEVELS[t.tried];
+                let carry = crate::face_shape::Carry::new(
+                    &rig,
+                    &native_mesh,
+                    &merged_mesh(&face.whole[&t.state])?,
+                );
+                let cover = &wardrobe.covers[t.cover];
+                let label = format!("{} for {}", cover.label, face.face.key);
+                let mut carried = Carried::default();
+                let mut surfaces = BTreeMap::new();
+                for (key, bytes) in t.surfaces {
+                    let (moved, how) = carry.apply(&bytes, smooth, &label)?;
+                    if how.farthest > carried.farthest {
+                        carried = how;
+                    }
+                    surfaces.insert(key, moved);
+                }
+                let mut posables = vec![];
+                for (part, bind) in cover.parts.iter().zip(&t.binds) {
+                    posables.push(Posable::parse(
+                        &rig,
+                        &label,
+                        surfaces
+                            .get(part)
+                            .with_context(|| format!("{label}: no {}", part.1))?,
+                        bind,
+                    )?);
+                }
+                let mut made = wardrobe.for_face(t.cover, label, &posables);
+                let settled = face_fit::settle(
+                    &rig,
+                    &poses.bind,
+                    &settle_poses,
+                    &bind_pose,
+                    &native,
+                    cover,
+                    &mut made,
+                    &face.whole[&t.state],
+                )?;
+                for (part, surface) in cover.parts.iter().zip(&made.surfaces) {
+                    surface.write_positions(
+                        surfaces
+                            .get_mut(part)
+                            .context("a part without its surface")?,
+                    )?;
+                }
+                let item = FaceItem {
+                    face: face.face,
+                    label: cover.label.clone(),
+                    config: cover.config.clone(),
+                    key: cover.key.clone(),
+                    parts: cover.parts.clone(),
+                    surfaces,
+                    smooth,
+                    carried,
+                    settled,
+                };
+                Ok((t.cover, t.tried, item, made))
+            };
+            let threads = std::thread::available_parallelism().map_or(1, |n| n.get());
+            let mut lots: Vec<Vec<Todo>> = (0..threads).map(|_| vec![]).collect();
+            for (k, t) in todo.into_iter().enumerate() {
+                lots[k % threads].push(t);
+            }
+            let done: Vec<(usize, usize, FaceItem, face_fit::Cover)> =
+                std::thread::scope(|scope| {
+                    let workers: Vec<_> = lots
+                        .into_iter()
+                        .filter(|lot| !lot.is_empty())
+                        .map(|lot| {
+                            let make = &make;
+                            scope.spawn(move || {
+                                lot.into_iter().map(make).collect::<Result<Vec<_>>>()
+                            })
+                        })
+                        .collect();
+                    workers
+                        .into_iter()
+                        .map(|w| {
+                            w.join()
+                                .map_err(|_| anyhow::anyhow!("an item's thread panicked"))?
+                        })
+                        .collect::<Result<Vec<_>>>()
+                })?
+                .into_iter()
+                .flatten()
+                .collect();
+            let mut made = 0;
+            let mut done = done;
+            done.sort_by_key(|d| d.0);
+            for (i, tried, item, cover) in done {
+                let at = wardrobe.add(cover);
+                let face = &mut shaped[f];
+                face.swaps.insert(i, at);
+                face.tries.insert(i, tried + 1);
+                face.items.insert(i, item);
+                made += 1;
+            }
+            if made > 0 {
+                println!(
+                    "  round {round}: {made} helmet and mask models made for {} ({stood_off} stood off its skin)",
+                    shaped[f].face.key
+                );
+                next.push(f);
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        open = next;
+    }
+
+    let mut states = vec![];
+    let mut failures = vec![];
+    for (f, face) in shaped.iter().enumerate() {
+        for (at, state) in State::ALL.into_iter().enumerate() {
+            let sweep = sweeps[f * 3 + at].as_ref().unwrap();
+            let mut worst: Vec<Measure> = sweep
+                .measures
+                .iter()
+                .filter(|m| m.margin.is_finite())
+                .cloned()
+                .collect();
+            worst.sort_by(|a, b| a.margin.total_cmp(&b.margin));
+            let through = worst.iter().filter(|m| m.margin < 0.0).count();
+            let contact_sets = sweep.measures.iter().filter(|m| m.contacts > 0).count();
+            let contact = sweep.measures.iter().map(|m| m.contact).fold(0.0, f64::max);
+            let covers = match state {
+                State::Bare => &[][..],
+                State::Helmet => &helmets[..],
+                State::Mask => &masks[..],
+            };
+            let stand_off: Vec<face_fit::StandOff> = covers
+                .iter()
+                .filter_map(|i| face.stand_off.get(i))
+                .filter(|o| o.off > 0)
+                .cloned()
+                .collect();
+            let differs = state != State::Bare
+                && face.drawn[&state].surfaces != face.drawn[&State::Bare].surfaces;
+            let model = if differs {
+                format!("{}{}", face.face.key, variant_name(state))
+            } else {
+                face.face.key.to_owned()
+            };
+            println!(
+                "  {} {:?} ({model}): through {through} of {} worn sets{}; chin and jaw meet {contact_sets} collars in a pose (up to {:.1} mm); {} items stand off",
+                face.face.key,
+                state,
+                sweep.measures.len(),
+                worst
+                    .first()
+                    .filter(|w| w.margin < 0.0)
+                    .map_or(String::new(), |w| format!(
+                        ", worst {:.1} mm under {} ({})",
+                        w.margin * 1000.0,
+                        w.worn,
+                        w.pose
+                    )),
+                contact * 1000.0,
+                stand_off.len()
+            );
+            for m in worst.iter().filter(|m| m.margin < 0.0) {
+                failures.push(Misfit {
+                    face: face.face.key.to_owned(),
+                    state,
+                    what: m.worn.clone(),
+                    mm: -m.margin * 1000.0,
+                    pose: m.pose.clone(),
+                });
+            }
+            for o in &stand_off {
+                failures.push(Misfit {
+                    face: face.face.key.to_owned(),
+                    state,
+                    what: format!("{} stands off", o.item),
+                    mm: o.excess * 1000.0,
+                    pose: "bind pose".to_owned(),
+                });
+            }
+            states.push(StateRecord {
+                face: face.face.key.to_owned(),
+                state,
+                model,
+                worn_sets: sweep.measures.len(),
+                through,
+                worst: worst.into_iter().take(5).collect(),
+                cut: face.cut.get(&state).copied().unwrap_or(0),
+                contact_sets,
+                contact_mm: contact * 1000.0,
+                stand_off,
+            });
+        }
+    }
+    let items: Vec<FaceItem> = shaped
+        .iter_mut()
+        .flat_map(|s| std::mem::take(&mut s.items).into_values())
+        .collect();
     let record = json!({
-        "report_only": true,
+        "misfits": failures,
         "clearance_bind_mm": face_fit::BIND_CLEARANCE * 1000.0,
         "clearance_posed_mm": face_fit::POSED_CLEARANCE * 1000.0,
         "native_tolerance_mm": face_fit::NATIVE_TOLERANCE * 1000.0,
+        "stand_off_mm": face_fit::STAND_OFF * 1000.0,
         "poses": 1 + poses.clips.iter().map(|(_, c)| c.len()).sum::<usize>(),
         "clips": poses.clips.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
-        "covers": wardrobe.covers.iter().map(|c| json!({"item": c.label, "slot": c.slot})).collect::<Vec<_>>(),
+        "covers": wardrobe.covers[..wardrobe.items].iter().map(|c| json!({"item": c.label, "slot": c.slot})).collect::<Vec<_>>(),
         "headless": wardrobe.headless,
         "worn_sets": wardrobe.worn.iter().map(|(s, w)| (format!("{s:?}").to_lowercase(), w.len())).collect::<BTreeMap<_, _>>(),
+        "necks": necks.iter().map(|(label, j)| json!({"model": label, "join": j})).collect::<Vec<_>>(),
+        "donor_variants": donor_moves,
+        "items_for_faces": items.iter().map(|i| json!({
+            "face": i.face.key,
+            "index": i.face.index,
+            "item": i.label,
+            "smooth": i.smooth,
+            "carried": i.carried,
+            "settle_rounds": i.settled.0,
+            "settled_mm": i.settled.1 * 1000.0,
+        })).collect::<Vec<_>>(),
         "states": states,
     });
+    let faces = shaped
+        .into_iter()
+        .map(|s| {
+            let bare = s.drawn[&State::Bare].surfaces.clone();
+            let drawn = s
+                .drawn
+                .into_iter()
+                .filter(|(state, d)| *state == State::Bare || d.surfaces != bare)
+                .collect();
+            (s.face, drawn)
+        })
+        .collect();
     Ok(Fitted {
-        faces: built,
+        faces,
+        items,
         record,
+        failures,
     })
 }
 
@@ -1010,6 +1484,7 @@ pub fn build(
     patches: &[PathBuf],
     output: &Path,
     measure_only: bool,
+    open: Option<&Path>,
 ) -> Result<()> {
     let mut view = crate::novice_026::game_view(db, patches)?;
     if measure_only {
@@ -1017,15 +1492,160 @@ pub fn build(
     } else {
         crate::weapon::prepare_empty_output(output)?;
     }
-    let fitted = fit_all(&mut view, sources, &FACES)?;
+    // FACES_ONLY=<key>,..: only those faces, while looking into a fit
+    // (with --measure-only).
+    let only = std::env::var("FACES_ONLY").ok();
+    let faces: Vec<Face> = FACES
+        .into_iter()
+        .filter(|f| {
+            only.as_ref()
+                .is_none_or(|o| o.split(',').any(|k| k == f.key))
+        })
+        .collect();
+    ensure!(
+        measure_only || faces.len() == FACES.len(),
+        "FACES_ONLY is for --measure-only"
+    );
+    let mut fitted = fit_all(&mut view, sources, &faces)?;
+    // The open list: what is known not to fit and why, a line each,
+    // `face<TAB>state<TAB>what<TAB>mm<TAB>why`. A misfit it names, no deeper
+    // than it says, does not stop the build; any other does.
+    let mut listed: BTreeMap<(String, String, String), f64> = BTreeMap::new();
+    if let Some(path) = open {
+        for line in fs::read_to_string(path)
+            .with_context(|| path.display().to_string())?
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        {
+            let f: Vec<&str> = line.split('\t').collect();
+            ensure!(
+                f.len() == 5 && !f[4].trim().is_empty(),
+                "open list: {line:?}"
+            );
+            listed.insert(
+                (f[0].to_owned(), f[1].to_owned(), f[2].to_owned()),
+                f[3].parse()
+                    .with_context(|| format!("open list: {line:?}"))?,
+            );
+        }
+    }
+    let state_name = |s: State| format!("{s:?}").to_lowercase();
+    // A misfit is open when the list names it for its state, or (a torso
+    // is worn in every state) for another; a helmet over a mask when it
+    // names either of the two.
+    let bound = |m: &Misfit| -> Option<f64> {
+        let named = |state: &str, what: &str| {
+            listed
+                .get(&(m.face.clone(), state.to_owned(), what.to_owned()))
+                .copied()
+        };
+        let any = |what: &str| {
+            ["bare", "helmet", "mask"]
+                .iter()
+                .filter_map(|s| named(s, what))
+                .reduce(f64::max)
+        };
+        named(&state_name(m.state), &m.what)
+            .or_else(|| any(&m.what))
+            .or_else(|| {
+                m.what
+                    .split(" + ")
+                    .filter(|p| *p != m.what)
+                    .filter_map(any)
+                    .reduce(f64::max)
+            })
+    };
+    let (known, new): (Vec<&Misfit>, Vec<&Misfit>) = fitted
+        .failures
+        .iter()
+        .partition(|m| bound(m).is_some_and(|mm| m.mm <= mm + 0.05));
+    fitted.record["gate"] = json!(if !new.is_empty() {
+        "failed"
+    } else if known.is_empty() {
+        "passed"
+    } else {
+        "passed but for the open list"
+    });
+    fitted.record["open"] = json!(known.len());
+    fitted.record["new"] = json!(new.len());
     fs::write(
         output.join("faces-fit.json"),
         serde_json::to_vec_pretty(&fitted.record)?,
     )?;
-    if measure_only {
-        return Ok(());
+    // FACES_WRITE_OPEN=<file>: this build's misfits as open list lines
+    // (a torso once, under the state it is deepest in; no helmet over a
+    // mask that one of the two explains), each with what kind it is: the
+    // why to be checked and written out.
+    if let Some(path) = std::env::var_os("FACES_WRITE_OPEN") {
+        let mut worst: BTreeMap<(String, String), (f64, String, &str)> = BTreeMap::new();
+        for m in &fitted.failures {
+            let body = m.what.starts_with("torso/") || m.what.starts_with("back/");
+            let why = if m.what.ends_with("stands off") {
+                "its seen edge stands farther off this face than off the native head"
+            } else if m.pose != "bind pose" {
+                if body {
+                    "in a pose only: the chin, jaw or throat, as its donor made them, against a collar that follows the chest"
+                } else {
+                    "in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck"
+                }
+            } else if body {
+                "under it in the bind pose"
+            } else {
+                "under it in the bind pose: its model for this face does not settle"
+            };
+            let mm = (m.mm * 10.0).ceil() / 10.0;
+            let e = worst.entry((m.face.clone(), m.what.clone())).or_insert((
+                0.0,
+                state_name(m.state),
+                why,
+            ));
+            if mm > e.0 {
+                *e = (mm, state_name(m.state), why);
+            }
+        }
+        let single =
+            |face: &str, what: &str| worst.get(&(face.to_owned(), what.to_owned())).map(|w| w.0);
+        let mut lines = vec!["# face\tstate\twhat\tmm\twhy".to_owned()];
+        for ((face, what), (mm, state, why)) in &worst {
+            // A helmet over a mask is named only when it is deeper than
+            // either of the two alone.
+            let alone = what
+                .split(" + ")
+                .filter(|p| p != what)
+                .filter_map(|p| single(face, p))
+                .reduce(f64::max);
+            if alone.is_some_and(|a| *mm <= a + 0.05) {
+                continue;
+            }
+            lines.push(format!("{face}\t{state}\t{what}\t{mm:.1}\t{why}"));
+        }
+        fs::write(path, lines.join("\n") + "\n")?;
     }
-    write_bundle(&mut view, sources, &fitted, output)
+    println!(
+        "The gate: {} misfits, {} of them on the open list, {} new",
+        fitted.failures.len(),
+        known.len(),
+        new.len()
+    );
+    for m in new.iter().take(60) {
+        println!(
+            "  does not fit: {} {:?}: {} by {:.1} mm ({})",
+            m.face, m.state, m.what, m.mm, m.pose
+        );
+    }
+    // FACES_REPORT_ONLY: the bundle of faces that do not all fit, to look
+    // at them (never for a pack).
+    let report_only = std::env::var_os("FACES_REPORT_ONLY").is_some();
+    let stop = !new.is_empty();
+    let news = new.len();
+    if !measure_only && (!stop || report_only) {
+        write_bundle(&mut view, sources, &fitted, output)?;
+    }
+    ensure!(
+        !stop || report_only || measure_only,
+        "{news} misfits the open list does not name (faces-fit.json): no bundle"
+    );
+    Ok(())
 }
 
 /// The native materials the faces' materials copy: the native head's
@@ -2105,6 +2725,7 @@ fn write_bundle(
     let render = output.join("render");
     fs::create_dir_all(&render)?;
     let mut scene = vec![];
+    let mut item_scene = vec![];
     for (face, variants) in &fitted.faces {
         // The face's material, and its other surface's (0.69d0's hair, or
         // the native scalp grafted on a STK2 face).
@@ -2216,6 +2837,89 @@ fn write_bundle(
     ensure!(heads.len() == FACES.len(), "a face is missing");
     let config = bodyparts(view, heads)?;
     out.config(BODYPARTS, &config, &mut files)?;
+    // The helmets and masks made for a face: each one's models whole, their
+    // surfaces carried, and the item's `data_head_<face>` naming them.
+    let mut item_configs: BTreeMap<String, BinaryConfig> = BTreeMap::new();
+    for item in &fitted.items {
+        let mut models: BTreeMap<String, String> = BTreeMap::new();
+        for (model, _) in &item.parts {
+            models
+                .entry(model.clone())
+                .or_insert_with(|| format!("ported/{PORT}/items/{}/{model}", item.face.key));
+        }
+        for (model, new) in &models {
+            let from = format!("models/{model}.skinned_model/");
+            let paths: Vec<String> = view.paths_with_prefix(&from).map(str::to_owned).collect();
+            for path in paths {
+                let rest = &path[from.len()..];
+                let carried = rest
+                    .strip_prefix("render/")
+                    .and_then(|r| r.strip_suffix("/converted_model"))
+                    .and_then(|surface| item.surfaces.get(&(model.clone(), surface.to_owned())));
+                let bytes = match carried {
+                    Some(b) => b.clone(),
+                    None => view.read(&path)?,
+                };
+                out.raw(
+                    &format!("models/{new}.skinned_model/{rest}"),
+                    &bytes,
+                    &mut files,
+                )?;
+            }
+        }
+        if !item_configs.contains_key(&item.config) {
+            item_configs.insert(
+                item.config.clone(),
+                parse_config(view, &item.config, "item")?,
+            );
+        }
+        let config = item_configs.get_mut(&item.config).unwrap();
+        let mut entry = config
+            .root
+            .named(&item.key)
+            .cloned()
+            .with_context(|| format!("{}: no {}", item.config, item.key))?;
+        let rename = |v: &mut V| -> Result<()> {
+            let new = match v.named("base_model") {
+                Some(V::String(m)) => models.get(m).cloned(),
+                _ => None,
+            };
+            if let Some(new) = new {
+                v.set_path("base_model", s(new))?;
+            }
+            Ok(())
+        };
+        rename(&mut entry)?;
+        if let Some(V::Indexed(extra)) = entry.named_mut("additional_models") {
+            for e in extra {
+                rename(e)?;
+            }
+        }
+        let V::Named(root) = &mut config.root else {
+            bail!("{}: not a table", item.config);
+        };
+        root.push(NamedValue {
+            name: format!("{}_head_{}", item.key, item.face.index),
+            value: entry,
+        });
+        for (k, (model, surface)) in item.parts.iter().enumerate() {
+            let file = format!(
+                "{}-{}-{k}-{surface}",
+                item.face.key,
+                item.label.replace(['/', ' ', '(', ')'], "_")
+            );
+            fs::write(
+                render.join(&file),
+                &item.surfaces[&(model.clone(), surface.clone())],
+            )?;
+            item_scene.push(
+                json!({"face": item.face.key, "item": item.label, "part": k, "surface": file}),
+            );
+        }
+    }
+    for (path, config) in &item_configs {
+        out.config(path, config, &mut files)?;
+    }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     fs::write(
         output.join("port-manifest.json"),
@@ -2232,7 +2936,7 @@ fn write_bundle(
         output.join("faces-materials.json"),
         serde_json::to_vec_pretty(&materials_record)?,
     )?;
-    write_render_scene(view, fitted, &render, scene)?;
+    write_render_scene(view, fitted, &render, scene, item_scene)?;
     crate::model_validation::validate_overlay_on(view, &overlay)?;
     println!(
         "Built {} faces: {} resources",
@@ -2253,6 +2957,7 @@ fn write_render_scene(
     fitted: &Fitted,
     render: &Path,
     faces: Vec<serde_json::Value>,
+    for_faces: Vec<serde_json::Value>,
 ) -> Result<()> {
     let items = fitted.record["covers"]
         .as_array()
@@ -2355,6 +3060,7 @@ fn write_render_scene(
             "native": {"surface": "native-head", "diffuse": "native-head.dds"},
             "faces": faces,
             "covers": covers,
+            "for_faces": for_faces,
         }))?,
     )?;
     Ok(())

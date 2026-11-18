@@ -1,0 +1,468 @@
+# What is known not to fit in the faces pack (faces_026's gate, docs/faces-026.md), and why.
+# One misfit a line, tabs between: face, state, what (the worn set it shows through, or
+# "<item> stands off"), the most it may be (mm), why. The build stops on a misfit this list does
+# not name, and on one deeper than it says. A torso is named once (it is worn in every state);
+# a helmet over a mask is open when either of the two is.
+# Made by FACES_WRITE_OPEN of the build without the items made for faces (FACES_NO_ITEMS=1: the
+# pack ships without them until the game's cook reads data_head_<face>), 2026-11-18, over the
+# stock db and patches 12 .. 64.
+069d_head_01	helmet	helmet/edge_helmet_1	0.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	helmet	helmet/eq046_blackmarket_helmet_10	1.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	helmet	helmet/eq046_edge_helmet_7	7.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	helmet	helmet/renesanse_helmet_5	4.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	helmet	helmet/scavenger_helmet_3	3.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	mask	mask/army_026	5.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/army_026 stands off	4.3	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/bandit_026	4.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/bandit_026 stands off	4.4	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/bm_mask_1	5.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/bm_mask_1 stands off	4.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/bm_mask_8	5.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/edge_resp_1	6.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	mask	mask/edge_resp_1 stands off	4.4	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/edge_resp_3	1.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	mask	mask/edge_resp_3 stands off	4.5	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/eq046_edge_mask_6	1.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/eq046_edge_mask_7	4.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/eq069_league_shadow_mask	1.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/eq069_league_shadow_mask stands off	5.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/face_069d_balaclava	4.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/face_069d_balaclava_3_hole	1.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/face_069d_buff	2.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/face_069d_keffiyeh	6.0	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	mask	mask/face_069d_protective_mask	1.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/renesanse_mask_3	0.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/renesanse_mask_3 stands off	4.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/renesanse_mask_5	6.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	mask	mask/renesanse_mask_5 stands off	6.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	mask	mask/scavenger_mask_9	0.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_01	mask	mask/scavenger_resp_1	0.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_01	mask	mask/scavenger_resp_1 stands off	6.3	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_01	bare	torso/blackmarket_torso_2	7.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/blackmarket_torso_3	8.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/edge_torso_2	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/edge_torso_2 (data_long)	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/edge_torso_2 (data_short)	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/edge_torso_8	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/edge_torso_8 (data_long)	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/edge_torso_8 (data_short)	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/renesanse_torso_8	1.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/scavenger_torso_9	0.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/scavenger_torso_9 (data_long)	0.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/stk2_novice_026_torso	1.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	bare	torso/stk2_novice_026_torso_v2	1.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	helmet	helmet/edge_helmet_1	0.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	helmet	helmet/edge_helmet_4	0.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	helmet	helmet/edge_helmet_6	2.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	helmet	helmet/eq046_edge_helmet_7	5.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	helmet	helmet/renesanse_helmet_5	4.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	helmet	helmet/scavenger_helmet_3	2.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	mask	mask/army_026	2.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/army_026 stands off	5.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/bandit_026	4.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/bm_mask_1	5.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/bm_mask_1 stands off	5.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/bm_mask_8	3.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/edge_resp_1	5.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	mask	mask/edge_resp_3	1.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/edge_resp_3 stands off	8.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/eq046_edge_mask_7	1.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/eq069_league_shadow_mask	0.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	mask	mask/eq069_league_shadow_mask stands off	7.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/face_069d_balaclava	3.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/face_069d_balaclava stands off	5.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/face_069d_balaclava_3_hole	2.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/face_069d_buff	1.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_02	mask	mask/face_069d_keffiyeh	5.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	mask	mask/renesanse_mask_3 stands off	8.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/renesanse_mask_5	5.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	mask	mask/renesanse_mask_5 stands off	9.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	mask	mask/scavenger_mask_9	1.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_02	mask	mask/scavenger_resp_1 stands off	7.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_02	bare	torso/blackmarket_torso_2	4.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/blackmarket_torso_3	5.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/blackmarket_torso_5	0.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/blackmarket_torso_5 (data_short)	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/blackmarket_torso_8_premium	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/blackmarket_torso_8_premium (data_long)	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/duty_exo_026	1.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/freedom_exo_026	1.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/renesanse_torso_8	1.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/stk2_loner_026_torso	0.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/stk2_novice_026_torso	2.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_02	bare	torso/stk2_novice_026_torso_v2	2.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	helmet	helmet/blackmarket_helmet_1	0.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	helmet	helmet/blackmarket_helmet_9	1.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	helmet	helmet/edge_helmet_1	1.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	helmet	helmet/edge_helmet_4	0.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	helmet	helmet/edge_helmet_6	0.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	helmet	helmet/eq046_edge_helmet_7	5.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	helmet	helmet/renesanse_helmet_5	2.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	helmet	helmet/scavenger_helmet_3	3.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	mask	mask/army_026	6.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/bandit_026	4.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/bandit_026 stands off	4.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_03	mask	mask/bm_mask_1	5.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/bm_mask_1 stands off	4.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_03	mask	mask/bm_mask_8	2.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/edge_resp_1	5.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	mask	mask/edge_resp_3	2.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/edge_resp_3 stands off	5.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_03	mask	mask/eq046_edge_mask_6	0.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/eq046_edge_mask_7	2.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/eq069_league_shadow_mask	3.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/face_069d_balaclava	4.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/face_069d_balaclava_3_hole	3.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/face_069d_buff	5.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/face_069d_keffiyeh	5.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/face_069d_protective_mask	2.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/renesanse_mask_3	2.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/renesanse_mask_3 stands off	5.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_03	mask	mask/renesanse_mask_5	7.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	mask	mask/renesanse_mask_5 stands off	6.4	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_03	mask	mask/scavenger_mask_9	1.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_03	mask	mask/scavenger_resp_1	2.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_03	mask	mask/scavenger_resp_1 stands off	4.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_03	bare	torso/blackmarket_torso_1	1.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/blackmarket_torso_2	11.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/blackmarket_torso_3	12.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/blackmarket_torso_8	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/blackmarket_torso_8 (data_long)	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/edge_torso_7	2.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/renesanse_torso_8	1.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/scavenger_torso_9	0.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/scavenger_torso_9 (data_long)	0.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/stk2_loner_026_torso	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/stk2_novice_026_torso	2.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_03	bare	torso/stk2_novice_026_torso_v2	2.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	helmet	helmet/blackmarket_helmet_1	7.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/blackmarket_helmet_9	0.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/edge_helmet_1	2.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/edge_helmet_4	0.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/edge_helmet_4 stands off	4.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/edge_helmet_6	4.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/eq046_edge_helmet_7	5.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	helmet	helmet/novice_026 stands off	8.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	helmet	helmet/renesanse_helmet_5	5.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	helmet	helmet/scavenger_helmet_10	3.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	helmet	helmet/scavenger_helmet_3	10.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/army_026	9.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/army_026 stands off	12.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/bandit_026	9.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/bandit_026 stands off	12.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/bm_mask_1	11.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/bm_mask_1 stands off	13.3	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/bm_mask_8	6.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/edge_resp_1	11.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/edge_resp_1 stands off	5.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/edge_resp_3	6.4	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/edge_resp_3 stands off	5.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/eq046_edge_mask_6	3.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/eq046_edge_mask_6 stands off	6.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/eq046_edge_mask_7	8.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/eq069_league_shadow_mask	1.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/eq069_league_shadow_mask stands off	6.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/face_069d_balaclava	9.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/face_069d_balaclava stands off	10.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/face_069d_balaclava_3_hole	9.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/face_069d_buff	9.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/face_069d_keffiyeh	10.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_04	mask	mask/renesanse_mask_3	3.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/renesanse_mask_3 stands off	9.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/renesanse_mask_5	9.0	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/renesanse_mask_5 stands off	8.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	mask	mask/scavenger_mask_9	4.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/scavenger_resp_1	6.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_04	mask	mask/scavenger_resp_1 stands off	9.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_04	bare	torso/blackmarket_torso_1	1.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/blackmarket_torso_2	8.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/blackmarket_torso_3	8.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/blackmarket_torso_5	5.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/blackmarket_torso_5 (data_long)	6.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/blackmarket_torso_5 (data_short)	7.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/edge_torso_2	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/edge_torso_2 (data_long)	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/edge_torso_2 (data_short)	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/edge_torso_7	1.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/renesanse_torso_8	7.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/stk2_loner_026_torso	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/stk2_novice_026_torso	9.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_04	bare	torso/stk2_novice_026_torso_v2	9.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_05	helmet	helmet/edge_helmet_4 stands off	5.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	helmet	helmet/edge_helmet_6	0.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_05	helmet	helmet/eq046_edge_helmet_7	5.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	helmet	helmet/novice_026 stands off	6.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	helmet	helmet/renesanse_helmet_5	6.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_05	helmet	helmet/scavenger_helmet_3	1.4	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_05	mask	mask/army_026	5.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/army_026 stands off	5.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/bandit_026	6.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/bandit_026 stands off	5.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/bm_mask_1	8.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/bm_mask_1 stands off	6.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/bm_mask_8	3.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/edge_resp_1	3.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/edge_resp_1 stands off	7.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/edge_resp_3	1.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/edge_resp_3 stands off	7.5	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/eq046_edge_mask_7	1.0	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_05	mask	mask/eq069_league_shadow_mask	2.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/eq069_league_shadow_mask stands off	10.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/face_069d_balaclava	6.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/face_069d_balaclava stands off	4.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/face_069d_balaclava_3_hole	3.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/face_069d_buff	1.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/face_069d_keffiyeh	8.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_05	mask	mask/face_069d_protective_mask	0.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_05	mask	mask/renesanse_mask_3	0.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/renesanse_mask_3 stands off	8.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/renesanse_mask_5	1.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/renesanse_mask_5 stands off	10.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	mask	mask/scavenger_mask_9	1.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/scavenger_resp_1	0.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_05	mask	mask/scavenger_resp_1 stands off	6.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_05	bare	torso/edge_torso_8	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_05	bare	torso/edge_torso_8 (data_long)	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_05	bare	torso/edge_torso_8 (data_short)	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_05	bare	torso/stk2_novice_026_torso	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_05	bare	torso/stk2_novice_026_torso_v2	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	helmet	helmet/blackmarket_helmet_1	7.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_06	helmet	helmet/blackmarket_helmet_5	3.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	helmet	helmet/edge_helmet_1	0.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	helmet	helmet/edge_helmet_6	4.8	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_06	helmet	helmet/eq046_blackmarket_helmet_10	0.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	helmet	helmet/eq046_edge_helmet_6	2.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_06	helmet	helmet/eq046_edge_helmet_7	3.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	helmet	helmet/novice_026 stands off	9.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	helmet	helmet/renesanse_helmet_1	0.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	helmet	helmet/renesanse_helmet_5	5.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	helmet	helmet/scavenger_helmet_3	11.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_06	mask	mask/army_026	11.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/army_026 stands off	5.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/bandit_026	11.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/bandit_026 stands off	4.4	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/bm_mask_1	12.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/bm_mask_1 stands off	5.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/bm_mask_8	9.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/edge_resp_1	12.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/edge_resp_1 stands off	4.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/edge_resp_3	8.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/edge_resp_3 stands off	5.5	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/eq046_edge_mask_6	4.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/eq046_edge_mask_7	11.8	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_06	mask	mask/eq069_league_shadow_mask	11.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/eq069_league_shadow_mask stands off	5.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/face_069d_balaclava	10.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/face_069d_balaclava stands off	6.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/face_069d_balaclava_3_hole	10.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/face_069d_buff	10.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/face_069d_keffiyeh	9.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/face_069d_protective_mask	6.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/renesanse_mask_3	5.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/renesanse_mask_5	10.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/renesanse_mask_5 stands off	8.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	mask	mask/scavenger_mask_9	5.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/scavenger_resp_1	6.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_06	mask	mask/scavenger_resp_1 stands off	5.4	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_06	bare	torso/blackmarket_torso_2	10.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_3	11.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_5	10.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_5 (data_long)	10.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_5 (data_short)	12.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_8	1.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_8 (data_long)	1.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_8_premium	1.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/blackmarket_torso_8_premium (data_long)	1.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/edge_torso_2	0.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/edge_torso_2 (data_long)	0.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/edge_torso_2 (data_short)	0.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/edge_torso_7	3.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/renesanse_torso_8	6.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/scavenger_torso_4	2.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/scavenger_torso_4 (data_long)	2.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/scavenger_torso_4 (data_short)	2.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/stk2_novice_026_torso	9.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_06	bare	torso/stk2_novice_026_torso_v2	9.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	helmet	helmet/blackmarket_helmet_1	3.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/blackmarket_helmet_9	4.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/edge_helmet_1	0.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/edge_helmet_4 stands off	4.5	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/eq046_blackmarket_helmet_10	0.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/eq046_edge_helmet_6	2.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/eq046_edge_helmet_7	1.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	helmet	helmet/novice_026 stands off	11.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	helmet	helmet/renesanse_helmet_5	7.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	helmet	helmet/scavenger_helmet_3	10.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/army_026	9.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/army_026 stands off	8.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/bandit_026	9.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/bandit_026 stands off	9.3	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/bm_mask_1	8.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/bm_mask_1 stands off	9.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/bm_mask_8	4.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/edge_resp_1	7.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/edge_resp_1 stands off	9.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/edge_resp_3	2.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/edge_resp_3 stands off	6.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/eq046_edge_mask_6	0.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	mask	mask/eq046_edge_mask_7	2.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/eq069_league_shadow_mask	5.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/eq069_league_shadow_mask stands off	10.5	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/face_069d_balaclava	9.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/face_069d_balaclava stands off	8.2	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/face_069d_balaclava_3_hole	9.4	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/face_069d_buff	4.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	mask	mask/face_069d_keffiyeh	8.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/face_069d_protective_mask	0.4	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	mask	mask/renesanse_mask_3	0.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_07	mask	mask/renesanse_mask_3 stands off	7.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/renesanse_mask_5	5.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/renesanse_mask_5 stands off	11.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	mask	mask/scavenger_mask_9	0.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/scavenger_resp_1	1.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_07	mask	mask/scavenger_resp_1 stands off	5.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+069d_head_07	bare	torso/blackmarket_torso_2	4.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/blackmarket_torso_3	5.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/blackmarket_torso_5	4.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/blackmarket_torso_5 (data_long)	8.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/blackmarket_torso_5 (data_short)	4.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	helmet	torso/duty_exo_026	1.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/edge_torso_2	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/edge_torso_2 (data_long)	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/edge_torso_2 (data_short)	0.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	helmet	torso/freedom_exo_026	1.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/renesanse_torso_8	4.4	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/scavenger_torso_10	11.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/stk2_novice_026_torso	5.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_07	bare	torso/stk2_novice_026_torso_v2	5.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	helmet	helmet/blackmarket_helmet_1	4.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	helmet	helmet/edge_helmet_1	0.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	helmet	helmet/edge_helmet_4	0.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	helmet	helmet/edge_helmet_6	0.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	helmet	helmet/renesanse_helmet_1	1.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	helmet	helmet/scavenger_helmet_3	7.4	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	mask	mask/army_026	2.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/bandit_026	3.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/bm_mask_1	7.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	mask	mask/bm_mask_8	3.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/edge_resp_1	7.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	mask	mask/edge_resp_3	3.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/eq046_edge_mask_6	2.9	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/eq046_edge_mask_7	5.0	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	mask	mask/eq069_league_shadow_mask	4.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/face_069d_balaclava	3.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/face_069d_balaclava_3_hole	3.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/face_069d_buff	2.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/face_069d_keffiyeh	4.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/face_069d_protective_mask	2.0	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+069d_head_default	mask	mask/renesanse_mask_3	4.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/renesanse_mask_5	2.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/scavenger_mask_9	5.1	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	mask	mask/scavenger_resp_1	4.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+069d_head_default	bare	torso/blackmarket_torso_1	0.6	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/blackmarket_torso_2	2.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/blackmarket_torso_3	3.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/blackmarket_torso_5	2.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/blackmarket_torso_5 (data_long)	7.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/blackmarket_torso_5 (data_short)	7.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/blackmarket_torso_6	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/edge_torso_2	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/edge_torso_2 (data_long)	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/edge_torso_2 (data_short)	1.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	bare	torso/renesanse_torso_8	4.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	helmet	torso/stk2_novice_026_torso	5.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_default	helmet	torso/stk2_novice_026_torso_v2	5.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	helmet	helmet/blackmarket_helmet_1	8.0	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	helmet	helmet/edge_helmet_1	2.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	helmet	helmet/edge_helmet_1 stands off	30.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	helmet	helmet/edge_helmet_4 stands off	42.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	helmet	helmet/edge_helmet_6	9.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	helmet	helmet/scavenger_helmet_3	10.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	helmet	helmet/stk2_novice_026_hood stands off	8.1	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/army_026	0.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/bandit_026	0.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/bm_mask_1	6.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/bm_mask_1 stands off	6.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/edge_resp_1	7.4	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/edge_resp_1 stands off	7.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/eq046_edge_mask_6	3.3	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/eq046_edge_mask_7	1.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/eq069_league_shadow_mask stands off	38.7	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/face_069d_balaclava	0.5	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/face_069d_balaclava stands off	36.6	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/face_069d_balaclava_3_hole	0.6	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/face_069d_balaclava_3_hole stands off	31.4	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/face_069d_buff	0.2	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/face_069d_buff stands off	43.9	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/face_069d_keffiyeh	0.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/face_069d_keffiyeh stands off	40.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/face_069d_protective_mask	0.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/face_069d_protective_mask stands off	43.0	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/renesanse_mask_3	4.8	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/renesanse_mask_5	2.0	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/renesanse_mask_5 stands off	9.8	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	mask	mask/scavenger_resp_1	2.7	under it as it sits (the bind pose): the item's model for this face is not in the pack (the cook does not read data_head_<face> yet)
+stk2_neutral_01_head	mask	mask/scavenger_resp_1 stands off	4.3	its seen edge stands farther off this face than off the native head: the item's model for this face is not in the pack
+stk2_neutral_01_head	bare	torso/blackmarket_torso_1	6.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_2	3.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_3	2.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_5	7.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_5 (data_long)	7.7	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_5 (data_short)	8.0	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_8	1.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_8 (data_long)	1.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_8_premium	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/blackmarket_torso_8_premium (data_long)	0.2	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/duty_exo_026	9.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/edge_torso_2	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/edge_torso_2 (data_long)	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/edge_torso_2 (data_short)	0.5	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/edge_torso_8	0.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/edge_torso_8 (data_long)	0.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/edge_torso_8 (data_short)	0.9	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/freedom_exo_026	9.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/renesanse_torso_8	13.8	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/scavenger_torso_7	1.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/stk2_novice_026_torso	8.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+stk2_neutral_01_head	bare	torso/stk2_novice_026_torso_v2	8.3	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
+069d_head_01	mask	helmet/eq046_blackmarket_helmet_7 + mask/renesanse_mask_3	2.5	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/eq046_blackmarket_helmet_7 + mask/scavenger_resp_1	2.5	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/eq046_edge_helmet_7 + mask/edge_resp_1	7.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/eq046_edge_helmet_7 + mask/eq046_edge_mask_7	7.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/eq046_edge_helmet_7 + mask/renesanse_mask_3	7.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/eq046_edge_helmet_7 + mask/scavenger_resp_1	7.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/renesanse_helmet_2 + mask/edge_resp_1	6.5	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/renesanse_helmet_5 + mask/edge_resp_1	6.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/renesanse_helmet_5 + mask/renesanse_mask_5	7.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_01	mask	helmet/scavenger_helmet_7 + mask/edge_resp_1	6.5	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_02	mask	helmet/eq046_edge_helmet_7 + mask/edge_resp_3	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_02	mask	helmet/eq046_edge_helmet_7 + mask/eq046_edge_mask_7	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_02	mask	helmet/eq046_edge_helmet_7 + mask/renesanse_mask_3	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_02	mask	helmet/eq046_edge_helmet_7 + mask/scavenger_resp_1	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_03	mask	helmet/eq046_edge_helmet_7 + mask/edge_resp_1	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_03	mask	helmet/eq046_edge_helmet_7 + mask/eq046_edge_mask_7	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_03	mask	helmet/eq046_edge_helmet_7 + mask/renesanse_mask_3	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_03	mask	helmet/eq046_edge_helmet_7 + mask/scavenger_resp_1	5.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_03	mask	helmet/scavenger_helmet_3 + mask/edge_resp_3	3.6	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_04	mask	helmet/renesanse_helmet_3 + mask/renesanse_mask_5	9.6	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_04	mask	helmet/renesanse_helmet_5 + mask/edge_resp_1	11.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_04	mask	helmet/renesanse_helmet_5 + mask/renesanse_mask_5	12.6	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_04	mask	helmet/scavenger_helmet_8 + mask/renesanse_mask_5	11.0	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_05	mask	helmet/edge_helmet_1 + mask/face_069d_protective_mask	1.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_06	mask	helmet/eq046_edge_helmet_7 + mask/renesanse_mask_5	11.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/edge_helmet_1 + mask/face_069d_protective_mask	1.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/edge_helmet_4 + mask/eq069_league_shadow_mask	6.1	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/edge_helmet_4 + mask/face_069d_protective_mask	4.0	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/eq046_edge_helmet_7 + mask/edge_resp_1	8.6	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/renesanse_helmet_3 + mask/renesanse_mask_5	5.5	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/scavenger_helmet_3 + mask/eq069_league_shadow_mask	14.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/scavenger_helmet_3 + mask/face_069d_balaclava	11.7	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/scavenger_helmet_3 + mask/face_069d_balaclava_3_hole	14.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/scavenger_helmet_3 + mask/face_069d_keffiyeh	14.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_07	mask	helmet/scavenger_helmet_3 + mask/face_069d_protective_mask	14.8	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_default	mask	helmet/edge_helmet_1 + mask/face_069d_protective_mask	3.2	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+069d_head_default	mask	helmet/renesanse_helmet_3 + mask/renesanse_mask_5	3.4	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+stk2_neutral_01_head	mask	helmet/renesanse_helmet_3 + mask/renesanse_mask_5	3.6	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+stk2_neutral_01_head	mask	helmet/renesanse_helmet_5 + mask/renesanse_mask_5	4.4	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+stk2_neutral_01_head	mask	helmet/scavenger_helmet_8 + mask/renesanse_mask_5	4.4	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack
+stk2_neutral_01_head	mask	helmet/stk2_novice_026_hood + mask/face_069d_protective_mask	0.3	the helmet over the mask, deeper than under either alone: the items' models for this face are not in the pack

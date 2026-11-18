@@ -3,10 +3,11 @@ use clap::Parser;
 use std::path::PathBuf;
 
 /// Builds the player faces' bundle (resource-porter `faces_026`): the
-/// 0.69d0 faces and two STK2 faces with their helmet and mask variants,
-/// fitted under every live item that draws the head, and
-/// `gameplay/bodyparts/default`'s `heads`, for `vostok-port pack
-/// from-bundle`. Stops if any face shows through any item.
+/// 0.69d0 faces and the STK2 Novice's with their helmet and mask models,
+/// the helmets and masks made for a face, and `gameplay/bodyparts/default`'s
+/// `heads`, for `vostok-port pack from-bundle`. Stops if a face shows
+/// through an item, or an item stands off a face, that the open list does
+/// not name.
 #[derive(Parser)]
 struct Args {
     /// 0.69d0's files, extracted at their archive paths
@@ -28,9 +29,13 @@ struct Args {
     patches: Vec<PathBuf>,
     #[arg(long)]
     output: PathBuf,
-    /// Only measure the donors' own models, writing `faces-fit.json`.
+    /// Only measure, writing `faces-fit.json`.
     #[arg(long)]
     measure_only: bool,
+    /// The open list (`ports/faces-026-open.tsv`): the misfits known and
+    /// why. One it does not name stops the build.
+    #[arg(long)]
+    open: Option<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -45,5 +50,6 @@ fn main() -> anyhow::Result<()> {
         &a.patches,
         &a.output,
         a.measure_only,
+        a.open.as_deref(),
     )
 }

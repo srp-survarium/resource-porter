@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Whether a player face fits under everything worn with it, and the fix
-//! when it does not.
+//! Whether a player face fits under everything worn with it: the gate of
+//! the faces' build.
 //!
 //! 0.26g draws one head under every item that leaves it (no
 //! `remove_head_model`), and every such item was made over that head
 //! (`black_market_01_head_s`). A face of its own (`faces_026`) is drawn in
 //! three states: bare, under a helmet (its helmet variant) and under a mask
 //! (its mask variant: a mask wins over a helmet), always over a torso and
-//! a back piece. What it may show through is measured, as `mask_fit`
-//! measures cloth over the head, along rays out of the posed skull:
+//! a back piece. Three things are measured.
+//!
+//! **What shows through** ([`sweep`]), along rays out of the posed skull:
 //!
 //! - **Rays.** Through each sample of the face (its vertices and triangle
 //!   middles): from the middle of the skull at the eyes' height (skinned to
@@ -26,17 +27,33 @@
 //!   inside its skin, or no farther out than the native head is along the
 //!   same ray (`NATIVE_TOLERANCE`): the native head is what every live item
 //!   was made over, so where the item already touches it the face may touch
-//!   it as closely, and no closer. Where the native head itself shows
-//!   through the items in a pose, a face may show through them as deep in
-//!   the same region of the head ([`REGIONS`]).
+//!   it as closely, and no closer. Under a model of the item made for the
+//!   face ([`Wardrobe::for_face`]) that is: as far under that model's
+//!   skin as the native head is under the game's item's. On a ray where the native head itself is
+//!   through the item, skin is what is seen there today, and a face shows
+//!   skin there too; where the native head shows through the items in a
+//!   pose, a face may show through them as deep in the same region of the
+//!   head ([`REGIONS`]). A sample on the native head's own surface (the
+//!   neck's last ring, laid on the native neck's open edge) is the native
+//!   head there.
+//! - **Contact.** Skin a torso or back piece does not cover in the bind
+//!   pose (within [`COVER_NEAR`] under it: a collar covers the neck, not the
+//!   chin) can come down into it in a pose, as the native chin meets a
+//!   collar when the head bows. Nothing covers that skin, so nothing shows
+//!   through: how deep a face's chin and jaw go where the native ones stay
+//!   out is recorded for each worn set ([`Measure::contact`]) and is not part
+//!   of the margin.
 //! - **Poses.** The bind pose and [`crate::bandit_026::SampledPoses`]: the
 //!   face, the native head and every item skinned through each, the bones
 //!   of an item's own bind pose found by name on the native rig (a bone the
 //!   rig lacks, as the render bone `headwear-1` gives helmets, follows Head).
 //!
-//! The fix ([`pull_in`]) moves the face's vertices in along their rays by
-//! what the measure says each needs, spread over the neighbouring rings so
-//! the surface stays smooth, round after round until every pose passes.
+//! **What is in sight** ([`covered`]): the skin no one can see under any
+//! helmet (or any mask), which that state's model leaves out.
+//!
+//! **What stands off** ([`stand_off`]): an item's seen edges on the skin
+//! ([`skin_edges`]) no more than [`STAND_OFF`] farther off a face than off
+//! the native head.
 use crate::bandit_026::SampledPoses;
 use crate::mask_fit::{Frame, Skin, dot, parse_mesh, read_u32, skin_positions, skins, sub};
 use crate::weapon::parse_config;
@@ -72,15 +89,6 @@ const REGIONS: usize = 12 * 8;
 /// How far below the native chin a face's ray may still start in the skull (m):
 /// a lower chin than the native one is pulled up into it, not back to the neck.
 const CHIN_BAND: f64 = 0.025;
-/// The most the fix pulls one vertex in a round (m), and in all (m).
-const PULL_STEP: f64 = 0.004;
-pub const PULL_MAX: f64 = 0.045;
-/// Rings of neighbours a pull is spread over, and how much of it each
-/// ring keeps.
-const SPREAD_RINGS: usize = 4;
-const SPREAD_KEEP: f64 = 0.6;
-/// Rounds of the fix before giving up.
-const PULL_ROUNDS: usize = 16;
 
 /// The native rig: the native head's bind pose, by name.
 pub struct Rig {
@@ -132,6 +140,16 @@ impl Rig {
     /// The Head bone's height in the bind pose.
     pub fn head_y(&self) -> f64 {
         self.head_at[1]
+    }
+
+    /// The Head bone's index.
+    pub fn head_bone(&self) -> u8 {
+        self.head as u8
+    }
+
+    /// The point of the neck's axis (Neck to Head) at `p`'s height.
+    pub fn neck_axis(&self, p: [f64; 3]) -> [f64; 3] {
+        self.neck_centre(p).0
     }
 
     /// Where the ray through a bind-pose point with outward normal `n`
@@ -211,6 +229,9 @@ pub struct Posable {
     pub positions: Vec<[f64; 3]>,
     pub triangles: Vec<[usize; 3]>,
     skins: Vec<Skin>,
+    /// The model's vertex each of these is, where only a part of the model
+    /// is kept ([`Posable::near_head`]); empty: all of it, in its order.
+    origin: Vec<usize>,
 }
 
 impl Posable {
@@ -239,15 +260,39 @@ impl Posable {
             positions: mesh.positions,
             triangles: mesh.triangles,
             skins,
+            origin: vec![],
         })
     }
 
-    /// Only the triangles with a corner in the zone a face can meet.
+    /// Only the triangles with a corner in the zone a face can meet, and
+    /// the vertices they use.
     fn near_head(mut self) -> Self {
         let inside = |p: &[f64; 3]| (0..3).all(|k| p[k] >= ZONE_MIN[k] && p[k] <= ZONE_MAX[k]);
         self.triangles
             .retain(|t| t.iter().any(|&v| inside(&self.positions[v])));
-        self
+        let mut used = vec![usize::MAX; self.positions.len()];
+        let mut origin = vec![];
+        for t in &mut self.triangles {
+            for v in t {
+                if used[*v] == usize::MAX {
+                    used[*v] = origin.len();
+                    origin.push(*v);
+                }
+                *v = used[*v];
+            }
+        }
+        self.like(&origin, self.triangles.clone())
+    }
+
+    /// The vertices `origin` of this model, with `triangles` over them.
+    fn like(&self, origin: &[usize], triangles: Vec<[usize; 3]>) -> Self {
+        Self {
+            label: self.label.clone(),
+            positions: origin.iter().map(|&v| self.positions[v]).collect(),
+            skins: origin.iter().map(|&v| self.skins[v].clone()).collect(),
+            triangles,
+            origin: origin.to_vec(),
+        }
     }
 
     fn posed(&self, bind: &[Frame], pose: &[Frame]) -> Result<Vec<[f64; 3]>> {
@@ -460,6 +505,12 @@ pub struct Cover {
     pub label: String,
     pub slot: Slot,
     pub surfaces: Vec<Posable>,
+    /// The item's config, the key of the entry it is drawn from (`data`,
+    /// or a sleeve variant's) and that entry's parts (the base model, then
+    /// its additional models) as (model, surface).
+    pub config: String,
+    pub key: String,
+    pub parts: Vec<(String, String)>,
 }
 
 /// What a face is drawn in.
@@ -492,6 +543,9 @@ pub struct Wardrobe {
     pub worn: BTreeMap<State, Vec<Worn>>,
     /// The items left out because they draw no head (`remove_head_model`).
     pub headless: Vec<String>,
+    /// How many of `covers` are the game's items: the rest are models made
+    /// for one face ([`Wardrobe::for_face`]).
+    pub items: usize,
 }
 
 impl Wardrobe {
@@ -554,7 +608,9 @@ impl Wardrobe {
                 ),
                 _ => (Slot::Body, vec!["data"]),
             };
-            let mut variants: Vec<(String, Vec<Posable>)> = vec![];
+            // (label, key, parts, surfaces) of each entry drawn.
+            type Entry = (String, String, Vec<(String, String)>, Vec<Posable>);
+            let mut variants: Vec<Entry> = vec![];
             let mut models_seen = BTreeSet::new();
             for key in keys {
                 let Some(part) = config.root.named(key) else {
@@ -566,6 +622,7 @@ impl Wardrobe {
                 }
                 let mut surfaces = vec![];
                 let mut ids = vec![];
+                let mut sources = vec![];
                 for part in parts {
                     let (Some(V::String(model)), Some(V::String(surface))) =
                         (part.named("base_model"), part.named("part_name"))
@@ -573,6 +630,7 @@ impl Wardrobe {
                         bail!("{path} {key}: a model part without base_model/part_name");
                     };
                     ids.push(format!("{model}/{surface}"));
+                    sources.push((model.clone(), surface.clone()));
                     let root = format!("models/{model}.skinned_model/render");
                     let bytes = view
                         .read(&format!("{root}/{surface}/converted_model"))
@@ -585,16 +643,15 @@ impl Wardrobe {
                 if !models_seen.insert(ids) {
                     continue;
                 }
-                surfaces.retain(|s| !s.triangles.is_empty());
                 let label = if key == "data" {
                     name.clone()
                 } else {
                     format!("{name} ({key})")
                 };
-                variants.push((label, surfaces));
+                variants.push((label, key.to_owned(), sources, surfaces));
             }
-            for (label, surfaces) in variants {
-                if surfaces.is_empty() {
+            for (label, key, parts, surfaces) in variants {
+                if surfaces.iter().all(|s| s.triangles.is_empty()) {
                     continue;
                 }
                 if slot == Slot::Body {
@@ -618,6 +675,9 @@ impl Wardrobe {
                     label,
                     slot,
                     surfaces,
+                    config: path.clone(),
+                    key,
+                    parts,
                 });
             }
         }
@@ -657,6 +717,7 @@ impl Wardrobe {
             "the game has no helmet, mask or torso to fit under"
         );
         Ok(Self {
+            items: covers.len(),
             covers,
             worn,
             headless,
@@ -664,7 +725,36 @@ impl Wardrobe {
     }
 
     pub fn count(&self, slot: fn(&Slot) -> bool) -> usize {
-        self.covers.iter().filter(|c| slot(&c.slot)).count()
+        self.covers[..self.items]
+            .iter()
+            .filter(|c| slot(&c.slot))
+            .count()
+    }
+
+    /// A model of cover `base` made for one face (`surfaces`, in the
+    /// order of the cover's parts), as a cover: the same part of each model
+    /// as the game's cover keeps, vertex for vertex.
+    pub fn for_face(&self, base: usize, label: String, surfaces: &[Posable]) -> Cover {
+        let b = &self.covers[base];
+        Cover {
+            label,
+            slot: b.slot,
+            surfaces: surfaces
+                .iter()
+                .zip(&b.surfaces)
+                .map(|(s, base)| s.like(&base.origin, base.triangles.clone()))
+                .collect(),
+            config: b.config.clone(),
+            key: b.key.clone(),
+            parts: b.parts.clone(),
+        }
+    }
+
+    /// Adds a cover made for one face ([`Wardrobe::for_face`]): no worn
+    /// set names it, the jobs that swap it in measure it in its item's place.
+    pub fn add(&mut self, cover: Cover) -> usize {
+        self.covers.push(cover);
+        self.covers.len() - 1
     }
 }
 
@@ -674,11 +764,8 @@ impl Wardrobe {
 pub struct Drawn {
     pub label: String,
     pub surfaces: Vec<(String, Vec<u8>)>,
-    /// Per surface, per vertex: the ray it is measured and pulled along,
-    /// fixed from the donor's model ([`Drawn::freeze`]) so the fix moves
-    /// every vertex along the ray that measured it, and a face pulled in
-    /// never finds deeper insides of an item. Empty: from the surfaces as
-    /// they are.
+    /// Per surface, per vertex: the ray it is measured along
+    /// ([`Drawn::freeze`]). Empty: from the surfaces as they are.
     pub rays: Vec<Vec<Ray>>,
 }
 
@@ -689,7 +776,6 @@ pub struct Drawn {
 pub struct Ray {
     centre: [f64; 3],
     skin: Skin,
-    dir: [f64; 3],
     floor: f64,
     region: usize,
 }
@@ -724,7 +810,6 @@ impl Drawn {
                         Ray {
                             centre,
                             skin,
-                            dir: unit(d),
                             floor: dot(d, d).sqrt() - FLOOR_DEPTH,
                             region: rig.region(p),
                         }
@@ -745,33 +830,50 @@ impl Drawn {
     }
 }
 
-
 /// The samples of a face the rays go through: its vertices and its
 /// triangles' middles, each with its skin and its ray's bind-pose centre.
 struct Samples {
     bind: Vec<[f64; 3]>,
     skins: Vec<Skin>,
-        centres: Vec<([f64; 3], Skin)>,
+    centres: Vec<([f64; 3], Skin)>,
     /// Item surfaces nearer the centre than this are the item's inside
     /// where the native head is not on the sample's ray.
     floors: Vec<f64>,
-    /// For each sample, the vertices (surface, vertex) it moves and how
-    /// much of its pull each takes.
+    /// For each sample, the vertices (surface, vertex) it stands for and
+    /// each one's share of it.
     corners: Vec<Vec<(usize, usize, f64)>>,
     /// Each sample's region ([`Rig::region`]).
     regions: Vec<usize>,
+    /// Whether the sample lies on the native head's surface (within
+    /// [`NATIVE_TOLERANCE`], bind pose): the neck's last ring on the native
+    /// neck's open edge, where a ray may pass the native head by.
+    on_native: Vec<bool>,
 }
 
 impl Samples {
-    fn new(rig: &Rig, drawn: &Drawn, native_bind_pose: &[u8]) -> Result<Self> {
+    fn new(rig: &Rig, drawn: &Drawn, native_bind_pose: &[u8], native: &Posable) -> Result<Self> {
         let surfaces = drawn
             .surfaces
             .iter()
-                        .map(|(label, bytes)| Posable::parse(rig, label, bytes, native_bind_pose))
+            .map(|(label, bytes)| Posable::parse(rig, label, bytes, native_bind_pose))
             .collect::<Result<Vec<_>>>()?;
         let mut drawn = drawn.clone();
         drawn.freeze(rig)?;
-        Ok(Self::of(&surfaces, &drawn.rays))
+        let mut out = Self::of(&surfaces, &drawn.rays);
+        out.on_native = out
+            .bind
+            .iter()
+            .map(|&p| {
+                native.triangles.iter().any(|t| {
+                    let [a, b, c] = t.map(|v| native.positions[v]);
+                    let w = crate::mask_fit::closest_on_triangle(p, a, b, c);
+                    let q = [0, 1, 2].map(|k| w[0] * a[k] + w[1] * b[k] + w[2] * c[k]);
+                    let d = sub(p, q);
+                    dot(d, d) <= NATIVE_TOLERANCE * NATIVE_TOLERANCE
+                })
+            })
+            .collect();
+        Ok(out)
     }
 
     /// The samples of `surfaces`, each vertex on its ray of `rays`; a
@@ -784,6 +886,7 @@ impl Samples {
             floors: vec![],
             corners: vec![],
             regions: vec![],
+            on_native: vec![],
         };
         for (s, p) in surfaces.iter().enumerate() {
             let rays = &rays[s];
@@ -806,9 +909,14 @@ impl Samples {
                     }
                 }
                 let r = &rays[t[0]];
-                let centre = [0, 1, 2].map(|k| t.iter().map(|&v| rays[v].centre[k]).sum::<f64>() / 3.0);
+                let centre =
+                    [0, 1, 2].map(|k| t.iter().map(|&v| rays[v].centre[k]).sum::<f64>() / 3.0);
                 out.centres.push((centre, r.skin.clone()));
-                out.floors.push(t.iter().map(|&v| rays[v].floor).fold(f64::INFINITY, f64::min));
+                out.floors.push(
+                    t.iter()
+                        .map(|&v| rays[v].floor)
+                        .fold(f64::INFINITY, f64::min),
+                );
                 out.regions.push(r.region);
                 out.bind.push(pos);
                 out.skins.push(w.into_iter().collect());
@@ -831,7 +939,6 @@ impl Samples {
                 Ray {
                     centre,
                     skin,
-                    dir: unit(d),
                     floor: dot(d, d).sqrt() - FLOOR_DEPTH,
                     region: rig.region(p),
                 }
@@ -855,6 +962,12 @@ pub struct Measure {
     /// The deepest the native head itself shows through these items in a
     /// region of the head (m): the allowance there.
     pub native_through: f64,
+    /// Skin a torso or back piece does not cover in the bind pose (the
+    /// chin, the jaw) that comes into it in a pose, where the native head
+    /// stays out: the deepest (m) and the sample-poses. Reported, not part
+    /// of the margin: nothing covers that skin, it meets the collar.
+    pub contact: f64,
+    pub contacts: usize,
     /// Sample-poses through, and where the worst one is (bind pose; the
     /// face looks to +z, -x is the character's left), in which pose.
     pub through: usize,
@@ -870,6 +983,8 @@ impl Measure {
             gap: f64::INFINITY,
             native_gap: f64::INFINITY,
             native_through: 0.0,
+            contact: 0.0,
+            contacts: 0,
             through: 0,
             at: [0.0; 3],
             pose: String::new(),
@@ -877,6 +992,8 @@ impl Measure {
     }
     fn merge(&mut self, o: &Self) {
         self.through += o.through;
+        self.contacts += o.contacts;
+        self.contact = self.contact.max(o.contact);
         self.gap = self.gap.min(o.gap);
         self.native_gap = self.native_gap.min(o.native_gap);
         self.native_through = self.native_through.max(o.native_through);
@@ -892,13 +1009,18 @@ impl Measure {
 pub struct Job<'a> {
     pub drawn: &'a Drawn,
     pub state: State,
+    /// Covers this face is drawn with another model of ([`Wardrobe::for_face`]):
+    /// the wardrobe's cover to the one drawn in its place.
+    pub swaps: &'a BTreeMap<usize, usize>,
+    /// Only the worn sets with this cover (a head drawn for one item).
+    pub only: Option<usize>,
 }
 
 /// What a sweep over the poses found for one job.
 pub struct Sweep {
     pub measures: Vec<Measure>,
-    /// Per surface, per vertex: the pull the worst pose asks for (m).
-        pub need: Vec<Vec<f64>>,
+    /// Per surface, per vertex: how far through it is in its worst pose (m).
+    pub need: Vec<Vec<f64>>,
 }
 
 /// Measures every job in every pose (the bind pose first).
@@ -911,9 +1033,26 @@ pub fn sweep(
 ) -> Result<Vec<Sweep>> {
     let samples: Vec<Samples> = jobs
         .iter()
-        .map(|j| Samples::new(rig, j.drawn, &poses.bind_pose))
+        .map(|j| Samples::new(rig, j.drawn, &poses.bind_pose, native))
         .collect::<Result<_>>()?;
-        let native_samples = Samples::native(rig, native);
+    let native_samples = Samples::native(rig, native);
+    let bodies: Vec<Option<usize>> = {
+        let mut next = 0;
+        wardrobe
+            .covers
+            .iter()
+            .map(|c| {
+                (c.slot == Slot::Body).then(|| {
+                    next += 1;
+                    next - 1
+                })
+            })
+            .collect()
+    };
+    let body_cover: Vec<Vec<Vec<bool>>> = samples
+        .iter()
+        .map(|s| bind_body_cover(&poses.bind, native, wardrobe, &bodies, s))
+        .collect::<Result<_>>()?;
     let mut labels = vec!["bind pose".to_owned()];
     for (name, clip) in &poses.clips {
         for k in 0..clip.len() {
@@ -935,6 +1074,7 @@ pub fn sweep(
             .enumerate()
             .map(|(c, part)| {
                 let (samples, labels, native_samples) = (&samples, &labels, &native_samples);
+                let (bodies, body_cover) = (&bodies, &body_cover);
                 scope.spawn(move || -> Result<Vec<Sweep>> {
                     let mut acc: Option<Vec<Sweep>> = None;
                     for (k, pose) in part.iter().enumerate() {
@@ -952,6 +1092,7 @@ pub fn sweep(
                             jobs,
                             samples,
                             native_samples,
+                            (bodies, body_cover),
                             clearance,
                             &labels[index],
                         )?;
@@ -996,7 +1137,6 @@ fn merge_sweeps(into: &mut [Sweep], from: &[Sweep]) {
                 *p = p.max(*q);
             }
         }
-        
     }
 }
 
@@ -1009,6 +1149,7 @@ fn measure_pose(
     jobs: &[Job<'_>],
     samples: &[Samples],
     native_samples: &Samples,
+    (bodies, body_cover): (&[Option<usize>], &[Vec<Vec<bool>>]),
     clearance: f64,
     label: &str,
 ) -> Result<Vec<Sweep>> {
@@ -1016,12 +1157,28 @@ fn measure_pose(
     soup(&native.posed(bind, pose)?, &native.triangles, 0, &mut tris);
     let head = Bvh::new(tris);
     let mut tris = vec![];
-    for (i, c) in wardrobe.covers.iter().enumerate() {
+    for (i, c) in wardrobe.covers[..wardrobe.items].iter().enumerate() {
         for s in &c.surfaces {
             soup(&s.posed(bind, pose)?, &s.triangles, i as u32, &mut tris);
         }
     }
     let items = Bvh::new(tris);
+    // The models made for a face, by the face (the jobs of one face share
+    // its swaps): a ray meets the game's items and its own face's.
+    let mut own: Vec<(*const BTreeMap<usize, usize>, Bvh)> = vec![];
+    for job in jobs {
+        let key = std::ptr::from_ref(job.swaps);
+        if own.iter().any(|(k, _)| *k == key) {
+            continue;
+        }
+        let mut tris = vec![];
+        for &i in job.swaps.values() {
+            for s in &wardrobe.covers[i].surfaces {
+                soup(&s.posed(bind, pose)?, &s.triangles, i as u32, &mut tris);
+            }
+        }
+        own.push((key, Bvh::new(tris)));
+    }
     let n = wardrobe.covers.len();
     // How deep the native head shows through each worn set in each region
     // in this pose.
@@ -1068,7 +1225,7 @@ fn measure_pose(
         }
     }
     let mut out = vec![];
-    for (job, samples) in jobs.iter().zip(samples) {
+    for ((job, samples), body_cover) in jobs.iter().zip(samples).zip(body_cover) {
         let worn = &wardrobe.worn[&job.state];
         let allow = &allowance[&job.state];
         let mut measures: Vec<Measure> = worn.iter().map(|w| Measure::new(&w.label)).collect();
@@ -1078,12 +1235,33 @@ fn measure_pose(
             .iter()
             .map(|(_, b)| read_u32(b, 8).map(|c| vec![0.0; c]))
             .collect::<Result<_>>()?;
-        
+
         let posed = skin_positions(&samples.bind, &samples.skins, bind, pose)?;
         let (centres, centre_skins): (Vec<[f64; 3]>, Vec<Skin>) =
             samples.centres.iter().cloned().unzip();
         let posed_centres = skin_positions(&centres, &centre_skins, bind, pose)?;
         let mut cover = vec![f64::INFINITY; n];
+        // The worn sets each cover is in (the game's item, or the model
+        // this face is drawn with in its place): a ray is measured only
+        // against the sets of the covers it meets.
+        let mut sets_of: Vec<Vec<u32>> = vec![vec![]; n];
+        for (k, w) in worn.iter().enumerate() {
+            if job.only.is_some_and(|c| !w.covers.contains(&c)) {
+                continue;
+            }
+            for &i in &w.covers {
+                sets_of[i].push(k as u32);
+                if let Some(&swap) = job.swaps.get(&i) {
+                    sets_of[swap].push(k as u32);
+                }
+            }
+        }
+        let (mut met, mut visit): (Vec<usize>, Vec<u32>) = (vec![], vec![]);
+        let made_for_face = &own
+            .iter()
+            .find(|(k, _)| *k == std::ptr::from_ref(job.swaps))
+            .context("a job without its face's models")?
+            .1;
         for (s, (&p, &c)) in posed.iter().zip(&posed_centres).enumerate() {
             let d = sub(p, c);
             let r = dot(d, d).sqrt();
@@ -1095,38 +1273,88 @@ fn measure_pose(
             head.hits(c, dir, 0.0, r + NATIVE_REACH, |t, _, _| {
                 r_nat = Some(r_nat.map_or(t, |x: f64| x.max(t)));
             });
-            // Anchored on the native head where it is there: a face pulled in
-            // under it must not find ever deeper insides of an item.
-                        let floor = r_nat.map_or(samples.floors[s], |x| x - FLOOR_DEPTH);
-            cover.fill(f64::INFINITY);
-            items.hits(c, dir, floor, r + REACH, |t, out, item| {
-                if out {
-                    let x = &mut cover[item as usize];
-                    *x = x.min(t);
-                }
-            });
+            if samples.on_native[s] {
+                r_nat = Some(r_nat.map_or(r, |x| x.max(r)));
+            }
+            // Anchored on the native head where it is there.
+            let floor = r_nat.map_or(samples.floors[s], |x| x - FLOOR_DEPTH);
+            for &i in &met {
+                cover[i] = f64::INFINITY;
+            }
+            met.clear();
+            for bvh in [&items, made_for_face] {
+                bvh.hits(c, dir, floor, r + REACH, |t, out, item| {
+                    if out {
+                        let x = &mut cover[item as usize];
+                        if x.is_infinite() {
+                            met.push(item as usize);
+                        }
+                        *x = x.min(t);
+                    }
+                });
+            }
+            visit.clear();
+            for &i in &met {
+                visit.extend(&sets_of[i]);
+            }
+            visit.sort_unstable();
+            visit.dedup();
             let region = samples.regions[s];
-            for ((w, m), a) in worn.iter().zip(measures.iter_mut()).zip(allow) {
-                let skin = w
-                    .covers
-                    .iter()
-                    .map(|&i| cover[i])
-                    .filter(|t| t.is_finite())
-                    .fold(f64::NEG_INFINITY, f64::max);
+            for &k in &visit {
+                let (w, m, a) = (
+                    &worn[k as usize],
+                    &mut measures[k as usize],
+                    &allow[k as usize],
+                );
+                let outermost = |of: &dyn Fn(usize) -> usize| {
+                    w.covers
+                        .iter()
+                        .map(|&i| cover[of(i)])
+                        .filter(|t| t.is_finite())
+                        .fold(f64::NEG_INFINITY, f64::max)
+                };
+                // The skin of what this face is drawn with, and of the game's
+                // own items, which the native head is under.
+                let skin = outermost(&|i| job.swaps.get(&i).copied().unwrap_or(i));
+                let made = outermost(&|i| i);
                 if !skin.is_finite() {
                     continue;
                 }
-                let allowed = (skin - clearance + a[region])
-                    .max(r_nat.map_or(f64::NEG_INFINITY, |x| x + NATIVE_TOLERANCE));
+                // Where the native head itself is through the item on this
+                // ray, skin is seen there today: a face shows skin there too.
+                if r_nat.is_some_and(|x| made.is_finite() && x >= made) {
+                    continue;
+                }
+                // As far under its item as the native head is under the
+                // game's (the same item: no farther out than the native head).
+                let as_native = match r_nat {
+                    Some(x) if made.is_finite() => skin - (made - x) + NATIVE_TOLERANCE,
+                    _ => f64::NEG_INFINITY,
+                };
+                let allowed = (skin - clearance + a[region]).max(as_native);
                 m.native_through = m.native_through.max(a[region]);
                 let margin = allowed - r;
+                // Skin a torso does not cover in the bind pose meets it in
+                // this pose: a contact, not a show-through.
+                if let [only] = w.covers[..]
+                    && let Some(body) = bodies[only]
+                    && !body_cover[s][body]
+                {
+                    if margin < 0.0 {
+                        m.contacts += 1;
+                        m.contact = m.contact.max(-margin);
+                    }
+                    continue;
+                }
                 m.gap = m.gap.min(skin - r);
-                if let Some(x) = r_nat {
-                    m.native_gap = m.native_gap.min(skin - x);
+                if let Some(x) = r_nat
+                    && made.is_finite()
+                {
+                    m.native_gap = m.native_gap.min(made - x);
                 }
                 if margin < 0.0 {
                     m.through += 1;
-                                        for &(surface, v, share) in &samples.corners[s] {
+                    for &(surface, v, share) in &samples.corners[s] {
                         let x = &mut need[surface][v];
                         *x = x.max(-margin * share);
                     }
@@ -1138,160 +1366,548 @@ fn measure_pose(
                 }
             }
         }
-                out.push(Sweep { measures, need });
+        out.push(Sweep { measures, need });
     }
     Ok(out)
 }
 
-/// What the fix did to one drawn face.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Pull {
-    pub rounds: usize,
-    pub moved: usize,
-    pub farthest: f64,
-}
+/// An item's skin within this beyond a sample (m), bind pose, covers it:
+/// a collar round the neck does, the chest under the chin does not.
+const COVER_NEAR: f64 = 0.02;
 
-/// Moves the vertices of `drawn` in by `need` (per surface, per vertex),
-/// back along their rays ([`Drawn::rays`]) in the bind pose: seam copies
-/// together, each pull spread over [`SPREAD_RINGS`] rings of neighbours,
-/// at most [`PULL_STEP`] a round. Adds to `total` (per surface, per vertex).
-fn apply_pull(drawn: &mut Drawn, need: &[Vec<f64>], total: &mut [Vec<f64>]) -> Result<()> {
-    for (s, (label, bytes)) in drawn.surfaces.iter_mut().enumerate() {
-        let mesh = parse_mesh(bytes, 48, label)?;
-        let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
-        let mut w = vec![0.0_f64; neighbours.len()];
-        for (i, &k) in weld.iter().enumerate() {
-            w[k] = w[k].max(need[s][i]);
-        }
-        for _ in 0..SPREAD_RINGS {
-            let next: Vec<f64> = (0..w.len())
-                .map(|k| {
-                    neighbours[k]
-                        .iter()
-                        .map(|&u| w[u] * SPREAD_KEEP)
-                        .fold(w[k], f64::max)
-                })
-                .collect();
-            w = next;
-        }
-        for (i, &k) in weld.iter().enumerate() {
-            if w[k] <= 0.0 {
-                continue;
-            }
-            let step = (w[k] * 1.1 + 0.0002).min(PULL_STEP);
-            let p = mesh.positions[i];
-                        let along = drawn.rays[s][i].dir;
-            let q = [0, 1, 2].map(|j| p[j] - along[j] * step);
-            for (j, v) in q.iter().enumerate() {
-                let at = 12 + i * 48 + 4 * j;
-                bytes[at..at + 4].copy_from_slice(&(*v as f32).to_le_bytes());
-            }
-            total[s][i] += step;
-        }
-    }
-    Ok(())
-}
-
-/// The jobs' faces pulled in until every pose of every job passes
-/// ([`sweep`]); the jobs' last sweeps and what each pull did. Fails when a
-/// vertex would need more than [`PULL_MAX`].
-pub fn pull_in(
-    rig: &Rig,
-    poses: &SampledPoses,
+/// Per sample, per torso or back piece (`bodies`: its number by cover):
+/// whether it covers the sample in the bind pose ([`COVER_NEAR`]).
+fn bind_body_cover(
+    bind: &[Frame],
     native: &Posable,
     wardrobe: &Wardrobe,
-    faces: &mut [(Drawn, State)],
-) -> Result<(Vec<Sweep>, Vec<Pull>)> {
-    let mut totals: Vec<Vec<Vec<f64>>> = faces
+    bodies: &[Option<usize>],
+    samples: &Samples,
+) -> Result<Vec<Vec<bool>>> {
+    let mut tris = vec![];
+    soup(&native.posed(bind, bind)?, &native.triangles, 0, &mut tris);
+    let head = Bvh::new(tris);
+    let mut tris = vec![];
+    for (c, body) in wardrobe.covers.iter().zip(bodies) {
+        if let Some(b) = body {
+            for s in &c.surfaces {
+                soup(&s.positions, &s.triangles, *b as u32, &mut tris);
+            }
+        }
+    }
+    let items = Bvh::new(tris);
+    let count = bodies.iter().flatten().count();
+    Ok(samples
+        .bind
         .iter()
-        .map(|(d, _)| {
-            d.surfaces
-                .iter()
-                .map(|(_, b)| read_u32(b, 8).map(|c| vec![0.0; c]))
-                .collect::<Result<_>>()
+        .zip(&samples.centres)
+        .zip(&samples.floors)
+        .map(|((&p, (c, _)), &own_floor)| {
+            let mut covered = vec![false; count];
+            let d = sub(p, *c);
+            let r = dot(d, d).sqrt();
+            if r < 1e-6 {
+                return covered;
+            }
+            let dir = d.map(|v| v / r);
+            let mut r_nat: Option<f64> = None;
+            head.hits(*c, dir, 0.0, r + NATIVE_REACH, |t, _, _| {
+                r_nat = Some(r_nat.map_or(t, |x: f64| x.max(t)));
+            });
+            let floor = r_nat.map_or(own_floor, |x| x - FLOOR_DEPTH);
+            items.hits(*c, dir, floor, r + COVER_NEAR, |_, out, item| {
+                if out {
+                    covered[item as usize] = true;
+                }
+            });
+            covered
         })
-        .collect::<Result<_>>()?;
-    let mut pulls = vec![Pull::default(); faces.len()];
-        let mut last: Vec<Option<Sweep>> = (0..faces.len()).map(|_| None).collect();
-    for (drawn, _) in faces.iter_mut() {
-        drawn.freeze(rig)?;
-    }
-    for round in 0..=PULL_ROUNDS {
-        // Only the faces still through are measured again: a pull changes
-        // no other face.
-        let open: Vec<usize> = (0..faces.len())
-            .filter(|&i| {
-                last[i]
-                    .as_ref()
-                    .is_none_or(|s: &Sweep| s.measures.iter().any(|m| m.margin < 0.0))
-            })
-            .collect();
-        let jobs: Vec<Job<'_>> = open
-            .iter()
-            .map(|&i| Job {
-                drawn: &faces[i].0,
-                state: faces[i].1,
-            })
-            .collect();
-        for (i, s) in open.iter().zip(sweep(rig, poses, native, wardrobe, &jobs)?) {
-            last[*i] = Some(s);
-        }
-        let failing: Vec<usize> = open
-            .iter()
-            .copied()
-            .filter(|&i| {
-                last[i]
-                    .as_ref()
-                    .unwrap()
-                    .measures
-                    .iter()
-                    .any(|m| m.margin < 0.0)
-            })
-            .collect();
-        println!(
-            "  pull round {round}: {} of {} faces still show through",
-            failing.len(),
-            faces.len()
-        );
-        for &i in &failing {
-            let m = last[i]
-                .as_ref()
-                .unwrap()
-                .measures
-                .iter()
-                .min_by(|a, b| a.margin.total_cmp(&b.margin))
-                .unwrap();
-            println!(
-                "    {}: {:.2} mm under {} at {:?} ({}), pulled up to {:.1} mm",
-                faces[i].0.label,
-                m.margin * 1000.0,
-                m.worn,
-                m.at.map(|v| (v * 1000.0).round() / 1000.0),
-                m.pose,
-                pulls[i].farthest * 1000.0
-            );
-        }
-        if failing.is_empty() || round == PULL_ROUNDS {
-            return Ok((last.into_iter().map(|s| s.unwrap()).collect(), pulls));
-        }
-        for i in failing {
-                        let sweep = last[i].as_ref().unwrap();
-            apply_pull(&mut faces[i].0, &sweep.need, &mut totals[i])?;
-            let farthest = totals[i].iter().flatten().copied().fold(0.0, f64::max);
-            pulls[i] = Pull {
-                rounds: round + 1,
-                moved: totals[i].iter().flatten().filter(|&&t| t > 0.0).count(),
-                farthest,
+        .collect())
+}
+
+/// The most a vertex of an item is moved out in one round of [`settle`]
+/// (m), the rounds, and what a move adds to what the measure asks (m).
+const SETTLE_STEP: f64 = 0.004;
+const SETTLE_ROUNDS: usize = 12;
+const SETTLE_ROOM: f64 = 0.0003;
+/// The most a vertex is moved in all (m): where settling asks for more
+/// (round after round at an item's edge), the item does not fit by a
+/// carry, and the gate says so.
+const SETTLE_MOST: f64 = 0.006;
+
+impl Posable {
+    /// Writes these positions into the model they are a part of.
+    pub fn write_positions(&self, model: &mut [u8]) -> Result<()> {
+        let count = read_u32(model, 8)?;
+        ensure!(count > 0, "{}: no vertices", self.label);
+        let stride = (read_u32(model, 4)? - 4) / count;
+        for (k, p) in self.positions.iter().enumerate() {
+            let v = if self.origin.is_empty() {
+                k
+            } else {
+                self.origin[k]
             };
-            ensure!(
-                farthest <= PULL_MAX,
-                "{}: the fix would pull it in {:.1} mm: more than a fit, it needs its own item models",
-                faces[i].0.label,
-                farthest * 1000.0
-            );
+            let at = 12 + v * stride;
+            for (j, x) in p.iter().enumerate() {
+                model
+                    .get_mut(at + 4 * j..at + 4 * j + 4)
+                    .context("a vertex outside its model")?
+                    .copy_from_slice(&(*x as f32).to_le_bytes());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Settles a cover made for a face (`made`, of the game's `base`) on the
+/// face's skin (`drawn`): in each of `poses` (the bind pose first), where a
+/// sample of the face is nearer the cover's skin than the rule lets it be
+/// ([`sweep`]'s, for a cover made for a face), the triangle of the cover
+/// over it moves out along the sample's ray by what is missing, its
+/// neighbours by half; round after round until nothing is. Returns the
+/// rounds and the farthest a vertex moved in all (m).
+#[allow(clippy::too_many_arguments)]
+pub fn settle(
+    rig: &Rig,
+    bind: &[Frame],
+    poses: &[&[Frame]],
+    bind_pose: &[u8],
+    native: &Posable,
+    base: &Cover,
+    made: &mut Cover,
+    drawn: &Drawn,
+) -> Result<(usize, f64)> {
+    let samples = Samples::new(rig, drawn, bind_pose, native)?;
+    let (centres, centre_skins): (Vec<[f64; 3]>, Vec<Skin>) =
+        samples.centres.iter().cloned().unzip();
+    // Each pose: the samples, their centres, the native head and the game's cover.
+    struct Posed {
+        at: Vec<[f64; 3]>,
+        centres: Vec<[f64; 3]>,
+        head: Bvh,
+        base: Bvh,
+    }
+    let mut posed = vec![];
+    for pose in poses {
+        let mut tris = vec![];
+        soup(&native.posed(bind, pose)?, &native.triangles, 0, &mut tris);
+        let head = Bvh::new(tris);
+        let mut tris = vec![];
+        for s in &base.surfaces {
+            soup(&s.posed(bind, pose)?, &s.triangles, 0, &mut tris);
+        }
+        posed.push(Posed {
+            at: skin_positions(&samples.bind, &samples.skins, bind, pose)?,
+            centres: skin_positions(&centres, &centre_skins, bind, pose)?,
+            head,
+            base: Bvh::new(tris),
+        });
+    }
+    // A cover's triangles, numbered through its surfaces.
+    let mut first = vec![];
+    let mut count = 0;
+    for s in &made.surfaces {
+        first.push(count);
+        count += s.triangles.len();
+    }
+    let welds: Vec<(Vec<usize>, Vec<std::collections::BTreeSet<usize>>)> = made
+        .surfaces
+        .iter()
+        .map(|s| {
+            crate::mask_fit::weld_vertices(&crate::mask_fit::Mesh {
+                positions: s.positions.clone(),
+                triangles: s.triangles.clone(),
+            })
+        })
+        .collect();
+    let mut total: Vec<Vec<f64>> = made
+        .surfaces
+        .iter()
+        .map(|s| vec![0.0; s.positions.len()])
+        .collect();
+    let mut rounds = 0;
+    for _ in 0..SETTLE_ROUNDS {
+        // Per surface, per welded vertex: how far out, and along what.
+        let mut push: Vec<Vec<(f64, [f64; 3])>> = welds
+            .iter()
+            .map(|(_, n)| vec![(0.0, [0.0; 3]); n.len()])
+            .collect();
+        let mut any = false;
+        for (pose, p) in poses.iter().zip(&posed) {
+            let mut tris = vec![];
+            for (k, s) in made.surfaces.iter().enumerate() {
+                let at = s.posed(bind, pose)?;
+                for (t, tri) in s.triangles.iter().enumerate() {
+                    let [a, b, c] = tri.map(|v| at[v]);
+                    tris.push(Tri {
+                        a,
+                        e1: sub(b, a),
+                        e2: sub(c, a),
+                        item: (first[k] + t) as u32,
+                    });
+                }
+            }
+            let cover = Bvh::new(tris);
+            let clearance = if std::ptr::eq(*pose, poses[0]) {
+                BIND_CLEARANCE
+            } else {
+                POSED_CLEARANCE
+            };
+            for (s, (&at, &c)) in p.at.iter().zip(&p.centres).enumerate() {
+                let d = sub(at, c);
+                let r = dot(d, d).sqrt();
+                if r < 1e-6 {
+                    continue;
+                }
+                let dir = d.map(|v| v / r);
+                let mut r_nat: Option<f64> = None;
+                p.head.hits(c, dir, 0.0, r + NATIVE_REACH, |t, _, _| {
+                    r_nat = Some(r_nat.map_or(t, |x: f64| x.max(t)));
+                });
+                if samples.on_native[s] {
+                    r_nat = Some(r_nat.map_or(r, |x| x.max(r)));
+                }
+                let floor = r_nat.map_or(samples.floors[s], |x| x - FLOOR_DEPTH);
+                let mut game = f64::INFINITY;
+                p.base.hits(c, dir, floor, r + REACH, |t, out, _| {
+                    if out {
+                        game = game.min(t);
+                    }
+                });
+                let mut skin = (f64::INFINITY, 0_u32);
+                cover.hits(c, dir, floor, r + REACH, |t, out, tri| {
+                    if out && t < skin.0 {
+                        skin = (t, tri);
+                    }
+                });
+                if !skin.0.is_finite() || r_nat.is_some_and(|x| game.is_finite() && x >= game) {
+                    continue;
+                }
+                let as_native = match r_nat {
+                    Some(x) if game.is_finite() => skin.0 - (game - x) + NATIVE_TOLERANCE,
+                    _ => f64::NEG_INFINITY,
+                };
+                let missing = r - (skin.0 - clearance).max(as_native);
+                if missing <= 0.0 {
+                    continue;
+                }
+                any = true;
+                let k = first.partition_point(|&f| f <= skin.1 as usize) - 1;
+                let tri = made.surfaces[k].triangles[skin.1 as usize - first[k]];
+                // The ray as the bind pose has it: the cover's vertices
+                // are moved there.
+                let bind_dir = unit(sub(samples.bind[s], samples.centres[s].0));
+                for v in tri {
+                    let e = &mut push[k][welds[k].0[v]];
+                    if missing + SETTLE_ROOM > e.0 {
+                        *e = (missing + SETTLE_ROOM, bind_dir);
+                    }
+                }
+            }
+        }
+        if !any {
+            break;
+        }
+        rounds += 1;
+        for (k, s) in made.surfaces.iter_mut().enumerate() {
+            let (weld, neighbours) = &welds[k];
+            let asked = push[k].clone();
+            for (v, n) in neighbours.iter().enumerate() {
+                for &u in n {
+                    if asked[u].0 / 2.0 > push[k][v].0 {
+                        push[k][v] = (asked[u].0 / 2.0, asked[u].1);
+                    }
+                }
+            }
+            for (v, p) in s.positions.iter_mut().enumerate() {
+                let (by, dir) = push[k][weld[v]];
+                let by = by.min(SETTLE_STEP).min(SETTLE_MOST - total[k][v]);
+                if by > 0.0 {
+                    for j in 0..3 {
+                        p[j] += dir[j] * by;
+                    }
+                    total[k][v] += by;
+                }
+            }
         }
     }
-    unreachable!()
+    Ok((rounds, total.iter().flatten().copied().fold(0.0, f64::max)))
+}
+
+/// A surface to cast rays at (bind pose).
+pub(crate) struct Solid {
+    bvh: Bvh,
+}
+
+impl Solid {
+    pub fn new(positions: &[[f64; 3]], triangles: &[[usize; 3]]) -> Self {
+        let mut tris = vec![];
+        soup(positions, triangles, 0, &mut tris);
+        Self {
+            bvh: Bvh::new(tris),
+        }
+    }
+
+    /// The farthest crossing of the ray `o + t d` (t > 0) with the surface.
+    pub fn farthest(&self, o: [f64; 3], d: [f64; 3]) -> Option<f64> {
+        let mut best: Option<f64> = None;
+        self.bvh.hits(o, d, 0.0, f64::INFINITY, |t, _, _| {
+            best = Some(best.map_or(t, |x: f64| x.max(t)));
+        });
+        best
+    }
+}
+
+impl Rig {
+    /// Where the ray through a point near the head starts, for carrying an
+    /// item from one head onto another: the skull's middle, below the chin
+    /// the neck's axis, and between them a point passing from one to the
+    /// other, so the rays change smoothly down an item.
+    pub fn carry_centre(&self, p: [f64; 3]) -> [f64; 3] {
+        let x = ((p[1] - (self.chin - CHIN_BAND)) / (2.0 * CHIN_BAND)).clamp(0.0, 1.0);
+        let w = x * x * (3.0 - 2.0 * x);
+        let neck = self.neck_centre(p).0;
+        [0, 1, 2].map(|k| neck[k] + w * (self.skull[k] - neck[k]))
+    }
+}
+
+/// Directions spread evenly over the half space round `n` (a Fibonacci
+/// sphere's points at least `GRAZE` off the surface).
+fn outward(n: [f64; 3], count: usize) -> Vec<[f64; 3]> {
+    const GRAZE: f64 = 0.08;
+    let golden = std::f64::consts::PI * (3.0 - 5.0_f64.sqrt());
+    (0..2 * count)
+        .map(|i| {
+            let y = 1.0 - (i as f64 + 0.5) / count as f64;
+            let r = (1.0 - y * y).max(0.0).sqrt();
+            let a = golden * i as f64;
+            [a.cos() * r, y, a.sin() * r]
+        })
+        .filter(|d| dot(*d, n) > GRAZE)
+        .collect()
+}
+
+/// How far a sight line is followed before it has left the items (m).
+const SIGHT_REACH: f64 = 0.6;
+/// Sight lines per vertex ([`covered`]).
+const SIGHT_LINES: usize = 96;
+/// A sight line starts this far off the skin (m).
+const SIGHT_OFF: f64 = 0.0005;
+/// Rings of covered neighbours a vertex needs to be out of sight itself
+/// ([`covered`]): the cut's edge stays that far under every item's edge.
+const COVER_RINGS: usize = 2;
+
+/// What each vertex of a drawn face can be seen under, in the bind pose.
+pub struct Sight {
+    /// Per surface, per vertex: out of sight under every item of the slot,
+    /// each worn alone, and so are its neighbours [`COVER_RINGS`] rings round.
+    pub covered: Vec<Vec<bool>>,
+    /// Per surface, per vertex: the items (wardrobe covers) that leave it
+    /// in sight.
+    pub seen_under: Vec<Vec<Vec<usize>>>,
+}
+
+/// Which vertices of `drawn` no one can see under any item of a slot
+/// (`in_slot`), each item worn alone: from each vertex, [`SIGHT_LINES`]
+/// sight lines over the half space outside the skin; a vertex is out of
+/// sight under an item when every one of them meets the item. The face's
+/// own skin hides nothing here (an ear does not make the skin behind it
+/// safe to leave out).
+pub fn covered(wardrobe: &Wardrobe, drawn: &Drawn, in_slot: fn(&Slot) -> bool) -> Result<Sight> {
+    let items: Vec<usize> = (0..wardrobe.items)
+        .filter(|&i| in_slot(&wardrobe.covers[i].slot))
+        .collect();
+    let mut tris = vec![];
+    for (k, &i) in items.iter().enumerate() {
+        for s in &wardrobe.covers[i].surfaces {
+            soup(&s.positions, &s.triangles, k as u32, &mut tris);
+        }
+    }
+    let bvh = Bvh::new(tris);
+    let mut sight = Sight {
+        covered: vec![],
+        seen_under: vec![],
+    };
+    for (label, bytes) in &drawn.surfaces {
+        let mesh = parse_mesh(bytes, 48, label)?;
+        let normals = vertex_normals(&mesh.positions, &mesh.triangles);
+        let seen: Vec<Vec<usize>> = mesh
+            .positions
+            .iter()
+            .zip(&normals)
+            .map(|(&p, &n)| {
+                let o = [0, 1, 2].map(|k| p[k] + n[k] * SIGHT_OFF);
+                let mut open = vec![false; items.len()];
+                let mut met = vec![false; items.len()];
+                for d in outward(n, SIGHT_LINES) {
+                    met.fill(false);
+                    bvh.hits(o, d, 0.0, SIGHT_REACH, |_, _, item| {
+                        met[item as usize] = true
+                    });
+                    for (o, m) in open.iter_mut().zip(&met) {
+                        *o |= !m;
+                    }
+                }
+                items
+                    .iter()
+                    .zip(&open)
+                    .filter(|(_, o)| **o)
+                    .map(|(i, _)| *i)
+                    .collect()
+            })
+            .collect();
+        let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
+        let mut hidden = vec![true; neighbours.len()];
+        for (v, s) in seen.iter().enumerate() {
+            hidden[weld[v]] &= s.is_empty();
+        }
+        for _ in 0..COVER_RINGS {
+            hidden = (0..hidden.len())
+                .map(|k| hidden[k] && neighbours[k].iter().all(|&u| hidden[u]))
+                .collect();
+        }
+        sight
+            .covered
+            .push(weld.iter().map(|&k| hidden[k]).collect());
+        sight.seen_under.push(seen);
+    }
+    Ok(sight)
+}
+
+/// How far off the skin an item's open edges may stand beyond what they
+/// stand off the native head (m).
+pub const STAND_OFF: f64 = 0.004;
+/// An item's open edge within this of the native head (m) is an edge on
+/// the skin, which a gap under it shows.
+const EDGE_NEAR: f64 = 0.012;
+
+/// How an item's seen edges sit on a face.
+#[derive(Clone, Debug, Serialize)]
+pub struct StandOff {
+    pub item: String,
+    /// The most an open edge stands farther off the face than off the
+    /// native head (m), and where (bind pose).
+    pub excess: f64,
+    pub at: [f64; 3],
+    /// Edge points measured, and those beyond [`STAND_OFF`].
+    pub edge_points: usize,
+    pub off: usize,
+}
+
+fn closest_distance(p: [f64; 3], positions: &[[f64; 3]], triangles: &[[usize; 3]]) -> f64 {
+    let mut best = f64::INFINITY;
+    for t in triangles {
+        let [a, b, c] = t.map(|v| positions[v]);
+        let w = crate::mask_fit::closest_on_triangle(p, a, b, c);
+        let q = [0, 1, 2].map(|k| w[0] * a[k] + w[1] * b[k] + w[2] * c[k]);
+        let d = sub(p, q);
+        best = best.min(dot(d, d));
+    }
+    best.sqrt()
+}
+
+/// The points of a cover's open edges that lie on the native head's skin
+/// (within [`EDGE_NEAR`] of it) and can be seen (at least [`EDGE_SEEN`] of
+/// the sight lines from the point, all round it, pass the item and the
+/// native head: a liner's edge inside a helmet is not one): each as
+/// (surface, vertex, vertex), the point halfway between the two (the same
+/// vertex twice: the vertex), with its distance from the native head.
+pub struct SkinEdges {
+    points: Vec<(usize, usize, usize)>,
+    native: Vec<f64>,
+}
+
+fn edge_point(cover: &Cover, (s, a, b): (usize, usize, usize)) -> [f64; 3] {
+    let p = &cover.surfaces[s].positions;
+    [0, 1, 2].map(|k| (p[a][k] + p[b][k]) / 2.0)
+}
+
+/// The share of sight lines from an edge point that must be free for the
+/// edge to count as seen.
+const EDGE_SEEN: f64 = 0.15;
+
+pub fn skin_edges(cover: &Cover, native: &Posable) -> SkinEdges {
+    let key = |p: [f64; 3]| p.map(|v| (v * 1e5).round() as i64);
+    let mut tris = vec![];
+    soup(&native.positions, &native.triangles, 0, &mut tris);
+    for s in &cover.surfaces {
+        soup(&s.positions, &s.triangles, 1, &mut tris);
+    }
+    let blockers = Bvh::new(tris);
+    let lines = outward([0.0, 1.0, 0.0], SIGHT_LINES)
+        .into_iter()
+        .flat_map(|d| [d, d.map(|v| -v)])
+        .collect::<Vec<_>>();
+    let seen = |p: [f64; 3]| {
+        let free = lines
+            .iter()
+            .filter(|d| {
+                let mut met = false;
+                blockers.hits(p, **d, 1e-4, SIGHT_REACH, |_, _, _| met = true);
+                !met
+            })
+            .count();
+        free as f64 >= EDGE_SEEN * lines.len() as f64
+    };
+    let mut out = SkinEdges {
+        points: vec![],
+        native: vec![],
+    };
+    for (index, s) in cover.surfaces.iter().enumerate() {
+        // A welded edge: how many triangles use it, and its two vertices.
+        type Ends = ([i64; 3], [i64; 3]);
+        let mut uses: BTreeMap<Ends, (usize, usize, usize)> = BTreeMap::new();
+        for t in &s.triangles {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let (ka, kb) = (key(s.positions[a]), key(s.positions[b]));
+                let k = if ka < kb { (ka, kb) } else { (kb, ka) };
+                uses.entry(k).or_insert((0, a, b)).0 += 1;
+            }
+        }
+        for &(n, a, b) in uses.values() {
+            if n != 1 {
+                continue;
+            }
+            for at in [(index, a, a), (index, a, b)] {
+                let d =
+                    closest_distance(edge_point(cover, at), &native.positions, &native.triangles);
+                if d <= EDGE_NEAR && seen(edge_point(cover, at)) {
+                    out.points.push(at);
+                    out.native.push(d);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// How much farther off a face's skin than off the native head's the open
+/// edges of an item stand: `edges` of the game's cover, `cover` the model
+/// the face is drawn with (the same one, or the one made for the face).
+pub fn stand_off(edges: &SkinEdges, cover: &Cover, face: &[Posable]) -> StandOff {
+    let mut out = StandOff {
+        item: cover.label.clone(),
+        excess: 0.0,
+        at: [0.0; 3],
+        edge_points: edges.points.len(),
+        off: 0,
+    };
+    for (&at, &native) in edges.points.iter().zip(&edges.native) {
+        let p = edge_point(cover, at);
+        let d = face
+            .iter()
+            .map(|f| closest_distance(p, &f.positions, &f.triangles))
+            .fold(f64::INFINITY, f64::min);
+        let excess = d - native;
+        if excess > STAND_OFF {
+            out.off += 1;
+        }
+        if excess > out.excess {
+            out.excess = excess;
+            out.at = p;
+        }
+    }
+    out
 }
 
 #[cfg(test)]
