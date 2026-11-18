@@ -1167,6 +1167,13 @@ fn preserve_material_visibility(donor: &ConfigValue, converted: &mut ConfigValue
     apply(donor, converted, "root")
 }
 
+fn is_particle_material(root: &ConfigValue) -> bool {
+    root.named("material")
+        .and_then(|m| m.named("instance"))
+        .and_then(|i| string(i, "base_material"))
+        == Some("default_particle")
+}
+
 /// Whether `template` has each of the donor's render stages that hold a
 /// visibility selector ([`preserve_material_visibility`] needs them).
 fn has_visibility_stages(donor: &ConfigValue, template: &ConfigValue) -> bool {
@@ -1249,7 +1256,12 @@ fn native_equivalents(
     BTreeMap<String, crate::native_equivalence::TextureMatch>,
     BTreeSet<String>,
 )> {
+    // A particle's transparency keeps the target's file while the full-size
+    // image is the same: 0.21's `points` textures raise alpha in their small
+    // mips (2 of 255 at full size, 122-190 from 16x16 down), 0.26's particle
+    // pass samples those levels and draws pale square sprites.
     let visibility_textures: BTreeSet<_> = materials.values()
+        .filter(|converted| !is_particle_material(&converted.root))
         .flat_map(|converted| crate::material_finish::material_alpha_textures(&converted.root))
         .map(|name| format!("textures/{name}.dds"))
         .collect();
