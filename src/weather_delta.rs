@@ -100,6 +100,19 @@ fn shipped_field(kind: &str, name: &str, value: &ConfigValue) -> Option<(String,
     }
 }
 
+/// `value` in the number type the shipped schema has for the field (`like`):
+/// 0.31a2 writes a whole float as an integer and some integers as floats;
+/// 0.26g's configs keep one type per key. A fraction is never cut.
+fn as_type_of(value: ConfigValue, like: &ConfigValue) -> ConfigValue {
+    match (value, like) {
+        (ConfigValue::Integer(i), ConfigValue::Float(_)) => ConfigValue::Float(i as f32),
+        (ConfigValue::Float(f), ConfigValue::Integer(_)) if f.fract() == 0.0 => {
+            ConfigValue::Integer(f as i32)
+        }
+        (value, _) => value,
+    }
+}
+
 fn set_field(object: &mut ConfigValue, name: &str, value: ConfigValue) {
     if let ConfigValue::Named(fields) = object {
         match fields.iter_mut().find(|f| f.name == name) {
@@ -144,7 +157,10 @@ fn convert(donor: &ConfigValue, template: &ConfigValue, project: &str) -> Result
         let value = match field.name.as_str() {
             // The template's own cubemaps are not this probe's.
             "textures" if kind == "environment_probe" => continue,
-            _ => mapped.get(&field.name).cloned().unwrap_or_else(|| field.value.clone()),
+            _ => mapped
+                .get(&field.name)
+                .map(|v| as_type_of(v.clone(), &field.value))
+                .unwrap_or_else(|| field.value.clone()),
         };
         out.push(NamedValue {
             name: field.name.clone(),
@@ -201,7 +217,7 @@ fn environment(
         let value = match frame.named(&field.name) {
             Some(v) => {
                 from_donor += 1;
-                v.clone()
+                as_type_of(v.clone(), &field.value)
             }
             None => field.value.clone(),
         };
@@ -416,6 +432,10 @@ pub fn weather_project(
                 report.conflicts.push(format!("{name}.{to}"));
                 continue;
             }
+            let value = match object.named(&to) {
+                Some(like) => as_type_of(value, like),
+                None => value,
+            };
             if to == "texture" && kind == "environment_probe" {
                 set_probe_texture(&mut out, variant.project, &value);
             }
