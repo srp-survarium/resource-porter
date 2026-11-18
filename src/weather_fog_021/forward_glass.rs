@@ -142,6 +142,7 @@ pub fn build(
         scratch,
         globals: (globals, globals),
         input: None,
+        output: None,
     };
     let body = transplanted(original_block, &bindings)?;
     let (before, after): (&[u32], &[u32]) = match kind {
@@ -175,6 +176,9 @@ struct Bindings {
     /// The world-position input of the original program and of the target,
     /// where they differ.
     input: Option<(u32, u32)>,
+    /// The output register the original program and the target write the fog
+    /// to, where the block writes it itself.
+    output: Option<(u32, u32)>,
 }
 
 impl Bindings {
@@ -255,7 +259,16 @@ fn transplanted(original_block: &[Vec<u32>], bindings: &Bindings) -> Result<Vec<
                         indices[0] = to;
                     }
                 }
-                2 | 8 => {}
+                2 => {
+                    if let Some((from, to)) = bindings.output {
+                        ensure!(
+                            dimensions == 1 && indices[0] == from,
+                            "unexpected forward fog output"
+                        );
+                        indices[0] = to;
+                    }
+                }
+                8 => {}
                 _ => anyhow::bail!("unexpected forward fog operand {operand}"),
             }
             fixed.push(token);
@@ -354,6 +367,7 @@ const LITERAL: u32 = 4;
 const SAMPLER: u32 = 6;
 const RESOURCE: u32 = 7;
 const BUFFER: u32 = 8;
+const NULL: u32 = 13;
 
 struct Operand {
     kind: u32,
@@ -510,6 +524,8 @@ impl Values {
 struct Region {
     held: std::collections::BTreeMap<Slot, u32>,
     written: std::collections::BTreeSet<Slot>,
+    /// What it has written to output registers, by register and component.
+    sent: std::collections::BTreeMap<Slot, u32>,
     input: Option<u32>,
     globals: Option<u32>,
     texture: Option<u32>,
@@ -568,7 +584,8 @@ impl Region {
         let token = instruction[0] & 0x80ffffff;
         let operands = operands(instruction)?;
         let (destination, sources) = operands.split_first()?;
-        (destination.kind == TEMPORARY && destination.extension.is_none()).then_some(())?;
+        (matches!(destination.kind, TEMPORARY | OUTPUT) && destination.extension.is_none())
+            .then_some(())?;
         let written: Vec<u32> = destination.mask()?.collect();
         let mut results = Vec::new();
         if let Some(count) = dot(opcode) {
@@ -615,10 +632,22 @@ impl Region {
         }
         for (component, id) in written.into_iter().zip(results) {
             let slot = (destination.indices[0], component);
-            self.held.insert(slot, id);
-            self.written.insert(slot);
+            if destination.kind == OUTPUT {
+                self.sent.insert(slot, id);
+            } else {
+                self.held.insert(slot, id);
+                self.written.insert(slot);
+            }
         }
         Some(())
+    }
+
+    /// The output register whose x, y, z and w were sent `results`.
+    fn sending(&self, results: &[u32; 4]) -> Option<u32> {
+        let register = self.sent.iter().find(|(_, sent)| **sent == results[0])?.0.0;
+        (0..4)
+            .all(|c| self.sent.get(&(register, c)) == Some(&results[c as usize]))
+            .then_some(register)
     }
 
     /// The components that hold `results`, when each is held.
@@ -651,10 +680,16 @@ struct Found {
 
 /// Whether the instructions after the block read nothing of what it wrote but
 /// its results: the transplanted block computes only those. A component
-/// written again outside any branch is the program's own from there on.
-fn reads_only_results(tail: &[Vec<u32>], found: &Found) -> bool {
+/// written again is the program's own from there on: to the end outside any
+/// branch, to the end of its branch inside one.
+fn reads_only_results(
+    tail: &[Vec<u32>],
+    written: &std::collections::BTreeSet<Slot>,
+    results: &[Slot],
+) -> bool {
     let mut own = std::collections::BTreeSet::new();
-    let mut depth = 0u32;
+    // What was the program's own where each open branch or loop began.
+    let mut outer: Vec<std::collections::BTreeSet<Slot>> = Vec::new();
     for instruction in tail {
         let opcode = instruction[0] & 2047;
         // Declarations and anything later than SM4's last operation.
@@ -664,10 +699,26 @@ fn reads_only_results(tail: &[Vec<u32>], found: &Found) -> bool {
         let Some(operands) = operands(instruction) else {
             return false;
         };
-        let destination = operands
-            .first()
-            .filter(|first| writes_first(opcode) && matches!(first.kind, TEMPORARY | OUTPUT));
-        for source in &operands[usize::from(destination.is_some())..] {
+        // imul, sincos, udiv and umul write their first two operands (either
+        // may be the null operand); the others here write at most the first.
+        let wrote = match opcode {
+            38 | 77 | 78 | 81 => 2,
+            _ => usize::from(writes_first(opcode)),
+        };
+        let Some((destinations, sources)) = operands.split_at_checked(wrote) else {
+            return false;
+        };
+        if !destinations
+            .iter()
+            .all(|d| matches!(d.kind, TEMPORARY | OUTPUT | NULL))
+        {
+            return false;
+        }
+        let destination = match destinations {
+            [one] => Some(one),
+            _ => None,
+        };
+        for source in sources {
             match source.kind {
                 TEMPORARY => {
                     for lane in lanes(opcode, destination) {
@@ -675,9 +726,9 @@ fn reads_only_results(tail: &[Vec<u32>], found: &Found) -> bool {
                             return false;
                         };
                         let slot = (source.indices[0], component);
-                        if found.written.contains(&slot)
+                        if written.contains(&slot)
                             && !own.contains(&slot)
-                            && !found.results.contains(&slot)
+                            && !results.contains(&slot)
                         {
                             return false;
                         }
@@ -689,21 +740,39 @@ fn reads_only_results(tail: &[Vec<u32>], found: &Found) -> bool {
             }
         }
         match opcode {
-            31 | 48 | 76 => depth += 1,
-            21..=23 => depth = depth.saturating_sub(1),
+            // if, loop, switch
+            31 | 48 | 76 => outer.push(own.clone()),
+            // else, case, default: another path from where the branch began
+            18 | 6 | 10 => match outer.last() {
+                Some(began) => own = began.clone(),
+                None => return false,
+            },
+            // endif, endloop, endswitch: a path may have skipped the writes
+            21..=23 => match outer.pop() {
+                Some(began) => own = began,
+                None => return false,
+            },
             _ => {
-                if let Some(destination) = destination.filter(|d| d.kind == TEMPORARY) {
+                for destination in destinations.iter().filter(|d| d.kind == TEMPORARY) {
                     let Some(mask) = destination.mask() else {
                         return false;
                     };
-                    if depth == 0 {
-                        own.extend(mask.map(|c| (destination.indices[0], c)));
-                    }
+                    own.extend(mask.map(|c| (destination.indices[0], c)));
                 }
             }
         }
     }
     true
+}
+
+/// Whether the instructions end inside a branch or loop: what follows them
+/// there is not all that follows.
+fn nested(before: &[Vec<u32>]) -> bool {
+    before.iter().fold(0i32, |depth, op| match op[0] & 2047 {
+        31 | 48 | 76 => depth + 1,
+        21..=23 => depth - 1,
+        _ => depth,
+    }) != 0
 }
 
 /// `mov` of the original block's results (colour in its r0.xyz, amount in its
@@ -744,6 +813,32 @@ fn results_moved(results: [Slot; 4], scratch: u32) -> Vec<u32> {
         scratch + 1,
     ]);
     moves
+}
+
+/// Whether a native fog's values are what its results are taken for: the
+/// colour `(texture.component * mie + rayleigh) / max(amount, tiny)` of the
+/// fog texture's red, green and blue, and the amount clamped.
+fn is_native_fog(values: &Values, way: &[u32; 4]) -> bool {
+    let value = |id: u32| {
+        values
+            .0
+            .iter()
+            .find(|(_, held)| **held == id)
+            .map(|(value, _)| value)
+    };
+    let colour = |id: u32, component: u32| {
+        let Some(Value::Lane(divide, over)) = value(id) else {
+            return false;
+        };
+        let Some(Value::Lane(sum, terms)) = over.first().and_then(|id| value(*id)) else {
+            return false;
+        };
+        divide & 0x27ff == 14
+            && sum & 0x27ff == 50
+            && matches!(terms.first().and_then(|id| value(*id)), Some(Value::Sample(_, _, sampled, _)) if *sampled == component)
+    };
+    (0..3).all(|c| colour(way[c as usize], c))
+        && matches!(value(way[3]), Some(Value::Lane(token, _)) if token & 0x27ff == 0x2036)
 }
 
 /// The original fog for any forward program that computes the native one.
@@ -820,18 +915,9 @@ impl Fog {
                 held(results[2])?,
                 held(results[3])?,
             ];
-            // The colour is the fog texture's red, green and blue with the
-            // sun's share, over the unclamped amount; the amount is clamped.
-            for (component, id) in way[..3].iter().enumerate() {
-                ensure!(
-                    Self::is_colour(&values, *id, component as u32),
-                    "a pinned native fog colour is not the fog texture's component {component}"
-                );
-            }
             ensure!(
-                values.0.iter().any(|(value, id)| *id == way[3]
-                    && matches!(value, Value::Lane(token, _) if token & 0x27ff == 0x2036)),
-                "a pinned native fog amount is not a clamped value"
+                is_native_fog(&values, &way),
+                "a pinned native fog's results are not its colour and amount"
             );
             ensure!(!ways.contains(&way), "two pinned native fogs are one");
             ways.push(way);
@@ -841,26 +927,6 @@ impl Fog {
             values,
             native: ways,
         })
-    }
-
-    /// `(texture.component * mie + rayleigh) / max(amount, tiny)`.
-    fn is_colour(values: &Values, id: u32, component: u32) -> bool {
-        let value = |id: u32| {
-            values
-                .0
-                .iter()
-                .find(|(_, held)| **held == id)
-                .map(|(value, _)| value)
-        };
-        let Some(Value::Lane(divide, over)) = value(id) else {
-            return false;
-        };
-        let Some(Value::Lane(sum, terms)) = over.first().and_then(|id| value(*id)) else {
-            return false;
-        };
-        divide & 0x27ff == 14
-            && sum & 0x27ff == 50
-            && matches!(terms.first().and_then(|id| value(*id)), Some(Value::Sample(_, _, sampled, _)) if *sampled == component)
     }
 
     /// The native fog in `ops`, when one run of instructions computes it.
@@ -911,15 +977,9 @@ impl Fog {
         let Some(found) = self.find(&ops)? else {
             return Ok(None);
         };
-        // Inside a branch the instructions after it are not all that follows.
-        let nested = ops[..found.block.start]
-            .iter()
-            .fold(0i32, |depth, op| match op[0] & 2047 {
-                31 | 48 | 76 => depth + 1,
-                21..=23 => depth - 1,
-                _ => depth,
-            });
-        if nested != 0 || !reads_only_results(&ops[found.block.end..], &found) {
+        if nested(&ops[..found.block.start])
+            || !reads_only_results(&ops[found.block.end..], &found.written, &found.results)
+        {
             return Ok(None);
         }
         let temp = ops
@@ -933,6 +993,7 @@ impl Fog {
             scratch,
             globals: (Self::ORIGINAL_GLOBALS, found.globals),
             input: Some((Self::ORIGINAL_INPUT, found.input)),
+            output: None,
         };
         let body = transplanted(&self.original_block, &bindings)?;
         let updated = guarded(
@@ -944,6 +1005,174 @@ impl Fog {
             &[],
             &body,
             &results_moved(found.results, scratch),
+        )?;
+        entries[index].1 = bytes(&updated);
+        let mut result = target[..offset].to_vec();
+        result.extend(assemble(code, &entries)?);
+        Ok(Some(result))
+    }
+}
+
+/// The original fog for the lit-particle vertex programs, which hand the fog
+/// to their pixel program in an output register: the same recognition as
+/// [`Fog`], the results being what the run writes to that register (the colour
+/// in its xyz, the amount in its w) and nothing of the run being read after.
+pub struct VertexFog {
+    original_block: Vec<Vec<u32>>,
+    values: Values,
+    native: Vec<[u32; 4]>,
+}
+
+impl VertexFog {
+    /// 0.21's program: its fog block is instructions 169..214, written to o7.
+    pub const ORIGINAL: &str = super::PARTICLE_SOURCE;
+    const ORIGINAL_HASH: &str = "955ddb23052e167e2842e990ff7698f3ed8ee05dd06ebda01096c21bb893e529";
+    const ORIGINAL_BLOCK: std::ops::Range<usize> = 169..214;
+    /// The original program's globals buffer, world-position input and fog
+    /// output.
+    const ORIGINAL_GLOBALS: u32 = 2;
+    const ORIGINAL_INPUT: u32 = 0;
+    const ORIGINAL_OUTPUT: u32 = 7;
+
+    /// A native program for each of the two ways the family computes its fog.
+    pub const NATIVE: [&str; 2] = [
+        super::PARTICLE_TEMPLATE,
+        "shaders/sm_4_0/vertex_base_offscreen_particle_lighting.vs/0___0____________0___07___0____0_0_________________0_0_____________",
+    ];
+    /// Each one's hash, its fog's instructions and the output they write.
+    const NATIVE_PINS: [(&str, std::ops::Range<usize>, u32); 2] = [
+        (
+            "28ab00cfa95506fefed79f14bc8474df332e804d6ffc6be11846c4f42fd72a5f",
+            37..90,
+            7,
+        ),
+        (
+            "b3479842605eee10128651f4e21bb2beeed4d491ae0b71d6c123419dd1b8407a",
+            38..91,
+            7,
+        ),
+    ];
+
+    pub fn new(original: &[u8], native: [&[u8]; 2]) -> Result<Self> {
+        let (_, original) = pinned_code(original, Self::ORIGINAL_HASH)?;
+        let original_block = program(original)?[Self::ORIGINAL_BLOCK].to_vec();
+        let mut values = Values::default();
+        let sent = |values: &mut Values, block: &[Vec<u32>], output: u32| -> Result<[u32; 4]> {
+            let mut region = Region::default();
+            for instruction in block {
+                region
+                    .step(values, instruction)
+                    .context("a pinned particle fog block is not a fog computation")?;
+            }
+            let at = |c| {
+                region
+                    .sent
+                    .get(&(output, c))
+                    .copied()
+                    .context("pinned fog output")
+            };
+            ensure!(
+                region.sent.keys().all(|(register, _)| *register == output),
+                "a pinned particle fog block writes another output"
+            );
+            Ok([at(0)?, at(1)?, at(2)?, at(3)?])
+        };
+        // The original block must be one too, and write only its fog output.
+        sent(&mut values, &original_block, Self::ORIGINAL_OUTPUT)?;
+        let mut ways = Vec::new();
+        for (blob, (hash, block, output)) in native.into_iter().zip(Self::NATIVE_PINS) {
+            let (_, code) = pinned_code(blob, hash)?;
+            let way = sent(&mut values, &program(code)?[block], output)?;
+            ensure!(
+                is_native_fog(&values, &way),
+                "a pinned native particle fog's results are not its colour and amount"
+            );
+            ensure!(
+                !ways.contains(&way),
+                "two pinned native particle fogs are one"
+            );
+            ways.push(way);
+        }
+        Ok(Self {
+            original_block,
+            values,
+            native: ways,
+        })
+    }
+
+    /// `target` with the original fog on the marked scenes. None: it computes
+    /// no native fog in one run outside any branch, or reads some of that run
+    /// afterwards; such a program stays native.
+    pub fn build(&mut self, target: &[u8], profiles: &[Profile]) -> Result<Option<Vec<u8>>> {
+        ensure!(!profiles.is_empty(), "no particle fog profiles");
+        let offset = 4 + u32_at(target, 0)? as usize * 264;
+        let code = target.get(offset..).context("truncated particle shader")?;
+        ensure!(checksum(code)? == code[4..20], "particle checksum mismatch");
+        let mut entries = chunks(code)?;
+        let index = entries
+            .iter()
+            .position(|(tag, _)| tag == b"SHDR")
+            .context("SHDR")?;
+        let old_words = words(&entries[index].1)?;
+        let mut ops = instructions(&old_words)?;
+        let mut found = None;
+        for start in 0..ops.len() {
+            if ops[start][0] & 2047 != 0 {
+                continue;
+            }
+            let mut region = Region::default();
+            for (end, instruction) in ops.iter().enumerate().skip(start) {
+                if region.step(&mut self.values, instruction).is_none() {
+                    break;
+                }
+                let Some(output) = self.native.iter().find_map(|way| region.sending(way)) else {
+                    continue;
+                };
+                ensure!(found.is_none(), "ambiguous particle fog block");
+                // Nothing else may leave the run but its fog.
+                if region.sent.keys().all(|(register, _)| *register == output) {
+                    found = Some((start..end + 1, output, region));
+                }
+                break;
+            }
+        }
+        let Some((block, output, region)) = found else {
+            return Ok(None);
+        };
+        if nested(&ops[..block.start])
+            || !reads_only_results(&ops[block.end..], &region.written, &[])
+        {
+            return Ok(None);
+        }
+        let temp = ops
+            .iter()
+            .position(|op| op[0] & 2047 == 104)
+            .context("temporaries")?;
+        let scratch = ops[temp][1];
+        ensure!(scratch <= 64, "unexpected particle temporaries");
+        ops[temp][1] = scratch + 5;
+        let bindings = Bindings {
+            scratch,
+            globals: (
+                Self::ORIGINAL_GLOBALS,
+                region.globals.context("fog without globals")?,
+            ),
+            input: Some((
+                Self::ORIGINAL_INPUT,
+                region.input.context("fog without a position")?,
+            )),
+            output: Some((Self::ORIGINAL_OUTPUT, output)),
+        };
+        let body = transplanted(&self.original_block, &bindings)?;
+        let updated = guarded(
+            &old_words[..2],
+            &ops,
+            block,
+            profiles,
+            &bindings,
+            &[],
+            &body,
+            &[],
         )?;
         entries[index].1 = bytes(&updated);
         let mut result = target[..offset].to_vec();
@@ -982,12 +1211,26 @@ mod tests {
         );
         assert!(!reads_only_results(
             &[READS_R1_W.to_vec(), RET.to_vec()],
-            &block
+            &block.written,
+            &block.results
         ));
         // Written again first, the component is the tail's own.
         assert!(reads_only_results(
             &[WRITES_R1.to_vec(), READS_R1_W.to_vec(), RET.to_vec()],
-            &block
+            &block.written,
+            &block.results
+        ));
+        // Inside the branch that wrote it, it is the tail's own.
+        assert!(reads_only_results(
+            &[
+                vec![0x0304001f, 0x0010000a, 0],
+                WRITES_R1.to_vec(),
+                READS_R1_W.to_vec(),
+                vec![0x01000015],
+                RET.to_vec()
+            ],
+            &block.written,
+            &block.results
         ));
         // A write inside a branch is not a write on every path.
         let branch = [0x0304001f, 0x0010000a, 0];
@@ -999,7 +1242,8 @@ mod tests {
                 READS_R1_W.to_vec(),
                 RET.to_vec()
             ],
-            &block
+            &block.written,
+            &block.results
         ));
     }
 
