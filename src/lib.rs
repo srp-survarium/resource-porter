@@ -36,6 +36,7 @@ pub mod target_native_map;
 pub mod terrain_surface_patch;
 pub mod weapon;
 pub mod weather_021d;
+pub mod weather_delta;
 pub mod weather_fog_021;
 
 pub use archive::ResourceDb;
