@@ -3,7 +3,8 @@
 //! by one of the map's own patches (not in the stock db), players have another version of it,
 //! and the donor's bytes replace it (pinned by the players' version's hash). For files the
 //! port took from elsewhere, e.g. London's office furniture texture, which patch 14 shipped
-//! in another colour than 0.31a2's.
+//! in another colour than 0.31a2's. `new_files` are the donor's files players do not have at
+//! all, added as they are (e.g. a texture only a donor material set names).
 //!
 //! donor-files-pack MANIFEST.json NEW_OUTPUT
 use std::{fs, path::PathBuf};
@@ -25,7 +26,10 @@ struct Manifest {
     /// What players have: the stock db, then every offered patch in order.
     shipped: Vec<PathBuf>,
     stock_sha256: String,
+    #[serde(default)]
     files: Vec<String>,
+    #[serde(default)]
+    new_files: Vec<String>,
 }
 
 fn main() -> Result<()> {
@@ -54,6 +58,15 @@ fn main() -> Result<()> {
         });
         println!("{path}: the donor's {} bytes for players' {}", own.len(), players.len());
     }
+    for path in &m.new_files {
+        ensure!(!shipped.contains(path), "{path}: players have it already");
+        let own = donor.read(path).with_context(|| format!("{path}: the donor does not have it"))?;
+        let at = vostok_resource_porter::archive::safe_join(&output.join("files"), path)?;
+        fs::create_dir_all(at.parent().context("parent")?)?;
+        fs::write(&at, &own)?;
+        operations.push(Operation::AddFile { path: path.clone(), source: None });
+        println!("{path}: the donor's {} bytes, new to players", own.len());
+    }
     let pack = PackManifest {
         format_version: 1,
         id: m.id.clone(),
@@ -64,7 +77,7 @@ fn main() -> Result<()> {
         base_db_sha256: Some(m.stock_sha256.clone()),
         operations,
         server: None,
-        notes: vec!["Built by examples/donor-files-pack.rs: each file first shipped by the map's own patches, as its donor build has it.".into()],
+        notes: vec!["Built by examples/donor-files-pack.rs: each file first shipped by the map's own patches, or new to players, as its donor build has it.".into()],
     };
     fs::write(output.join("pack.json"), serde_json::to_vec_pretty(&pack)?)?;
     Ok(())
