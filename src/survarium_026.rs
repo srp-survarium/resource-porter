@@ -1167,6 +1167,19 @@ fn preserve_material_visibility(donor: &ConfigValue, converted: &mut ConfigValue
     apply(donor, converted, "root")
 }
 
+/// A material's render stages (`material/common/stages`: forward, lighting, g_stage...).
+fn material_stages(root: &ConfigValue) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    if let Some(ConfigValue::Named(stages)) = root
+        .named("material")
+        .and_then(|m| m.named("common"))
+        .and_then(|c| c.named("stages"))
+    {
+        out.extend(stages.iter().map(|s| s.name.clone()));
+    }
+    out
+}
+
 /// A particle's emitters: each `Material` it names, with the path of names that leads to it (an
 /// emitter's child id), so two effects compare emitter by emitter.
 fn particle_emitters(root: &ConfigValue) -> BTreeSet<(String, String)> {
@@ -1933,9 +1946,11 @@ pub fn build(
         .collect();
     let mut forced = forced;
     // A particle 0.26g also ships stays 0.26g's (its retunes are kept, as a material's finish is)
-    // unless 0.26g's lacks one of the donor's emitters: then part of the effect itself is gone, not
-    // retuned (0.26g dropped the green `radial_smoke` emitter of 0.21d's Chemical Plant anomaly), and
-    // the donor's effect is imported.
+    // unless 0.26g redesigned the effect: its copy lacks one of the donor's emitters, or one of the
+    // materials the donor's names is drawn by another render stage in 0.26g (a forward glow that
+    // 0.26g made a lit particle; the material rule below then keeps the donor's material, which
+    // only the donor's particle names). Then the donor's effect is imported. On 0.21d's Chemical
+    // Plant anomaly: `radial_smoke` (0.26g dropped its green emitter), `spori`, `spori_mini`.
     let particles: Vec<String> = donor
         .paths()
         .filter(|p| p.starts_with("particles/") && p.ends_with(".particle"))
@@ -1946,9 +1961,25 @@ pub fn build(
             continue;
         }
         let ours = particle_emitters(&BinaryConfig::parse(&target.read(&path)?)?.root);
-        if !particle_emitters(&BinaryConfig::parse(&donor.read(&path)?)?.root).is_subset(&ours) {
+        let theirs = particle_emitters(&BinaryConfig::parse(&donor.read(&path)?)?.root);
+        if !theirs.is_subset(&ours) {
             eprintln!("{path}: 0.26g's lacks an emitter of the donor's; the donor's is imported");
             forced.insert(path);
+            continue;
+        }
+        for (_, material) in &theirs {
+            let file = format!("material_instances/{material}.material");
+            if !donor.is_file(&file) || !target.is_file(&file) {
+                continue;
+            }
+            let stages = |bytes: &[u8]| -> Result<BTreeSet<String>> {
+                Ok(material_stages(&BinaryConfig::parse(bytes)?.root))
+            };
+            if stages(&donor.read(&file)?)? != stages(&target.read(&file)?)? {
+                eprintln!("{path}: {material} is drawn by another stage in 0.26g; the donor's is imported");
+                forced.insert(path.clone());
+                break;
+            }
         }
     }
     eprintln!("Resolving map dependencies...");
@@ -2596,6 +2627,18 @@ mod tests {
         assert_eq!(donor.len(), 2);
         assert!(!donor.is_subset(&particle_emitters(&dropped)));
         assert!(donor.is_subset(&particle_emitters(&retuned)));
+    }
+
+    #[test]
+    fn a_material_drawn_by_another_stage_is_told_apart() {
+        let material = |stage: &str| {
+            named(vec![("material", named(vec![("common", named(vec![(
+                "stages",
+                named(vec![(stage, ConfigValue::Integer(1))]),
+            )]))]))])
+        };
+        assert_ne!(material_stages(&material("forward")), material_stages(&material("lighting")));
+        assert_eq!(material_stages(&material("forward")), BTreeSet::from(["forward".to_owned()]));
     }
 
     #[test]
