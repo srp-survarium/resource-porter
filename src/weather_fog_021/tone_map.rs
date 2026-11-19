@@ -13,15 +13,52 @@ const TARGET_HASHES: [&str; 2] = [
     "53a7ec7a0281328e5a298d83e9463fb06945af517ebd1391f04ea0ac3dc4847d",
 ];
 
+/// The native tone curve's exposure key (`div r, l(4.5), r` in every native program).
+const NATIVE_KEY: f32 = 4.5;
+
+/// A scene drawn with the native tone curve at its own build's exposure key, selected by
+/// its own marker: London (0.31a2's curve is 0.26g's with key 6.0 where 0.26g has 4.5,
+/// every program of the family, the only difference besides the constant-buffer rows).
+/// Its marker is the scene's own `mie_fog_base_height` made unique by a fraction no
+/// authored height has (the 0.21 markers are integers below -32000), so the fog the
+/// field drives is unchanged.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KeyProfile {
+    pub marker: f32,
+    pub key: f32,
+}
+
 /// Only the selected maps use original tone mapping. Native bloom, texture
 /// bindings, grading, gamma, vignette and unmarked tone mapping are preserved.
 pub fn build_tonemap(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Option<Vec<u8>>> {
+    build_tonemap_profiles(source, target, markers, &[])
+}
+
+/// `build_tonemap` with key profiles: after the original branches, one more branch per
+/// key profile runs the native tone block with its key; then the unchanged native block.
+pub fn build_tonemap_profiles(
+    source: &[u8],
+    target: &[u8],
+    markers: &[f32],
+    keys: &[KeyProfile],
+) -> Result<Option<Vec<u8>>> {
     ensure!(!markers.is_empty(), "no original tone-map markers");
     let mut seen = BTreeSet::new();
     for marker in markers {
         ensure!(
             marker.is_finite() && *marker < -32000.0 && seen.insert(marker.to_bits()),
             "invalid or duplicate tone-map marker"
+        );
+    }
+    for k in keys {
+        ensure!(
+            k.marker.is_finite()
+                && k.marker >= -32000.0
+                && k.marker.fract() != 0.0
+                && seen.insert(k.marker.to_bits())
+                && k.key.is_finite()
+                && k.key > 0.0,
+            "invalid or duplicate key profile"
         );
     }
     let target_hash = format!("{:x}", Sha256::digest(target));
@@ -84,8 +121,25 @@ pub fn build_tonemap(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Op
         updated.extend(source_ops[23..47].iter().flatten());
         updated.push(0x01000012);
     }
+    for k in keys {
+        updated.extend([
+            0x08000018,
+            0x00100012,
+            2,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            k.marker.to_bits(),
+            0x0304001f,
+            0x0010000a,
+            2,
+        ]);
+        updated.extend(with_key(&native_ops[18..41], k.key)?.iter().flatten());
+        updated.push(0x01000012);
+    }
     updated.extend(native_ops[18..41].iter().flatten());
-    updated.extend(std::iter::repeat_n(0x01000015, markers.len()));
+    updated.extend(std::iter::repeat_n(0x01000015, markers.len() + keys.len()));
     updated.extend(native_ops[41..].iter().flatten());
     updated[1] = updated.len() as u32;
     instructions(&updated)?;
@@ -98,6 +152,26 @@ pub fn build_tonemap(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Op
     let mut output = target[..offset].to_vec();
     output.extend(assemble(native, &entries)?);
     Ok(Some(output))
+}
+
+/// The native tone block with its one `l(4.5)` immediate (a one-component immediate operand
+/// of a `div`) set to `key`.
+fn with_key(block: &[Vec<u32>], key: f32) -> Result<Vec<Vec<u32>>> {
+    let mut out = block.to_vec();
+    let mut found = 0;
+    for op in &mut out {
+        if op[0] & 2047 != 14 {
+            continue;
+        }
+        for i in 1..op.len() - 1 {
+            if op[i] == 0x00004001 && op[i + 1] == NATIVE_KEY.to_bits() {
+                op[i + 1] = key.to_bits();
+                found += 1;
+            }
+        }
+    }
+    ensure!(found == 1, "{found} native exposure keys in the tone block, expected one");
+    Ok(out)
 }
 
 fn name(data: &[u8], at: usize) -> Result<&str> {
@@ -252,6 +326,28 @@ mod tests {
         }
         assert!(build_tonemap(&[], &[], &[-32198.]).unwrap().is_none());
         assert!(add_marker_binding(&[]).is_err());
+    }
+
+    #[test]
+    fn key_profiles_are_checked_and_set_the_one_native_key() {
+        for keys in [
+            vec![KeyProfile { marker: 60.0, key: 6.0 }],
+            vec![KeyProfile { marker: -32198.5, key: 6.0 }],
+            vec![KeyProfile { marker: 60.0009765625, key: f32::NAN }],
+            vec![KeyProfile { marker: 60.0009765625, key: 6.0 }; 2],
+        ] {
+            assert!(build_tonemap_profiles(&[], &[], &[-32198.], &keys).is_err());
+        }
+        let ok = [KeyProfile { marker: 60.0009765625, key: 6.0 }];
+        assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok).unwrap().is_none());
+        let div = vec![0x0800000e, 0x00100012, 1, 0x00004001, NATIVE_KEY.to_bits(), 0x0010000a, 1];
+        let block = vec![vec![0x01000012], div.clone()];
+        let out = with_key(&block, 6.0).unwrap();
+        assert_eq!(out[0], block[0]);
+        assert_eq!(out[1][4], 6.0f32.to_bits());
+        assert_eq!(out[1][..4], div[..4]);
+        assert!(with_key(&[vec![0x01000012]], 6.0).is_err());
+        assert!(with_key(&[div.clone(), div], 6.0).is_err());
     }
 
     #[test]

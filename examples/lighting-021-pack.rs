@@ -18,6 +18,19 @@ struct Manifest {
     donor_sha256: String,
     target_sha256: String,
     profiles: Vec<Profile>,
+    /// Scenes drawn with the native tone curve at their own build's exposure key
+    /// (London: 0.31a2's 6.0), one marker per weather.
+    #[serde(default)]
+    key_profiles: Vec<KeyProfileSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyProfileSpec {
+    name: String,
+    key: f32,
+    /// Each weather's `mie_fog_base_height` as its projects carry it.
+    markers: Vec<f32>,
 }
 
 #[derive(Deserialize)]
@@ -101,6 +114,14 @@ fn main() -> Result<()> {
     }
     ensure!(!profiles.is_empty(), "no original profiles");
     let markers: Vec<f32> = profiles.iter().map(|p| p.marker).collect();
+    let keys: Vec<shaders::KeyProfile> = manifest
+        .key_profiles
+        .iter()
+        .flat_map(|p| {
+            println!("{}: exposure key {}, markers {:?}", p.name, p.key, p.markers);
+            p.markers.iter().map(|&marker| shaders::KeyProfile { marker, key: p.key })
+        })
+        .collect();
     let native_fog = native.read(shaders::PATH)?;
     let fog = shaders::build(&donor.read(shaders::PATH)?, &native_fog, &profiles)?;
     let mut converted = vec![(shaders::PATH.to_owned(), native_fog, fog)];
@@ -111,7 +132,7 @@ fn main() -> Result<()> {
         .collect();
     for path in paths {
         let before = native.read(&path)?;
-        if let Some(after) = shaders::build_tonemap(&source_tone, &before, &markers)? {
+        if let Some(after) = shaders::build_tonemap_profiles(&source_tone, &before, &markers, &keys)? {
             converted.push((path, before, after));
         }
     }
