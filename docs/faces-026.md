@@ -108,20 +108,33 @@ looks `head_<n>` up for masks and face-wear only); no helmet has one.
   back), its neck (36 mm short of the native one) stretched down past the native neck's edge
   and joined to it as the others. His knit cap is modelled on his head (the mesh at its top,
   his skin open under it), its shadow painted on his forehead and his own longer hair below
-  it. `graft_scalp_069` takes the cap off and cuts his head along his hairline (`HAIRLINE`:
-  across the forehead under the band the cap shadowed, over the ears, behind them down to the
-  nape; his ears kept whole), and joins on a 0.69d0 face's own scalp above the same line (its
-  ears left out): its cut edge laid on his, the rest of it moved with the edge (each vertex by
-  the mean of its neighbours' moves), and the two edges closed by a strip of the scalp's
-  triangles (no gap). The donor is the short cut whose edge moves least onto his
-  (`SCALP_DONORS`: `head_default`, `head_01` .. `head_04`, `head_06`; `head_01`, 4.0 mm on
-  average; `FACES_NOVICE_SCALP=<head>` takes another). The scalp keeps the donor's vertices,
-  skin, basis and UVs; its material is his face's (the native head's, his gloss and Fresnel)
-  with the donor's normal map and the donor's colour map toned to his skin (the mean of his
-  forehead just under the seam over the donor's just above it, a gain a channel). His face's
-  material is the native head's with his maps (gloss and Fresnel the native skin's,
-  constant); his colour map's cap shadow is lifted (`lift_cap_shadow`), what of it the cut
-  leaves.
+  it. `graft_scalp_069` makes his head one surface with 0.69d0 `head_01`'s scalp
+  (`NOVICE_SCALP`, chosen by its look on him; `FACES_NOVICE_SCALP=<head>` another):
+  - his cap off, and his head cut along his hairline (`HAIRLINE`: across the forehead under the
+    band the cap shadowed, over the ears, behind them down to the nape; his ears kept whole);
+    the donor's head above the same line (its ears left out);
+  - the scalp's cut edge laid on his edge vertex for vertex (the two edges matched by the
+    least total move along them, each scalp edge vertex onto its match, the rest of the scalp
+    moved with the edge), and a strip of triangles over the shared vertices closing the seam:
+    no gap and no vertex on the side of another triangle (a T-joint cracks). Where the moves
+    fold a scalp triangle over (round the ears), its free corners go to their neighbours'
+    middle until it faces out again; the four that two of his edge vertices running back at
+    corner of the ear leave folded (3 to 20 mm², behind the ear tops) are open (none shows in
+    the game);
+  - on the seam the scalp takes his skin weights and normals (a vertex skinned otherwise than
+    the one it sits on parts from it when posed), and the normals 12 mm either side are made
+    again from the joined surface; its UVs go into his cap's old place in his map;
+  - one map and one material, his (`bake_novice_maps`, at 2048): his colour and normal maps,
+    the cap's place painted with the donor's scalp (its colour toned to his forehead, a gain a
+    channel), and over 15 mm either side of the seam each texel's tone giving way to both
+    sides' mean at the nearest point of the seam, its detail thinning (60 % gone at the seam)
+    and the normal map going flat: at the seam both sides are alike;
+  - his map has the cap's shadow and brim painted under his hairline (to 84 texels under the
+    cut at the temples): `skin_over_cap_band` paints his skin there, each column's skin from
+    where it starts mirrored upwards (the normal map with it), so no edge is left where his
+    real skin starts. Past each part of the map near the seam the edge texels are carried out
+    48 texels (in the scalp's place too: past its part lies the rest of the donor's map, its
+    face, which the filtering drew as a line along the seam).
 
 ## A mask for a face (`face_shape`, `face_fit::settle`)
 

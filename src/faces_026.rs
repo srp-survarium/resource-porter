@@ -204,7 +204,11 @@ fn variant_name(state: State) -> &'static str {
 
 /// What a donor gives of a face: the drawn surfaces of each state, and how
 /// each one's neck was joined.
-type Donated = (BTreeMap<State, Drawn>, Vec<(String, NeckJoin)>);
+type Donated = (
+    BTreeMap<State, Drawn>,
+    Vec<(String, NeckJoin)>,
+    Option<ScalpBake>,
+);
 
 /// A face as its donor gives it: the drawn surfaces of each state it has
 /// a model for (always the bare one), their necks joined to the body.
@@ -219,6 +223,7 @@ fn donor_faces(
     let native = parse_mesh(native_head, 40, "native head")?;
     let seam = Seam::new(&native)?;
     let mut joins = vec![];
+    let mut scalp_bake = None;
     // FACES_NO_NECK: the donors' own necks, for the numbers before.
     let no_neck = std::env::var_os("FACES_NO_NECK").is_some();
     let mut join = |label: &str, mesh: &[u8]| -> Result<Vec<u8>> {
@@ -297,16 +302,18 @@ fn donor_faces(
                 stretched * 1000.0
             );
             let surfaces = if scalp {
-                // The 0.69d0 scalp that joins his head best: whose edge moves
-                // least onto his cut (FACES_NOVICE_SCALP=<head>: that one).
-                let only = std::env::var("FACES_NOVICE_SCALP").ok();
-                let mut best: Option<(Vec<u8>, Vec<u8>, ScalpJoin)> = None;
+                // The 0.69d0 scalp chosen by its look on him in the game
+                // ([`NOVICE_SCALP`]; FACES_NOVICE_SCALP=<head>: another).
+                let only = Some(
+                    std::env::var("FACES_NOVICE_SCALP").unwrap_or_else(|_| NOVICE_SCALP.to_owned()),
+                );
+                let mut best: Option<(Vec<u8>, ScalpJoin, ScalpBake)> = None;
                 for (model, s) in SCALP_DONORS {
                     if only.as_ref().is_some_and(|o| o != model) {
                         continue;
                     }
                     let donor = read_069(sources, bind_pose, model, s)?;
-                    let (bare, grafted, join) = graft_scalp_069(&mesh, &donor, model)?;
+                    let (head, join, bake) = graft_scalp_069(&mesh, &donor, model)?;
                     println!(
                         "  scalp of {model}: his cap ({} vertices) and {} triangles above his hairline off, {} of its triangles, its edge onto his cut by {:.1} mm on average (at most {:.1}), {} triangles close the seam",
                         join.cap,
@@ -316,16 +323,14 @@ fn donor_faces(
                         join.edge_farthest * 1000.0,
                         join.bridge
                     );
-                    if best.as_ref().is_none_or(|b| join.edge_mean < b.2.edge_mean) {
-                        best = Some((bare, grafted, join));
+                    if best.as_ref().is_none_or(|b| join.edge_mean < b.1.edge_mean) {
+                        best = Some((head, join, bake));
                     }
                 }
-                let (bare, grafted, join) = best.context("no scalp donor")?;
+                let (head, join, bake) = best.context("no scalp donor")?;
                 println!("  the scalp: {}'s", join.donor);
-                vec![
-                    (surface.to_owned(), bare),
-                    (scalp_surface(&join.donor), grafted),
-                ]
+                scalp_bake = Some(bake);
+                vec![(surface.to_owned(), head)]
             } else {
                 vec![(surface.to_owned(), mesh)]
             };
@@ -335,7 +340,7 @@ fn donor_faces(
             );
         }
     }
-    Ok((out, joins))
+    Ok((out, joins, scalp_bake))
 }
 
 /// The live item (`mask/face_069d_<name>`) that is 0.69d0's face-wear with a
@@ -600,11 +605,9 @@ pub const SCALP_DONORS: [(&str, &str); 6] = [
     ("head_06", "head_06_s"),
 ];
 
-/// The grafted scalp's surface (an additional model of the bare face):
-/// `scalp_<donor>_s`.
-fn scalp_surface(donor: &str) -> String {
-    format!("scalp_{donor}_s")
-}
+/// The scalp the Novice wears: `head_01`'s (dark, short, its forehead
+/// smooth), chosen among [`SCALP_DONORS`] by its look on him in the game.
+const NOVICE_SCALP: &str = "head_01";
 
 /// The Novice's hairline, round his head: (degrees from his face, height in
 /// m). Everything of his above it is his cap's line, its shadow and his own
@@ -628,6 +631,11 @@ const EAR_KEEP: f64 = 0.003;
 /// A vertex of the donor this near one of the Novice's ears (m) is of its
 /// ear, which the scalp does not take.
 const EAR_NEAR: f64 = 0.012;
+/// How far from the seam the scalp's normals give way to the joined
+/// surface's (m).
+const SEAM_NORMALS: f64 = 0.012;
+/// Rounds in which folds of the scalp are undone.
+const UNFOLD_ROUNDS: usize = 200;
 /// Rounds in which the scalp settles onto the cut.
 const SCALP_SETTLE: usize = 400;
 
@@ -653,7 +661,7 @@ fn is_ear(v: &[u8; 48]) -> bool {
 }
 
 /// His face without the mesh at its top (his knit cap, modelled on his head).
-fn take_cap_off(face: &[u8]) -> Result<(Vec<u8>, usize)> {
+fn take_cap_off(face: &[u8]) -> Result<(Vec<u8>, usize, [f64; 4])> {
     let key = |p: [f64; 3]| p.map(|v| (v * 1e5).round() as i64);
     let mesh = parse_mesh(face, 48, "face")?;
     let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
@@ -698,7 +706,39 @@ fn take_cap_off(face: &[u8]) -> Result<(Vec<u8>, usize)> {
     let bare = crate::outfit_026::keep_triangles(face, |c| {
         !c.iter().all(|(p, _)| capped.contains(&key(*p)))
     })?;
-    Ok((bare, capped.len()))
+    // Where the cap is in his colour map: free for the scalp now.
+    let mut cap_uv = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for (i, k) in weld.iter().enumerate() {
+        if part[*k] == cap {
+            let uv = vertex_uv(&face[12 + i * 48..12 + (i + 1) * 48]);
+            cap_uv = [
+                cap_uv[0].min(uv[0]),
+                cap_uv[1].min(uv[1]),
+                cap_uv[2].max(uv[0]),
+                cap_uv[3].max(uv[1]),
+            ];
+        }
+    }
+    Ok((bare, capped.len(), cap_uv))
+}
+
+/// A 48-byte vertex's UV.
+fn vertex_uv(v: &[u8]) -> [f64; 2] {
+    [40, 44].map(|at| f64::from(f32::from_le_bytes(v[at..at + 4].try_into().unwrap())))
+}
+
+/// Sets a 48-byte vertex's UV (and the fractions its basis carries).
+fn set_vertex_uv(v: &mut [u8; 48], uv: [f64; 2]) {
+    for (k, at) in [40, 44].into_iter().enumerate() {
+        v[at..at + 4].copy_from_slice(&(uv[k] as f32).to_le_bytes());
+    }
+    v[35] = crate::v069d_skinned::uv_fraction(uv[0] as f32);
+    v[39] = crate::v069d_skinned::uv_fraction(uv[1] as f32);
 }
 
 /// The ordered vertices (welded) of a surface's longest open loop.
@@ -758,19 +798,44 @@ pub struct ScalpJoin {
     pub bridge: usize,
 }
 
-/// The Novice's head with his cap's line, its shadow and his own hair off
-/// along [`HAIRLINE`] (his ears kept), and a 0.69d0 face's scalp above the
-/// same line joined on: its cut edge laid on his, the rest of it moved with
-/// the edge (each vertex by the mean of its neighbours' moves), and the two
-/// edges closed by a strip of the scalp's triangles. The scalp keeps the
-/// donor's skin, basis and UVs. Returns his head, the scalp and the join.
+/// A point of the seam: where it is, and the UV of his skin and of the
+/// scalp there (both in his colour map).
+#[derive(Clone, Copy, Debug)]
+pub struct SeamPoint {
+    pub at: [f64; 3],
+    pub his: [f64; 2],
+    pub scalp: [f64; 2],
+}
+
+/// What his maps need of the graft ([`bake_novice_maps`]): the scalp's
+/// place in his UV map (`rect`, the cap's old place) and how the donor's
+/// UVs map into it (`his = donor * scale + offset`), and the seam.
+#[derive(Clone, Debug)]
+pub struct ScalpBake {
+    pub donor: String,
+    pub rect: [f64; 4],
+    pub scale: [f64; 2],
+    pub offset: [f64; 2],
+    pub seam: Vec<SeamPoint>,
+}
+
+/// The Novice's head, one surface: his cap, the band it shadowed and his
+/// own hair off along [`HAIRLINE`] (his ears kept), and a 0.69d0 face's
+/// scalp above the same line joined on. The scalp's cut edge is laid on his
+/// at the same share of its length round the head (so it follows his edge
+/// all round, round the ears too), the rest of it moved with the edge (each
+/// vertex by the mean of its neighbours' moves), and the two edges closed by
+/// a strip of the scalp's triangles; on the seam the scalp takes his
+/// normals. The scalp keeps the donor's skin and basis; its UVs go into the
+/// cap's old place in his colour map, which [`bake_novice_maps`] paints
+/// with the donor's scalp. Returns the head, the join and what the maps need.
 fn graft_scalp_069(
     face: &[u8],
     donor: &[u8],
     donor_name: &str,
-) -> Result<(Vec<u8>, Vec<u8>, ScalpJoin)> {
+) -> Result<(Vec<u8>, ScalpJoin, ScalpBake)> {
     use crate::face_shape::{Soup, position, set_position};
-    let (capless, cap) = take_cap_off(face)?;
+    let (capless, cap, cap_uv) = take_cap_off(face)?;
     let his = Soup::parse(&capless, "Novice")?;
     // The azimuth's axis: his head's middle (x, z) above the jaw.
     let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
@@ -795,7 +860,7 @@ fn graft_scalp_069(
             if is_ear(v) { d.max(EAR_KEEP) } else { d }
         })
         .collect();
-    let (head, cut) = his.clip(&under)?;
+    let (mut head, cut) = his.clip(&under)?;
     let head_mesh = parse_mesh(&head.bytes()?, 48, "Novice")?;
     let (head_weld, _) = crate::mask_fit::weld_vertices(&head_mesh);
     let his_loop = longest_open_loop(&head_mesh, &head_weld);
@@ -804,16 +869,33 @@ fn graft_scalp_069(
         "the Novice's head has no open top after the cut"
     );
     let first_of = |weld: &[usize], k: usize| weld.iter().position(|&w| w == k).unwrap();
-    let his_points: Vec<[f64; 3]> = his_loop
-        .iter()
-        .map(|&k| head_mesh.positions[first_of(&head_weld, k)])
-        .collect();
+    let his_at: Vec<usize> = his_loop.iter().map(|&k| first_of(&head_weld, k)).collect();
+    let his_points: Vec<[f64; 3]> = his_at.iter().map(|&i| head_mesh.positions[i]).collect();
     let his_ears: Vec<[f64; 3]> = his
         .vertices
         .iter()
         .filter(|v| is_ear(v))
         .map(position)
         .collect();
+    // The cap's place in his map, a little in from its edges: nothing of
+    // his kept skin may be in it.
+    let inset = 0.01;
+    let rect = [
+        cap_uv[0] + inset,
+        cap_uv[1] + inset,
+        cap_uv[2] - inset,
+        cap_uv[3] - inset,
+    ];
+    ensure!(
+        rect[0] < rect[2] && rect[1] < rect[3],
+        "the Novice's cap has no room in his map"
+    );
+    let inside =
+        |uv: [f64; 2]| uv[0] > rect[0] && uv[0] < rect[2] && uv[1] > rect[1] && uv[1] < rect[3];
+    ensure!(
+        !head.vertices.iter().any(|v| inside(vertex_uv(v))),
+        "his kept skin is in the cap's place of his map"
+    );
 
     // The donor above the line, but for its ears.
     let theirs = Soup::parse(donor, donor_name)?;
@@ -868,30 +950,95 @@ fn graft_scalp_069(
         their_loop.len() >= 16,
         "{donor_name}: the scalp has no open edge"
     );
-    // Its edge onto his cut, the rest with it.
-    let on_his = |p: [f64; 3]| -> [f64; 3] {
-        let n = his_points.len();
-        let mut best = (f64::INFINITY, p);
-        for k in 0..n {
-            let (a, b) = (his_points[k], his_points[(k + 1) % n]);
-            let ab = sub(b, a);
-            let t = (dot(sub(p, a), ab) / dot(ab, ab).max(1e-18)).clamp(0.0, 1.0);
-            let q = [0, 1, 2].map(|j| a[j] + t * ab[j]);
-            let d = sub(p, q);
-            if dot(d, d) < best.0 {
-                best = (dot(d, d), q);
-            }
-        }
-        best.1
+    let ours: Vec<usize> = their_loop.iter().map(|&k| first_of(&weld, k)).collect();
+    let (n, m) = (ours.len(), his_points.len());
+    let at = |s: &Soup, i: usize| position(&s.vertices[i]);
+    // Both loops the same way round and from the nearest pair.
+    let start_his = (0..m)
+        .min_by(|&a, &b| {
+            let (da, db) = (
+                sub(his_points[a], at(&scalp, ours[0])),
+                sub(his_points[b], at(&scalp, ours[0])),
+            );
+            dot(da, da).total_cmp(&dot(db, db))
+        })
+        .unwrap();
+    let ahead = at(&scalp, ours[n / 8]);
+    let forward = {
+        let f = sub(his_points[(start_his + m / 8) % m], ahead);
+        let b = sub(his_points[(start_his + m - m / 8) % m], ahead);
+        dot(f, f) < dot(b, b)
     };
+    let his_index = |j: usize| -> usize {
+        if forward {
+            (start_his + j) % m
+        } else {
+            (start_his + m - j % m) % m
+        }
+    };
+    let his_ordered: Vec<[f64; 3]> = (0..m).map(|j| his_points[his_index(j)]).collect();
+    // The two edges matched in order, each vertex to the nearest it may be
+    // (a path through the pairs from the start round to the start again,
+    // never going back: dynamic time warping), so the scalp's edge follows
+    // his all round, round the ears too.
+    let dist = |i: usize, j: usize| {
+        let d = sub(at(&scalp, ours[i]), his_ordered[j]);
+        dot(d, d).sqrt()
+    };
+    let mut cost = vec![vec![f64::INFINITY; m]; n];
+    for i in 0..n {
+        for j in 0..m {
+            let before = match (i, j) {
+                (0, 0) => 0.0,
+                (0, _) => cost[0][j - 1],
+                (_, 0) => cost[i - 1][0],
+                _ => cost[i - 1][j].min(cost[i][j - 1]).min(cost[i - 1][j - 1]),
+            };
+            cost[i][j] = before + dist(i, j);
+        }
+    }
+    let mut path = vec![(n - 1, m - 1)];
+    while let Some(&(i, j)) = path.last() {
+        if (i, j) == (0, 0) {
+            break;
+        }
+        let step = if i == 0 {
+            (0, j - 1)
+        } else if j == 0 {
+            (i - 1, 0)
+        } else {
+            [(i - 1, j - 1), (i - 1, j), (i, j - 1)]
+                .into_iter()
+                .min_by(|a, b| cost[a.0][a.1].total_cmp(&cost[b.0][b.1]))
+                .unwrap()
+        };
+        path.push(step);
+    }
+    path.reverse();
+    // Each vertex's match: the nearest of the path's pairs it is in.
+    let mut his_of = vec![(f64::INFINITY, 0); n];
+    let mut scalp_of = vec![(f64::INFINITY, 0); m];
+    for &(i, j) in &path {
+        let d = dist(i, j);
+        if d < his_of[i].0 {
+            his_of[i] = (d, j);
+        }
+        if d < scalp_of[j].0 {
+            scalp_of[j] = (d, i);
+        }
+    }
+    // Its edge onto his, vertex for vertex (no vertex of one edge on a side
+    // of the other: such a T-joint leaves cracks), the rest with it.
     let mut held = vec![false; neighbours.len()];
     let mut moves = vec![[0.0_f64; 3]; neighbours.len()];
     let (mut farthest, mut total) = (0.0_f64, 0.0);
-    for &k in &their_loop {
-        let p = scalp_mesh.positions[first_of(&weld, k)];
-        held[k] = true;
-        moves[k] = sub(on_his(p), p);
-        let l = dot(moves[k], moves[k]).sqrt();
+    for (k, &i) in ours.iter().enumerate() {
+        let target = his_ordered[his_of[k].1];
+        let p = at(&scalp, i);
+        let w = weld[i];
+        held[w] = true;
+        moves[w] = sub(target, p);
+        let l = dot(moves[w], moves[w]).sqrt();
         farthest = farthest.max(l);
         total += l;
     }
@@ -906,104 +1053,150 @@ fn graft_scalp_069(
             })
             .collect();
     }
-    for (i, v) in scalp.vertices.iter_mut().enumerate() {
-        let p = position(v);
-        let m = moves[weld[i]];
-        set_position(v, [p[0] + m[0], p[1] + m[1], p[2] + m[2]]);
-    }
-    // The strip between the two edges: his edge's points as the scalp's
-    // vertices (each a copy of the scalp's edge vertex nearest it), then a
-    // zipper along both loops.
-    let ours: Vec<usize> = their_loop.iter().map(|&k| first_of(&weld, k)).collect();
-    let at = |s: &Soup, i: usize| position(&s.vertices[i]);
-    let mut theirs_on_his = vec![];
-    for p in &his_points {
-        let nearest = *ours
-            .iter()
-            .min_by(|&&a, &&b| {
-                let (da, db) = (sub(at(&scalp, a), *p), sub(at(&scalp, b), *p));
-                dot(da, da).total_cmp(&dot(db, db))
+    // Where the edge moved far (round the ears) the moves can fold the
+    // scalp's triangles over: a folded triangle's free corners go to their
+    // neighbours' middle, round after round, until none is folded.
+    let original = scalp_mesh.positions.clone();
+    let mut placed: Vec<[f64; 3]> = (0..neighbours.len())
+        .map(|k| {
+            let i = first_of(&weld, k);
+            let (p, mv) = (original[i], moves[k]);
+            [p[0] + mv[0], p[1] + mv[1], p[2] + mv[2]]
+        })
+        .collect();
+    // Which way a triangle should face: its corners' normals (a few of the
+    // donor's own triangles round the ears face against theirs: as they
+    // were, not folds).
+    let facing: Vec<[f64; 3]> = scalp_mesh
+        .triangles
+        .iter()
+        .map(|t| {
+            t.iter().fold([0.0; 3], |s, &v| {
+                let n = [2, 1, 0].map(|k| f64::from(scalp.vertices[v][28 + k]) / 127.5 - 1.0);
+                [s[0] + n[0], s[1] + n[1], s[2] + n[2]]
             })
-            .unwrap();
-        let mut v = scalp.vertices[nearest];
+        })
+        .collect();
+    let folded = |placed: &[[f64; 3]]| -> Vec<usize> {
+        scalp_mesh
+            .triangles
+            .iter()
+            .enumerate()
+            .filter(|&(k, t)| {
+                let [a, b, c] = t.map(|v| original[v]);
+                let [pa, pb, pc] = t.map(|v| placed[weld[v]]);
+                let was = crate::mask_fit::cross(sub(b, a), sub(c, a));
+                let now = crate::mask_fit::cross(sub(pb, pa), sub(pc, pa));
+                // (A triangle the edge collapsed, two corners on one of his
+                // edge vertices, covers nothing: not a fold.)
+                dot(now, now) > 1e-14 && dot(was, facing[k]) >= 0.0 && dot(now, facing[k]) < 0.0
+            })
+            .map(|(k, _)| k)
+            .collect()
+    };
+    let mut unfolded = 0;
+    for _ in 0..UNFOLD_ROUNDS {
+        let bad = folded(&placed);
+        if bad.is_empty() {
+            break;
+        }
+        unfolded += 1;
+        let mut free: Vec<usize> = bad
+            .iter()
+            .flat_map(|&t| scalp_mesh.triangles[t].map(|v| weld[v]))
+            .filter(|&k| !held[k])
+            .collect();
+        free.sort_unstable();
+        free.dedup();
+        for k in free {
+            let n = neighbours[k].len() as f64;
+            placed[k] =
+                [0, 1, 2].map(|j| neighbours[k].iter().map(|&u| placed[u][j]).sum::<f64>() / n);
+        }
+    }
+    let still_folded = folded(&placed).len();
+    for (i, v) in scalp.vertices.iter_mut().enumerate() {
+        set_position(v, placed[weld[i]]);
+    }
+    println!(
+        "  {donor_name}'s scalp: folds undone in {unfolded} rounds, {still_folded} triangles still folded"
+    );
+    // The scalp's UVs into the cap's place of his map.
+    let (mut ulo, mut uhi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+    for v in &scalp.vertices {
+        let uv = vertex_uv(v);
+        for k in 0..2 {
+            ulo[k] = ulo[k].min(uv[k]);
+            uhi[k] = uhi[k].max(uv[k]);
+        }
+    }
+    let scale = [0, 1].map(|k| (rect[k + 2] - rect[k]) / (uhi[k] - ulo[k]).max(1e-9));
+    let offset = [0, 1].map(|k| rect[k] - ulo[k] * scale[k]);
+    for v in &mut scalp.vertices {
+        let uv = vertex_uv(v);
+        set_vertex_uv(v, [0, 1].map(|k| uv[k] * scale[k] + offset[k]));
+    }
+    // On the seam the scalp takes his skin and normal, its match's: posed,
+    // a vertex skinned otherwise than the one it sits on parts from it (a
+    // crack along the seam in the game).
+    for (k, &i) in ours.iter().enumerate() {
+        let his = head.vertices[his_at[his_index(his_of[k].1)]];
+        scalp.vertices[i][12..32].copy_from_slice(&his[12..32]);
+    }
+    // The seam's points (his edge vertices) with the scalp's UV there.
+    let seam: Vec<SeamPoint> = (0..m)
+        .map(|j| SeamPoint {
+            at: his_ordered[j],
+            his: vertex_uv(&head.vertices[his_at[his_index(j)]]),
+            scalp: vertex_uv(&scalp.vertices[ours[scalp_of[j].1]]),
+        })
+        .collect();
+    // The strip between the two edges: his edge's points as the scalp's
+    // vertices (its UVs there, his normals), then a zipper along both loops.
+    let mut theirs_on_his = vec![];
+    for (j, p) in his_ordered.iter().enumerate() {
+        let mut v = scalp.vertices[ours[scalp_of[j].1]];
         set_position(&mut v, *p);
+        set_vertex_uv(&mut v, seam[j].scalp);
+        v[12..32].copy_from_slice(&head.vertices[his_at[his_index(j)]][12..32]);
         theirs_on_his.push(u16::try_from(scalp.vertices.len())?);
         scalp.vertices.push(v);
     }
-    // Both loops the same way round and from the nearest pair.
-    let (n, m) = (ours.len(), theirs_on_his.len());
-    let pos_his = |j: usize| his_points[j % m];
-    let start_his = (0..m)
-        .min_by(|&a, &b| {
-            let (da, db) = (
-                sub(pos_his(a), at(&scalp, ours[0])),
-                sub(pos_his(b), at(&scalp, ours[0])),
-            );
-            dot(da, da).total_cmp(&dot(db, db))
-        })
-        .unwrap();
-    // The direction: his loop's step that follows ours.
-    let ahead = at(&scalp, ours[n / 8]);
-    let forward = {
-        let f = sub(pos_his(start_his + m / 8), ahead);
-        let b = sub(pos_his(start_his + m - m / 8), ahead);
-        dot(f, f) < dot(b, b)
-    };
-    let his_index = |j: usize| -> usize {
-        if forward {
-            (start_his + j) % m
-        } else {
-            (start_his + m - j % m) % m
-        }
-    };
-    // The scalp's own winding: a triangle's normal against the way out from
-    // the axis, which the strip's triangles take.
-    let outward_sign = {
-        let mut sum = 0.0;
-        for t in &scalp.triangles {
-            let [a, b, c] = t.map(|i| at(&scalp, usize::from(i)));
-            let nrm = crate::mask_fit::cross(sub(b, a), sub(c, a));
-            let mid = [0, 1, 2].map(|k| (a[k] + b[k] + c[k]) / 3.0);
-            let out = [mid[0] - axis[0], 0.0, mid[2] - axis[1]];
-            sum += dot(nrm, out).signum() + if mid[1] > 1.72 { nrm[1].signum() } else { 0.0 };
-        }
-        sum.signum()
-    };
-    let (mut i, mut j) = (0_usize, 0_usize);
+    // The strip's winding: each of its triangles runs the scalp's edge the
+    // other way from the scalp's own triangles (the edge loop's order), and
+    // his edge as his do (his loop is the other way round from the scalp's:
+    // `forward` false), so the strip is wound as both. (A winding guessed
+    // from each sliver's own normal culled some: cracks along the seam.)
+    ensure!(
+        !forward,
+        "{donor_name}: the scalp's edge and his run the same way round: one of them faces in"
+    );
+    // The zipper along the path, round to the start.
     let mut bridge = 0;
-    while i < n || j < m {
-        let a = ours[i % n] as u16;
-        let b = theirs_on_his[his_index(j)];
-        let step_ours = if i >= n {
-            false
-        } else if j >= m {
-            true
-        } else {
-            let na = at(&scalp, ours[(i + 1) % n]);
-            let nb = pos_his(his_index(j + 1));
-            let (d1, d2) = (
-                sub(na, pos_his(his_index(j))),
-                sub(nb, at(&scalp, ours[i % n])),
-            );
-            dot(d1, d1) < dot(d2, d2)
-        };
-        let c = if step_ours {
-            i += 1;
-            ours[i % n] as u16
-        } else {
-            j += 1;
-            theirs_on_his[his_index(j)]
-        };
-        let mut tri = [a, b, c];
-        let [pa, pb, pc] = tri.map(|v| at(&scalp, usize::from(v)));
-        let nrm = crate::mask_fit::cross(sub(pb, pa), sub(pc, pa));
-        let mid = [0, 1, 2].map(|k| (pa[k] + pb[k] + pc[k]) / 3.0);
-        if dot(nrm, [mid[0] - axis[0], 0.0, mid[2] - axis[1]]).signum() != outward_sign {
-            tri.swap(1, 2);
+    let mut steps = path.clone();
+    steps.push((n, m));
+    for w in steps.windows(2) {
+        let ((i, j), (i2, j2)) = (w[0], w[1]);
+        let o = |i: usize| ours[i % n] as u16;
+        let h = |j: usize| theirs_on_his[j % m];
+        let mut tris = vec![];
+        if j2 > j {
+            tris.push([o(i), h(j), h(j2)]);
         }
-        if dot(nrm, nrm) > 1e-16 {
-            scalp.triangles.push(tri);
-            bridge += 1;
+        if i2 > i {
+            tris.push([o(i), h(j2), o(i2)]);
+        }
+        for [a, b, c] in tris {
+            // A triangle with two corners on one point covers nothing.
+            let [pa, pb, pc] = [a, b, c].map(|v| at(&scalp, usize::from(v)));
+            let same = |p: [f64; 3], q: [f64; 3]| {
+                let d = sub(p, q);
+                dot(d, d) < 1e-14
+            };
+            if !(same(pa, pb) || same(pb, pc) || same(pa, pc)) {
+                scalp.triangles.push([a, b, c]);
+                bridge += 1;
+            }
         }
     }
     let join = ScalpJoin {
@@ -1012,10 +1205,101 @@ fn graft_scalp_069(
         cut,
         triangles: scalp.triangles.len(),
         edge_farthest: farthest,
-        edge_mean: total / their_loop.len() as f64,
+        edge_mean: total / n as f64,
         bridge,
     };
-    Ok((head.bytes()?, scalp.bytes()?, join))
+    // One surface: his head, then the scalp.
+    let base = u16::try_from(head.vertices.len())?;
+    let soup_triangles = head.triangles.len();
+    head.vertices.extend(scalp.vertices.iter().copied());
+    head.triangles
+        .extend(scalp.triangles.iter().map(|t| t.map(|v| v + base)));
+    // The normals across the seam from the joined surface: his edge's (cut
+    // vertices, which took an inside corner's normal), the strip's, and the
+    // scalp's near it, more the nearer (his own vertices keep theirs).
+    {
+        let mesh = parse_mesh(&head.bytes()?, 48, "Novice")?;
+        let (weld, _) = crate::mask_fit::weld_vertices(&mesh);
+        let mut sums = vec![[0.0_f64; 3]; weld.iter().copied().max().map_or(0, |k| k + 1)];
+        for t in &mesh.triangles {
+            let [a, b, c] = t.map(|v| mesh.positions[v]);
+            let n = crate::mask_fit::cross(sub(b, a), sub(c, a));
+            for &v in t {
+                for k in 0..3 {
+                    sums[weld[v]][k] += n[k];
+                }
+            }
+        }
+        let stored =
+            |v: &[u8; 48]| -> [f64; 3] { [2, 1, 0].map(|k| f64::from(v[28 + k]) / 127.5 - 1.0) };
+        let on_edge: std::collections::HashSet<usize> = his_at.iter().copied().collect();
+        let seam_distance = |p: [f64; 3]| -> f64 {
+            his_ordered
+                .iter()
+                .map(|q| {
+                    let d = sub(p, *q);
+                    dot(d, d).sqrt()
+                })
+                .fold(f64::INFINITY, f64::min)
+        };
+        for (i, v) in head.vertices.iter_mut().enumerate() {
+            let scalp_part = i >= usize::from(base);
+            if !scalp_part && !on_edge.contains(&i) {
+                continue;
+            }
+            let share = if scalp_part {
+                let x = (seam_distance(position(v)) / SEAM_NORMALS).clamp(0.0, 1.0);
+                1.0 - x * x * (3.0 - 2.0 * x)
+            } else {
+                1.0
+            };
+            if share <= 0.0 {
+                continue;
+            }
+            let own = stored(v);
+            let mut n = sums[weld[i]];
+            let l = dot(n, n).sqrt();
+            if l < 1e-12 {
+                continue;
+            }
+            n = n.map(|x| x / l);
+            if dot(n, own) < 0.0 {
+                n = n.map(|x| -x);
+            }
+            let mixed = [0, 1, 2].map(|k| (own[k] + share * (n[k] - own[k])) as f32);
+            let packed = crate::v069d_skinned::packed_basis(mixed, v[31]);
+            v[28..32].copy_from_slice(&packed.to_le_bytes());
+        }
+        // The winding of the scalp's triangles near the seam (the strip's,
+        // and the donor's round its ears, which faced in there behind its
+        // own ears and showed as cracks): the way their corners' normals
+        // face.
+        let mut turned = 0;
+        for t in head.triangles.iter_mut().skip(soup_triangles) {
+            let [a, b, c] = t.map(|i| position(&head.vertices[usize::from(i)]));
+            if seam_distance(a).min(seam_distance(b)).min(seam_distance(c)) > SEAM_NORMALS {
+                continue;
+            }
+            let g = crate::mask_fit::cross(sub(b, a), sub(c, a));
+            let n = t
+                .iter()
+                .map(|&i| stored(&head.vertices[usize::from(i)]))
+                .fold([0.0; 3], |s, n| [s[0] + n[0], s[1] + n[1], s[2] + n[2]]);
+            if dot(g, g) > 1e-14 && dot(g, n) < 0.0 {
+                t.swap(1, 2);
+                turned += 1;
+            }
+        }
+        println!("  {donor_name}'s scalp: {turned} triangles near the seam turned to face out");
+    }
+    let bake = ScalpBake {
+        donor: donor_name.to_owned(),
+        rect,
+        scale,
+        offset,
+        seam,
+    };
+    Ok((head.bytes()?, join, bake))
 }
 
 /// Every face's drawn surfaces per state, the items made for a face, and
@@ -1027,6 +1311,8 @@ pub struct Fitted {
     /// What still shows through or stands off: the gate fails on any that
     /// the open list does not name ([`build`]).
     pub failures: Vec<Misfit>,
+    /// What a grafted scalp needs of its face's maps, by face.
+    pub bakes: BTreeMap<&'static str, ScalpBake>,
 }
 
 /// A face that does not fit something.
@@ -1149,12 +1435,16 @@ pub fn fit_all(view: &mut ResourceDb, sources: &Sources<'_>, faces: &[Face]) -> 
     let native_head = view.read(HEAD_MODEL)?;
     let rig = Rig::new(&bind_pose, &native_head)?;
     let mut built: Vec<(Face, BTreeMap<State, Drawn>)> = vec![];
+    let mut bakes: BTreeMap<&'static str, ScalpBake> = BTreeMap::new();
     let mut necks: Vec<(String, NeckJoin)> = vec![];
     for face in faces {
         if matches!(face.donor, Donor::Native) {
             continue;
         }
-        let (variants, joins) = donor_faces(sources, &bind_pose, &native_head, &rig, face)?;
+        let (variants, joins, bake) = donor_faces(sources, &bind_pose, &native_head, &rig, face)?;
+        if let Some(bake) = bake {
+            bakes.insert(face.key, bake);
+        }
         for (label, j) in &joins {
             println!(
                 "  {label}: neck cut {:.1} mm below the native edge ({} triangles), {} vertices laid onto the native neck (up to {:.1} mm, none above {:.3} m), {} that follow the Head as the donor made them",
@@ -1177,6 +1467,7 @@ pub fn fit_all(view: &mut ResourceDb, sources: &Sources<'_>, faces: &[Face]) -> 
             items: vec![],
             record: json!({ "report": "skipped" }),
             failures: vec![],
+            bakes,
         });
     }
     let mut wardrobe = Wardrobe::read(view, &rig)?;
@@ -1762,6 +2053,7 @@ pub fn fit_all(view: &mut ResourceDb, sources: &Sources<'_>, faces: &[Face]) -> 
         items,
         record,
         failures,
+        bakes,
     })
 }
 
@@ -1979,6 +2271,9 @@ const STAGE: &str = "material.g_stage.effect";
 pub const ICON_COLUMN: i32 = 16;
 /// STK2's 2048 maps drawn at the native head's 1024.
 const STK2_MAP: u32 = 1024;
+/// The Novice's maps with the scalp baked in: his head and the scalp in one
+/// map, at the size of 0.69d0's (2048 wide).
+const NOVICE_MAP: u32 = 2048;
 
 /// A map's role in a native character material.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2478,43 +2773,19 @@ fn magick(args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&result.stdout).into_owned())
 }
 
-/// The mean colour of a region (`WxH+X+Y`) of an image.
-fn mean_rgb(image: &Path, region: &str) -> Result<[f64; 3]> {
-    let text = magick(&[
-        &image.display().to_string(),
-        "-crop",
-        region,
-        "+repage",
-        "-format",
-        "%[fx:mean.r] %[fx:mean.g] %[fx:mean.b]",
-        "info:",
-    ])?;
-    let v: Vec<f64> = text
-        .split_whitespace()
-        .map(str::parse)
-        .collect::<Result<_, _>>()?;
-    ensure!(v.len() == 3, "no mean colour of {region}: {text}");
-    Ok([v[0], v[1], v[2]])
-}
-
-/// The grafted scalp's material: the Novice's face's (the native head's,
-/// his gloss and Fresnel), with the donor face's colour map toned to his
-/// skin (the mean of his forehead just under the seam over the donor's
-/// just above it, a gain a channel) and the donor's normal map: the scalp keeps the
-/// donor's UVs.
 /// The middle (median) UV of a surface's vertices in front of the face
 /// (|x| under 25 mm, z over 50 mm) between two heights (m).
 fn forehead_uv(surface: &[u8], label: &str, from: f64, to: f64) -> Result<[f64; 2]> {
     let mesh = crate::face_shape::Soup::parse(surface, label)?;
-    let mut uvs: Vec<[f64; 2]> = vec![];
-    for v in &mesh.vertices {
-        let p = crate::face_shape::position(v);
-        if p[0].abs() < 0.025 && p[1] > from && p[1] < to && p[2] > 0.05 {
-            uvs.push(
-                [40, 44].map(|at| f64::from(f32::from_le_bytes(v[at..at + 4].try_into().unwrap()))),
-            );
-        }
-    }
+    let uvs: Vec<[f64; 2]> = mesh
+        .vertices
+        .iter()
+        .filter(|v| {
+            let p = crate::face_shape::position(v);
+            p[0].abs() < 0.025 && p[1] > from && p[1] < to && p[2] > 0.05
+        })
+        .map(|v| vertex_uv(v))
+        .collect();
     ensure!(
         !uvs.is_empty(),
         "{label}: no forehead between {from} and {to} m"
@@ -2527,115 +2798,588 @@ fn forehead_uv(surface: &[u8], label: &str, from: f64, to: f64) -> Result<[f64; 
     Ok([median(0), median(1)])
 }
 
-fn scalp_material(
-    out: &Writer<'_>,
+/// An 8-bit image's texels, `channels` a texel.
+struct Raster {
+    width: usize,
+    height: usize,
+    channels: usize,
+    data: Vec<u8>,
+}
+
+impl Raster {
+    /// The first image of a file (a DDS's top mip), as RGB or RGBA.
+    fn read(path: &Path, rgba: bool) -> Result<Self> {
+        let first = format!("{}[0]", path.display());
+        let size = magick(&["identify", "-format", "%w %h", &first])?;
+        let wh: Vec<usize> = size
+            .split_whitespace()
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+        ensure!(wh.len() == 2, "{}: no size ({size})", path.display());
+        let channels = if rgba { 4 } else { 3 };
+        let result = std::process::Command::new("magick")
+            .arg(&first)
+            .args(["-depth", "8", if rgba { "rgba:-" } else { "rgb:-" }])
+            .output()
+            .context("starting ImageMagick; enter the repository Nix shell")?;
+        ensure!(
+            result.status.success(),
+            "ImageMagick: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        ensure!(
+            result.stdout.len() == wh[0] * wh[1] * channels,
+            "{}: {} bytes for {}x{}",
+            path.display(),
+            result.stdout.len(),
+            wh[0],
+            wh[1]
+        );
+        Ok(Self {
+            width: wh[0],
+            height: wh[1],
+            channels,
+            data: result.stdout,
+        })
+    }
+
+    /// Bilinear at `uv` (clamped), each channel 0..255.
+    fn sample(&self, uv: [f64; 2]) -> [f64; 4] {
+        let x = (uv[0] * self.width as f64 - 0.5).clamp(0.0, (self.width - 1) as f64);
+        let y = (uv[1] * self.height as f64 - 0.5).clamp(0.0, (self.height - 1) as f64);
+        let (x0, y0) = (x.floor() as usize, y.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(self.width - 1), (y0 + 1).min(self.height - 1));
+        let (fx, fy) = (x - x0 as f64, y - y0 as f64);
+        let mut out = [0.0; 4];
+        for (c, o) in out.iter_mut().enumerate().take(self.channels) {
+            let t =
+                |x: usize, y: usize| f64::from(self.data[(y * self.width + x) * self.channels + c]);
+            *o = (t(x0, y0) * (1.0 - fx) + t(x1, y0) * fx) * (1.0 - fy)
+                + (t(x0, y1) * (1.0 - fx) + t(x1, y1) * fx) * fy;
+        }
+        out
+    }
+
+    fn set(&mut self, x: usize, y: usize, v: [f64; 4]) {
+        let at = (y * self.width + x) * self.channels;
+        for (d, c) in self.data[at..at + self.channels].iter_mut().zip(v) {
+            *d = c.round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    fn get(&self, x: usize, y: usize) -> [f64; 4] {
+        let at = (y * self.width + x) * self.channels;
+        let mut out = [0.0; 4];
+        for (o, &d) in out.iter_mut().zip(&self.data[at..at + self.channels]) {
+            *o = f64::from(d);
+        }
+        out
+    }
+
+    /// As a binary PPM (RGB).
+    fn write_ppm(&self, path: &Path) -> Result<()> {
+        let mut out = format!("P6\n{} {}\n255\n", self.width, self.height).into_bytes();
+        for t in self.data.chunks(self.channels) {
+            out.extend_from_slice(&t[..3]);
+        }
+        fs::write(path, out)?;
+        Ok(())
+    }
+}
+
+/// His forehead in his map: the columns whose cut is at most this many
+/// texels under its top, and the columns its skin fades in over at their ends.
+const BAND_SPAN: f64 = 130.0;
+const BAND_FADE: f64 = 24.0;
+/// How far under the cut his real skin is looked for (texels), and how far
+/// above it his skin is painted (for the blend's means and the mips).
+const BAND_DEPTH: usize = 110;
+const BAND_ABOVE: usize = 24;
+
+/// His map under his cap: from the cut down, the cap's painted shadow and
+/// brim, then his skin. Under the forehead's part of the cut (`cut`, his UVs
+/// along it), each column takes from where his skin starts upwards his skin
+/// under it, mirrored there (no edge where it starts: the same texels meet);
+/// the normal map with it (its y turned with the mirror). The start is
+/// smoothed along the columns, and the paint fades in at the forehead's ends.
+/// Returns the columns painted and the most rows under the cut.
+fn skin_over_cap_band(
+    colour: &mut Raster,
+    normals: &mut Raster,
+    cut: &[[f64; 2]],
+) -> Result<(usize, usize)> {
+    let (w, h) = (colour.width, colour.height);
+    let mut cut_row = vec![f64::INFINITY; w];
+    for k in 0..cut.len() {
+        let (a, b) = (cut[k], cut[(k + 1) % cut.len()]);
+        let (ax, ay, bx, by) = (
+            a[0] * w as f64,
+            a[1] * h as f64,
+            b[0] * w as f64,
+            b[1] * h as f64,
+        );
+        // (Two points a map apart: the loop crossing between islands.)
+        if (bx - ax).abs() > w as f64 / 8.0 {
+            continue;
+        }
+        let (x0, x1) = (
+            ax.min(bx).ceil().max(0.0) as usize,
+            (ax.max(bx).floor() as usize).min(w - 1),
+        );
+        for (x, row) in cut_row.iter_mut().enumerate().take(x1 + 1).skip(x0) {
+            let t = if (bx - ax).abs() < 1e-9 {
+                0.0
+            } else {
+                (x as f64 - ax) / (bx - ax)
+            };
+            *row = row.min(ay + t * (by - ay));
+        }
+    }
+    let middle = (0..w)
+        .min_by(|&a, &b| cut_row[a].total_cmp(&cut_row[b]))
+        .context("no cut")?;
+    let top = cut_row[middle];
+    ensure!(top.is_finite(), "his cut crosses no column of his map");
+    let within = |x: usize| cut_row[x] <= top + BAND_SPAN;
+    let (mut lo, mut hi) = (middle, middle);
+    while lo > 0 && within(lo - 1) {
+        lo -= 1;
+    }
+    while hi + 1 < w && within(hi + 1) {
+        hi += 1;
+    }
+    let lum = |x: usize, y: usize| {
+        let p = colour.get(x, y);
+        0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]
+    };
+    // His skin's brightness: under the cut's middle, past the band.
+    let mut skin: Vec<f64> = (middle.saturating_sub(60)..=(middle + 60).min(w - 1))
+        .flat_map(|x| {
+            let y = cut_row[x] as usize;
+            (y + 30..y + 50).map(move |y| (x, y))
+        })
+        .map(|(x, y)| lum(x, y))
+        .collect();
+    skin.sort_by(f64::total_cmp);
+    let reference = skin[skin.len() / 2];
+    // Where his skin starts in each column: six rows on at its brightness.
+    let raw: Vec<f64> = (lo..=hi)
+        .map(|x| {
+            let from = cut_row[x] as usize;
+            (from..from + BAND_DEPTH)
+                .find(|&y| (y..y + 6).all(|y| lum(x, y) > 0.85 * reference))
+                .unwrap_or(from + BAND_DEPTH) as f64
+        })
+        .collect();
+    let n = raw.len();
+    let median: Vec<f64> = (0..n)
+        .map(|i| {
+            let mut v: Vec<f64> = raw[i.saturating_sub(20)..(i + 21).min(n)].to_vec();
+            v.sort_by(f64::total_cmp);
+            v[v.len() / 2]
+        })
+        .collect();
+    let starts: Vec<f64> = (0..n)
+        .map(|i| {
+            let v = &median[i.saturating_sub(30)..(i + 31).min(n)];
+            v.iter().sum::<f64>() / v.len() as f64
+        })
+        .collect();
+    let (c0, n0) = (
+        Raster {
+            data: colour.data.clone(),
+            ..*colour
+        },
+        Raster {
+            data: normals.data.clone(),
+            ..*normals
+        },
+    );
+    let mut deepest = 0;
+    for (i, x) in (lo..=hi).enumerate() {
+        let ends = ((x - lo) as f64).min((hi - x) as f64) / BAND_FADE;
+        let fade = ends.clamp(0.0, 1.0);
+        let fade = fade * fade * (3.0 - 2.0 * fade);
+        let start = (starts[i].round() as usize).max(cut_row[x] as usize + 4);
+        deepest = deepest.max(start - cut_row[x] as usize);
+        for y in (cut_row[x] as usize).saturating_sub(BAND_ABOVE)..start {
+            let from = (2 * start - y).min(h - 1);
+            let mix = |a: [f64; 4], b: [f64; 4]| [0, 1, 2, 3].map(|c| a[c] + fade * (b[c] - a[c]));
+            colour.set(x, y, mix(c0.get(x, y), c0.get(x, from)));
+            let mut nv = n0.get(x, from);
+            nv[1] = 255.0 - nv[1];
+            normals.set(x, y, mix(n0.get(x, y), nv));
+        }
+    }
+    Ok((hi - lo + 1, deepest))
+}
+
+/// How far either side of the seam the tone gives way to the seam's and the
+/// detail thins (m).
+const SEAM_BAND: f64 = 0.015;
+/// How much of either side's detail is gone at the seam itself.
+const HAIR_THINS: f64 = 0.6;
+/// Texels painted past the edge of a part of the map near the seam: the
+/// mips take them, and what was there (his cap's lifted shadow, pale) came
+/// through at a glancing view as a light line along the seam.
+const SEAM_DILATE: usize = 48;
+
+/// The Novice's colour and normal maps as one (2048), for his head drawn
+/// as one surface with one material: his own, his cap's old place painted
+/// with the donor's scalp (its colour toned to his skin: the mean of his
+/// forehead just under the seam over the donor's just above it, a gain a
+/// channel; its normal map's), and over [`SEAM_BAND`] either side of the
+/// seam the tone giving way to both sides' mean there and the detail
+/// thinning (colours and normals): at the seam both sides are alike.
+/// Returns the colour and normal maps' PPMs and the record.
+fn bake_novice_maps(
     view: &mut ResourceDb,
     sources: &Sources<'_>,
-    skin: &Skin,
     face: &Face,
-    donor: &str,
-    his_face: &[u8],
+    bake: &ScalpBake,
+    head: &[u8],
     work: &Path,
-    files: &mut Vec<BuiltFile>,
-) -> Result<(String, serde_json::Value)> {
+) -> Result<(PathBuf, PathBuf, serde_json::Value)> {
     let Donor::Stk2 { texture, .. } = face.donor else {
         bail!("{}: only a STK2 face has a grafted scalp", face.key);
     };
     let (model, surface) = SCALP_DONORS
         .iter()
-        .find(|d| d.0 == donor)
-        .with_context(|| format!("{donor} is not a scalp donor"))?;
+        .find(|d| d.0 == bake.donor)
+        .with_context(|| format!("{} is not a scalp donor", bake.donor))?;
     fs::create_dir_all(work)?;
     let dir = sources
         .v069
         .join(format!("textures/character/human/head/{model}"));
-    let albedo = dir.join(format!("{model}.dds"));
-    let bytes = fs::read(&albedo).with_context(|| albedo.display().to_string())?;
-    let (h, w) = (
-        u32::from_le_bytes(bytes[12..16].try_into()?) as f64,
-        u32::from_le_bytes(bytes[16..20].try_into()?) as f64,
-    );
-    // The donor's forehead just under the hairline, by its UVs.
-    let bind_pose = view.read(HEAD_BIND_POSE)?;
-    // The two foreheads either side of the seam: the donor's just above
-    // it, his just under it, a patch each round the middle of their UVs.
-    let line = HAIRLINE[0].1;
-    let theirs_uv = forehead_uv(
-        &read_069(sources, &bind_pose, model, surface)?,
-        donor,
-        line,
-        line + 0.012,
-    )?;
-    let ours_uv = forehead_uv(his_face, face.key, line - 0.014, line - 0.002)?;
-    let patch = |uv: [f64; 2], w: f64, h: f64| {
-        format!("48x16+{:.0}+{:.0}", uv[0] * w - 24.0, uv[1] * h - 8.0)
-    };
-    let region = patch(theirs_uv, w, h);
-    let his_region = patch(ours_uv, 2048.0, 2048.0);
-    let local = work.join(format!("{model}_albedo.dds"));
-    fs::write(&local, &bytes)?;
+    let theirs = Raster::read(&dir.join(format!("{model}.dds")), false)?;
+    let their_normals = Raster::read(&dir.join(format!("{model}_nmap.dds")), true)?;
     let own = sources
         .stk2_textures
         .join(STK2_TEXTURES)
         .join(format!("{texture}.tga"));
-    let (theirs, ours) = (mean_rgb(&local, &region)?, mean_rgb(&own, &his_region)?);
-    let gain: Vec<String> = (0..3)
-        .map(|k| format!("{:.4}", ours[k] / theirs[k].max(1e-3)))
-        .collect();
-    let tga = work.join(format!("{}_scalp.tga", face.key));
-    magick(&[
-        &local.display().to_string(),
-        "-alpha",
-        "off",
-        "-channel",
-        "R",
-        "-evaluate",
-        "multiply",
-        &gain[0],
-        "-channel",
-        "G",
-        "-evaluate",
-        "multiply",
-        &gain[1],
-        "-channel",
-        "B",
-        "-evaluate",
-        "multiply",
-        &gain[2],
-        "+channel",
-        "-type",
-        "TrueColor",
-        "-compress",
-        "None",
-        &tga.display().to_string(),
-    ])?;
-    let dds = tga.with_extension("dds");
-    crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt1)?;
-    let normal = dir.join(format!("{model}_nmap.dds"));
-    let maps = vec![
-        (Role::Diffuse, fs::read(&dds)?),
-        (
-            Role::Normal,
-            fs::read(&normal).with_context(|| normal.display().to_string())?,
-        ),
-    ];
-    let (path, mut rec) = face_material(
-        out,
-        view,
-        skin,
-        HEAD_MATERIAL,
-        &format!("{}_scalp", face.key),
-        &maps,
-        files,
+    let mut colour = Raster::read(&own, false)?;
+    let mut normals = Raster::read(
+        &sources
+            .stk2_textures
+            .join(STK2_TEXTURES)
+            .join(format!("{texture}_nmap.tga")),
+        false,
     )?;
-    if let serde_json::Value::Object(m) = &mut rec {
-        m.insert("scalp_of".into(), json!(donor));
-        m.insert(
-            "toned".into(),
-            json!({"gain": gain, "donor_forehead": region, "his_forehead": his_region}),
-        );
+    ensure!(
+        colour.width == normals.width && colour.height == normals.height,
+        "his colour and normal maps differ in size"
+    );
+    let cut: Vec<[f64; 2]> = bake.seam.iter().map(|p| p.his).collect();
+    let (columns, rows) = skin_over_cap_band(&mut colour, &mut normals, &cut)?;
+    println!(
+        "  {}'s cap band: his skin over {columns} columns (up to {rows} rows under the cut)",
+        face.key
+    );
+    // The tone: his forehead just under the seam over the donor's above it.
+    let bind_pose = view.read(HEAD_BIND_POSE)?;
+    let line = HAIRLINE[0].1;
+    let mean = |r: &Raster, uv: [f64; 2]| -> [f64; 3] {
+        let mut sum = [0.0; 3];
+        let mut n = 0.0;
+        for dy in -8..=8 {
+            for dx in -24..=24 {
+                let s = r.sample([
+                    uv[0] + f64::from(dx) / r.width as f64,
+                    uv[1] + f64::from(dy) / r.height as f64,
+                ]);
+                for k in 0..3 {
+                    sum[k] += s[k];
+                }
+                n += 1.0;
+            }
+        }
+        sum.map(|v| v / n)
+    };
+    let theirs_at = forehead_uv(
+        &read_069(sources, &bind_pose, model, surface)?,
+        model,
+        line,
+        line + 0.012,
+    )?;
+    let ours_at = forehead_uv(head, face.key, line - 0.014, line - 0.002)?;
+    let (t, o) = (mean(&theirs, theirs_at), mean(&colour, ours_at));
+    let gain = [0, 1, 2].map(|k| o[k] / t[k].max(1.0));
+    // The cap's old place: the donor's scalp.
+    let (w, h) = (colour.width, colour.height);
+    let px = |r: [f64; 4]| -> [usize; 4] {
+        [
+            (r[0] * w as f64).floor() as usize,
+            (r[1] * h as f64).floor() as usize,
+            ((r[2] * w as f64).ceil() as usize).min(w - 1),
+            ((r[3] * h as f64).ceil() as usize).min(h - 1),
+        ]
+    };
+    let [x0, y0, x1, y1] = px([
+        bake.rect[0] - 0.005,
+        bake.rect[1] - 0.005,
+        bake.rect[2] + 0.005,
+        bake.rect[3] + 0.005,
+    ]);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let uv = [(x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64];
+            let donor_uv = [0, 1].map(|k| (uv[k] - bake.offset[k]) / bake.scale[k]);
+            let c = theirs.sample(donor_uv);
+            colour.set(x, y, [c[0] * gain[0], c[1] * gain[1], c[2] * gain[2], 0.0]);
+            // 0.69d0's normal map holds x in alpha and y in green; his, x in red.
+            let n = their_normals.sample(donor_uv);
+            let (nx, ny) = (n[3] / 127.5 - 1.0, n[1] / 127.5 - 1.0);
+            let nz = (1.0 - nx * nx - ny * ny).max(0.0).sqrt();
+            normals.set(x, y, [n[3], n[1], (nz + 1.0) * 127.5, 0.0]);
+        }
     }
-    Ok((path, rec))
+    // Across the seam: each texel of a triangle near it, by its point on
+    // the head, takes the tone of both sides' mean at the nearest point of
+    // the seam (the means over a few texels) in place of its own and keeps
+    // less of its detail the nearer it is: at the seam both sides are alike.
+    let (colour0, normals0) = (
+        Raster {
+            data: colour.data.clone(),
+            ..colour
+        },
+        Raster {
+            data: normals.data.clone(),
+            ..normals
+        },
+    );
+    let soup = crate::face_shape::Soup::parse(head, face.key)?;
+    let seam = &bake.seam;
+    let m = seam.len();
+    let nearest = |p: [f64; 3]| -> (f64, usize, f64) {
+        let mut best = (f64::INFINITY, 0, 0.0);
+        for k in 0..m {
+            let (a, b) = (seam[k].at, seam[(k + 1) % m].at);
+            let ab = sub(b, a);
+            let t = (dot(sub(p, a), ab) / dot(ab, ab).max(1e-18)).clamp(0.0, 1.0);
+            let d = sub(p, [0, 1, 2].map(|j| a[j] + t * ab[j]));
+            let d = dot(d, d);
+            if d < best.0 {
+                best = (d, k, t);
+            }
+        }
+        (best.0.sqrt(), best.1, best.2)
+    };
+    // The texels any triangle of the head uses: never painted over below.
+    let mut used = vec![false; w * h];
+    for tri in &soup.triangles {
+        let uv = tri.map(|i| vertex_uv(&soup.vertices[usize::from(i)]));
+        let (fx, fy) = (uv.map(|u| u[0] * w as f64), uv.map(|u| u[1] * h as f64));
+        let area = (fx[1] - fx[0]) * (fy[2] - fy[0]) - (fx[2] - fx[0]) * (fy[1] - fy[0]);
+        if area.abs() < 1e-9 {
+            continue;
+        }
+        let lo = |f: [f64; 3], n: usize| {
+            (f.iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min)
+                .floor()
+                .max(0.0) as usize)
+                .min(n - 1)
+        };
+        let hi = |f: [f64; 3], n: usize| {
+            (f.iter()
+                .copied()
+                .fold(f64::NEG_INFINITY, f64::max)
+                .ceil()
+                .max(0.0) as usize)
+                .min(n - 1)
+        };
+        for y in lo(fy, h)..=hi(fy, h) {
+            for x in lo(fx, w)..=hi(fx, w) {
+                let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
+                let b1 = ((cx - fx[0]) * (fy[2] - fy[0]) - (fx[2] - fx[0]) * (cy - fy[0])) / area;
+                let b2 = ((fx[1] - fx[0]) * (cy - fy[0]) - (cx - fx[0]) * (fy[1] - fy[0])) / area;
+                if b1 >= -0.02 && b2 >= -0.02 && 1.0 - b1 - b2 >= -0.02 {
+                    used[y * w + x] = true;
+                }
+            }
+        }
+    }
+    // The mean round a texel of the texels triangles use (not the empty map
+    // past an island's edge, which would light its border).
+    let box_mean = |r: &Raster, uv: [f64; 2]| -> [f64; 4] {
+        let (cx, cy) = ((uv[0] * w as f64) as i64, (uv[1] * h as f64) as i64);
+        let mut sum = [0.0; 4];
+        let mut n = 0.0;
+        for y in (cy - 5).max(0)..=(cy + 5).min(h as i64 - 1) {
+            for x in (cx - 5).max(0)..=(cx + 5).min(w as i64 - 1) {
+                let (x, y) = (x as usize, y as usize);
+                if !used[y * w + x] {
+                    continue;
+                }
+                let v = r.get(x, y);
+                for c in 0..4 {
+                    sum[c] += v[c];
+                }
+                n += 1.0;
+            }
+        }
+        if n == 0.0 {
+            return r.sample(uv);
+        }
+        sum.map(|v| v / n)
+    };
+    // Per seam point, per map: the mean of both sides there.
+    let means: Vec<[[f64; 4]; 2]> = seam
+        .iter()
+        .map(|p| {
+            [&colour0, &normals0].map(|r| {
+                let (a, b) = (box_mean(r, p.his), box_mean(r, p.scalp));
+                [0, 1, 2, 3].map(|c| (a[c] + b[c]) / 2.0)
+            })
+        })
+        .collect();
+    let mut covered = vec![false; w * h];
+    let mut blended = 0;
+    for tri in &soup.triangles {
+        let v = tri.map(|i| &soup.vertices[usize::from(i)]);
+        let pos = v.map(crate::face_shape::position);
+        if pos.iter().all(|p| nearest(*p).0 > SEAM_BAND + 0.01) {
+            continue;
+        }
+        let uv = v.map(|v| vertex_uv(v));
+        let fx = uv.map(|u| u[0] * w as f64);
+        let fy = uv.map(|u| u[1] * h as f64);
+        let (bx0, bx1) = (
+            fx.iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min)
+                .floor()
+                .max(0.0) as usize,
+            (fx.iter().copied().fold(f64::NEG_INFINITY, f64::max).ceil() as usize).min(w - 1),
+        );
+        let (by0, by1) = (
+            fy.iter()
+                .copied()
+                .fold(f64::INFINITY, f64::min)
+                .floor()
+                .max(0.0) as usize,
+            (fy.iter().copied().fold(f64::NEG_INFINITY, f64::max).ceil() as usize).min(h - 1),
+        );
+        let area = (fx[1] - fx[0]) * (fy[2] - fy[0]) - (fx[2] - fx[0]) * (fy[1] - fy[0]);
+        if area.abs() < 1e-9 {
+            continue;
+        }
+        for y in by0..=by1 {
+            for x in bx0..=bx1 {
+                let (cx, cy) = (x as f64 + 0.5, y as f64 + 0.5);
+                let b1 = ((cx - fx[0]) * (fy[2] - fy[0]) - (fx[2] - fx[0]) * (cy - fy[0])) / area;
+                let b2 = ((fx[1] - fx[0]) * (cy - fy[0]) - (cx - fx[0]) * (fy[1] - fy[0])) / area;
+                let b0 = 1.0 - b1 - b2;
+                if b0 < -0.02 || b1 < -0.02 || b2 < -0.02 {
+                    continue;
+                }
+                let p = [0, 1, 2].map(|k| b0 * pos[0][k] + b1 * pos[1][k] + b2 * pos[2][k]);
+                let (d, k, t) = nearest(p);
+                if d >= SEAM_BAND {
+                    continue;
+                }
+                let x01 = (d / SEAM_BAND).clamp(0.0, 1.0);
+                let wgt = 1.0 - x01 * x01 * (3.0 - 2.0 * x01);
+                let (ma, mb) = (&means[k], &means[(k + 1) % m]);
+                let uv_here = [(x as f64 + 0.5) / w as f64, (y as f64 + 0.5) / h as f64];
+                // Its own tone (the mean round it) gives way to the seam's,
+                // and its detail thins towards it: both sides alike there.
+                // The normal map goes flat at the seam: the two sides' tangent
+                // frames differ, and only the (joined) vertex normals light it.
+                let shift = |r0: &Raster, map: usize| -> [f64; 4] {
+                    let own = r0.get(x, y);
+                    let tone = box_mean(r0, uv_here);
+                    let thins = if map == 0 { HAIR_THINS } else { 1.0 };
+                    [0, 1, 2, 3].map(|c| {
+                        let target = if map == 0 {
+                            ma[map][c] + t * (mb[map][c] - ma[map][c])
+                        } else {
+                            [127.5, 127.5, 255.0, 255.0][c]
+                        };
+                        let detail = (own[c] - tone[c]) * (1.0 - thins * wgt);
+                        tone[c] + wgt * (target - tone[c]) + detail
+                    })
+                };
+                let (cv, nv) = (shift(&colour0, 0), shift(&normals0, 1));
+                colour.set(x, y, cv);
+                normals.set(x, y, nv);
+                covered[y * w + x] = true;
+                blended += 1;
+            }
+        }
+    }
+    // Past the edges of what was blended, the edge's texels (the mips).
+    let (mut bx0, mut by0, mut bx1, mut by1) = (w, h, 0, 0);
+    for y in 0..h {
+        for x in 0..w {
+            if covered[y * w + x] {
+                (bx0, by0, bx1, by1) = (bx0.min(x), by0.min(y), bx1.max(x), by1.max(y));
+            }
+        }
+    }
+    let (bx0, by0) = (
+        bx0.saturating_sub(SEAM_DILATE + 1).max(1),
+        by0.saturating_sub(SEAM_DILATE + 1).max(1),
+    );
+    let (bx1, by1) = (
+        (bx1 + SEAM_DILATE + 1).min(w - 2),
+        (by1 + SEAM_DILATE + 1).min(h - 2),
+    );
+    for _ in 0..SEAM_DILATE {
+        let mut next = covered.clone();
+        let mut add = vec![];
+        for y in by0..=by1.max(by0) {
+            for x in bx0..=bx1.max(bx0) {
+                if covered[y * w + x] {
+                    continue;
+                }
+                let around: Vec<(usize, usize)> = [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)]
+                    .into_iter()
+                    .filter(|&(a, b)| covered[b * w + a])
+                    .collect();
+                if around.is_empty() {
+                    continue;
+                }
+                let avg = |r: &Raster| {
+                    let mut sum = [0.0; 4];
+                    for &(a, b) in &around {
+                        let v = r.get(a, b);
+                        for c in 0..4 {
+                            sum[c] += v[c];
+                        }
+                    }
+                    sum.map(|v| v / around.len() as f64)
+                };
+                add.push((x, y, avg(&colour), avg(&normals)));
+                next[y * w + x] = true;
+            }
+        }
+        for (x, y, c, n) in add {
+            // Never over a texel a triangle uses. (In the scalp's place too:
+            // what lies past its part there is the rest of the donor's map,
+            // its face, and the filtering took it in as a line along the seam.)
+            if used[y * w + x] {
+                continue;
+            }
+            colour.set(x, y, c);
+            normals.set(x, y, n);
+        }
+        covered = next;
+    }
+    let colour_path = work.join(format!("{}_baked.ppm", face.key));
+    let normal_path = work.join(format!("{}_baked_nmap.ppm", face.key));
+    colour.write_ppm(&colour_path)?;
+    normals.write_ppm(&normal_path)?;
+    println!(
+        "  {}'s maps: {}'s scalp in his cap's place (gain {:.3} {:.3} {:.3}), {blended} texels blended across the seam",
+        face.key, bake.donor, gain[0], gain[1], gain[2]
+    );
+    Ok((
+        colour_path,
+        normal_path,
+        json!({"scalp_of": bake.donor, "gain": gain, "rect": bake.rect, "seam_band_m": SEAM_BAND, "blended_texels": blended}),
+    ))
 }
 
 /// A face's maps: 0.69d's DDS as they are, STK2's TGAs encoded at the
@@ -2645,6 +3389,7 @@ fn donor_maps(
     face: &Face,
     work: &Path,
     hair: bool,
+    baked: Option<&(PathBuf, PathBuf)>,
 ) -> Result<Vec<(Role, Vec<u8>)>> {
     match face.donor {
         Donor::V069 { model, hair: h, .. } => {
@@ -2669,7 +3414,7 @@ fn donor_maps(
             }
             Ok(out)
         }
-        Donor::Stk2 { texture, scalp, .. } => {
+        Donor::Stk2 { texture, .. } => {
             ensure!(!hair, "STK2 faces have no hair");
             fs::create_dir_all(work)?;
             let mut out = vec![];
@@ -2684,16 +3429,21 @@ fn donor_maps(
                     .stk2_textures
                     .join(STK2_TEXTURES)
                     .join(format!("{texture}{}.tga", role.suffix()));
-                if scalp && role == Role::Diffuse {
-                    let uncapped = work.join(format!("{}_uncapped.ppm", face.key));
-                    uncapped_map(&source, &uncapped)?;
-                    source = uncapped;
+                // A grafted scalp: the maps baked with it, at their size.
+                let mut size = STK2_MAP;
+                if let Some((colour, normal)) = baked {
+                    source = if role == Role::Diffuse {
+                        colour.clone()
+                    } else {
+                        normal.clone()
+                    };
+                    size = NOVICE_MAP;
                 }
                 let small = work.join(format!("{}{}.tga", face.key, role.suffix()));
                 let result = std::process::Command::new("magick")
                     .arg(&source)
                     .args(["-alpha", "off", "-filter", "Lanczos"])
-                    .args(["-resize", &format!("{STK2_MAP}x{STK2_MAP}!")])
+                    .args(["-resize", &format!("{size}x{size}!")])
                     .args(["-type", "TrueColor", "-compress", "None"])
                     .arg(&small)
                     .output()
@@ -2711,97 +3461,6 @@ fn donor_maps(
         }
         Donor::Native => bail!("the native head has its maps"),
     }
-}
-
-/// The forehead in a STK2 face's 2048 colour map whose top its cap
-/// shadowed (columns, and the rows its open top and first skin are in),
-/// and the forehead skin that sets the skin's brightness there.
-const STK2_SHADOW_COLUMNS: (usize, usize) = (480, 1580);
-const STK2_SHADOW_ROWS: (usize, usize) = (760, 1000);
-const STK2_FOREHEAD_SKIN: ((usize, usize), (usize, usize)) = ((950, 1100), (860, 880));
-
-/// A capped face's forehead without its cap's shadow: in each column of
-/// [`STK2_SHADOW_COLUMNS`], the band from the chart's top (above 15 % of
-/// the forehead skin's brightness) to its skin (above 70 %) takes the first
-/// skin rows' colours, repeated. `rgb` is the map's rows of RGB bytes.
-fn lift_cap_shadow(rgb: &mut [u8], width: usize) -> usize {
-    let lum = |rgb: &[u8], x: usize, y: usize| {
-        let p = &rgb[(y * width + x) * 3..];
-        (0.299 * f64::from(p[0]) + 0.587 * f64::from(p[1]) + 0.114 * f64::from(p[2])) / 255.0
-    };
-    let ((x0, x1), (y0, y1)) = STK2_FOREHEAD_SKIN;
-    let mut skin: Vec<f64> = (y0..y1)
-        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
-        .map(|(x, y)| lum(rgb, x, y))
-        .collect();
-    skin.sort_by(f64::total_cmp);
-    let reference = skin[skin.len() / 2];
-    let (top, bottom) = STK2_SHADOW_ROWS;
-    let mut lifted = 0;
-    for x in STK2_SHADOW_COLUMNS.0..STK2_SHADOW_COLUMNS.1 {
-        let Some(start) = (top..bottom).find(|&y| lum(rgb, x, y) > 0.15 * reference) else {
-            continue;
-        };
-        let Some(skin_at) = (start..bottom).find(|&y| lum(rgb, x, y) > 0.7 * reference) else {
-            continue;
-        };
-        if skin_at - start > 120 || skin_at - start < 2 {
-            continue;
-        }
-        for y in start.saturating_sub(6)..skin_at {
-            let from = skin_at + 2 + (skin_at - y) % 10;
-            for c in 0..3 {
-                rgb[(y * width + x) * 3 + c] = rgb[(from * width + x) * 3 + c];
-            }
-        }
-        lifted += 1;
-    }
-    lifted
-}
-
-/// A STK2 face's colour map (`source`) as an RGB PPM at `out`, its cap's
-/// shadow lifted ([`lift_cap_shadow`]).
-fn uncapped_map(source: &Path, out: &Path) -> Result<()> {
-    let result = std::process::Command::new("magick")
-        .arg(source)
-        .args(["-alpha", "off", "-depth", "8", "ppm:-"])
-        .output()
-        .context("starting ImageMagick; enter the repository Nix shell")?;
-    ensure!(
-        result.status.success(),
-        "ImageMagick: {}",
-        String::from_utf8_lossy(&result.stderr)
-    );
-    let mut ppm = result.stdout;
-    // "P6 <w> <h> 255" and one whitespace byte, then the rows.
-    let mut fields = vec![];
-    let mut at = 0;
-    while fields.len() < 4 {
-        while ppm[at].is_ascii_whitespace() {
-            at += 1;
-        }
-        let start = at;
-        while !ppm[at].is_ascii_whitespace() {
-            at += 1;
-        }
-        fields.push(String::from_utf8_lossy(&ppm[start..at]).into_owned());
-    }
-    at += 1;
-    ensure!(
-        fields[0] == "P6" && fields[3] == "255",
-        "not an 8-bit PPM: {fields:?}"
-    );
-    let width: usize = fields[1].parse()?;
-    let height: usize = fields[2].parse()?;
-    ensure!(
-        width == 2048 && height == 2048,
-        "{}: a {width}x{height} map, not STK2's 2048",
-        source.display()
-    );
-    let lifted = lift_cap_shadow(&mut ppm[at..at + width * height * 3], width);
-    println!("  the cap's shadow lifted off {lifted} columns of the forehead");
-    fs::write(out, ppm)?;
-    Ok(())
 }
 
 /// Bounds as native model properties store them: half a turn about the up
@@ -3032,8 +3691,26 @@ fn write_bundle(
                 };
                 (m, hair)
             }
-            Donor::Stk2 { scalp, .. } => {
-                let maps = donor_maps(sources, face, &output.join("textures-work"), false)?;
+            Donor::Stk2 { .. } => {
+                // A grafted scalp is a part of his head: one surface, one
+                // material, his maps with the scalp baked in.
+                let work = output.join("textures-work");
+                let baked = match fitted.bakes.get(face.key) {
+                    Some(bake) => {
+                        let (colour, normal, rec) = bake_novice_maps(
+                            view,
+                            sources,
+                            face,
+                            bake,
+                            &variants[&State::Bare].surfaces[0].1,
+                            &work,
+                        )?;
+                        materials_record.insert(format!("{}_scalp", face.key), rec);
+                        Some((colour, normal))
+                    }
+                    None => None,
+                };
+                let maps = donor_maps(sources, face, &work, false, baked.as_ref())?;
                 let (m, rec) = face_material(
                     &out,
                     view,
@@ -3044,30 +3721,7 @@ fn write_bundle(
                     &mut files,
                 )?;
                 materials_record.insert(face.key.to_owned(), rec);
-                let scalp = if scalp {
-                    let donor = variants[&State::Bare]
-                        .surfaces
-                        .get(1)
-                        .and_then(|(n, _)| n.strip_prefix("scalp_"))
-                        .and_then(|n| n.strip_suffix("_s"))
-                        .context("the Novice without his scalp")?;
-                    let (m, rec) = scalp_material(
-                        &out,
-                        view,
-                        sources,
-                        &skin,
-                        face,
-                        donor,
-                        &variants[&State::Bare].surfaces[0].1,
-                        &output.join("textures-work"),
-                        &mut files,
-                    )?;
-                    materials_record.insert(format!("{}_scalp", face.key), rec);
-                    Some(m)
-                } else {
-                    None
-                };
-                (m, scalp)
+                (m, None)
             }
             Donor::Native => bail!("the native head is not built"),
         };

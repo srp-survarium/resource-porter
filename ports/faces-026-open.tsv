@@ -3,8 +3,8 @@
 # "<item> stands off"), the most it may be (mm), why. The build stops on a misfit this list does
 # not name, and on one deeper than it says. A torso is named once (it is worn in every state);
 # a helmet over a mask is open when either of the two is, and named itself when it is deeper.
-# Made by FACES_WRITE_OPEN of faces@4's build (the masks made for faces in it), 2026-11-19, over
-# the stock db and patches 12 .. 65.
+# Made by FACES_WRITE_OPEN of faces@4's build (the masks made for faces in it), 2026-11-19, the
+# Novice's lines from faces@5's, over the stock db and patches 12 .. 65.
 069d_head_01	helmet	helmet/edge_helmet_1	0.7	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; no helmet is made for a face
 069d_head_01	helmet	helmet/eq046_blackmarket_helmet_10	1.2	under it as it sits (the bind pose): no helmet is made for a face
 069d_head_01	helmet	helmet/eq046_edge_helmet_7	7.7	under it as it sits (the bind pose): no helmet is made for a face
@@ -357,11 +357,13 @@ stk2_neutral_01_head	helmet	helmet/edge_helmet_1	2.7	in a pose only: the jaw or 
 stk2_neutral_01_head	helmet	helmet/edge_helmet_1 stands off	30.7	its seen edge stands farther off this face than off the native head: no helmet is made for a face
 stk2_neutral_01_head	helmet	helmet/edge_helmet_4 stands off	42.7	its seen edge stands farther off this face than off the native head: no helmet is made for a face
 stk2_neutral_01_head	helmet	helmet/edge_helmet_6	9.5	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; no helmet is made for a face
-stk2_neutral_01_head	mask	helmet/renesanse_helmet_5 + mask/eq046_edge_mask_7	2.8	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
+stk2_neutral_01_head	mask	helmet/eq046_edge_helmet_6 + mask/eq046_edge_mask_7	3.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
+stk2_neutral_01_head	mask	helmet/renesanse_helmet_5 + mask/eq046_edge_mask_7	3.6	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
 stk2_neutral_01_head	helmet	helmet/scavenger_helmet_3	10.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck; no helmet is made for a face
 stk2_neutral_01_head	mask	helmet/scavenger_helmet_3 + mask/scavenger_mask_9	22.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
 stk2_neutral_01_head	mask	helmet/scavenger_helmet_5 + mask/face_069d_protective_mask	0.2	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
-stk2_neutral_01_head	mask	helmet/stk2_novice_026_hood + mask/bm_mask_8	0.4	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
+stk2_neutral_01_head	mask	helmet/scavenger_helmet_9 + mask/eq046_edge_mask_7	3.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
+stk2_neutral_01_head	mask	helmet/stk2_novice_026_hood + mask/bm_mask_8	0.9	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
 stk2_neutral_01_head	helmet	helmet/stk2_novice_026_hood stands off	8.1	its seen edge stands farther off this face than off the native head: no helmet is made for a face
 stk2_neutral_01_head	mask	mask/bm_mask_1 stands off	6.0	its lower edge at the nape lies on today's neck, where the Novice's neck ends higher (his neck as faces@3 has it)
 stk2_neutral_01_head	mask	mask/edge_resp_1 stands off	5.4	its lower edge at the nape lies on today's neck, where the Novice's neck ends higher (his neck as faces@3 has it)
@@ -379,6 +381,7 @@ stk2_neutral_01_head	mask	mask/face_069d_keffiyeh	0.7	under it as it sits (the b
 stk2_neutral_01_head	mask	mask/face_069d_keffiyeh stands off	40.8	its lower edge at the nape lies on today's neck, where the Novice's neck ends higher (his neck as faces@3 has it)
 stk2_neutral_01_head	mask	mask/face_069d_protective_mask	0.1	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
 stk2_neutral_01_head	mask	mask/face_069d_protective_mask stands off	43.1	its lower edge at the nape lies on today's neck, where the Novice's neck ends higher (his neck as faces@3 has it)
+stk2_neutral_01_head	mask	mask/renesanse_mask_5	0.3	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
 stk2_neutral_01_head	mask	mask/renesanse_mask_5 stands off	5.8	its lower edge at the nape lies on today's neck, where the Novice's neck ends higher (his neck as faces@3 has it)
 stk2_neutral_01_head	mask	mask/scavenger_mask_9	2.8	in a pose only: the jaw or throat, as its donor made them, against the part of it that follows the neck (its model for this face is settled in the bind pose only)
 stk2_neutral_01_head	bare	torso/blackmarket_torso_1	6.1	in a pose only: the throat behind the chin, as its donor made it (it follows the Head: not moved), against a collar that follows the chest; no torso is made for a face
