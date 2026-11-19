@@ -867,7 +867,7 @@ pub fn build_scattering(
     Ok(blob)
 }
 
-fn u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
+pub(crate) fn u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
     Ok(u32::from_le_bytes(
         bytes
             .get(offset..offset + 4)
@@ -875,17 +875,17 @@ fn u32_at(bytes: &[u8], offset: usize) -> Result<u32> {
             .try_into()?,
     ))
 }
-fn words(bytes: &[u8]) -> Result<Vec<u32>> {
+pub(crate) fn words(bytes: &[u8]) -> Result<Vec<u32>> {
     ensure!(bytes.len() % 4 == 0, "unaligned shader words");
     bytes
         .chunks_exact(4)
         .map(|b| Ok(u32::from_le_bytes(b.try_into()?)))
         .collect()
 }
-fn bytes(words: &[u32]) -> Vec<u8> {
+pub(crate) fn bytes(words: &[u32]) -> Vec<u8> {
     words.iter().flat_map(|w| w.to_le_bytes()).collect()
 }
-fn instructions(words: &[u32]) -> Result<Vec<Vec<u32>>> {
+pub(crate) fn instructions(words: &[u32]) -> Result<Vec<Vec<u32>>> {
     ensure!(
         words.len() >= 2 && words[1] as usize == words.len(),
         "shader length mismatch"
@@ -1174,7 +1174,7 @@ fn build_forward_fog(
     result.extend(assemble(native, &entries)?);
     Ok(Some(result))
 }
-fn chunks(code: &[u8]) -> Result<Vec<([u8; 4], Vec<u8>)>> {
+pub(crate) fn chunks(code: &[u8]) -> Result<Vec<([u8; 4], Vec<u8>)>> {
     ensure!(
         code.starts_with(b"DXBC") && u32_at(code, 24)? as usize == code.len(),
         "invalid DXBC"
@@ -1359,7 +1359,7 @@ pub fn build(source: &[u8], target: &[u8], profiles: &[Profile]) -> Result<Vec<u
     Ok(blob)
 }
 
-fn assemble(native: &[u8], entries: &[([u8; 4], Vec<u8>)]) -> Result<Vec<u8>> {
+pub(crate) fn assemble(native: &[u8], entries: &[([u8; 4], Vec<u8>)]) -> Result<Vec<u8>> {
     let mut result = native[..32 + entries.len() * 4].to_vec();
     for (i, (tag, data)) in entries.iter().enumerate() {
         let chunk_offset = (result.len() as u32).to_le_bytes();
@@ -1666,7 +1666,7 @@ pub fn build_sky(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Vec<u8
 
 /// DXBC's MD5 padding variant. The compression rounds are standard MD5.
 /// Padding reference: Wine libs/vkd3d/libs/vkd3d-shader/checksum.c.
-fn checksum(code: &[u8]) -> Result<[u8; 16]> {
+pub(crate) fn checksum(code: &[u8]) -> Result<[u8; 16]> {
     ensure!(
         code.starts_with(b"DXBC") && code.len() >= 20,
         "invalid checksum input"
