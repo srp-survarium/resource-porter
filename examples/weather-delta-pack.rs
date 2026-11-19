@@ -59,6 +59,10 @@ struct Weather {
     loading_screen_id: i32,
     /// A native 0.26g project of the same weather, for its environment's settings.
     native_environment_project: String,
+    /// Environment settings written as floats after the build (a shader profile's marker,
+    /// e.g. London's tone curve in mie_fog_base_height); each must exist already.
+    #[serde(default)]
+    environment_overrides: BTreeMap<String, f32>,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +90,29 @@ fn environment_of(project: &ConfigValue) -> Result<ConfigValue> {
     let env = found.next().context("no environment")?.clone();
     ensure!(found.next().is_none(), "two environments");
     Ok(env)
+}
+
+fn with_overrides(mut project: ConfigValue, overrides: &BTreeMap<String, f32>) -> Result<ConfigValue> {
+    if overrides.is_empty() {
+        return Ok(project);
+    }
+    let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else {
+        bail!("no client objects")
+    };
+    let mut found = objects
+        .iter_mut()
+        .filter(|o| o.named("lib_name") == Some(&ConfigValue::String("environment".into())));
+    let env = found.next().context("no environment")?;
+    ensure!(found.next().is_none(), "two environments");
+    for (name, value) in overrides {
+        let at = format!("properties.{name}");
+        ensure!(
+            env.named("properties").and_then(|p| p.named(name)).is_some(),
+            "the environment has no {name} to override"
+        );
+        env.set_path(&at, ConfigValue::Float(*value))?;
+    }
+    Ok(project)
 }
 
 /// The shipped day's mode config with the weather's identity.
@@ -141,6 +168,7 @@ fn main() -> Result<()> {
             .with_context(|| format!("{}/{project}", m.map))?;
             let path = format!("projects/{}/{project}/client_project", m.map);
             ensure!(!shipped.contains(&path), "{path} is shipped already");
+            let built = with_overrides(built, &weather.environment_overrides)?;
             let bytes = BinaryConfig { root: built }.to_bytes()?;
             BinaryConfig::parse(&bytes).context("the built project reads back")?;
             // The donor files its objects need that players do not have.
