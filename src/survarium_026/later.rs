@@ -469,6 +469,13 @@ pub struct LightOverride {
 /// How a 0.69d lobby's photometric lights become 0.26's unitless ones.
 /// 0.69d draws them through a fixed exposure and a filmic curve that 0.26
 /// lacks, so the factors are set by eye against the donor's screenshots.
+///
+/// A 0.26g ambient light multiplies the ambient light under it by its colour
+/// x intensity when the intensity is at most 1, and adds colour x (intensity
+/// - 1) above 1 (skhid-srp's renderer-026g.md 5.4); as 0.69d's, it never
+/// touches the sun, point or spot lights. So a 0.69d multiplier below 1 (a
+/// painted contact shadow) is that multiplier, and light that adds is 1 + the
+/// amount.
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PhotometricLights {
@@ -477,20 +484,13 @@ pub struct PhotometricLights {
     pub lux: f32,
     /// 0.26 light intensity per lumen of a 0.69d point or spot light.
     pub lumen: f32,
-    /// 0.26 ambient intensity per unit above 1 of a multiplying 0.69d
-    /// ambient light (`type` 1, multiplier above 1: a fill that brightens
-    /// the light under it); 0.26's only add.
+    /// What a multiplying 0.69d ambient light above 1 (`type` 1: a fill that
+    /// brightens the ambient light under it; 0.26 multiplies by at most 1)
+    /// adds per unit above 1, in the ambient light of the baked probe it is
+    /// in (1: what 0.69d's multiply adds there); with no baked probe, in
+    /// 0.26 units.
     pub fill: f32,
-    /// The colour those fills add, in place of the donor's (a multiplying
-    /// light's colour tints the light under it; added as it is, 0.69d's
-    /// bluish camera fill turned the room blue).
-    #[serde(default)]
-    pub fill_colour: Option<[f32; 3]>,
-    /// 0.26 ambient intensity (negative: it darkens) per unit below 1 of a
-    /// multiplying 0.69d ambient light (multiplier below 1: painted contact
-    /// shadow); 0 drops them.
-    pub shadow: f32,
-    /// The brightest a converted ambient light gets.
+    /// The most a converted ambient light adds.
     pub max: f32,
 }
 
@@ -2209,6 +2209,37 @@ fn copy_shared(native: &mut ConfigValue, donor: &ConfigValue, fields: &[&str]) -
     Ok(())
 }
 
+/// The baked probes' boxes and the ambient light each gives in 0.26.
+struct ProbeLight(Vec<([f32; 3], [f32; 3], f32)>);
+
+impl ProbeLight {
+    fn of(objects: &[ConfigValue], diffuse_scale: f32) -> Result<Self> {
+        let mut probes = Vec::new();
+        for object in objects.iter().filter(|o| kind(o) == "environment_probe") {
+            let Ok(sh) = (0..9).map(|k| float3(object, &format!("sh_coefficient_{k}"))).collect::<Result<Vec<_>>>() else { continue };
+            let sh: [[f32; 3]; 9] = sh.try_into().map_err(|_| anyhow::anyhow!("nine SH coefficients"))?;
+            let n = 4;
+            let samples: Vec<[f32; 3]> = (0..6)
+                .flat_map(|f| (0..n * n).map(move |i| (f, i)))
+                .map(|(f, i)| super::probe_bake::sh_irradiance(&sh, super::probe_bake::direction(f, n, i % n, i / n)))
+                .collect();
+            let mean = samples.iter().map(|c| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]).sum::<f32>() / samples.len() as f32;
+            let light = mean * real(object, "multiplier").unwrap_or(1.0) * diffuse_scale;
+            probes.push((float3(object, "position")?, float3(object, "scale")?, light));
+        }
+        Ok(Self(probes))
+    }
+
+    /// The light of the smallest probe box (axis-aligned) holding `p`.
+    fn at(&self, p: [f32; 3]) -> Option<f32> {
+        self.0
+            .iter()
+            .filter(|(c, h, _)| (0..3).all(|i| (p[i] - c[i]).abs() <= h[i]))
+            .min_by(|a, b| (a.1[0] * a.1[1] * a.1[2]).total_cmp(&(b.1[0] * b.1[1] * b.1[2])))
+            .map(|(_, _, light)| *light)
+    }
+}
+
 /// A 0.69d adding ambient light's illuminance (lux x its multipliers).
 fn lux(object: &ConfigValue) -> f32 {
     real(object, "illuminance").unwrap_or(1.0) * real(object, "multiplier").unwrap_or(1.0) * real(object, "intensity").unwrap_or(1.0)
@@ -2664,6 +2695,19 @@ pub fn convert_scene(
         Port::Lobby(l) => l.photometric_lights,
         Port::Map(_) => None,
     };
+    // The ambient light each baked probe gives in 0.26 (its mean irradiance
+    // as the build bakes it: SH over pi x multiplier x diffuse_scale), for
+    // the fills that multiply it in 0.69d.
+    let probe_light = match port {
+        Port::Lobby(LobbySpec { probes: LobbyProbes::Baked { diffuse_scale, .. }, .. }) => ProbeLight::of(donor_objects, *diffuse_scale)?,
+        _ => ProbeLight(Vec::new()),
+    };
+    if !probe_light.0.is_empty() {
+        notes.push(format!(
+            "baked probes' ambient light in 0.26 (what a fill multiplies): {}",
+            probe_light.0.iter().map(|(c, _, l)| format!("{l:.3} at ({:.1}, {:.1}, {:.1})", c[0], c[1], c[2])).collect::<Vec<_>>().join(", ")
+        ));
+    }
     let keep_ambient_lights = match port {
         Port::Map(map) => map.ambient_lights,
         Port::Lobby(_) => true,
@@ -2683,11 +2727,14 @@ pub fn convert_scene(
                 *dropped.entry("ambient_light (photometric units and shapes 2/3 have no 0.26 equivalent)".into()).or_default() += 1;
             }
             "environment_probe" => {}
-            // 0.69d's `type` 1 ambient lights multiply the light under them
-            // (the scene's painted contact shadows, a multiplier below 1);
-            // 0.26's only add.
-            "ambient_light" if photometric && integer(object, "type") == Some(1) && scales.is_none_or(|s| s.shadow == 0.0 && multiplying(object) < 1.0) => {
-                *dropped.entry("multiplying ambient light (0.69d type 1, contact shadows; 0.26's ambient lights only add)".into()).or_default() += 1;
+            // 0.69d's `type` 1 ambient lights multiply the light under them;
+            // without the photometric scale there is no measure for a fill.
+            // 0.26g draws spheres (0) and boxes (1) only.
+            "ambient_light" if integer(object, "geometry").is_some_and(|g| !(0..=1).contains(&g)) => {
+                *dropped.entry("ambient light of a shape 0.26 lacks (geometry other than sphere or box)".into()).or_default() += 1;
+            }
+            "ambient_light" if photometric && integer(object, "type") == Some(1) && scales.is_none() => {
+                *dropped.entry("multiplying ambient light (0.69d type 1) without the photometric scale".into()).or_default() += 1;
             }
             "ambient_light" => {
                 let mut a = ambient_template.clone();
@@ -2703,22 +2750,32 @@ pub fn convert_scene(
                 // map's median ambient light match the template's median.
                 // 0.46c2's are 0.26's intensities.
                 let (intensity, colour) = match (photometric, scales) {
-                    // A multiplying one: a fill adds, a shadow takes away.
+                    // A multiplying one: a contact shadow multiplies by m (the
+                    // intensity, linear; its colour is white or black alike),
+                    // a fill adds.
                     (true, Some(s)) if integer(object, "type") == Some(1) => {
                         let m = multiplying(object);
-                        if m >= 1.0 { (((m - 1.0) * s.fill).min(s.max), s.fill_colour.unwrap_or(colour)) } else { (-(1.0 - m) * s.shadow, [1.0; 3]) }
+                        if m >= 1.0 {
+                            let under = probe_light.at(float3(object, "position")?).unwrap_or(1.0);
+                            (1.0 + ((m - 1.0) * under * s.fill).min(s.max), colour)
+                        } else {
+                            (m.max(0.0), [1.0; 3])
+                        }
                     }
-                    (true, Some(s)) => ((lux(object) * s.lux).min(s.max), colour),
+                    (true, Some(s)) => (1.0 + (lux(object) * s.lux).min(s.max), colour),
                     (true, None) => (lux(object), colour),
                     (false, _) => (real(object, "intensity").unwrap_or(1.0), colour),
                 };
                 a.set_path("color", ConfigValue::Integer(packed_colour(colour)))?;
                 a.set_path("intensity", ConfigValue::Float(intensity))?;
-                // 0.69d sizes a sphere by its scale (radius 5 times the
-                // largest scale); 0.26 by its radius at scale 1.
+                // 0.69d sizes a sphere by its scale, as a box (its unit
+                // primitive, the scale its half-extents; `radius` is the
+                // editor's default 5 on every one of the camp's lights, and
+                // 5 x scale made its floor and camera fills 10-14 m spheres
+                // in a 3.7 x 7 m room); 0.26 by its radius at scale 1.
                 if photometric && integer(object, "geometry") == Some(0) {
                     let scale = float3(object, "scale")?;
-                    let radius = real(object, "radius").unwrap_or(1.0) * scale.iter().cloned().fold(0.0, f32::max);
+                    let radius = scale.iter().cloned().fold(0.0, f32::max);
                     a.set_path("radius", ConfigValue::Float(radius))?;
                     a.set_path("scale", ConfigValue::Float3([1.0; 3]))?;
                 }
@@ -3285,8 +3342,8 @@ pub fn build(
     notes.push(match (ambient_scale, photometric_lights) {
         (Some(scale), _) => format!("ambient lights: 0.69d lux scaled by {scale:.4} so their median intensity matches the template's"),
         (None, Some(s)) => format!(
-            "ambient lights and lights: 0.69d adding ambient lights x{} per lux, multiplying ones x{} per unit above 1 (fills) and -{} per unit below 1 (contact shadows), all at most {}; point and spot lights x{} per lumen",
-            s.lux, s.fill, s.shadow, s.max, s.lumen
+            "ambient lights and lights: 0.69d adding ambient lights add {} per lux, multiplying ones above 1 (fills) {} per unit above 1, at most {}; below 1 (contact shadows) multiply as in 0.69d; point and spot lights x{} per lumen",
+            s.lux, s.fill, s.max, s.lumen
         ),
         (None, None) => format!("ambient lights and lights: {}'s intensities, which are 0.26's", m.source_build.label()),
     });

@@ -40,25 +40,7 @@
     },
     "light_overrides": {
       "room/lustra/point_light(4)": { "intensity": 0.5, "range": 2.0 },
-      "room/lustra/point_light(5)": { "intensity": 0.5, "range": 2.0 },
-      "room/lustra/ambient_light": { "intensity": 0.4 },
-      "room/lustra/ambient_light(1)": { "intensity": 0.4 },
-      "room/lustra/shadow/": { "intensity": 0.0 },
-      "environment_and_lights/outdoor/": { "intensity": 1.5 },
-      "environment_and_lights/shadows/ambient_light(1)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(6)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(7)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(8)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(9)": { "intensity": 0.0 },
-      "environment_and_lights/light/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/light/ambient_light(6)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(1)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(2)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(3)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(4)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(6)": { "intensity": 0.0 }
+      "room/lustra/point_light(5)": { "intensity": 0.5, "range": 2.0 }
     },
     "removed_parts": [
       {
@@ -82,11 +64,9 @@
       }
     },
     "photometric_lights": {
-      "lux": 0.006,
+      "lux": 0.0019,
       "lumen": 0.015,
-      "fill": 0.02,
-      "fill_colour": [1.0, 0.93, 0.84],
-      "shadow": 0.25,
+      "fill": 1.0,
       "max": 2.0
     },
     "exclude_models": [
