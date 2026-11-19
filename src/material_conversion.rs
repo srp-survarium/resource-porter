@@ -115,7 +115,11 @@ impl MaterialCatalog {
                         &candidate.path,
                         &candidate.features,
                     );
+                    // A template with every one of the donor's switches draws
+                    // the donor's program (shipped, since a stock material
+                    // uses it) and beats a nearer name with one switch off.
                     (
+                        score.0 != 0,
                         semantic_domain_rank(path, &candidate.path).unwrap(),
                         score.1,
                         score.0,
@@ -141,6 +145,7 @@ impl MaterialCatalog {
                                     &candidate.features,
                                 );
                                 (
+                                    score.0 != 0,
                                     semantic_domain_rank(path, &candidate.path).unwrap(),
                                     score.1,
                                     score.0,
@@ -523,6 +528,18 @@ fn merge_safe_visual_values(
         {
             *target = donor.clone();
         }
+        // A number stored as the other kind is still the donor's number:
+        // 0.21d writes constant_transparency 0.25 where a template holds 1.
+        (target @ ConfigValue::Integer(_), ConfigValue::Float(value))
+            if !is_shader_feature(parameter) =>
+        {
+            *target = ConfigValue::Float(*value);
+        }
+        (ConfigValue::Float(target_value), ConfigValue::Integer(value))
+            if !is_shader_feature(parameter) =>
+        {
+            *target_value = *value as f32;
+        }
         (ConfigValue::String(target_value), ConfigValue::String(donor_value))
             if is_texture_parameter(parameter)
                 && ((!donor_value.is_empty() && texture_exists(donor_value))
@@ -774,5 +791,71 @@ mod tests {
                 .values()
                 .any(|value| value == "true")
         );
+    }
+
+    fn forward(temissive: bool, transparency: ConfigValue) -> ConfigValue {
+        let parameter = |value| ConfigValue::Named(vec![named("value", value)]);
+        ConfigValue::Named(vec![named(
+            "material",
+            ConfigValue::Named(vec![named(
+                "forward",
+                ConfigValue::Named(vec![named(
+                    "effect",
+                    ConfigValue::Named(vec![
+                        named("effect_id", ConfigValue::String("forward_default".into())),
+                        named("use_temissive", parameter(ConfigValue::Boolean(temissive))),
+                        named("constant_transparency", parameter(transparency)),
+                    ]),
+                )]),
+            )]),
+        )])
+    }
+
+    #[test]
+    fn a_template_with_all_the_donor_switches_beats_a_nearer_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let empty = temp.path().join("empty.db");
+        crate::archive::write_patch(&BTreeMap::new(), &empty).unwrap();
+        let db = ResourceDb::open(&empty).unwrap();
+        let target = |path: &str, temissive| {
+            let config = BinaryConfig {
+                root: forward(temissive, ConfigValue::Integer(1)),
+            };
+            TargetMaterial {
+                path: path.into(),
+                effects: effect_signature(&config.root),
+                stage_selectors: stage_selector_signature(&config.root),
+                features: feature_signature(&config.root),
+                config,
+            }
+        };
+        let catalog = MaterialCatalog {
+            materials: vec![
+                target("material_instances/fx/level_4_anomaly/bugs.material", true),
+                target("material_instances/fx/level_2_anomaly/smoke.material", false),
+            ],
+        };
+        let donor = BinaryConfig {
+            root: forward(false, ConfigValue::Float(0.25)),
+        };
+        let converted = catalog
+            .convert(
+                "material_instances/fx/level_4_anomaly/green_smoke.material",
+                &donor.to_bytes().unwrap(),
+                None,
+                &db,
+                &db,
+            )
+            .unwrap();
+        assert_eq!(
+            converted.template_path,
+            "material_instances/fx/level_2_anomaly/smoke.material"
+        );
+        // The donor's 0.25 replaces the template's integer 1.
+        let root = BinaryConfig::parse(&converted.bytes).unwrap().root;
+        let transparency = ["material", "forward", "effect", "constant_transparency", "value"]
+            .iter()
+            .try_fold(&root, |value, name| value.named(name));
+        assert_eq!(transparency, Some(&ConfigValue::Float(0.25)));
     }
 }

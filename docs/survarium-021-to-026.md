@@ -248,6 +248,29 @@ fixtures have been extended. This importer does not modify SRP.
   `anomaly_moss_base_sg` to `donotwalkhere_sg`, matching its actual geometry and
   the repaired 0.26 settings. Unknown material associations remain errors.
 
+## Chemical Plant (level_04)
+
+`tools/content/chemical_021d.sh` makes `maps-021d-chemical@1` (maps_dict 266 and
+267, map number 31) by the School/Fort recipe, and `five_weathers_021d.sh` with
+`WEATHER_MANIFEST=ports/survarium-021d-chemical-weathers-to-026g.json` its rain
+and evening (268 to 271) from the authored day source. The lighting manifest
+carries its three profiles. The five maps' weather pack stays as commit
+`a9d8e64` built it: the importer has since kept alpha mip chains and visibility
+in private copies, which skhid-srp's edit lists retrofit to that pack.
+
+* A same-path 0.26 material is the conversion template only when it has every
+  donor render stage that carries a visibility selector. 0.21d's anomaly smoke
+  (`fx/level_4_anomaly/green_smoke`, `radial_smoke`, `smoke_sample`) is a
+  forward particle and 0.26's material of that path a lit one: it is converted
+  like a material 0.26 does not have (template `level_4_anomaly/bugs`).
+* 151 shared `ported/v021d` paths differ from what players have for the same
+  reason (a private alpha texture or material where the live file binds
+  0.26's): `chemical_021d.keep-live.txt` keeps the live bytes, one path being
+  one resource.
+* A weather built before its day map is released needs that map's files to
+  resolve its references: `UNRELEASED_DAY_PATCH` names the quick
+  build-content patch that holds the day pack.
+
 ## Minimap identity
 
 The project root's `project_name` is the HUD lookup key, not the directory from

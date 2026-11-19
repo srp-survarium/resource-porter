@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     );
     let manifest: Profiles = serde_json::from_slice(&fs::read(&args[0])?)?;
     ensure!(
-        manifest.id == "three-maps-021-lighting" && manifest.version == "5",
+        manifest.id == "three-maps-021-lighting" && manifest.version == "8",
         "unsupported profile source"
     );
     vostok_resource_porter::survarium_026::check_hash(&args[1], &manifest.donor_sha256)?;
@@ -113,9 +113,10 @@ fn main() -> Result<()> {
         });
     }
     ensure!(
-        profiles.len() == 15,
-        "expected all15 day/rain/evening profiles"
+        !profiles.is_empty() && profiles.len() % 3 == 0,
+        "expected a day, rain and evening profile a map"
     );
+    let scenes = profiles.len();
     let mut operations = Vec::new();
     let mut adapted = BTreeSet::new();
     for kind in [Kind::Base, Kind::Probe, Kind::Direct] {
@@ -167,7 +168,7 @@ fn main() -> Result<()> {
             count += 1;
         }
         ensure!(count > 0, "no matching forward program");
-        println!("{prefix}: {count} exact matching fog blocks, all15 scene guards");
+        println!("{prefix}: {count} exact matching fog blocks, all {scenes} scene guards");
     }
     // Every other forward program that computes the native fog, in whatever
     // order and registers.
@@ -241,8 +242,8 @@ fn main() -> Result<()> {
         )?,
     )?;
     let pack = PackManifest {
-        format_version: 1, id: "v021d-forward-fog".into(), version: "4".into(), target_build: TARGET_BUILD.into(),
-        description: Some("Original 0.21 fog in every forward base, probe-lighting and direct-lighting program that has the native fog block, scoped to the 15 original 0.21 day/rain/evening scene markers".into()),
+        format_version: 1, id: "v021d-forward-fog".into(), version: "5".into(), target_build: TARGET_BUILD.into(),
+        description: Some(format!("Original 0.21 fog in every forward base, probe-lighting and direct-lighting program that has the native fog block, scoped to the {scenes} original 0.21 day/rain/evening scene markers")),
         requires: vec!["three-maps-021-lighting".into()], base_db_sha256: Some(manifest.target_sha256), operations, server: None,
         notes: vec!["Built by examples/forward-fog-021-pack.rs using the original lighting profile source and pinned original/native shader blocks. The three programs observed on vehicle glass and their exact twins keep their pinned adaptation. Every other program is adapted when it has the native fog block (the same operations on the same constants in whatever registers it keeps them) and its remaining instructions read nothing of the block but the fog colour and amount; it then runs the fog block every 0.21 forward program has. Retains native lighting, transparency, bindings and the complete unmarked native fog fallback. Uses the same original Rayleigh RGB upload, far-distance schema conversion and observed infinite height multiplier as the established day fullscreen/particle/water adapters. The complete effective stock/published shader layers are enumerated, including published aliases; every source archive contributing a shader is hash-verified and recorded in source-archives.json. left-native.json lists the programs of the three families that stay native.".into()],
     };

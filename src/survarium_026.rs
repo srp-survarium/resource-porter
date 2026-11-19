@@ -1167,6 +1167,69 @@ fn preserve_material_visibility(donor: &ConfigValue, converted: &mut ConfigValue
     apply(donor, converted, "root")
 }
 
+/// A material's render stages (`material/common/stages`: forward, lighting, g_stage...).
+fn material_stages(root: &ConfigValue) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    if let Some(ConfigValue::Named(stages)) = root
+        .named("material")
+        .and_then(|m| m.named("common"))
+        .and_then(|c| c.named("stages"))
+    {
+        out.extend(stages.iter().map(|s| s.name.clone()));
+    }
+    out
+}
+
+/// A particle's emitters: each `Material` it names, with the path of names that leads to it (an
+/// emitter's child id), so two effects compare emitter by emitter.
+fn particle_emitters(root: &ConfigValue) -> BTreeSet<(String, String)> {
+    fn walk(value: &ConfigValue, at: &str, out: &mut BTreeSet<(String, String)>) {
+        match value {
+            ConfigValue::Named(fields) => {
+                for field in fields {
+                    match &field.value {
+                        ConfigValue::String(material) if field.name == "Material" => {
+                            out.insert((at.to_owned(), material.replace('\\', "/")));
+                        }
+                        child => walk(child, &format!("{at}/{}", field.name), out),
+                    }
+                }
+            }
+            ConfigValue::Indexed(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    walk(item, &format!("{at}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(root, "", &mut out);
+    out
+}
+
+fn is_particle_material(root: &ConfigValue) -> bool {
+    root.named("material")
+        .and_then(|m| m.named("instance"))
+        .and_then(|i| string(i, "base_material"))
+        == Some("default_particle")
+}
+
+/// Whether `template` has each of the donor's render stages that hold a
+/// visibility selector ([`preserve_material_visibility`] needs them).
+fn has_visibility_stages(donor: &ConfigValue, template: &ConfigValue) -> bool {
+    fn holds_visibility(value: &ConfigValue) -> bool {
+        match value {
+            ConfigValue::Named(fields) => fields.iter().any(|f|
+                visibility_selector(&f.name) || holds_visibility(&f.value)),
+            _ => false,
+        }
+    }
+    let Some(ConfigValue::Named(stages)) = donor.named("material") else { return true };
+    stages.iter().all(|stage| !holds_visibility(&stage.value)
+        || template.named("material").is_some_and(|m| m.named(&stage.name).is_some()))
+}
+
 /// A donor material on its 0.26 template, with the finish of the target's
 /// material of the same path, or the manifest's reviewed constant finish.
 fn convert_material(
@@ -1177,7 +1240,14 @@ fn convert_material(
     path: &str,
     bytes: &[u8],
 ) -> Result<ConvertedMaterial> {
-    let native = target.is_file(path);
+    // The target's material of the same path is the template only while it
+    // has every donor render stage that carries visibility. Chemical Plant's
+    // green_smoke is a forward particle in 0.21 and a lit one in 0.26: on that
+    // template the donor's stage and its visibility would be gone. Such a
+    // material is converted like one the target does not have.
+    let donor_root = BinaryConfig::parse(bytes)?.root;
+    let native = target.is_file(path)
+        && has_visibility_stages(&donor_root, &cfg(target, path)?);
     let explicit = m
         .material_templates
         .get(path)
@@ -1203,7 +1273,7 @@ fn convert_material(
         crate::material_finish::apply_finish_exception(&mut root, exception)
             .with_context(|| format!("finish exception of {path}"))?;
     }
-    preserve_material_visibility(&BinaryConfig::parse(bytes)?.root, &mut root)
+    preserve_material_visibility(&donor_root, &mut root)
         .with_context(|| format!("original visibility of {path}"))?;
     Ok(ConvertedMaterial {
         root,
@@ -1227,7 +1297,12 @@ fn native_equivalents(
     BTreeMap<String, crate::native_equivalence::TextureMatch>,
     BTreeSet<String>,
 )> {
+    // A particle's transparency keeps the target's file while the full-size
+    // image is the same: 0.21's `points` textures raise alpha in their small
+    // mips (2 of 255 at full size, 122-190 from 16x16 down), 0.26's particle
+    // pass samples those levels and draws pale square sprites.
     let visibility_textures: BTreeSet<_> = materials.values()
+        .filter(|converted| !is_particle_material(&converted.root))
         .flat_map(|converted| crate::material_finish::material_alpha_textures(&converted.root))
         .map(|name| format!("textures/{name}.dds"))
         .collect();
@@ -1870,6 +1945,43 @@ pub fn build(
         )
         .collect();
     let mut forced = forced;
+    // A particle 0.26g also ships stays 0.26g's (its retunes are kept, as a material's finish is)
+    // unless 0.26g redesigned the effect: its copy lacks one of the donor's emitters, or one of the
+    // materials the donor's names is drawn by another render stage in 0.26g (a forward glow that
+    // 0.26g made a lit particle; the material rule below then keeps the donor's material, which
+    // only the donor's particle names). Then the donor's effect is imported. On 0.21d's Chemical
+    // Plant anomaly: `radial_smoke` (0.26g dropped its green emitter), `spori`, `spori_mini`.
+    let particles: Vec<String> = donor
+        .paths()
+        .filter(|p| p.starts_with("particles/") && p.ends_with(".particle"))
+        .map(str::to_owned)
+        .collect();
+    for path in particles {
+        if !donor.is_file(&path) || !target.is_file(&path) {
+            continue;
+        }
+        let ours = particle_emitters(&BinaryConfig::parse(&target.read(&path)?)?.root);
+        let theirs = particle_emitters(&BinaryConfig::parse(&donor.read(&path)?)?.root);
+        if !theirs.is_subset(&ours) {
+            eprintln!("{path}: 0.26g's lacks an emitter of the donor's; the donor's is imported");
+            forced.insert(path);
+            continue;
+        }
+        for (_, material) in &theirs {
+            let file = format!("material_instances/{material}.material");
+            if !donor.is_file(&file) || !target.is_file(&file) {
+                continue;
+            }
+            let stages = |bytes: &[u8]| -> Result<BTreeSet<String>> {
+                Ok(material_stages(&BinaryConfig::parse(bytes)?.root))
+            };
+            if stages(&donor.read(&file)?)? != stages(&target.read(&file)?)? {
+                eprintln!("{path}: {material} is drawn by another stage in 0.26g; the donor's is imported");
+                forced.insert(path.clone());
+                break;
+            }
+        }
+    }
     eprintln!("Resolving map dependencies...");
     let first = crate::dependency::scan_with_forced_donor_and_overrides(
         &mut donor,
@@ -2352,6 +2464,22 @@ mod tests {
     }
 
     #[test]
+    fn same_path_template_needs_the_donor_stages_that_carry_visibility() {
+        // Chemical Plant's green_smoke: a forward particle in 0.21, a lit one in 0.26.
+        let stage = |name| named(vec![(name, named(vec![
+            ("two_sided", named(vec![("value", ConfigValue::Boolean(true))])),
+        ]))]);
+        let donor = named(vec![("material", stage("forward"))]);
+        assert!(has_visibility_stages(&donor, &donor));
+        assert!(!has_visibility_stages(&donor, &named(vec![("material", stage("lighting"))])));
+        // A donor stage without visibility (walker_collision's debug stage) asks nothing of the template.
+        let plain = named(vec![("material", named(vec![
+            ("debug", named(vec![("draw_mode", named(vec![("value", ConfigValue::Integer(0))]))])),
+        ]))]);
+        assert!(has_visibility_stages(&plain, &named(vec![("material", stage("lighting"))])));
+    }
+
+    #[test]
     fn original_glass_soft_edges_survive_native_template() {
         let donor = named(vec![("material", named(vec![("forward", named(vec![
             ("effect", named(vec![("use_soft_edges", named(vec![
@@ -2474,6 +2602,43 @@ mod tests {
             string(scene.named("texture_diffuse").unwrap(), "value"),
             Some("ported/v021d/fx/lights/oil_lamp")
         );
+    }
+
+    #[test]
+    fn a_particle_missing_a_donor_emitter_is_told_apart_from_a_retune() {
+        let emitter = |id: &str, material: &str, rate: f32| {
+            (id.to_owned(), named(vec![
+                ("properties", named(vec![
+                    ("Material", ConfigValue::String(material.into())),
+                    ("Rate", ConfigValue::Float(rate)),
+                ])),
+            ]))
+        };
+        let effect = |emitters: Vec<(String, ConfigValue)>| {
+            named(vec![("LOD 0", named(vec![(
+                "children",
+                ConfigValue::Named(emitters.into_iter().map(|(name, value)| NamedValue { name, value }).collect()),
+            )]))])
+        };
+        let donor = effect(vec![emitter("a", "fx/smoke_sample", 1.0), emitter("b", "fx/radial_smoke", 1.0)]);
+        let dropped = effect(vec![emitter("a", "fx/smoke_sample", 1.0)]);
+        let retuned = effect(vec![emitter("a", "fx/smoke_sample", 4.0), emitter("b", "fx/radial_smoke", 0.5)]);
+        let donor = particle_emitters(&donor);
+        assert_eq!(donor.len(), 2);
+        assert!(!donor.is_subset(&particle_emitters(&dropped)));
+        assert!(donor.is_subset(&particle_emitters(&retuned)));
+    }
+
+    #[test]
+    fn a_material_drawn_by_another_stage_is_told_apart() {
+        let material = |stage: &str| {
+            named(vec![("material", named(vec![("common", named(vec![(
+                "stages",
+                named(vec![(stage, ConfigValue::Integer(1))]),
+            )]))]))])
+        };
+        assert_ne!(material_stages(&material("forward")), material_stages(&material("lighting")));
+        assert_eq!(material_stages(&material("forward")), BTreeSet::from(["forward".to_owned()]));
     }
 
     #[test]
