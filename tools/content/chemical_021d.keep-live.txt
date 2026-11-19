@@ -153,3 +153,15 @@ models/ported/v021d/props/ventilation/povorot_open_crash.model/settings
 models/ported/v021d/props/ventilation/razvod_open_crash.model/settings
 models/ported/v021d/props/ventilation/truba_open_crash.model/settings
 models/ported/v021d/props/ventilation/ulitka_open_crash.model/settings
+# Released in resources.db.patch_65 with the five maps' blend and visibility edit lists applied (2026-11-18): the live
+# edited bytes stay; Chemical Plant's own edit lists apply to the shared files as to the others.
+material_instances/ported/v021d/flora/bark_grey.material
+material_instances/ported/v021d/tiled/bricks/brick_02_vc.material
+material_instances/ported/v021d/tiled/bricks/bricks_brick_vc.material
+material_instances/ported/v021d/tiled/concrete/concrete_blocks_trash_vc.material
+material_instances/ported/v021d/tiled/concrete/concrete_column_trash_vc.material
+material_instances/ported/v021d/tiled/concrete/concrete_green_trash_dirt_vc.material
+material_instances/ported/v021d/tiled/concrete/concrete_green_trash_vc.material
+material_instances/ported/v021d/tiled/floor/floor_plate_tile_trash_vc.material
+material_instances/ported/v021d/tiled/floor/floor_trash_dirt_vc.material
+material_instances/ported/v021d/water/water_green_shit.material

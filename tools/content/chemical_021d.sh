@@ -20,7 +20,7 @@ STOCK=${STOCK:-/home/sheep/Projects/survarium/srp/0.26g/game/resources.db}
 DONOR=${DONOR:-"/mnt/hdd/Projects/Survarium Builds/survarium_full_021d/game/resources.db"}
 PATCH_DIR=${PATCH_DIR:-$HOME/.cache/skhid-release/patches}
 PATCHES=(); for n in $(awk -F'\t' '!/^#/ && NF {print $1}' "$SRP/release/patches.tsv"); do PATCHES+=("$PATCH_DIR/$n"); done
-VERSION=1; ID=maps-021d-chemical; OUT=$BUILD/$ID-$VERSION
+VERSION=2; ID=maps-021d-chemical; OUT=$BUILD/$ID-$VERSION
 KEEP=(); while read -r path; do [[ -z $path || $path == \#* ]] || KEEP+=(--keep-live "$path"); done < "$HERE/tools/content/chemical_021d.keep-live.txt"
 
 rm -rf "$BUILD/bundle" "$OUT" "$BUILD/fill"

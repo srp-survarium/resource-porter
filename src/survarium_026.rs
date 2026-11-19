@@ -1167,6 +1167,34 @@ fn preserve_material_visibility(donor: &ConfigValue, converted: &mut ConfigValue
     apply(donor, converted, "root")
 }
 
+/// A particle's emitters: each `Material` it names, with the path of names that leads to it (an
+/// emitter's child id), so two effects compare emitter by emitter.
+fn particle_emitters(root: &ConfigValue) -> BTreeSet<(String, String)> {
+    fn walk(value: &ConfigValue, at: &str, out: &mut BTreeSet<(String, String)>) {
+        match value {
+            ConfigValue::Named(fields) => {
+                for field in fields {
+                    match &field.value {
+                        ConfigValue::String(material) if field.name == "Material" => {
+                            out.insert((at.to_owned(), material.replace('\\', "/")));
+                        }
+                        child => walk(child, &format!("{at}/{}", field.name), out),
+                    }
+                }
+            }
+            ConfigValue::Indexed(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    walk(item, &format!("{at}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = BTreeSet::new();
+    walk(root, "", &mut out);
+    out
+}
+
 fn is_particle_material(root: &ConfigValue) -> bool {
     root.named("material")
         .and_then(|m| m.named("instance"))
@@ -1904,6 +1932,25 @@ pub fn build(
         )
         .collect();
     let mut forced = forced;
+    // A particle 0.26g also ships stays 0.26g's (its retunes are kept, as a material's finish is)
+    // unless 0.26g's lacks one of the donor's emitters: then part of the effect itself is gone, not
+    // retuned (0.26g dropped the green `radial_smoke` emitter of 0.21d's Chemical Plant anomaly), and
+    // the donor's effect is imported.
+    let particles: Vec<String> = donor
+        .paths()
+        .filter(|p| p.starts_with("particles/") && p.ends_with(".particle"))
+        .map(str::to_owned)
+        .collect();
+    for path in particles {
+        if !donor.is_file(&path) || !target.is_file(&path) {
+            continue;
+        }
+        let ours = particle_emitters(&BinaryConfig::parse(&target.read(&path)?)?.root);
+        if !particle_emitters(&BinaryConfig::parse(&donor.read(&path)?)?.root).is_subset(&ours) {
+            eprintln!("{path}: 0.26g's lacks an emitter of the donor's; the donor's is imported");
+            forced.insert(path);
+        }
+    }
     eprintln!("Resolving map dependencies...");
     let first = crate::dependency::scan_with_forced_donor_and_overrides(
         &mut donor,
@@ -2524,6 +2571,31 @@ mod tests {
             string(scene.named("texture_diffuse").unwrap(), "value"),
             Some("ported/v021d/fx/lights/oil_lamp")
         );
+    }
+
+    #[test]
+    fn a_particle_missing_a_donor_emitter_is_told_apart_from_a_retune() {
+        let emitter = |id: &str, material: &str, rate: f32| {
+            (id.to_owned(), named(vec![
+                ("properties", named(vec![
+                    ("Material", ConfigValue::String(material.into())),
+                    ("Rate", ConfigValue::Float(rate)),
+                ])),
+            ]))
+        };
+        let effect = |emitters: Vec<(String, ConfigValue)>| {
+            named(vec![("LOD 0", named(vec![(
+                "children",
+                ConfigValue::Named(emitters.into_iter().map(|(name, value)| NamedValue { name, value }).collect()),
+            )]))])
+        };
+        let donor = effect(vec![emitter("a", "fx/smoke_sample", 1.0), emitter("b", "fx/radial_smoke", 1.0)]);
+        let dropped = effect(vec![emitter("a", "fx/smoke_sample", 1.0)]);
+        let retuned = effect(vec![emitter("a", "fx/smoke_sample", 4.0), emitter("b", "fx/radial_smoke", 0.5)]);
+        let donor = particle_emitters(&donor);
+        assert_eq!(donor.len(), 2);
+        assert!(!donor.is_subset(&particle_emitters(&dropped)));
+        assert!(donor.is_subset(&particle_emitters(&retuned)));
     }
 
     #[test]
