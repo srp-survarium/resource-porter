@@ -59,8 +59,9 @@ struct Weather {
     loading_screen_id: i32,
     /// A native 0.26g project of the same weather, for its environment's settings.
     native_environment_project: String,
-    /// Environment settings written as floats after the build (a shader profile's marker,
-    /// e.g. London's tone curve in mie_fog_base_height); each must exist already.
+    /// Environment settings written after the build in the field's own number type (a
+    /// shader profile's marker, e.g. London's tone curve in mie_fog_base_height); each must
+    /// exist already.
     #[serde(default)]
     environment_overrides: BTreeMap<String, f32>,
 }
@@ -110,7 +111,15 @@ fn with_overrides(mut project: ConfigValue, overrides: &BTreeMap<String, f32>) -
             env.named("properties").and_then(|p| p.named(name)).is_some(),
             "the environment has no {name} to override"
         );
-        env.set_path(&at, ConfigValue::Float(*value))?;
+        // The field keeps its number type (a key keeps its type in skhid's content check).
+        let value = match env.named("properties").and_then(|p| p.named(name)) {
+            Some(ConfigValue::Integer(_)) => {
+                ensure!(value.fract() == 0.0, "{name} is an integer field");
+                ConfigValue::Integer(*value as i32)
+            }
+            _ => ConfigValue::Float(*value),
+        };
+        env.set_path(&at, value)?;
     }
     Ok(project)
 }
