@@ -79,11 +79,10 @@
   ],
   "key_profiles": [
     {
-      "name": "london (level_09, 0.31a2's tone curve)",
+      "name": "london (level_09, 0.31a2's tone curve; day and evening)",
       "key": 6.0,
       "markers": [
         32909.0,
-        32919.0,
         32929.0
       ]
     }
