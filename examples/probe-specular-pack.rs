@@ -38,11 +38,11 @@ fn main() -> Result<()> {
         .paths_with_prefix(probe_specular::FAMILY)
         .filter(|p| {
             probe_specular::is_reflection_only(&key_of(p))
-                || (!markers.is_empty() && probe_parallax::is_box(&key_of(p)))
+                || (!markers.is_empty() && probe_parallax::is_channel(&key_of(p)))
         })
         .map(str::to_owned)
         .collect();
-    let expected = if markers.is_empty() { 16 } else { 24 };
+    let expected = if markers.is_empty() { 16 } else { 20 };
     ensure!(keys.len() == expected, "{} permutations, expected {expected}", keys.len());
     let mut operations = Vec::new();
     for path in &keys {
@@ -52,8 +52,9 @@ fn main() -> Result<()> {
         if probe_specular::is_reflection_only(&key) {
             built = probe_specular::build(&built).with_context(|| path.clone())?;
         }
-        if !markers.is_empty() && probe_parallax::is_box(&key) {
-            built = probe_parallax::build(&built, &markers).with_context(|| path.clone())?;
+        if !markers.is_empty() && probe_parallax::is_channel(&key) {
+            built = probe_parallax::build(&built, &markers, probe_parallax::affects_diffuse(&key))
+                .with_context(|| path.clone())?;
         }
         let at = vostok_resource_porter::archive::safe_join(&output.join("files"), path)?;
         fs::create_dir_all(at.parent().context("parent")?)?;
@@ -67,10 +68,10 @@ fn main() -> Result<()> {
     let pack = PackManifest {
         format_version: 1,
         id: if markers.is_empty() { "probe-specular" } else { "london-probes" }.into(),
-        version: "1".into(),
+        version: if markers.is_empty() { "1" } else { "2" }.into(),
         target_build: TARGET_BUILD.into(),
         description: Some(if !markers.is_empty() {
-            format!("London's environment probes as 0.31a2 draws them: reflection-only probes (affect_diffuse = false) add their reflection and leave the diffuse light; box probes look their reflection up box-projected (parallax-corrected) on scenes marked {markers:?} (mie_fog_base_height). Native maps draw neither: no other map has reflection-only probes, and the box projection runs only behind London's markers.")
+            format!("London's environment probes as 0.31a2 draws them: reflection-only probes (affect_diffuse = false) add their reflection and leave the diffuse light; box probes with use_parallax_correction in 0.31a2 (given smart attenuation as a per-probe switch) look their reflection up box-projected (parallax-corrected), with the plain box falloff, on scenes marked {markers:?} (mie_fog_base_height). Native maps draw neither: no other map has reflection-only probes, and both branches run only behind London's markers.")
         } else {
             "Reflection-only environment probes (affect_diffuse = false) as 0.31a2 draws them: the probe adds its reflection and leaves the diffuse light as it was; 0.26g's shader wrote the surface's own colour into it. Only London's ten window probes are such probes."
                 .into()

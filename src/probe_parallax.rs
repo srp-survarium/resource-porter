@@ -22,6 +22,19 @@ pub fn is_box(key: &str) -> bool {
     key.as_bytes().get(41) == Some(&b'1')
 }
 
+/// The per-probe channel: a box permutation with smart attenuation (key digit 31, `LOD_INDEX`).
+/// No London probe has smart attenuation in 0.31a2; London's box-projected probes get it set, and on
+/// London's marked scenes these permutations draw the plain box falloff with the projected
+/// reflection, so the projection reaches only the probes 0.31a2 projects. Elsewhere they are native.
+pub fn is_channel(key: &str) -> bool {
+    is_box(key) && key.as_bytes().get(31) == Some(&b'1')
+}
+
+/// Whether the permutation writes the probe's diffuse light (key digit 5, `TDIFFUSE`).
+pub fn affects_diffuse(key: &str) -> bool {
+    key.as_bytes().get(5) == Some(&b'1')
+}
+
 const DCL_TEMPS: u32 = 104;
 const DP4: u32 = 17;
 const SAMPLE: u32 = 69;
@@ -106,8 +119,12 @@ fn mark_used(rdef: &mut [u8], name: &str) -> Result<()> {
     bail!("no variable {name}")
 }
 
-/// A box program (its include records, then the DXBC) with the marked branch.
-pub fn build(blob: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
+const RET: u32 = 62;
+
+/// A channel program (its include records, then the DXBC) with the marked branches: the
+/// box-projected lookup before its specular sample, and before `ret` the plain box falloff
+/// (0.26g's non-smart one) in the alpha it writes (`o1.w`, and `o0.w` when it writes diffuse).
+pub fn build(blob: &[u8], markers: &[f32], diffuse: bool) -> Result<Vec<u8>> {
     ensure!(!markers.is_empty() && markers.len() <= 4, "one to four markers");
     let offset = 4 + u32_at(blob, 0)? as usize * 264;
     let code = blob.get(offset..).context("truncated shader header")?;
@@ -163,15 +180,19 @@ pub fn build(blob: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
     let mask = comps.iter().fold(0, |m, c| m | (1 << c));
     let spread_swz = spread(&comps);
 
-    let mut branch = Vec::new();
-    for (i, m) in markers.iter().enumerate() {
-        let r = if i == 0 { a } else { b };
-        branch.push(op(0x18, &[&temp_dst(r, 1), &[0x0020_803a, 1, 18], &[0x0000_4001, m.to_bits()]]));
-        if i > 0 {
-            branch.push(op(0x3c, &[&temp_dst(a, 1), &select(a, 0), &select(b, 0)]));
+    let guard = || {
+        let mut g = Vec::new();
+        for (i, m) in markers.iter().enumerate() {
+            let r = if i == 0 { a } else { b };
+            g.push(op(0x18, &[&temp_dst(r, 1), &[0x0020_803a, 1, 18], &[0x0000_4001, m.to_bits()]]));
+            if i > 0 {
+                g.push(op(0x3c, &[&temp_dst(a, 1), &select(a, 0), &select(b, 0)]));
+            }
         }
-    }
-    branch.push(vec![0x0304_001f, 0x0010_000a, a]);
+        g.push(vec![0x0304_001f, 0x0010_000a, a]);
+        g
+    };
+    let mut branch = guard();
     for (row, comp) in [(8, 1), (9, 2), (10, 4)] {
         branch.push(op(0x10, &[&temp_dst(a, comp), &cb(0, row, XYZX), &temp_src(d, swz)]));
     }
@@ -190,6 +211,33 @@ pub fn build(blob: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
     branch.push(op(0x00, &[&temp_dst(d, mask), &temp_src(d, XYZW), &cb_neg(0, 19, spread_swz)]));
     branch.push(vec![0x0100_0015]);
 
+    // The plain box falloff (0.26g's non-smart box program): p = world_to_outer_probe * P,
+    // t = sat((outer * |p| - inner) / (outer - inner)), alpha = prod(1 - t*t*(3 - 2t)).
+    let mut falloff = guard();
+    falloff.push(op(0x36, &[&temp_dst(s, 8), &[0x0000_4001, 1.0f32.to_bits()]]));
+    for (row, comp) in [(8, 1), (9, 2), (10, 4)] {
+        falloff.push(op(0x11, &[&temp_dst(b, comp), &cb(0, row, XYZW), &temp_src(s, XYZW)]));
+    }
+    falloff.push(op(0x32, &[&temp_dst(b, 7), &cb(0, 17, XYZX), &[0x8010_0006 | (XYZX << 4), 0x81, b], &cb_neg(0, 18, XYZX)]));
+    falloff.push(op(0x00, &[&temp_dst(c, 7), &cb(0, 17, XYZX), &cb_neg(0, 18, XYZX)]));
+    falloff.push(op(0x0e | 0x2000, &[&temp_dst(b, 7), &temp_src(b, XYZX), &temp_src(c, XYZX)]));
+    falloff.push(op(0x32, &[&temp_dst(c, 7), &temp_src(b, XYZX), &imm4([-2.0, -2.0, -2.0, 0.0]), &imm4([3.0, 3.0, 3.0, 0.0])]));
+    falloff.push(op(0x38, &[&temp_dst(b, 7), &temp_src(b, XYZX), &temp_src(b, XYZX)]));
+    falloff.push(op(0x32, &[&temp_dst(b, 7), &temp_neg(c, XYZX), &temp_src(b, XYZX), &imm4([1.0, 1.0, 1.0, 0.0])]));
+    falloff.push(op(0x38, &[&temp_dst(b, 1), &select(b, 1), &select(b, 0)]));
+    falloff.push(op(0x38, &[&temp_dst(b, 1), &select(b, 2), &select(b, 0)]));
+    falloff.push(op(0x36, &[&[0x0010_2082, 1], &select(b, 0)]));
+    if diffuse {
+        falloff.push(op(0x36, &[&[0x0010_2082, 0], &select(b, 0)]));
+    }
+    falloff.push(vec![0x0100_0015]);
+    let ret_at = ops.len() - 1;
+    ensure!(ops[ret_at][0] & 2047 == RET, "the program does not end in ret");
+    ensure!(
+        ops.iter().filter(|o| o[0] & 2047 == RET).count() == 1,
+        "more than one ret"
+    );
+
     let mut out = w[..2].to_vec();
     for (i, o) in ops.iter().enumerate() {
         if o[0] & 2047 == DCL_TEMPS {
@@ -198,6 +246,9 @@ pub fn build(blob: &[u8], markers: &[f32]) -> Result<Vec<u8>> {
         }
         if i == sample_at {
             out.extend(branch.iter().flatten());
+        }
+        if i == ret_at {
+            out.extend(falloff.iter().flatten());
         }
         out.extend(o);
         if i == p_at {
