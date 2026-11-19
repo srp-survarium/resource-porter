@@ -266,9 +266,17 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   0.26's format (a cubemap and its `_diffuse`) and are imported
   (`"probes": "donor"`). Wire sets are the same object and are kept.
 * **0.69d**: lux and lumen as for Duga, but the lobby keeps its ambient
-  lights: `type` 1 (multiplying, the painted contact shadows) is dropped,
-  spheres take radius x scale, and intensities are scaled to the 0.26 lobby's
-  median and capped at 3. Its probes keep their volumes on the 0.26 lobby's
+  lights, a sphere's radius is its largest scale (its unit primitive, as a
+  box's half-extents), and `photometric_lights` sets the
+  scales. A 0.26g ambient light multiplies the ambient light under it by
+  colour x intensity at an intensity up to 1 and adds colour x (intensity - 1)
+  above it (skhid-srp's `renderer-026g.md` 5.4), so a `type` 1 light below 1
+  (a painted contact shadow) keeps its multiplier as its intensity, and the
+  adding lights become 1 + lux x `lux`, and a fill (`type` 1 above 1) adds
+  (multiplier - 1) x the ambient light of the baked probe it is in (what
+  0.69d's multiply adds there).
+  Ambient lights of a shape 0.26 lacks (geometry 2: the chandelier's three
+  ceiling shadows) are left out. Its probes keep their volumes on the 0.26 lobby's
   cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
   Year snow of volume 72's project; `native_materials` draws its window panes
   (`water/glass_water`) with 0.26's `tiled/window/glass`.
