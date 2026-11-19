@@ -468,14 +468,15 @@ pub(crate) fn cut_covered(
     Ok(Some((soup.keep(|k| !gone(k))?.bytes()?, cut)))
 }
 
-/// The most an item's vertex is carried (m): more is not a fit.
-const CARRY_MAX: f64 = 0.03;
+/// How far along the native head's normal the face's skin is looked for,
+/// each way (m): more is not the same place of the head.
+const CARRY_REACH: f64 = 0.025;
+/// An item's vertex this far inside the native head (m) is under the item's
+/// outer layer, and moves with it.
+const INSIDE_DEPTH: f64 = 0.001;
 /// Rounds of smoothing of an item's carry: its shape keeps its small
 /// features, the carry is the face's broad difference from the native head.
 pub const CARRY_SMOOTH: usize = 6;
-/// What an item's vertex is carried beyond what the skin under it and
-/// under its neighbours asks (m): the room for the skin between vertices.
-const CARRY_ROOM: f64 = 0.0003;
 
 /// How an item was carried onto a face.
 #[derive(Clone, Copy, Debug, Default, serde::Serialize)]
@@ -484,74 +485,148 @@ pub struct Carried {
     pub moved: usize,
     pub farthest: f64,
     pub mean: f64,
+    /// Vertices inside the native head, or whose line met no skin of the
+    /// face within the reach: they take their neighbours' carry.
+    pub unmet: usize,
 }
 
-/// An item made over the native head carried onto a face: along the ray
-/// through each vertex ([`Rig::carry_centre`]) the face's skin is as far
-/// from the native head's as the vertex is moved, so it keeps the distance
-/// from the skin its maker gave it.
-pub(crate) struct Carry<'a> {
-    rig: &'a Rig,
-    native: crate::face_fit::Solid,
+/// An item made over the native head carried onto a face. Each vertex is
+/// moved along the native head's normal at the point of it nearest the
+/// vertex, by how far out (or in) along that normal the face's skin nearest
+/// that point is: it keeps the native head's place under it (so an
+/// eye hole stays on the eyes, an edge on the same part of the head) and the
+/// distance from the skin its maker gave it.
+pub(crate) struct Carry {
+    native: Mesh,
+    /// The native head's vertex normals, welded copies together.
+    normals: Vec<[f64; 3]>,
     face: crate::face_fit::Solid,
 }
 
-impl<'a> Carry<'a> {
-    pub fn new(rig: &'a Rig, native: &Mesh, face: &Mesh) -> Self {
+fn unit3(v: [f64; 3]) -> [f64; 3] {
+    let l = dot(v, v).sqrt();
+    if l < 1e-12 {
+        [0.0; 3]
+    } else {
+        v.map(|x| x / l)
+    }
+}
+
+impl Carry {
+    pub fn new(native: &Mesh, face: &Mesh) -> Self {
+        let (weld, _) = crate::mask_fit::weld_vertices(native);
+        let mut welded = vec![[0.0; 3]; weld.iter().copied().max().map_or(0, |m| m + 1)];
+        for t in &native.triangles {
+            let [a, b, c] = t.map(|v| native.positions[v]);
+            let n = crate::mask_fit::cross(sub(b, a), sub(c, a));
+            for &v in t {
+                let w = &mut welded[weld[v]];
+                for k in 0..3 {
+                    w[k] += n[k];
+                }
+            }
+        }
+        let normals = weld.iter().map(|&k| unit3(welded[k])).collect();
         Self {
-            rig,
-            native: crate::face_fit::Solid::new(&native.positions, &native.triangles),
+            native: native.clone(),
+            normals,
             face: crate::face_fit::Solid::new(&face.positions, &face.triangles),
         }
     }
 
-    /// The ray through `p` (its unit direction) and how far along it the
-    /// face's skin is beyond the native head's (m), where the ray meets both.
-    fn at(&self, p: [f64; 3]) -> ([f64; 3], Option<f64>) {
-        let c = self.rig.carry_centre(p);
-        let d = sub(p, c);
-        let r = dot(d, d).sqrt();
-        if r < 1e-6 {
-            return ([0.0; 3], None);
+    /// The native head's point nearest `p` and its normal there.
+    fn nearest(&self, p: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+        let mut best = (f64::INFINITY, 0, [1.0, 0.0, 0.0]);
+        for (t, tri) in self.native.triangles.iter().enumerate() {
+            let [a, b, c] = tri.map(|v| self.native.positions[v]);
+            let bary = closest_on_triangle(p, a, b, c);
+            let q = [0, 1, 2].map(|k| bary[0] * a[k] + bary[1] * b[k] + bary[2] * c[k]);
+            let d = sub(p, q);
+            let d = dot(d, d);
+            if d < best.0 {
+                best = (d, t, bary);
+            }
         }
-        let dir = d.map(|v| v / r);
-        let by = match (self.native.farthest(c, dir), self.face.farthest(c, dir)) {
-            (Some(native), Some(face)) => Some((face - native).clamp(-CARRY_MAX, CARRY_MAX)),
-            _ => None,
+        let tri = self.native.triangles[best.1];
+        let at = |k: usize| {
+            (0..3)
+                .map(|c| best.2[c] * self.native.positions[tri[c]][k])
+                .sum::<f64>()
         };
-        (dir, by)
+        let n = unit3([0, 1, 2].map(|k| {
+            (0..3)
+                .map(|c| best.2[c] * self.normals[tri[c]][k])
+                .sum::<f64>()
+        }));
+        ([at(0), at(1), at(2)], n)
+    }
+
+    /// How a vertex at `p` moves: along the native normal under it, to the
+    /// face's skin nearest the native head's on that line, within
+    /// [`CARRY_REACH`].
+    fn at(&self, p: [f64; 3]) -> Option<[f64; 3]> {
+        let (q, n) = self.nearest(p);
+        if dot(n, n) < 0.5 {
+            return None;
+        }
+        let from = [0, 1, 2].map(|k| q[k] - n[k] * CARRY_REACH);
+        let t = self
+            .face
+            .nearest_facing(from, n, 2.0 * CARRY_REACH, CARRY_REACH)?
+            - CARRY_REACH;
+        Some(n.map(|v| v * t))
     }
 
     /// A converted surface of any vertex layout with its positions carried.
-    /// A vertex whose ray misses either head takes its neighbours' carry
-    /// (none: it stays). The carry is smoothed `smooth` rounds over the
-    /// surface, seam copies together, and never under what the vertex and
-    /// its neighbours need ([`CARRY_ROOM`] more): smoothing may leave the
-    /// item farther off the face than off the native head, never nearer.
+    /// A vertex whose line meets no skin takes its neighbours' carry. The
+    /// carry is smoothed `smooth` rounds over the surface (seam copies
+    /// together), but on its open edges, which keep their own: an edge stays
+    /// on the skin as its maker laid it.
     pub fn apply(&self, model: &[u8], smooth: usize, label: &str) -> Result<(Vec<u8>, Carried)> {
         let count = read_u32(model, 8)?;
         ensure!(count > 0, "{label}: no vertices");
         let stride = (read_u32(model, 4)? - 4) / count;
         let mesh = parse_mesh(model, stride, label)?;
         let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
-        let mut dirs = vec![[0.0; 3]; neighbours.len()];
-        let mut by: Vec<Option<f64>> = vec![None; neighbours.len()];
-        let mut seen = vec![false; neighbours.len()];
+        let n = neighbours.len();
+        // What lies inside the native head (a mask's rolled insides, under
+        // its outer layer) moves as the rest of the item round it does: it
+        // stays under the layer that hid it.
+        let inside = crate::mask_fit::interior_vertices(
+            &mesh.positions,
+            &self.native,
+            INSIDE_DEPTH,
+            f64::NEG_INFINITY,
+        );
+        let mut by: Vec<Option<[f64; 3]>> = vec![None; n];
+        let mut seen = vec![false; n];
         for (i, &k) in weld.iter().enumerate() {
             if !seen[k] {
                 seen[k] = true;
-                (dirs[k], by[k]) = self.at(mesh.positions[i]);
+                by[k] = if inside[i] {
+                    None
+                } else {
+                    self.at(mesh.positions[i])
+                };
             }
         }
+        let mut how = Carried {
+            unmet: by.iter().filter(|b| b.is_none()).count(),
+            ..Carried::default()
+        };
         loop {
             let mut filled = vec![];
-            for k in 0..by.len() {
+            for k in 0..n {
                 if by[k].is_some() {
                     continue;
                 }
-                let known: Vec<f64> = neighbours[k].iter().filter_map(|&u| by[u]).collect();
+                let known: Vec<[f64; 3]> = neighbours[k].iter().filter_map(|&u| by[u]).collect();
                 if !known.is_empty() {
-                    filled.push((k, known.iter().sum::<f64>() / known.len() as f64));
+                    let m = known.len() as f64;
+                    filled.push((
+                        k,
+                        [0, 1, 2].map(|j| known.iter().map(|d| d[j]).sum::<f64>() / m),
+                    ));
                 }
             }
             if filled.is_empty() {
@@ -561,34 +636,40 @@ impl<'a> Carry<'a> {
                 by[k] = Some(d);
             }
         }
-        let exact: Vec<f64> = by.into_iter().map(|d| d.unwrap_or(0.0)).collect();
-        let least: Vec<f64> = (0..exact.len())
-            .map(|k| {
-                neighbours[k]
-                    .iter()
-                    .map(|&u| exact[u])
-                    .fold(exact[k], f64::max)
-                    + CARRY_ROOM
-            })
-            .collect();
-        let mut by = least.clone();
+        let mut by: Vec<[f64; 3]> = by.into_iter().map(|d| d.unwrap_or([0.0; 3])).collect();
+        // Open edges: an edge of the welded mesh that one triangle uses.
+        let mut uses: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+        for t in &mesh.triangles {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let (a, b) = (weld[a], weld[b]);
+                *uses.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        let mut edge = vec![false; n];
+        for ((a, b), u) in uses {
+            if u == 1 {
+                edge[a] = true;
+                edge[b] = true;
+            }
+        }
         for _ in 0..smooth {
-            by = (0..by.len())
+            by = (0..n)
                 .map(|k| {
-                    if neighbours[k].is_empty() {
+                    if edge[k] || neighbours[k].is_empty() {
                         return by[k];
                     }
-                    let n = neighbours[k].len() as f64;
-                    let mean = neighbours[k].iter().map(|&u| by[u]).sum::<f64>() / n;
-                    ((by[k] + mean) / 2.0).max(least[k])
+                    let m = neighbours[k].len() as f64;
+                    [0, 1, 2].map(|j| {
+                        let mean = neighbours[k].iter().map(|&u| by[u][j]).sum::<f64>() / m;
+                        (by[k][j] + mean) / 2.0
+                    })
                 })
                 .collect();
         }
         let mut out = model.to_vec();
-        let mut how = Carried::default();
         let mut total = 0.0;
         for (i, &k) in weld.iter().enumerate() {
-            let l = by[k].abs();
+            let l = dot(by[k], by[k]).sqrt();
             total += l;
             if l > 1e-4 {
                 how.moved += 1;
@@ -596,7 +677,7 @@ impl<'a> Carry<'a> {
             how.farthest = how.farthest.max(l);
             let at = 12 + i * stride;
             for j in 0..3 {
-                let v = (mesh.positions[i][j] + dirs[k][j] * by[k]) as f32;
+                let v = (mesh.positions[i][j] + by[k][j]) as f32;
                 out[at + 4 * j..at + 4 * j + 4].copy_from_slice(&v.to_le_bytes());
             }
         }
@@ -638,4 +719,127 @@ pub(crate) fn moved_from(bare: &[u8], variant: &[u8]) -> Result<Vec<Option<f64>>
             })
         })
         .collect())
+}
+
+/// What [`onto_live_neck`] did.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct NeckCarry {
+    /// Vertices that bend with the neck, moved wholly or in part onto the
+    /// game's model, the farthest (m), and those of them with no vertex of
+    /// that model at their UV (moved with their neighbours).
+    pub moved: usize,
+    pub farthest: f64,
+    pub unmatched: usize,
+}
+
+/// A 0.69d0 item made for one face (`donor`, converted) with the part of it
+/// that bends with the neck laid where the game's own model of it (`live`,
+/// made over the native head and tucked into the game's collars) has it: as
+/// a face's neck is joined to the body ([`join_native_neck`]), each vertex by
+/// [`neck_share`] of how little it follows the Head, its skin mixed in the
+/// same share. A vertex that follows the Head by [`NECK_HEAD_WEIGHT`] or more
+/// is the donor's, bit for bit. The two models' vertices are matched by UV
+/// (the game's model is the donor's of another face, refined and fitted).
+pub(crate) fn onto_live_neck(
+    donor: &[u8],
+    live: &[u8],
+    rig: &Rig,
+    label: &str,
+) -> Result<(Vec<u8>, NeckCarry)> {
+    let mut soup = Soup::parse(donor, label)?;
+    let game = Soup::parse(live, &format!("{label} (the game's)"))?;
+    let head = rig.head_bone();
+    let uv = |v: &[u8; 48]| [f32_at(v, 40), f32_at(v, 44)];
+    let key = |u: [f64; 2]| u.map(|x| (x * 1000.0).floor() as i64);
+    let mut by_uv: BTreeMap<[i64; 2], Vec<usize>> = BTreeMap::new();
+    for (i, v) in game.vertices.iter().enumerate() {
+        by_uv.entry(key(uv(v))).or_default().push(i);
+    }
+    let n = soup.vertices.len();
+    let mut target: Vec<Option<([f64; 3], Skin)>> = vec![None; n];
+    let mut share = vec![0.0; n];
+    let mut how = NeckCarry::default();
+    for (i, v) in soup.vertices.iter().enumerate() {
+        share[i] = neck_share(head_weight(&skin_of(v), head));
+        if share[i] <= 0.0 {
+            continue;
+        }
+        let (u, p) = (uv(v), position(v));
+        let k = key(u);
+        let mut best: Option<(f64, usize)> = None;
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for &j in by_uv.get(&[k[0] + dx, k[1] + dy]).into_iter().flatten() {
+                    let w = uv(&game.vertices[j]);
+                    if (w[0] - u[0]).abs() > 2e-4 || (w[1] - u[1]).abs() > 2e-4 {
+                        continue;
+                    }
+                    let d = sub(position(&game.vertices[j]), p);
+                    let d = dot(d, d);
+                    if best.is_none_or(|b| d < b.0) {
+                        best = Some((d, j));
+                    }
+                }
+            }
+        }
+        if let Some((_, j)) = best {
+            let g = &game.vertices[j];
+            target[i] = Some((position(g), skin_of(g)));
+        }
+    }
+    // Unmatched vertices move as their matched neighbours do.
+    let mesh = parse_mesh(donor, 48, label)?;
+    let (weld, neighbours) = crate::mask_fit::weld_vertices(&mesh);
+    let mut moves: Vec<Option<[f64; 3]>> = vec![None; neighbours.len()];
+    for i in 0..n {
+        if let Some((t, _)) = &target[i] {
+            moves[weld[i]] = Some(sub(*t, position(&soup.vertices[i])));
+        }
+    }
+    loop {
+        let mut filled = vec![];
+        for k in 0..moves.len() {
+            if moves[k].is_some() {
+                continue;
+            }
+            let known: Vec<[f64; 3]> = neighbours[k].iter().filter_map(|&u| moves[u]).collect();
+            if !known.is_empty() {
+                let m = known.len() as f64;
+                filled.push((
+                    k,
+                    [0, 1, 2].map(|j| known.iter().map(|d| d[j]).sum::<f64>() / m),
+                ));
+            }
+        }
+        if filled.is_empty() {
+            break;
+        }
+        for (k, d) in filled {
+            moves[k] = Some(d);
+        }
+    }
+    for (i, v) in soup.vertices.iter_mut().enumerate() {
+        if share[i] <= 0.0 {
+            continue;
+        }
+        let Some(m) = moves[weld[i]] else {
+            continue;
+        };
+        if target[i].is_none() {
+            how.unmatched += 1;
+        }
+        let p = position(v);
+        let q = [0, 1, 2].map(|k| p[k] + share[i] * m[k]);
+        set_position(v, q);
+        if let Some((_, skin)) = &target[i] {
+            let mixed = mix_skins(&skin_of(v), skin, share[i]);
+            put_skin(v, &mixed);
+        }
+        let d = share[i] * dot(m, m).sqrt();
+        if d > 1e-6 {
+            how.moved += 1;
+            how.farthest = how.farthest.max(d);
+        }
+    }
+    Ok((soup.bytes()?, how))
 }

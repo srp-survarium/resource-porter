@@ -266,7 +266,7 @@ impl Posable {
 
     /// Only the triangles with a corner in the zone a face can meet, and
     /// the vertices they use.
-    fn near_head(mut self) -> Self {
+    pub(crate) fn near_head(mut self) -> Self {
         let inside = |p: &[f64; 3]| (0..3).all(|k| p[k] >= ZONE_MIN[k] && p[k] <= ZONE_MAX[k]);
         self.triangles
             .retain(|t| t.iter().any(|&v| inside(&self.positions[v])));
@@ -1428,12 +1428,12 @@ fn bind_body_cover(
 /// The most a vertex of an item is moved out in one round of [`settle`]
 /// (m), the rounds, and what a move adds to what the measure asks (m).
 const SETTLE_STEP: f64 = 0.004;
-const SETTLE_ROUNDS: usize = 12;
+const SETTLE_ROUNDS: usize = 16;
 const SETTLE_ROOM: f64 = 0.0003;
 /// The most a vertex is moved in all (m): where settling asks for more
 /// (round after round at an item's edge), the item does not fit by a
 /// carry, and the gate says so.
-const SETTLE_MOST: f64 = 0.006;
+const SETTLE_MOST: f64 = 0.016;
 
 impl Posable {
     /// Writes these positions into the model they are a part of.
@@ -1648,26 +1648,16 @@ impl Solid {
         }
     }
 
-    /// The farthest crossing of the ray `o + t d` (t > 0) with the surface.
-    pub fn farthest(&self, o: [f64; 3], d: [f64; 3]) -> Option<f64> {
+    /// The crossing of `o + t d` (0 < t <= `reach`) nearest `t = at` where
+    /// the surface faces along `d`: the skin nearest that point of the line.
+    pub fn nearest_facing(&self, o: [f64; 3], d: [f64; 3], reach: f64, at: f64) -> Option<f64> {
         let mut best: Option<f64> = None;
-        self.bvh.hits(o, d, 0.0, f64::INFINITY, |t, _, _| {
-            best = Some(best.map_or(t, |x: f64| x.max(t)));
+        self.bvh.hits(o, d, 0.0, reach, |t, out, _| {
+            if out && best.is_none_or(|x: f64| (t - at).abs() < (x - at).abs()) {
+                best = Some(t);
+            }
         });
         best
-    }
-}
-
-impl Rig {
-    /// Where the ray through a point near the head starts, for carrying an
-    /// item from one head onto another: the skull's middle, below the chin
-    /// the neck's axis, and between them a point passing from one to the
-    /// other, so the rays change smoothly down an item.
-    pub fn carry_centre(&self, p: [f64; 3]) -> [f64; 3] {
-        let x = ((p[1] - (self.chin - CHIN_BAND)) / (2.0 * CHIN_BAND)).clamp(0.0, 1.0);
-        let w = x * x * (3.0 - 2.0 * x);
-        let neck = self.neck_centre(p).0;
-        [0, 1, 2].map(|k| neck[k] + w * (self.skull[k] - neck[k]))
     }
 }
 

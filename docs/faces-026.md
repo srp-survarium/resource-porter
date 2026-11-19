@@ -2,11 +2,12 @@
 
 `faces_026` builds the faces of skhid-srp's face choice: today's head (face 0),
 the eight faces of 0.69d0 as 0.69d0 draws them, and the STK2 Novice's face with
-a scalp joined where his knit cap was. `face_shape` joins each face's neck to the
-body where today's head's is and makes the helmets and masks that do not fit a
-face a model for that face; `face_fit` is the gate: the build stops when a face
-shows through an item, or an item stands off a face, that the open list does not
-name. `examples/build-faces-026.rs` is the builder, `examples/render-faces-026.rs`
+a 0.69d0 face's short scalp joined at his hairline. `face_shape` joins each
+face's neck to the body where today's head's is and gives the masks a model for
+a face: 0.69d0's own model of its face-wear for that face, else the game's mask
+carried onto the face where it does not fit it; `face_fit` is the gate: the
+build stops when a face shows through an item, or an item stands off a face,
+that the open list does not name. `examples/build-faces-026.rs` is the builder, `examples/render-faces-026.rs`
 with `scripts/render-faces-026.py` and `scripts/render-faces-026-pairs.py` the
 pictures, `scripts/faces-026-icons.py` the picker's icons.
 
@@ -27,20 +28,25 @@ A missing `data_helmet` or `data_mask` means the bare face, as in 0.69d0.
 `black_market_01_head_s`); `body_parts.head` stays as it is. The models are
 `models/ported/faces/<face>[_helmet|_mask]`.
 
-A helmet's or a mask's model for one face, in the item's own config
-(`gameplay/items/armour/<helmet|mask>/<item>.options`), 0.69d0's
+A mask's model for one face, in the item's own config
+(`gameplay/items/armour/mask/<item>.options`), 0.69d0's
 `equipment.<item>.models.head_<n>` in 0.26g's spelling:
 
 ```
 data_head_<i>         the item's `data` with other models: the item as face i wears it
 ```
 
+For 0.69d0's face-wear the entry also has `remove_head_model: true` and the face it shows
+(`head_s`, a surface of its model with the face's material) as an additional model, as 0.69d0
+draws its `head_<n>` models.
+
 Its models are `models/ported/faces/items/<face>/<the item's model>` (every
-file of the item's model, every surface and level of detail carried); `<i>` is
+file of the item's model; a carried model has every surface and level of detail
+carried, 0.69d0's face-wear its own surface for the face in the place of the
+game's one, the surface's `export_properties` counting its vertices); `<i>` is
 the index into `heads`. A missing `data_head_<i>` means `data`, as 0.69d0's
-missing `head_<n>` means `base`. 0.69d0 looks `head_<n>` up for masks and
-face-wear only (its helmets are keyed by the worn mask's `model_type`); here
-helmets have it too.
+missing `head_<n>` means `base`. As in 0.69d0, only masks have them (0.69d0
+looks `head_<n>` up for masks and face-wear only); no helmet has one.
 
 | i | face | from |
 |---|---|---|
@@ -51,7 +57,7 @@ helmets have it too.
 | 6 | `069d_head_05` | 0.69d0 `head_05` + hair `head_05_hair_vc` |
 | 7 | `069d_head_06` | 0.69d0 `head_06` |
 | 8 | `069d_head_07` | 0.69d0 `head_07` + hair `head_07_hair_vc` |
-| 9 | `stk2_neutral_01_head` | STK2 export (the Novice), cap off, scalp joined |
+| 9 | `stk2_neutral_01_head` | STK2 export (the Novice), cap and hair off, a 0.69d0 scalp joined |
 
 ## How a face is made
 
@@ -73,16 +79,12 @@ helmets have it too.
   the face, the ears, the teeth, eyes and mouth and the skull are 0.69d0's, vertex for vertex.
 - **Under a helmet** a face is 0.69d0's own helmet head where it has one (`head_default`,
   `head_04` .. `head_07`: the hair and scalp pressed, the face as it is), else the bare face.
-- **Under a mask**, two ways, by what the pack holds:
-  - *without the masks made for faces* (`FACES_NO_ITEMS=1`, the pack today): 0.69d0's own mask
-    head where it has one (`head_default`, `head_05` .. `head_07`), as 0.69d0 draws a masked
-    face, else the helmet head. 0.69d0's mask heads are the bare head with the face itself
-    pushed in under masks (1,000 to 1,800 vertices by more than half a millimetre, up to 8 to
-    18 mm; the build prints each), every one of those vertices in sight under at least one
-    live mask. Kept all the same: in the game the face as it is shows through the live masks
-    far more (the nose through a balaclava);
-  - *with them* (the default build): the helmet head, the face as it is, and each mask that
-    does not fit it as its model for the face.
+- **Under a mask** a face is 0.69d0's own mask head where it has one (`head_default`,
+  `head_05` .. `head_07`), as 0.69d0 draws a masked face, else the helmet head. 0.69d0's mask
+  heads are the bare head with the face itself pushed in under masks (1,000 to 1,800 vertices
+  by more than half a millimetre, up to 8 to 18 mm; the build prints each). 0.69d0's own
+  face-wear for each face is made over them (its `head_s`, the face it draws in the eye holes,
+  is the mask head's skin there), and the masks are carried onto them.
 - **Covered skin** (`face_fit::covered`, `face_shape::cut_covered`). Skin no one can see under
   any helmet (96 sight lines from each vertex over the half space outside it, all of them
   meeting each helmet, and so for its neighbours two rings round) is left out of the helmet
@@ -105,38 +107,55 @@ helmets have it too.
   (`duty_026::rotate_mesh`), moved onto the native skull (`align_onto`: 8.6 mm down, 6.1 mm
   back), its neck (36 mm short of the native one) stretched down past the native neck's edge
   and joined to it as the others. His knit cap is modelled on his head (the mesh at its top,
-  his skin open under it): `graft_scalp` takes it off and joins the native head's scalp on. The
-  scalp is cut along his skin's open top (the loop of open edges with the highest point), its
-  cut edge laid on that open edge and the rest of it moved with the edge (each vertex by the
-  mean of its neighbours' moves): a scalp the size of his skull, without the ledge the first
-  graft hung over his forehead and temples. **Not right yet:** the cut follows his open edge's
-  height round the head, and behind the ears that edge runs lower than its height there, so a
-  dark gap stays between the two from above the ear to the nape; and the band his cap shadowed
-  stays a pale strip across his forehead (his own colour map). Its colour map is the native one with the brows and eyes painted over by the
-  forehead's skin and the upper forehead by the native side hair (the hairline a forehead's
-  width above his brows), toned to his own forehead (`scalp_diffuse`). The shadow his cap
-  painted over the top of his forehead is lifted (`lift_cap_shadow`: the first skin rows'
-  colours carried up). His face's material is the native head's with his maps (gloss and
-  Fresnel the native skin's, constant).
+  his skin open under it), its shadow painted on his forehead and his own longer hair below
+  it. `graft_scalp_069` takes the cap off and cuts his head along his hairline (`HAIRLINE`:
+  across the forehead under the band the cap shadowed, over the ears, behind them down to the
+  nape; his ears kept whole), and joins on a 0.69d0 face's own scalp above the same line (its
+  ears left out): its cut edge laid on his, the rest of it moved with the edge (each vertex by
+  the mean of its neighbours' moves), and the two edges closed by a strip of the scalp's
+  triangles (no gap). The donor is the short cut whose edge moves least onto his
+  (`SCALP_DONORS`: `head_default`, `head_01` .. `head_04`, `head_06`; `head_01`, 4.0 mm on
+  average; `FACES_NOVICE_SCALP=<head>` takes another). The scalp keeps the donor's vertices,
+  skin, basis and UVs; its material is his face's (the native head's, his gloss and Fresnel)
+  with the donor's normal map and the donor's colour map toned to his skin (the mean of his
+  forehead just under the seam over the donor's just above it, a gain a channel). His face's
+  material is the native head's with his maps (gloss and Fresnel the native skin's,
+  constant); his colour map's cap shadow is lifted (`lift_cap_shadow`), what of it the cut
+  leaves.
 
-## An item for a face (`face_shape::Carry`, `face_fit::settle`)
+## A mask for a face (`face_shape`, `face_fit::settle`)
 
-A helmet or a mask a face shows through, or that stands off it, gets a model for that face: the
-item carried from the native head onto the face.
+A mask a face shows through, or whose seen edge stands off it, gets a model for that face;
+0.69d0's face-wear gets its own for each 0.69d0 face whatever the fit. No helmet gets one.
 
-- **Carried.** Along the ray through each vertex of the item (from the skull's middle; below the
-  chin from the neck's axis) the face's skin is so much farther out or in than the native
-  head's: the vertex moves by that, so it keeps the distance from the skin its maker gave it. A
-  vertex whose ray misses either head takes its neighbours' move. The moves are smoothed over
-  the surface (6 rounds), never under what the vertex and its neighbours need (0.3 mm more): a
-  hard shell keeps its shape and takes the face's broad difference; smoothing may leave it
-  farther off the face than off the native head, never nearer. Every surface of the item's
-  models is carried, the lower levels of detail too.
-- **Settled.** In the bind pose, where a sample of the face is still nearer the item's skin than
-  the gate's rule lets it be, the triangle of the item over it moves out along the sample's ray
-  by what is missing (its neighbours by half), round after round until nothing is. Only the bind
-  pose: settled in the sampled poses too, cloth that follows the neck (a hood's drape, a flap)
-  was pushed centimetres out of the way of a jaw that only meets it when the head bows.
+- **0.69d0's own** (`face_wear_069d`), drawn as 0.69d0 draws it, with no head: the live `face_069d_balaclava`, `_balaclava_3_hole`,
+  `_keffiyeh` and `_buff` are 0.69d0's `renesanse_balaclava`, `scavenger_balaclava`,
+  `edge_balaclava` and `bm_balaclava` from their `_head_00` model; 0.69d0 has a model of each
+  for each of its faces (`models/character/human/balaclavas/<kind>_balaclavas/<kind>_balaclava_head_0<n>`,
+  the cloth surface and `head_s`, the face seen in the eye holes, which is the face's mask head
+  there; 0.69d0 draws them with `remove_head_model`). Face n gets `_head_0<n>` converted as
+  0.69d0 draws it (its vertices, skin, basis and UVs): the cloth in the place of the game's
+  surface, `head_s` a surface of the same model with the face's material, and the entry
+  `remove_head_model` with `head_s` an additional model. One change: the part of the cloth
+  that bends with the neck is laid where the game's model has it (`onto_live_neck`: by UV,
+  each vertex by `neck_share` of how little it follows the Head, as the faces' necks: the
+  game's model is tucked into the game's collars).
+- **Carried** (`Carry`): the game's mask moved from the native head onto the face (not
+  0.69d0's face-wear: its rolled insides do not follow a face as its cloth does; the Novice,
+  who has no 0.69d0 model, wears the game's). Each vertex
+  moves along the native head's normal at the point of the native head nearest it, by how far
+  out (or in) along that normal the face's skin nearest that point is (within 25 mm): it keeps
+  the native head's place under it (an eye hole stays on the eyes, an edge on the same part of
+  the head) and the distance from the skin its maker gave it. A vertex whose line meets no skin
+  takes its neighbours' move. The moves are smoothed over the surface (6 rounds), but on its
+  open edges, which keep their own. Every surface of the mask's models is carried, the lower
+  levels of detail too.
+- **Settled.** In the bind pose, where a sample of the face is still nearer the mask's skin than
+  the gate's rule lets it be, the triangle over it moves out along the sample's ray by what is
+  missing (its neighbours by half), round after round, at most 16 mm a vertex (a 0.69d0 ear
+  farther back than the native one under a strap). Only the bind pose: settled in the sampled
+  poses too, cloth that follows the neck was pushed centimetres out of the way of a jaw that
+  only meets it when the head bows.
 
 ## The gate (`face_fit`)
 
@@ -146,8 +165,9 @@ patches), but those with `remove_head_model`. Worn sets: bare = each torso or
 back; helmet = each of those and each helmet; mask = each of those, each mask,
 and each helmet that leaves the mask slot over each mask that leaves the helmet
 slot. Every face in every state is measured in the bind pose and 24 poses of each
-of `bandit_026::POSE_CLIPS` (457 poses), a helmet or mask as the model made for
-the face where there is one. `faces-fit.json` records, per face and state, the
+of `bandit_026::POSE_CLIPS` (457 poses), a mask as the model made for the face
+where there is one. Under 0.69d0's own face-wear for a face (and any helmet over
+it) no head is drawn: nothing of the face is measured there. `faces-fit.json` records, per face and state, the
 worn sets it shows through and the worst five, every misfit, the necks' joins,
 what 0.69d0's own variants moved and the items made for faces.
 
@@ -179,9 +199,8 @@ what 0.69d0's own variants moved and the items made for faces.
   every state); a helmet over a mask is open when either of the two is.
   `FACES_WRITE_OPEN=<file>` writes a build's misfits in that form.
 
-`FACES_NO_NECK=1`, `FACES_NO_CUT=1`, `FACES_NO_ITEMS=1` leave one step out and
-`FACES_DONOR_MASK=1` takes 0.69d0's mask heads, for the numbers before
-(`--measure-only`); `FACES_ONLY=<face>,..` measures only those faces;
+`FACES_NO_NECK=1` and `FACES_NO_CUT=1` leave one step out, for the numbers
+before (`--measure-only`); `FACES_ONLY=<face>,..` measures only those faces;
 `FACES_REPORT_ONLY=1` writes the bundle whatever the gate says, to look at it
 (never for a pack).
 
@@ -197,17 +216,20 @@ target/release/examples/build-faces-026 \
   --open ports/faces-026-open.tsv --output .work/faces
 target/release/vostok-port pack from-bundle --base-db <stock db> \
   $(for f in <released patches>; do printf -- '--base-patch %s ' "$f"; done) \
-  --bundle .work/faces --output .work/faces-pack --id faces --version 3
+  --bundle .work/faces --output .work/faces-pack --id faces --version 4
+# the masks' configs it edits (data_head_<i>) are added whole by earlier packs of the manifest:
+python3 -c 'import json; p=".work/faces-pack/pack.json"; d=json.load(open(p)); d["requires"]=["army-balaclava","face-069d","equipment-029","equipment-046","equipment-069"]; json.dump(d,open(p,"w"),indent=2)'
 python3 scripts/faces-026-icons.py --bundle .work/faces \
   --renderer target/release/examples/render-faces-026 --pack .work/faces-pack
-python3 scripts/render-faces-026-pairs.py --before <the earlier pack's folder> --before-name faces@2 \
-  --bundle .work/faces --after-name faces@3 --icons-069d <0.69d0's ui_icons/heads> \
+python3 scripts/render-faces-026-pairs.py --before <the earlier pack's folder> --before-name faces@3 \
+  --bundle .work/faces --after-name faces@4 --icons-069d <0.69d0's ui_icons/heads> \
   --renderer target/release/examples/render-faces-026 --output <pictures>
 ```
 
-- 0.69d0 files: `models/character/human/head`, `material_instances/characters/human/head`
-  and `textures/character/human/head` extracted at their paths from 0.69d0's
-  `resources.01.db`, `resources.00.db` and `resources.04.db` (`vostok-port extract`).
+- 0.69d0 files: `models/character/human/head`, `models/character/human/balaclavas`,
+  `material_instances/characters/human/head` and `textures/character/human/head` extracted at
+  their paths from 0.69d0's `resources.01.db`, `resources.00.db` and `resources.04.db`
+  (`vostok-port extract`).
 - STK2: the characters export (`___surva_stk2_characters_port`) and STK2's
   `resources/sources/textures/character/human` (`neutral/neutral_01_novice/neutral_01_novice_head*`).
 - `FACES_NO_REPORT=1` skips the gate while looking at pictures (never for a pack).
