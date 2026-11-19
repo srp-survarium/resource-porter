@@ -1,7 +1,7 @@
 {
   "pack": {
     "id": "maps-021d-chemical-weathers",
-    "version": "2",
+    "version": "3",
     "description": "Rain and evening for Chemical Plant v0.21, as maps-021d-weathers made the other five maps': geometry and gameplay from the current authored day-map source; original weather environments, lights and probes from the pinned 0.21 donor. Shared shader profiles are supplied by three-maps-021-lighting@7."
   },
   "import": {
