@@ -165,3 +165,9 @@ material_instances/ported/v021d/tiled/concrete/concrete_green_trash_vc.material
 material_instances/ported/v021d/tiled/floor/floor_plate_tile_trash_vc.material
 material_instances/ported/v021d/tiled/floor/floor_trash_dirt_vc.material
 material_instances/ported/v021d/water/water_green_shit.material
+# Shared with the released maps, converted before the converter took the donor's numbers of either kind
+# (2026-11-19): one file for every map, so the live bytes stay until those maps are rebuilt too.
+material_instances/ported/v021d/props/electric/mech_cabinet_02.material
+material_instances/ported/v021d/props/light/lamp_lights_light.material
+material_instances/ported/v021d/tiled/metal/metal_floor_03.material
+material_instances/ported/v021d/tiled/wood/wood_cut_01.material
