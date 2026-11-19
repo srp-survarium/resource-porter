@@ -29,7 +29,7 @@ struct Manifest {
 struct KeyProfileSpec {
     name: String,
     key: f32,
-    /// Each weather's `mie_fog_base_height` as its projects carry it.
+    /// Each weather's `mie_fog_base_height` marker as its projects carry it.
     markers: Vec<f32>,
 }
 

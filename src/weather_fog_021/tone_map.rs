@@ -15,13 +15,17 @@ const TARGET_HASHES: [&str; 2] = [
 
 /// The native tone curve's exposure key (`div r, l(4.5), r` in every native program).
 const NATIVE_KEY: f32 = 4.5;
+/// A key profile's marker: a whole height above any camera of a map.
+const MIN_KEY_MARKER: f32 = 1000.0;
 
 /// A scene drawn with the native tone curve at its own build's exposure key, selected by
 /// its own marker: London (0.31a2's curve is 0.26g's with key 6.0 where 0.26g has 4.5,
 /// every program of the family, the only difference besides the constant-buffer rows).
-/// Its marker is the scene's own `mie_fog_base_height` made unique by a fraction no
-/// authored height has (the 0.21 markers are integers below -32000), so the fog the
-/// field drives is unchanged.
+/// Its marker is the scene's `mie_fog_base_height`, set to a value no map has and above
+/// every height a camera reaches there: every native shader reads that field only as
+/// `min(1, exp((base - eye_y) * falloff))`, which is 1 for an eye below the base, as it is
+/// with the authored base (London: 60, 100, 50; its cameras stay below 50 m). The 0.21
+/// markers are below -32000; a key profile's marker must be at least 1000.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct KeyProfile {
     pub marker: f32,
@@ -53,8 +57,8 @@ pub fn build_tonemap_profiles(
     for k in keys {
         ensure!(
             k.marker.is_finite()
-                && k.marker >= -32000.0
-                && k.marker.fract() != 0.0
+                && k.marker >= MIN_KEY_MARKER
+                && k.marker.fract() == 0.0
                 && seen.insert(k.marker.to_bits())
                 && k.key.is_finite()
                 && k.key > 0.0,
@@ -332,13 +336,14 @@ mod tests {
     fn key_profiles_are_checked_and_set_the_one_native_key() {
         for keys in [
             vec![KeyProfile { marker: 60.0, key: 6.0 }],
-            vec![KeyProfile { marker: -32198.5, key: 6.0 }],
-            vec![KeyProfile { marker: 60.0009765625, key: f32::NAN }],
-            vec![KeyProfile { marker: 60.0009765625, key: 6.0 }; 2],
+            vec![KeyProfile { marker: -32198.0, key: 6.0 }],
+            vec![KeyProfile { marker: 32909.5, key: 6.0 }],
+            vec![KeyProfile { marker: 32909.0, key: f32::NAN }],
+            vec![KeyProfile { marker: 32909.0, key: 6.0 }; 2],
         ] {
             assert!(build_tonemap_profiles(&[], &[], &[-32198.], &keys).is_err());
         }
-        let ok = [KeyProfile { marker: 60.0009765625, key: 6.0 }];
+        let ok = [KeyProfile { marker: 32909.0, key: 6.0 }];
         assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok).unwrap().is_none());
         let div = vec![0x0800000e, 0x00100012, 1, 0x00004001, NATIVE_KEY.to_bits(), 0x0010000a, 1];
         let block = vec![vec![0x01000012], div.clone()];
