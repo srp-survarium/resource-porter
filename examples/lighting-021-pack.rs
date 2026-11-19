@@ -18,6 +18,31 @@ struct Manifest {
     donor_sha256: String,
     target_sha256: String,
     profiles: Vec<Profile>,
+    /// Scenes drawn with the native tone curve at their own build's exposure key
+    /// (London: 0.31a2's 6.0), one marker per weather.
+    #[serde(default)]
+    key_profiles: Vec<KeyProfileSpec>,
+    /// Scenes whose rain darkens what it does not reach by their own factor (London's rain:
+    /// 0.31a2's rain_shadow_diffuse_multiplier 0.7 for 0.26g's fixed 0.85).
+    #[serde(default)]
+    shelter_profiles: Vec<ShelterProfileSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShelterProfileSpec {
+    name: String,
+    marker: f32,
+    rain_shadow_diffuse_multiplier: f32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeyProfileSpec {
+    name: String,
+    key: f32,
+    /// Each weather's `mie_fog_base_height` marker as its projects carry it.
+    markers: Vec<f32>,
 }
 
 #[derive(Deserialize)]
@@ -101,6 +126,14 @@ fn main() -> Result<()> {
     }
     ensure!(!profiles.is_empty(), "no original profiles");
     let markers: Vec<f32> = profiles.iter().map(|p| p.marker).collect();
+    let keys: Vec<shaders::KeyProfile> = manifest
+        .key_profiles
+        .iter()
+        .flat_map(|p| {
+            println!("{}: exposure key {}, markers {:?}", p.name, p.key, p.markers);
+            p.markers.iter().map(|&marker| shaders::KeyProfile { marker, key: p.key })
+        })
+        .collect();
     let native_fog = native.read(shaders::PATH)?;
     let fog = shaders::build(&donor.read(shaders::PATH)?, &native_fog, &profiles)?;
     let mut converted = vec![(shaders::PATH.to_owned(), native_fog, fog)];
@@ -111,7 +144,7 @@ fn main() -> Result<()> {
         .collect();
     for path in paths {
         let before = native.read(&path)?;
-        if let Some(after) = shaders::build_tonemap(&source_tone, &before, &markers)? {
+        if let Some(after) = shaders::build_tonemap_profiles(&source_tone, &before, &markers, &keys)? {
             converted.push((path, before, after));
         }
     }
@@ -187,6 +220,19 @@ fn main() -> Result<()> {
         converted.len() - start == 4,
         "unexpected compatible sun variant count"
     );
+    let shelters: Vec<shaders::ShelterProfile> = manifest
+        .shelter_profiles
+        .iter()
+        .map(|p| {
+            println!("{}: rain shelter {} on marker {}", p.name, p.rain_shadow_diffuse_multiplier, p.marker);
+            shaders::ShelterProfile { marker: p.marker, factor: p.rain_shadow_diffuse_multiplier }
+        })
+        .collect();
+    if !shelters.is_empty() {
+        for (path, _, after) in &mut converted[start..] {
+            *after = shaders::build_shelter(after, &shelters).with_context(|| path.clone())?;
+        }
+    }
     for (prefix, source_path, template_path, expected, compatible, build) in [
         (
             shaders::PARTICLE_PREFIX,
