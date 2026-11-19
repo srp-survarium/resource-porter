@@ -79,12 +79,20 @@
   ],
   "key_profiles": [
     {
-      "name": "london (level_09, 0.31a2's tone curve; day and evening)",
+      "name": "london (level_09, 0.31a2's tone curve)",
       "key": 6.0,
       "markers": [
         32909.0,
-        32929.0
+        32929.0,
+        32919.0
       ]
+    }
+  ],
+  "shelter_profiles": [
+    {
+      "name": "london rain (0.31a2's rain_shadow_diffuse_multiplier)",
+      "marker": 32919.0,
+      "rain_shadow_diffuse_multiplier": 0.7
     }
   ]
 }

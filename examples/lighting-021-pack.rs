@@ -22,6 +22,18 @@ struct Manifest {
     /// (London: 0.31a2's 6.0), one marker per weather.
     #[serde(default)]
     key_profiles: Vec<KeyProfileSpec>,
+    /// Scenes whose rain darkens what it does not reach by their own factor (London's rain:
+    /// 0.31a2's rain_shadow_diffuse_multiplier 0.7 for 0.26g's fixed 0.85).
+    #[serde(default)]
+    shelter_profiles: Vec<ShelterProfileSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ShelterProfileSpec {
+    name: String,
+    marker: f32,
+    rain_shadow_diffuse_multiplier: f32,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +220,19 @@ fn main() -> Result<()> {
         converted.len() - start == 4,
         "unexpected compatible sun variant count"
     );
+    let shelters: Vec<shaders::ShelterProfile> = manifest
+        .shelter_profiles
+        .iter()
+        .map(|p| {
+            println!("{}: rain shelter {} on marker {}", p.name, p.rain_shadow_diffuse_multiplier, p.marker);
+            shaders::ShelterProfile { marker: p.marker, factor: p.rain_shadow_diffuse_multiplier }
+        })
+        .collect();
+    if !shelters.is_empty() {
+        for (path, _, after) in &mut converted[start..] {
+            *after = shaders::build_shelter(after, &shelters).with_context(|| path.clone())?;
+        }
+    }
     for (prefix, source_path, template_path, expected, compatible, build) in [
         (
             shaders::PARTICLE_PREFIX,
