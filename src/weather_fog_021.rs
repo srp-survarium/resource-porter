@@ -12,7 +12,7 @@ pub mod vertex_blend;
 pub mod vertex_alpha;
 pub use local_lights::{local_light_pairs, build_local_light};
 pub use shelter::{ShelterProfile, build_shelter};
-pub use tone_map::{KeyProfile, TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap, build_tonemap_profiles};
+pub use tone_map::{ExposureProfile, KeyProfile, TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap, build_tonemap_profiles};
 
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
 pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";
