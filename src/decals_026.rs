@@ -18,17 +18,28 @@
 //!   (`part_name`), in that surface's own UV space. The surfaces of
 //!   `additional_models` (pouches, fur, a frame) take none.
 //!
+//! - The game keeps each baked texture in a file named after the decals
+//!   (their textures and places) and the model's file name, without its
+//!   folder: `4_4205_7-8172320283889761536torso_s3d.dds` is the diffuse of
+//!   a model `.../torso_s3`. The files are kept from game to game. Stock
+//!   models all have file names of their own; two ported models of one file
+//!   name in two folders share their bakes, and the second one seen wears
+//!   the first one's textures (seen in a game, 2026-11-20: a jacket
+//!   `stk2_novice_026/torso` in the leather of `stk2_bandit_026/torso`).
+//!
 //! So a ported piece takes decals by its slot ([`takes_decals`], [`set`]),
 //! on its first surface, and that surface has to be one a bake can paint
 //! ([`check_surface`]): the garment itself, inside the map, each texel
-//! painted from one place.
+//! painted from one place. Its models have file names no other model has
+//! ([`check_model_names`]).
 //!
 //! Camouflage is another matter: its bake needs a mask beside the diffuse
 //! map (`<diffuse>_aoac`), which no port here makes. It stays off.
 
-use crate::ConfigValue as V;
 use crate::mask_fit::{parse_mesh, read_u32};
+use crate::{ConfigValue as V, ResourceDb};
 use anyhow::{Context, Result, ensure};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Whether the native pieces of an armour category
 /// (`gameplay/items/armour/<category>/`) take decals.
@@ -50,6 +61,58 @@ pub fn set(config: &mut V, category: &str) -> Result<()> {
         config.set_path("data.decals", V::Named(vec![]))?;
     } else if let Some(V::Named(fields)) = config.named_mut("data") {
         fields.retain(|field| field.name != "decals");
+    }
+    Ok(())
+}
+
+/// A model's file name: the last part of its path (`ported/x/torso_s2` is
+/// `torso_s2`), which is all of the model the game puts into the names of
+/// its baked textures.
+pub fn model_file_name(model: &str) -> &str {
+    model.rsplit('/').next().unwrap_or(model)
+}
+
+/// Every skinned model of a game (`models/<path>.skinned_model/`): its
+/// file name and the paths that have it.
+pub fn game_model_names(game: &ResourceDb) -> BTreeMap<String, BTreeSet<String>> {
+    let mut names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for file in game.paths_with_prefix("models/") {
+        if let Some((model, _)) = file["models/".len()..].split_once(".skinned_model/") {
+            names
+                .entry(model_file_name(model).to_owned())
+                .or_default()
+                .insert(model.to_owned());
+        }
+    }
+    names
+}
+
+/// Checks that each of `models` (the models of pieces that take decals:
+/// their game paths, without `models/` and `.skinned_model`) has a file
+/// name of its own: none of the others has it, and no other model of the
+/// game ([`game_model_names`]).
+pub fn check_model_names(
+    models: &[String],
+    game: &BTreeMap<String, BTreeSet<String>>,
+) -> Result<()> {
+    let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
+    for model in models {
+        let name = model_file_name(model);
+        if let Some(other) = seen.insert(name, model)
+            && other != model
+        {
+            anyhow::bail!(
+                "{model} and {other} take decals and share the file name {name}: the game would give both the same baked textures"
+            );
+        }
+        if let Some(other) = game
+            .get(name)
+            .and_then(|paths| paths.iter().find(|path| *path != model))
+        {
+            anyhow::bail!(
+                "{model} takes decals and the game's {other} has its file name {name}: the game would give both the same baked textures"
+            );
+        }
     }
     Ok(())
 }
@@ -285,6 +348,54 @@ mod tests {
     fn a_vest_without_a_data_table_is_refused() {
         let mut c = V::Named(vec![field("parameters", V::Named(vec![]))]);
         assert!(set(&mut c, "torso").is_err());
+    }
+
+    #[test]
+    fn decal_models_need_file_names_of_their_own() {
+        let game: BTreeMap<String, BTreeSet<String>> = [(
+            "duty_03_torso_s1".to_owned(),
+            BTreeSet::from(["ported/duty_026/duty_03_torso_s1".to_owned()]),
+        )]
+        .into();
+        let models = |paths: &[&str]| paths.iter().map(|p| (*p).to_owned()).collect::<Vec<_>>();
+        // Named after their outfits, and the game's own model built again.
+        check_model_names(
+            &models(&[
+                "ported/stk2_bandit_026/stk2_bandit_026_torso",
+                "ported/stk2_novice_026/stk2_novice_026_torso",
+                "ported/duty_026/duty_03_torso_s1",
+            ]),
+            &game,
+        )
+        .unwrap();
+        // Two outfits' jackets both called `torso`.
+        let error = check_model_names(
+            &models(&[
+                "ported/stk2_bandit_026/torso",
+                "ported/stk2_novice_026/torso",
+            ]),
+            &game,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("share the file name torso"), "{error}");
+        // A repaint's model under the name of the suit it repaints.
+        let error = check_model_names(&models(&["ported/freedom_026/duty_03_torso_s1"]), &game)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("ported/duty_026/duty_03_torso_s1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_models_file_name_is_its_paths_last_part() {
+        assert_eq!(
+            model_file_name("ported/stk2_novice_026/torso_v2_s3"),
+            "torso_v2_s3"
+        );
+        assert_eq!(model_file_name("torso"), "torso");
     }
 
     /// A converted model of 48-byte vertices: `quads` of (corner, two

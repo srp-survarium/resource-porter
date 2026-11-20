@@ -1047,8 +1047,16 @@ impl Built {
         format!("{} {}", self.outfit.key, self.piece.name)
     }
 
+    /// A piece that takes decals has its outfit in its models' file names:
+    /// the game names an item's baked textures after its model's file name
+    /// alone (`decals_026`), and every outfit has a `torso` and `legs`.
     fn model_path(&self, suffix: &str) -> String {
-        format!("ported/{}/{}{suffix}", self.outfit.ns, self.piece.name)
+        let (ns, name) = (self.outfit.ns, self.piece.name);
+        if decals_026::takes_decals(self.piece.kind.category()) {
+            format!("ported/{ns}/{ns}_{name}{suffix}")
+        } else {
+            format!("ported/{ns}/{name}{suffix}")
+        }
     }
 
     /// The config tables' class: the model_type a glove or boot is worn as.
@@ -2771,6 +2779,12 @@ pub fn build(
     }
 
     // --- The bundles ---
+    let decal_models: Vec<String> = built
+        .iter()
+        .filter(|b| decals_026::takes_decals(b.piece.kind.category()))
+        .flat_map(|b| b.models.keys().map(|suffix| b.model_path(suffix)))
+        .collect();
+    decals_026::check_model_names(&decal_models, &decals_026::game_model_names(&cx.view))?;
     for key in outfits {
         let outfit = outfit(key)?;
         let pieces: Vec<&Built> = built

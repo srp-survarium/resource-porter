@@ -622,6 +622,11 @@ pub struct Variant {
     strings: [(&'static str, Text); 8],
     /// The brass disc with the red star on the chest (`sign_s`).
     chest_disc: bool,
+    /// The file name of the body's model (the torso, the frame, the back
+    /// unit). The body takes decals, and the game names an item's baked
+    /// textures after its model's file name alone (`decals_026`): a
+    /// repaint needs a name of its own, or it wears the other suit's bakes.
+    body_model: &'static str,
     /// Ballistic protection (ranged, slash, explosive): body, head.
     ballistic: (f32, f32),
     /// Anomaly protection (fire, shock, radiation, toxic).
@@ -720,6 +725,7 @@ pub const DUTY: Variant = Variant {
         ),
     ],
     chest_disc: true,
+    body_model: "duty_03_torso_s1",
     // Between Zubr 0.90/0.75 and Pilgrim 0.85/0.70; anomaly between Zubr
     // 0.5 and Pilgrim 0.9.
     ballistic: (0.87, 0.72),
@@ -820,6 +826,7 @@ pub const FREEDOM: Variant = Variant {
         ),
     ],
     chest_disc: false,
+    body_model: "freedom_exo_torso_s1",
     ballistic: (0.85, 0.70),
     anomaly: 0.80,
 };
@@ -1046,8 +1053,13 @@ fn set_items<'v>(
         }
         let covers = V::Indexed(piece.covers.iter().map(|&s| string(s)).collect());
         let model = |name: &str, surface: &str| {
+            let file = if name == "torso_s1" {
+                variant.body_model.to_owned()
+            } else {
+                format!("duty_03_{name}")
+            };
             table(vec![
-                field("base_model", string(format!("{ns}/duty_03_{name}"))),
+                field("base_model", string(format!("{ns}/{file}"))),
                 field("part_name", string(surface)),
             ])
         };
@@ -1076,7 +1088,10 @@ fn set_items<'v>(
             // table has one, which hid the suit behind the hand model. The
             // gloves carry it, as native gloves do.
             let visual = vec![
-                field("base_model", string(format!("{ns}/duty_03_torso_s1"))),
+                field(
+                    "base_model",
+                    string(format!("{ns}/{}", variant.body_model)),
+                ),
                 field("part_name", string("torso_s")),
                 field(
                     "additional_models",
@@ -1227,7 +1242,12 @@ pub fn build_variant(
         let platform = source
             .join("resources/platforms/pc_dx11/models/character/human/duty")
             .join(&name);
-        let root = format!("models/{ns}/{name}");
+        // The body's model under the variant's own name (`body_model`).
+        let root = if *part == "torso_s1" {
+            format!("models/{ns}/{}.skinned_model", variant.body_model)
+        } else {
+            format!("models/{ns}/{name}")
+        };
         let mut settings =
             parse_config(&mut target, &format!("{BASE}/settings"), "model template")?;
         settings.root.set_path(
@@ -1968,7 +1988,8 @@ mod tests {
         assert_eq!(models.len(), 3);
         let text = format!("{models:?}");
         assert!(!text.contains("sign_s"));
-        assert!(text.contains("ported/freedom_026/duty_03_torso_s1"));
+        assert!(text.contains("ported/freedom_026/freedom_exo_torso_s1"));
+        assert!(!text.contains("duty_03_torso_s1"));
         assert!(!text.contains("duty_026"));
         assert_eq!(
             data_of(&head.2, "base_model"),

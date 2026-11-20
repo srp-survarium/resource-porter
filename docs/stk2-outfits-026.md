@@ -132,8 +132,9 @@ pieces of its slot do.
   one never placed is on the chest. The game bakes the item's decals into the textures of
   its first surface (`part_name`), in that surface's UV space; the surfaces of
   `additional_models` take none. Here the first surface is the garment (`torso`, `legs`);
-  the chain, the bare forearms, the belt kit and the pouches are additional models, as a
-  stock vest's fur or straps are.
+  the bandit's shoulder straps and sleeve pocket (its `attach`), the bare forearms, the
+  Novice's belt kit and the loner's pouches are additional models, as a stock vest's fur
+  or straps are: a decal shows around them.
 - That surface has to be one a bake can paint. `decals_026::check_surface` stops the
   build unless the first surface is the piece's largest, its UVs are inside the map, and
   at most 5 % of its used texels are painted from two places more than 3 cm apart (a
@@ -145,12 +146,24 @@ pieces of its slot do.
 - The decals are baked at the size of the surface's own diffuse map: 1024x1024 here (the
   maps are halved, `MAX_MAP`), as most stock trousers; most stock vests are 2048x1024, so
   a decal on one of these jackets is a little softer than on a stock vest.
+- The game keeps each baked texture in a file named after the decals and the model's file
+  name, without its folder (`4_4205_7-8172320283889761536torso_s3d.dds`), and keeps the
+  files from game to game. Stock models all have file names of their own. So the models
+  of the pieces that take decals have their outfit in their file names
+  (`ported/stk2_bandit_026/stk2_bandit_026_torso`, `..._torso_s2`, `..._legs_s3`), and
+  `decals_026::check_model_names` stops the build when one of them shares its file name
+  with another of them or with any model of the game. As plain `torso` and `legs` in three
+  folders, the Novice's jacket wore the bandit's baked leather (seen in a game,
+  2026-11-20). The other pieces keep their short names (`ported/stk2_novice_026/hood`).
 - Camouflage stays off: its bake needs a mask beside the diffuse map (`<diffuse>_aoac`),
   which this port does not make.
 - The packs with it are `stk2-bandit@16`, `stk2-novice@16`, `stk2-loner@15` (2026-11-20):
   built as Rebuild says, on the stock db and patches 12 to 39 (from patch 40 on the ids
-  are taken). Every file but the seven items' configs, the icons included, is byte for
-  byte the released packs' (`@14`, `@14`, `@13`).
+  are taken). The seven items' configs differ (the two keys, the models' paths), and
+  their models are the released files at their new paths (each model's
+  `render/export_properties` names its own path, nothing else in them differs); every
+  other file, the icons included, is byte for byte the released packs' (`@14`, `@14`,
+  `@13`).
 
 ## Rebuild
 

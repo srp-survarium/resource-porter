@@ -124,6 +124,13 @@ take none. The helmet, gloves and boots take none, as stock ones. `torso_s`
 is the model's largest surface (1.44 m2), its UVs are inside its 2048x2048
 map, and about 3.6 % of its texels are shared by two places (measured on the
 released model; `decals_026::check_surface`'s limit is 5 %).
+The game names an item's baked textures after its model's file name
+alone, so each variant's body model has a file name of its own
+(`Variant::body_model`): Duty's `duty_03_torso_s1`, Freedom's
+`freedom_exo_torso_s1`. Under one name in two folders the suit seen
+second would wear the other's bakes. The released Freedom pack has the
+old name; skhid-srp's pack `exo-decals@1` adds the model under the new
+one.
 
 ## Icons and gallery
 
