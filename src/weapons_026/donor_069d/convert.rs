@@ -875,3 +875,64 @@ mod tests {
         assert_eq!(&t[18..21], &[255, 0, 0], "BGR");
     }
 }
+
+/// 0.26g's static vertex: position, normal/tangent/binormal words, half2 UV.
+const STATIC_026: usize = 28;
+
+/// A 0.69d0 static `converted_model` (28- or 32-byte vertices: position,
+/// three packed basis floats, half2 UV, then a second UV pair 0.26g has no
+/// use for; chunks 110/114 its statistics) in 0.26g's static layout (the
+/// basis as words: the normal's top byte 127, the others' 255, as 0.26g's
+/// static meshes). Positions and UVs as they are: a module keeps its own
+/// space, whose origin is its slot's frame.
+pub fn static_069_to_026(b: &[u8]) -> Result<Vec<u8>> {
+    let chunks = chunks(b)?;
+    for (id, _) in &chunks {
+        ensure!(
+            matches!(id, 3 | 4 | 110 | 114),
+            "unknown 0.69d static chunk {id}"
+        );
+    }
+    let (vertices, stride) = vertex_chunk(&chunks)?;
+    ensure!(
+        matches!(stride, 28 | 32),
+        "not a 0.69d static mesh (stride {stride})"
+    );
+    let n = vertices.len() / stride;
+    ensure!(n > 0 && n <= 65_536, "{n} vertices");
+    let indices = index_chunk(&chunks, n)?;
+    let mut body = Vec::with_capacity(4 + n * STATIC_026);
+    body.extend(u32::try_from(n)?.to_le_bytes());
+    for v in vertices.chunks_exact(stride) {
+        for k in 0..3 {
+            ensure!(f32_at(v, 4 * k)?.is_finite(), "non-finite position");
+        }
+        body.extend_from_slice(&v[0..12]);
+        for (k, alpha) in [0x7f, 0xff, 0xff].into_iter().enumerate() {
+            let word = basis_word(f32_at(v, 12 + 4 * k)?, alpha)?;
+            body.extend(word.to_le_bytes());
+        }
+        body.extend_from_slice(&v[24..28]);
+    }
+    let mut out = vec![];
+    out.extend(3u32.to_le_bytes());
+    out.extend(u32::try_from(body.len())?.to_le_bytes());
+    out.extend(body);
+    out.extend(4u32.to_le_bytes());
+    out.extend(u32::try_from(4 + indices.len() * 2)?.to_le_bytes());
+    out.extend(u32::try_from(indices.len())?.to_le_bytes());
+    for i in indices {
+        out.extend(i.to_le_bytes());
+    }
+    Ok(out)
+}
+
+/// A 0.69d0 static mesh's vertex positions, as its file has them.
+pub fn static_positions_069(b: &[u8]) -> Result<Vec<[f32; 3]>> {
+    let chunks = chunks(b)?;
+    let (vertices, stride) = vertex_chunk(&chunks)?;
+    vertices
+        .chunks_exact(stride)
+        .map(|v| Ok([f32_at(v, 0)?, f32_at(v, 4)?, f32_at(v, 8)?]))
+        .collect()
+}

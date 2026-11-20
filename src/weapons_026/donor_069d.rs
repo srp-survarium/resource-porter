@@ -26,7 +26,11 @@
 //! What a port decides (template, balance, which states stay the
 //! template's) is the core manifest's, as for any donor.
 
+pub mod catalog;
 pub mod convert;
+pub mod fit;
+pub mod modules;
+pub mod plan;
 pub mod renames;
 pub mod socket;
 
@@ -116,6 +120,53 @@ pub struct Gun069 {
     /// scope variants draw, as 0.69d0 folds the sights under any optic.
     #[serde(default)]
     pub optic_model_path: Option<String>,
+}
+
+/// Which of a gun's bodies is composed.
+pub enum Body<'a> {
+    /// The gun with every own part its body shows: drawn when nothing is
+    /// fitted.
+    Whole,
+    /// Without the own parts a fit can displace, each by its module and the
+    /// locator it stands at: drawn with those as parts once anything is
+    /// fitted. At `<model_path>_bare`, with the whole body's skeleton and
+    /// locators.
+    Bare(&'a BTreeSet<(String, String)>),
+    /// The whole body's vertices alone, nothing written: to measure where
+    /// it lies against the live model ([`fit`]).
+    Measure,
+}
+
+impl Body<'_> {
+    fn leaves_out(&self, module: &str, locator: &str) -> bool {
+        match self {
+            Body::Bare(out) => out.iter().any(|(m, l)| m == module && l == locator),
+            Body::Whole | Body::Measure => false,
+        }
+    }
+}
+
+/// A body's model path: the whole body's, or the bare one's beside it.
+pub fn body_path(model_path: &str, body: &Body) -> String {
+    match body {
+        Body::Bare(_) => format!("{model_path}_bare"),
+        Body::Whole | Body::Measure => model_path.to_owned(),
+    }
+}
+
+/// What composing a body leaves for the modules table.
+#[derive(Default)]
+pub struct Composed {
+    /// 0.69d0's bind pose of the gun.
+    donor_bind: Vec<(String, BindFrame)>,
+    /// The bind pose shipped (the live rig's on a live rig).
+    ship_bind: Vec<(String, BindFrame)>,
+    /// 0.69d0's locators as its model has them.
+    donor_locators: Vec<Locator>,
+    /// The shipped model's locators.
+    locators: Vec<Locator>,
+    /// [`Body::Measure`]: the body's vertices (mesh space, no shift).
+    points: Vec<[f32; 3]>,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -553,20 +604,8 @@ impl Donor069 {
     /// (the stock database and the patches players have; the live rigs and
     /// the native templates). `work` holds the texture encoder's scratch.
     pub fn open(db: &Path, spec: &Spec069, target_layers: &[PathBuf], work: &Path) -> Result<Self> {
-        let mut db = ResourceDb::open(db)?;
-        let game = db_config(&mut db, "gameplay/game.options")?;
         let mut target = ResourceDb::open_layers(target_layers)?;
-        let mut donor = Self {
-            db,
-            game,
-            files: BTreeMap::new(),
-            attach_points: BTreeMap::new(),
-            modules: BTreeMap::new(),
-            renames: spec.renames.clone(),
-            clip_events: spec.clip_events.clone(),
-            material_names: BTreeMap::new(),
-            texture_names: BTreeMap::new(),
-        };
+        let mut donor = Self::empty(db, spec)?;
         for (item, gun) in &spec.guns {
             // The folded model first: the gun's own model's modules and attach points are kept.
             if let Some(path) = &gun.optic_model_path {
@@ -581,11 +620,11 @@ impl Donor069 {
                     ..gun.clone()
                 };
                 donor
-                    .compose_model(item, &folded, &mut target, work)
+                    .compose_model(item, &folded, &Body::Whole, &mut target, work)
                     .with_context(|| format!("{item}: folded model"))?;
             }
             donor
-                .compose_model(item, gun, &mut target, work)
+                .compose_model(item, gun, &Body::Whole, &mut target, work)
                 .with_context(|| format!("{item}: model"))?;
         }
         if work.exists() {
@@ -605,6 +644,23 @@ impl Donor069 {
             clashes.join("\n  ")
         );
         Ok(donor)
+    }
+
+    /// The donor archive with nothing composed yet.
+    fn empty(db: &Path, spec: &Spec069) -> Result<Self> {
+        let mut db = ResourceDb::open(db)?;
+        let game = db_config(&mut db, "gameplay/game.options")?;
+        Ok(Self {
+            db,
+            game,
+            files: BTreeMap::new(),
+            attach_points: BTreeMap::new(),
+            modules: BTreeMap::new(),
+            renames: spec.renames.clone(),
+            clip_events: spec.clip_events.clone(),
+            material_names: BTreeMap::new(),
+            texture_names: BTreeMap::new(),
+        })
     }
 
     /// Each gun's attach points for the weapon kit, by 0.69d0 item.
@@ -780,9 +836,10 @@ impl Donor069 {
         &mut self,
         item: &str,
         gun: &Gun069,
+        body: &Body,
         target: &mut ResourceDb,
         work: &Path,
-    ) -> Result<()> {
+    ) -> Result<Composed> {
         let w = self.weapon(item)?.clone();
         let root = format!(
             "models/{}.skinned_model",
@@ -791,19 +848,26 @@ impl Donor069 {
         // Where the model is written: 0.69d0's path, or a remodel's own (new to the target).
         let out = match &gun.model_path {
             Some(path) => {
-                let out = format!("models/{path}.skinned_model");
+                let out = format!("models/{}.skinned_model", body_path(path, body));
                 ensure!(
                     !target.contains(&format!("{out}/settings")),
                     "{out}: the target has it; a remodel's model path must be new"
                 );
                 out
             }
-            None => root.clone(),
+            None => {
+                ensure!(
+                    !matches!(body, Body::Bare(_)),
+                    "{item}: a bare body needs a model_path of its own"
+                );
+                root.clone()
+            }
         };
         let bind_bytes = self.db.read(&format!("{root}/render/bind_pose"))?;
         let bind = bind_pose(&bind_bytes)?;
         let properties = db_config(&mut self.db, &format!("{root}/render/export_properties"))?;
         let mut all = locators(&properties)?;
+        let donor_locators = all.clone();
         // On a live rig, each donor bone's live bone (`Gun069::bone_map`); else each its own.
         let mut bone_of: Vec<u32> = (0..bind.len() as u32).collect();
         if let Rig::Live(model) = &gun.rig {
@@ -901,6 +965,9 @@ impl Donor069 {
                 });
                 continue;
             }
+            if body.leaves_out(&module.id, &module.locator) {
+                continue;
+            }
             let path = format!("models/{}.model", module.model);
             let msettings = db_config(&mut self.db, &format!("{path}/settings"))?;
             // In the game a bone's vertices are drawn at clip * bind^-1 of
@@ -934,6 +1001,16 @@ impl Donor069 {
                 );
                 surfaces.push((name, mesh, material));
             }
+        }
+        if matches!(body, Body::Measure) {
+            let points = surfaces
+                .iter()
+                .flat_map(|(_, mesh, _)| (0..mesh.vertices.len()).map(|i| mesh.position(i)))
+                .collect();
+            return Ok(Composed {
+                points,
+                ..Composed::default()
+            });
         }
         for name in ATTACH_LOCATORS {
             if let Ok(loc) = find(name)
@@ -1139,9 +1216,17 @@ impl Donor069 {
             ),
         ]);
         self.put(format!("{out}/render/export_properties"), encode(props)?)?;
-        self.attach_points.insert(item.into(), attach);
-        self.modules.insert(item.into(), modules);
-        Ok(())
+        if matches!(body, Body::Whole) {
+            self.attach_points.insert(item.into(), attach);
+            self.modules.insert(item.into(), modules);
+        }
+        Ok(Composed {
+            donor_bind: bind,
+            ship_bind: ship_bones,
+            donor_locators,
+            locators: locs,
+            points: vec![],
+        })
     }
 
     /// A donor material on the native AK-12's, its four PBR maps fitted to
@@ -1554,4 +1639,18 @@ pub fn remodel_069d(
         serde_json::to_vec_pretty(&guns)?,
     )?;
     Ok(files.len())
+}
+
+impl Gun069 {
+    /// The modules the gun's body has, in 0.69d0's attach order (bundled,
+    /// then default), each with the slot its entry names: every one of its
+    /// own but those left to the kit (`separable`).
+    pub fn own(&self, gun: &catalog::GunDef) -> Vec<(String, Option<String>)> {
+        gun.bundled
+            .iter()
+            .chain(&gun.defaults)
+            .filter(|e| !self.separable.contains(&e.module))
+            .map(|e| (e.module.clone(), e.slot.clone()))
+            .collect()
+    }
 }

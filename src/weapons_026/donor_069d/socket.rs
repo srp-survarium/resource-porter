@@ -33,7 +33,7 @@
 use super::BindFrame;
 
 /// The rows i, j, k of a rotation acting on row vectors.
-type Rows = [[f64; 3]; 3];
+pub(super) type Rows = [[f64; 3]; 3];
 
 /// Sine and cosine of an angle of the files. Their angles are f32: a half
 /// turn is stored as f32 pi, whose sine is 8.7e-8. A sine or cosine within
@@ -51,7 +51,7 @@ fn sine_cosine(angle: f32) -> (f64, f64) {
 }
 
 /// The engine's `create_rotation( float3 const& angles )`.
-fn create_rotation(angles: [f32; 3]) -> Rows {
+pub(super) fn create_rotation(angles: [f32; 3]) -> Rows {
     let [(xs, xc), (ys, yc), (zs, zc)] = angles.map(sine_cosine);
     [
         [yc * zc, -yc * zs, ys],

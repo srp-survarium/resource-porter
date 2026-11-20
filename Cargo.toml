@@ -33,6 +33,10 @@ zune-jpeg = "0.4"
 # release/resources-db-porter-needs, on top of release/scripts).
 resources-db = { git = "https://github.com/srp-survarium/skhid-srp", rev = "c81c234906dcfd94207f6a701c9421af969049a1" }
 serde = { version = "1.0", features = ["derive"] }
+# The modules table's one definition (`port-modules` writes it and runs its
+# `resolve`): skhid-srp's `srp-026g/crates/weapon-modules` (branch
+# feat/attachments).
+weapon-modules = { git = "https://github.com/srp-survarium/skhid-srp", rev = "c806176a718a5bbf92b6e12d2ad849e32c540455", features = ["encode"] }
 serde_json = "1.0"
 sha2 = "0.10"
 

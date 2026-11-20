@@ -261,6 +261,34 @@ enum Command {
     /// the sidecar's guns, each at its `model_path`; models, materials and
     /// textures only, for `pack from-bundle`.
     #[command(name = "remodel-weapons-069d")]
+    /// 0.69d0's module system for 0.26g's guns (docs/modules-069d-026.md): each sidecar gun's
+    /// whole and bare bodies, every module as a static model, the modules table and the check
+    /// against 0.69d0.
+    PortModules {
+        /// The bundle's id (the pack's).
+        #[arg(long)]
+        id: String,
+        /// The remodel sidecar (skhid-srp's scripts/remodel-069/remodel-069d.json).
+        #[arg(long)]
+        donor_spec: PathBuf,
+        /// The live items of the sidecar's guns (items.tsv beside it).
+        #[arg(long)]
+        items: PathBuf,
+        /// The fitted modules' dict ids (skhid-srp's scripts/weapon-modules/ids.tsv).
+        #[arg(long)]
+        ids: PathBuf,
+        /// Only these 0.69d0 items (a quick build).
+        #[arg(long)]
+        only: Vec<String>,
+        #[arg(long)]
+        donor: PathBuf,
+        #[arg(long)]
+        target_db: PathBuf,
+        #[arg(long)]
+        target_patch: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     RemodelWeapons069d {
         /// The bundle's id (the pack's).
         #[arg(long)]
@@ -1332,6 +1360,51 @@ fn main() -> Result<()> {
             println!(
                 "Built {}: {} files, {} reused from the target",
                 port.id, report.files, report.reused
+            );
+        }
+        Command::PortModules {
+            id,
+            donor_spec,
+            items,
+            ids,
+            only,
+            donor,
+            target_db,
+            target_patch,
+            output,
+        } => {
+            use vostok_resource_porter::weapons_026::donor_069d::{self, modules};
+            let spec = donor_069d::Spec069::load(&donor_spec)?;
+            modules::refuse_typed_offsets(&spec)?;
+            let mut layers = vec![target_db];
+            layers.extend(target_patch);
+            let report = modules::port_modules(
+                &id,
+                &spec,
+                &modules::read_items(&items)?,
+                &modules::read_ids(&ids)?,
+                &only,
+                &donor,
+                &layers,
+                &output,
+            )?;
+            let failures: Vec<_> = report.failures().collect();
+            for c in &failures {
+                println!("FAIL {} + {}: {} {} mm {}", c.gun, c.fit, c.what, c.mm, c.note);
+            }
+            for module in &report.without_item {
+                println!("no item: {module}");
+            }
+            println!(
+                "Built {id}: {} guns ({} items), {} module rows, a table of {} bytes, {} files; {} checks, {} over {} mm",
+                report.guns.len(),
+                report.items.len(),
+                report.modules,
+                report.table_bytes,
+                report.files,
+                report.checks.len(),
+                failures.len(),
+                modules::LIMIT * 1000.0
             );
         }
         Command::RemodelWeapons069d {
