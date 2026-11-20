@@ -121,6 +121,11 @@ pub struct Gun069 {
     /// scope variants draw, as 0.69d0 folds the sights under any optic.
     #[serde(default)]
     pub optic_model_path: Option<String>,
+    /// Modules 0.69d0 only links to the gun that the live gun has built in, each with its
+    /// slot: its suppressor (the 9A-91's). Never typed: `port-modules` finds them by laying
+    /// each linked suppressor on the live mesh (`modules::built_in`). Baked as the gun's own.
+    #[serde(default, skip)]
+    pub fixed: Vec<(String, String)>,
 }
 
 /// Which of a gun's bodies is composed.
@@ -761,6 +766,9 @@ impl Donor069 {
                 "{item}: {id} is none of its modules"
             );
         }
+        for (id, slot) in &gun.fixed {
+            entries.push((id.clone(), Some(slot.clone())));
+        }
         let (folded, taken) = if gun.optic {
             self.optic_slots()?
         } else {
@@ -808,7 +816,10 @@ impl Donor069 {
                 _ => model,
             };
             ensure!(
-                !(baked && is_attachment(&id, &model) && !gun.bake.contains(&id)),
+                !(baked
+                    && is_attachment(&id, &model)
+                    && !gun.bake.contains(&id)
+                    && !gun.fixed.iter().any(|(m, _)| *m == id)),
                 "{item}: {id} ({model}) is an attachment, not structural; list it as separable"
             );
             if baked {
@@ -1010,6 +1021,8 @@ impl Donor069 {
                 .collect();
             return Ok(Composed {
                 points,
+                donor_bind: bind,
+                donor_locators,
                 ..Composed::default()
             });
         }
@@ -1652,6 +1665,7 @@ impl Gun069 {
             .chain(&gun.defaults)
             .filter(|e| !self.separable.contains(&e.module))
             .map(|e| (e.module.clone(), e.slot.clone()))
+            .chain(self.fixed.iter().map(|(m, slot)| (m.clone(), Some(slot.clone()))))
             .collect()
     }
 }

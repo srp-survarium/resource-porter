@@ -174,6 +174,16 @@ pub fn fit(live: &[[f32; 3]], ours: &[[f32; 3]]) -> Fit {
     }
 }
 
+/// The median distance (mm) from `of`'s vertices to the nearest of `to`:
+/// how well a part lies on a body.
+pub fn median_gap_mm(of: &[[f32; 3]], to: &[[f32; 3]]) -> f32 {
+    let (of, to) = (sample(of), sample(to));
+    if of.is_empty() || to.is_empty() {
+        return f32::INFINITY;
+    }
+    gap(&Grid::new(&to), &of, [0.0; 3]) * 1000.0
+}
+
 /// What one body has and the other lacks: the share of `of`'s vertices
 /// farther than `limit` (metres) from every vertex of `from`, and the box
 /// they lie in.

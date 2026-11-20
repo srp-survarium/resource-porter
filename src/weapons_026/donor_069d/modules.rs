@@ -199,6 +199,11 @@ struct Built {
     composed: Composed,
     fit: Option<fit::Fit>,
     look: Option<Look>,
+    suppressors: Vec<Suppressor>,
+    /// Under the gun's default optic (`Gun069::optic`): the slots whose sights are folded and
+    /// the slots whose part makes way. Empty for a gun without one.
+    folded: BTreeSet<String>,
+    taken: BTreeSet<String>,
 }
 
 /// One check: a part of a gun with something fitted, ours against 0.69d0's.
@@ -228,11 +233,26 @@ pub struct Look {
 /// A vertex this far (metres) from the other body is a part the other lacks.
 pub const LOOK_LIMIT: f32 = 0.005;
 
+/// A suppressor 0.69d0 links to a gun, laid on the live gun's mesh.
+#[derive(Clone, Debug, Serialize)]
+pub struct Suppressor {
+    pub module: String,
+    pub slot: String,
+    /// The median distance from its vertices to the live mesh, mm.
+    pub gap_mm: f32,
+    /// The live gun has it: baked as the gun's own part.
+    pub built_in: bool,
+}
+
+/// A suppressor lying this close (mm, median) on the live mesh is the live gun's own.
+pub const BUILT_IN_GAP_MM: f32 = 1.5;
+
 #[derive(Serialize)]
 pub struct GunReport {
     pub model: String,
     pub bare: String,
     pub fits_like: String,
+    pub suppressors: Vec<Suppressor>,
     pub fit: Option<fit::Fit>,
     pub look: Option<Look>,
     pub plan: GunPlan,
@@ -469,6 +489,63 @@ fn live_points(target: &mut ResourceDb, model: &str) -> Result<Vec<[f32; 3]>> {
         let surface = string_of(Some(surface))?;
         let bytes = target.read(&format!("{model}/render/{surface}/converted_model"))?;
         out.extend(Mesh::parse(&bytes)?.positions);
+    }
+    Ok(out)
+}
+
+/// The suppressors 0.69d0 links to a gun that go in a free slot of its own, each laid on the
+/// live gun's mesh: one that lies on it is the live gun's own (the first such is taken). A
+/// gun 0.26g draws with a suppressor keeps it so, and what hangs on it has its slot.
+fn built_in(
+    donor: &mut Donor069,
+    catalog: &Catalog,
+    item: &str,
+    gun: &Gun069,
+    measured: &Composed,
+    live: &[[f32; 3]],
+) -> Result<Vec<Suppressor>> {
+    let own = gun.own(catalog.gun(item)?);
+    let standing = plan::plan(catalog, item, &own, item, &|_| false)?;
+    let links = catalog.links.get(item).or_else(|| base_of(catalog, item).and_then(|b| catalog.links.get(b)));
+    let shift = Frame::translation(gun.offset);
+    let mut out: Vec<Suppressor> = vec![];
+    for id in links.into_iter().flatten() {
+        let module = catalog.module(id)?;
+        if !module.is_suppressor() || own.iter().any(|(m, _)| m == id) {
+            continue;
+        }
+        let Some(model) = module.models_on(item).model else {
+            continue;
+        };
+        for attach in module.attaches_on(item) {
+            let Some(site) = standing.slots.get(&attach.slot) else {
+                continue;
+            };
+            if site.base != Base::Gun || standing.parts.iter().any(|p| p.slot == attach.slot) {
+                continue;
+            }
+            let Some(l) = measured.donor_locators.iter().find(|l| l.name == site.locator) else {
+                continue;
+            };
+            let Some((_, bone)) = measured.donor_bind.iter().find(|(n, _)| *n == l.bone) else {
+                continue;
+            };
+            let frame = HALF_TURN.then(&locator_frame(l)).then(&bind_frame(bone)).then(&shift);
+            let points: Vec<[f32; 3]> = donor
+                .donor_meshes(&model)?
+                .iter()
+                .flat_map(|m| m.positions.iter().map(|p| frame.apply(p.map(f64::from)).map(|c| c as f32)))
+                .collect();
+            let gap_mm = fit::median_gap_mm(&points, live);
+            let built_in = gap_mm <= BUILT_IN_GAP_MM && !out.iter().any(|s| s.built_in);
+            out.push(Suppressor {
+                module: id.clone(),
+                slot: attach.slot.clone(),
+                gap_mm,
+                built_in,
+            });
+            break;
+        }
     }
     Ok(out)
 }
@@ -724,6 +801,31 @@ pub fn port_modules(
             gun.optic_model_path.is_none(),
             "{item}: optic_model_path: a folded body is the bare one with its sights as parts"
         );
+        let mut gun = gun.clone();
+        let (mut measured, mut look, mut suppressors) = (None, None, vec![]);
+        if let Rig::Live(live) = &gun.rig {
+            gun.offset = [0.0; 3];
+            let ours = donor
+                .compose_model(item, &gun, &Body::Measure, &mut target, &work)
+                .with_context(|| format!("{item}: measuring"))?;
+            let theirs = live_points(&mut target, live)?;
+            let fit = fit::fit(&theirs, &ours.points);
+            gun.offset = fit.shift;
+            suppressors = built_in(&mut donor, &catalog, item, &gun, &ours, &theirs).with_context(|| format!("{item}: suppressors"))?;
+            let mut points = ours.points;
+            if let Some(found) = suppressors.iter().find(|s| s.built_in) {
+                gun.fixed.push((found.module.clone(), found.slot.clone()));
+                gun.offset = [0.0; 3];
+                points = donor.compose_model(item, &gun, &Body::Measure, &mut target, &work)?.points;
+                gun.offset = fit.shift;
+            }
+            let laid: Vec<[f32; 3]> = points.iter().map(|p| std::array::from_fn(|k| p[k] + fit.shift[k])).collect();
+            look = Some(Look {
+                live_only: fit::apart(&theirs, &laid, LOOK_LIMIT),
+                remodel_only: fit::apart(&laid, &theirs, LOOK_LIMIT),
+            });
+            measured = Some(fit);
+        }
         let own = gun.own(catalog.gun(item)?);
         let mut fits_like = item.clone();
         let mut plan = plan::plan(&catalog, item, &own, item, &offered)?;
@@ -733,29 +835,13 @@ pub fn port_modules(
             fits_like = base.to_owned();
             plan = plan::plan(&catalog, item, &own, base, &offered)?;
         }
+        let (folded, taken) = if gun.optic { donor.optic_slots()? } else { Default::default() };
         for module in catalog.links.get(&fits_like).into_iter().flatten() {
             let module = catalog.module(module)?;
             let sold = plan::kind(module).is_some_and(|k| k != Kind::Scope) && catalog.has_stats(module);
             if sold && !offered(module) {
                 without_item.insert(module.id.clone());
             }
-        }
-        let mut gun = gun.clone();
-        let (mut measured, mut look) = (None, None);
-        if let Rig::Live(live) = &gun.rig {
-            gun.offset = [0.0; 3];
-            let ours = donor
-                .compose_model(item, &gun, &Body::Measure, &mut target, &work)
-                .with_context(|| format!("{item}: measuring"))?;
-            let theirs = live_points(&mut target, live)?;
-            let fit = fit::fit(&theirs, &ours.points);
-            gun.offset = fit.shift;
-            let laid: Vec<[f32; 3]> = ours.points.iter().map(|p| std::array::from_fn(|k| p[k] + fit.shift[k])).collect();
-            look = Some(Look {
-                live_only: fit::apart(&theirs, &laid, LOOK_LIMIT),
-                remodel_only: fit::apart(&laid, &theirs, LOOK_LIMIT),
-            });
-            measured = Some(fit);
         }
         let composed = donor
             .compose_model(item, &gun, &Body::Whole, &mut target, &work)
@@ -783,6 +869,9 @@ pub fn port_modules(
             composed,
             fit: measured,
             look,
+            suppressors,
+            folded,
+            taken,
         });
         if let (Some(dir), Rig::Live(live)) = (renders, &spec.guns[item].rig) {
             // Today's gun and its remodel, each surface in its diffuse texture's mean colour.
@@ -884,10 +973,20 @@ pub fn port_modules(
         }
         // Its own parts a fit can displace.
         for (_, part) in b.plan.stock() {
+            // Under the gun's default optic, which the game draws itself in both bodies, a
+            // part in a slot an optic takes is not there, and a folded sight's shape is its own.
+            if b.taken.contains(&part.slot) {
+                continue;
+            }
             let module = catalog.module(&part.module)?;
-            let row = maker
+            let mut row = maker
                 .source(&mut donor, &mut target, &work, module, Role::Stock, item, Some(&[part.slot.as_str()]))
                 .with_context(|| format!("{item}: own part {}", part.module))?;
+            if b.folded.contains(&part.slot)
+                && let Some(folded) = row.alt.take()
+            {
+                row.model = folded;
+            }
             gun.stock.push((slot_id(&part.slot)?, rows.row(row)));
         }
         // A premium item takes its base gun's fits: the base's record, when it is a gun of ours.
@@ -983,6 +1082,7 @@ pub fn port_modules(
                     fits_like: b.fits_like,
                     fit: b.fit,
                     look: b.look,
+                    suppressors: b.suppressors,
                     plan: b.plan,
                 };
                 (b.item, report)
@@ -1193,11 +1293,12 @@ fn check(
             displaced.extend(more);
         }
         for (at, part) in b.plan.stock() {
-            if displaced.contains(&at) {
+            if displaced.contains(&at) || b.taken.contains(&part.slot) {
                 continue;
             }
             let models = catalog.module(&part.module)?.models_on(item);
-            let model = match (&models.alt, folded.contains(part.slot.as_str())) {
+            let is_folded = folded.contains(part.slot.as_str()) || b.folded.contains(&part.slot);
+            let model = match (&models.alt, is_folded) {
                 (Some(alt), true) => alt.clone(),
                 _ => models.model.clone().context("a part without a model")?,
             };
