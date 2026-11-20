@@ -21,8 +21,8 @@
     "donor": "near-build/shader-key-order-044a5.tsv"
   },
   "projects": [
-    {"donor": "day_3", "project": "day_2", "layer": "day", "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41, "without_lists": ["victory_item_spawn_points"]},
-    {"donor": "day_3", "project": "day_3", "layer": "day", "id": 291, "options": "v044a_level_09_day_3", "options_from": "gameplay/game_modes/level_09_day_3.options", "weather_id": 1, "loading_screen_id": 41},
-    {"donor": "day_4", "project": "day_4", "layer": "day", "id": 292, "options": "v044a_level_09_day_4", "options_from": "gameplay/game_modes/level_09_day_4.options", "weather_id": 1, "loading_screen_id": 41}
+    {"donor": "day_3", "project": "day_2", "layer": "day", "without_lists": [ "victory_item_spawn_points" ], "map": { "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41 }},
+    {"donor": "day_3", "project": "day_3", "layer": "day", "map": { "id": 291, "options": "v044a_level_09_day_3", "options_from": "gameplay/game_modes/level_09_day_3.options", "weather_id": 1, "loading_screen_id": 41 }},
+    {"donor": "day_4", "project": "day_4", "layer": "day", "map": { "id": 292, "options": "v044a_level_09_day_4", "options_from": "gameplay/game_modes/level_09_day_4.options", "weather_id": 1, "loading_screen_id": 41 }}
   ]
 }

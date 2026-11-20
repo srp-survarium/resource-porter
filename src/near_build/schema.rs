@@ -193,8 +193,12 @@ fn numbered(name: &str, taken: &mut BTreeMap<String, usize>) -> String {
     made
 }
 
+/// A link: the id it points at as `path`, with or without the editor's
+/// `__type` and `__removed` beside it.
 fn is_link(value: &ConfigValue) -> bool {
-    text(value, "__type") == Some("link_item_ptr")
+    let ConfigValue::Named(fields) = value else { return false };
+    matches!(value.named("path"), Some(ConfigValue::Indexed(path)) if path.iter().all(|p| matches!(p, ConfigValue::String(_))))
+        && fields.iter().all(|f| matches!(f.name.as_str(), "path" | "__type" | "__removed"))
 }
 
 /// A table of links keyed by id.
@@ -609,7 +613,8 @@ mod tests {
             ("full_name", s("logic/fire/zone")),
             ("game_object_type", s("damage_zone")),
             ("lib_name", s("base:damage_zone")),
-            ("collision_geometries", table(vec![("<b>", link(&["<b>"]))])),
+            // A link without the editor's type, as a resupply zone's is written.
+            ("collision_geometries", table(vec![("<b>", named(vec![("__removed", ConfigValue::Boolean(false)), ("path", ConfigValue::Indexed(vec![s("<b>")]))]))])),
         ]);
         let shape = named(vec![
             ("guid_path", s("<b>")),

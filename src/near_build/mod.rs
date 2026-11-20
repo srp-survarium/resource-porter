@@ -54,10 +54,13 @@ pub struct Manifest {
     /// The donor's level folder (`level_09`) and the port's (`v044a_level_09`).
     pub donor_level: String,
     pub level: String,
-    /// The level's number in the game data (`match_making_params.map_id`)
-    /// and its name key (`st_level_32_name`).
-    pub map_id: i32,
-    pub map_name_key: String,
+    /// For a map of its own (`Project::map`): the level's number in the game
+    /// data (`match_making_params.map_id`) and its name key
+    /// (`st_level_32_name`).
+    #[serde(default)]
+    pub map_id: Option<i32>,
+    #[serde(default)]
+    pub map_name_key: Option<String>,
     /// Kinds left out by decision, with why. Each takes its group along
     /// (`schema::without_kinds`).
     #[serde(default)]
@@ -95,13 +98,10 @@ pub struct Project {
     /// The environment's layer, as 0.26g names its weathers (`day`, `rain`,
     /// `evening`).
     pub layer: String,
-    /// The maps_dict id and the mode config's name (without `.options`).
-    pub id: u16,
-    pub options: String,
-    /// A mode config players have, taken with this map's identity.
-    pub options_from: String,
-    pub weather_id: i32,
-    pub loading_screen_id: i32,
+    /// A new map: its maps_dict row and mode config. Without it the project
+    /// replaces one players have, whose row and config stay as they are.
+    #[serde(default)]
+    pub map: Option<NewMap>,
     /// Server lists left out of this project, with the client objects and
     /// statics their objects own (a mode derived from another: the battery
     /// mode without the charging stations is the stations' project without
@@ -112,6 +112,18 @@ pub struct Project {
     /// marker); each must be a setting the project has.
     #[serde(default)]
     pub environment_overrides: BTreeMap<String, f32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NewMap {
+    /// The maps_dict id and the mode config's name (without `.options`).
+    pub id: u16,
+    pub options: String,
+    /// A mode config players have, taken with this map's identity.
+    pub options_from: String,
+    pub weather_id: i32,
+    pub loading_screen_id: i32,
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -353,14 +365,16 @@ fn count(project: &ConfigValue, key: &str) -> usize {
 }
 
 /// The mode config players have with this map's identity.
-fn options(from: &ConfigValue, m: &Manifest, p: &Project) -> Result<ConfigValue> {
+fn options(from: &ConfigValue, m: &Manifest, project: &str, map: &NewMap) -> Result<ConfigValue> {
     let mut out = from.clone();
-    out.set_path("mode.name", ConfigValue::String(p.options.clone()))?;
-    out.set_path("mode.ui.map_name", ConfigValue::String(m.map_name_key.clone()))?;
-    out.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(p.loading_screen_id))?;
-    out.set_path("mode.match_making_params.map_id", ConfigValue::Integer(m.map_id))?;
-    out.set_path("mode.match_making_params.map_weather_id", ConfigValue::Integer(p.weather_id))?;
-    out.set_path("mode.match_making_params.map_name", ConfigValue::String(format!("{}/{}", m.level, p.project)))?;
+    let level = m.map_id.context("a new map needs the manifest's map_id")?;
+    let name = m.map_name_key.clone().context("a new map needs the manifest's map_name_key")?;
+    out.set_path("mode.name", ConfigValue::String(map.options.clone()))?;
+    out.set_path("mode.ui.map_name", ConfigValue::String(name))?;
+    out.set_path("mode.ui.loading_screen_id", ConfigValue::Integer(map.loading_screen_id))?;
+    out.set_path("mode.match_making_params.map_id", ConfigValue::Integer(level))?;
+    out.set_path("mode.match_making_params.map_weather_id", ConfigValue::Integer(map.weather_id))?;
+    out.set_path("mode.match_making_params.map_name", ConfigValue::String(format!("{}/{project}", m.level)))?;
     Ok(out)
 }
 
@@ -549,15 +563,20 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
             .collect();
 
         ensure!(projects.insert(to.clone(), bytes).is_none(), "{to}: built twice");
-        let from_options = cfg(importer.shipped, &p.options_from)?;
-        projects.insert(format!("gameplay/game_modes/{}.options", p.options), BinaryConfig { root: options(&from_options, &m, p)? }.to_bytes()?);
-        dictionary.push(match json!({"id": p.id, "cfg_mode_name": format!("{}.options", p.options)}) {
-            Json::Object(o) => o,
-            _ => unreachable!(),
-        });
+        if let Some(map) = &p.map {
+            let from_options = cfg(importer.shipped, &map.options_from)?;
+            projects.insert(format!("gameplay/game_modes/{}.options", map.options), BinaryConfig { root: options(&from_options, &m, &p.project, map)? }.to_bytes()?);
+            dictionary.push(match json!({"id": map.id, "cfg_mode_name": format!("{}.options", map.options)}) {
+                Json::Object(o) => o,
+                _ => unreachable!(),
+            });
+        }
         println!(
-            "{}/{} (maps_dict {}): {} client objects, {} render visuals, {} collisions; left out by decision {:?}; kinds 0.26g lacks {:?}; unresolved {}",
-            m.level, p.project, p.id, report.client_objects, report.render_visuals, report.collision_objects, report.left_out_by_decision, report.fields.kinds_left_out, report.unresolved.len()
+            "{}/{}{}: {} client objects, {} render visuals, {} collisions; left out by decision {:?}; kinds 0.26g lacks {:?}; unresolved {}",
+            m.level,
+            p.project,
+            p.map.as_ref().map_or(" (in place)".to_owned(), |map| format!(" (maps_dict {})", map.id)),
+            report.client_objects, report.render_visuals, report.collision_objects, report.left_out_by_decision, report.fields.kinds_left_out, report.unresolved.len()
         );
         reports.insert(to, serde_json::to_value(&report)?);
     }
@@ -624,7 +643,10 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
         fs::write(&at, bytes)?;
         operations.push(operation);
     }
-    operations.push(Operation::DictionaryAdd { table: "maps_dict".into(), id_field: None, entries: dictionary });
+    let new_ids: Vec<Json> = m.projects.iter().filter_map(|p| p.map.as_ref()).map(|map| json!({"id": map.id})).collect();
+    if !dictionary.is_empty() {
+        operations.push(Operation::DictionaryAdd { table: "maps_dict".into(), id_field: None, entries: dictionary });
+    }
     let mut notes = vec![format!(
         "Built by build-survarium-near-map from {}'s own projects of {} as {}: {added} files added, {replaced} replaced, {same} already players'; imports under {}.",
         m.donor_build, m.donor_level, m.level, m.namespace
@@ -641,7 +663,7 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
         requires: vec![],
         base_db_sha256: Some(m.stock_sha256.clone()),
         operations,
-        server: Some(json!({"maps": m.projects.iter().map(|p| json!({"id": p.id})).collect::<Vec<_>>()})),
+        server: (!new_ids.is_empty()).then(|| json!({"maps": new_ids})),
         notes,
     };
     fs::create_dir_all(output)?;
