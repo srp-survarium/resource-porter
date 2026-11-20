@@ -280,6 +280,10 @@ enum Command {
         /// Only these 0.69d0 items (a quick build).
         #[arg(long)]
         only: Vec<String>,
+        /// A folder for the check's pictures: each gun and fit as 0.69d0 places it (left) and
+        /// as the table and the bundle draw it (right), <item>/<module>.png.
+        #[arg(long)]
+        renders: Option<PathBuf>,
         #[arg(long)]
         donor: PathBuf,
         #[arg(long)]
@@ -1368,6 +1372,7 @@ fn main() -> Result<()> {
             items,
             ids,
             only,
+            renders,
             donor,
             target_db,
             target_patch,
@@ -1384,6 +1389,7 @@ fn main() -> Result<()> {
                 &modules::read_items(&items)?,
                 &modules::read_ids(&ids)?,
                 &only,
+                renders.as_deref(),
                 &donor,
                 &layers,
                 &output,

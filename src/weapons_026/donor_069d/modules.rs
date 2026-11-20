@@ -39,6 +39,7 @@ use weapon_modules::{Affine, DictId, EyeAnchor, Loadout, Placement, Role, SlotId
 
 use super::catalog::{AttachDef, Catalog, ModuleDef};
 use super::plan::{self, Base, GunPlan, Kind, Site};
+use super::render::{self, Shape};
 use super::{
     BindFrame, Body, Composed, Donor069, Gun069, Locator, Rig, Spec069, body_path, db_config, encode as encode_config,
     fit, list, locators, lod0_surfaces, socket, string_of,
@@ -197,6 +198,7 @@ struct Built {
     fits_like: String,
     composed: Composed,
     fit: Option<fit::Fit>,
+    look: Option<Look>,
 }
 
 /// One check: a part of a gun with something fitted, ours against 0.69d0's.
@@ -214,12 +216,25 @@ pub struct Checked {
     pub note: String,
 }
 
+/// How a remodel's whole body differs in shape from the live model it
+/// replaces, once laid on it: what each has that the other lacks (vertices
+/// farther than [`LOOK_LIMIT`] from the other body).
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct Look {
+    pub live_only: fit::Apart,
+    pub remodel_only: fit::Apart,
+}
+
+/// A vertex this far (metres) from the other body is a part the other lacks.
+pub const LOOK_LIMIT: f32 = 0.005;
+
 #[derive(Serialize)]
 pub struct GunReport {
     pub model: String,
     pub bare: String,
     pub fits_like: String,
     pub fit: Option<fit::Fit>,
+    pub look: Option<Look>,
     pub plan: GunPlan,
 }
 
@@ -394,22 +409,22 @@ impl Donor069 {
             .collect())
     }
 
-    /// A model's LOD0 vertices: a module's of 0.69d0 as its files have them.
-    fn donor_points(&mut self, model: &str) -> Result<Vec<[f32; 3]>> {
+    /// A 0.69d0 module model's LOD0 meshes, as its files have them.
+    fn donor_meshes(&mut self, model: &str) -> Result<Vec<Mesh>> {
         let source = format!("models/{model}.model");
         let settings = db_config(&mut self.db, &format!("{source}/settings"))?;
         let mut out = vec![];
         for (surface, _) in lod0_surfaces(&settings, &source)? {
             let bytes = self.db.read(&format!("{source}/render/{surface}/converted_model"))?;
-            out.extend(super::convert::static_positions_069(&bytes)?);
+            out.push(Mesh::parse(&super::convert::static_069_to_026(&bytes)?)?);
         }
         Ok(out)
     }
 
-    /// The same model's vertices as the bundle has them (what the game
-    /// would draw).
-    fn built_points(&self, path: &str) -> Result<Vec<[f32; 3]>> {
-        let root = format!("models/{path}.model");
+    /// A model of the bundle (`models/<path><kind>`): its LOD0 meshes, what
+    /// the game would draw.
+    fn built_meshes(&self, path: &str, kind: &str) -> Result<Vec<Mesh>> {
+        let root = format!("models/{path}{kind}");
         let settings = crate::BinaryConfig::parse(
             self.files
                 .get(&format!("{root}/settings"))
@@ -417,9 +432,30 @@ impl Donor069 {
         )?
         .root;
         let mut out = vec![];
-        for (surface, _) in lod0_surfaces(&settings, &root)? {
-            let bytes = &self.files[&format!("{root}/render/{surface}/converted_model")];
-            out.extend(Mesh::parse(bytes)?.positions);
+        for surface in list(get(&settings, "lod_hierrarchy.LOD0.surfaces")) {
+            let surface = string_of(Some(surface))?;
+            out.push(Mesh::parse(&self.files[&format!("{root}/render/{surface}/converted_model")])?);
+        }
+        Ok(out)
+    }
+
+    /// 0.69d0's own base model of a gun: its LOD0 surfaces (mesh space, its
+    /// own bind pose), no module on it.
+    fn donor_body(&mut self, item: &str) -> Result<Vec<(Vec<[f32; 3]>, Vec<[u16; 3]>)>> {
+        let root = format!(
+            "models/{}.skinned_model",
+            string_of(get(self.weapon(item)?, "object.model"))?
+        );
+        let bones = super::bind_pose(&self.db.read(&format!("{root}/render/bind_pose"))?)?.len();
+        let settings = db_config(&mut self.db, &format!("{root}/settings"))?;
+        let mut out = vec![];
+        for surface in list(get(&settings, "lod_hierrarchy.LOD0.surfaces")) {
+            let surface = string_of(Some(surface))?;
+            let bytes = self.db.read(&format!("{root}/render/{surface}/converted_model"))?;
+            let mesh = super::convert::skinned_069_to_026(&bytes, bones)?;
+            let points = (0..mesh.vertices.len()).map(|i| mesh.position(i)).collect();
+            let triangles = mesh.indices.chunks_exact(3).map(|t| [t[0], t[1], t[2]]).collect();
+            out.push((points, triangles));
         }
         Ok(out)
     }
@@ -433,6 +469,49 @@ fn live_points(target: &mut ResourceDb, model: &str) -> Result<Vec<[f32; 3]>> {
         let surface = string_of(Some(surface))?;
         let bytes = target.read(&format!("{model}/render/{surface}/converted_model"))?;
         out.extend(Mesh::parse(&bytes)?.positions);
+    }
+    Ok(out)
+}
+
+/// A skinned model's LOD0 surfaces as shapes, each in the mean colour of its
+/// diffuse texture: from `files` (a bundle's) where they have a path, else
+/// from the target.
+fn look_shapes(target: &mut ResourceDb, files: Option<&BTreeMap<String, Vec<u8>>>, root: &str) -> Result<Vec<Shape>> {
+    let mut read = |path: &str| -> Result<Vec<u8>> {
+        match files.and_then(|f| f.get(path)) {
+            Some(bytes) => Ok(bytes.clone()),
+            None => target.read(path),
+        }
+    };
+    let settings = crate::BinaryConfig::parse(&read(&format!("{root}/settings"))?)?.root;
+    let mut out = vec![];
+    for surface in list(get(&settings, "lod_hierrarchy.LOD0.surfaces")) {
+        let surface = string_of(Some(surface))?;
+        let mesh = Mesh::parse(&read(&format!("{root}/render/{surface}/converted_model"))?)?;
+        let material = string_of(get(&settings, &format!("material_settings.{surface}.material_name")))?;
+        let material = crate::BinaryConfig::parse(&read(&format!("material_instances/{material}.material"))?)?.root;
+        // A surface without a readable diffuse texture is drawn grey.
+        let colour = string_of(get(&material, "material.g_stage.effect.texture_diffuse.value"))
+            .ok()
+            .and_then(|texture| read(&format!("textures/{texture}.dds")).ok())
+            .and_then(|dds| super::convert::decode_dds(&dds).ok())
+            .map_or(render::BODY, |(_, _, pixels)| {
+                let step = (pixels.len() / 4096).max(1);
+                let (mut sum, mut n) = ([0u64; 3], 0u64);
+                for p in pixels.iter().step_by(step) {
+                    for k in 0..3 {
+                        sum[k] += u64::from(p[k]);
+                    }
+                    n += 1;
+                }
+                // Lifted towards grey, so the shading shows on a black gun.
+                sum.map(|c| (64 + (c / n.max(1)) * 3 / 4) as u8)
+            });
+        out.push(Shape {
+            points: mesh.positions,
+            triangles: mesh.triangles,
+            colour,
+        });
     }
     Ok(out)
 }
@@ -597,6 +676,7 @@ pub fn port_modules(
     items: &[LiveItem],
     ids: &BTreeMap<String, u16>,
     only: &[String],
+    renders: Option<&Path>,
     donor_db: &Path,
     target_layers: &[PathBuf],
     output: &Path,
@@ -651,14 +731,20 @@ pub fn port_modules(
             }
         }
         let mut gun = gun.clone();
-        let mut measured = None;
+        let (mut measured, mut look) = (None, None);
         if let Rig::Live(live) = &gun.rig {
             gun.offset = [0.0; 3];
             let ours = donor
                 .compose_model(item, &gun, &Body::Measure, &mut target, &work)
                 .with_context(|| format!("{item}: measuring"))?;
-            let fit = fit::fit(&live_points(&mut target, live)?, &ours.points);
+            let theirs = live_points(&mut target, live)?;
+            let fit = fit::fit(&theirs, &ours.points);
             gun.offset = fit.shift;
+            let laid: Vec<[f32; 3]> = ours.points.iter().map(|p| std::array::from_fn(|k| p[k] + fit.shift[k])).collect();
+            look = Some(Look {
+                live_only: fit::apart(&theirs, &laid, LOOK_LIMIT),
+                remodel_only: fit::apart(&laid, &theirs, LOOK_LIMIT),
+            });
             measured = Some(fit);
         }
         let composed = donor
@@ -669,8 +755,9 @@ pub fn port_modules(
             .map(|(_, p)| (p.module.clone(), p.site.locator.clone()))
             .collect();
         for (module, locator) in &leave_out {
+            // A gun drawn under its default optic has no sight in the slot the optic takes.
             ensure!(
-                donor.modules[item].iter().any(|m| m.baked && m.id == *module && m.locator == *locator),
+                gun.optic || donor.modules[item].iter().any(|m| m.baked && m.id == *module && m.locator == *locator),
                 "{item}: its own part {module} at {locator} is not in its whole body"
             );
         }
@@ -685,7 +772,16 @@ pub fn port_modules(
             fits_like,
             composed,
             fit: measured,
+            look,
         });
+        if let (Some(dir), Rig::Live(live)) = (renders, &spec.guns[item].rig) {
+            // Today's gun and its remodel, each surface in its diffuse texture's mean colour.
+            let left = look_shapes(&mut target, None, live)?;
+            let right = look_shapes(&mut target, Some(&donor.files), &format!("models/{path}.skinned_model"))?;
+            let dest = dir.join(item);
+            fs::create_dir_all(&dest)?;
+            fs::write(dest.join("_look.png"), render::pair(&left, &right, 640)?)?;
+        }
     }
 
     // The table's rows.
@@ -832,7 +928,7 @@ pub fn port_modules(
             continue;
         };
         let dict = report_items[&live.name].0;
-        check(&mut donor, &catalog, &parsed, b, &live.name, dict, ids, &mut checks)
+        check(&mut donor, &catalog, &parsed, b, &live.name, dict, ids, renders, &mut checks)
             .with_context(|| format!("checking {}", live.name))?;
     }
     if work.exists() {
@@ -876,6 +972,7 @@ pub fn port_modules(
                     model,
                     fits_like: b.fits_like,
                     fit: b.fit,
+                    look: b.look,
                     plan: b.plan,
                 };
                 (b.item, report)
@@ -922,6 +1019,7 @@ fn check(
     live_item: &str,
     dict: u16,
     ids: &BTreeMap<String, u16>,
+    renders: Option<&Path>,
     out: &mut Vec<Checked>,
 ) -> Result<()> {
     let item = &b.item;
@@ -1105,7 +1203,8 @@ fn check(
                 row(&path, 0.0, "0.69d0 draws no such part here");
                 continue;
             };
-            let (built, theirs_points) = (donor.built_points(&path)?, donor.donor_points(model)?);
+            let flat = |meshes: Vec<Mesh>| -> Vec<[f32; 3]> { meshes.into_iter().flat_map(|m| m.positions).collect() };
+            let (built, theirs_points) = (flat(donor.built_meshes(&path, ".model")?), flat(donor.donor_meshes(model)?));
             if built.len() != theirs_points.len() {
                 row(&path, 0.0, "the bundle's model has other vertices than 0.69d0's");
                 continue;
@@ -1123,6 +1222,71 @@ fn check(
         }
         for (path, _) in expected.iter().filter(|(path, _)| !drawn.contains(*path)) {
             row(path, 0.0, "0.69d0 draws it, resolve does not");
+        }
+        if let Some(dir) = renders {
+            let placed = |meshes: Vec<Mesh>, frame: &Frame, colour: [u8; 3]| -> Vec<Shape> {
+                meshes
+                    .into_iter()
+                    .map(|m| Shape {
+                        points: m.positions.iter().map(|p| frame.apply(p.map(f64::from)).map(|c| c as f32)).collect(),
+                        triangles: m.triangles,
+                        colour,
+                    })
+                    .collect()
+            };
+            // 0.69d0: its base model, its own parts that stay, the carriers, the fit.
+            let mut left: Vec<Shape> = donor
+                .donor_body(item)?
+                .into_iter()
+                .map(|(points, triangles)| Shape {
+                    points: points.iter().map(|p| shift.apply(p.map(f64::from)).map(|c| c as f32)).collect(),
+                    triangles,
+                    colour: render::BODY,
+                })
+                .collect();
+            for part in b.plan.parts.iter().filter(|p| !p.stock) {
+                let model = catalog.module(&part.module)?.models_on(item).model.context("a part without a model")?;
+                let frame = site_frame(b, catalog, donor, &part.site, &donor_gun)?.then(&shift);
+                left.extend(placed(donor.donor_meshes(&model)?, &frame, render::BODY));
+            }
+            let chain_paths: BTreeSet<String> = fit
+                .chain
+                .iter()
+                .filter_map(|l| catalog.module(&l.module).ok()?.models_on(item).model)
+                .filter_map(|m| module_path(&m).ok())
+                .collect();
+            let fit_model = module.models_on(item).model.context("a fit without a model")?;
+            for (path, (model, frame)) in &expected {
+                let colour = if chain_paths.contains(path) {
+                    render::CARRIER
+                } else if *model == fit_model {
+                    render::FITTED
+                } else {
+                    render::OWN
+                };
+                left.extend(placed(donor.donor_meshes(model)?, &frame.then(&shift), colour));
+            }
+            if fit.kind == Kind::Scope {
+                left.extend(placed(donor.donor_meshes(&fit_model)?, &fit_frame.then(&shift), render::FITTED));
+            }
+            // Ours: the bare body of the bundle and what resolve places on it.
+            let bare_path = body_path(b.gun.model_path.as_deref().unwrap_or_default(), &Body::Bare(&BTreeSet::new()));
+            let mut right = placed(donor.built_meshes(&bare_path, ".skinned_model")?, &Frame::IDENTITY, render::BODY);
+            for part in bare.parts() {
+                let colour = match part.module.role() {
+                    Role::Stock => render::OWN,
+                    Role::Carrier => render::CARRIER,
+                    Role::Fitted(_) => render::FITTED,
+                };
+                right.extend(placed(donor.built_meshes(part.model().to_str()?, ".model")?, &ours(&part.at)?, colour));
+            }
+            if let Some(optic) = bare.optic {
+                let path = optic.module.model().to_str()?;
+                right.extend(placed(donor.built_meshes(path, ".model")?, &ours(&optic.frame)?, render::FITTED));
+            }
+            let dest = dir.join(live_item);
+            fs::create_dir_all(&dest)?;
+            fs::write(dest.join(format!("{}.png", fit.module)), render::pair(&left, &right, 640)?)?;
         }
         let own = donor.module_locators(&module.models_on(item).model.context("a fit without a model")?)?;
         let rules = module.attach_on(item, &fit.slot);

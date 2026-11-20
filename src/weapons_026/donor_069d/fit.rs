@@ -174,6 +174,40 @@ pub fn fit(live: &[[f32; 3]], ours: &[[f32; 3]]) -> Fit {
     }
 }
 
+/// What one body has and the other lacks: the share of `of`'s vertices
+/// farther than `limit` (metres) from every vertex of `from`, and the box
+/// they lie in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize)]
+pub struct Apart {
+    pub share: f32,
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+pub fn apart(of: &[[f32; 3]], from: &[[f32; 3]], limit: f32) -> Apart {
+    let (of, from) = (sample(of), sample(from));
+    if of.is_empty() || from.is_empty() {
+        return Apart::default();
+    }
+    let grid = Grid::new(&from);
+    let far: Vec<[f32; 3]> = of.iter().copied().filter(|p| distance(*p, grid.nearest(*p)) > limit).collect();
+    let Some(first) = far.first() else {
+        return Apart::default();
+    };
+    let (mut min, mut max) = (*first, *first);
+    for p in &far {
+        for k in 0..3 {
+            min[k] = min[k].min(p[k]);
+            max[k] = max[k].max(p[k]);
+        }
+    }
+    Apart {
+        share: far.len() as f32 / of.len() as f32,
+        min,
+        max,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

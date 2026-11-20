@@ -31,6 +31,7 @@ pub mod convert;
 pub mod fit;
 pub mod modules;
 pub mod plan;
+pub mod render;
 pub mod renames;
 pub mod socket;
 
