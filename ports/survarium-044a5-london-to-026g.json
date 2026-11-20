@@ -1,0 +1,28 @@
+{
+  "pack": {
+    "id": "london-v042",
+    "version": "1",
+    "description": "London (v0.42): 0.44a5's London (level_09, the first archived build with the 0.42 rework) as a map of its own, level 32, projects v044a_level_09/<weather>_<mode>, from 0.44a5's own projects"
+  },
+  "donor_build": "0.44a5",
+  "stock_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
+  "namespace": "ported/v044a",
+  "donor_level": "level_09",
+  "level": "v044a_level_09",
+  "map_id": 32,
+  "map_name_key": "st_level_32_name",
+  "leave_out": {
+    "timeout_anomaly_core": "no anomalies on this map; 0.26g has no object of this kind",
+    "generic_anomaly_core": "no anomalies on this map",
+    "artefact_container": "no anomalies on this map: an artefact's place belongs to one"
+  },
+  "shader_keys": {
+    "target": "near-build/shader-key-order-026g.tsv",
+    "donor": "near-build/shader-key-order-044a5.tsv"
+  },
+  "projects": [
+    {"donor": "day_3", "project": "day_2", "layer": "day", "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41, "without_lists": ["victory_item_spawn_points"]},
+    {"donor": "day_3", "project": "day_3", "layer": "day", "id": 291, "options": "v044a_level_09_day_3", "options_from": "gameplay/game_modes/level_09_day_3.options", "weather_id": 1, "loading_screen_id": 41},
+    {"donor": "day_4", "project": "day_4", "layer": "day", "id": 292, "options": "v044a_level_09_day_4", "options_from": "gameplay/game_modes/level_09_day_4.options", "weather_id": 1, "loading_screen_id": 41}
+  ]
+}

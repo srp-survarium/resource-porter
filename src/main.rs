@@ -277,6 +277,32 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// A map of a build near 0.26g (0.29 to 0.45) as a content pack, from the
+    /// donor's own projects (one manifest per map).
+    BuildSurvariumNearMap {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// A file naming the donor build's archives, one a line, bottom first.
+        #[arg(long)]
+        donor: PathBuf,
+        /// A file naming what players have: the stock resources.db, then
+        /// every offered patch in order.
+        #[arg(long)]
+        shipped: PathBuf,
+        /// The pack folder to write (must be new).
+        #[arg(long)]
+        output: PathBuf,
+        /// Materials keep switch sets players' materials do not use, instead
+        /// of taking the nearest set with shader programs: a build for
+        /// finding the programs the game then asks for, not one to ship.
+        #[arg(long)]
+        keep_switch_sets: bool,
+        /// A file naming shader programs the game asked for and lacks (the
+        /// asserts of a headless load): each is supplied from the donor's
+        /// own blobs where 0.26g can feed it.
+        #[arg(long)]
+        programs: Option<PathBuf>,
+    },
     /// Add Team Deathmatch (mode 4) variants of a 0.21 maps pack's battery
     /// maps to the pack, in place: the battery project without the battery
     /// game (as 0.26g's own TDM projects are), the native TDM options with
@@ -1270,6 +1296,12 @@ fn main() -> Result<()> {
             println!("weapon_dict_ids={:?}", record.weapon_dict_ids);
             println!("replaced_project={}", record.replaced_project);
             println!("bundle={}", output.display());
+        }
+        Command::BuildSurvariumNearMap { manifest, donor, shipped, output, keep_switch_sets, programs } => {
+            use vostok_resource_porter::near_build::files::UnknownSwitches;
+            let unknown = if keep_switch_sets { UnknownSwitches::Keep } else { UnknownSwitches::Nearest };
+            vostok_resource_porter::near_build::build(&manifest, &donor, &shipped, &output, unknown, programs.as_deref())?;
+            println!("pack={}", output.display());
         }
         Command::BuildSurvarium021Maps {
             manifest,

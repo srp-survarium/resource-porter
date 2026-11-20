@@ -107,10 +107,10 @@ fn stages(root: &ConfigValue, known: &BTreeSet<String>) -> BTreeMap<String, Stri
                 if matches!(value, Some(ConfigValue::Boolean(true))) {
                     on.insert(field.name.clone());
                 }
-            } else if field.name.ends_with("_technique") || field.name.ends_with("_mode") {
-                if let Some(ConfigValue::Integer(i)) = value {
-                    on.insert(format!("{}={i}", field.name));
-                }
+            } else if (field.name.ends_with("_technique") || field.name.ends_with("_mode"))
+                && let Some(ConfigValue::Integer(i)) = value
+            {
+                on.insert(format!("{}={i}", field.name));
             }
         }
         out.insert(
