@@ -112,6 +112,14 @@ pub struct Project {
     /// marker); each must be a setting the project has.
     #[serde(default)]
     pub environment_overrides: BTreeMap<String, f32>,
+    /// A probe the donor box-projects (`use_parallax_correction`, a field
+    /// 0.26g has not) is marked by `smart_attenuation`, which no probe of
+    /// the project may use itself: the channel pack london-probes reads on
+    /// a scene that carries London's marker (`environment_overrides`),
+    /// where its smart box programs project the reflection and draw the
+    /// plain falloff. Only for a project with that marker.
+    #[serde(default)]
+    pub parallax_probes_by_smart_attenuation: bool,
 }
 
 #[derive(Deserialize)]
@@ -134,6 +142,8 @@ pub struct ProjectReport {
     pub client_objects: usize,
     pub render_visuals: usize,
     pub collision_objects: usize,
+    /// Probes marked as box-projected (`parallax_probes_by_smart_attenuation`).
+    pub parallax_probes: usize,
     /// Donor files added as they are, by kind of path.
     pub added: BTreeMap<String, usize>,
     /// Files players have in another form than the donor's and keep, by kind.
@@ -196,7 +206,7 @@ fn materials_of(value: &mut ConfigValue, importer: &mut files::Importer<'_>) -> 
 
 /// The old-form project with every model, material and probe cubemap by the
 /// name the port places it by.
-fn place_files(project: &mut ConfigValue, m: &Manifest, importer: &mut files::Importer<'_>) -> Result<()> {
+fn place_files(project: &mut ConfigValue, m: &Manifest, p: &Project, importer: &mut files::Importer<'_>, parallax_probes: &mut usize) -> Result<()> {
     let ConfigValue::Named(top) = project else { bail!("a project is not a table") };
     for field in top {
         match (field.name.as_str(), &mut field.value) {
@@ -241,6 +251,13 @@ fn place_files(project: &mut ConfigValue, m: &Manifest, importer: &mut files::Im
                         "environment_probe" => {
                             if let Some(ConfigValue::String(texture)) = object.named_mut("texture") {
                                 *texture = probe_cubemap(texture, m, importer)?;
+                            }
+                            if p.parallax_probes_by_smart_attenuation {
+                                let projected = object.named("use_parallax_correction") == Some(&ConfigValue::Boolean(true));
+                                let smart = object.named_mut("smart_attenuation").context("a probe has no smart_attenuation")?;
+                                ensure!(*smart == ConfigValue::Boolean(false), "a probe uses smart attenuation itself: it cannot mark the box-projected ones");
+                                *smart = ConfigValue::Boolean(projected);
+                                *parallax_probes += usize::from(projected);
                             }
                         }
                         _ => {}
@@ -385,8 +402,13 @@ fn with_overrides(project: &mut ConfigValue, overrides: &BTreeMap<String, f32>) 
     let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no client objects") };
     let environment = objects.iter_mut().find(|o| text(o, "game_object_type") == Some("environment")).context("no environment")?;
     for (name, value) in overrides {
-        ensure!(environment.named("properties").and_then(|p| p.named(name)).is_some(), "the environment has no {name} to override");
-        environment.set_path(&format!("properties.{name}"), ConfigValue::Float(*value))?;
+        // In the number type the setting has: a whole number where it is one.
+        let written = match environment.named("properties").and_then(|p| p.named(name)) {
+            Some(ConfigValue::Integer(_)) if value.fract() == 0.0 => ConfigValue::Integer(*value as i32),
+            Some(_) => ConfigValue::Float(*value),
+            None => bail!("the environment has no {name} to override"),
+        };
+        environment.set_path(&format!("properties.{name}"), written)?;
     }
     Ok(())
 }
@@ -508,7 +530,7 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
         for (list, n) in without_lists(&mut old, &p.without_lists) {
             *report.left_out_by_decision.entry(format!("without {}: {list}", p.without_lists.join(", "))).or_default() += n;
         }
-        place_files(&mut old, &m, &mut importer).with_context(|| from.clone())?;
+        place_files(&mut old, &m, p, &mut importer, &mut report.parallax_probes).with_context(|| from.clone())?;
         let scene = fields::Scene { project: &p.project, weather_layer: &p.layer };
         let mut built = with_026g_fields(&old, &templates, &scene, &mut report.fields).with_context(|| from.clone())?;
         with_overrides(&mut built, &p.environment_overrides)?;
