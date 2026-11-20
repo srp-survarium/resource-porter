@@ -519,6 +519,12 @@ pub(crate) fn convert_texture(
                 .arg("dds:compression=dxt1")
                 .arg(source);
         }
+        TextureCompression::Dxt5 => {
+            command
+                .arg("-define")
+                .arg("dds:compression=dxt5")
+                .arg(source);
+        }
         TextureCompression::Dxt5Normal => {
             let intermediate = output.with_extension("dxt5nm.tga");
             write_dxt5_normal_tga(source, &intermediate)?;
@@ -620,7 +626,7 @@ pub(crate) fn validate_dds(
     }
     let expected = match compression {
         TextureCompression::Dxt1 => b"DXT1",
-        TextureCompression::Dxt5Normal => b"DXT5",
+        TextureCompression::Dxt5Normal | TextureCompression::Dxt5 => b"DXT5",
     };
     if bytes.get(84..88) != Some(expected) {
         bail!(

@@ -510,6 +510,8 @@ pub struct ArmorTextureSpec {
 pub enum TextureCompression {
     Dxt1,
     Dxt5Normal,
+    /// DXT5 with the source's alpha (a 0.69d0 diffuse with cut-outs: the SV-98's netting).
+    Dxt5,
 }
 
 #[derive(Clone, Debug, Deserialize)]

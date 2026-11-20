@@ -508,6 +508,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "weapon-modules",
  "zune-jpeg",
 ]
 
@@ -519,6 +520,11 @@ checksum = "b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487"
 dependencies = [
  "wit-bindgen",
 ]
+
+[[package]]
+name = "weapon-modules"
+version = "0.1.0"
+source = "git+https://github.com/srp-survarium/skhid-srp?rev=183243ce59a8c07c625a122dda78878c6eb53b06#183243ce59a8c07c625a122dda78878c6eb53b06"
 
 [[package]]
 name = "windows-link"

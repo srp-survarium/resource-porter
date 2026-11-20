@@ -26,7 +26,12 @@
 //! What a port decides (template, balance, which states stay the
 //! template's) is the core manifest's, as for any donor.
 
+pub mod catalog;
 pub mod convert;
+pub mod fit;
+pub mod modules;
+pub mod plan;
+pub mod render;
 pub mod renames;
 pub mod socket;
 
@@ -81,6 +86,125 @@ pub struct Gun069 {
     /// suppressor. Every other one is structural and baked.
     #[serde(default)]
     pub separable: Vec<String>,
+    /// The model's path (`models/<path>.skinned_model`), new to the target:
+    /// a live gun remodelled (`remodel_069d`) keeps its old model and its
+    /// item points here. Else 0.69d0's own path.
+    #[serde(default)]
+    pub model_path: Option<String>,
+    /// On a live rig: a donor bone whose live bone is named otherwise (the VSS's `magazin3`,
+    /// ours `magazin2`). Bones of the same name are each other's, the roots are; a donor bone
+    /// the live rig lacks rides on `offset` (the body; our clips do not move it).
+    #[serde(default)]
+    pub bone_map: BTreeMap<String, String>,
+    /// Attachments baked all the same: a remodelled live gun's own default muzzle device or
+    /// bipod, which it shows today, as surfaces of its own (`<module>_<surface>`) that a later
+    /// attachment leaves out by name.
+    #[serde(default)]
+    pub bake: Vec<String>,
+    /// A remodel's shift in mesh space (metres): where 0.69d0 placed its model otherwise on the
+    /// same rig (the MP-153 2.2 cm higher), the shift that lays it on the live model, so the
+    /// live hands, sights and points fit it. The mesh, the baked modules and 0.69d0's locators move.
+    #[serde(default)]
+    pub offset: [f32; 3],
+    /// A remodel's aim on 0.69d0's own sight line (its height and side, shifted with `offset`),
+    /// the live aim's distance along the bore: where 0.69d0's iron sights stand otherwise than the
+    /// live gun's (the Uzi's taller rear sight). Else the live aim.
+    #[serde(default)]
+    pub aim_069: bool,
+    /// The live gun carries an optic by default (its config's rifle scope, not 0.69d0's): it is
+    /// drawn as 0.69d0 draws it under an optic: each module in a slot 0.69d0's optics swap
+    /// (`attach_params.slots_to_change_param`, param 1) at its `model_param1` (folded), none in a
+    /// slot they take (the M4A1's rear sight).
+    #[serde(default)]
+    pub optic: bool,
+    /// A remodel's second model, the same with `optic` (its iron sights folded): what the gun's
+    /// scope variants draw, as 0.69d0 folds the sights under any optic.
+    #[serde(default)]
+    pub optic_model_path: Option<String>,
+    /// Modules 0.69d0 only links to the gun that the live gun has built in, each with its
+    /// slot: its suppressor (the 9A-91's). Never typed: `port-modules` finds them by laying
+    /// each linked suppressor on the live mesh (`modules::built_in`). Baked as the gun's own.
+    #[serde(default, skip)]
+    pub fixed: Vec<(String, String)>,
+}
+
+/// Which of a gun's bodies is composed.
+pub enum Body<'a> {
+    /// The gun with every own part its body shows: drawn when nothing is
+    /// fitted.
+    Whole,
+    /// Without the own parts a fit can displace, each by its module and the
+    /// locator it stands at: drawn with those as parts once anything is
+    /// fitted. At `<model_path>_bare`, with the whole body's skeleton and
+    /// locators.
+    Bare(&'a BTreeSet<(String, String)>),
+    /// The whole body's vertices alone, nothing written: to measure where
+    /// it lies against the live model ([`fit`]).
+    Measure,
+}
+
+impl Body<'_> {
+    fn leaves_out(&self, module: &str, locator: &str) -> bool {
+        match self {
+            Body::Bare(out) => out.iter().any(|(m, l)| m == module && l == locator),
+            Body::Whole | Body::Measure => false,
+        }
+    }
+}
+
+/// A body's model path: the whole body's, or the bare one's beside it.
+pub fn body_path(model_path: &str, body: &Body) -> String {
+    match body {
+        Body::Bare(_) => format!("{model_path}_bare"),
+        Body::Whole | Body::Measure => model_path.to_owned(),
+    }
+}
+
+/// What composing a body leaves for the modules table.
+#[derive(Default)]
+pub struct Composed {
+    /// 0.69d0's bind pose of the gun.
+    donor_bind: Vec<(String, BindFrame)>,
+    /// The bind pose shipped (the live rig's on a live rig).
+    ship_bind: Vec<(String, BindFrame)>,
+    /// 0.69d0's locators as its model has them.
+    donor_locators: Vec<Locator>,
+    /// The shipped model's locators.
+    locators: Vec<Locator>,
+    /// 0.69d0's own locators on the shipped rig, seated: where its slots are. (The shipped
+    /// model's `barrel_point` and `handguard_point` are 0.26g's contract points, the live
+    /// model's; 0.69d0 has slot locators of those names on the Glock, the Neostead and the
+    /// OTs-14.)
+    slots: Vec<Locator>,
+    /// [`Body::Measure`]: the body's vertices (mesh space, no shift).
+    points: Vec<[f32; 3]>,
+    /// A remodel's bones bound otherwise on the live rig than in 0.69d0, each with the seat
+    /// its locators took.
+    seats: Vec<Seat>,
+}
+
+/// Where the locators of one bone are seated on a remodel's live rig, when the live rig
+/// binds the bone otherwise than 0.69d0 (over 0.5 mm at a locator).
+///
+/// A remodel's mesh is 0.69d0's, laid on the live mesh by the gun's shift, and a part must
+/// sit on it as on the live gun. 0.69d0's place for a part is `locator x its bone`, and the
+/// two rigs disagree on where that bone rests: 0.69d0 binds the AK's magazine bone 15 cm
+/// from the well, where its clips never leave it, while our Glock's barrel bone rests 9.5 cm
+/// ahead of 0.69d0's. Neither rig is right for every bone, so the live mesh decides: the
+/// gun's own parts on that bone are laid on the live mesh both ways, and the seat under
+/// which they lie closer is the bone's (the median distance from their vertices). A bone
+/// with no part of the gun's own keeps 0.69d0's seat, as the mesh around it does.
+#[derive(Clone, Debug, Serialize)]
+pub struct Seat {
+    /// The bone, by its live name.
+    pub bone: String,
+    /// The live rig's bind frame of the bone (true), or 0.69d0's with the gun's shift.
+    pub live: bool,
+    /// The own parts' median gap to the live mesh at 0.69d0's seat and at the live one,
+    /// mm; none when no own part stands on the bone.
+    pub gaps_mm: Option<(f32, f32)>,
+    /// How far apart the two seats put the bone's locators, mm (the largest).
+    pub apart_mm: f32,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -146,6 +270,17 @@ pub struct Donor069 {
     modules: BTreeMap<String, Vec<PlacedModule>>,
     renames: Renames,
     clip_events: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
+    /// Each donor material's and texture's final name (compose_material).
+    material_names: BTreeMap<String, String>,
+    texture_names: BTreeMap<String, String>,
+    /// Module surfaces left out, `<model>:<surface>`: their material is none this port makes
+    /// and the players have none of its name (`modules::module_model`).
+    left_out: BTreeSet<String>,
+}
+
+/// Whether the target has `path` with other bytes than `bytes`.
+fn differs(target: &mut ResourceDb, path: &str, bytes: &[u8]) -> Result<bool> {
+    Ok(target.contains(path) && target.read(path)? != bytes)
 }
 
 fn string_of(v: Option<&V>) -> Result<&str> {
@@ -435,23 +570,49 @@ const MAP_ROLES: [(&str, &str, MapRole); 4] = [
 
 /// The 0.26g diffuse of a 0.69d albedo and metalness pair (see
 /// [`convert::diffuse_from_albedo`]), DXT1 with mips like a native weapon's.
+/// A 4x4 black DXT1 (a metalness map of nothing metal), for an albedo with none.
+fn black_dxt1(_albedo: &[u8]) -> Result<Vec<u8>> {
+    let mut out = vec![0u8; 128 + 8];
+    out[..4].copy_from_slice(b"DDS ");
+    out[4..8].copy_from_slice(&124u32.to_le_bytes());
+    out[12..16].copy_from_slice(&4u32.to_le_bytes());
+    out[16..20].copy_from_slice(&4u32.to_le_bytes());
+    out[84..88].copy_from_slice(b"DXT1");
+    Ok(out)
+}
+
 fn diffuse_dds(albedo: &[u8], metalness: &[u8], name: &str, work: &Path) -> Result<Vec<u8>> {
-    let (w, h, a) = convert::decode_dxt1(albedo)?;
-    let (mw, mh, m) = convert::decode_dxt1(metalness)?;
-    let px: Vec<[u8; 3]> = (0..w * h)
+    let (w, h, a) = convert::decode_dds(albedo)?;
+    let (mw, mh, m) = convert::decode_dds(metalness)?;
+    let px: Vec<[u8; 4]> = (0..w * h)
         .map(|i| {
             let (x, y) = (i % w, i / w);
             let metal = m[(y * mh / h) * mw + x * mw / w][0];
-            convert::diffuse_from_albedo(a[i], metal)
+            let c = convert::diffuse_from_albedo([a[i][0], a[i][1], a[i][2]], metal);
+            [c[0], c[1], c[2], a[i][3]]
         })
         .collect();
-    encode_dxt1(w, h, &px, name, true, work)
+    if px.iter().all(|p| p[3] == 255) {
+        let rgb: Vec<[u8; 3]> = px.iter().map(|p| [p[0], p[1], p[2]]).collect();
+        return encode_dxt1(w, h, &rgb, name, true, work);
+    }
+    // An albedo with cut-outs (DXT5, alpha below 255: the SV-98's netting) keeps its alpha.
+    fs::create_dir_all(work)?;
+    let stem = name.replace('/', "_");
+    let tga = work.join(format!("{stem}.tga"));
+    let dds = work.join(format!("{stem}.dds"));
+    fs::write(&tga, convert::tga_rgba(w, h, &px)?)?;
+    crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt5)?;
+    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, true)?;
+    fs::remove_file(&tga)?;
+    fs::remove_file(&dds)?;
+    Ok(out)
 }
 
 /// A 0.69d grey map (smoothness or metalness) with `map` applied to each
 /// pixel, DXT1 with mips like a native weapon's, read linear.
 fn mapped_dds(bytes: &[u8], map: fn(u8) -> u8, name: &str, work: &Path) -> Result<Vec<u8>> {
-    let (w, h, px) = convert::decode_dxt1(bytes)?;
+    let (w, h, px) = convert::decode_dds(bytes)?;
     let px: Vec<[u8; 3]> = px.iter().map(|p| [map(p[0]); 3]).collect();
     encode_dxt1(w, h, &px, name, false, work)
 }
@@ -484,10 +645,53 @@ impl Donor069 {
     /// (the stock database and the patches players have; the live rigs and
     /// the native templates). `work` holds the texture encoder's scratch.
     pub fn open(db: &Path, spec: &Spec069, target_layers: &[PathBuf], work: &Path) -> Result<Self> {
+        let mut target = ResourceDb::open_layers(target_layers)?;
+        let mut donor = Self::empty(db, spec)?;
+        for (item, gun) in &spec.guns {
+            // The folded model first: the gun's own model's modules and attach points are kept.
+            if let Some(path) = &gun.optic_model_path {
+                ensure!(
+                    !gun.optic,
+                    "{item}: its sights are folded already; no optic_model_path"
+                );
+                let folded = Gun069 {
+                    optic: true,
+                    model_path: Some(path.clone()),
+                    optic_model_path: None,
+                    ..gun.clone()
+                };
+                donor
+                    .compose_model(item, &folded, &Body::Whole, &mut target, work)
+                    .with_context(|| format!("{item}: folded model"))?;
+            }
+            donor
+                .compose_model(item, gun, &Body::Whole, &mut target, work)
+                .with_context(|| format!("{item}: model"))?;
+        }
+        if work.exists() {
+            fs::remove_dir(work).context("the texture encoder left files behind")?;
+        }
+        // A path the target has is fine only with the same bytes: an earlier port's (the AKMSU's
+        // magazine and grip, which the AKMN's 0.69d0 model draws too), served again unchanged.
+        let mut clashes = Vec::new();
+        for (path, bytes) in &donor.files {
+            if target.contains(path) && target.read(path)? != *bytes {
+                clashes.push(path.as_str());
+            }
+        }
+        ensure!(
+            clashes.is_empty(),
+            "the target has these, otherwise; 0.69d0's paths must be new:\n  {}",
+            clashes.join("\n  ")
+        );
+        Ok(donor)
+    }
+
+    /// The donor archive with nothing composed yet.
+    fn empty(db: &Path, spec: &Spec069) -> Result<Self> {
         let mut db = ResourceDb::open(db)?;
         let game = db_config(&mut db, "gameplay/game.options")?;
-        let mut target = ResourceDb::open_layers(target_layers)?;
-        let mut donor = Self {
+        Ok(Self {
             db,
             game,
             files: BTreeMap::new(),
@@ -495,27 +699,101 @@ impl Donor069 {
             modules: BTreeMap::new(),
             renames: spec.renames.clone(),
             clip_events: spec.clip_events.clone(),
+            material_names: BTreeMap::new(),
+            texture_names: BTreeMap::new(),
+            left_out: BTreeSet::new(),
+        })
+    }
+
+    /// Seats a remodel's 0.69d0 locators (`all`, already on the live bones; `donor`, the same
+    /// as 0.69d0 has them) on the live rig: see [`Seat`]. Returns the bones the rigs bind
+    /// otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn seat(
+        &mut self,
+        gun: &Gun069,
+        modules: &[PlacedModule],
+        donor: &[Locator],
+        all: &mut [Locator],
+        bind: &[(String, BindFrame)],
+        ship: &[(String, BindFrame)],
+        live_model: &str,
+        target: &mut ResourceDb,
+    ) -> Result<Vec<Seat>> {
+        use modules::Frame;
+        let frame_of = |frames: &[(String, BindFrame)], bone: &str| {
+            frames.iter().find(|(n, _)| n == bone).map(|(_, f)| Frame::of(f.rotation, f.translation))
         };
-        for (item, gun) in &spec.guns {
-            let materials = donor
-                .compose_model(item, gun, &mut target)
-                .with_context(|| format!("{item}: model"))?;
-            for material in materials {
-                donor
-                    .compose_material(&material, &mut target, work)
-                    .with_context(|| format!("{item}: material {material}"))?;
+        let shift = Frame::translation(gun.offset);
+        // Each locator's frame in mesh space at 0.69d0's seat and at the live one. A locator
+        // on no bone of 0.69d0's (a hand's) is the live model's anyway.
+        let mut both: Vec<Option<(Frame, Frame, Frame)>> = vec![];
+        for (l, d) in all.iter().zip(donor) {
+            let own = Frame::of(d.rotation, d.position);
+            both.push(match (frame_of(bind, &d.bone), frame_of(ship, &l.bone)) {
+                (Some(theirs), Some(ours)) => Some((own.then(&theirs).then(&shift), own.then(&ours), ours)),
+                _ => None,
+            });
+        }
+        let mut seats: Vec<Seat> = vec![];
+        let live_mesh = modules::live_points(target, live_model)?;
+        for (at, l) in all.iter().enumerate() {
+            let Some((theirs, ours, _)) = &both[at] else {
+                continue;
+            };
+            let apart_mm = (theirs.apart(ours) * 1000.0) as f32;
+            if apart_mm <= 0.5 {
+                continue;
             }
+            if let Some(seat) = seats.iter_mut().find(|s| s.bone == l.bone) {
+                seat.apart_mm = seat.apart_mm.max(apart_mm);
+                continue;
+            }
+            // The gun's own parts on this bone, laid on the live mesh both ways.
+            let (mut at_theirs, mut at_ours) = (vec![], vec![]);
+            for module in modules.iter().filter(|m| m.baked) {
+                let Some(place) = all.iter().position(|x| x.name == module.locator && x.bone == l.bone) else {
+                    continue;
+                };
+                let Some((theirs, ours, _)) = &both[place] else {
+                    continue;
+                };
+                for mesh in self.donor_meshes(&module.model)? {
+                    for p in &mesh.positions {
+                        let p = Frame::HALF_TURN.apply(p.map(f64::from));
+                        at_theirs.push(theirs.apply(p).map(|c| c as f32));
+                        at_ours.push(ours.apply(p).map(|c| c as f32));
+                    }
+                }
+            }
+            let gaps_mm = (!at_theirs.is_empty()).then(|| {
+                (
+                    fit::median_gap_mm(&at_theirs, &live_mesh),
+                    fit::median_gap_mm(&at_ours, &live_mesh),
+                )
+            });
+            seats.push(Seat {
+                bone: l.bone.clone(),
+                live: gaps_mm.is_some_and(|(theirs, ours)| ours < theirs),
+                gaps_mm,
+                apart_mm,
+            });
         }
-        if work.exists() {
-            fs::remove_dir(work).context("the texture encoder left files behind")?;
+        // Each locator rewritten on its live bone for its seat: 0.69d0's with the shift,
+        // unless its bone takes the live one.
+        for (l, frames) in all.iter_mut().zip(&both) {
+            let Some((theirs, ours, ours_bone)) = frames else {
+                continue;
+            };
+            // (Where the rigs agree to the bit, the locator stands as 0.69d0 wrote it.)
+            if theirs == ours || seats.iter().any(|s| s.bone == l.bone && s.live) {
+                continue;
+            }
+            let seated = theirs.then(&ours_bone.inverse());
+            l.position = seated.t.map(|c| c as f32);
+            l.rotation = crate::skeleton_animation::basis_to_euler(&seated.r.map(|row| row.map(|c| c as f32)));
         }
-        for path in donor.files.keys() {
-            ensure!(
-                !target.contains(path),
-                "{path}: the target has it; 0.69d0's paths must be new"
-            );
-        }
-        Ok(donor)
+        Ok(seats)
     }
 
     /// Each gun's attach points for the weapon kit, by 0.69d0 item.
@@ -559,6 +837,35 @@ impl Donor069 {
     /// The gun's modules in their attach order (bundled, then default), each
     /// at the locator its slot names after the slot overrides of the baked
     /// modules before it.
+    /// What 0.69d0's optics (its `_scope` and `_collimator` modules; a rail adapter and the A-545's
+    /// brake change slots too) do to the gun they attach to, every optic the same: the slots they
+    /// swap to their modules' `model_param1` (`slots_to_change_param`, param 1: the iron sights
+    /// folded) and the slots they take (`slots_to_attach_to`: a module there, the M4A1's rear
+    /// sight, makes way).
+    fn optic_slots(&self) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
+        let Some(V::Named(modules)) = get(&self.game, "weapon_modules") else {
+            bail!("0.69d0's game.options has no weapon_modules");
+        };
+        let (mut folded, mut taken) = (BTreeSet::new(), BTreeSet::new());
+        for m in modules {
+            if !(m.name.ends_with("_scope") || m.name.ends_with("_collimator")) {
+                continue;
+            }
+            let changes = list(get(&m.value, "attach_params.slots_to_change_param"));
+            for c in changes {
+                if int_of(c.named("param"))? == 1 {
+                    folded.insert(string_of(c.named("id"))?.to_owned());
+                }
+            }
+            if !changes.is_empty() {
+                for a in list(m.value.named("slots_to_attach_to")) {
+                    taken.insert(string_of(a.named("slot"))?.to_owned());
+                }
+            }
+        }
+        Ok((folded, taken))
+    }
+
     fn placed_modules(&self, item: &str, gun: &Gun069) -> Result<Vec<PlacedModule>> {
         let w = self.weapon(item)?;
         let mut slots: BTreeMap<String, String> = BTreeMap::new();
@@ -568,33 +875,78 @@ impl Donor069 {
                 string_of(slot.named("locator"))?.into(),
             );
         }
-        let mut ids = vec![];
+        // Each module with the slot its entry names, if it names one (the A-545's two magazines:
+        // `mag1` and `mag2`).
+        let mut entries: Vec<(String, Option<String>)> = vec![];
         for kind in ["bundled_modules", "default_modules"] {
             for m in list(w.named(kind)) {
-                ids.push(string_of(m.named("module"))?.to_owned());
+                let slot = match m.named("slot") {
+                    Some(v) => Some(string_of(Some(v))?.to_owned()),
+                    None => None,
+                };
+                entries.push((string_of(m.named("module"))?.to_owned(), slot));
             }
         }
         for id in &gun.separable {
-            ensure!(ids.contains(id), "{item}: {id} is none of its modules");
+            ensure!(
+                entries.iter().any(|(e, _)| e == id),
+                "{item}: {id} is none of its modules"
+            );
         }
+        for (id, slot) in &gun.fixed {
+            entries.push((id.clone(), Some(slot.clone())));
+        }
+        let (folded, taken) = if gun.optic {
+            self.optic_slots()?
+        } else {
+            Default::default()
+        };
         let mut out = vec![];
-        for id in ids {
+        for (id, named_slot) in entries {
             let module = get(&self.game, &format!("weapon_modules.{id}"))
                 .with_context(|| format!("0.69d0 has no weapon_modules.{id}"))?;
-            let model = match get(module, &format!("exceptions.{item}.model")) {
-                Some(v) => string_of(Some(v))?.to_owned(),
-                None => string_of(module.named("model"))?.to_owned(),
+            let model_of = |key: &str| -> Result<Option<String>> {
+                Ok(
+                    match get(module, &format!("exceptions.{item}.{key}")).or(module.named(key)) {
+                        Some(v) => Some(string_of(Some(v))?.to_owned()),
+                        None => None,
+                    },
+                )
             };
-            let attach = list(module.named("slots_to_attach_to"));
-            ensure!(attach.len() == 1, "{id} attaches to {} slots", attach.len());
-            let slot = string_of(attach[0].named("slot"))?.to_owned();
-            let locator = slots
-                .get(&slot)
-                .with_context(|| format!("{item}: {id}'s slot {slot} has no locator"))?
-                .clone();
+            let model = model_of("model")?.with_context(|| format!("{id} has no model"))?;
+            // The first of its slots the gun has (an AK magazine fits three, an optic up to nine);
+            // a separable module none of whose slots the gun has is left out (the VSK-94
+            // Premium's foregrip).
+            let candidates = list(module.named("slots_to_attach_to"))
+                .iter()
+                .map(|a| string_of(a.named("slot")).map(str::to_owned))
+                .collect::<Result<Vec<_>>>()?;
+            ensure!(!candidates.is_empty(), "{id} attaches to no slot");
             let baked = !gun.separable.contains(&id);
+            let Some(slot) = named_slot
+                .as_ref()
+                .filter(|s| slots.contains_key(*s))
+                .or_else(|| candidates.iter().find(|s| slots.contains_key(*s)))
+            else {
+                ensure!(
+                    !baked,
+                    "{item}: {id}: none of its slots {candidates:?} has a locator"
+                );
+                continue;
+            };
+            if baked && taken.contains(slot) {
+                continue;
+            }
+            let locator = slots[slot].clone();
+            let model = match model_of("model_param1")? {
+                Some(folded_model) if baked && folded.contains(slot) => folded_model,
+                _ => model,
+            };
             ensure!(
-                !(baked && is_attachment(&id, &model)),
+                !(baked
+                    && is_attachment(&id, &model)
+                    && !gun.bake.contains(&id)
+                    && !gun.fixed.iter().any(|(m, _)| *m == id)),
                 "{item}: {id} ({model}) is an attachment, not structural; list it as separable"
             );
             if baked {
@@ -623,33 +975,70 @@ impl Donor069 {
         &mut self,
         item: &str,
         gun: &Gun069,
+        body: &Body,
         target: &mut ResourceDb,
-    ) -> Result<BTreeSet<String>> {
+        work: &Path,
+    ) -> Result<Composed> {
         let w = self.weapon(item)?.clone();
         let root = format!(
             "models/{}.skinned_model",
             string_of(get(&w, "object.model"))?
         );
+        // Where the model is written: 0.69d0's path, or a remodel's own (new to the target).
+        let out = match &gun.model_path {
+            Some(path) => {
+                let out = format!("models/{}.skinned_model", body_path(path, body));
+                ensure!(
+                    !target.contains(&format!("{out}/settings")),
+                    "{out}: the target has it; a remodel's model path must be new"
+                );
+                out
+            }
+            None => {
+                ensure!(
+                    !matches!(body, Body::Bare(_)),
+                    "{item}: a bare body needs a model_path of its own"
+                );
+                root.clone()
+            }
+        };
         let bind_bytes = self.db.read(&format!("{root}/render/bind_pose"))?;
         let bind = bind_pose(&bind_bytes)?;
         let properties = db_config(&mut self.db, &format!("{root}/render/export_properties"))?;
-        let all = locators(&properties)?;
-        let find = |name: &str| {
-            all.iter()
-                .find(|l| l.name == name)
-                .with_context(|| format!("{item} has no {name} locator"))
-        };
+        let mut all = locators(&properties)?;
+        let donor_locators = all.clone();
+        // On a live rig, each donor bone's live bone (`Gun069::bone_map`); else each its own.
+        let mut bone_of: Vec<u32> = (0..bind.len() as u32).collect();
+        if let Rig::Live(model) = &gun.rig {
+            let live: Vec<String> = bind_pose(&target.read(&format!("{model}/render/bind_pose"))?)?
+                .into_iter()
+                .map(|(n, _)| n)
+                .collect();
+            let offset = live
+                .iter()
+                .position(|n| n == "offset")
+                .context("the live rig has no offset bone")?;
+            for (i, (name, _)) in bind.iter().enumerate() {
+                let want = gun.bone_map.get(name).unwrap_or(name);
+                bone_of[i] = if i == 0 {
+                    0
+                } else {
+                    live.iter().position(|n| n == want).unwrap_or(offset) as u32
+                };
+            }
+            // (a locator on no donor bone, the AK-12's hand locators', is the live model's anyway)
+            for l in &mut all {
+                if let Some(i) = bind.iter().position(|(n, _)| *n == l.bone) {
+                    l.bone_idx = bone_of[i] as i32;
+                    l.bone = live[bone_of[i] as usize].clone();
+                }
+            }
+        }
         // The bind pose shipped: the live model's for a live rig (its clips
         // are written for it), else the donor's.
         let (ship_bind, live_props, skeleton_file) = match &gun.rig {
             Rig::Live(model) => {
                 let live = target.read(&format!("{model}/render/bind_pose"))?;
-                let names: Vec<String> = bind_pose(&live)?.into_iter().map(|(n, _)| n).collect();
-                let ours: Vec<String> = bind.iter().map(|(n, _)| n.clone()).collect();
-                ensure!(
-                    names == ours,
-                    "{item}: the donor rig's bones {ours:?} are not {model}'s {names:?}"
-                );
                 let props = parse_config(
                     target,
                     &format!("{model}/render/export_properties"),
@@ -667,6 +1056,29 @@ impl Donor069 {
             ),
         };
         let ship_bones = bind_pose(&ship_bind)?;
+        let modules = self.placed_modules(item, gun)?;
+        // A remodel's locators are seated on the live rig by what lies on the live mesh
+        // (`seat`); a port's stay as they are (its shift is none).
+        let seats = match (&gun.rig, &gun.model_path) {
+            (Rig::Live(live), Some(_)) => {
+                self.seat(gun, &modules, &donor_locators, &mut all, &bind, &ship_bones, live, target)?
+            }
+            _ => {
+                let shift = mesh_from_bind(gun.offset);
+                for l in &mut all {
+                    for (p, s) in l.position.iter_mut().zip(shift) {
+                        *p += s;
+                    }
+                }
+                vec![]
+            }
+        };
+        let all = all;
+        let find = |name: &str| {
+            all.iter()
+                .find(|l| l.name == name)
+                .with_context(|| format!("{item} has no {name} locator"))
+        };
         let settings = db_config(&mut self.db, &format!("{root}/settings"))?;
         let mut surfaces: Vec<(String, Skinned, String)> = vec![];
         let mut attach: Vec<AttachPoint> = vec![];
@@ -679,10 +1091,18 @@ impl Donor069 {
             let bytes = self
                 .db
                 .read(&format!("{root}/render/{surface}/converted_model"))?;
-            let mesh = convert::skinned_069_to_026(&bytes, bind.len())?;
+            let mut mesh = convert::skinned_069_to_026(&bytes, bind.len())?;
+            for v in &mut mesh.vertices {
+                let b = u32::from_le_bytes(v[12..16].try_into()?);
+                v[12..16].copy_from_slice(&bone_of[b as usize].to_le_bytes());
+                for k in 0..3 {
+                    let at = 4 * k;
+                    let p = f32::from_le_bytes(v[at..at + 4].try_into()?) + gun.offset[k];
+                    v[at..at + 4].copy_from_slice(&p.to_le_bytes());
+                }
+            }
             surfaces.push((surface.into(), mesh, material.into()));
         }
-        let modules = self.placed_modules(item, gun)?;
         for module in &modules {
             let loc = find(&module.locator)?;
             if !module.baked {
@@ -692,6 +1112,9 @@ impl Donor069 {
                     position: loc.position,
                     module: Some(module.id.clone()),
                 });
+                continue;
+            }
+            if body.leaves_out(&module.id, &module.locator) {
                 continue;
             }
             let path = format!("models/{}.model", module.model);
@@ -706,7 +1129,7 @@ impl Donor069 {
             // bore, the neck in the well), so none is turned beyond it; the
             // slot's own turn and its bone's are the engine's (`socket`).
             let at = socket(loc, &ship_bones)?;
-            let bone = bind
+            let bone = ship_bones
                 .iter()
                 .position(|(n, _)| *n == loc.bone)
                 .context("socket bone")? as u32;
@@ -716,13 +1139,30 @@ impl Donor069 {
                     .read(&format!("{path}/render/{surface}/converted_model"))?;
                 let mesh = convert::static_069_to_skinned(&bytes, at.rotation, at.origin, bone)?;
                 let module_name = module.model.rsplit('/').next().unwrap();
-                let name = format!("{module_name}_{surface}");
+                // The same module twice (the A-545's magazines) is named by its locator too.
+                let mut name = format!("{module_name}_{surface}");
+                if surfaces.iter().any(|(n, _, _)| *n == name) {
+                    name = format!("{module_name}_{}_{surface}", module.locator);
+                }
                 ensure!(
                     !surfaces.iter().any(|(n, _, _)| *n == name),
                     "{item}: two surfaces {name}"
                 );
                 surfaces.push((name, mesh, material));
             }
+        }
+        if matches!(body, Body::Measure) {
+            let points = surfaces
+                .iter()
+                .flat_map(|(_, mesh, _)| (0..mesh.vertices.len()).map(|i| mesh.position(i)))
+                .collect();
+            return Ok(Composed {
+                points,
+                donor_bind: bind,
+                donor_locators,
+                seats,
+                ..Composed::default()
+            });
         }
         for name in ATTACH_LOCATORS {
             if let Ok(loc) = find(name)
@@ -742,6 +1182,12 @@ impl Donor069 {
         // devices; a gun with no device slot, the PPSh's compensator jacket,
         // fires from its `fire_point`), and the hand locators (the live
         // model's on a live rig).
+        let live_has = |name: &str| -> Result<bool> {
+            Ok(match &live_props {
+                Some(live) => locators(live)?.iter().any(|l| l.name == name),
+                None => false,
+            })
+        };
         let muzzle = find("muzzle_point").or_else(|_| find("fire_point"))?;
         let aim = find("aim")?;
         // A gun with no scope rail draws its scope at the eye, on the gun's
@@ -752,7 +1198,13 @@ impl Donor069 {
             .find_map(|n| find(n).ok())
         {
             Some(rail) => rail.clone(),
-            None => on_body(aim, &ship_bones)?,
+            // (A remodel whose live model has a scope point takes that one below: the
+            // eye will do until then, whatever bone it hangs on.)
+            None => match on_body(aim, &ship_bones) {
+                Ok(on_body) => on_body,
+                Err(_) if gun.model_path.is_some() && live_has("scope_point")? => aim.clone(),
+                Err(e) => return Err(e),
+            },
         };
         let handguard = ["handguard_point", "forend_point", "LeftHand_idle"]
             .iter()
@@ -791,6 +1243,49 @@ impl Donor069 {
             locs.iter().filter(|l| l.name.ends_with("_idle")).count() == 32,
             "{item}: not 32 idle hand locators"
         );
+        // A remodelled live gun keeps the live model's aim, scope, barrel and handguard points: its
+        // scope items and variants (their eyes too), its muzzle flash and kit devices are placed at
+        // them, for our clips' pose. 0.69d0's aim is the eye itself for 0.69d0's own pose (0.69d0 has
+        // no aim_offset; its pistols' sits 40 cm behind the grip; the UMP-45's body is posed 3 cm
+        // aside from its aim bone by our clip). Where the live model has none of a point (a pistol's
+        // handguard point, the Kedr's scope point), 0.69d0's stays.
+        if let (Some(_), Some(live)) = (&gun.model_path, &live_props) {
+            for theirs in locators(live)? {
+                if let Some(ours) = locs
+                    .iter_mut()
+                    .find(|l| l.name == theirs.name && CONTRACT.contains(&l.name.as_str()))
+                {
+                    if ours.name == "aim" && gun.aim_069 {
+                        ensure!(
+                            ours.bone == theirs.bone,
+                            "{item}: 0.69d0's aim is on {}, the live one on {}",
+                            ours.bone,
+                            theirs.bone
+                        );
+                        ours.position[2] = theirs.position[2];
+                    } else {
+                        *ours = theirs;
+                    }
+                }
+            }
+        }
+        // A remodelled live gun keeps 0.69d0's slot locators as well (its rails, muzzle and grip
+        // points, at 0.69d0's names), for the attachments made for it later.
+        if gun.model_path.is_some() {
+            for l in &all {
+                if !is_hand_locator(&l.name) && !locs.iter().any(|x| x.name == l.name) {
+                    locs.push(l.clone());
+                }
+            }
+        }
+        // The materials, each at its final name (compose_material: 0.69d0's, or its own where
+        // 0.26g has another file at that path).
+        for (_, _, material) in &mut surfaces {
+            let name = material.clone();
+            *material = self
+                .compose_material(&name, target, work)
+                .with_context(|| format!("material {name}"))?;
+        }
 
         // Files.
         let mut native = parse_config(target, SETTINGS_TEMPLATE, "native rifle settings")?.root;
@@ -821,9 +1316,9 @@ impl Donor069 {
                     .collect(),
             ),
         )?;
-        self.put(format!("{root}/settings"), encode(native)?)?;
-        self.put(format!("{root}/skeleton"), encode(skeleton_file)?)?;
-        self.put(format!("{root}/render/bind_pose"), ship_bind)?;
+        self.put(format!("{out}/settings"), encode(native)?)?;
+        self.put(format!("{out}/skeleton"), encode(skeleton_file)?)?;
+        self.put(format!("{out}/render/bind_pose"), ship_bind)?;
         let mut lo = [f32::INFINITY; 3];
         let mut hi = [f32::NEG_INFINITY; 3];
         for (name, mesh, _) in &surfaces {
@@ -860,11 +1355,11 @@ impl Donor069 {
                 ),
             ]);
             self.put(
-                format!("{root}/render/{name}/export_properties"),
+                format!("{out}/render/{name}/export_properties"),
                 encode(props)?,
             )?;
             self.put(
-                format!("{root}/render/{name}/converted_model"),
+                format!("{out}/render/{name}/converted_model"),
                 mesh.to_bytes()?,
             )?;
         }
@@ -884,50 +1379,86 @@ impl Donor069 {
                 ]),
             ),
         ]);
-        self.put(format!("{root}/render/export_properties"), encode(props)?)?;
-        self.attach_points.insert(item.into(), attach);
-        self.modules.insert(item.into(), modules);
-        Ok(surfaces.into_iter().map(|(_, _, m)| m).collect())
+        self.put(format!("{out}/render/export_properties"), encode(props)?)?;
+        if matches!(body, Body::Whole) {
+            self.attach_points.insert(item.into(), attach);
+            self.modules.insert(item.into(), modules);
+        }
+        Ok(Composed {
+            donor_bind: bind,
+            ship_bind: ship_bones,
+            donor_locators,
+            slots: all.clone(),
+            locators: locs,
+            points: vec![],
+            seats,
+        })
     }
 
     /// A donor material on the native AK-12's, its four PBR maps fitted to
     /// 0.26g's diffuse, normal, gloss and Fresnel (at the donor's paths). The
     /// detail normal stays the template's (`det/weap_nmap`, the one 0.69d0's
-    /// weapons name too; the cartridges name another).
-    fn compose_material(&mut self, name: &str, target: &mut ResourceDb, work: &Path) -> Result<()> {
-        let path = format!("material_instances/{name}.material");
-        if self.files.contains_key(&path) {
-            return Ok(());
+    /// weapons name too; the cartridges name another). Returns its name: the
+    /// donor's, or `<name>_069` where the target has another file there (a
+    /// live gun remodelled: 0.26g's older material of the same name); a
+    /// texture likewise. The same bytes (an earlier port's) keep the name.
+    fn compose_material(
+        &mut self,
+        name: &str,
+        target: &mut ResourceDb,
+        work: &Path,
+    ) -> Result<String> {
+        if let Some(done) = self.material_names.get(name) {
+            return Ok(done.clone());
         }
+        let path = format!("material_instances/{name}.material");
         let source = db_config(&mut self.db, &path)?;
         let effect = get(&source, "material.g_stage.effect")
             .with_context(|| format!("{path} has no g_stage effect"))?
             .clone();
         let mut material = parse_config(target, MATERIAL_TEMPLATE, "native rifle material")?.root;
+        // A role the material binds no map for (the MP7's glow material: no smoothness) keeps
+        // the template's map; an albedo with no metalness map is taken as non-metal.
         let mut names = BTreeMap::new();
         for (role, native, _) in MAP_ROLES {
-            let texture = string_of(get(&effect, &format!("{role}.value")))
-                .with_context(|| format!("{path}: {role}"))?
-                .to_owned();
-            ensure!(!texture.is_empty(), "{path} binds no {role}");
+            let texture = match get(&effect, &format!("{role}.value")) {
+                Some(v) => string_of(Some(v))?.to_owned(),
+                None => String::new(),
+            };
+            // A map the material names, has switched off and the archive lacks is none (a
+            // forend's metalness map that was never made).
+            let off = get(&effect, &format!("use_{role}.value")) == Some(&V::Boolean(false));
+            let texture = if off && !self.db.contains(&format!("textures/{texture}.dds")) {
+                String::new()
+            } else {
+                texture
+            };
+            if texture.is_empty() {
+                ensure!(role != "t_albedo", "{path} binds no {role}");
+                continue;
+            }
             material.set_path(
                 &format!("material.g_stage.effect.{native}.value"),
                 s(&texture),
             )?;
             names.insert(role, texture);
         }
-        for (role, _, map) in MAP_ROLES {
-            let texture = &names[role];
-            let dds = format!("textures/{texture}.dds");
-            if self.files.contains_key(&dds) {
+        for (role, native, map) in MAP_ROLES {
+            let Some(texture) = names.get(role).cloned() else {
+                continue;
+            };
+            if let Some(done) = self.texture_names.get(&texture) {
+                material.set_path(&format!("material.g_stage.effect.{native}.value"), s(done))?;
                 continue;
             }
+            let dds = format!("textures/{texture}.dds");
             let bytes = self.db.read(&dds)?;
             let bytes = match map {
                 MapRole::Diffuse => {
-                    let metalness = self
-                        .db
-                        .read(&format!("textures/{}.dds", names["t_metalness"]))?;
+                    let metalness = match names.get("t_metalness") {
+                        Some(m) => self.db.read(&format!("textures/{m}.dds"))?,
+                        None => black_dxt1(&bytes)?,
+                    };
                     diffuse_dds(&bytes, &metalness, &dds, work)?
                 }
                 MapRole::Normal => bytes,
@@ -936,11 +1467,35 @@ impl Donor069 {
                     mapped_dds(&bytes, convert::fresnel_from_metalness, &dds, work)?
                 }
             };
-            self.put(dds, bytes)?;
-            let options = db_config(&mut self.db, &format!("textures/{texture}.options"))?;
-            self.put(format!("textures/{texture}.options"), encode(options)?)?;
+            let options = encode(db_config(
+                &mut self.db,
+                &format!("textures/{texture}.options"),
+            )?)?;
+            let own = differs(target, &dds, &bytes)?
+                || differs(target, &format!("textures/{texture}.options"), &options)?;
+            let final_name = if own {
+                format!("{texture}_069")
+            } else {
+                texture.clone()
+            };
+            self.put(format!("textures/{final_name}.dds"), bytes)?;
+            self.put(format!("textures/{final_name}.options"), options)?;
+            material.set_path(
+                &format!("material.g_stage.effect.{native}.value"),
+                s(&final_name),
+            )?;
+            self.texture_names.insert(texture, final_name);
         }
-        self.put(path, encode(material)?)
+        let bytes = encode(material)?;
+        let final_name = if differs(target, &path, &bytes)? {
+            format!("{name}_069")
+        } else {
+            name.to_owned()
+        };
+        self.put(format!("material_instances/{final_name}.material"), bytes)?;
+        self.material_names
+            .insert(name.to_owned(), final_name.clone());
+        Ok(final_name)
     }
 }
 
@@ -1195,3 +1750,82 @@ fn check_clips(cfg: &V, overlay: &Path, target: &mut ResourceDb) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+/// Live guns remodelled on 0.69d0's (`remodel-weapons-069d`, `ports/remodel-*.json`): each
+/// sidecar gun's model composed as for a port (its structural modules baked, the separable ones
+/// left for the kit; a live rig keeps the gun's clips and hand points) at its `model_path`, new to
+/// the target, with its materials and textures (0.69d0's names, or `_069` ones where 0.26g has
+/// other files there). No item config, dictionary row or icon: the live items keep theirs and
+/// point at the new models (skhid-srp's edit list). Writes `overlay/`, `port-manifest.json` (for
+/// `pack from-bundle`) and `donor-069d.json` (each gun's model, modules and attach points).
+pub fn remodel_069d(
+    id: &str,
+    spec: &Spec069,
+    donor_db: &Path,
+    target_layers: &[PathBuf],
+    output: &Path,
+) -> Result<usize> {
+    ensure!(!output.exists(), "{} is already there", output.display());
+    for (item, gun) in &spec.guns {
+        ensure!(
+            gun.model_path.is_some(),
+            "{item}: a remodel names its model_path"
+        );
+    }
+    let work = output.with_extension("work");
+    let donor = Donor069::open(donor_db, spec, target_layers, &work)?;
+    let overlay = output.join("overlay");
+    let mut files = vec![];
+    for (path, bytes) in &donor.files {
+        let dest = crate::archive::safe_join(&overlay, path)?;
+        fs::create_dir_all(dest.parent().context("a file without a folder")?)?;
+        fs::write(&dest, bytes)?;
+        files.push(crate::weapon::record_file(path, "0.69d0", bytes));
+    }
+    fs::write(
+        output.join("port-manifest.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "format_version": 1,
+            "asset_id": id,
+            "donor_build": DonorBuild::V069d0,
+            "files": files,
+            "target": target_layers,
+            "items": [],
+            "compatibility": [],
+            "icons": [],
+            "reused_from_target": [],
+            "notes": {},
+        }))?,
+    )?;
+    let mut guns = serde_json::Map::new();
+    for (item, gun) in &spec.guns {
+        guns.insert(
+            item.clone(),
+            serde_json::json!({
+                "model_root": format!("models/{}.skinned_model", gun.model_path.as_deref().unwrap_or_default()),
+                "modules": donor.modules().get(item),
+                "attach_points": donor.attach_points().get(item),
+            }),
+        );
+    }
+    fs::write(
+        output.join("donor-069d.json"),
+        serde_json::to_vec_pretty(&guns)?,
+    )?;
+    Ok(files.len())
+}
+
+impl Gun069 {
+    /// The modules the gun's body has, in 0.69d0's attach order (bundled,
+    /// then default), each with the slot its entry names: every one of its
+    /// own but those left to the kit (`separable`).
+    pub fn own(&self, gun: &catalog::GunDef) -> Vec<(String, Option<String>)> {
+        gun.bundled
+            .iter()
+            .chain(&gun.defaults)
+            .filter(|e| !self.separable.contains(&e.module))
+            .map(|e| (e.module.clone(), e.slot.clone()))
+            .chain(self.fixed.iter().map(|(m, slot)| (m.clone(), Some(slot.clone()))))
+            .collect()
+    }
+}

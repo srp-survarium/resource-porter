@@ -623,6 +623,45 @@ impl Rig {
         Ok(Self { bones })
     }
 
+    /// [`Self::parse`] for a model whose root bone is named otherwise than
+    /// its skeleton's (the SR-3M's `wpn_sr3m` on the VAL's skeleton): the
+    /// bind pose's first bone is the skeleton's root, under the skeleton's
+    /// name for it (a clip's tracks are the skeleton's).
+    pub fn parse_by_root(bind_pose: &[u8], skeleton: &[u8]) -> Result<Self> {
+        let frames = parse_bind_pose(bind_pose)?;
+        let parents = parse_skeleton_parents(skeleton)?;
+        let named = |name: &str| frames.iter().any(|(candidate, _, _)| candidate == name);
+        let mut roots = parents.iter().filter(|(name, parent)| {
+            *name != ROOT_MOTION_CHANNEL && !named(name) && parent.as_deref().is_none_or(|p| p == ROOT_MOTION_CHANNEL)
+        });
+        let (Some((root, _)), None) = (roots.next(), roots.next()) else {
+            bail!("the skeleton has no one root bone the bind pose lacks");
+        };
+        let mut bones = Vec::with_capacity(frames.len());
+        for (index, (name, translation, rotation)) in frames.iter().enumerate() {
+            let parent = match (index, parents.get(name)) {
+                (0, None) => None,
+                (_, Some(Some(parent))) if parent == ROOT_MOTION_CHANNEL => None,
+                (_, Some(Some(parent))) if parent == root => Some(0),
+                (_, Some(Some(parent))) => Some(
+                    frames
+                        .iter()
+                        .position(|(candidate, _, _)| candidate == parent)
+                        .ok_or_else(|| anyhow::anyhow!("skeleton parents {name} to {parent}, which the bind pose lacks"))?,
+                ),
+                (_, Some(None)) => None,
+                (_, None) => bail!("the skeleton does not name bind-pose bone {name}"),
+            };
+            bones.push(RigBone {
+                name: if index == 0 { root.clone() } else { name.clone() },
+                parent,
+                rest_translation: *translation,
+                rest_rotation: *rotation,
+            });
+        }
+        Ok(Self { bones })
+    }
+
     pub fn index(&self, name: &str) -> Option<usize> {
         self.bones.iter().position(|bone| bone.name == name)
     }

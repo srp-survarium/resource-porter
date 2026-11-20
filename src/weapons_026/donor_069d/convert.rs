@@ -430,6 +430,110 @@ pub fn tga(w: usize, h: usize, px: &[[u8; 3]]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Pixels with alpha as a 32-bit TGA (top-left origin).
+pub fn tga_rgba(w: usize, h: usize, px: &[[u8; 4]]) -> Result<Vec<u8>> {
+    ensure!(px.len() == w * h, "pixel count");
+    let mut out = vec![0u8; 18];
+    out[2] = 2;
+    out[12..14].copy_from_slice(&u16::try_from(w)?.to_le_bytes());
+    out[14..16].copy_from_slice(&u16::try_from(h)?.to_le_bytes());
+    out[16] = 32;
+    out[17] = 0x28; // origin top-left, eight alpha bits
+    for p in px {
+        out.extend([p[2], p[1], p[0], p[3]]);
+    }
+    Ok(out)
+}
+
+/// The top mip of a DXT1 or DXT5 DDS as RGBA pixels (DXT1's alpha 255; a DXT5 block's colour as
+/// DXT1's four-colour mode, its alpha from the interpolated alpha block): `(width, height, pixels)`.
+pub fn decode_dds(bytes: &[u8]) -> Result<(usize, usize, Vec<[u8; 4]>)> {
+    ensure!(bytes.len() >= 128 && &bytes[..4] == b"DDS ", "not a DDS");
+    let four = &bytes[84..88];
+    if four == b"DXT1" {
+        let (w, h, px) = decode_dxt1(bytes)?;
+        return Ok((
+            w,
+            h,
+            px.into_iter().map(|p| [p[0], p[1], p[2], 255]).collect(),
+        ));
+    }
+    ensure!(
+        four == b"DXT5",
+        "not DXT1 or DXT5 ({})",
+        String::from_utf8_lossy(four)
+    );
+    let h = u32_at(bytes, 12)? as usize;
+    let w = u32_at(bytes, 16)? as usize;
+    ensure!(
+        w.is_multiple_of(4) && h.is_multiple_of(4) && w > 0 && h > 0,
+        "odd DDS size {w}x{h}"
+    );
+    let rgb = |c: u16| {
+        [
+            (u32::from(c >> 11) * 255 / 31) as u8,
+            (u32::from((c >> 5) & 63) * 255 / 63) as u8,
+            (u32::from(c & 31) * 255 / 31) as u8,
+        ]
+    };
+    let mut px = vec![[0u8; 4]; w * h];
+    for by in 0..h / 4 {
+        for bx in 0..w / 4 {
+            let at = 128 + (by * (w / 4) + bx) * 16;
+            let block = bytes
+                .get(at..at + 16)
+                .context("DDS shorter than its top mip")?;
+            let (a0, a1) = (u32::from(block[0]), u32::from(block[1]));
+            let alphas: [u32; 8] = if a0 > a1 {
+                [
+                    a0,
+                    a1,
+                    (6 * a0 + a1) / 7,
+                    (5 * a0 + 2 * a1) / 7,
+                    (4 * a0 + 3 * a1) / 7,
+                    (3 * a0 + 4 * a1) / 7,
+                    (2 * a0 + 5 * a1) / 7,
+                    (a0 + 6 * a1) / 7,
+                ]
+            } else {
+                [
+                    a0,
+                    a1,
+                    (4 * a0 + a1) / 5,
+                    (3 * a0 + 2 * a1) / 5,
+                    (2 * a0 + 3 * a1) / 5,
+                    (a0 + 4 * a1) / 5,
+                    0,
+                    255,
+                ]
+            };
+            let mut abits = 0u64;
+            for (k, b) in block[2..8].iter().enumerate() {
+                abits |= u64::from(*b) << (8 * k);
+            }
+            let c0 = u16::from_le_bytes([block[8], block[9]]);
+            let c1 = u16::from_le_bytes([block[10], block[11]]);
+            let (p0, p1) = (rgb(c0), rgb(c1));
+            let mix = |a: u8, b: u8, wa: u32, wb: u32| {
+                ((u32::from(a) * wa + u32::from(b) * wb) / (wa + wb)) as u8
+            };
+            let palette = [
+                p0,
+                p1,
+                [0, 1, 2].map(|k| mix(p0[k], p1[k], 2, 1)),
+                [0, 1, 2].map(|k| mix(p0[k], p1[k], 1, 2)),
+            ];
+            let bits = u32::from_le_bytes([block[12], block[13], block[14], block[15]]);
+            for i in 0..16 {
+                let c = palette[((bits >> (2 * i)) & 3) as usize];
+                let a = alphas[((abits >> (3 * i)) & 7) as usize] as u8;
+                px[(by * 4 + i / 4) * w + bx * 4 + i % 4] = [c[0], c[1], c[2], a];
+            }
+        }
+    }
+    Ok((w, h, px))
+}
+
 /// Sets the values of the event channel `name` of a clip in 0.26g's layout
 /// (the knots' times, then a byte value each: a `sound_events` channel's
 /// indices in its state's sound list), one for each knot.
@@ -770,4 +874,65 @@ mod tests {
         assert_eq!(t.len(), 18 + 48);
         assert_eq!(&t[18..21], &[255, 0, 0], "BGR");
     }
+}
+
+/// 0.26g's static vertex: position, normal/tangent/binormal words, half2 UV.
+const STATIC_026: usize = 28;
+
+/// A 0.69d0 static `converted_model` (28- or 32-byte vertices: position,
+/// three packed basis floats, half2 UV, then a second UV pair 0.26g has no
+/// use for; chunks 110/114 its statistics) in 0.26g's static layout (the
+/// basis as words: the normal's top byte 127, the others' 255, as 0.26g's
+/// static meshes). Positions and UVs as they are: a module keeps its own
+/// space, whose origin is its slot's frame.
+pub fn static_069_to_026(b: &[u8]) -> Result<Vec<u8>> {
+    let chunks = chunks(b)?;
+    for (id, _) in &chunks {
+        ensure!(
+            matches!(id, 3 | 4 | 110 | 114),
+            "unknown 0.69d static chunk {id}"
+        );
+    }
+    let (vertices, stride) = vertex_chunk(&chunks)?;
+    ensure!(
+        matches!(stride, 28 | 32),
+        "not a 0.69d static mesh (stride {stride})"
+    );
+    let n = vertices.len() / stride;
+    ensure!(n > 0 && n <= 65_536, "{n} vertices");
+    let indices = index_chunk(&chunks, n)?;
+    let mut body = Vec::with_capacity(4 + n * STATIC_026);
+    body.extend(u32::try_from(n)?.to_le_bytes());
+    for v in vertices.chunks_exact(stride) {
+        for k in 0..3 {
+            ensure!(f32_at(v, 4 * k)?.is_finite(), "non-finite position");
+        }
+        body.extend_from_slice(&v[0..12]);
+        for (k, alpha) in [0x7f, 0xff, 0xff].into_iter().enumerate() {
+            let word = basis_word(f32_at(v, 12 + 4 * k)?, alpha)?;
+            body.extend(word.to_le_bytes());
+        }
+        body.extend_from_slice(&v[24..28]);
+    }
+    let mut out = vec![];
+    out.extend(3u32.to_le_bytes());
+    out.extend(u32::try_from(body.len())?.to_le_bytes());
+    out.extend(body);
+    out.extend(4u32.to_le_bytes());
+    out.extend(u32::try_from(4 + indices.len() * 2)?.to_le_bytes());
+    out.extend(u32::try_from(indices.len())?.to_le_bytes());
+    for i in indices {
+        out.extend(i.to_le_bytes());
+    }
+    Ok(out)
+}
+
+/// A 0.69d0 static mesh's vertex positions, as its file has them.
+pub fn static_positions_069(b: &[u8]) -> Result<Vec<[f32; 3]>> {
+    let chunks = chunks(b)?;
+    let (vertices, stride) = vertex_chunk(&chunks)?;
+    vertices
+        .chunks_exact(stride)
+        .map(|v| Ok([f32_at(v, 0)?, f32_at(v, 4)?, f32_at(v, 8)?]))
+        .collect()
 }

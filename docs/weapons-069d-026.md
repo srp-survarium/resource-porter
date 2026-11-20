@@ -85,3 +85,36 @@ vostok-port port-weapons-069d --manifest ports/weapons-069d.json \
   `ui_desc.icon`) through the core's `lobby_icon`; 0.69d0 draws them diagonally in a 128x128
   square, so the donor serves them level (mirrored, turned by the art's own axis, muzzle
   right, `convert::level_lobby_icon`) and the core's `cell_png` fits them.
+
+## Remodelling a live gun (`remodel-weapons-069d`)
+
+`vostok-port remodel-weapons-069d --id <id> --donor-spec <sidecar> --donor <db> --target-db <db>
+[--target-patch <patch>]... --output <bundle>` writes only models, materials and textures: each
+sidecar gun's 0.69d0 model at its `model_path`, for a live item that keeps its config, clips and
+icons (skhid-srp's `scripts/remodel-069`).
+
+* **Rig.** The live model's skeleton, bind pose and hand locators: a donor bone of the same name
+  (or the sidecar's `bone_map`) is the live one, any other rides on the body; vertex bones are
+  remapped to the live skeleton.
+* **Modules.** Structural modules are baked as for a port; the sidecar's `bake` lists the
+  attachments the live gun shows by default (its own muzzle device, a bipod), baked as surfaces
+  named `<module>_<surface>`; other attachments are left to the scopes and the kit. A module
+  goes to its named slot, else the first slot of its kind the gun has.
+* **Locators.** The live model's `aim`, `scope_point`, `barrel_point` and `handguard_point`:
+  the live scope items and variants (their eyes), the muzzle flash and the kit's devices are
+  placed at them for the live clips' pose (0.69d0's aim is the eye for its own pose; 0.69d0 has no
+  `aim_offset`). A point the live model lacks is 0.69d0's. Every 0.69d0 slot locator is added
+  under its own name, for attachments made later.
+* **Placement.** Where 0.69d0 placed its model otherwise on the same rig (the MP-153 2.2 cm
+  higher), the sidecar's `offset` (mesh space, metres) lays it on the live model: the mesh, the
+  baked modules and 0.69d0's locators move. Where 0.69d0's iron sights stand otherwise than the
+  live gun's on the same body (the Uzi's), `aim_069` puts the aim on 0.69d0's own sight line
+  (its height and side, moved with `offset`) at the live aim's distance.
+* **Under an optic.** A live gun that carries an optic by default (its config's rifle scope)
+  has `optic`: it is drawn as 0.69d0 draws it under an optic (its `_scope` and `_collimator`
+  modules, every one the same): each baked module in a slot they swap (`slots_to_change_param`,
+  param 1: the iron sights) at its `model_param1`, folded (the M4A1's front sight a gas block),
+  none in a slot they take (the M4A1's rear sight). `optic_model_path` writes that model besides
+  the gun's own, for its scope variants. `scripts/weapons-069d-donor.py` lists those models too.
+* **Names.** A 0.69d0 material or texture at a path the target has with other bytes gets a
+  `_069` name; the same bytes are not written again.
