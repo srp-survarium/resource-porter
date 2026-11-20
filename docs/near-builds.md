@@ -1,0 +1,94 @@
+# Maps of builds near 0.26g (0.29 to 0.45)
+
+`vostok-port build-survarium-near-map` makes a content pack of a map as one of these builds has
+it, in one pass over the donor's own projects. The builds share 0.26g's config, model and surface
+formats and most of its files by name, so nothing is re-authored: the work is telling what players
+already have from what the donor changed, and writing the project the way 0.26g reads it.
+
+```sh
+vostok-port build-survarium-near-map --manifest ports/survarium-044a5-london-to-026g.json \
+  --donor donor.list --shipped players.list --output <packs>/london-v042-1
+```
+
+`donor.list` names the donor build's archives, `players.list` what players have (the stock
+`resources.db`, then every offered patch in order), one a line, bottom first. The pack's
+`report.json` says what each rule did; `pack.json`'s notes say what was left out by decision.
+
+London (v0.42) (`ports/survarium-044a5-london-to-026g.json`, donor 0.44a5) and London (v0.32)
+(`ports/survarium-032a4-london-to-026g.json`, donor 0.32a4) are the two manifests. A manifest
+names the level, the namespace imports go under, the kinds left out by decision, and each project:
+the donor's folder, the port's, its weather layer, and for a new map its `maps_dict` id and mode
+config. A project without `map` replaces one players have (its row and config stay).
+
+## The four steps (`src/near_build/`)
+
+1. **The project's form** (`schema`). 0.32 introduced the editor form: objects carry ids and
+   refer to one another by id. 0.26g to 0.31 refer by name. The two forms were compared on objects
+   matched by `full_name` between 0.31a2's and 0.32a4's London; `game_object_type` is the same in
+   both.
+   - `lib_name` loses `base:`; a particle's is its `particle_name`, an animated model's its
+     `model_name`, a light's `point_light` or `spot_light`; statics name their model in `lib_name`.
+   - A link (`path` of ids, with or without `__type`) becomes `{ name }`; a table of links a list.
+   - The members of a placed group (a lamp's light, a fire's barrel and flame) are all called
+     `<folder>/<name>/<name>`, alike in every copy of the group. The old form calls them
+     `<folder>/<group>/<name>`; the group's own name is not in the project, so it is made: its
+     first member's name, numbered when taken. Names are unique again.
+   - A battery point's `other_list` links whole groups; the old form lists each member by kind
+     (`attached_objects`: spawners, spawn boxes, boxes, statics, groups, cables;
+     `attached_c_objects`: the groups' statics, lights, particles, sounds, animated models).
+   - A kind left out by decision takes its group along and what only that group links
+     (`without_kinds`): an anomaly's zones, shapes, effects and artefact places are members of
+     its group. A fire's damage zone stands in no anomaly's group and stays.
+2. **The files** (`files`). A donor file players lack is added at its own path. One they have in
+   the same form is theirs: the same bytes; for a texture the same image (`image`, the 0.69d
+   port's test); for a render surface the same vertices and triangles (0.44 writes the same
+   triangles in another order, and adds statistics chunks 110 to 113 that 0.26g's surfaces do not
+   have); for a material or a model's settings the same values once names are resolved. One they
+   have in another form is imported under the manifest's namespace, and what names it names the
+   import. A model's `hq_collision` is not carried: 0.26g's executable has no reader for it.
+3. **The fields** (`fields`). 0.26g's own projects are the definition: an object keeps the fields
+   0.26g's objects of its kind have, in 0.26g's number types, and loses the rest (each reported);
+   a field every 0.26g object of the kind has takes 0.26g's one value. A kind 0.26g has no object
+   of is left out (`portal_system`, `primitive_geometry`, `sound_environment`, `winner_point`).
+   The environment's `properties` are the donor's first key frame, each setting some 0.26g
+   project sets; `layer` is `default`, the environment's the weather's.
+4. **The rest** (`dependency`). Particles, sounds, animations and sky textures the project needs
+   and players lack are added as the donor has them; one players have in another form stays
+   theirs (counted in the report).
+
+## Materials and shader programs
+
+A material keeps the stage and effect fields 0.26g's materials have for its effect. Its switches
+(`use_*`, techniques, modes) select shader programs, one set for each kind of mesh the stage is
+compiled for (`with_static_meshes`, `with_vegetation`, ...). 0.26g cannot compile a program: it
+asks the archive for it, and stops with an assert ("cannot find shader") when it is not there.
+
+- **A switch set players' materials do not use** is not known to have its programs. By default
+  such a material takes the largest set players' materials use that adds no switch
+  (`report.json`: `degraded`). `--keep-switch-sets` keeps the donor's sets instead: a build for
+  listing what the game then asks for (its asserts in a headless load).
+- **`--programs <file>`** supplies the programs a file names (any text holding
+  `shaders/sm_4_0/<family>/<key>` paths, such as that load's asserts) from the donor's own blobs
+  (`programs`).
+  - A key has one value for each shader macro in the order the executable fills them, `_` where
+    the family's mask (`shaders/masks`, data) does not read the macro; the vertex input type takes
+    two characters from ten. The orders are in `ports/near-build/shader-key-order-<build>.tsv`,
+    read from each executable (`fill_shader_configuration_macros`; 0.26g 0x3C9B80) and checked
+    against every key of the build's archives: 0.26g has 67 macros, 0.32a4 and 0.44a5 68 (one
+    more, `CONFIG_ANGLE_DEPENDANT_ALPHA_TEST`, and another order).
+  - The donor's program for a 0.26g key is the one at the same values, with the donor's own
+    macros off. Of the 7 908 g-buffer programs players have, both donors have 5 648 under the
+    translated key, 3 144 of them with the same code.
+  - A program is supplied only when 0.26g can feed it: every texture and sampler it binds and
+    every constant it reads is one a program of the family that players have binds or reads. A
+    constant the donor declares longer passes when the code reads no byte past 0.26g's length
+    (the donors' `specular_color_parameter` is a float4 for 0.26g's float3, and their g-buffer
+    programs read its first component only). Of the donors' g-buffer programs players lack,
+    0.26g can feed 798 of 0.32a4's and 1 032 of 0.44a5's; the others read `scene_slomo` or the
+    parallax scale and scrolling factors, which 0.26g does not set.
+- **What 0.26g has no field for** is listed (`switches_not_in_026g`): the forward stage's
+  `use_uv_tiling` and `use_ttransparency_dxt1`, the g-buffer's angle-dependent alpha test.
+
+`examples/near-build-programs.rs` prints those counts for a family; `near-build-reads.rs` what a
+program reads; `near-build-survey.rs` and `shader-programs.rs` what a donor's map needs against
+what players have; `near-build-lab.rs` reads one path through a layered archive list.
