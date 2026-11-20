@@ -7,8 +7,8 @@
 //! `data_mask`, each `{base_model, part_name, additional_models}` (the hair
 //! or the scalp an additional model of the bare face); a missing variant is
 //! the bare face. `heads[0]` is the native head (`body_parts.head`, which
-//! stays as it is). Each head also names its picker icon, `heads[i].icon` =
-//! `[row, col]` of the lobby movie's equipment atlas.
+//! stays as it is). The lobby's faces' window shows its own pictures of the
+//! faces (skhid's movie), so a head names no icon.
 //!
 //! - **0.69d0.** `models/character/human/head/head_*`: the surfaces bind
 //!   the native rig in its bind pose (`face_items_069d::same_rig_for`) and
@@ -2265,10 +2265,6 @@ const HEAD_MATERIAL: &str =
 const HAIR_MATERIAL: &str =
     "material_instances/characters/human/edge_hunter_01/edge_hunter_01_torso_alpha.material";
 const STAGE: &str = "material.g_stage.effect";
-/// The atlas column of the faces' picker icons (`heads[i].icon`), row
-/// `index + 1`: the first column no released or open pack uses (0.29's
-/// equipment takes 12..=15).
-pub const ICON_COLUMN: i32 = 16;
 /// STK2's 2048 maps drawn at the native head's 1024.
 const STK2_MAP: u32 = 1024;
 /// The Novice's maps with the scalp baked in: his head and the scalp in one
@@ -3630,10 +3626,6 @@ fn bodyparts(view: &mut ResourceDb, heads: Vec<V>) -> Result<BinaryConfig> {
     Ok(c)
 }
 
-fn icon(index: usize) -> V {
-    V::Indexed(vec![V::Integer(index as i32 + 1), V::Integer(ICON_COLUMN)])
-}
-
 fn write_bundle(
     view: &mut ResourceDb,
     sources: &Sources<'_>,
@@ -3650,7 +3642,6 @@ fn write_bundle(
     let skin = Skin::read(view, &head_material)?;
     let mut heads = vec![named(vec![
         ("data", record(NATIVE_HEAD, &[NATIVE_PART.to_owned()])),
-        ("icon", icon(0)),
     ])];
     let mut materials_record = serde_json::Map::new();
     let render = output.join("render");
@@ -3766,7 +3757,6 @@ fn write_bundle(
                 }));
             }
         }
-        entry.push(("icon", icon(face.index)));
         heads.push(named(entry));
     }
     ensure!(heads.len() == FACES.len(), "a face is missing");

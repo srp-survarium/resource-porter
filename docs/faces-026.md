@@ -9,7 +9,10 @@ carried onto the face where it does not fit it; `face_fit` is the gate: the
 build stops when a face shows through an item, or an item stands off a face,
 that the open list does not name. `examples/build-faces-026.rs` is the builder, `examples/render-faces-026.rs`
 with `scripts/render-faces-026.py` and `scripts/render-faces-026-pairs.py` the
-pictures, `scripts/faces-026-icons.py` the picker's icons.
+pictures. The lobby's faces' window shows its own portraits (game captures in
+skhid-srp's lobby movie, `bitmaps/SrpFace<i>.jpg`), so the pack draws no icon
+(faces@1 to @5 drew `heads[i].icon` cells of the equipment atlas, `[i + 1, 16]`,
+which the window showed scaled up: too few pixels on a large screen).
 
 ## What the game reads
 
@@ -20,7 +23,6 @@ the same three `heads[i].models.base`, `.helmet`, `.mask`):
 heads[i].data         {base_model, part_name, additional_models}   the bare face (+ hair, or the scalp)
 heads[i].data_helmet  {base_model, part_name, additional_models}   under a helmet, no mask
 heads[i].data_mask    {base_model, part_name, additional_models}   under a mask (with or without a helmet)
-heads[i].icon         [row, col]                                   picker icon, LobbyMenu_EquipmentIcons
 ```
 
 A missing `data_helmet` or `data_mask` means the bare face, as in 0.69d0.
@@ -229,11 +231,9 @@ target/release/examples/build-faces-026 \
   --open ports/faces-026-open.tsv --output .work/faces
 target/release/vostok-port pack from-bundle --base-db <stock db> \
   $(for f in <released patches>; do printf -- '--base-patch %s ' "$f"; done) \
-  --bundle .work/faces --output .work/faces-pack --id faces --version 4
+  --bundle .work/faces --output .work/faces-pack --id faces --version 6
 # the masks' configs it edits (data_head_<i>) are added whole by earlier packs of the manifest:
 python3 -c 'import json; p=".work/faces-pack/pack.json"; d=json.load(open(p)); d["requires"]=["army-balaclava","face-069d","equipment-029","equipment-046","equipment-069"]; json.dump(d,open(p,"w"),indent=2)'
-python3 scripts/faces-026-icons.py --bundle .work/faces \
-  --renderer target/release/examples/render-faces-026 --pack .work/faces-pack
 python3 scripts/render-faces-026-pairs.py --before <the earlier pack's folder> --before-name faces@3 \
   --bundle .work/faces --after-name faces@4 --icons-069d <0.69d0's ui_icons/heads> \
   --renderer target/release/examples/render-faces-026 --output <pictures>
