@@ -341,3 +341,99 @@ pub fn plan(
     }
     Ok(plan)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::BinaryConfig;
+
+    /// 0.69d0's own `gameplay/game.options` (a file), when the machine has
+    /// it: `VOSTOK_069D_GAME_OPTIONS`.
+    fn catalog() -> Option<Catalog> {
+        let path = std::env::var_os("VOSTOK_069D_GAME_OPTIONS")?;
+        let game = BinaryConfig::parse(&std::fs::read(path).unwrap()).unwrap().root;
+        Some(Catalog::read(&game).unwrap())
+    }
+
+    /// A gun with every default module of its own, taking what 0.69d0 sells
+    /// (it rolls stats on it) and every optic.
+    fn planned(catalog: &Catalog, item: &str) -> GunPlan {
+        let own: Vec<(String, Option<String>)> = catalog
+            .gun(item)
+            .unwrap()
+            .defaults
+            .iter()
+            .map(|e| (e.module.clone(), e.slot.clone()))
+            .collect();
+        let offered = |m: &ModuleDef| kind(m) == Some(Kind::Scope) || catalog.has_stats(m);
+        plan(catalog, item, &own, item, &offered).unwrap()
+    }
+
+    fn fit<'a>(plan: &'a GunPlan, module: &str) -> &'a Fit {
+        plan.fits
+            .iter()
+            .find(|f| f.module == module)
+            .unwrap_or_else(|| panic!("{module} is no fit"))
+    }
+
+    fn chain(fit: &Fit) -> Vec<(&str, &str)> {
+        fit.chain.iter().map(|l| (l.module.as_str(), l.slot.as_str())).collect()
+    }
+
+    #[test]
+    fn the_ak_74m_takes_a_brake_on_its_thread_and_a_grip_on_a_tactical_forend() {
+        let Some(catalog) = catalog() else { return };
+        let plan = planned(&catalog, "ak_74m");
+        let stock: Vec<&str> = plan.stock().map(|(_, p)| p.module.as_str()).collect();
+        assert_eq!(stock, ["ak74_m24x15_muzzlebrake", "ak74_plastic_forend"]);
+        let brake = fit(&plan, "zenit_dtk3_m24x15_muzzlebrake");
+        assert_eq!((brake.kind, brake.slot.as_str(), brake.chain.len()), (Kind::Muzzle, "m24x15_muzzle", 0));
+        let grip = fit(&plan, "fabdefence_ptk_foregrip");
+        assert_eq!(grip.kind, Kind::Grip);
+        assert_eq!(chain(grip), [("ak_midwest_extended_tactical_forend", "forend")]);
+        assert_eq!(chain(fit(&plan, "pso1_x4_scope")), []);
+        // A rail optic goes on the dovetail mount, not on the forend's handguard rail.
+        let optic = fit(&plan, "aimpoint_compm4_collimator");
+        assert_eq!(optic.slot, "picatinny_scope_medium");
+        assert_eq!(chain(optic), [("custom_dovetail_01_picatinnyrail", "scope_dovetail")]);
+    }
+
+    #[test]
+    fn a_carrier_on_the_thread_brings_the_p90_its_devices_and_grips() {
+        let Some(catalog) = catalog() else { return };
+        let plan = planned(&catalog, "fn_p90");
+        let forend = [("p90_acm_forend", "m12x1l_muzzle")];
+        assert_eq!(chain(fit(&plan, "lantac_dragon_i05x28_muzzlebrake")), forend);
+        assert_eq!(chain(fit(&plan, "fabdefence_ptk_foregrip")), forend);
+        // Its own brake stands where the forend goes.
+        assert!(plan.stock().any(|(_, p)| p.module == "fnp90_m12x1l_muzzlebrake"));
+    }
+
+    #[test]
+    fn the_rail_bracket_brings_the_pkp_its_own_foregrip() {
+        let Some(catalog) = catalog() else { return };
+        let plan = planned(&catalog, "pkp_pecheneg");
+        assert_eq!(
+            chain(fit(&plan, "pkp_pecheneg_foregrip")),
+            [("medium_picatinnyrail", "grip_picatinnyrail")]
+        );
+    }
+
+    #[test]
+    fn no_suppressor_is_fitted_or_carries() {
+        let Some(catalog) = catalog() else { return };
+        for item in ["a9_91", "vsk_94", "ak_74m", "mp7"] {
+            let plan = planned(&catalog, item);
+            let named = plan
+                .fits
+                .iter()
+                .flat_map(|f| std::iter::once(&f.module).chain(f.chain.iter().map(|l| &l.module)));
+            for module in named {
+                assert!(!catalog.module(module).unwrap().is_suppressor(), "{item}: {module}");
+            }
+        }
+        // The grips that hang on a suppressor's clamp are refused, with the reason.
+        let refused = planned(&catalog, "a9_91").refused;
+        assert!(refused.iter().any(|r| r.kind == Kind::Grip && r.why.contains("picatinny_grip")));
+    }
+}
