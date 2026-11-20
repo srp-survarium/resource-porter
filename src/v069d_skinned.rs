@@ -214,7 +214,7 @@ pub fn packed_basis(v: [f32; 3], w: u8) -> u32 {
 }
 
 /// The fraction of `uv * 1024` the 0.26g tangent and binormal carry.
-fn uv_fraction(value: f32) -> u8 {
+pub(crate) fn uv_fraction(value: f32) -> u8 {
     let rebased = value * 1024.0;
     let primary = rebased.floor().clamp(-32768.0, 32767.0);
     (255.5 * (rebased - primary)).floor().clamp(0.0, 255.0) as u8
