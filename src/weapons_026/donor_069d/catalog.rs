@@ -354,10 +354,11 @@ impl Catalog {
         }
         let mut links: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for l in list(game.named("module_to_item_links")) {
-            links
-                .entry(text(l, "item")?)
-                .or_default()
-                .push(text(l, "module")?);
+            // (0.69d0 has a link twice here and there: the first stands.)
+            let (of, module) = (links.entry(text(l, "item")?).or_default(), text(l, "module")?);
+            if !of.contains(&module) {
+                of.push(module);
+            }
         }
         // A bought module's modifiers: `premium_modifiers`, `[group, grade]` pairs.
         let mut bought = BTreeMap::new();

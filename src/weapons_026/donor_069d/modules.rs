@@ -109,32 +109,49 @@ pub fn read_ids(path: &Path) -> Result<BTreeMap<String, u16>> {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Frame {
-    r: [[f64; 3]; 3],
-    t: [f64; 3],
+pub(super) struct Frame {
+    pub(super) r: [[f64; 3]; 3],
+    pub(super) t: [f64; 3],
 }
 
-const HALF_TURN: Frame = Frame {
-    r: [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]],
-    t: [0.0; 3],
-};
+const HALF_TURN: Frame = Frame::HALF_TURN;
 
 impl Frame {
     const IDENTITY: Frame = Frame {
         r: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
         t: [0.0; 3],
     };
+    pub(super) const HALF_TURN: Frame = Frame {
+        r: [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]],
+        t: [0.0; 3],
+    };
+
+    /// The inverse of a rigid frame (a rotation and a translation).
+    pub(super) fn inverse(&self) -> Frame {
+        let r: [[f64; 3]; 3] = std::array::from_fn(|row| std::array::from_fn(|c| self.r[c][row]));
+        let back = Frame { r, t: [0.0; 3] };
+        Frame {
+            r,
+            t: back.turn(self.t).map(|c| -c),
+        }
+    }
+
+    /// How far apart two frames put a point 10 cm along each axis, or their origins:
+    /// the largest distance, metres.
+    pub(super) fn apart(&self, other: &Frame) -> f64 {
+        spread(&PROBE, self, other)
+    }
 
     /// `create_rotation(angles) x create_translation(position)`: a
     /// locator's frame in its bone's, a bone's bind frame.
-    fn of(angles: [f32; 3], position: [f32; 3]) -> Frame {
+    pub(super) fn of(angles: [f32; 3], position: [f32; 3]) -> Frame {
         Frame {
             r: socket::create_rotation(angles),
             t: position.map(f64::from),
         }
     }
 
-    fn translation(t: [f32; 3]) -> Frame {
+    pub(super) fn translation(t: [f32; 3]) -> Frame {
         Frame {
             t: t.map(f64::from),
             ..Frame::IDENTITY
@@ -145,13 +162,13 @@ impl Frame {
         std::array::from_fn(|c| (0..3).map(|r| v[r] * self.r[r][c]).sum())
     }
 
-    fn apply(&self, v: [f64; 3]) -> [f64; 3] {
+    pub(super) fn apply(&self, v: [f64; 3]) -> [f64; 3] {
         let p = self.turn(v);
         std::array::from_fn(|k| p[k] + self.t[k])
     }
 
     /// `self x next`: through `self`, then through `next`.
-    fn then(&self, next: &Frame) -> Frame {
+    pub(super) fn then(&self, next: &Frame) -> Frame {
         Frame {
             r: std::array::from_fn(|row| next.turn(self.r[row])),
             t: next.apply(self.t),
@@ -255,6 +272,8 @@ pub struct GunReport {
     pub suppressors: Vec<Suppressor>,
     pub fit: Option<fit::Fit>,
     pub look: Option<Look>,
+    /// The bones the live rig binds otherwise than 0.69d0, each with the seat its locators took.
+    pub seats: Vec<super::Seat>,
     pub plan: GunPlan,
 }
 
@@ -268,6 +287,8 @@ pub struct Report {
     /// Module surfaces left out (`<model>:<surface>`): a lens or a reticle with no material
     /// of ours.
     pub left_out: BTreeSet<String>,
+    /// Slots 0.69d0's rules bring at a locator the module's model lacks.
+    pub missing_locators: BTreeSet<String>,
     pub modules: usize,
     pub table_bytes: usize,
     pub checks: Vec<Checked>,
@@ -280,13 +301,15 @@ impl Report {
     }
 }
 
-/// A module's model at its new path (`weapons/modules/<x>` to
-/// `weapons/modules_069/<x>`): the text the table and an item's config hold.
+/// A module's model at its new path: the text the table and an item's config
+/// hold. `weapons/modules/<x>` goes to `weapons/modules_069/<x>`; a module
+/// 0.69d0 keeps beside its gun (`weapons/assault/famas/famas_muzzlebrake`)
+/// to `weapons/modules_069/<its path under weapons/>`.
 fn module_path(model: &str) -> Result<String> {
     let rest = model
-        .strip_prefix("weapons/modules/")
-        .with_context(|| format!("{model}: a module's model outside weapons/modules/"))?;
-    Ok(format!("{MODULES_ROOT}/{rest}"))
+        .strip_prefix("weapons/")
+        .with_context(|| format!("{model}: a module's model outside weapons/"))?;
+    Ok(format!("{MODULES_ROOT}/{}", rest.strip_prefix("modules/").unwrap_or(rest)))
 }
 
 fn slot_id(name: &str) -> Result<SlotId> {
@@ -335,8 +358,12 @@ impl Donor069 {
             let donor_material = db_config(&mut self.db, &format!("material_instances/{material}.material"))?;
             let makes = get(&donor_material, "material.g_stage.effect").is_some_and(|effect| {
                 ["t_albedo", "t_normal", "t_smoothness", "t_metalness"].iter().all(|role| {
+                    // (A map switched off and not in the archive is none: compose_material.)
+                    let off = get(effect, &format!("use_{role}.value")) == Some(&V::Boolean(false));
                     match string_of(get(effect, &format!("{role}.value"))) {
-                        Ok(texture) if !texture.is_empty() => self.db.contains(&format!("textures/{texture}.dds")),
+                        Ok(texture) if !texture.is_empty() => {
+                            self.db.contains(&format!("textures/{texture}.dds")) || (off && *role != "t_albedo")
+                        }
                         _ => true,
                     }
                 })
@@ -457,7 +484,7 @@ impl Donor069 {
     }
 
     /// A 0.69d0 module model's LOD0 meshes, as its files have them.
-    fn donor_meshes(&mut self, model: &str) -> Result<Vec<Mesh>> {
+    pub(super) fn donor_meshes(&mut self, model: &str) -> Result<Vec<Mesh>> {
         let source = format!("models/{model}.model");
         let settings = db_config(&mut self.db, &format!("{source}/settings"))?;
         // Of a model the bundle has, the surfaces the bundle has (a lens may be left out).
@@ -518,7 +545,7 @@ impl Donor069 {
 }
 
 /// A live model's LOD0 vertices (mesh space, bind pose).
-fn live_points(target: &mut ResourceDb, model: &str) -> Result<Vec<[f32; 3]>> {
+pub(super) fn live_points(target: &mut ResourceDb, model: &str) -> Result<Vec<[f32; 3]>> {
     let settings = parse_config(target, &format!("{model}/settings"), "live model settings")?.root;
     let mut out = vec![];
     for surface in list(get(&settings, "lod_hierrarchy.LOD0.surfaces")) {
@@ -652,8 +679,10 @@ impl Rows {
 
 /// What a module needs of the donor to become a row: its models' locators.
 struct ModuleMaker<'a> {
-    catalog: &'a Catalog,
     ids: &'a BTreeMap<String, u16>,
+    /// Slots a module's rules bring at a locator its model lacks
+    /// (`<module>: <slot> at <locator>`): 0.69d0 cannot place anything there either.
+    missing: std::cell::RefCell<BTreeSet<String>>,
 }
 
 impl ModuleMaker<'_> {
@@ -682,7 +711,7 @@ impl ModuleMaker<'_> {
             if slots.is_some_and(|only| !only.contains(&rules.slot.as_str())) {
                 continue;
             }
-            let attach = self.attach(rules, &locator, role)?;
+            let attach = self.attach(&module.id, rules, &locator, role)?;
             // An optic in a slot where it moves no eye is no optic there (the table refuses it).
             if role == Role::Fitted(weapon_modules::Kind::Scope) && attach.eye.is_none() {
                 continue;
@@ -723,12 +752,24 @@ impl ModuleMaker<'_> {
         })
     }
 
-    fn attach(&self, rules: &AttachDef, locator: &dyn Fn(&str) -> Result<Frame>, role: Role) -> Result<AttachSource> {
+    fn attach(
+        &self,
+        module: &str,
+        rules: &AttachDef,
+        locator: &dyn Fn(&str) -> Result<Frame>,
+        role: Role,
+    ) -> Result<AttachSource> {
         // A module's own locator `L` is the table's `half turn x L`.
         let own = |name: &str| -> Result<Affine> { Ok(HALF_TURN.then(&locator(name)?).affine()) };
         let mut out = AttachSource::new(slot_id(&rules.slot)?);
         for add in &rules.adds {
-            out.adds.push((slot_id(&add.id)?, own(&add.locator)?));
+            match own(&add.locator) {
+                Ok(at) => out.adds.push((slot_id(&add.id)?, at)),
+                Err(_) => {
+                    let note = format!("{module}: {} at {}", add.id, add.locator);
+                    self.missing.borrow_mut().insert(note);
+                }
+            }
         }
         for point in &rules.overrides {
             match point.id.as_str() {
@@ -757,7 +798,6 @@ impl ModuleMaker<'_> {
             out.closes.push(slot_id(slot)?);
         }
         out.shot_effect = rules.shoot.clone();
-        let _ = self.catalog;
         Ok(out)
     }
 }
@@ -775,7 +815,10 @@ fn aimed_pose(target: &mut ResourceDb, config: &V, bind: &[u8]) -> Result<Vec<Fr
         "animations/skeletons/{}.skeleton",
         string_of(get(config, "object.skeleton"))?
     );
-    let rig = Skeleton::parse(bind, &target.read(&skeleton)?).with_context(|| skeleton.clone())?;
+    let skeleton_bytes = target.read(&skeleton)?;
+    let rig = Skeleton::parse(bind, &skeleton_bytes)
+        .or_else(|_| Skeleton::parse_by_root(bind, &skeleton_bytes))
+        .with_context(|| skeleton.clone())?;
     let clip = Clip::parse(
         &target.read(&format!("{clip}.b-spline"))?,
         &target.read(&format!("{clip}.bones_names"))?,
@@ -921,8 +964,8 @@ pub fn port_modules(
 
     // The table's rows.
     let maker = ModuleMaker {
-        catalog: &catalog,
         ids,
+        missing: Default::default(),
     };
     let mut rows = Rows::default();
     let mut source = Source::default();
@@ -941,11 +984,18 @@ pub fn port_modules(
         let pose = aimed_pose(&mut target, &config, &ship_bind_bytes).with_context(|| format!("{}: aimed pose", live.name))?;
         let find = |name: &str| -> Result<&Locator> {
             b.composed
-                .locators
+                .slots
                 .iter()
                 .find(|l| l.name == name)
-                .with_context(|| format!("{item}: its model has no locator {name}"))
+                .with_context(|| format!("{item}: 0.69d0's model has no locator {name}"))
         };
+        // The game's own eye: the shipped model's `aim` (the live model's on a remodel).
+        let aim = b
+            .composed
+            .locators
+            .iter()
+            .find(|l| l.name == "aim")
+            .with_context(|| format!("{item}: its model has no aim"))?;
         // Where a slot's frame is: a locator of the gun, or of an own part standing on one.
         fn seat(
             b: &Built,
@@ -982,7 +1032,7 @@ pub fn port_modules(
         let mut gun = GunSource {
             dict,
             bones: u16::try_from(b.composed.ship_bind.len())?,
-            aim_bone: u16::try_from(find("aim")?.bone_idx)?,
+            aim_bone: u16::try_from(aim.bone_idx)?,
             fits_of: None,
             bare: body_path(model_path, &Body::Bare(&BTreeSet::new())),
             ..GunSource::default()
@@ -1118,6 +1168,7 @@ pub fn port_modules(
                     fits_like: b.fits_like,
                     fit: b.fit,
                     look: b.look,
+                    seats: b.composed.seats,
                     suppressors: b.suppressors,
                     plan: b.plan,
                 };
@@ -1127,6 +1178,7 @@ pub fn port_modules(
         items: report_items,
         without_item,
         left_out: donor.left_out.clone(),
+        missing_locators: maker.missing.borrow().clone(),
         modules: source.modules.len(),
         table_bytes: table.len(),
         checks,
@@ -1170,10 +1222,13 @@ fn check(
     out: &mut Vec<Checked>,
 ) -> Result<()> {
     let item = &b.item;
+    let unshift = Frame::translation(b.gun.offset.map(|c| -c));
     let gun = table
         .gun(DictId::new(dict).context("a dict id of 0")?)
         .with_context(|| format!("the table has no gun {dict}"))?;
     // 0.69d0's frame of a locator of the gun: half turn x locator x its bone's bind frame.
+    // (On a bone the live rig binds otherwise and whose own parts lie on the live mesh at the
+    // live seat, `Seat`, 0.69d0's locator stands on the live bind frame, with no shift.)
     let donor_gun = |name: &str| -> Result<Frame> {
         let l = b
             .composed
@@ -1181,6 +1236,17 @@ fn check(
             .iter()
             .find(|l| l.name == name)
             .with_context(|| format!("0.69d0's {item} has no locator {name}"))?;
+        let ours = b.composed.slots.iter().find(|x| x.name == name);
+        let live_seat = ours.and_then(|x| b.composed.seats.iter().find(|s| s.bone == x.bone && s.live));
+        if let (Some(ours), Some(_)) = (ours, live_seat) {
+            let (_, bone) = b
+                .composed
+                .ship_bind
+                .iter()
+                .find(|(n, _)| *n == ours.bone)
+                .with_context(|| format!("{name} names an unknown bone {}", ours.bone))?;
+            return Ok(HALF_TURN.then(&locator_frame(l)).then(&bind_frame(bone)).then(&unshift));
+        }
         let (_, bone) = b
             .composed
             .donor_bind

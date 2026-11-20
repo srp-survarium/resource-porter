@@ -171,8 +171,40 @@ pub struct Composed {
     donor_locators: Vec<Locator>,
     /// The shipped model's locators.
     locators: Vec<Locator>,
+    /// 0.69d0's own locators on the shipped rig, seated: where its slots are. (The shipped
+    /// model's `barrel_point` and `handguard_point` are 0.26g's contract points, the live
+    /// model's; 0.69d0 has slot locators of those names on the Glock, the Neostead and the
+    /// OTs-14.)
+    slots: Vec<Locator>,
     /// [`Body::Measure`]: the body's vertices (mesh space, no shift).
     points: Vec<[f32; 3]>,
+    /// A remodel's bones bound otherwise on the live rig than in 0.69d0, each with the seat
+    /// its locators took.
+    seats: Vec<Seat>,
+}
+
+/// Where the locators of one bone are seated on a remodel's live rig, when the live rig
+/// binds the bone otherwise than 0.69d0 (over 0.5 mm at a locator).
+///
+/// A remodel's mesh is 0.69d0's, laid on the live mesh by the gun's shift, and a part must
+/// sit on it as on the live gun. 0.69d0's place for a part is `locator x its bone`, and the
+/// two rigs disagree on where that bone rests: 0.69d0 binds the AK's magazine bone 15 cm
+/// from the well, where its clips never leave it, while our Glock's barrel bone rests 9.5 cm
+/// ahead of 0.69d0's. Neither rig is right for every bone, so the live mesh decides: the
+/// gun's own parts on that bone are laid on the live mesh both ways, and the seat under
+/// which they lie closer is the bone's (the median distance from their vertices). A bone
+/// with no part of the gun's own keeps 0.69d0's seat, as the mesh around it does.
+#[derive(Clone, Debug, Serialize)]
+pub struct Seat {
+    /// The bone, by its live name.
+    pub bone: String,
+    /// The live rig's bind frame of the bone (true), or 0.69d0's with the gun's shift.
+    pub live: bool,
+    /// The own parts' median gap to the live mesh at 0.69d0's seat and at the live one,
+    /// mm; none when no own part stands on the bone.
+    pub gaps_mm: Option<(f32, f32)>,
+    /// How far apart the two seats put the bone's locators, mm (the largest).
+    pub apart_mm: f32,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -673,6 +705,97 @@ impl Donor069 {
         })
     }
 
+    /// Seats a remodel's 0.69d0 locators (`all`, already on the live bones; `donor`, the same
+    /// as 0.69d0 has them) on the live rig: see [`Seat`]. Returns the bones the rigs bind
+    /// otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn seat(
+        &mut self,
+        gun: &Gun069,
+        modules: &[PlacedModule],
+        donor: &[Locator],
+        all: &mut [Locator],
+        bind: &[(String, BindFrame)],
+        ship: &[(String, BindFrame)],
+        live_model: &str,
+        target: &mut ResourceDb,
+    ) -> Result<Vec<Seat>> {
+        use modules::Frame;
+        let frame_of = |frames: &[(String, BindFrame)], bone: &str| {
+            frames.iter().find(|(n, _)| n == bone).map(|(_, f)| Frame::of(f.rotation, f.translation))
+        };
+        let shift = Frame::translation(gun.offset);
+        // Each locator's frame in mesh space at 0.69d0's seat and at the live one. A locator
+        // on no bone of 0.69d0's (a hand's) is the live model's anyway.
+        let mut both: Vec<Option<(Frame, Frame, Frame)>> = vec![];
+        for (l, d) in all.iter().zip(donor) {
+            let own = Frame::of(d.rotation, d.position);
+            both.push(match (frame_of(bind, &d.bone), frame_of(ship, &l.bone)) {
+                (Some(theirs), Some(ours)) => Some((own.then(&theirs).then(&shift), own.then(&ours), ours)),
+                _ => None,
+            });
+        }
+        let mut seats: Vec<Seat> = vec![];
+        let live_mesh = modules::live_points(target, live_model)?;
+        for (at, l) in all.iter().enumerate() {
+            let Some((theirs, ours, _)) = &both[at] else {
+                continue;
+            };
+            let apart_mm = (theirs.apart(ours) * 1000.0) as f32;
+            if apart_mm <= 0.5 {
+                continue;
+            }
+            if let Some(seat) = seats.iter_mut().find(|s| s.bone == l.bone) {
+                seat.apart_mm = seat.apart_mm.max(apart_mm);
+                continue;
+            }
+            // The gun's own parts on this bone, laid on the live mesh both ways.
+            let (mut at_theirs, mut at_ours) = (vec![], vec![]);
+            for module in modules.iter().filter(|m| m.baked) {
+                let Some(place) = all.iter().position(|x| x.name == module.locator && x.bone == l.bone) else {
+                    continue;
+                };
+                let Some((theirs, ours, _)) = &both[place] else {
+                    continue;
+                };
+                for mesh in self.donor_meshes(&module.model)? {
+                    for p in &mesh.positions {
+                        let p = Frame::HALF_TURN.apply(p.map(f64::from));
+                        at_theirs.push(theirs.apply(p).map(|c| c as f32));
+                        at_ours.push(ours.apply(p).map(|c| c as f32));
+                    }
+                }
+            }
+            let gaps_mm = (!at_theirs.is_empty()).then(|| {
+                (
+                    fit::median_gap_mm(&at_theirs, &live_mesh),
+                    fit::median_gap_mm(&at_ours, &live_mesh),
+                )
+            });
+            seats.push(Seat {
+                bone: l.bone.clone(),
+                live: gaps_mm.is_some_and(|(theirs, ours)| ours < theirs),
+                gaps_mm,
+                apart_mm,
+            });
+        }
+        // Each locator rewritten on its live bone for its seat: 0.69d0's with the shift,
+        // unless its bone takes the live one.
+        for (l, frames) in all.iter_mut().zip(&both) {
+            let Some((theirs, ours, ours_bone)) = frames else {
+                continue;
+            };
+            // (Where the rigs agree to the bit, the locator stands as 0.69d0 wrote it.)
+            if theirs == ours || seats.iter().any(|s| s.bone == l.bone && s.live) {
+                continue;
+            }
+            let seated = theirs.then(&ours_bone.inverse());
+            l.position = seated.t.map(|c| c as f32);
+            l.rotation = crate::skeleton_animation::basis_to_euler(&seated.r.map(|row| row.map(|c| c as f32)));
+        }
+        Ok(seats)
+    }
+
     /// Each gun's attach points for the weapon kit, by 0.69d0 item.
     pub fn attach_points(&self) -> &BTreeMap<String, Vec<AttachPoint>> {
         &self.attach_points
@@ -911,18 +1034,6 @@ impl Donor069 {
                 }
             }
         }
-        let shift = mesh_from_bind(gun.offset);
-        for l in &mut all {
-            for (p, s) in l.position.iter_mut().zip(shift) {
-                *p += s;
-            }
-        }
-        let all = all;
-        let find = |name: &str| {
-            all.iter()
-                .find(|l| l.name == name)
-                .with_context(|| format!("{item} has no {name} locator"))
-        };
         // The bind pose shipped: the live model's for a live rig (its clips
         // are written for it), else the donor's.
         let (ship_bind, live_props, skeleton_file) = match &gun.rig {
@@ -945,6 +1056,29 @@ impl Donor069 {
             ),
         };
         let ship_bones = bind_pose(&ship_bind)?;
+        let modules = self.placed_modules(item, gun)?;
+        // A remodel's locators are seated on the live rig by what lies on the live mesh
+        // (`seat`); a port's stay as they are (its shift is none).
+        let seats = match (&gun.rig, &gun.model_path) {
+            (Rig::Live(live), Some(_)) => {
+                self.seat(gun, &modules, &donor_locators, &mut all, &bind, &ship_bones, live, target)?
+            }
+            _ => {
+                let shift = mesh_from_bind(gun.offset);
+                for l in &mut all {
+                    for (p, s) in l.position.iter_mut().zip(shift) {
+                        *p += s;
+                    }
+                }
+                vec![]
+            }
+        };
+        let all = all;
+        let find = |name: &str| {
+            all.iter()
+                .find(|l| l.name == name)
+                .with_context(|| format!("{item} has no {name} locator"))
+        };
         let settings = db_config(&mut self.db, &format!("{root}/settings"))?;
         let mut surfaces: Vec<(String, Skinned, String)> = vec![];
         let mut attach: Vec<AttachPoint> = vec![];
@@ -969,7 +1103,6 @@ impl Donor069 {
             }
             surfaces.push((surface.into(), mesh, material.into()));
         }
-        let modules = self.placed_modules(item, gun)?;
         for module in &modules {
             let loc = find(&module.locator)?;
             if !module.baked {
@@ -1027,6 +1160,7 @@ impl Donor069 {
                 points,
                 donor_bind: bind,
                 donor_locators,
+                seats,
                 ..Composed::default()
             });
         }
@@ -1048,6 +1182,12 @@ impl Donor069 {
         // devices; a gun with no device slot, the PPSh's compensator jacket,
         // fires from its `fire_point`), and the hand locators (the live
         // model's on a live rig).
+        let live_has = |name: &str| -> Result<bool> {
+            Ok(match &live_props {
+                Some(live) => locators(live)?.iter().any(|l| l.name == name),
+                None => false,
+            })
+        };
         let muzzle = find("muzzle_point").or_else(|_| find("fire_point"))?;
         let aim = find("aim")?;
         // A gun with no scope rail draws its scope at the eye, on the gun's
@@ -1058,7 +1198,13 @@ impl Donor069 {
             .find_map(|n| find(n).ok())
         {
             Some(rail) => rail.clone(),
-            None => on_body(aim, &ship_bones)?,
+            // (A remodel whose live model has a scope point takes that one below: the
+            // eye will do until then, whatever bone it hangs on.)
+            None => match on_body(aim, &ship_bones) {
+                Ok(on_body) => on_body,
+                Err(_) if gun.model_path.is_some() && live_has("scope_point")? => aim.clone(),
+                Err(e) => return Err(e),
+            },
         };
         let handguard = ["handguard_point", "forend_point", "LeftHand_idle"]
             .iter()
@@ -1242,8 +1388,10 @@ impl Donor069 {
             donor_bind: bind,
             ship_bind: ship_bones,
             donor_locators,
+            slots: all.clone(),
             locators: locs,
             points: vec![],
+            seats,
         })
     }
 
@@ -1276,6 +1424,14 @@ impl Donor069 {
             let texture = match get(&effect, &format!("{role}.value")) {
                 Some(v) => string_of(Some(v))?.to_owned(),
                 None => String::new(),
+            };
+            // A map the material names, has switched off and the archive lacks is none (a
+            // forend's metalness map that was never made).
+            let off = get(&effect, &format!("use_{role}.value")) == Some(&V::Boolean(false));
+            let texture = if off && !self.db.contains(&format!("textures/{texture}.dds")) {
+                String::new()
+            } else {
+                texture
             };
             if texture.is_empty() {
                 ensure!(role != "t_albedo", "{path} binds no {role}");
