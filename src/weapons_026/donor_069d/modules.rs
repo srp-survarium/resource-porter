@@ -569,7 +569,12 @@ impl ModuleMaker<'_> {
             if slots.is_some_and(|only| !only.contains(&rules.slot.as_str())) {
                 continue;
             }
-            attaches.push(self.attach(rules, &locator, role)?);
+            let attach = self.attach(rules, &locator, role)?;
+            // An optic in a slot where it moves no eye is no optic there (the table refuses it).
+            if role == Role::Fitted(weapon_modules::Kind::Scope) && attach.eye.is_none() {
+                continue;
+            }
+            attaches.push(attach);
         }
         ensure!(!attaches.is_empty(), "{}: no slot of {slots:?} on {item}", module.id);
         let hand = match role {
@@ -620,10 +625,15 @@ impl ModuleMaker<'_> {
                 _ => {}
             }
         }
-        // Only an optic's eye is the gun's while it is on (a rail mount's is where the bare
-        // rail would aim; 0.26g aims through the optic on it or over the gun's own sights).
-        if !matches!(role, Role::Fitted(weapon_modules::Kind::Scope) | Role::Stock) {
+        // The gun's own points stand until a fit moves them: a remodel keeps the live model's
+        // `aim` and `barrel_point` (its sights and flash are where they are today, whichever
+        // body is drawn), so an own part moves neither, and only an optic moves the eye (a
+        // rail mount's is where the bare rail would aim).
+        if !matches!(role, Role::Fitted(weapon_modules::Kind::Scope)) {
             out.eye = None;
+        }
+        if role == Role::Stock {
+            out.fire_point = None;
         }
         for (slot, param) in &rules.alters {
             if *param == 1 {
