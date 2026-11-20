@@ -112,8 +112,45 @@ has the items, their stats and the owner's open questions.
   back, 30 on the forearms) and as shown, weight, stock bonuses (`default_modifications`,
   each checked against modifications.options), the dictionary's `base_cost` and the drop
   weight. Model, icon and texts its own; no faction (0, the Independent traders': srp
-  sells them nowhere, they only drop); camouflage and decals off; no piece takes another
-  slot (`additional_model_slots` empty: masks go under the hood).
+  sells them nowhere, they only drop); no camouflage; decals as the stock pieces of the
+  slot (Decals, below); no piece takes another slot (`additional_model_slots` empty:
+  masks go under the hood).
+
+## Decals
+
+`src/decals_026.rs` holds the rule for every 0.26g armour port (these outfits, the
+exoskeleton sets, `outfit_026`'s helmets and masks): a piece takes decals when the stock
+pieces of its slot do.
+
+- Stock 0.26g: all 24 vests and all 23 pairs of trousers have
+  `parameters.decal_available` true and an empty `data.decals`; no helmet, mask,
+  backpack, glove or boot config has either key. So the four jackets and the three pairs
+  of trousers here take decals (1822, 1864, 1868, 1873; 1865, 1870, 1874), and the hood,
+  backpack, gloves and boots do not.
+- A piece has no fixed decal places. The player clicks where a decal goes in the lobby's
+  editor (a box projected along the surface's normal; size and turn are the player's);
+  one never placed is on the chest. The game bakes the item's decals into the textures of
+  its first surface (`part_name`), in that surface's UV space; the surfaces of
+  `additional_models` take none. Here the first surface is the garment (`torso`, `legs`);
+  the chain, the bare forearms, the belt kit and the pouches are additional models, as a
+  stock vest's fur or straps are.
+- That surface has to be one a bake can paint. `decals_026::check_surface` stops the
+  build unless the first surface is the piece's largest, its UVs are inside the map, and
+  at most 5 % of its used texels are painted from two places more than 3 cm apart (a
+  decal put on a shared texel shows at both places). The build prints the numbers for
+  every variant: the jackets 0.3 to 0.8 % (seams), the track pants none, the loner's
+  pants 0.8 to 0.9 %, the Novice's jeans 4.0 to 4.6 % (the grown waist repeats the denim
+  below it, under every jacket's hem). Stock, measured the same way: most vests and
+  trousers none, six 10 to 30 % (mirrored halves).
+- The decals are baked at the size of the surface's own diffuse map: 1024x1024 here (the
+  maps are halved, `MAX_MAP`), as most stock trousers; most stock vests are 2048x1024, so
+  a decal on one of these jackets is a little softer than on a stock vest.
+- Camouflage stays off: its bake needs a mask beside the diffuse map (`<diffuse>_aoac`),
+  which this port does not make.
+- The packs with it are `stk2-bandit@16`, `stk2-novice@16`, `stk2-loner@15` (2026-11-20):
+  built as Rebuild says, on the stock db and patches 12 to 39 (from patch 40 on the ids
+  are taken). Every file but the seven items' configs, the icons included, is byte for
+  byte the released packs' (`@14`, `@14`, `@13`).
 
 ## Rebuild
 

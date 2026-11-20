@@ -7,7 +7,7 @@
 use crate::localization_026::{LANGUAGES, Text, check_item_texts, set_string};
 use crate::manifest::{BuiltFile, TextureCompression};
 use crate::weapon::{parse_config, prepare_empty_output, record_file, write_generated_config};
-use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
+use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb, decals_026};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
 use std::{
@@ -416,6 +416,19 @@ enum Kind {
     Helmet,
     Gloves,
     Boots,
+}
+
+impl Kind {
+    /// The armour category (`gameplay/items/armour/<category>/`) the
+    /// piece's item is in.
+    fn category(self) -> &'static str {
+        match self {
+            Kind::Body => "torso",
+            Kind::Helmet => "helmet",
+            Kind::Gloves => "gloves",
+            Kind::Boots => "boots",
+        }
+    }
 }
 
 struct SetPiece {
@@ -1017,9 +1030,8 @@ fn set_items<'v>(
             other => bail!("native {} drops with weight {other:?}", piece.template),
         };
         cfg.set_path("parameters.drop_weight", V::Integer(drop_weight))?;
-        // Imported textures have no customization masks.
+        // No camouflage: the port makes no mask for its bake (`_aoac`).
         cfg.set_path("parameters.camo_available", V::Boolean(false))?;
-        cfg.set_path("parameters.decal_available", V::Boolean(false))?;
         cfg.set_path("hit_params", protection.clone())?;
         if !piece.modifications.is_empty() {
             cfg.set_path(
@@ -1135,6 +1147,10 @@ fn set_items<'v>(
             data
         };
         cfg.set_path("data", table(data))?;
+        // Decals as the stock pieces of the slot (`decals_026`): the body
+        // takes them as a vest does, on its first surface (`torso_s`; the
+        // frame, the back unit and the legs are additional models).
+        decals_026::set(&mut cfg, piece.kind.category())?;
         cfg.set_path("ui_desc.props_list", props(&shown))?;
         let (name, description) = piece.text;
         for key in [name, description] {

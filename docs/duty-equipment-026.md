@@ -116,8 +116,14 @@ is 0.10 (armour) x 1/7 (the category) x the row's level-15 share (10 % at
 match level 15, 50 % at 20) x 1/4: 0.036 % to 0.18 % per match for each
 piece, native or not. 0.26g has no way for
 a player to throw an item away; "droppable" is the match drop.
-Camouflage and decals remain disabled: imported textures have no
-customization masks.
+Camouflage remains disabled: imported textures have no customization
+masks. The body takes decals as a stock vest does (`src/decals_026.rs`,
+`docs/stk2-outfits-026.md`, Decals): on its first surface, `torso_s`; the
+frame, the back unit, the chest disc and the legs are additional models and
+take none. The helmet, gloves and boots take none, as stock ones. `torso_s`
+is the model's largest surface (1.44 m2), its UVs are inside its 2048x2048
+map, and about 3.6 % of its texels are shared by two places (measured on the
+released model; `decals_026::check_surface`'s limit is 5 %).
 
 ## Icons and gallery
 
