@@ -36,7 +36,7 @@ serde = { version = "1.0", features = ["derive"] }
 # The modules table's one definition (`port-modules` writes it and runs its
 # `resolve`): skhid-srp's `srp-026g/crates/weapon-modules` (branch
 # feat/attachments).
-weapon-modules = { git = "https://github.com/srp-survarium/skhid-srp", rev = "c806176a718a5bbf92b6e12d2ad849e32c540455", features = ["encode"] }
+weapon-modules = { git = "https://github.com/srp-survarium/skhid-srp", rev = "183243ce59a8c07c625a122dda78878c6eb53b06", features = ["encode"] }
 serde_json = "1.0"
 sha2 = "0.10"
 

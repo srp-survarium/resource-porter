@@ -241,6 +241,9 @@ pub struct Donor069 {
     /// Each donor material's and texture's final name (compose_material).
     material_names: BTreeMap<String, String>,
     texture_names: BTreeMap<String, String>,
+    /// Module surfaces left out, `<model>:<surface>`: their material is none this port makes
+    /// and the players have none of its name (`modules::module_model`).
+    left_out: BTreeSet<String>,
 }
 
 /// Whether the target has `path` with other bytes than `bytes`.
@@ -666,6 +669,7 @@ impl Donor069 {
             clip_events: spec.clip_events.clone(),
             material_names: BTreeMap::new(),
             texture_names: BTreeMap::new(),
+            left_out: BTreeSet::new(),
         })
     }
 

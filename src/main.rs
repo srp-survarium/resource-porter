@@ -257,10 +257,6 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
-    /// Live guns remodelled on 0.69d0's models (`donor_069d::remodel_069d`):
-    /// the sidecar's guns, each at its `model_path`; models, materials and
-    /// textures only, for `pack from-bundle`.
-    #[command(name = "remodel-weapons-069d")]
     /// 0.69d0's module system for 0.26g's guns (docs/modules-069d-026.md): each sidecar gun's
     /// whole and bare bodies, every module as a static model, the modules table and the check
     /// against 0.69d0.
@@ -293,6 +289,10 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// Live guns remodelled on 0.69d0's models (`donor_069d::remodel_069d`):
+    /// the sidecar's guns, each at its `model_path`; models, materials and
+    /// textures only, for `pack from-bundle`.
+    #[command(name = "remodel-weapons-069d")]
     RemodelWeapons069d {
         /// The bundle's id (the pack's).
         #[arg(long)]

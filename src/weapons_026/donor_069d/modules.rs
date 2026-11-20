@@ -265,6 +265,9 @@ pub struct Report {
     pub items: BTreeMap<String, (u16, String)>,
     /// Modules 0.69d0 sells that have no item of ours (no row in the ids).
     pub without_item: BTreeSet<String>,
+    /// Module surfaces left out (`<model>:<surface>`): a lens or a reticle with no material
+    /// of ours.
+    pub left_out: BTreeSet<String>,
     pub modules: usize,
     pub table_bytes: usize,
     pub checks: Vec<Checked>,
@@ -324,11 +327,35 @@ impl Donor069 {
         for (surface, material) in lod0_surfaces(&settings, &source)? {
             let bytes = self.db.read(&format!("{source}/render/{surface}/converted_model"))?;
             let mesh = super::convert::static_069_to_026(&bytes).with_context(|| format!("{source}: {surface}"))?;
-            let material = self
-                .compose_material(&material, target, work)
-                .with_context(|| format!("material {material}"))?;
+            // A material this port makes is a weapon's: an opaque stage whose maps are the
+            // archive's. A lens, a reticle or a dot is none (no opaque stage, or a map of
+            // another kind of thing): the players' own material of its name (patch 19's 0.51c5
+            // modules: `weapons/loc2/<name>`) where they have one, else the surface is left
+            // out and recorded (an optic's glass is its scope item's: the scopes' lane's).
+            let donor_material = db_config(&mut self.db, &format!("material_instances/{material}.material"))?;
+            let makes = get(&donor_material, "material.g_stage.effect").is_some_and(|effect| {
+                ["t_albedo", "t_normal", "t_smoothness", "t_metalness"].iter().all(|role| {
+                    match string_of(get(effect, &format!("{role}.value"))) {
+                        Ok(texture) if !texture.is_empty() => self.db.contains(&format!("textures/{texture}.dds")),
+                        _ => true,
+                    }
+                })
+            });
+            let material = if makes {
+                self.compose_material(&material, target, work)
+                    .with_context(|| format!("material {material}"))?
+            } else {
+                let name = material.rsplit('/').next().unwrap_or(&material);
+                let ours = format!("weapons/loc2/{name}");
+                if !target.contains(&format!("material_instances/{ours}.material")) {
+                    self.left_out.insert(format!("{model}:{surface}"));
+                    continue;
+                }
+                ours
+            };
             surfaces.push((surface, material, mesh));
         }
+        ensure!(!surfaces.is_empty(), "{source}: no surface with a material 0.26g can draw");
         let mut native = parse_config(target, STATIC_SETTINGS, "native static model settings")?.root;
         native.set_path(
             "lod_hierrarchy",
@@ -433,8 +460,17 @@ impl Donor069 {
     fn donor_meshes(&mut self, model: &str) -> Result<Vec<Mesh>> {
         let source = format!("models/{model}.model");
         let settings = db_config(&mut self.db, &format!("{source}/settings"))?;
+        // Of a model the bundle has, the surfaces the bundle has (a lens may be left out).
+        let built = module_path(model).ok().map(|p| format!("models/{p}.model"));
+        let built = built.filter(|root| self.files.contains_key(&format!("{root}/settings")));
         let mut out = vec![];
         for (surface, _) in lod0_surfaces(&settings, &source)? {
+            if built
+                .as_ref()
+                .is_some_and(|root| !self.files.contains_key(&format!("{root}/render/{surface}/converted_model")))
+            {
+                continue;
+            }
             let bytes = self.db.read(&format!("{source}/render/{surface}/converted_model"))?;
             out.push(Mesh::parse(&super::convert::static_069_to_026(&bytes)?)?);
         }
@@ -1090,6 +1126,7 @@ pub fn port_modules(
             .collect(),
         items: report_items,
         without_item,
+        left_out: donor.left_out.clone(),
         modules: source.modules.len(),
         table_bytes: table.len(),
         checks,
