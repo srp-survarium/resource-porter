@@ -5,7 +5,7 @@
 core makes the item configs, the dictionary rows, the sounds and the bundle as for any donor.
 A port is `ports/weapons-069d.json` (the core's manifest: guns, ids, templates, balance, which
 states stay the template's) and its sidecar `ports/donor-weapons-069d.json` (what only 0.69d0
-needs: each gun's rig, the modules left out, modules to turn, new rounds). skhid-srp's packs
+needs: each gun's rig, the modules left out, new rounds). skhid-srp's packs
 weapons-069 and weapons-069-camo are made from it (`scripts/weapons-069/make_pack.sh` there).
 
 The converter was first written for the H&K 416A5 and MSBS Radon (7eabfa8, 9314977), dropped
@@ -36,13 +36,24 @@ vostok-port port-weapons-069d --manifest ports/weapons-069d.json \
   32 bytes (position, bone, three basis floats, half2 UV) or two in 36 (two `u8` bones, the
   first one's weight); 0.26g's are 36 bytes, one bone (position, bone, three packed basis words,
   float2 UV). A two-bone vertex goes to its heavier bone. The **structural** bundled and default
-  modules are baked as surfaces bound to their socket bone, at the shipped bind frame of that
-  bone plus the locator (`bind + R_y(pi) * locator`): in the game a bone's vertices are drawn at
-  clip * bind^-1, and 0.69d0 drew the module at clip * locator (the AKMSU's magazine bone rests
-  15 cm off in 0.69d0's bind pose, where no clip takes it). A socket turned about x turns its
-  module, and nothing else turns one: every module of a slot is authored in the slot's frame (the
-  PPSh's 71-round drum as its 30-round box: rounds along the bore, the neck in the well, the drum
-  across the gun). Every LOD0 surface of a module is baked. **Muzzle devices, foregrips, scopes and suppressors are
+  modules are baked as surfaces bound to their socket bone, at the locator's frame in the shipped
+  bind frame of that bone: in the game a bone's vertices are drawn at clip * bind^-1, and 0.69d0
+  drew the module at clip * locator (the AKMSU's magazine bone rests 15 cm off in 0.69d0's bind
+  pose, where no clip takes it). The frames are the engine's own, on row vectors
+  (`donor_069d/socket.rs`): a bone's is `create_rotation(rotation) * create_translation(translation)`,
+  a locator's `create_rotation(rotation) * create_translation(position)`, and a module's vertex
+  `v` lands at `(v * H) * locator * bone`, `H` half a turn about Y (a module is modelled in the
+  mesh's directions, and 0.69d0's weapon bones are bound half a turn about Y from the mesh). A
+  socket's turn about any axis and a bone's own tilt are taken so; nothing else turns a module:
+  every module of a slot is authored in the slot's frame (the PPSh's 71-round drum as its 30-round
+  box: rounds along the bore, the neck in the well, the drum across the gun). What the rule
+  stands on: 0.69d0's VSK-94, whose sockets' turns (0.85, 0.01, 0.35 degrees) undo its `offset`
+  bone's tilt to 1e-4 degrees by it; and its PPSh, whose `mag_point` is turned -3.74 degrees
+  about X: the drum's neck then stands 0.4 mm behind the magazine well's front wall at every
+  height, and the 30-round box fills the well to within 0.4 mm of the rear wall. Until 2026-11-10
+  the turn was taken with the other sign (skhid-srp's weapons-069@15 and before): the drum leant
+  7.5 degrees off, its neck 6 to 8 mm inside the well's front wall and 9 to 10 mm short of the
+  rear one. Every LOD0 surface of a module is baked. **Muzzle devices, foregrips, scopes and suppressors are
   never baked** (refused unless `separable`); `donor-069d.json` records each gun's modules and
   its attach points (`muzzle_point`, the rails) for the weapon kit.
 * **Rigs.** `live`: the donor rig is a live weapon's skeleton bone for bone (checked); the model
