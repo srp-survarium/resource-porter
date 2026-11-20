@@ -15,6 +15,7 @@ use std::{
 mod early;
 pub mod later;
 pub mod lighting;
+pub mod tone;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";

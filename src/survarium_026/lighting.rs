@@ -72,26 +72,6 @@ impl DonorProbe {
     }
 }
 
-/// 0.26's curve adapts to a frame's mean down to 0.05 (`complex_post_process_blend.ps`:
-/// its weight `4.5 / (10 min(max(mean, 0.05), 2) + 1)`) and only by the
-/// mean^-0.2 of its exposure below; 0.69d's auto exposure follows a view down
-/// to EV 6, so its rooms show alike however dark their probes (the church's
-/// 0.006 and the school's 0.02 read the same in its frames). A probe darker
-/// than `ADAPTED` (an interior) is raised to it, at most x8; open ground (the
-/// global probes) is unchanged. Half the difference (the square root) left
-/// the darkest rooms, the church's, at half 0.69d's brightness.
-pub fn adaptation_gain(probe: &DonorProbe, scale: LightScale) -> f32 {
-    let k = probe.diffuse_scale() * scale.0 * 0.282_094_78;
-    let c = probe.sh[0];
-    let mean = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) * k;
-    (ADAPTED / mean.max(1e-6)).clamp(1.0, 8.0)
-}
-
-/// The probe brightness interiors are raised to (`adaptation_gain`), matched
-/// to 0.69d's frames of the church, school, houses, bus stop and tractor
-/// station.
-const ADAPTED: f32 = 0.03;
-
 /// 0.69d probe texel to capture-unit radiance.
 pub fn decode_069d(texel: [u8; 4]) -> [f32; 3] {
     let a = (texel[3] as f32 / 255.0).min(254.5 / 255.0);
@@ -257,63 +237,115 @@ pub struct DonorLight {
     pub facing: Option<(f32, f32)>,
 }
 
-impl DonorLight {
-    /// The facing term for a surface with normal `n` at `p`.
-    fn facing(&self, n: [f32; 3], p: [f32; 3]) -> f32 {
-        let Some((cutoff, power)) = self.facing else { return 1.0 };
-        let d = [self.volume.centre[0] - p[0], self.volume.centre[1] - p[1], self.volume.centre[2] - p[2]];
-        let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-        // At the light itself every surface around faces it.
-        if len < 0.5 {
-            return 1.0;
-        }
-        let ndl = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) / len;
-        ((ndl * 0.5 + 0.5) * (1.0 + cutoff) - cutoff).clamp(0.0, 1.0).powf(power)
+/// 0.69d's facing term (`ambient_light_*.ps`) for the cosine `x` between a
+/// surface's normal and the direction to the light.
+fn facing_069d(x: f32, cutoff: f32, power: f32) -> f32 {
+    ((x * 0.5 + 0.5) * (1.0 + cutoff) - cutoff).clamp(0.0, 1.0).powf(power)
+}
+
+/// Simpson's rule over [a, b].
+fn integral(a: f32, b: f32, f: impl Fn(f32) -> f32) -> f32 {
+    const N: usize = 256;
+    let h = (b - a) / N as f32;
+    let sum: f32 = (0..=N).map(|i| f(a + h * i as f32) * if i == 0 || i == N { 1.0 } else if i % 2 == 1 { 4.0 } else { 2.0 }).sum();
+    sum * h / 3.0
+}
+
+/// 0.26's facing term (`dot_normal`) is `max(x, 0)`. The factor on it that
+/// comes closest to 0.69d's term over every facing (least squares over x in
+/// [-1, 1]): 0.81 for 0.69d's usual power 4, 1.25 for its half-Lambert.
+pub fn facing_scale(cutoff: f32, power: f32) -> f32 {
+    3.0 * integral(0.0, 1.0, |x| facing_069d(x, cutoff, power) * x)
+}
+
+/// 0.26 draws a sphere light with `(1 - (d / 0.98 R)^2)^p` (`ambient_light.ps`);
+/// 0.69d fades from `outer - side_width` to `outer` (`Volume::weight`). The
+/// 0.26 radius that ends where 0.69d's light ends, and the power closest to
+/// its falloff over the sphere's volume.
+pub fn sphere_fit(outer: f32, side_width: f32, power: f32) -> (f32, f32) {
+    let donor = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: outer }, side_width };
+    let error = |p: f32| integral(0.0, 1.0, |u| ((1.0 - u * u).max(0.0).powf(p) - donor.weight([u * outer, 0.0, 0.0], power)).powi(2) * u * u);
+    // The error has one minimum in p: a golden-section search on log p.
+    let (mut lo, mut hi) = (0.02f32.ln(), 64f32.ln());
+    const G: f32 = 0.618_034;
+    for _ in 0..48 {
+        let (a, b) = (hi - G * (hi - lo), lo + G * (hi - lo));
+        if error(a.exp()) < error(b.exp()) { hi = b } else { lo = a }
     }
+    (outer / 0.98, (0.5 * (lo + hi)).exp())
 }
 
-/// One light over a 0.26 probe volume: its effect as at `at` (the volume's
-/// centre), scaled by `weight`.
+/// 0.26 fades a box light by a smoothstep over `side_width` inside each face
+/// (mean 1/2 over the band); 0.69d by `(1 - t)^p` or `1 - t^(1/p)` (mean
+/// `1 / (p + 1)`). The 0.26 band that holds the same light.
+pub fn box_side_width(side_width: f32, power: f32, half: [f32; 3]) -> f32 {
+    let least = half.iter().cloned().fold(f32::INFINITY, f32::min);
+    (2.0 * side_width / (power.max(1e-3) + 1.0)).clamp(0.01, least.max(0.01))
+}
+
+/// A 0.26 ambient light (`object_ambient_light`, drawn by `ambient_light.ps`):
+/// with an intensity above 1 it adds `colour^2.2 * (intensity - 1)` times its
+/// falloff to the diffuse light, otherwise it multiplies the light under it
+/// towards `colour^2.2 * intensity`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Term {
-    pub light: DonorLight,
-    pub at: [f32; 3],
-    pub weight: f32,
+pub struct NativeLight {
+    /// A sphere (its radius 0.26's) or a box, its `side_width` 0.26's.
+    pub volume: Volume,
+    /// sRGB, as the object stores it.
+    pub colour: [f32; 3],
+    pub intensity: f32,
+    pub attenuation_power: f32,
+    pub dot_normal: bool,
 }
 
-/// The diffuse light (E / pi, 0.69d scene units) a 0.26 probe holds: a
-/// donor probe's SH, then lights in the order 0.26 draws them over it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct DiffuseRecipe {
-    pub base: DonorProbe,
-    pub terms: Vec<Term>,
-}
-
-impl DiffuseRecipe {
-    pub fn eval(&self, n: [f32; 3]) -> [f32; 3] {
-        let k = self.base.diffuse_scale();
-        let mut e = self.base.sh_eval(n).map(|v| v * k);
-        for Term { light, at, weight } in &self.terms {
-            let w = weight * light.facing(n, *at);
-            match light.effect {
-                LightEffect::Add { radiance } => (0..3).for_each(|c| e[c] += radiance[c] * w),
-                LightEffect::Multiply { factor } => (0..3).for_each(|c| e[c] *= 1.0 + (factor[c] - 1.0) * w),
+impl DonorLight {
+    /// The light's shape and falloff as 0.26 draws them. 0.26 has no
+    /// cylinder: the box around it, which fades to nothing at its corners.
+    fn native_volume(&self) -> (Volume, f32) {
+        let v = self.volume;
+        match v.shape {
+            Shape::Sphere { radius } => {
+                let (radius, power) = sphere_fit(radius, v.side_width, self.attenuation_power);
+                (Volume { shape: Shape::Sphere { radius }, ..v }, power)
+            }
+            Shape::Box { half } => (Volume { side_width: box_side_width(v.side_width, self.attenuation_power, half), ..v }, self.attenuation_power),
+            Shape::Cylinder { radius, half_height } => {
+                let half = [radius, half_height, radius];
+                (Volume { shape: Shape::Box { half }, side_width: box_side_width(v.side_width, self.attenuation_power, half), ..v }, self.attenuation_power)
             }
         }
-        e
+    }
+
+    /// The 0.26 light that adds `radiance` (0.26's scale, the light a white
+    /// surface facing it sends back) with this light's shape, falloff and
+    /// facing.
+    pub fn native_additive(&self, radiance: [f32; 3]) -> NativeLight {
+        let (volume, attenuation_power) = self.native_volume();
+        let k = self.facing.map_or(1.0, |(cutoff, power)| facing_scale(cutoff, power));
+        let v = radiance.map(|c| (c * k).max(0.0));
+        let peak = v.iter().cloned().fold(1e-6, f32::max);
+        NativeLight { volume, colour: v.map(|c| (c / peak).powf(1.0 / 2.2)), intensity: 1.0 + peak, attenuation_power, dot_normal: self.facing.is_some() }
+    }
+
+    /// The 0.26 light that multiplies the light under it by `factor` (each
+    /// channel at most 1).
+    pub fn native_multiply(&self, factor: [f32; 3]) -> NativeLight {
+        let (volume, attenuation_power) = self.native_volume();
+        NativeLight { volume, colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)), intensity: 1.0, attenuation_power, dot_normal: self.facing.is_some() }
     }
 }
 
-/// The 0.26 irradiance cube for a recipe: holds `E / pi` (times the scale)
-/// so that it decodes to the light a white surface sends back, as 0.69d's
-/// SH evaluation gives it.
-pub fn diffuse_cube(recipe: &DiffuseRecipe, scale: LightScale) -> Vec<u8> {
+/// The 0.26 irradiance cube of a 0.69d probe: `E / pi` from its SH times its
+/// multiplier, in 0.26's scale, so that it decodes to the light a white
+/// surface sends back as `environment_probe.ps` gives it.
+pub fn diffuse_cube(probe: &DonorProbe, scale: LightScale) -> Vec<u8> {
+    let k = probe.diffuse_scale() * scale.0;
     let faces = (0..6)
         .map(|face| {
             (0..DIFFUSE_MIPS)
                 .map(|mip| {
                     let s = DIFFUSE_SIZE >> mip;
-                    (0..s * s).map(|i| encode_026(recipe.eval(cube_direction(face, i % s, i / s, s)).map(|v| v * scale.0), 4.0)).collect()
+                    (0..s * s).map(|i| encode_026(probe.sh_eval(cube_direction(face, i % s, i / s, s)).map(|v| v * k), 4.0)).collect()
                 })
                 .collect()
         })
@@ -412,39 +444,44 @@ mod light_tests {
     }
 
     #[test]
-    fn recipe_adds_and_multiplies_in_order() {
-        let mut sh = [[0.0; 3]; 9];
-        sh[0] = [1.0 / 0.282_094_78 / 1.2; 3];
-        let base = DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, multiplier: 1.0, sh };
-        let volume = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: 4.0 }, side_width: 1.0 };
-        let add = DonorLight { volume, effect: LightEffect::Add { radiance: [2.0; 3] }, attenuation_power: 2.0, facing: None };
-        let mul = DonorLight { effect: LightEffect::Multiply { factor: [3.0; 3] }, ..add };
-        let recipe = DiffuseRecipe {
-            base,
-            terms: vec![Term { light: add, at: [0.0; 3], weight: 1.0 }, Term { light: mul, at: [0.0; 3], weight: 0.5 }],
-        };
-        let e = recipe.eval([0.0, 1.0, 0.0]);
-        assert!((e[0] - 6.0).abs() < 1e-4, "{e:?}");
+    fn fits_follow_the_donor_falloff_and_facing() {
+        // Half-Lambert against Lambert: 1.25; 0.69d's usual power 4: 0.81.
+        assert!((facing_scale(0.0, 1.0) - 1.25).abs() < 1e-3);
+        assert!((facing_scale(0.0, 4.0) - 0.806).abs() < 2e-3);
+        // A sphere that fades over its whole radius with power 2 is (1 - d/R)^2:
+        // 0.26's (1 - (d/R)^2)^p is closest by volume at p 4.9, within 0.18
+        // everywhere (0.26 has no flat middle: a light with one is followed
+        // only within 0.33; its exact shape needs 0.69d's own shader).
+        let (radius, power) = sphere_fit(4.0, 4.0, 2.0);
+        assert!((radius - 4.0 / 0.98).abs() < 1e-5 && (power - 4.91).abs() < 0.05, "{power}");
+        for i in 0..=20 {
+            let u = i as f32 / 20.0;
+            assert!(((1.0 - u * u).powf(power) - (1.0 - u).powi(2)).abs() < 0.18, "{u}");
+        }
+        // A light flat to half its radius keeps a low power.
+        assert!((sphere_fit(4.0, 2.0, 2.0).1 - 1.37).abs() < 0.05);
+        // Box: the band of the same mean, never wider than the box.
+        assert!((box_side_width(3.0, 2.0, [5.0, 5.0, 5.0]) - 2.0).abs() < 1e-5);
+        assert_eq!(box_side_width(3.0, 0.5, [1.0, 5.0, 5.0]), 1.0);
     }
-}
-
-#[cfg(test)]
-mod adaptation_tests {
-    use super::*;
 
     #[test]
-    fn interiors_are_raised_to_the_adapted_level() {
-        let probe = |c0: f32| {
-            let mut sh = [[0.0; 3]; 9];
-            sh[0] = [c0; 3];
-            DonorProbe { texture: "t".into(), capture_exposure_value: 0.0, directional_factor: 0.5, multiplier: 1.0, sh }
-        };
-        let scale = LightScale(1.0 / 1.2 / 0.282_094_78);
-        // At the adapted level or brighter: unchanged.
-        assert!((adaptation_gain(&probe(ADAPTED), scale) - 1.0).abs() < 1e-5);
-        assert_eq!(adaptation_gain(&probe(0.5), scale), 1.0);
-        // 4 times darker: x4; far darker: at most x8.
-        assert!((adaptation_gain(&probe(ADAPTED / 4.0), scale) - 4.0).abs() < 1e-3);
-        assert_eq!(adaptation_gain(&probe(1e-5), scale), 8.0);
+    fn donor_lights_become_native_lights() {
+        let volume = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: 4.0 }, side_width: 2.0 };
+        let light = DonorLight { volume, effect: LightEffect::Add { radiance: [0.0; 3] }, attenuation_power: 2.0, facing: Some((0.0, 4.0)) };
+        let n = light.native_additive([0.4, 0.2, 0.1]);
+        // Adds colour^2.2 * (intensity - 1): the radiance times the facing fit.
+        let k = facing_scale(0.0, 4.0);
+        for c in 0..3 {
+            let added = n.colour[c].powf(2.2) * (n.intensity - 1.0);
+            assert!((added - [0.4, 0.2, 0.1][c] * k).abs() < 1e-4, "{n:?}");
+        }
+        assert!(n.intensity > 1.0 && n.dot_normal && matches!(n.volume.shape, Shape::Sphere { radius } if (radius - 4.0 / 0.98).abs() < 1e-5));
+        // A cylinder is the box around it; a darkening light keeps intensity 1.
+        let cylinder = DonorLight { volume: Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 3.0 }, ..volume }, facing: None, ..light };
+        let d = cylinder.native_multiply([0.5, 0.25, 0.0]);
+        assert_eq!(d.volume.shape, Shape::Box { half: [2.0, 3.0, 2.0] });
+        assert!(d.intensity == 1.0 && !d.dot_normal && (d.colour[0].powf(2.2) - 0.5).abs() < 1e-4 && d.colour[2] == 0.0);
     }
 }
+

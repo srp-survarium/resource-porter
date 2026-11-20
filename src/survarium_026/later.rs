@@ -13,7 +13,7 @@
 //! What has no 0.26 equivalent keeps the native look of the template map.
 use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
-use super::lighting::{DiffuseRecipe, DonorLight, DonorProbe, LightEffect, LightScale, Shape, Term, Volume};
+use super::lighting::{DonorLight, DonorProbe, LightEffect, LightScale, NativeLight, Shape, Volume};
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
@@ -246,9 +246,13 @@ pub struct MapSpec {
     pub output_project: String,
     pub mode_name: String,
     /// Centre and radius of the map-wide sphere probe 0.26 lights the open
-    /// ground with (0.69d has none: its outdoor probes are boxes).
-    pub global_probe_position: [f32; 3],
-    pub global_probe_radius: f32,
+    /// ground with (0.69d has none: its outdoor probes are boxes), where the
+    /// template's own map-wide sphere does not fit (a template of another
+    /// map: Duga on Vostok's).
+    #[serde(default)]
+    pub global_probe_position: Option<[f32; 3]>,
+    #[serde(default)]
+    pub global_probe_radius: Option<f32>,
     /// What the probes draw.
     pub probes: MapProbes,
     /// Native environment properties set over the template's, by name
@@ -2010,9 +2014,6 @@ fn first_template(template: &ConfigValue, wanted: &str) -> Result<ConfigValue> {
         .with_context(|| format!("template project has no {wanted}"))
 }
 
-fn one() -> f32 {
-    1.0
-}
 
 /// A map's environment probes.
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -2031,39 +2032,16 @@ pub enum MapProbes {
         #[serde(default)]
         ambient_lights: bool,
     },
-    /// The donor's own probes, re-encoded for 0.26 (`DonorProbe`): every
-    /// volume with its cubemap, the irradiance cubemap 0.26 reads evaluated
-    /// from its SH coefficients, both in one scale with the sun
-    /// (`LightScale`). 0.26 has no sky light, so the donor probe `global`
-    /// (`full_name`) is also the map-wide sphere. Matte water reflects the
-    /// donor probe `matte_water`.
+    /// The donor's own light (`donor_lighting`): every probe volume with its
+    /// cubemap re-encoded for 0.26 (`DonorProbe`) and the irradiance cubemap
+    /// 0.26 reads evaluated from its SH coefficients, every ambient light as
+    /// a 0.26 ambient light, the sun, all in one scale (`LightScale`). 0.26
+    /// has no sky light, so the donor's largest probe is also the map-wide
+    /// sphere. Matte water reflects the donor probe `matte_water`.
     Donor {
-        global: String,
         #[serde(default)]
         matte_water: Option<String>,
-        /// EV added to the outdoor exposure the scale is taken at (positive:
-        /// darker), matched to 0.69d's own frames: its grading and curve
-        /// show the same light darker than 0.26's.
-        #[serde(default)]
-        exposure_bias: f32,
-        /// Exponent on the sun's colour (1: 0.69d's transmittance as it is;
-        /// below 1 whiter): 0.69d's white balance and grading in AP1 show
-        /// its sunlight less orange than 0.26 shows the same colour.
-        #[serde(default = "one")]
-        sun_saturation: f32,
-        /// The diffuse light of the volumes whose `full_name` starts with a
-        /// key, times its value (the longest key wins): rooms that 0.26's
-        /// eye adaptation shows darker than 0.69d's frames whatever their
-        /// probes, matched to the reference rig pose by pose. Reflections
-        /// are unchanged.
-        #[serde(default)]
-        area_gains: BTreeMap<String, f32>,
     },
-}
-
-/// The `area_gains` factor for a volume (1 outside every area).
-fn area_gain(gains: &BTreeMap<String, f32>, full_name: &str) -> f32 {
-    gains.iter().filter(|(prefix, _)| full_name.starts_with(prefix.as_str())).max_by_key(|(prefix, _)| prefix.len()).map_or(1.0, |(_, g)| *g)
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -2091,21 +2069,40 @@ fn donor_probe(object: &ConfigValue) -> Result<DonorProbe> {
     })
 }
 
+/// A donor-lit scene's tone (`super::tone`): its exposure profile, selected
+/// by the environment's `mie_fog_base_height`, and the grading texture the
+/// build makes for it on the header of the template's own (`like`).
+#[derive(Clone, Debug)]
+pub struct SceneTone {
+    pub tone: super::tone::Tone,
+    pub exposure: super::tone::Exposure,
+    pub like: String,
+}
+
+/// The grading texture a donor-lit scene's environment names (under the
+/// port's namespace).
+const GRADING_TEXTURE: &str = "color_grading/day";
+
+/// A donor-lit scene's exposure marker: `mie_fog_base_height` 33000 plus the
+/// donor's level number. Every native shader reads that field only as
+/// `min(1, exp((base - eye_y) * falloff))`, which is 1 for an eye below the
+/// base, so a height above every camera changes nothing by itself;
+/// resource-porter's lighting pack keeps the markers apart (0.21 scenes are
+/// below -32000, London's 32909 to 32929).
+fn exposure_marker(level: &str) -> Result<f32> {
+    let number: u32 = level.trim_start_matches(|c: char| !c.is_ascii_digit()).parse().with_context(|| format!("no level number in {level}"))?;
+    Ok(33000.0 + number as f32)
+}
+
 /// A probe cubemap pair made for 0.26: `textures/<ns>/<texture>.dds` from
-/// the donor probe `specular` (its cube from mip `specular_mip`, so a fill
-/// light's volume reuses its host's small), and `<texture>_diffuse.dds`
-/// from `diffuse`.
+/// the donor probe's cube and `<texture>_diffuse.dds` from its SH.
 #[derive(Clone, Debug)]
 pub struct GeneratedProbe {
     /// The volume's `full_name` in the scene.
     pub full_name: String,
     pub texture: String,
-    pub specular: DonorProbe,
-    pub specular_mip: usize,
-    pub diffuse: DiffuseRecipe,
+    pub probe: DonorProbe,
     pub scale: LightScale,
-    /// `area_gains` on the diffuse light alone.
-    pub diffuse_gain: f32,
 }
 
 /// One 0.26 probe volume of a donor-lit map.
@@ -2113,32 +2110,20 @@ struct LitVolume {
     full_name: String,
     volume: Volume,
     texture: String,
-    specular: DonorProbe,
-    specular_mip: usize,
+    probe: DonorProbe,
     specular_multiplier: f32,
-    diffuse: DiffuseRecipe,
 }
 
 struct DonorLighting {
-    /// In 0.26's drawing order (largest first).
+    /// In 0.26's drawing order (largest first): the map-wide sphere, then
+    /// the donor's probes.
     volumes: Vec<LitVolume>,
-    /// Darkening multiplicative lights: (full name, light, sRGB colour,
-    /// attenuation power), which 0.26's ambient lights reproduce.
-    darkeners: Vec<(String, DonorLight, [f32; 3], f32)>,
-    /// Darkening cylinders, left out (0.26 has no cylinder).
-    dropped_darkeners: Vec<String>,
-    light_volumes: usize,
+    /// The donor's ambient lights as 0.26 draws them, by `full_name`.
+    lights: Vec<(String, NativeLight)>,
+    /// How many of them add light, brighten (drawn as adding the share of
+    /// the light under them) and darken.
+    counts: [usize; 3],
 }
-
-/// The least a darkening light leaves of the light under it. 0.69d's keep
-/// the probe's reflections (`affect_specular` false), so a black one (the
-/// tractor station's wall tops) shows dark grey there; 0.26's take the
-/// reflections with the diffuse and draw it black.
-const DARKENER_FLOOR: f32 = 0.25;
-
-/// A fill light's volume reuses its host probe's cube from this mip (32
-/// texels): its own cube only carries its irradiance.
-const FILL_SPECULAR_MIP: usize = 3;
 
 /// The volume of a 0.69d probe or ambient light (scale = half extents).
 fn donor_volume(object: &ConfigValue, side_width_field: &str) -> Result<Volume> {
@@ -2211,14 +2196,6 @@ fn plain_name(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect()
 }
 
-/// 0.69d's probes and ambient lights as 0.26 probe volumes in drawing
-/// order. Every donor probe keeps its volume and cube; the map-wide sphere
-/// takes `global`'s. An additive (or brightening) light becomes a volume
-/// with its host's cube (the last volume drawn under its centre). 0.26
-/// draws each volume over the ones before it, so a volume's irradiance is
-/// 0.69d's light at its centre: the donor probe there (its own, or its
-/// host's) and every light drawn so far, itself included, by their falloff
-/// there; lights drawn later add themselves over it.
 /// The positions players start from: the donor's respawn points in the map's
 /// spawn folder.
 fn donor_spawn_positions(donor: &ConfigValue, map: &MapSpec) -> Result<Vec<[f32; 3]>> {
@@ -2231,7 +2208,7 @@ fn donor_spawn_positions(donor: &ConfigValue, map: &MapSpec) -> Result<Vec<[f32;
 }
 
 /// 0.69d fades an ambient light out beyond its `fade_out_distance` from the
-/// camera; 0.26's volumes have no such fade. A light farther than that from
+/// camera; 0.26's lights have no such fade. A light farther than that from
 /// every spawn (`ambient_light_chaes`, 430 m, over the power plant 456 m out)
 /// never shows in play, and kept it would light the backdrop for good.
 fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
@@ -2240,100 +2217,92 @@ fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
     !spawns.is_empty() && spawns.iter().all(|s| distance(s) > fade)
 }
 
-fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f32; 3]], global: &str, map: &MapSpec) -> Result<DonorLighting> {
-    enum Source {
-        Probe(DonorProbe, f32),
-        Light(DonorLight),
-    }
-    let mut pending: Vec<(String, Volume, Source)> = Vec::new();
-    let global_object = probes
-        .iter()
-        .find(|o| string(o, "full_name") == Some(global))
-        .with_context(|| format!("donor has no probe {global}"))?;
-    let map_wide = Volume { centre: map.global_probe_position, rotation: [0.0; 3], shape: Shape::Sphere { radius: map.global_probe_radius }, side_width: 0.5 };
-    pending.push(("env_and_lights/probes/global".into(), map_wide, Source::Probe(donor_probe(global_object)?, 1.0)));
+/// 0.69d's probes and ambient lights as 0.26's own objects.
+///
+/// Probes: every donor probe keeps its volume, cube and SH; 0.26 draws them
+/// largest first, each over the ones before by its falloff. The map-wide
+/// sphere (`map_wide`: 0.26 lights open ground with one, 0.69d has none)
+/// takes the donor's largest probe.
+///
+/// Lights, in `scale` (0.26's units): 0.69d adds `E / pi` or multiplies the
+/// light under it (`ambient_light_additive.ps`, `_multiplicative.ps`); 0.26
+/// adds with an intensity above 1 and multiplies towards its colour below
+/// (`ambient_light.ps`), through a target that cannot hold more than 1. So an
+/// adding light adds, a darkening one multiplies, and a brightening one
+/// (factor above 1) adds the share it brightens by of the probe light under
+/// its centre.
+fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f32; 3]], map_wide: Volume, scale: LightScale) -> Result<DonorLighting> {
+    let size = |v: &Volume| match v.shape {
+        Shape::Sphere { radius } => radius.powi(3) * 4.19,
+        Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
+        Shape::Cylinder { radius, half_height } => 6.28 * radius * radius * half_height,
+    };
+    let mut pending: Vec<(String, Volume, DonorProbe, f32)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
         // 0.69d: specular_multiplier -1 turns the cube's reflections off.
         let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
-        pending.push((full_name, donor_volume(object, "probe_side_width")?, Source::Probe(donor_probe(object)?, specular)));
+        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular));
     }
-    let mut darkeners = Vec::new();
-    let mut dropped_darkeners = Vec::new();
+    let largest = pending
+        .iter()
+        .max_by(|a, b| size(&a.1).total_cmp(&size(&b.1)).then_with(|| b.0.cmp(&a.0)))
+        .context("donor has no environment probe")?
+        .2
+        .clone();
+    // 0.26's order: larger first; the map-wide sphere first of all.
+    pending.sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
+    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0));
+    let mut volumes: Vec<LitVolume> = Vec::new();
+    let mut names = BTreeSet::new();
+    for (full_name, volume, probe, specular_multiplier) in pending {
+        let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
+        let stem = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
+        let mut texture = stem.clone();
+        let mut n = 1;
+        while !names.insert(texture.clone()) {
+            n += 1;
+            texture = format!("{stem}_{n}");
+        }
+        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier });
+    }
+
+    let mut donor_lights = Vec::new();
     for object in objects.iter().filter(|o| kind(o) == "ambient_light") {
         if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) || faded_out_in_play(object, spawns) {
             continue;
         }
-        let full_name = string(object, "full_name").unwrap_or("ambient_light").to_owned();
-        let (light, colour) = donor_light(object)?;
-        match light.effect {
-            // 0.26 has no cylinder, and a darkening one's box cuts
-            // straight-edged dark squares across walls and ceilings (the
-            // church's bell shaft) where 0.69d's disk fades out round.
-            LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) && matches!(light.volume.shape, Shape::Cylinder { .. }) => {
-                dropped_darkeners.push(full_name);
+        donor_lights.push((string(object, "full_name").unwrap_or("ambient_light").to_owned(), donor_light(object)?.0));
+    }
+    // The probe light under a point, averaged over every facing (0.69d
+    // scene units): 0.69d draws its multiplying lights before the adding
+    // ones, so they multiply the probes' light alone.
+    let under = |p: [f32; 3]| -> [f32; 3] {
+        let probe = &volumes.iter().rev().find(|v| v.volume.contains(p)).unwrap_or(&volumes[0]).probe;
+        let k = probe.diffuse_scale() * 0.282_094_78;
+        probe.sh[0].map(|c| (c * k).max(0.0))
+    };
+    let mut lights = Vec::new();
+    let mut counts = [0; 3];
+    for (full_name, light) in &donor_lights {
+        let native = match light.effect {
+            LightEffect::Add { radiance } => {
+                counts[0] += 1;
+                light.native_additive(radiance.map(|c| c * scale.0))
             }
             LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) => {
-                darkeners.push((full_name, light, colour, light.attenuation_power));
+                counts[2] += 1;
+                light.native_multiply(factor)
             }
-            _ => pending.push((full_name, light.volume, Source::Light(light))),
-        }
-    }
-    // 0.26's order: larger first; the map-wide sphere stays first.
-    pending[1..].sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
-    let mut volumes: Vec<LitVolume> = Vec::new();
-    let mut lights_drawn: Vec<DonorLight> = Vec::new();
-    let mut names = BTreeSet::new();
-    let mut light_volumes = 0;
-    for (full_name, volume, source) in pending {
-        // What 0.69d lights the volume's centre with: the donor probe there
-        // and every light drawn so far (larger ones, and the light itself).
-        let terms = |lights: &[DonorLight]| -> Vec<Term> {
-            lights
-                .iter()
-                .filter_map(|l| {
-                    let weight = l.volume.weight(volume.centre, l.attenuation_power);
-                    (weight > 0.0).then_some(Term { light: *l, at: volume.centre, weight })
-                })
-                .collect()
-        };
-        let lit = match source {
-            Source::Probe(probe, specular_multiplier) => {
-                let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
-                let texture = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
-                let terms = terms(&lights_drawn);
-                LitVolume { full_name, volume, texture, specular: probe.clone(), specular_mip: 0, specular_multiplier, diffuse: DiffuseRecipe { base: probe, terms } }
-            }
-            Source::Light(light) => {
-                let host = volumes
-                    .iter()
-                    .rev()
-                    .find(|v| v.volume.contains(light.volume.centre))
-                    .context("a light outside the map-wide probe")?;
-                lights_drawn.push(light);
-                light_volumes += 1;
-                let texture = format!("environment_probes/fill/{}", plain_name(full_name.trim_start_matches("environment_and_lights/")));
-                LitVolume {
-                    full_name,
-                    volume,
-                    texture,
-                    specular: host.specular.clone(),
-                    specular_mip: FILL_SPECULAR_MIP,
-                    specular_multiplier: host.specular_multiplier,
-                    diffuse: DiffuseRecipe { base: host.diffuse.base.clone(), terms: terms(&lights_drawn) },
-                }
+            LightEffect::Multiply { factor } => {
+                counts[1] += 1;
+                let below = under(light.volume.centre);
+                light.native_additive(std::array::from_fn(|c| (factor[c] - 1.0).max(0.0) * below[c] * scale.0))
             }
         };
-        let mut lit = lit;
-        let stem = lit.texture.clone();
-        let mut n = 1;
-        while !names.insert(lit.texture.clone()) {
-            n += 1;
-            lit.texture = format!("{stem}_{n}");
-        }
-        volumes.push(lit);
+        lights.push((full_name.clone(), native));
     }
-    Ok(DonorLighting { volumes, darkeners, dropped_darkeners, light_volumes })
+    Ok(DonorLighting { volumes, lights, counts })
 }
 
 /// Point every weather variant of a probe at one cubemap.
@@ -2415,6 +2384,9 @@ pub struct SceneReport {
     pub probe_textures: BTreeSet<String>,
     /// Probe cubemaps made for 0.26 (maps with `MapProbes::Donor`).
     pub generated_probes: Vec<GeneratedProbe>,
+    /// The donor's exposure, grading and curve for a donor-lit map
+    /// (`SceneTone`).
+    pub tone: Option<SceneTone>,
     pub decal_materials: BTreeSet<String>,
     pub counts: BTreeMap<String, usize>,
     pub notes: Vec<String>,
@@ -2495,6 +2467,7 @@ pub fn convert_scene(
     let mut vegetation_files = BTreeMap::new();
     let mut probe_textures = BTreeSet::new();
     let mut generated_probes = Vec::<GeneratedProbe>::new();
+    let mut scene_tone = None;
     let mut dropped = BTreeMap::<String, usize>::new();
     if excluded > 0 {
         notes.push(format!("left out: {excluded} render instances of the excluded models and their collision"));
@@ -2519,14 +2492,12 @@ pub fn convert_scene(
         "environment: native {} sky, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its exposure, colour grading and light shafts have no 0.26 counterpart",
         port.template_project()
     ));
-    // A donor-lit map: the sun in the probes' scale. 0.26 values are 0.69d's
-    // exposed values at its outdoor exposure (the auto exposure's ceiling,
-    // where a sunlit view sits): the sky the native atmosphere draws and the
-    // probes then agree within a few percent, and 0.26's eye adaptation and
-    // curve show sunlit and shaded grey as 0.69d's curve does.
+    // A donor-lit map: one scale for the sun, the probes and the lights.
+    // 0.26 values are 0.69d's exposed values at its outdoor exposure (the auto
+    // exposure's ceiling, where a sunlit view sits).
     let light_scale = match port {
-        Port::Map(MapSpec { probes: MapProbes::Donor { exposure_bias, sun_saturation, .. }, .. }) => {
-            let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")? + exposure_bias;
+        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => {
+            let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")?;
             let scale = LightScale(1.0 / (1.2 * 2f32.powf(ev)));
             let sun = super::lighting::sun_radiance(
                 real(donor_environment, "sun_intensity_r2").context("sun_intensity_r2")?,
@@ -2536,7 +2507,7 @@ pub fn convert_scene(
             )
             .map(|v| v * scale.0);
             let intensity = sun.iter().cloned().fold(0.0, f32::max);
-            let colour = sun.map(|v| (v / intensity).powf(*sun_saturation));
+            let colour = sun.map(|v| v / intensity);
             environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
             // 0.69d has no height-based ambient; 0.26's multiplies the
@@ -2548,10 +2519,35 @@ pub fn convert_scene(
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?} (saturation {sun_saturation}), intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
                 colour.map(|v| (v * 1000.0).round() / 1000.0)
             ));
+            // Exposure, grading and curve: 0.69d's own (`super::tone`).
+            if let Port::Map(map) = port {
+                let tone = super::tone::Tone::read(donor_environment)?;
+                let exposure = tone.exposure(exposure_marker(&map.level)?);
+                let like = environment.named("properties").and_then(|p| string(p, "color_grading_texture")).context("the template environment has no colour grading texture")?.to_owned();
+                environment.set_path("properties.mie_fog_base_height", ConfigValue::Float(exposure.marker))?;
+                environment.set_path("properties.use_color_grading_texture", ConfigValue::Boolean(true))?;
+                environment.set_path("properties.color_grading_texture", ConfigValue::String(GRADING_TEXTURE.into()))?;
+                // 0.26g turns dark colours blue (`blueshift`: its share of
+                // the colour kept is `saturate(luma * blueshift + 0.21)`);
+                // 0.69d has no such term.
+                environment.set_path("properties.blueshift", ConfigValue::Float(1e6))?;
+                notes.push(format!(
+                    "tone: 0.69d's exposure range EV {} to {} as exposure profile marker {} (mie_fog_base_height), floor {:.6}, ceiling {:.6}, key {:.4} (resource-porter's lighting pack draws it: its exposure_profiles row); its {}curve {:?} as the scene's own colour grading texture; no blue shift",
+                    tone.min_ev,
+                    tone.max_ev,
+                    exposure.marker,
+                    exposure.floor,
+                    exposure.ceiling,
+                    exposure.key,
+                    if tone.grading.is_some() { "colour grading and " } else { "" },
+                    tone.curve
+                ));
+                scene_tone = Some(SceneTone { tone, exposure, like });
+            }
             Some((scale, ev))
         }
         _ => None,
@@ -2575,8 +2571,12 @@ pub fn convert_scene(
                 .max_by(|a, b| real(a, "radius").unwrap_or(0.0).total_cmp(&real(b, "radius").unwrap_or(0.0)))
                 .context("template has no sphere probe")?
                 .clone();
-            global.set_path("position", ConfigValue::Float3(map.global_probe_position))?;
-            global.set_path("radius", ConfigValue::Float(map.global_probe_radius))?;
+            if let Some(position) = map.global_probe_position {
+                global.set_path("position", ConfigValue::Float3(position))?;
+            }
+            if let Some(radius) = map.global_probe_radius {
+                global.set_path("radius", ConfigValue::Float(radius))?;
+            }
             global.set_path("name", ConfigValue::String("global".into()))?;
             global.set_path("full_name", ConfigValue::String("env_and_lights/probes/global".into()))?;
             let donor_probe_objects: Vec<&ConfigValue> = donor_objects
@@ -2628,7 +2628,7 @@ pub fn convert_scene(
                         count("environment_probe");
                     }
                 }
-                MapProbes::Donor { global: global_name, area_gains, .. } => {
+                MapProbes::Donor { .. } => {
                     let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
                     let spawns = donor_spawn_positions(donor, map)?;
                     let faded: Vec<&str> = donor_objects
@@ -2639,11 +2639,16 @@ pub fn convert_scene(
                     if !faded.is_empty() {
                         notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
                     }
-                    let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, global_name, map)?;
+                    let map_wide = Volume {
+                        centre: float3(&global, "position")?,
+                        rotation: [0.0; 3],
+                        shape: Shape::Sphere { radius: real(&global, "radius").context("the map-wide probe's radius")? },
+                        side_width: 0.5,
+                    };
+                    let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, map_wide, scale)?;
                     // 0.26 draws probes largest first, each over the ones
                     // before it by its falloff (`environment_probe_lighting`
-                    // blends with the weight in alpha). A volume's irradiance
-                    // is what lies under its centre plus itself.
+                    // blends with the weight in alpha).
                     for v in &lit.volumes {
                         let mut p = global.clone();
                         place_volume(&mut p, &v.volume, &v.full_name)?;
@@ -2652,48 +2657,34 @@ pub fn convert_scene(
                         p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
                         objects.push(p);
                         count("environment_probe");
-                        generated_probes.push(GeneratedProbe {
-                            full_name: v.full_name.clone(),
-                            texture: v.texture.clone(),
-                            specular: v.specular.clone(),
-                            specular_mip: v.specular_mip,
-                            diffuse: v.diffuse.clone(),
-                            scale,
-                            diffuse_gain: area_gain(area_gains, &v.full_name),
-                        });
+                        generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
                     }
                     let ambient_template = first_template(template, "ambient_light")?;
-                    for (full_name, light, _, power) in &lit.darkeners {
+                    for (full_name, light) in &lit.lights {
                         let mut a = ambient_template.clone();
                         place_volume(&mut a, &light.volume, full_name)?;
-                        let LightEffect::Multiply { factor } = light.effect else { unreachable!() };
-                        // 0.26 multiplies by colour^2.2 * intensity: the
-                        // factor as a colour at intensity 1, never below
-                        // the floor.
-                        let shade = factor.map(|f| f.clamp(DARKENER_FLOOR, 1.0).powf(1.0 / 2.2));
-                        a.set_path("color", ConfigValue::Integer(packed_colour(shade)))?;
-                        a.set_path("intensity", ConfigValue::Float(1.0))?;
-                        a.set_path("attenuation_power", ConfigValue::Float(*power))?;
+                        a.set_path("color", ConfigValue::Integer(packed_colour(light.colour)))?;
+                        a.set_path("intensity", ConfigValue::Float(light.intensity))?;
+                        a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
                         a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
-                        a.set_path("dot_normal", ConfigValue::Boolean(light.facing.is_some()))?;
+                        a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal))?;
+                        // 0.69d's ambient lights leave the reflections alone.
                         a.set_path("affect_specular", ConfigValue::Boolean(false))?;
+                        a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
+                        a.set_path("enabled", ConfigValue::Boolean(true))?;
                         objects.push(a);
                         count("ambient_light");
                     }
                     notes.push(format!(
-                        "environment probes: the donor's {} volumes with their own cubemaps re-encoded for 0.26 (scale {:.4e}: 0.69d's exposure at EV {}) and irradiance from their SH, {global_name}'s also as the map-wide sphere; {} additive or brightening ambient lights as probe volumes over the probe under them (0.26's ambient lights only darken), {} darkening ones as 0.26 ambient lights",
+                        "light: the donor's {} probe volumes with their own cubemaps re-encoded for 0.26 (scale {:.4e}: 0.69d's exposure at EV {}) and irradiance from their SH, the largest ({}) also as the map-wide sphere; its ambient lights as 0.26 ambient lights: {} adding, {} brightening (adding their share of the light under them), {} darkening",
                         donor_probe_objects.len(),
                         scale.0,
                         outdoor_ev,
-                        lit.light_volumes,
-                        lit.darkeners.len()
+                        lit.volumes[0].probe.texture,
+                        lit.counts[0],
+                        lit.counts[1],
+                        lit.counts[2]
                     ));
-                    if !area_gains.is_empty() {
-                        notes.push(format!("probe areas' diffuse light raised to 0.69d's frames (manifest area_gains): {area_gains:?}"));
-                    }
-                    if !lit.dropped_darkeners.is_empty() {
-                        notes.push(format!("darkening ambient lights shaped as cylinders, left out (0.26 has no cylinder; a box would cut straight-edged dark squares): {:?}", lit.dropped_darkeners));
-                    }
                 }
             }
         }
@@ -2777,13 +2768,13 @@ pub fn convert_scene(
     enum AmbientLights {
         Drop,
         Keep,
-        /// Already in the probe volumes (`donor_lighting`).
-        InProbes,
+        /// Already made into 0.26 lights (`donor_lighting`).
+        Converted,
     }
     let ambient_lights = match port {
         Port::Map(MapSpec { probes: MapProbes::Native { ambient_lights: true, .. }, .. }) | Port::Lobby(_) => AmbientLights::Keep,
         Port::Map(MapSpec { probes: MapProbes::Native { .. }, .. }) => AmbientLights::Drop,
-        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => AmbientLights::InProbes,
+        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => AmbientLights::Converted,
     };
     let particle_template = templates_of(template, "particle").first().map(|p| (*p).clone());
 
@@ -2799,7 +2790,7 @@ pub fn convert_scene(
             "ambient_light" if matches!(ambient_lights, AmbientLights::Drop) => {
                 *dropped.entry("ambient_light (photometric units and shapes 2/3 have no 0.26 equivalent)".into()).or_default() += 1;
             }
-            "ambient_light" if matches!(ambient_lights, AmbientLights::InProbes) => {}
+            "ambient_light" if matches!(ambient_lights, AmbientLights::Converted) => {}
             "environment_probe" => {}
             // 0.69d's `type` 1 ambient lights multiply the light under them
             // (the scene's painted contact shadows, a multiplier below 1);
@@ -3154,6 +3145,7 @@ pub fn convert_scene(
         vegetation_files,
         probe_textures,
         generated_probes,
+        tone: scene_tone,
         decal_materials,
         counts,
         notes,
@@ -3699,6 +3691,10 @@ pub fn build(
             environment.set_path("properties.sky_clouds_texture", ConfigValue::String(format!("{ns}/{}", plain_texture(&t))))?;
             textures.insert(t);
         }
+        // The scene's own colour grading texture (`SceneTone`).
+        if scene.tone.is_some() {
+            environment.set_path("properties.color_grading_texture", ConfigValue::String(format!("{ns}/{GRADING_TEXTURE}")))?;
+        }
     }
     // Probe cubemaps this build makes (`MapProbes::Donor`).
     let generated_textures: BTreeSet<String> = scene.generated_probes.iter().map(|g| format!("{ns}/{}", g.texture)).collect();
@@ -3982,6 +3978,14 @@ pub fn build(
 
     crate::weapon::prepare_empty_output(output)?;
     let mut files: Vec<BuiltFile> = Vec::new();
+    // The scene's own colour grading texture (`SceneTone`), on the header
+    // and options of the template's.
+    if let Some(t) = &scene.tone {
+        let like = target.read(&format!("textures/{}.dds", t.like))?;
+        let what = "0.69d's colour grading and tone curve for 0.26g's curve under the scene's exposure profile";
+        emit(output, &format!("textures/{ns}/{GRADING_TEXTURE}.dds"), &t.tone.lut(&t.exposure, &like)?, what, &mut files)?;
+        emit(output, &format!("textures/{ns}/{GRADING_TEXTURE}.options"), &target.read(&format!("textures/{}.options", t.like))?, what, &mut files)?;
+    }
     // Probe cubemaps made from the donor's (`MapProbes::Donor`), with the
     // options native probes carry.
     if !scene.generated_probes.is_empty() {
@@ -3991,24 +3995,22 @@ pub fn build(
             .context("template has no probe cubemap")?;
         let options = target.read(&format!("textures/{native}.options"))?;
         let diffuse_options = target.read(&format!("textures/{native}_diffuse.options"))?;
-        let mut cubes = BTreeMap::<(String, usize), Vec<u8>>::new();
+        let mut cubes = BTreeMap::<String, Vec<u8>>::new();
         let mut clamped = 0;
         for g in &scene.generated_probes {
-            let key = (g.specular.texture.clone(), g.specular_mip);
+            let key = g.probe.texture.clone();
             if !cubes.contains_key(&key) {
                 // 0.69d probes name their cube under `environment_probes/`.
-                let bytes = donor.read(&format!("textures/environment_probes/{}.dds", g.specular.texture))?;
-                let gain = super::lighting::adaptation_gain(&g.specular, g.scale);
-                let (cube, over) = super::lighting::specular_cube(&bytes, &g.specular, LightScale(g.scale.0 * gain), g.specular_mip)?;
+                let bytes = donor.read(&format!("textures/environment_probes/{}.dds", g.probe.texture))?;
+                let (cube, over) = super::lighting::specular_cube(&bytes, &g.probe, g.scale, 0)?;
                 clamped += over;
                 cubes.insert(key.clone(), cube);
             }
             let base = format!("textures/{ns}/{}", g.texture);
-            let what = format!("0.69d probe {} re-encoded for 0.26 ({})", g.specular.texture, g.full_name);
+            let what = format!("0.69d probe {} re-encoded for 0.26 ({})", g.probe.texture, g.full_name);
             emit(output, &format!("{base}.dds"), &cubes[&key], &what, &mut files)?;
             emit(output, &format!("{base}.options"), &options, &what, &mut files)?;
-            let gain = super::lighting::adaptation_gain(&g.diffuse.base, g.scale);
-            let diffuse = super::lighting::diffuse_cube(&g.diffuse, LightScale(g.scale.0 * gain * g.diffuse_gain));
+            let diffuse = super::lighting::diffuse_cube(&g.probe, g.scale);
             emit(output, &format!("{base}_diffuse.dds"), &diffuse, &what, &mut files)?;
             emit(output, &format!("{base}_diffuse.options"), &diffuse_options, &what, &mut files)?;
             probe_textures.insert(g.texture.clone());
@@ -5013,14 +5015,6 @@ fn rewrite_scene(
 mod tests {
     use super::*;
 
-    #[test]
-    fn area_gains_take_the_longest_prefix() {
-        let gains: BTreeMap<String, f32> = [("a/day/church/".into(), 2.0), ("a/day/church/bell".into(), 3.0)].into_iter().collect();
-        assert_eq!(area_gain(&gains, "a/day/church/church(2)"), 2.0);
-        assert_eq!(area_gain(&gains, "a/day/church/bell(1)"), 3.0);
-        assert_eq!(area_gain(&gains, "a/day/school/indoor"), 1.0);
-    }
-
     fn static_mesh(basis: [u32; 3], stride: usize, extra: &[(u32, Vec<u8>)]) -> Vec<u8> {
         let mut b = Vec::new();
         b.extend(3u32.to_le_bytes());
@@ -5532,8 +5526,8 @@ mod tests {
         ]);
         let spec = MapSpec {
             id: 205, level: "level_11".into(), donor_project: "p".into(), template_project: "t".into(), template_mode: "m".into(),
-            output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: [0.0; 3],
-            global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
+            output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: Some([0.0; 3]),
+            global_probe_radius: Some(300.0), spawn_folder: "logic/modes/tdm/spawns/".into(),
             probes: MapProbes::Native { classes: Vec::new(), matte_water: None, ambient_lights: false }, environment: BTreeMap::new(),
             donor_mode: "d".into(), loading_screen_id: None, level_id: None, map_name: None,
             native_objects: None, modes: Vec::new(), published_patches: Vec::new(),
