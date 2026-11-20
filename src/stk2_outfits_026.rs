@@ -47,7 +47,7 @@ use crate::outfit_026::{
     Finish, Writer, converted_bounds, keep_triangles, remap_uvs, s, tga_size, uv_crop,
 };
 use crate::weapon::{parse_config, prepare_empty_output, record_file};
-use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb};
+use crate::{BinaryConfig, ConfigValue as V, NamedValue, ResourceDb, decals_026};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::json;
 use std::{
@@ -1047,8 +1047,16 @@ impl Built {
         format!("{} {}", self.outfit.key, self.piece.name)
     }
 
+    /// A piece that takes decals has its outfit in its models' file names:
+    /// the game names an item's baked textures after its model's file name
+    /// alone (`decals_026`), and every outfit has a `torso` and `legs`.
     fn model_path(&self, suffix: &str) -> String {
-        format!("ported/{}/{}{suffix}", self.outfit.ns, self.piece.name)
+        let (ns, name) = (self.outfit.ns, self.piece.name);
+        if decals_026::takes_decals(self.piece.kind.category()) {
+            format!("ported/{ns}/{ns}_{name}{suffix}")
+        } else {
+            format!("ported/{ns}/{name}{suffix}")
+        }
     }
 
     /// The config tables' class: the model_type a glove or boot is worn as.
@@ -2771,6 +2779,12 @@ pub fn build(
     }
 
     // --- The bundles ---
+    let decal_models: Vec<String> = built
+        .iter()
+        .filter(|b| decals_026::takes_decals(b.piece.kind.category()))
+        .flat_map(|b| b.models.keys().map(|suffix| b.model_path(suffix)))
+        .collect();
+    decals_026::check_model_names(&decal_models, &decals_026::game_model_names(&cx.view))?;
     for key in outfits {
         let outfit = outfit(key)?;
         let pieces: Vec<&Built> = built
@@ -3347,13 +3361,30 @@ fn write_bundle(
             // mask free.
             V::Indexed(vec![]),
         )?;
-        if let Some(V::Named(fields)) = c.root.named_mut("data") {
-            fields.retain(|f| f.name != "decals");
-        }
+        // No camouflage: the port makes no mask for its bake (`_aoac`).
         c.root
             .set_path("parameters.camo_available", V::Boolean(false))?;
-        c.root
-            .set_path("parameters.decal_available", V::Boolean(false))?;
+        // Decals as the stock pieces of the slot (`decals_026`): jackets and
+        // trousers take them, on the garment's own surface.
+        decals_026::set(&mut c.root, category)?;
+        if decals_026::takes_decals(category) {
+            for &(_, suffix) in piece.kind.variants() {
+                let surfaces: Vec<&[u8]> = b.models[suffix]
+                    .surfaces
+                    .iter()
+                    .map(|(_, model, _)| model.as_slice())
+                    .collect();
+                let label = format!("{}{suffix}", piece.name);
+                let found = decals_026::check_surface(&label, &surfaces)?;
+                println!(
+                    "{} {label}: decals on `{}`, {:.2} m2, {:.1} % of its texels shared",
+                    outfit.key,
+                    b.models[suffix].surfaces[0].0,
+                    found.area,
+                    found.shared_texels * 100.0
+                );
+            }
+        }
         c.root.set_path(
             "ui_desc.icon",
             V::Indexed(piece.icon.into_iter().map(V::Integer).collect()),

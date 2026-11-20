@@ -2,7 +2,7 @@
 //! Shared steps for STK2 outfit pieces retargeted to the native v0.26g player.
 use crate::manifest::{BuiltFile, TargetModelSpec, TextureCompression};
 use crate::weapon::{parse_config, record_file, write_generated_config};
-use crate::{BinaryConfig, ConfigValue as V, ResourceDb};
+use crate::{BinaryConfig, ConfigValue as V, ResourceDb, decals_026};
 use anyhow::{Context, Result, bail, ensure};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, path::Path};
@@ -369,10 +369,11 @@ pub(crate) fn add_piece(
             c.root.set_path(&format!("{key}.part_name"), s(part))?;
         }
     }
+    // No camouflage (no mask is made for its bake); decals as the stock
+    // pieces of the slot (`decals_026`).
     c.root
         .set_path("parameters.camo_available", V::Boolean(false))?;
-    c.root
-        .set_path("parameters.decal_available", V::Boolean(false))?;
+    decals_026::set(&mut c.root, category)?;
     c.root
         .set_path("data.additional_models", V::Indexed(vec![]))?;
     c.root
