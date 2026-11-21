@@ -3018,6 +3018,30 @@ pub fn convert_scene(
             // template's cloud normal map: unlit, 0.26 draws them dark.
             if let Some(clouds) = string(donor_environment, "sky_clouds_texture") {
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
+                // 0.69d's cloud shadows on its sun (`use_cloud_shadows`, `cloud_shadows.ps`):
+                // 0.26g's sky shadows (the least of the sun's shadow and
+                // `sky_shadows_texture.x`), the texture the clouds' panorama, drawn 0.69d's
+                // way (along the sun to the cloud shell, turning with the clouds) by
+                // resource-porter's lighting pack behind the scene's marker: its
+                // cloud_shadow_profiles row, printed here. Defaults are 0.69d's (0x20017BD50).
+                if matches!(donor_environment.named("use_cloud_shadows"), Some(ConfigValue::Boolean(true))) {
+                    if let Port::Map(map) = port {
+                        environment.set_path("properties.use_sky_shadows", ConfigValue::Boolean(true))?;
+                        environment.set_path("properties.sky_shadows_texture", ConfigValue::String(clouds.into()))?;
+                        let (e, a) = (elevation.to_radians(), azimuth.to_radians());
+                        let light = [a.cos() * e.cos(), -e.sin(), a.sin() * e.cos()];
+                        notes.push(format!(
+                            "cloud shadows: 0.69d's on the sun as 0.26g's sky shadows (sky_shadows_texture {clouds}); the lighting pack's cloud_shadow_profiles row: marker {}, light {:?}, cloud_altitude_km {}, cloud_shadow_opacity {}, cloud_shadow_opacity_power {}, clouds_rounds_per_minute {}, sky_clouds_rotation_degrees {}",
+                            exposure_marker(&map.level)?,
+                            light,
+                            real(donor_environment, "cloud_altitude").unwrap_or(1.0),
+                            real(donor_environment, "cloud_shadow_opacity").unwrap_or(1.0),
+                            real(donor_environment, "cloud_shadow_opacity_power").unwrap_or(0.25),
+                            real(donor_environment, "clouds_rounds_per_minute").unwrap_or(0.0),
+                            real(donor_environment, "sky_clouds_rotation").unwrap_or(0.0)
+                        ));
+                    }
+                }
             }
             notes.push(format!(
                 "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
@@ -4411,6 +4435,10 @@ pub fn build(
         let clouds = environment.named("properties").and_then(|p| string(p, "sky_clouds_texture")).map(str::to_owned);
         if let Some(t) = clouds.filter(|t| donor.is_file(&format!("textures/{t}.dds")) && !target.is_file(&format!("textures/{t}.dds"))) {
             environment.set_path("properties.sky_clouds_texture", ConfigValue::String(format!("{ns}/{}", plain_texture(&t))))?;
+            // the cloud shadows read the same panorama
+            if environment.named("properties").and_then(|p| string(p, "sky_shadows_texture")) == Some(t.as_str()) {
+                environment.set_path("properties.sky_shadows_texture", ConfigValue::String(format!("{ns}/{}", plain_texture(&t))))?;
+            }
             textures.insert(t);
         }
         // The scene's own colour grading texture (`SceneTone`).
