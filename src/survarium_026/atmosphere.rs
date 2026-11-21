@@ -30,15 +30,19 @@
 //!   0x200510B65; the environment fields by the loader 0x200222EF0); the
 //!   pass and order sequence is the exe's (0x200555B50); the sRGB weights
 //!   integrated at 1 nm give `sky_dome.ps`'s solar constants exactly.
-//! * Its sky: Rudnya's `global` probe is in the units of its own SH (band 0
-//!   within 0.7 %, `rudnya_probe_sh0`), and a kept 0.69d frame taken back
-//!   through its curve and grading agrees with it (`rudnya_shot_sky`). With
-//!   Rudnya's `air_density` 2 this sky is 1.6 to 1.7 times the probe in all
-//!   channels; with 1 (Rudnya's turbidity 9, sun 0.85, four orders) it is
-//!   0.92, 0.94, 0.97 of it (median, quartiles within 0.84..0.99, the probe's
-//!   clouds adding light), every other variant worse (`rudnya_probe_check`
-//!   with `SKHID_ATM`). Why 0.69d's tables take the Rayleigh of density 1
-//!   is not found: every step read passes the environment's 2 through.
+//! * Its sky, against six maps' global probes (`probe_density_scan`; a
+//!   probe is in the units of its own SH, Rudnya's band 0 within 0.7 %,
+//!   `rudnya_probe_sh0`; Rudnya's agrees with a kept 0.69d frame taken back
+//!   through its curve and grading, `rudnya_shot_sky`), each at its own
+//!   environment: shooting_range (density 3) 1.01, 1.01, 1.00 of the probe
+//!   (median R, G, B) and level_10 (1.5) 0.95, 0.98, 1.02: this model. Rudnya
+//!   (2) 1.66, 1.73, 1.62, level_06 (1.5) 1.64, 1.54, 1.42 and level_11 (5)
+//!   1.52, 1.46, 1.35 (log spread 0.03 to 0.09): a nearly uniform factor of
+//!   0.60 to 0.69 on the sky that this model does not have. The three have
+//!   `use_cloud_shadows` on, the two that match have it off or unset: the
+//!   cause is NOT found (Rudnya alone also fits a density of 1, which the
+//!   other maps refute). Do not ship a sky or fog colour from this table
+//!   until it is.
 
 // Planet (every program's immediates): ground and top radius (km), and
 // H = sqrt(TOP^2 - BOTTOM^2).
@@ -1314,6 +1318,80 @@ mod tests {
         write("p0_delta2.bin", spectral(&delta));
         write("p0_added2.bin", texel(&added));
         write("scattering.bin", texel(Atmosphere::new(env).scattering()));
+    }
+
+    /// Any 0.69d map's global probe against the model over a scan of the
+    /// Rayleigh density (`SKHID_ATM_MAP`: "elevation,azimuth,density,
+    /// turbidity,sun_intensity_r2,sky_intensity,tint_r,tint_g,tint_b,
+    /// disk_scale,capture_ev,probe_y"; the probe in SKHID_069D_GLOBAL_PROBE).
+    /// Clear-sky texels: the bluest tenth of each 5 x 30 degree cell above
+    /// 10 degrees. Prints the median model/probe per channel and the spread.
+    #[test]
+    #[ignore]
+    fn probe_density_scan() {
+        use super::super::lighting::{cube_direction, decode_069d};
+        let v: Vec<f32> = std::env::var("SKHID_ATM_MAP").unwrap().split(',').map(|x| x.parse().unwrap()).collect();
+        let cube = crate::dds_cube::decode_cube(&std::fs::read(std::env::var("SKHID_069D_GLOBAL_PROBE").unwrap()).unwrap()).unwrap();
+        let field = v[2];
+        let exposure = 1.0 / (1.2 * 2f32.powf(v[10]));
+        let n = cube.size;
+        let mut texels: Vec<([f32; 3], [f32; 3], (i32, i32), f32)> = Vec::new();
+        for face in 0..6 {
+            for y in 0..n {
+                for x in 0..n {
+                    let d = cube_direction(face, x, y, n);
+                    let el = d[1].asin().to_degrees();
+                    if el <= 10.0 {
+                        continue;
+                    }
+                    let p = decode_069d(cube.faces[face][0][y * n + x]);
+                    let az = d[0].atan2(d[2]).to_degrees();
+                    texels.push((d, p, ((el / 5.0) as i32, ((az + 180.0) / 30.0) as i32), p[2] / (p[0] + p[1] + p[2]).max(1e-9)));
+                }
+            }
+        }
+        let mut cells: std::collections::BTreeMap<(i32, i32), Vec<usize>> = Default::default();
+        for (i, t) in texels.iter().enumerate() {
+            cells.entry(t.2).or_default().push(i);
+        }
+        let mut keep = Vec::new();
+        for (_, mut idx) in cells {
+            idx.sort_by(|a, b| texels[*b].3.total_cmp(&texels[*a].3));
+            keep.extend(idx[..idx.len().div_ceil(10)].iter().cloned());
+        }
+        for density in [field, field / 2.0, 1.0, 0.5, 1.5, 2.0, 3.0] {
+            let env = Environment {
+                sun: Sun { elevation_deg: v[0], azimuth_deg: v[1] },
+                sun_intensity_r2: v[4],
+                sun_disk_radius_scale: v[9],
+                air_density: density,
+                air_turbidity: v[3],
+                sky_intensity: v[5],
+                sky_tint: [v[6], v[7], v[8]],
+                fog_tint: [1.0; 3],
+            };
+            let a = Atmosphere::new(env);
+            let mut r: [Vec<f32>; 3] = Default::default();
+            for &i in &keep {
+                let (d, p, _, _) = texels[i];
+                let m = a.sky(d, v[11]).0;
+                for k in 0..3 {
+                    r[k].push(m[k] * exposure / p[k].max(1e-9));
+                }
+            }
+            let stats = |c: &mut Vec<f32>| {
+                c.sort_by(f32::total_cmp);
+                let logs: Vec<f32> = c.iter().map(|x| x.ln()).collect();
+                let mean = logs.iter().sum::<f32>() / logs.len() as f32;
+                let sd = (logs.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / logs.len() as f32).sqrt();
+                (c[c.len() / 2], c[c.len() / 4], c[3 * c.len() / 4], sd)
+            };
+            let s: Vec<_> = r.iter_mut().map(stats).collect();
+            println!(
+                "density {density:4.2}: median R {:.3} G {:.3} B {:.3} | quartiles R {:.2}-{:.2} G {:.2}-{:.2} B {:.2}-{:.2} | log sd {:.2} {:.2} {:.2} | n {}",
+                s[0].0, s[1].0, s[2].0, s[0].1, s[0].2, s[1].1, s[1].2, s[2].1, s[2].2, s[0].3, s[1].3, s[2].3, keep.len()
+            );
+        }
     }
 
     /// Each scattering order's share of the sky (diagnostic).
