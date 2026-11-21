@@ -79,9 +79,17 @@ grading texture, which the map's pack carries.
 Unlike the 0.21 curve and the key profiles, an exposure profile is also drawn by the tone
 program of post-process quality 0 and 1 (six paths, one program: the same tone block
 without the vignette): under the native block such a scene is about ten times too bright.
-The two depth-of-field programs (`__3__...10`, `__3__...11`) are not adapted yet: their
-block is the same arithmetic in another order and they already bind `static_globals` with
-fewer rows.
+The two depth-of-field programs (`__3__...10`, `__3__...11`) are not adapted, and need not
+be: they never draw a scene without `use_bokeh_dof`. `stage_postprocess::execute` (0x1B2270
+of the 0.26g exe) takes the tone effect from four at `stage+0xA4` by
+`2 * dof + bokeh_template` (0x1B29F0..0x1B2A35), and `dof` is 1 only when the scene's
+environment has `use_bokeh_dof` (`+0x248` of its environment properties, read at 0x34F5B5;
+0 by default, 0x34D9A0) with `r_post_process_quality` above 0, or while the lobby's decal
+close-up sets the byte at 0x1F1DA26 (0x265EA4, cleared at 0x265F2B: the lobby's scene, never
+a map's). No 0.69d scene sets `use_bokeh_dof` (the converter writes the donor's environment,
+which has no such property); 209 native and ported environments set it true (rain,
+pre-rain, the ported STALKER and 0.11e maps), and no gameplay effect does. An exposure profile for a
+scene that sets it would need these two programs adapted too.
 
 ### Metering
 
@@ -118,7 +126,8 @@ the greatest luminance) and every other scene keep the native instructions.
   and is declared at b0, not b1: the game binds a program's buffers by their order in its
   reflection (`constants_handler<1>::apply`, 0x3D5A30 of the 0.26g exe), and every one of
   the 14745 stock programs has each buffer at its own index.
-- The two depth-of-field tone programs, not adapted, read the same mean for such a scene.
+- The two depth-of-field tone programs, not adapted, would read the same mean for such a
+  scene; they never draw one (above).
 
 `tools/content/three_maps_021_environment.py` generates the two source edit
 lists from the donor and canonical map packs. It verifies authored numeric
