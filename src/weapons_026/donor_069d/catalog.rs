@@ -92,6 +92,9 @@ pub struct ModuleDef {
     pub attaches: Vec<AttachDef>,
     /// A grip's sixteen locator names: fifteen fingers, then the hand.
     pub finger_locators: Vec<String>,
+    /// A collimator's `possible_reticles`, its models' paths; the first is
+    /// the one it comes with. No magnified scope has any.
+    pub reticles: Vec<String>,
     /// The suppressor whose material every surface of its model draws, for a module of muzzle
     /// slots that is none by its group or name: that suppressor in another shape (the VSSK's
     /// heavy and long barrels). Read from the models ([`Catalog::find_suppressor_shapes`]);
@@ -369,6 +372,10 @@ impl Catalog {
                     finger_locators: list(v.named("finger_locators"))
                         .iter()
                         .map(|n| string_of(Some(n)).map(str::to_owned))
+                        .collect::<Result<_>>()?,
+                    reticles: list(v.named("possible_reticles"))
+                        .iter()
+                        .map(|r| text(r, "path"))
                         .collect::<Result<_>>()?,
                     suppressor_shape: None,
                 })
