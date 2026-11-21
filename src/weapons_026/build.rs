@@ -814,16 +814,23 @@ pub fn build<D: Donor>(
         if let Some(icon) = &w.lobby_icon {
             let symbol = "LobbyMenu_WeaponIcons";
             let name = format!("{symbol}-r{:02}c{:02}.png", icon.row, icon.col);
+            // A gun no build drew an icon for has the port's own image.
+            let (image, source) = match &icon.file {
+                Some(file) => (
+                    fs::read(port.dir.join(file)).with_context(|| format!("reading {file}"))?,
+                    file,
+                ),
+                None => (carry.donor.read(&icon.donor_png)?, &icon.donor_png),
+            };
             fs::write(
                 icons_dir.join(&name),
                 erase_rects(
-                    &cell_png(&carry.donor.read(&icon.donor_png)?)
-                        .with_context(|| icon.donor_png.clone())?,
+                    &cell_png(&image).with_context(|| source.clone())?,
                     &icon.erase,
                 )
-                .with_context(|| icon.donor_png.clone())?,
+                .with_context(|| source.clone())?,
             )?;
-            icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": icon.donor_png}));
+            icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": source}));
         }
         if let Some(png) = &w.kill_feed.donor_png {
             let dest = output.join(kill_feed_name(w.kill_feed.icon));
