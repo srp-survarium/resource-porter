@@ -232,7 +232,8 @@ pub struct Checked {
     pub gun: String,
     /// The fitted module, or `-` for a refusal of the fit itself.
     pub fit: String,
-    /// What was compared: a part's model, `eye`, `fire_point`, `hand`, `optic`.
+    /// What was compared: a part's model, `eye` (`eye line`: an eye at the gun's own eye plane,
+    /// its line of sight), `fire_point`, `hand`, `optic`.
     pub what: String,
     /// The largest distance between ours and 0.69d0's, mm.
     pub mm: f64,
@@ -1989,7 +1990,7 @@ fn check(
                             .and_then(|rules| rules.overrides.iter().find(|o| o.id == "aim"))
                             .is_some_and(|aim| aim.plane.is_some());
                         let theirs = if in_plane { nearest_on_line(&theirs, &ours_eye.t) } else { theirs };
-                        row("eye", spread(&PROBE, &ours_eye, &theirs), if in_plane { "line of sight" } else { "" });
+                        row(if in_plane { "eye line" } else { "eye" }, spread(&PROBE, &ours_eye, &theirs), "");
                         if !push_centre(donor, live_item, &fit.module, &optic, &eye, aimed, centres)? {
                             row("reticle", 0.0, "its aimed model has no reticle surface");
                         }
