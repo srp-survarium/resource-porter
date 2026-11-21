@@ -303,6 +303,13 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
         }
     }
 
+    fs::create_dir_all(output)?;
+    fs::write(output.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
+    let incomplete: Vec<&String> = report.values().flat_map(|r| &r.incomplete).collect();
+    ensure!(
+        incomplete.is_empty(),
+        "programs with a patch's macro on lack runtime choices the same keys with it off have (a material would find no program at some quality; report.json says which and why the donors' were not supplied): {incomplete:#?}"
+    );
     let mut operations = Vec::new();
     for (family, macros) in &m.new_macros {
         let (name, stage) = family.rsplit_once('.').with_context(|| format!("{family}: not <name>.<stage>"))?;
@@ -337,13 +344,6 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
     };
     fs::create_dir_all(output)?;
     fs::write(output.join("pack.json"), serde_json::to_vec_pretty(&pack)?)?;
-    fs::create_dir_all(output)?;
-    fs::write(output.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
-    let incomplete: Vec<&String> = report.values().flat_map(|r| &r.incomplete).collect();
-    ensure!(
-        incomplete.is_empty(),
-        "programs with a patch's macro on lack runtime choices the same keys with it off have (a material would find no program at some quality; report.json says which and why the donors' were not supplied): {incomplete:#?}"
-    );
     for (family, r) in &report {
         println!(
             "{family}: {} of players' rekeyed ({} stale left); donors' lacking {}, supplied {} ({} with a new macro on), {} keys in both donors ({} with other code); not supplied {:?}",
