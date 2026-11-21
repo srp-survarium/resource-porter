@@ -13,6 +13,13 @@ const TARGET_HASHES: [&str; 2] = [
     "53a7ec7a0281328e5a298d83e9463fb06945af517ebd1391f04ea0ac3dc4847d",
 ];
 
+/// The family's program of post-process quality 0 and 1 (six paths): the same tone block
+/// and declarations, no vignette. The 0.21 adaptation and the key profiles were made for
+/// the two programs above and leave this one native; an exposure profile cannot (a scene
+/// of one is lit for its own exposure range: under the native block it draws ten times
+/// too bright), so this program takes the exposure profiles alone.
+const EXPOSURE_ONLY_HASHES: [&str; 1] = ["469fb8c0864690159b1c8e01b36671e6e4f34f9388af3d71fabf2239f19b1633"];
+
 /// The native tone curve's exposure key (`div r, l(4.5), r` in every native program).
 const NATIVE_KEY: f32 = 4.5;
 /// A key profile's marker: a whole height above any camera of a map.
@@ -105,9 +112,11 @@ pub fn build_tonemap_profiles(
         );
     }
     let target_hash = format!("{:x}", Sha256::digest(target));
-    if !TARGET_HASHES.contains(&target_hash.as_str()) {
+    let exposure_only = EXPOSURE_ONLY_HASHES.contains(&target_hash.as_str());
+    if exposure_only && exposures.is_empty() || !exposure_only && !TARGET_HASHES.contains(&target_hash.as_str()) {
         return Ok(None);
     }
+    let (markers, keys): (&[f32], &[KeyProfile]) = if exposure_only { (&[], &[]) } else { (markers, keys) };
     let (_, original) = pinned_code(source, SOURCE_HASH)?;
     let (offset, native) = pinned_code(target, &target_hash)?;
     let original_chunks = chunks(original)?;
@@ -604,7 +613,7 @@ mod tests {
     #[test]
     fn an_exposure_profile_follows_the_mean_between_its_floor_and_ceiling() {
         let native = native_block();
-        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 1.0323 };
+        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.2334 };
         let block = with_exposure(&native, &profile).unwrap();
         // The same instructions but two that changed places; four constants changed.
         assert_eq!(block.len(), native.len());
@@ -623,8 +632,8 @@ mod tests {
         // (k(L) moves the exposure by 0.2 % from the ceiling to a mean of 2.)
         assert!((exposure(2.0) / exposure(0.104167) - 1.0).abs() < 3e-3 && (exposure(0.5) / exposure(0.2) - 1.0).abs() < 3e-3);
         assert!((exposure(0.0001) / exposure(0.001151) - 1.0).abs() < 3e-3);
-        // 0.69d's white point (2 at the ceiling) stays below the curve's top.
-        assert!((run(&block, 0.104167, 2.0) - 0.98).abs() < 0.005);
+        // The light 0.69d's curve shows as white (6.9 at the ceiling) stays below the curve's top.
+        assert!((run(&block, 0.104167, 6.9) - 0.98).abs() < 0.005);
         // Another native block is refused.
         let mut other = native.clone();
         other[9][6] = 3f32.to_bits();

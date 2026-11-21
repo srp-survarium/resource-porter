@@ -17,7 +17,7 @@ isolation review remain pending.
 | Pass | Resources / scope |
 | --- | --- |
 | Geometry fog | 1, original arithmetic and authored Rayleigh colour |
-| Tone curve | 4 supported native variants, original dark-scene behavior |
+| Tone curve | 4 supported native variants, original dark-scene behavior; an exposure profile (a 0.69d scene) also in the 6 of post-process quality 0 and 1 |
 | Sky and atmospheric lookup | 2, original sky and scattering equations |
 | Clouds | 8, original lit/unlit programs |
 | Ambient occlusion | 1, original quality-1 generator normalized for native application |
@@ -57,6 +57,29 @@ inputs must be preserved when enabling it. Other scenes keep the native
 shader instruction bodies. These markers follow the existing adapter's
 `-32021 - map_id` convention and are runtime selectors, not visual tuning
 parameters.
+
+## Exposure profiles (0.69d scenes)
+
+A 0.69d map is lit for 0.69d's exposure, which follows each view's mean luminance between
+the environment's minimum and maximum exposure values and holds outside them; 0.26g's tone
+block follows the adapted mean between 0.05 and 2 only. `exposure_profiles` in the manifest
+(`ExposureProfile` in `tone_map.rs`) gives such a scene the native tone block with the mean
+clamped to its own range and its own key, behind its marker (`mie_fog_base_height`, a whole
+number of at least 1000: 33000 plus the 0.69d level's number). The row's `floor`, `ceiling`
+and `key` are the numbers resource-porter's 0.69d map builder prints in its notes ("tone:
+...") for that map; what the curve then shows is made 0.69d's by the scene's own colour
+grading texture, which the map's pack carries.
+
+| Scene | Marker | floor | ceiling | key |
+| --- | --- | --- | --- | --- |
+| Rudnya v0.69 (0.69d `level_01` day, EV 6 to 12.5) | 33001 | 0.001151 | 0.104167 | 0.2334 |
+
+Unlike the 0.21 curve and the key profiles, an exposure profile is also drawn by the tone
+program of post-process quality 0 and 1 (six paths, one program: the same tone block
+without the vignette): under the native block such a scene is about ten times too bright.
+The two depth-of-field programs (`__3__...10`, `__3__...11`) are not adapted yet: their
+block is the same arithmetic in another order and they already bind `static_globals` with
+fewer rows.
 
 `tools/content/three_maps_021_environment.py` generates the two source edit
 lists from the donor and canonical map packs. It verifies authored numeric

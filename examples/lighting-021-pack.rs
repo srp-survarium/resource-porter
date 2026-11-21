@@ -166,13 +166,20 @@ fn main() -> Result<()> {
         .paths_with_prefix(shaders::TONEMAP_PREFIX)
         .map(str::to_owned)
         .collect();
+    let tone_start = converted.len();
     for path in paths {
         let before = native.read(&path)?;
         if let Some(after) = shaders::build_tonemap_profiles(&source_tone, &before, &markers, &keys, &exposures)? {
             converted.push((path, before, after));
         }
     }
-    ensure!(converted.len() == 5, "unexpected compatible tone-map count");
+    // Four programs take every profile; with an exposure profile, the six of post-process
+    // quality 0 and 1 take it too. The two depth-of-field programs stay native.
+    ensure!(
+        converted.len() - tone_start == if exposures.is_empty() { 4 } else { 10 },
+        "unexpected tone-map variant count: {}",
+        converted.len() - tone_start
+    );
     let sky = native.read(shaders::SKY_PATH)?;
     converted.push((
         shaders::SKY_PATH.into(),
