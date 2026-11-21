@@ -97,6 +97,10 @@ pub struct Lost {
 /// The seats a legacy rail may take: 0.69d0's rail-seat slots, the first
 /// the gun lacks.
 const RAIL_SEATS: [&str; 4] = ["scope_picatinnyrail", "scope_dovetail", "g3a3_scope_picatinnyrail", "mosin_scope"];
+/// The slots a legacy optic takes under another id when every slot it names is one some fit of the
+/// gun names too (the XPS2 on the Kedr, whose every rail slot the aperture sight names before its
+/// own short rail): ids only 0.69d0's piggyback and angled sights name, none of them fits here.
+const SPARE: [&str; 4] = ["none", "elcan_collimator_mount", "angled_collim_short_l", "angled_collim_short_r"];
 /// The optic's vertices in a variant are 0.69d0's moved by one translation
 /// within this (metres), or its box has 0.69d0's sides within it.
 const SAME: f32 = 0.001;
@@ -249,21 +253,33 @@ pub(super) fn place(
     };
     let names: Vec<SlotId> = module.attaches_on(item).iter().filter_map(|a| SlotId::from_name(&a.slot)).collect();
     let slot = free(gun, &names, None).with_context(|| format!("{}: the gun has every slot it names", module.id))?;
+    // Every slot it names is another fit's: its attach for that slot under a spare id.
+    let spare = if named.contains(&slot.1) {
+        let spares: Vec<SlotId> = SPARE.iter().filter_map(|name| SlotId::from_name(name)).collect();
+        let lacking: Vec<SlotId> = spares.into_iter().filter(|id| !has(gun, *id) && !named.contains(id)).collect();
+        Some(*lacking.first().with_context(|| format!("{}: no spare slot", module.id))?)
+    } else {
+        None
+    };
     let optic_names: BTreeSet<&str> = ours.iter().map(|(name, _)| name.as_str()).collect();
     let rails: Vec<&(String, String, Vec<u8>)> = surfaces
         .iter()
         .filter(|(name, _, _)| *name != optic_surface && !optic_names.contains(name.as_str()) && !name.starts_with(AIMED_LENS))
         .collect();
     // (The optic's row first: nothing of the gun's record is changed when it cannot be made.)
-    let row = maker
+    let mut row = maker
         .source(donor, target, work, module, Role::Fitted(weapon_modules::Kind::Scope), item, Some(&[slot.0]))
         .with_context(|| format!("{live}: legacy row {}", module.id))?;
+    let id = spare.unwrap_or(slot.1);
+    for attach in &mut row.attaches {
+        attach.slot = id;
+    }
     let mut rail_slot = String::new();
     if rails.is_empty() {
-        gun.slots.push((slot.1, at.bone.0, at.offset));
+        gun.slots.push((id, at.bone.0, at.offset));
     } else {
         let seats: Vec<SlotId> = RAIL_SEATS.iter().filter_map(|name| SlotId::from_name(name)).collect();
-        let seat_slot = free(gun, &seats, Some(slot.1)).context("the gun has every rail seat")?;
+        let seat_slot = free(gun, &seats, Some(id)).context("the gun has every rail seat")?;
         // The rail: the variant's own surfaces as a model of its own, at `scope_point`.
         let name = idle.rsplit('/').next().unwrap_or(&idle);
         let path = format!("{MODULES_ROOT}/legacy/{name}_rail");
@@ -274,7 +290,7 @@ pub(super) fn place(
         }
         let mut attach = AttachSource::new(seat_slot.1);
         // The optic's slot on it: `by`, as a module's own locator (`half turn x L`).
-        attach.adds.push((slot.1, HALF_TURN.then(&Frame::translation(by)).affine()));
+        attach.adds.push((id, HALF_TURN.then(&Frame::translation(by)).affine()));
         let rail = rows.row(ModuleSource {
             dict: released.variant,
             role: Role::Carrier,
@@ -285,7 +301,7 @@ pub(super) fn place(
             hand: None,
         });
         gun.slots.push((seat_slot.1, seat.bone.0, seat.offset));
-        gun.carriers.push((slot.1, vec![(rail, seat_slot.1)]));
+        gun.carriers.push((id, vec![(rail, seat_slot.1)]));
         rail_slot = seat_slot.0.to_owned();
     }
     let row = rows.row(row);
@@ -294,7 +310,7 @@ pub(super) fn place(
             gun: live.to_owned(),
             module: module.id.clone(),
             how: format!("variant {}", released.variant_config),
-            slot: slot.0.to_owned(),
+            slot: spare.map_or_else(|| slot.0.to_owned(), |id| format!("{} (its {} attach)", id.name(), slot.0)),
             found: format!("{found} of {optic_surface}"),
             residual_mm: f64::from((residual * 1e5).round() / 100.0),
             moved: by.map(|c| f64::from((c * 1e5).round() / 1e5)),
