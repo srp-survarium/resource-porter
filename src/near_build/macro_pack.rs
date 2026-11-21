@@ -275,8 +275,10 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
                 }
                 Ok((material, choice, new_macros.iter().any(|at| values[*at] != "0")))
             };
-            let mut choices: BTreeMap<Vec<String>, BTreeSet<Vec<String>>> = BTreeMap::new();
-            let mut on: BTreeMap<(Vec<String>, Vec<String>), BTreeSet<Vec<String>>> = BTreeMap::new();
+            // A key's macro values: the material's, and the runtime choices.
+            type Values = Vec<String>;
+            let mut choices: BTreeMap<Values, BTreeSet<Values>> = BTreeMap::new();
+            let mut on: BTreeMap<(Values, Values), BTreeSet<Values>> = BTreeMap::new();
             for key in &have {
                 let (material, choice, with_new) = split(key)?;
                 if with_new {
