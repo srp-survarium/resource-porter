@@ -292,8 +292,8 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
 0.69d's Rudnya becomes 0.26g map **204** (mode 4, day), level number 14, project
 `v069d_level_01/day_4` (`ports/survarium-069d-rudnya-to-026g.json`). 0.26g already has a
 Rudnya (`level_01`) in the same coordinates (the team bases match within a few metres), so
-the port takes that map as its template: native Rudnya's sky, clouds, fog and its 24 ambient
-sound emitters, unmoved. The HUD key stays `level_01`, so native Rudnya's minimap draws it
+the port takes that map as its template: native Rudnya's sky and fog (see below what is
+0.69d's own). The HUD key stays `level_01`, so native Rudnya's minimap draws it
 (same layout).
 
 **Lit as 0.69d lights it** (`"probes": {"donor": ...}`, `survarium_026/lighting.rs`;
@@ -318,44 +318,89 @@ the formulas come from both builds' shader disassembly):
   `rgb = sqrt(e/m)`, `a = sqrt(1/m)`). Every mip is re-encoded (both builds prefilter with
   GGX). 0.26's `_diffuse` cube (16 texels, 3 mips) is evaluated from the probe's SH as
   0.69d's `environment_probe.ps` does (E/pi with `directional_factor`). `specular_multiplier`
-  -1 (off) becomes 0. 0.26 has no sky light: the donor's `global` probe's cube is also the
-  map-wide sphere (radius 1003.5 at -7.9, 18.1, -12.5).
-* Ambient lights: 0.26's multiply the probe light through a UNORM target, so they can only
-  darken. 0.69d's 245 additive lights (lux) and its brightening multiplicative ones become
-  probe volumes of their shape, with their host probe's cube from mip 3 and an irradiance
-  cube holding 0.69d's light at their centre; 0.26 draws probes largest first, each over the
-  ones before by its falloff, so a volume holds the donor probe there plus every light drawn
-  so far (itself included) by their falloff there. The darkening ones stay 0.26 ambient
-  lights, at least x0.25 (0.69d's keep the reflections, 0.26's take them too: the tractor
-  station's black wall-top bands drew black), but cylinders are left out (0.26 has none;
-  their boxes cut straight-edged dark squares across the church's bell shaft). Lights
-  0.69d fades out (`fade_out_distance`) farther than every spawn is from them never show
-  in play and are left out (`ambient_light_chaes`, 430 m, over the power plant 456 m
-  away: kept, it lit the backdrop white into the haze). Height-based ambient (a multiply
-  0.69d has not) is off.
-* Materials: a metalness map (`_fmap`, as 0.26's metals name theirs) takes 0.26's
-  Fresnel-map template (`opaque_metal`: f0 0.04 to 1; 0.26 darkens the diffuse by f0 and
-  tints the specular by the albedo's hue above f0 0.5). `material_constants` sets the
-  ground's (`terrain_tiled/`) Fresnel to 0, as native Rudnya's.
+  -1 (off) becomes 0. 0.26 has no sky light: the donor's largest probe's cube is also the
+  map-wide sphere, on the template's own (native Rudnya's).
+* Ambient lights are 0.26's own ambient lights, all 288 (`lighting::NativeLight`). 0.26 draws
+  one with an intensity above 1 as adding `colour^2.2 * (intensity - 1)` times its falloff to
+  the diffuse light, and one at or below 1 as multiplying the light under it
+  (skhid-srp `renderer-026g.md` 5.4); an earlier converter took them for darkening only and
+  baked 0.69d's adding lights into probe volumes of one value each, whose borders showed on
+  walls and floors. Now: 0.69d's 244 adding lights (lux; `illuminance * 1000 / pi *
+  colour^2.2` off a white surface) add that light in the scale; its 10 darkening ones
+  multiply by their factor; its 34 brightening ones (a multiplier above 1, which a UNORM
+  target cannot hold) add the share they brighten by of the probe light under their centre
+  (0.69d draws its multiplying lights before its adding ones, so they multiply the probes
+  alone). Shapes: a sphere's radius is its largest scale (the exe, 0x20029b9b0; `radius` is
+  not read); 0.26 fades a sphere by `(1 - (d / 0.98 R)^2)^p` where 0.69d fades from
+  `outer - side_width` to `outer`, so the radius ends where 0.69d's light ends and the power
+  is the closest by volume (`sphere_fit`; 0.26 has no flat middle, a light with one is
+  followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`); a
+  box's band holds the same light (`box_side_width`); a cylinder is the box around it. The
+  facing term (`dot_normal`): 0.26's `max(N.L, 0)` times the factor closest to 0.69d's
+  wrapped term (`facing_scale`: 0.81 for its usual power 4). The colour is packed with red
+  in the low byte (packed the other way a warm fill draws blue). Lights 0.69d fades out
+  (`fade_out_distance`) farther than every spawn is from them never show in play and are
+  left out (`ambient_light_chaes`, 430 m, over the power plant 456 m away: kept, it lit the
+  backdrop white into the haze). Height-based ambient (a multiply 0.69d has not) is off.
+* Materials, from the two builds' shading (`surface.rs`; `g_stage_default.ps`,
+  `sun_lighting.ps` against `gbuffer_pass.ps`, `composition.ps` of shading quality 1 to 3):
+  - Gloss. 0.69d's GGX alpha is `max((1 - s)^2, 0.001)` of its smoothness; 0.26's is
+    `0.5 r^6 + 0.1 r` of `r = 1 - gloss`, at most 0.6. The gloss of the same alpha is not a
+    line in `s`, and a smoothness map is drawn as it is (238 textures are 0.26's own files),
+    so its range takes the least-squares line through that curve from the roughest 0.26 can
+    draw (s 0.2254) to 0.6: `-0.17 + 0.69 s`, within 10 % of 0.69d's alpha there (96.8 % of
+    Rudnya's smoothness texels are at or below 0.6; above, the line is rougher than 0.69d,
+    2.2 times at 0.8); a constant smoothness takes the curve itself. The factor 0.2 used
+    until then was right near s 0.3 to 0.4 only. A manifest may keep its own factor
+    (`roughness_scale`: Duga and the camp lobby, fitted with 0.2; 0.46c2 has 0.26's gloss
+    channel, 1).
+  - Fresnel. 0.69d: `F0 = 0.04 + m (A - 0.04)`, diffuse `A (1 - m)`. Without a metalness
+    map `m` is a constant of at most 0.1 on every material (the old Fresnel numbers): 0.04.
+    With a map (43 of Rudnya's materials) the surface's two 0.26 maps are made texel by
+    texel from the albedo and the metalness map, every level of the chain
+    (`surface::metal_maps`, under `<namespace>/metal/`): the Fresnel `f` whose specular
+    luminance at normal incidence is `F0`'s under 0.26's tint (`lerp(1.3 hue, 1,
+    sat(1.04 - 4 f^2))`), and the diffuse `A (1 - m)(1 - F0) / (1 - f)`, which 0.26 draws
+    times `1 - f`. A template without a Fresnel map (the alpha-tested, two-sided and
+    vertex-colour categories) takes the map's mean as its constant. The metalness map bound
+    raw as 0.26's Fresnel map (f 0.04 to 1) reflected a dark pipe twenty times too strongly.
+  - The specular scale is 1 (0.69d has none). Not equal whatever the values: 0.26's sun
+    highlight carries 1/pi of 0.69d's energy at the same alpha (its D has the 1/pi, neither
+    diffuse has), and it cannot be rougher than alpha 0.6 (80 % of Rudnya's smoothness
+    texels are).
 * Sky: the donor's clouds (`sky/sky_test`, imported; lit through the template's cloud normal
   map, since the donor's have none and 0.26 draws unlit clouds dark) over 0.26's own
   atmosphere.
-* Matched to 0.69d's frames (the reference rig, same camera poses): `exposure_bias` 1 (the
-  scale at EV 13.5: 0.69d's grading and curve show the same light darker) and
-  `sun_saturation` 0.6 (the sun's colour (1, 0.847, 0.687): 0.69d's white balance and AP1
-  grading show its sunlight less orange). Interior probes darker than 0.03 are raised to
-  it, at most x8 (`lighting::adaptation_gain`), as 0.69d's exposure follows a view down
-  to EV 6 and shows its rooms alike (half the difference left the church at half 0.69d's
-  brightness). Rooms 0.26's eye adaptation still shows darker than 0.69d's frames take a
-  diffuse gain by `full_name` prefix (`probes.donor.area_gains`, the longest prefix wins,
-  reflections unchanged), matched pose by pose: the church x2.2, the tractor station's
-  annex x1.8, the bus stop x1.15; the school, houses and tractor-station hall are left as
-  they are (already about 1.3x 0.69d). The pond's mist is the donor's `volume_fog`, the same object in both
-  builds, and both draw it alike (the same shader, constants and back-face pass, which
-  holds a camera inside: no wall or pop on entering).
-* Not reproduced: 0.69d's turbid sky (0.26's atmosphere stays), its height fog over the
-  whole map, light shafts, colour grading, probe parallax correction and specular fade,
-  light shapes beyond sphere and box.
+* Exposure, grading and curve are 0.69d's own (`tone.rs`), not fitted to frames. 0.69d
+  exposes each view by `1 / (1.2 * 2^EV)`, `EV = clamp(log2(L) + 3 + bias, min, max)` of
+  the view's metered luminance (the environment's 6 to 12.5), grades in AP1 (shadows,
+  midtones, highlights) and draws the curve `x^a / (x^d b + c)`. 0.26's curve follows the
+  adapted mean between 0.05 and 2 only. So the scene carries an exposure marker
+  (`mie_fog_base_height` 33000 + the level's number, an integer above every camera: every
+  native shader reads the field as 1 there) and resource-porter's lighting pack draws the
+  native tone block behind it with the mean clamped to 0.69d's range and its own key
+  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.2334 for Rudnya, printed in
+  the build's notes); and the scene's colour grading texture
+  (`textures/<namespace>/color_grading/day`, 16^3) holds, for each colour 0.26's curve can
+  show, what 0.69d's grading and curve show for the light that gives it. 0.26's blue shift
+  of dark colours is off. Gone with it: `exposure_bias`, `sun_saturation`, the raising of
+  dark interior probes (`adaptation_gain`), the per-area gains (`area_gains`) and the floor
+  under darkening lights. The pond's mist is the donor's `volume_fog`, the same program and
+  constants in both builds (its colour is a constant, `color^2.2`, lit by nothing): copied
+  field by field, it is as luminous against the scene as in 0.69d at the outdoor exposure.
+* Scene objects both builds have come from the donor's own project: its 22 sound emitters
+  where it has them (11 sounds; `scapes/level_01/water_under_car_01`, which 0.26 does not
+  ship, is imported: an Ogg stream, its loudness track and options with the same fields in
+  both builds), and a particle 0.26 ships under the same name (`fx/environment/fly`). A
+  manifest with `ambient_sounds` takes a native map's emitters instead (Duga).
+* Not reproduced yet: 0.69d's height fog over the whole map (it lives in `sun_lighting.ps`:
+  extinction `fog_density * 0.001 * exp((fog_base_height - y) / fog_falloff_height)` per
+  metre, 0.0031 at Rudnya's ground, lit by the horizon sky times `fog_tint`; 0.26's Mie fog
+  can hold its extinction for a level ray, not its thinning with the target's height nor
+  its light), its sky (a precomputed atmosphere; 0.26's Rayleigh sky follows
+  `sun_intensity^1.4` and agrees at the zenith in this scale, with a brighter horizon), its
+  clouds' own lighting, light shafts, sound environments, probe parallax correction and
+  specular fade, the exposure profile under the two depth-of-field tone programs.
 
 **Sharp, as 0.69d draws it.** No `max_texture_size` or `texture_limits`: every imported
 texture keeps its full size and every mip (605 MiB, Duga's 1024-capped set was 651);

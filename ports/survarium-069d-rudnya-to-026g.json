@@ -10,29 +10,9 @@
     "template_mode": "gameplay/game_modes/level_01_day_4.options",
     "output_project": "v069d_level_01/day_4",
     "mode_name": "v069d_level_01_day_4.options",
-    "global_probe_position": [
-      -7.86,
-      18.144,
-      -12.458
-    ],
-    "global_probe_radius": 1003.5,
     "probes": {
       "donor": {
-        "global": "environment_and_lights/probes/global",
-        "matte_water": "environment_and_lights/probes/swamp",
-        "exposure_bias": 1.0,
-        "sun_saturation": 0.6,
-        "area_gains": {
-          "environment_and_lights/probes/day/church/": 2.2,
-          "environment_and_lights/ambient_light/day/church/": 2.2,
-          "environment_and_lights/probes/day/atp/atp(4)": 1.8,
-          "environment_and_lights/probes/day/atp/atp(5)": 1.8,
-          "environment_and_lights/ambient_light/day/atp/ambient_light(6)": 1.8,
-          "environment_and_lights/ambient_light/day/atp/ambient_light(9)": 1.8,
-          "environment_and_lights/ambient_light/day/atp/ambient_light(14)": 1.8,
-          "environment_and_lights/probes/day/bus_stop/": 1.15,
-          "environment_and_lights/ambient_light/day/bus_stop/": 1.15
-        }
+        "matte_water": "environment_and_lights/probes/swamp"
       }
     },
     "spawn_folder": "logic/modes/team_death_match/",
@@ -175,20 +155,6 @@
     "terrain_blend": "tiled/bricks/brick_02_burn_vc",
     "opaque_metal": "props/box/props_boxes_metal"
   },
-  "roughness_scale": 0.2,
-  "ambient_sounds": {
-    "project": "projects/level_01/day_4/client_project",
-    "include": [
-      "scapes/",
-      "sounds/",
-      "weather/"
-    ],
-    "offset": [
-      0.0,
-      0.0,
-      0.0
-    ]
-  },
   "dedup_translated_copies": true,
   "lod1_shares_lod0": true,
   "reuse_native_textures": true,
@@ -201,14 +167,5 @@
   "namespace": "v069d_rudnya",
   "native_materials": {
     "generic/underground_black_mat": "tiled/concrete/concrete_black"
-  },
-  "material_constants": [
-    {
-      "prefix": "terrain_tiled/",
-      "g_stage": {
-        "constant_fresnel": 0.0,
-        "constant_fresnel_min": 0.0
-      }
-    }
-  ]
+  }
 }

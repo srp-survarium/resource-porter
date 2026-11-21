@@ -13,7 +13,8 @@
 //! What has no 0.26 equivalent keeps the native look of the template map.
 use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
-use super::lighting::{DiffuseRecipe, DonorLight, DonorProbe, LightEffect, LightScale, Shape, Term, Volume};
+use super::lighting::{DonorLight, DonorProbe, LightEffect, LightScale, NativeLight, Shape, Volume};
+use super::surface::Gloss;
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
@@ -45,9 +46,12 @@ pub struct Manifest {
     pub game_material_names: BTreeMap<String, String>,
     /// 0.26 template material per converted-material category.
     pub material_templates: BTreeMap<String, String>,
-    /// Scale from 0.69d smoothness to the value range of 0.26's
-    /// `t_roughness` channel (which the gbuffer pass consumes as gloss).
-    pub roughness_scale: f32,
+    /// A factor from the donor's gloss values to 0.26's `t_roughness` channel
+    /// (which the g-buffer pass reads as gloss), in place of the build's own
+    /// rule (`ConversionManifest::gloss`): the ports made before the rule
+    /// keep the factor they were fitted with.
+    #[serde(default)]
+    pub roughness_scale: Option<f32>,
     /// Models never taken from 0.26 even when an equivalent ships there.
     #[serde(default)]
     pub force_donor_models: BTreeSet<String>,
@@ -246,9 +250,13 @@ pub struct MapSpec {
     pub output_project: String,
     pub mode_name: String,
     /// Centre and radius of the map-wide sphere probe 0.26 lights the open
-    /// ground with (0.69d has none: its outdoor probes are boxes).
-    pub global_probe_position: [f32; 3],
-    pub global_probe_radius: f32,
+    /// ground with (0.69d has none: its outdoor probes are boxes), where the
+    /// template's own map-wide sphere does not fit (a template of another
+    /// map: Duga on Vostok's).
+    #[serde(default)]
+    pub global_probe_position: Option<[f32; 3]>,
+    #[serde(default)]
+    pub global_probe_radius: Option<f32>,
     /// What the probes draw.
     pub probes: MapProbes,
     /// Native environment properties set over the template's, by name
@@ -464,6 +472,17 @@ impl Manifest {
     /// unitless intensities.
     fn photometric(&self) -> bool {
         self.source_build == SourceBuild::V069d
+    }
+
+    /// The donor's gloss values in 0.26's: 0.69d's smoothness by the two
+    /// builds' GGX alpha (`surface::Gloss::Smoothness`), 0.46c2's as they
+    /// are (it has 0.26's gloss channel), or the manifest's own factor.
+    fn gloss(&self) -> Gloss {
+        match (self.roughness_scale, self.source_build) {
+            (Some(factor), _) => Gloss::Scaled(factor),
+            (None, SourceBuild::V069d) => Gloss::Smoothness,
+            (None, _) => Gloss::Scaled(1.0),
+        }
     }
 }
 
@@ -1384,6 +1403,9 @@ pub struct ConvertedMaterial {
     pub template: String,
     pub category: Category,
     pub notes: Vec<String>,
+    /// Set for a material with a metalness map: the build binds the maps it
+    /// makes (`MetalSource`).
+    pub metal: Option<MetalSource>,
 }
 
 /// Convert one 0.69d material onto its category's native 0.26 template.
@@ -1396,11 +1418,12 @@ pub fn convert_material(
     donor: &ConfigValue,
     usage: Usage,
     templates: &BTreeMap<String, (String, ConfigValue)>,
-    roughness_scale: f32,
+    gloss: Gloss,
     default_normal: &str,
 ) -> Result<ConvertedMaterial> {
     let mut category = categorize(donor, usage)?;
     let mut notes = Vec::new();
+    let mut metal = None;
     // A metalness map (0.69d's `_fmap`, as 0.26's metals name theirs) takes
     // the category's `_metal` template where the manifest has one: 0.26's
     // Fresnel map, which darkens the diffuse by f0 and tints the specular by
@@ -1516,12 +1539,12 @@ pub fn convert_material(
                 match &smoothness_map {
                     Some(map) => {
                         set_effect(&mut root, stage, "texture_roughness", ConfigValue::String(map.clone()))?;
-                        set_effect(&mut root, stage, "constant_roughness_min", ConfigValue::Float(min * roughness_scale))?;
-                        set_effect(&mut root, stage, "constant_roughness_max", ConfigValue::Float(max * roughness_scale))?;
+                        set_effect(&mut root, stage, "constant_roughness_min", ConfigValue::Float(gloss.end(min)))?;
+                        set_effect(&mut root, stage, "constant_roughness_max", ConfigValue::Float(gloss.end(max)))?;
                     }
                     None => {
                         // A flat channel: min == max makes the tap irrelevant.
-                        let v = constant * roughness_scale;
+                        let v = gloss.constant(constant);
                         set_effect(&mut root, stage, "texture_roughness", ConfigValue::String(albedo.clone()))?;
                         set_effect(&mut root, stage, "constant_roughness_min", ConfigValue::Float(v))?;
                         set_effect(&mut root, stage, "constant_roughness_max", ConfigValue::Float(v))?;
@@ -1534,7 +1557,7 @@ pub fn convert_material(
                 .and_then(|e| e.named("constant_roughness"))
                 .is_some()
             {
-                set_effect(&mut root, stage, "constant_roughness", ConfigValue::Float(constant * roughness_scale))?;
+                set_effect(&mut root, stage, "constant_roughness", ConfigValue::Float(gloss.constant(constant)))?;
             }
             if effect_flag(&root, stage, "use_tspecular_intensity") {
                 let map = smoothness_map.clone().unwrap_or_else(|| albedo.clone());
@@ -1590,17 +1613,36 @@ pub fn convert_material(
                     set_effect(&mut root, stage, "constant_diffuse", ConfigValue::Float4(*c))?;
                 }
             }
-            match (&metalness, metal_template) {
-                (Some(map), true) if effect_flag(&root, stage, "use_tfresnel") => {
-                    set_effect(&mut root, stage, "texture_fresnel", ConfigValue::String(map.clone()))?;
-                    set_effect(&mut root, stage, "constant_fresnel_min", ConfigValue::Float(0.04))?;
-                    set_effect(&mut root, stage, "constant_fresnel_max", ConfigValue::Float(1.0))?;
-                    notes.push(format!("metalness map {map} as 0.26's Fresnel map (f0 0.04 to 1)"));
+            // A metalness map: the build makes the surface's diffuse and
+            // Fresnel maps from it and the albedo (`MetalSource`).
+            if let Some(map) = &metalness {
+                let colour = match value_of(effect, "albedo_color") {
+                    Some(ConfigValue::Float4(c)) => [c[0], c[1], c[2]].map(|v| v.max(0.0).powf(2.2)),
+                    _ => [1.0; 3],
+                };
+                metal = Some(MetalSource { albedo: albedo.clone(), metalness: map.clone(), colour });
+                let _ = metal_template;
+            } else if gloss == Gloss::Smoothness {
+                // 0.69d without a map: Fresnel 0.04 + m (A - 0.04) of its
+                // constant `metalness`, which is 0 to 0.1 on every material
+                // met (the old Fresnel numbers, 0.02 and 0.04 on most): a
+                // dielectric's 0.04 within 0.1 (A - 0.04). A constant metal
+                // would need its albedo's maps made as a mapped one's are.
+                let m = number(effect, "metalness").unwrap_or(0.0);
+                ensure!(m <= 0.1, "constant metalness {m} without a metalness map is not converted");
+                flat_fresnel(&mut root, stage, 0.04)?;
+            }
+            if gloss == Gloss::Smoothness {
+                // 0.69d has no specular scale or map: 0.26's at 1 (its sun
+                // highlight still carries 1/pi of 0.69d's energy).
+                for (field, value) in [("constant_specular_color_multiplier", 1.0), ("constant_specular_intensity_min", 1.0), ("constant_specular_intensity_max", 1.0)] {
+                    if matches!(effect_value(&root, stage, field), Some(ConfigValue::Float(_))) {
+                        set_effect(&mut root, stage, field, ConfigValue::Float(value))?;
+                    }
                 }
-                _ if flag(effect, "use_t_metalness") => {
-                    notes.push("metalness map has no 0.26 counterpart for this template; the albedo is drawn as a dielectric".into())
+                if matches!(effect_value(&root, stage, "constant_specular_color"), Some(ConfigValue::Float4(_))) {
+                    set_effect(&mut root, stage, "constant_specular_color", ConfigValue::Float4([1.0; 4]))?;
                 }
-                _ => {}
             }
             for (switch, what) in [
                 ("use_parallax", "parallax"),
@@ -1624,7 +1666,29 @@ pub fn convert_material(
         template: template_path.clone(),
         category,
         notes,
+        metal,
     })
+}
+
+/// One Fresnel value on a converted material, whether its template draws a
+/// constant or a map's range.
+fn flat_fresnel(root: &mut ConfigValue, stage: &str, value: f32) -> Result<()> {
+    for field in ["constant_fresnel", "constant_fresnel_min", "constant_fresnel_max"] {
+        if matches!(effect_value(root, stage, field), Some(ConfigValue::Float(_))) {
+            set_effect(root, stage, field, ConfigValue::Float(value))?;
+        }
+    }
+    Ok(())
+}
+
+/// A converted material's metal surface: 0.69d's albedo and metalness maps
+/// and its linear albedo multiplier (`albedo_color^2.2`), from which the build
+/// makes 0.26's diffuse and Fresnel maps (`surface::metal_maps`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MetalSource {
+    pub albedo: String,
+    pub metalness: String,
+    pub colour: [f32; 3],
 }
 
 /// 0.46c2 materials still name their maps as 0.26 does (`texture_diffuse`,
@@ -2010,9 +2074,6 @@ fn first_template(template: &ConfigValue, wanted: &str) -> Result<ConfigValue> {
         .with_context(|| format!("template project has no {wanted}"))
 }
 
-fn one() -> f32 {
-    1.0
-}
 
 /// A map's environment probes.
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -2031,39 +2092,16 @@ pub enum MapProbes {
         #[serde(default)]
         ambient_lights: bool,
     },
-    /// The donor's own probes, re-encoded for 0.26 (`DonorProbe`): every
-    /// volume with its cubemap, the irradiance cubemap 0.26 reads evaluated
-    /// from its SH coefficients, both in one scale with the sun
-    /// (`LightScale`). 0.26 has no sky light, so the donor probe `global`
-    /// (`full_name`) is also the map-wide sphere. Matte water reflects the
-    /// donor probe `matte_water`.
+    /// The donor's own light (`donor_lighting`): every probe volume with its
+    /// cubemap re-encoded for 0.26 (`DonorProbe`) and the irradiance cubemap
+    /// 0.26 reads evaluated from its SH coefficients, every ambient light as
+    /// a 0.26 ambient light, the sun, all in one scale (`LightScale`). 0.26
+    /// has no sky light, so the donor's largest probe is also the map-wide
+    /// sphere. Matte water reflects the donor probe `matte_water`.
     Donor {
-        global: String,
         #[serde(default)]
         matte_water: Option<String>,
-        /// EV added to the outdoor exposure the scale is taken at (positive:
-        /// darker), matched to 0.69d's own frames: its grading and curve
-        /// show the same light darker than 0.26's.
-        #[serde(default)]
-        exposure_bias: f32,
-        /// Exponent on the sun's colour (1: 0.69d's transmittance as it is;
-        /// below 1 whiter): 0.69d's white balance and grading in AP1 show
-        /// its sunlight less orange than 0.26 shows the same colour.
-        #[serde(default = "one")]
-        sun_saturation: f32,
-        /// The diffuse light of the volumes whose `full_name` starts with a
-        /// key, times its value (the longest key wins): rooms that 0.26's
-        /// eye adaptation shows darker than 0.69d's frames whatever their
-        /// probes, matched to the reference rig pose by pose. Reflections
-        /// are unchanged.
-        #[serde(default)]
-        area_gains: BTreeMap<String, f32>,
     },
-}
-
-/// The `area_gains` factor for a volume (1 outside every area).
-fn area_gain(gains: &BTreeMap<String, f32>, full_name: &str) -> f32 {
-    gains.iter().filter(|(prefix, _)| full_name.starts_with(prefix.as_str())).max_by_key(|(prefix, _)| prefix.len()).map_or(1.0, |(_, g)| *g)
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -2091,21 +2129,40 @@ fn donor_probe(object: &ConfigValue) -> Result<DonorProbe> {
     })
 }
 
+/// A donor-lit scene's tone (`super::tone`): its exposure profile, selected
+/// by the environment's `mie_fog_base_height`, and the grading texture the
+/// build makes for it on the header of the template's own (`like`).
+#[derive(Clone, Debug)]
+pub struct SceneTone {
+    pub tone: super::tone::Tone,
+    pub exposure: super::tone::Exposure,
+    pub like: String,
+}
+
+/// The grading texture a donor-lit scene's environment names (under the
+/// port's namespace).
+const GRADING_TEXTURE: &str = "color_grading/day";
+
+/// A donor-lit scene's exposure marker: `mie_fog_base_height` 33000 plus the
+/// donor's level number. Every native shader reads that field only as
+/// `min(1, exp((base - eye_y) * falloff))`, which is 1 for an eye below the
+/// base, so a height above every camera changes nothing by itself;
+/// resource-porter's lighting pack keeps the markers apart (0.21 scenes are
+/// below -32000, London's 32909 to 32929).
+fn exposure_marker(level: &str) -> Result<f32> {
+    let number: u32 = level.trim_start_matches(|c: char| !c.is_ascii_digit()).parse().with_context(|| format!("no level number in {level}"))?;
+    Ok(33000.0 + number as f32)
+}
+
 /// A probe cubemap pair made for 0.26: `textures/<ns>/<texture>.dds` from
-/// the donor probe `specular` (its cube from mip `specular_mip`, so a fill
-/// light's volume reuses its host's small), and `<texture>_diffuse.dds`
-/// from `diffuse`.
+/// the donor probe's cube and `<texture>_diffuse.dds` from its SH.
 #[derive(Clone, Debug)]
 pub struct GeneratedProbe {
     /// The volume's `full_name` in the scene.
     pub full_name: String,
     pub texture: String,
-    pub specular: DonorProbe,
-    pub specular_mip: usize,
-    pub diffuse: DiffuseRecipe,
+    pub probe: DonorProbe,
     pub scale: LightScale,
-    /// `area_gains` on the diffuse light alone.
-    pub diffuse_gain: f32,
 }
 
 /// One 0.26 probe volume of a donor-lit map.
@@ -2113,32 +2170,20 @@ struct LitVolume {
     full_name: String,
     volume: Volume,
     texture: String,
-    specular: DonorProbe,
-    specular_mip: usize,
+    probe: DonorProbe,
     specular_multiplier: f32,
-    diffuse: DiffuseRecipe,
 }
 
 struct DonorLighting {
-    /// In 0.26's drawing order (largest first).
+    /// In 0.26's drawing order (largest first): the map-wide sphere, then
+    /// the donor's probes.
     volumes: Vec<LitVolume>,
-    /// Darkening multiplicative lights: (full name, light, sRGB colour,
-    /// attenuation power), which 0.26's ambient lights reproduce.
-    darkeners: Vec<(String, DonorLight, [f32; 3], f32)>,
-    /// Darkening cylinders, left out (0.26 has no cylinder).
-    dropped_darkeners: Vec<String>,
-    light_volumes: usize,
+    /// The donor's ambient lights as 0.26 draws them, by `full_name`.
+    lights: Vec<(String, NativeLight)>,
+    /// How many of them add light, brighten (drawn as adding the share of
+    /// the light under them) and darken.
+    counts: [usize; 3],
 }
-
-/// The least a darkening light leaves of the light under it. 0.69d's keep
-/// the probe's reflections (`affect_specular` false), so a black one (the
-/// tractor station's wall tops) shows dark grey there; 0.26's take the
-/// reflections with the diffuse and draw it black.
-const DARKENER_FLOOR: f32 = 0.25;
-
-/// A fill light's volume reuses its host probe's cube from this mip (32
-/// texels): its own cube only carries its irradiance.
-const FILL_SPECULAR_MIP: usize = 3;
 
 /// The volume of a 0.69d probe or ambient light (scale = half extents).
 fn donor_volume(object: &ConfigValue, side_width_field: &str) -> Result<Volume> {
@@ -2211,14 +2256,6 @@ fn plain_name(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect()
 }
 
-/// 0.69d's probes and ambient lights as 0.26 probe volumes in drawing
-/// order. Every donor probe keeps its volume and cube; the map-wide sphere
-/// takes `global`'s. An additive (or brightening) light becomes a volume
-/// with its host's cube (the last volume drawn under its centre). 0.26
-/// draws each volume over the ones before it, so a volume's irradiance is
-/// 0.69d's light at its centre: the donor probe there (its own, or its
-/// host's) and every light drawn so far, itself included, by their falloff
-/// there; lights drawn later add themselves over it.
 /// The positions players start from: the donor's respawn points in the map's
 /// spawn folder.
 fn donor_spawn_positions(donor: &ConfigValue, map: &MapSpec) -> Result<Vec<[f32; 3]>> {
@@ -2231,7 +2268,7 @@ fn donor_spawn_positions(donor: &ConfigValue, map: &MapSpec) -> Result<Vec<[f32;
 }
 
 /// 0.69d fades an ambient light out beyond its `fade_out_distance` from the
-/// camera; 0.26's volumes have no such fade. A light farther than that from
+/// camera; 0.26's lights have no such fade. A light farther than that from
 /// every spawn (`ambient_light_chaes`, 430 m, over the power plant 456 m out)
 /// never shows in play, and kept it would light the backdrop for good.
 fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
@@ -2240,100 +2277,92 @@ fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
     !spawns.is_empty() && spawns.iter().all(|s| distance(s) > fade)
 }
 
-fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f32; 3]], global: &str, map: &MapSpec) -> Result<DonorLighting> {
-    enum Source {
-        Probe(DonorProbe, f32),
-        Light(DonorLight),
-    }
-    let mut pending: Vec<(String, Volume, Source)> = Vec::new();
-    let global_object = probes
-        .iter()
-        .find(|o| string(o, "full_name") == Some(global))
-        .with_context(|| format!("donor has no probe {global}"))?;
-    let map_wide = Volume { centre: map.global_probe_position, rotation: [0.0; 3], shape: Shape::Sphere { radius: map.global_probe_radius }, side_width: 0.5 };
-    pending.push(("env_and_lights/probes/global".into(), map_wide, Source::Probe(donor_probe(global_object)?, 1.0)));
+/// 0.69d's probes and ambient lights as 0.26's own objects.
+///
+/// Probes: every donor probe keeps its volume, cube and SH; 0.26 draws them
+/// largest first, each over the ones before by its falloff. The map-wide
+/// sphere (`map_wide`: 0.26 lights open ground with one, 0.69d has none)
+/// takes the donor's largest probe.
+///
+/// Lights, in `scale` (0.26's units): 0.69d adds `E / pi` or multiplies the
+/// light under it (`ambient_light_additive.ps`, `_multiplicative.ps`); 0.26
+/// adds with an intensity above 1 and multiplies towards its colour below
+/// (`ambient_light.ps`), through a target that cannot hold more than 1. So an
+/// adding light adds, a darkening one multiplies, and a brightening one
+/// (factor above 1) adds the share it brightens by of the probe light under
+/// its centre.
+fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f32; 3]], map_wide: Volume, scale: LightScale) -> Result<DonorLighting> {
+    let size = |v: &Volume| match v.shape {
+        Shape::Sphere { radius } => radius.powi(3) * 4.19,
+        Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
+        Shape::Cylinder { radius, half_height } => 6.28 * radius * radius * half_height,
+    };
+    let mut pending: Vec<(String, Volume, DonorProbe, f32)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
         // 0.69d: specular_multiplier -1 turns the cube's reflections off.
         let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
-        pending.push((full_name, donor_volume(object, "probe_side_width")?, Source::Probe(donor_probe(object)?, specular)));
+        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular));
     }
-    let mut darkeners = Vec::new();
-    let mut dropped_darkeners = Vec::new();
+    let largest = pending
+        .iter()
+        .max_by(|a, b| size(&a.1).total_cmp(&size(&b.1)).then_with(|| b.0.cmp(&a.0)))
+        .context("donor has no environment probe")?
+        .2
+        .clone();
+    // 0.26's order: larger first; the map-wide sphere first of all.
+    pending.sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
+    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0));
+    let mut volumes: Vec<LitVolume> = Vec::new();
+    let mut names = BTreeSet::new();
+    for (full_name, volume, probe, specular_multiplier) in pending {
+        let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
+        let stem = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
+        let mut texture = stem.clone();
+        let mut n = 1;
+        while !names.insert(texture.clone()) {
+            n += 1;
+            texture = format!("{stem}_{n}");
+        }
+        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier });
+    }
+
+    let mut donor_lights = Vec::new();
     for object in objects.iter().filter(|o| kind(o) == "ambient_light") {
         if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) || faded_out_in_play(object, spawns) {
             continue;
         }
-        let full_name = string(object, "full_name").unwrap_or("ambient_light").to_owned();
-        let (light, colour) = donor_light(object)?;
-        match light.effect {
-            // 0.26 has no cylinder, and a darkening one's box cuts
-            // straight-edged dark squares across walls and ceilings (the
-            // church's bell shaft) where 0.69d's disk fades out round.
-            LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) && matches!(light.volume.shape, Shape::Cylinder { .. }) => {
-                dropped_darkeners.push(full_name);
+        donor_lights.push((string(object, "full_name").unwrap_or("ambient_light").to_owned(), donor_light(object)?.0));
+    }
+    // The probe light under a point, averaged over every facing (0.69d
+    // scene units): 0.69d draws its multiplying lights before the adding
+    // ones, so they multiply the probes' light alone.
+    let under = |p: [f32; 3]| -> [f32; 3] {
+        let probe = &volumes.iter().rev().find(|v| v.volume.contains(p)).unwrap_or(&volumes[0]).probe;
+        let k = probe.diffuse_scale() * 0.282_094_78;
+        probe.sh[0].map(|c| (c * k).max(0.0))
+    };
+    let mut lights = Vec::new();
+    let mut counts = [0; 3];
+    for (full_name, light) in &donor_lights {
+        let native = match light.effect {
+            LightEffect::Add { radiance } => {
+                counts[0] += 1;
+                light.native_additive(radiance.map(|c| c * scale.0))
             }
             LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) => {
-                darkeners.push((full_name, light, colour, light.attenuation_power));
+                counts[2] += 1;
+                light.native_multiply(factor)
             }
-            _ => pending.push((full_name, light.volume, Source::Light(light))),
-        }
-    }
-    // 0.26's order: larger first; the map-wide sphere stays first.
-    pending[1..].sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
-    let mut volumes: Vec<LitVolume> = Vec::new();
-    let mut lights_drawn: Vec<DonorLight> = Vec::new();
-    let mut names = BTreeSet::new();
-    let mut light_volumes = 0;
-    for (full_name, volume, source) in pending {
-        // What 0.69d lights the volume's centre with: the donor probe there
-        // and every light drawn so far (larger ones, and the light itself).
-        let terms = |lights: &[DonorLight]| -> Vec<Term> {
-            lights
-                .iter()
-                .filter_map(|l| {
-                    let weight = l.volume.weight(volume.centre, l.attenuation_power);
-                    (weight > 0.0).then_some(Term { light: *l, at: volume.centre, weight })
-                })
-                .collect()
-        };
-        let lit = match source {
-            Source::Probe(probe, specular_multiplier) => {
-                let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
-                let texture = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
-                let terms = terms(&lights_drawn);
-                LitVolume { full_name, volume, texture, specular: probe.clone(), specular_mip: 0, specular_multiplier, diffuse: DiffuseRecipe { base: probe, terms } }
-            }
-            Source::Light(light) => {
-                let host = volumes
-                    .iter()
-                    .rev()
-                    .find(|v| v.volume.contains(light.volume.centre))
-                    .context("a light outside the map-wide probe")?;
-                lights_drawn.push(light);
-                light_volumes += 1;
-                let texture = format!("environment_probes/fill/{}", plain_name(full_name.trim_start_matches("environment_and_lights/")));
-                LitVolume {
-                    full_name,
-                    volume,
-                    texture,
-                    specular: host.specular.clone(),
-                    specular_mip: FILL_SPECULAR_MIP,
-                    specular_multiplier: host.specular_multiplier,
-                    diffuse: DiffuseRecipe { base: host.diffuse.base.clone(), terms: terms(&lights_drawn) },
-                }
+            LightEffect::Multiply { factor } => {
+                counts[1] += 1;
+                let below = under(light.volume.centre);
+                light.native_additive(std::array::from_fn(|c| (factor[c] - 1.0).max(0.0) * below[c] * scale.0))
             }
         };
-        let mut lit = lit;
-        let stem = lit.texture.clone();
-        let mut n = 1;
-        while !names.insert(lit.texture.clone()) {
-            n += 1;
-            lit.texture = format!("{stem}_{n}");
-        }
-        volumes.push(lit);
+        lights.push((full_name.clone(), native));
     }
-    Ok(DonorLighting { volumes, darkeners, dropped_darkeners, light_volumes })
+    Ok(DonorLighting { volumes, lights, counts })
 }
 
 /// Point every weather variant of a probe at one cubemap.
@@ -2395,10 +2424,35 @@ fn copy_shared(native: &mut ConfigValue, donor: &ConfigValue, fields: &[&str]) -
     Ok(())
 }
 
-/// The 0.26 ambient light colour is packed ARGB in an i32.
+/// The 0.26 ambient light colour: an i32 with red in the low byte (A, B, G,
+/// R from the top; `object_ambient_light::load`, skhid-srp renderer-026g.md
+/// 5.4). Packed the other way round, a warm fill draws blue.
 fn packed_colour(rgb: [f32; 3]) -> i32 {
     let c = |v: f32| ((v.clamp(0.0, 1.0) * 255.0).round() as u32) & 255;
-    (0xff00_0000 | c(rgb[0]) << 16 | c(rgb[1]) << 8 | c(rgb[2])) as i32
+    (0xff00_0000 | c(rgb[2]) << 16 | c(rgb[1]) << 8 | c(rgb[0])) as i32
+}
+
+/// Where a donor emitter's sound comes from: 0.26 ships it (0.69d kept most
+/// of 0.26's ambience under the same names), or the donor's own files of a
+/// single sound are imported (`sounds/single/<name>.*`: an Ogg stream, its
+/// loudness track and options with the same fields in both builds).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SoundFiles {
+    Native,
+    Imported(Vec<String>),
+}
+
+impl SoundFiles {
+    /// None when neither build can supply the sound (a collection 0.26
+    /// lacks: its members and their rules are not converted).
+    fn find(donor: &ResourceDb, target: &ResourceDb, name: &str) -> Option<Self> {
+        if target.is_file(&format!("sounds/single/{name}.raw_options")) || target.is_file(&format!("sounds/collections/{name}.sound_collection")) {
+            return Some(Self::Native);
+        }
+        let prefix = format!("sounds/single/{name}.");
+        let files: Vec<String> = donor.paths_with_prefix(&prefix).filter(|p| donor.is_file(p)).map(str::to_owned).collect();
+        files.iter().any(|p| p.ends_with(".raw_options")).then_some(Self::Imported(files))
+    }
 }
 
 pub struct SceneReport {
@@ -2415,6 +2469,11 @@ pub struct SceneReport {
     pub probe_textures: BTreeSet<String>,
     /// Probe cubemaps made for 0.26 (maps with `MapProbes::Donor`).
     pub generated_probes: Vec<GeneratedProbe>,
+    /// The donor's exposure, grading and curve for a donor-lit map
+    /// (`SceneTone`).
+    pub tone: Option<SceneTone>,
+    /// Sounds the donor's emitters kept in the scene play (`sound_name`).
+    pub sounds: BTreeSet<String>,
     pub decal_materials: BTreeSet<String>,
     pub counts: BTreeMap<String, usize>,
     pub notes: Vec<String>,
@@ -2442,6 +2501,7 @@ pub fn convert_scene(
     port: &Port,
     photometric: bool,
     particle_replacements: &BTreeMap<String, String>,
+    donor_sounds: Option<&BTreeSet<String>>,
 ) -> Result<SceneReport> {
     let mut counts = BTreeMap::<String, usize>::new();
     let mut notes = Vec::new();
@@ -2495,6 +2555,7 @@ pub fn convert_scene(
     let mut vegetation_files = BTreeMap::new();
     let mut probe_textures = BTreeSet::new();
     let mut generated_probes = Vec::<GeneratedProbe>::new();
+    let mut scene_tone = None;
     let mut dropped = BTreeMap::<String, usize>::new();
     if excluded > 0 {
         notes.push(format!("left out: {excluded} render instances of the excluded models and their collision"));
@@ -2519,14 +2580,12 @@ pub fn convert_scene(
         "environment: native {} sky, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its exposure, colour grading and light shafts have no 0.26 counterpart",
         port.template_project()
     ));
-    // A donor-lit map: the sun in the probes' scale. 0.26 values are 0.69d's
-    // exposed values at its outdoor exposure (the auto exposure's ceiling,
-    // where a sunlit view sits): the sky the native atmosphere draws and the
-    // probes then agree within a few percent, and 0.26's eye adaptation and
-    // curve show sunlit and shaded grey as 0.69d's curve does.
+    // A donor-lit map: one scale for the sun, the probes and the lights.
+    // 0.26 values are 0.69d's exposed values at its outdoor exposure (the auto
+    // exposure's ceiling, where a sunlit view sits).
     let light_scale = match port {
-        Port::Map(MapSpec { probes: MapProbes::Donor { exposure_bias, sun_saturation, .. }, .. }) => {
-            let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")? + exposure_bias;
+        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => {
+            let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")?;
             let scale = LightScale(1.0 / (1.2 * 2f32.powf(ev)));
             let sun = super::lighting::sun_radiance(
                 real(donor_environment, "sun_intensity_r2").context("sun_intensity_r2")?,
@@ -2536,7 +2595,7 @@ pub fn convert_scene(
             )
             .map(|v| v * scale.0);
             let intensity = sun.iter().cloned().fold(0.0, f32::max);
-            let colour = sun.map(|v| (v / intensity).powf(*sun_saturation));
+            let colour = sun.map(|v| v / intensity);
             environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
             // 0.69d has no height-based ambient; 0.26's multiplies the
@@ -2548,10 +2607,36 @@ pub fn convert_scene(
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?} (saturation {sun_saturation}), intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
                 colour.map(|v| (v * 1000.0).round() / 1000.0)
             ));
+            // Exposure, grading and curve: 0.69d's own (`super::tone`).
+            if let Port::Map(map) = port {
+                let tone = super::tone::Tone::read(donor_environment)?;
+                let exposure = tone.exposure(exposure_marker(&map.level)?);
+                let like = environment.named("properties").and_then(|p| string(p, "color_grading_texture")).context("the template environment has no colour grading texture")?.to_owned();
+                // 0.26g keeps the field as an integer (a whole marker).
+                environment.set_path("properties.mie_fog_base_height", ConfigValue::Integer(exposure.marker as i32))?;
+                environment.set_path("properties.use_color_grading_texture", ConfigValue::Boolean(true))?;
+                environment.set_path("properties.color_grading_texture", ConfigValue::String(GRADING_TEXTURE.into()))?;
+                // 0.26g turns dark colours blue (`blueshift`: its share of
+                // the colour kept is `saturate(luma * blueshift + 0.21)`);
+                // 0.69d has no such term.
+                environment.set_path("properties.blueshift", ConfigValue::Float(1e6))?;
+                notes.push(format!(
+                    "tone: 0.69d's exposure range EV {} to {} as exposure profile marker {} (mie_fog_base_height), floor {:.6}, ceiling {:.6}, key {:.4} (resource-porter's lighting pack draws it: its exposure_profiles row); its {}curve {:?} as the scene's own colour grading texture; no blue shift",
+                    tone.min_ev,
+                    tone.max_ev,
+                    exposure.marker,
+                    exposure.floor,
+                    exposure.ceiling,
+                    exposure.key,
+                    if tone.grading.is_some() { "colour grading and " } else { "" },
+                    tone.curve
+                ));
+                scene_tone = Some(SceneTone { tone, exposure, like });
+            }
             Some((scale, ev))
         }
         _ => None,
@@ -2575,8 +2660,12 @@ pub fn convert_scene(
                 .max_by(|a, b| real(a, "radius").unwrap_or(0.0).total_cmp(&real(b, "radius").unwrap_or(0.0)))
                 .context("template has no sphere probe")?
                 .clone();
-            global.set_path("position", ConfigValue::Float3(map.global_probe_position))?;
-            global.set_path("radius", ConfigValue::Float(map.global_probe_radius))?;
+            if let Some(position) = map.global_probe_position {
+                global.set_path("position", ConfigValue::Float3(position))?;
+            }
+            if let Some(radius) = map.global_probe_radius {
+                global.set_path("radius", ConfigValue::Float(radius))?;
+            }
             global.set_path("name", ConfigValue::String("global".into()))?;
             global.set_path("full_name", ConfigValue::String("env_and_lights/probes/global".into()))?;
             let donor_probe_objects: Vec<&ConfigValue> = donor_objects
@@ -2628,7 +2717,7 @@ pub fn convert_scene(
                         count("environment_probe");
                     }
                 }
-                MapProbes::Donor { global: global_name, area_gains, .. } => {
+                MapProbes::Donor { .. } => {
                     let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
                     let spawns = donor_spawn_positions(donor, map)?;
                     let faded: Vec<&str> = donor_objects
@@ -2639,11 +2728,16 @@ pub fn convert_scene(
                     if !faded.is_empty() {
                         notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
                     }
-                    let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, global_name, map)?;
+                    let map_wide = Volume {
+                        centre: float3(&global, "position")?,
+                        rotation: [0.0; 3],
+                        shape: Shape::Sphere { radius: real(&global, "radius").context("the map-wide probe's radius")? },
+                        side_width: 0.5,
+                    };
+                    let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, map_wide, scale)?;
                     // 0.26 draws probes largest first, each over the ones
                     // before it by its falloff (`environment_probe_lighting`
-                    // blends with the weight in alpha). A volume's irradiance
-                    // is what lies under its centre plus itself.
+                    // blends with the weight in alpha).
                     for v in &lit.volumes {
                         let mut p = global.clone();
                         place_volume(&mut p, &v.volume, &v.full_name)?;
@@ -2652,48 +2746,34 @@ pub fn convert_scene(
                         p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
                         objects.push(p);
                         count("environment_probe");
-                        generated_probes.push(GeneratedProbe {
-                            full_name: v.full_name.clone(),
-                            texture: v.texture.clone(),
-                            specular: v.specular.clone(),
-                            specular_mip: v.specular_mip,
-                            diffuse: v.diffuse.clone(),
-                            scale,
-                            diffuse_gain: area_gain(area_gains, &v.full_name),
-                        });
+                        generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
                     }
                     let ambient_template = first_template(template, "ambient_light")?;
-                    for (full_name, light, _, power) in &lit.darkeners {
+                    for (full_name, light) in &lit.lights {
                         let mut a = ambient_template.clone();
                         place_volume(&mut a, &light.volume, full_name)?;
-                        let LightEffect::Multiply { factor } = light.effect else { unreachable!() };
-                        // 0.26 multiplies by colour^2.2 * intensity: the
-                        // factor as a colour at intensity 1, never below
-                        // the floor.
-                        let shade = factor.map(|f| f.clamp(DARKENER_FLOOR, 1.0).powf(1.0 / 2.2));
-                        a.set_path("color", ConfigValue::Integer(packed_colour(shade)))?;
-                        a.set_path("intensity", ConfigValue::Float(1.0))?;
-                        a.set_path("attenuation_power", ConfigValue::Float(*power))?;
+                        a.set_path("color", ConfigValue::Integer(packed_colour(light.colour)))?;
+                        a.set_path("intensity", ConfigValue::Float(light.intensity))?;
+                        a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
                         a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
-                        a.set_path("dot_normal", ConfigValue::Boolean(light.facing.is_some()))?;
+                        a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal))?;
+                        // 0.69d's ambient lights leave the reflections alone.
                         a.set_path("affect_specular", ConfigValue::Boolean(false))?;
+                        a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
+                        a.set_path("enabled", ConfigValue::Boolean(true))?;
                         objects.push(a);
                         count("ambient_light");
                     }
                     notes.push(format!(
-                        "environment probes: the donor's {} volumes with their own cubemaps re-encoded for 0.26 (scale {:.4e}: 0.69d's exposure at EV {}) and irradiance from their SH, {global_name}'s also as the map-wide sphere; {} additive or brightening ambient lights as probe volumes over the probe under them (0.26's ambient lights only darken), {} darkening ones as 0.26 ambient lights",
+                        "light: the donor's {} probe volumes with their own cubemaps re-encoded for 0.26 (scale {:.4e}: 0.69d's exposure at EV {}) and irradiance from their SH, the largest ({}) also as the map-wide sphere; its ambient lights as 0.26 ambient lights: {} adding, {} brightening (adding their share of the light under them), {} darkening",
                         donor_probe_objects.len(),
                         scale.0,
                         outdoor_ev,
-                        lit.light_volumes,
-                        lit.darkeners.len()
+                        lit.volumes[0].probe.texture,
+                        lit.counts[0],
+                        lit.counts[1],
+                        lit.counts[2]
                     ));
-                    if !area_gains.is_empty() {
-                        notes.push(format!("probe areas' diffuse light raised to 0.69d's frames (manifest area_gains): {area_gains:?}"));
-                    }
-                    if !lit.dropped_darkeners.is_empty() {
-                        notes.push(format!("darkening ambient lights shaped as cylinders, left out (0.26 has no cylinder; a box would cut straight-edged dark squares): {:?}", lit.dropped_darkeners));
-                    }
                 }
             }
         }
@@ -2777,15 +2857,17 @@ pub fn convert_scene(
     enum AmbientLights {
         Drop,
         Keep,
-        /// Already in the probe volumes (`donor_lighting`).
-        InProbes,
+        /// Already made into 0.26 lights (`donor_lighting`).
+        Converted,
     }
     let ambient_lights = match port {
         Port::Map(MapSpec { probes: MapProbes::Native { ambient_lights: true, .. }, .. }) | Port::Lobby(_) => AmbientLights::Keep,
         Port::Map(MapSpec { probes: MapProbes::Native { .. }, .. }) => AmbientLights::Drop,
-        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => AmbientLights::InProbes,
+        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => AmbientLights::Converted,
     };
     let particle_template = templates_of(template, "particle").first().map(|p| (*p).clone());
+    let sound_template = templates_of(template, "object_sound").first().map(|p| (*p).clone());
+    let mut sounds = BTreeSet::new();
 
     let mut kept_collision_geometry = BTreeSet::new();
     for object in donor_objects {
@@ -2799,7 +2881,7 @@ pub fn convert_scene(
             "ambient_light" if matches!(ambient_lights, AmbientLights::Drop) => {
                 *dropped.entry("ambient_light (photometric units and shapes 2/3 have no 0.26 equivalent)".into()).or_default() += 1;
             }
-            "ambient_light" if matches!(ambient_lights, AmbientLights::InProbes) => {}
+            "ambient_light" if matches!(ambient_lights, AmbientLights::Converted) => {}
             "environment_probe" => {}
             // 0.69d's `type` 1 ambient lights multiply the light under them
             // (the scene's painted contact shadows, a multiplier below 1);
@@ -2969,6 +3051,22 @@ pub fn convert_scene(
                         count("particle");
                     }
                     _ => *dropped.entry(format!("particle {name}")).or_default() += 1,
+                }
+            }
+            // A sound emitter: the same object in both builds (0.69d adds a
+            // fade-in time and an importance flag 0.26 does not read).
+            "object_sound" if donor_sounds.is_some() => {
+                let name = string(object, "sound_name").unwrap_or("");
+                match (donor_sounds.is_some_and(|playable| playable.contains(name)), &sound_template) {
+                    (true, Some(template)) => {
+                        let mut s = template.clone();
+                        place(&mut s, object, &full_name)?;
+                        copy_shared(&mut s, object, &["sound_name", "sound_type", "resource_id"])?;
+                        objects.push(s);
+                        count("object_sound");
+                        sounds.insert(name.to_owned());
+                    }
+                    _ => *dropped.entry(format!("object_sound {name} (0.26 has no such sound and the donor none to import)")).or_default() += 1,
                 }
             }
             // A hanging cable: the same object in both builds (0.46c2 adds a
@@ -3154,6 +3252,8 @@ pub fn convert_scene(
         vegetation_files,
         probe_textures,
         generated_probes,
+        tone: scene_tone,
+        sounds,
         decal_materials,
         counts,
         notes,
@@ -3496,7 +3596,32 @@ pub fn build(
     let template = cfg(&mut target, port.template_project())?;
     let donor_project = cfg(&mut donor, port.donor_project())?;
     eprintln!("Converting the scene...");
-    let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &m.particle_replacements)?;
+    // Scene objects both builds have, from the donor's own project:
+    // a particle 0.26 ships under the same name (0.69d kept the effect) is
+    // drawn with 0.26's, and, unless the manifest takes a native map's
+    // emitters (`ambient_sounds`), the donor's sound emitters play the sounds
+    // 0.26 ships or the donor's own files can be imported for (`SoundFiles`).
+    let donor_client_objects = array(donor_project.named("client_objects").context("no client_objects")?)?;
+    let mut particles = m.particle_replacements.clone();
+    for object in donor_client_objects.iter().filter(|o| kind(o) == "particle") {
+        if let Some(name) = string(object, "particle_name").or_else(|| string(object, "lib_name")) {
+            if !particles.contains_key(name) && target.is_file(&format!("particles/{name}.particle")) {
+                particles.insert(name.to_owned(), name.to_owned());
+            }
+        }
+    }
+    let sound_files: BTreeMap<String, SoundFiles> = if m.ambient_sounds.is_none() && !m.source_build.early() {
+        donor_client_objects
+            .iter()
+            .filter(|o| kind(o) == "object_sound")
+            .filter_map(|o| string(o, "sound_name"))
+            .filter_map(|name| Some((name.to_owned(), SoundFiles::find(&donor, &target, name)?)))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    let playable: BTreeSet<String> = sound_files.keys().cloned().collect();
+    let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &particles, m.ambient_sounds.is_none().then_some(&playable))?;
     let donor_lit = matches!(port, Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }));
     let ambient_scale = if m.photometric() && !donor_lit {
         Some(calibrate_ambient(&mut scene.project, median_ambient(&template))?)
@@ -3520,6 +3645,14 @@ pub fn build(
         }
         scene.counts.insert("object_sound".into(), added);
         scene.notes.push(format!("ambience: {added} native object_sound emitters from {} (the donor's sound environments have no 0.26 counterpart)", sounds.project));
+    }
+    if m.ambient_sounds.is_none() && !scene.sounds.is_empty() {
+        let imported: Vec<&str> = scene.sounds.iter().filter(|n| matches!(sound_files.get(*n), Some(SoundFiles::Imported(_)))).map(String::as_str).collect();
+        scene.notes.push(format!(
+            "ambience: the donor's {} sound emitters where it has them, {} sounds; its own files for the ones 0.26 does not ship: {imported:?}",
+            scene.counts.get("object_sound").copied().unwrap_or(0),
+            scene.sounds.len()
+        ));
     }
     let mut notes = std::mem::take(&mut scene.notes);
     match ambient_scale {
@@ -3699,9 +3832,14 @@ pub fn build(
             environment.set_path("properties.sky_clouds_texture", ConfigValue::String(format!("{ns}/{}", plain_texture(&t))))?;
             textures.insert(t);
         }
+        // The scene's own colour grading texture (`SceneTone`).
+        if scene.tone.is_some() {
+            environment.set_path("properties.color_grading_texture", ConfigValue::String(format!("{ns}/{GRADING_TEXTURE}")))?;
+        }
     }
     // Probe cubemaps this build makes (`MapProbes::Donor`).
-    let generated_textures: BTreeSet<String> = scene.generated_probes.iter().map(|g| format!("{ns}/{}", g.texture)).collect();
+    let mut generated_textures: BTreeSet<String> = scene.generated_probes.iter().map(|g| format!("{ns}/{}", g.texture)).collect();
+    let mut metal_maps = BTreeMap::<String, (MetalSource, super::surface::MetalMaps)>::new();
     let mut material_notes = BTreeMap::<String, Vec<String>>::new();
     for (material, usage) in &material_usage {
         let path = format!("material_instances/{material}.material");
@@ -3755,7 +3893,7 @@ pub fn build(
                         ),
                     ]),
                 )]);
-                let mut converted = convert_material(&synthetic, Usage::default(), &templates, m.roughness_scale, default_normal)?;
+                let mut converted = convert_material(&synthetic, Usage::default(), &templates, m.gloss(), default_normal)?;
                 if let Some((t, template)) = templates.get("terrain") {
                     // Prefer the native terrain template's switches.
                     let mut root = template.clone();
@@ -3764,11 +3902,13 @@ pub fn build(
                     }
                     if effect_flag(&root, "g_stage", "use_troughness") {
                         set_effect(&mut root, "g_stage", "texture_roughness", ConfigValue::String(smoothness.unwrap_or(albedo).into()))?;
-                        let s = if smoothness.is_some() { m.roughness_scale } else { 0.1 * m.roughness_scale };
-                        set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(0.0))?;
-                        set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(s))?;
+                        // A layer without a smoothness map draws its albedo
+                        // there: a tenth of the range, as before the rule.
+                        let top = if smoothness.is_some() { 1.0 } else { 0.1 };
+                        set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(m.gloss().end(0.0)))?;
+                        set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(m.gloss().end(top)))?;
                     }
-                    converted = ConvertedMaterial { root, template: t.clone(), category: Category::Terrain, notes: Vec::new() };
+                    converted = ConvertedMaterial { root, template: t.clone(), category: Category::Terrain, notes: Vec::new(), metal: None };
                 }
                 layer_maps.push((albedo.to_owned(), normal.map(str::to_owned), smoothness.map(str::to_owned)));
                 let layer_material = format!("{material}_layer_{layer}");
@@ -3834,15 +3974,15 @@ pub fn build(
                             }
                             if effect_flag(&root, "g_stage", "use_troughness") {
                                 set_effect(&mut root, "g_stage", "texture_roughness", ConfigValue::String(a.2.clone().unwrap_or_else(|| a.0.clone())))?;
-                                set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(0.0))?;
-                                set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(m.roughness_scale))?;
+                                set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(m.gloss().end(0.0)))?;
+                                set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(m.gloss().end(1.0)))?;
                             }
                             let exists = |t: &str| donor.is_file(&format!("textures/{t}.dds")) || target.is_file(&format!("textures/{t}.dds"));
                             fill_missing_textures(&mut root, &exists, &cube)?;
                             for t in bound_textures(&root) {
                                 textures.insert(t);
                             }
-                            converted_materials.insert(blend.clone(), ConvertedMaterial { root, template: template_path.clone(), category: Category::Terrain, notes: Vec::new() });
+                            converted_materials.insert(blend.clone(), ConvertedMaterial { root, template: template_path.clone(), category: Category::Terrain, notes: Vec::new(), metal: None });
                         }
                         terrain_surface_material.insert(surface.clone(), blend);
                         terrain_blend.insert(surface.clone(), (layer, second));
@@ -3859,8 +3999,45 @@ pub fn build(
             notes.push(format!("{material}: the native 0.26 material of the same name is used"));
             continue;
         }
-        let mut converted = convert_material(&root, *usage, &templates, m.roughness_scale, default_normal)
+        let mut converted = convert_material(&root, *usage, &templates, m.gloss(), default_normal)
             .with_context(|| format!("converting {material}"))?;
+        // A metal surface: its two maps made texel by texel
+        // (`surface::metal_maps`), under the port's namespace, one pair for
+        // every material of the same albedo, metalness map and colour.
+        if let Some(source) = &converted.metal {
+            let tinted = source.colour != [1.0; 3];
+            let name = format!(
+                "{ns}/metal/{}__{}{}",
+                plain_texture(&source.albedo),
+                plain_texture(source.metalness.rsplit('/').next().unwrap_or(&source.metalness)),
+                if tinted { format!("__{:06x}", source.colour.iter().fold(0u32, |a, c| a << 8 | (c.clamp(0.0, 1.0) * 255.0).round() as u32)) } else { String::new() }
+            );
+            if !metal_maps.contains_key(&name) {
+                let maps = super::surface::metal_maps(
+                    &donor.read(&format!("textures/{}.dds", source.albedo))?,
+                    &donor.read(&format!("textures/{}.dds", source.metalness))?,
+                    source.colour,
+                )
+                .with_context(|| format!("the metal maps of {material}"))?;
+                metal_maps.insert(name.clone(), (source.clone(), maps));
+            }
+            let mean = metal_maps[&name].1.mean_fresnel;
+            set_effect(&mut converted.root, "g_stage", "texture_diffuse", ConfigValue::String(format!("{name}_d")))?;
+            generated_textures.insert(format!("{name}_d"));
+            if matches!(effect_value(&converted.root, "g_stage", "constant_diffuse"), Some(ConfigValue::Float4(_))) {
+                set_effect(&mut converted.root, "g_stage", "constant_diffuse", ConfigValue::Float4([1.0; 4]))?;
+            }
+            if effect_flag(&converted.root, "g_stage", "use_tfresnel") {
+                set_effect(&mut converted.root, "g_stage", "texture_fresnel", ConfigValue::String(format!("{name}_f")))?;
+                set_effect(&mut converted.root, "g_stage", "constant_fresnel_min", ConfigValue::Float(0.0))?;
+                set_effect(&mut converted.root, "g_stage", "constant_fresnel_max", ConfigValue::Float(1.0))?;
+                generated_textures.insert(format!("{name}_f"));
+                converted.notes.push(format!("metal: diffuse and Fresnel maps {name}_d, _f from the albedo and {} (mean Fresnel {mean:.3})", source.metalness));
+            } else {
+                flat_fresnel(&mut converted.root, "g_stage", mean)?;
+                converted.notes.push(format!("metal: diffuse map {name}_d from the albedo and {}; its template draws one Fresnel value, the map's mean {mean:.3}", source.metalness));
+            }
+        }
         if converted.category == Category::Water {
             // 0.26's water reflects a fixed sky probe where its screen-space
             // reflection finds nothing: in the caves it drew bright flat sheets.
@@ -3982,6 +4159,45 @@ pub fn build(
 
     crate::weapon::prepare_empty_output(output)?;
     let mut files: Vec<BuiltFile> = Vec::new();
+    // Metal surfaces' diffuse and Fresnel maps (`surface::metal_maps`), with
+    // the options of the albedo and of the metalness map.
+    for (name, (source, maps)) in &metal_maps {
+        let what = format!("0.26's diffuse and Fresnel of the 0.69d metal surface {} with {}", source.albedo, source.metalness);
+        for (suffix, bytes, like) in [("d", &maps.diffuse, &source.albedo), ("f", &maps.fresnel, &source.metalness)] {
+            if !generated_textures.contains(&format!("{name}_{suffix}")) {
+                continue;
+            }
+            let mut dds = bytes.clone();
+            canonical_dds(&mut dds).with_context(|| format!("{name}_{suffix}"))?;
+            emit(output, &format!("textures/{name}_{suffix}.dds"), &dds, &what, &mut files)?;
+            let mut options = BinaryConfig::parse(&donor.read(&format!("textures/{like}.options"))?)?;
+            // The Fresnel map is laid out as the albedo is.
+            if suffix == "f" {
+                let format = if &maps.fresnel[84..88] == b"DXT5" { "DXT5" } else { "DXT1" };
+                options.root.set_path("options.format", ConfigValue::String(format.into()))?;
+            }
+            emit(output, &format!("textures/{name}_{suffix}.options"), &options.to_bytes()?, &what, &mut files)?;
+        }
+    }
+    // Sounds the donor's emitters play that 0.26 does not ship (`SoundFiles`).
+    for name in &scene.sounds {
+        if let Some(SoundFiles::Imported(paths)) = sound_files.get(name) {
+            let what = format!("0.69d sound {name}: a donor emitter plays it and 0.26 ships none");
+            for path in paths {
+                let bytes = donor.read(path)?;
+                let bytes = if path.ends_with(".raw_options") { BinaryConfig::parse(&bytes)?.to_bytes()? } else { bytes };
+                emit(output, path, &bytes, &what, &mut files)?;
+            }
+        }
+    }
+    // The scene's own colour grading texture (`SceneTone`), on the header
+    // and options of the template's.
+    if let Some(t) = &scene.tone {
+        let like = target.read(&format!("textures/{}.dds", t.like))?;
+        let what = "0.69d's colour grading and tone curve for 0.26g's curve under the scene's exposure profile";
+        emit(output, &format!("textures/{ns}/{GRADING_TEXTURE}.dds"), &t.tone.lut(&t.exposure, &like)?, what, &mut files)?;
+        emit(output, &format!("textures/{ns}/{GRADING_TEXTURE}.options"), &target.read(&format!("textures/{}.options", t.like))?, what, &mut files)?;
+    }
     // Probe cubemaps made from the donor's (`MapProbes::Donor`), with the
     // options native probes carry.
     if !scene.generated_probes.is_empty() {
@@ -3991,24 +4207,22 @@ pub fn build(
             .context("template has no probe cubemap")?;
         let options = target.read(&format!("textures/{native}.options"))?;
         let diffuse_options = target.read(&format!("textures/{native}_diffuse.options"))?;
-        let mut cubes = BTreeMap::<(String, usize), Vec<u8>>::new();
+        let mut cubes = BTreeMap::<String, Vec<u8>>::new();
         let mut clamped = 0;
         for g in &scene.generated_probes {
-            let key = (g.specular.texture.clone(), g.specular_mip);
+            let key = g.probe.texture.clone();
             if !cubes.contains_key(&key) {
                 // 0.69d probes name their cube under `environment_probes/`.
-                let bytes = donor.read(&format!("textures/environment_probes/{}.dds", g.specular.texture))?;
-                let gain = super::lighting::adaptation_gain(&g.specular, g.scale);
-                let (cube, over) = super::lighting::specular_cube(&bytes, &g.specular, LightScale(g.scale.0 * gain), g.specular_mip)?;
+                let bytes = donor.read(&format!("textures/environment_probes/{}.dds", g.probe.texture))?;
+                let (cube, over) = super::lighting::specular_cube(&bytes, &g.probe, g.scale, 0)?;
                 clamped += over;
                 cubes.insert(key.clone(), cube);
             }
             let base = format!("textures/{ns}/{}", g.texture);
-            let what = format!("0.69d probe {} re-encoded for 0.26 ({})", g.specular.texture, g.full_name);
+            let what = format!("0.69d probe {} re-encoded for 0.26 ({})", g.probe.texture, g.full_name);
             emit(output, &format!("{base}.dds"), &cubes[&key], &what, &mut files)?;
             emit(output, &format!("{base}.options"), &options, &what, &mut files)?;
-            let gain = super::lighting::adaptation_gain(&g.diffuse.base, g.scale);
-            let diffuse = super::lighting::diffuse_cube(&g.diffuse, LightScale(g.scale.0 * gain * g.diffuse_gain));
+            let diffuse = super::lighting::diffuse_cube(&g.probe, g.scale);
             emit(output, &format!("{base}_diffuse.dds"), &diffuse, &what, &mut files)?;
             emit(output, &format!("{base}_diffuse.options"), &diffuse_options, &what, &mut files)?;
             probe_textures.insert(g.texture.clone());
@@ -5013,14 +5227,6 @@ fn rewrite_scene(
 mod tests {
     use super::*;
 
-    #[test]
-    fn area_gains_take_the_longest_prefix() {
-        let gains: BTreeMap<String, f32> = [("a/day/church/".into(), 2.0), ("a/day/church/bell".into(), 3.0)].into_iter().collect();
-        assert_eq!(area_gain(&gains, "a/day/church/church(2)"), 2.0);
-        assert_eq!(area_gain(&gains, "a/day/church/bell(1)"), 3.0);
-        assert_eq!(area_gain(&gains, "a/day/school/indoor"), 1.0);
-    }
-
     fn static_mesh(basis: [u32; 3], stride: usize, extra: &[(u32, Vec<u8>)]) -> Vec<u8> {
         let mut b = Vec::new();
         b.extend(3u32.to_le_bytes());
@@ -5388,7 +5594,7 @@ mod tests {
             "opaque".to_owned(),
             ("tiled/concrete/concrete_01".to_owned(), template(&[("use_nmap", true), ("use_troughness", true)])),
         )]);
-        let c = convert_material(&donor, Usage::default(), &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, Usage::default(), &templates, Gloss::Scaled(0.2), "editor/default_nmap").unwrap();
         assert_eq!(c.category, Category::Opaque);
         let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
         assert_eq!(text(e, "texture_diffuse"), Some("tiled/a"));
@@ -5396,9 +5602,15 @@ mod tests {
         assert_eq!(text(e, "texture_roughness"), Some("tiled/a_smap"));
         assert_eq!(number(e, "constant_roughness_max"), Some(0.2));
         assert!(flag(e, "use_troughness") && flag(e, "use_nmap"));
-        assert!(c.notes.iter().any(|n| n.contains("metalness")));
-        // With a metalness map and an `opaque_metal` template, the map is
-        // 0.26's Fresnel map.
+        // The switch without a map is no metal surface.
+        assert!(c.metal.is_none());
+        // 0.69d's own rule: the smoothness range by the two builds' alpha.
+        let c = convert_material(&donor, Usage::default(), &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        let (offset, slope) = crate::survarium_026::surface::gloss_line();
+        assert_eq!((number(e, "constant_roughness_min"), number(e, "constant_roughness_max")), (Some(offset), Some(offset + slope)));
+        // With a metalness map the `opaque_metal` template is taken and the
+        // build is told which maps to make its diffuse and Fresnel from.
         let mut donor = donor;
         donor.set_path("material.g_stage.effect.t_metalness", ConfigValue::String("tiled/a_fmap".into())).unwrap();
         let mut templates = templates;
@@ -5406,11 +5618,9 @@ mod tests {
             "opaque_metal".to_owned(),
             ("props/box/props_boxes_metal".to_owned(), template(&[("use_nmap", true), ("use_troughness", true), ("use_tfresnel", true)])),
         );
-        let c = convert_material(&donor, Usage::default(), &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, Usage::default(), &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
         assert_eq!(c.template, "props/box/props_boxes_metal");
-        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
-        assert_eq!(text(e, "texture_fresnel"), Some("tiled/a_fmap"));
-        assert_eq!((number(e, "constant_fresnel_min"), number(e, "constant_fresnel_max")), (Some(0.04), Some(1.0)));
+        assert_eq!(c.metal, Some(MetalSource { albedo: "tiled/a".into(), metalness: "tiled/a_fmap".into(), colour: [1.0; 3] }));
     }
 
     #[test]
@@ -5474,11 +5684,11 @@ mod tests {
         };
         let vc = Usage { vertex_colour: true, vegetation: false };
         let mut templates = BTreeMap::from([("alpha_test_two_sided_vc".to_owned(), vc_template("tiled/window/window_brokengl_vc"))]);
-        let c = convert_material(&donor, vc, &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, vc, &templates, Gloss::Scaled(0.2), "editor/default_nmap").unwrap();
         assert_eq!(c.category, Category::AlphaTestTwoSided);
         assert!(c.notes.iter().any(|n| n.contains("vertex_blend_alpha_test_two_sided")));
         templates.insert("vertex_blend_alpha_test_two_sided".to_owned(), vc_template("tiled/stucco/stucco_wood_stucco_04_vc"));
-        let c = convert_material(&donor, vc, &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, vc, &templates, Gloss::Scaled(0.2), "editor/default_nmap").unwrap();
         assert_eq!(c.category, Category::VertexBlend { two_sided: true, alpha_test: true });
         assert_eq!(c.template, "tiled/stucco/stucco_wood_stucco_04_vc");
         let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
@@ -5532,13 +5742,13 @@ mod tests {
         ]);
         let spec = MapSpec {
             id: 205, level: "level_11".into(), donor_project: "p".into(), template_project: "t".into(), template_mode: "m".into(),
-            output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: [0.0; 3],
-            global_probe_radius: 300.0, spawn_folder: "logic/modes/tdm/spawns/".into(),
+            output_project: "v069d_level_11/day_4".into(), mode_name: "x.options".into(), global_probe_position: Some([0.0; 3]),
+            global_probe_radius: Some(300.0), spawn_folder: "logic/modes/tdm/spawns/".into(),
             probes: MapProbes::Native { classes: Vec::new(), matte_water: None, ambient_lights: false }, environment: BTreeMap::new(),
             donor_mode: "d".into(), loading_screen_id: None, level_id: None, map_name: None,
             native_objects: None, modes: Vec::new(), published_patches: Vec::new(),
         };
-        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new()).unwrap();
+        let scene = convert_scene(&donor, &template, &Port::Map(spec.clone()), true, &BTreeMap::new(), None).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let zones: Vec<_> = objects.iter().filter(|o| kind(o) == "resupply_zone").collect();
         assert_eq!(zones.iter().map(|z| integer(z, "team").unwrap()).collect::<Vec<_>>(), vec![0, 1]);
@@ -5560,6 +5770,43 @@ mod tests {
         assert!(matches!(scene.project.named("victory_item_spawn_points"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(matches!(scene.project.named("temporary_render_visuals"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(scene.project.named("levelmap_min").is_none());
+
+        // The donor's own sound emitters (the playable ones) and a particle
+        // 0.26 ships, each on the template's object of its kind.
+        let text = |v: &str| ConfigValue::String(v.into());
+        let add = |project: &ConfigValue, more: Vec<ConfigValue>| {
+            let mut project = project.clone();
+            if let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") {
+                objects.extend(more);
+            }
+            project
+        };
+        let template = add(&template, vec![
+            with(tf([0.0; 3]), vec![("game_object_type", text("object_sound")), ("sound_name", text("native/sound")), ("sound_type", ConfigValue::Integer(0)), ("layer", text("default"))]),
+            with(tf([0.0; 3]), vec![("game_object_type", text("particle")), ("lib_name", text("native/particle"))]),
+        ]);
+        let sound = |name: &str, x: f32| with(tf([x, 0.0, 0.0]), vec![("game_object_type", text("object_sound")), ("full_name", text(&format!("sounds/{x}"))), ("sound_name", text(name)), ("sound_type", ConfigValue::Integer(1)), ("fade_in_time", ConfigValue::Integer(0))]);
+        let donor = add(&donor, vec![
+            sound("scapes/a", 1.0),
+            sound("scapes/nowhere", 2.0),
+            with(tf([3.0, 0.0, 0.0]), vec![("game_object_type", text("particle")), ("full_name", text("fx/fly")), ("particle_name", text("fx/environment/fly"))]),
+        ]);
+        let particles = BTreeMap::from([("fx/environment/fly".to_owned(), "fx/environment/fly".to_owned())]);
+        let playable = BTreeSet::from(["scapes/a".to_owned()]);
+        let scene = convert_scene(&donor, &template, &Port::Map(spec.clone()), true, &particles, Some(&playable)).unwrap();
+        let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
+        let sounds: Vec<_> = objects.iter().filter(|o| kind(o) == "object_sound").collect();
+        assert_eq!(sounds.len(), 1);
+        assert_eq!((string(sounds[0], "sound_name"), integer(sounds[0], "sound_type"), string(sounds[0], "layer")), (Some("scapes/a"), Some(1), Some("default")));
+        assert_eq!(float3(sounds[0], "position").unwrap(), [1.0, 0.0, 0.0]);
+        assert!(sounds[0].named("fade_in_time").is_none(), "only fields 0.26's emitter has");
+        assert_eq!(scene.sounds, playable);
+        assert!(scene.notes.iter().any(|n| n.contains("object_sound scapes/nowhere")), "{:?}", scene.notes);
+        let particle = objects.iter().find(|o| kind(o) == "particle").unwrap();
+        assert_eq!(string(particle, "lib_name"), Some("fx/environment/fly"));
+        // Without the donor's sounds (a manifest that takes a native map's) none is made.
+        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new(), None).unwrap();
+        assert!(!array(scene.project.named("client_objects").unwrap()).unwrap().iter().any(|o| matches!(kind(o), "object_sound" | "particle")));
     }
 
     #[test]
@@ -5664,7 +5911,7 @@ mod tests {
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
         };
-        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
+        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new(), None).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
         let srp = scene.project.named("srp_lobby").unwrap();
         assert_eq!(float3(srp, "weapon").unwrap(), [-9.9, 1.3, 6.95]);
