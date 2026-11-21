@@ -57,5 +57,20 @@
     "offscreen_particle_lighting.ps": {
       "probe_diffuse_mult": 16
     }
+  },
+  "unset": {
+    "vertex_base_z_shifted.vs": {
+      "constants": [
+        "displacement_scale",
+        "displacement_sequence_array_height",
+        "displacement_sequence_array_width",
+        "displacement_sequence_play_speed",
+        "displacement_tile"
+      ],
+      "textures": [
+        "t_displacement"
+      ],
+      "why": "0.44a5 sets the displacement constants and map only in its g-buffer compile (0x4C1FC0: displacement_tile 0x4C2CF6, displacement_scale 0x4C2D63, t_displacement 0x4C2F02), never in forward_default's (0x4BC960), whose tiling bit selects these two programs (vertex inputs 1 and 2): they read 0 there, and 0.26g's zeroed constant buffers and unbound texture give the same"
+    }
   }
 }

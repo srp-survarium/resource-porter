@@ -65,10 +65,23 @@ pub struct Manifest {
     /// detail): a key with a new macro on must be there for each of their
     /// values the key with it off has.
     pub runtime_macros: Vec<String>,
+    /// Constants and textures a family's donor programs read that the
+    /// donor's effect never sets for them either (with why): 0 in both
+    /// builds' draws, so they do not refuse a program.
+    #[serde(default)]
+    pub unset: BTreeMap<String, Unset>,
     /// Constants the patch sets for a family, with their bytes: a donor
     /// program may read them that far.
     #[serde(default)]
     pub filled: BTreeMap<String, BTreeMap<String, u32>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Unset {
+    pub constants: Vec<String>,
+    pub textures: Vec<String>,
+    pub why: String,
 }
 
 /// What the pack holds, by family.
@@ -158,6 +171,14 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
         let mut known = Known::read(&mut shipped, family)?;
         for (name, size) in m.filled.get(family).into_iter().flatten() {
             known.fill(name, *size);
+        }
+        if let Some(unset) = m.unset.get(family) {
+            for name in &unset.constants {
+                known.fill(name, u32::MAX);
+            }
+            for name in &unset.textures {
+                known.allow_unbound(name);
+            }
         }
         let new_macros: Vec<usize> = m.patch_macros.get(family).into_iter().flatten().filter_map(|name| new.order.place(name)).collect();
         // The values players' keys give each macro: a macro 0.26g's family reads

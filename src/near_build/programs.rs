@@ -480,6 +480,12 @@ impl Known {
         Ok(all)
     }
 
+    /// A texture or sampler the family may bind that nothing sets: it reads
+    /// 0 in the donor's draw and in 0.26g's alike.
+    pub fn allow_unbound(&mut self, name: &str) {
+        self.bound.insert(name.to_owned());
+    }
+
     /// A constant a client patch sets for the family at `size` bytes.
     pub fn fill(&mut self, name: &str, size: u32) {
         let longest = self.constants.entry(name.to_owned()).or_default();
