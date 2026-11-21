@@ -101,6 +101,9 @@ pub struct ModuleDef {
     /// heavy and long barrels). Read from the models ([`Catalog::find_suppressor_shapes`]);
     /// None until then.
     pub suppressor_shape: Option<String>,
+    /// A collimator's `possible_reticles`, its models' paths; the first is
+    /// the one it comes with. No magnified scope has any.
+    pub reticles: Vec<String>,
 }
 
 impl ModuleDef {
@@ -376,6 +379,10 @@ impl Catalog {
                         .map(|n| string_of(Some(n)).map(str::to_owned))
                         .collect::<Result<_>>()?,
                     suppressor_shape: None,
+                    reticles: list(v.named("possible_reticles"))
+                        .iter()
+                        .map(|r| text(r, "path"))
+                        .collect::<Result<_>>()?,
                 })
             })()
             .with_context(|| format!("weapon_modules.{}", m.name))?;

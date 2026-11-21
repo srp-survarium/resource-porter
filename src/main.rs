@@ -276,6 +276,10 @@ enum Command {
         /// Only these 0.69d0 items (a quick build).
         #[arg(long)]
         only: Vec<String>,
+        /// The scope pairs released before the modules table (skhid-srp's
+        /// scripts/scope-fits/released-pairs.tsv): one 0.69d0 does not give is a legacy row.
+        #[arg(long)]
+        released: Option<PathBuf>,
         /// A folder for the check's pictures: each gun and fit as 0.69d0 places it (left) and
         /// as the table and the bundle draw it (right), <item>/<module>.png.
         #[arg(long)]
@@ -1372,6 +1376,7 @@ fn main() -> Result<()> {
             items,
             ids,
             only,
+            released,
             renders,
             donor,
             target_db,
@@ -1379,6 +1384,7 @@ fn main() -> Result<()> {
             output,
         } => {
             use vostok_resource_porter::weapons_026::donor_069d::{self, modules};
+            let released = released.map(|path| modules::read_released(&path)).transpose()?.unwrap_or_default();
             let spec = donor_069d::Spec069::load(&donor_spec)?;
             modules::refuse_typed_offsets(&spec)?;
             let mut layers = vec![target_db];
@@ -1389,6 +1395,7 @@ fn main() -> Result<()> {
                 &modules::read_items(&items)?,
                 &modules::read_ids(&ids)?,
                 &only,
+                &released,
                 renders.as_deref(),
                 &donor,
                 &layers,
@@ -1401,6 +1408,20 @@ fn main() -> Result<()> {
             for module in &report.without_item {
                 println!("no item: {module}");
             }
+            for l in &report.lost {
+                println!("LOST {} + scope {}: {}", l.gun, l.scope, l.why);
+            }
+            let worst = |nth: usize| report.centres.iter().map(|c| c.off_mrad[nth]).fold(0.0, f64::max);
+            println!(
+                "Scopes: {} optics, {} legacy rows, {} released pairs lost; {} reticles, off the eye's line at most {} mrad at rest, {} and {} through the idle clip",
+                report.optics.len(),
+                report.legacy.len(),
+                report.lost.len(),
+                report.centres.len(),
+                worst(0),
+                worst(1),
+                worst(2)
+            );
             println!(
                 "Built {id}: {} guns ({} items), {} module rows, a table of {} bytes, {} files; {} checks, {} over {} mm",
                 report.guns.len(),

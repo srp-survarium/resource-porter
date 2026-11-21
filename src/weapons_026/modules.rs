@@ -104,6 +104,25 @@ impl Mesh {
         })
     }
 
+    /// The mesh with every vertex moved by `by`; the rest of a vertex (its
+    /// basis, its texture coordinates) as it is.
+    pub fn moved(&self, by: [f32; 3]) -> Vec<u8> {
+        let mut moved = Self {
+            stride: self.stride,
+            positions: self.positions.iter().map(|p| std::array::from_fn(|k| p[k] + by[k])).collect(),
+            triangles: self.triangles.clone(),
+            vertex_chunk: self.vertex_chunk.clone(),
+            tail: self.tail.clone(),
+        };
+        for (i, p) in moved.positions.iter().enumerate() {
+            for (k, c) in p.iter().enumerate() {
+                let at = 4 + i * self.stride + 4 * k;
+                moved.vertex_chunk[at..at + 4].copy_from_slice(&c.to_le_bytes());
+            }
+        }
+        moved.with_triangles(&moved.triangles)
+    }
+
     /// The mesh with only `keep`'s triangles (the vertices stay, as does
     /// their skinning).
     pub fn with_triangles(&self, keep: &[[u16; 3]]) -> Vec<u8> {
