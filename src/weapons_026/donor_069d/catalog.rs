@@ -9,7 +9,7 @@
 //! which module is `module_to_item_links`; what a bought module does to the
 //! gun's numbers is `modules_drop_options` ([`Catalog::stats`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result, bail, ensure};
 
@@ -44,6 +44,9 @@ pub struct GunDef {
     pub slots: Vec<SlotDef>,
     pub defaults: Vec<Entry>,
     pub bundled: Vec<Entry>,
+    /// The item it is a skin of (`parameters.base_item_dict_id`, another item's dict id): a
+    /// premium or camouflage item's base gun. None for an item that is its own base.
+    pub base: Option<String>,
 }
 
 /// A module's models: its shape, its alternative one (`model_param1`: a
@@ -93,6 +96,11 @@ pub struct ModuleDef {
     pub attaches: Vec<AttachDef>,
     /// A grip's sixteen locator names: fifteen fingers, then the hand.
     pub finger_locators: Vec<String>,
+    /// The suppressor whose material every surface of its model draws, for a module of muzzle
+    /// slots that is none by its group or name: that suppressor in another shape (the VSSK's
+    /// heavy and long barrels). Read from the models ([`Catalog::find_suppressor_shapes`]);
+    /// None until then.
+    pub suppressor_shape: Option<String>,
 }
 
 impl ModuleDef {
@@ -127,10 +135,19 @@ impl ModuleDef {
         (zoom || matches!(self.group.as_str(), "scope" | "scope_collimator")) && self.attaches.iter().any(moves_eye)
     }
 
-    /// A sound suppressor: by its group, its name, or the slot family of a
-    /// suppressor's clamp. Never ported (the owner, 2026-11-01).
+    /// A sound suppressor: by its group or its name, or by its shape
+    /// (`suppressor_shape`). Never ported (the owner, 2026-11-01).
     pub fn is_suppressor(&self) -> bool {
+        self.named_suppressor() || self.suppressor_shape.is_some()
+    }
+
+    fn named_suppressor(&self) -> bool {
         self.group == "silencer" || self.id.contains("suppressor") || self.id.contains("silencer")
+    }
+
+    /// It goes in muzzle threads and nowhere else.
+    pub fn muzzle_only(&self) -> bool {
+        !self.attaches.is_empty() && self.attaches.iter().all(|a| a.slot.ends_with("_muzzle"))
     }
 }
 
@@ -294,16 +311,28 @@ impl Catalog {
             _ => bail!("0.69d0's game.options has no {key}"),
         };
         let mut guns = BTreeMap::new();
+        // By dict id: the item. A skin names its base item so (`base_item_dict_id`).
+        let mut by_dict: BTreeMap<i32, &str> = BTreeMap::new();
+        for w in named("weapons")? {
+            if let Some(V::Integer(dict)) = get(&w.value, "parameters.dict_id") {
+                ensure!(by_dict.insert(*dict, &w.name).is_none(), "0.69d0 has two weapons of dict id {dict}");
+            }
+        }
         for w in named("weapons")? {
             // An entry without a model or slots is no gun (a grenade's row).
             let Ok(model) = string_of(get(&w.value, "object.model")) else {
                 continue;
+            };
+            let base = match get(&w.value, "parameters.base_item_dict_id") {
+                Some(V::Integer(dict)) => by_dict.get(dict).filter(|base| **base != w.name),
+                _ => None,
             };
             let gun = GunDef {
                 model: model.to_owned(),
                 slots: slot_defs(w.value.named("slots")).with_context(|| w.name.clone())?,
                 defaults: entries(w.value.named("default_modules"))?,
                 bundled: entries(w.value.named("bundled_modules"))?,
+                base: base.map(|base| (*base).to_owned()),
             };
             guns.insert(w.name.clone(), gun);
         }
@@ -346,6 +375,7 @@ impl Catalog {
                         .iter()
                         .map(|n| string_of(Some(n)).map(str::to_owned))
                         .collect::<Result<_>>()?,
+                    suppressor_shape: None,
                 })
             })()
             .with_context(|| format!("weapon_modules.{}", m.name))?;
@@ -420,6 +450,53 @@ impl Catalog {
         self.modules
             .get(id)
             .with_context(|| format!("0.69d0 has no weapon_modules.{id}"))
+    }
+
+    /// The modules 0.69d0 lets `item` take, in its order: the item's own links, then its base
+    /// item's. A skin's own links are its own-paint parts alone (the SR-3M premium's
+    /// camouflage foregrip, the red VSSK's two barrels, a camouflage magazine), and most
+    /// skins have none: what the gun takes is linked to its base item.
+    pub fn linked(&self, item: &str) -> Vec<&str> {
+        let of = |item: &str| self.links.get(item).into_iter().flatten().map(String::as_str);
+        let mut out: Vec<&str> = of(item).collect();
+        if let Some(base) = self.guns.get(item).and_then(|gun| gun.base.as_deref()) {
+            for module in of(base) {
+                if !out.contains(&module) {
+                    out.push(module);
+                }
+            }
+        }
+        out
+    }
+
+    /// Marks the suppressors 0.69d0 has in another shape (`ModuleDef::suppressor_shape`): a
+    /// module of muzzle slots, no suppressor by group or name, every surface of whose model
+    /// draws a material a suppressor's model draws. `materials` gives a module model's
+    /// materials (its LOD0 surfaces'), or None for a model the archive lacks.
+    ///
+    /// In 0.69d0 these are the VSSK's four barrels: each is one surface in the material of the
+    /// gun's own suppressor (`weapons/sniper/vssk/vssk_barrel`, the red one's twin), in the
+    /// slot that suppressor stands in. Nothing else in their rows says so (their groups are
+    /// `heavy_barrel` and `long_barrel`, and they set no shot effect, as a choke sets none).
+    pub fn find_suppressor_shapes(
+        &mut self,
+        materials: &mut dyn FnMut(&str) -> Result<Option<BTreeSet<String>>>,
+    ) -> Result<()> {
+        let mut drawn_by: BTreeMap<String, String> = BTreeMap::new();
+        for module in self.modules.values().filter(|m| m.named_suppressor()) {
+            let Some(model) = &module.models.model else { continue };
+            for material in materials(model)?.into_iter().flatten() {
+                drawn_by.entry(material).or_insert_with(|| module.id.clone());
+            }
+        }
+        for module in self.modules.values_mut().filter(|m| m.muzzle_only() && !m.named_suppressor()) {
+            let Some(model) = &module.models.model else { continue };
+            let Some(own) = materials(model)? else { continue };
+            if !own.is_empty() && own.iter().all(|m| drawn_by.contains_key(m)) {
+                module.suppressor_shape = own.iter().next().map(|m| drawn_by[m].clone());
+            }
+        }
+        Ok(())
     }
 
     /// What a bought module does to a gun's numbers: the modifiers of its

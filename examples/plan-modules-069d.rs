@@ -3,6 +3,9 @@
 //! parts (`*` one a fit can displace), its fits by kind and carrier chain,
 //! and the refusals:
 //! `plan-modules-069d <game.options file> <sidecar json> [<0.69d0 item>..]`.
+//! From the tables alone: what `port-modules` reads from the models is not
+//! here (a suppressor in another shape, the VSSK's barrels, shows as a fit;
+//! a part the live gun has built in is not found).
 use std::collections::BTreeMap;
 
 use vostok_resource_porter::BinaryConfig;
@@ -24,7 +27,7 @@ fn main() -> anyhow::Result<()> {
         let offered = |m: &vostok_resource_porter::weapons_026::donor_069d::catalog::ModuleDef| {
             plan::kind(m) == Some(Kind::Scope) || catalog.has_stats(m)
         };
-        let p = plan::plan(&catalog, item, &own, item, &offered)?;
+        let p = plan::plan(&catalog, item, &own, &catalog.linked(item), &offered)?;
         println!("{item}");
         for part in &p.parts {
             println!(
