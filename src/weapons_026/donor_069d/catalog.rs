@@ -23,6 +23,10 @@ use crate::weapons_026::get;
 pub struct SlotDef {
     pub id: String,
     pub locator: String,
+    /// `plane_slot` of an override: the slot of the gun whose plane the
+    /// point keeps (`body_aim`, the gun's own eye: an open sight's line of
+    /// sight at the gun's eye relief, `get_slot_transform` of 0.69d0's exe).
+    pub plane: Option<String>,
 }
 
 /// One of a gun's own modules: `default_modules` or `bundled_modules`.
@@ -181,6 +185,7 @@ fn slot_defs(v: Option<&V>) -> Result<Vec<SlotDef>> {
             Ok(SlotDef {
                 id: text(s, "id")?,
                 locator: text(s, "locator")?,
+                plane: optional(s, "plane_slot")?,
             })
         })
         .collect()
