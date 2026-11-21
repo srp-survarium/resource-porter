@@ -89,6 +89,9 @@ pub struct ModuleDef {
     pub attaches: Vec<AttachDef>,
     /// A grip's sixteen locator names: fifteen fingers, then the hand.
     pub finger_locators: Vec<String>,
+    /// A collimator's `possible_reticles`, its models' paths; the first is
+    /// the one it comes with. No magnified scope has any.
+    pub reticles: Vec<String>,
 }
 
 impl ModuleDef {
@@ -340,6 +343,10 @@ impl Catalog {
                     finger_locators: list(v.named("finger_locators"))
                         .iter()
                         .map(|n| string_of(Some(n)).map(str::to_owned))
+                        .collect::<Result<_>>()?,
+                    reticles: list(v.named("possible_reticles"))
+                        .iter()
+                        .map(|r| text(r, "path"))
                         .collect::<Result<_>>()?,
                 })
             })()
