@@ -29,6 +29,10 @@ use crate::binary_config::{ConfigValue, NamedValue};
 /// Fields only the editor reads.
 const EDITOR_ONLY: &[&str] = &["guid_path", "is_visible_in_editor", "__type", "__removed", "is_shadower"];
 
+/// A battery point's lists in the old form, as 0.26g's editor writes them (each, empty or not).
+const ATTACHED_LISTS: &[&str] = &["boxes", "collision_geometries", "composits", "spawn_boxes", "spawners", "wire_sets"];
+const ATTACHED_CLIENT_LISTS: &[&str] = &["collision_geometries", "lights", "particles", "skeletons", "sounds"];
+
 /// What an editor id names.
 #[derive(Clone, Debug, PartialEq)]
 enum Target {
@@ -335,8 +339,13 @@ impl Converter<'_> {
     /// the old form lists one by one beside the group's name.
     fn battery_point(&mut self, point: &ConfigValue, boxes: &[String]) -> Result<ConfigValue> {
         let mut out = self.object_without(point, &["spawners_list", "other_list"])?;
-        let mut lists: BTreeMap<&str, Vec<ConfigValue>> = BTreeMap::new();
-        let mut client: BTreeMap<&str, Vec<ConfigValue>> = BTreeMap::new();
+        // The old form writes every list, empty or not, and 0.26g reads them so: its battery rule
+        // takes attached_objects/collision_geometries of each station unchecked (0x3155FB), and a
+        // station without it crashed London (v0.42)'s mode 3 at load.
+        let mut lists: BTreeMap<&str, Vec<ConfigValue>> =
+            ATTACHED_LISTS.iter().map(|&name| (name, Vec::new())).collect();
+        let mut client: BTreeMap<&str, Vec<ConfigValue>> =
+            ATTACHED_CLIENT_LISTS.iter().map(|&name| (name, Vec::new())).collect();
         for list in ["spawners_list", "other_list"] {
             let Some(ConfigValue::Named(entries)) = point.named(list) else { continue };
             for entry in entries {
@@ -755,6 +764,9 @@ mod tests {
         assert_eq!(text(&statics[3], "name"), Some("walker_props/3/bonfire/barrel"));
         assert_eq!(text(&items(&old, "client_objects")[2], "full_name"), Some("props/3/bonfire/bonfire"));
         assert!(point.named("other_list").is_none());
+        // Every list is there, also the ones this point links nothing into.
+        assert!(matches!(attached.named("wire_sets"), Some(ConfigValue::Indexed(v)) if v.is_empty()));
+        assert!(matches!(client.named("skeletons"), Some(ConfigValue::Indexed(v)) if v.is_empty()));
         assert_eq!(report.battery_points, 1);
     }
 }
