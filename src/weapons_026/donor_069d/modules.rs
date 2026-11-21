@@ -2012,8 +2012,11 @@ fn check(
             let wrist = module.finger_locators.last().and_then(|name| own.get(name));
             match (bare.left_hand, wrist) {
                 (Some(hand), Some(l)) => {
-                    // As a gun rig's locator on the grip: half turn x L x half turn x grip's frame.
-                    let theirs = HALF_TURN.then(l).then(&HALF_TURN).then(&fit_frame).then(&shift);
+                    // As a gun rig's locator on the grip: half turn x L x half turn, at the grip's
+                    // place in the gun's axes, not turned with the grip (the crate's Hand::new: the
+                    // PKP's own grip, a quarter turn on its gun, holds the hand 139 mm off otherwise).
+                    let at = Frame { r: Frame::IDENTITY.r, t: fit_frame.t };
+                    let theirs = HALF_TURN.then(l).then(&HALF_TURN).then(&at).then(&shift);
                     row("hand", spread(&PROBE, &ours(&hand.wrist)?, &theirs), "");
                 }
                 _ => row("hand", 0.0, "no hand on one side"),
