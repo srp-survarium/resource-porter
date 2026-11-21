@@ -50,6 +50,7 @@ const ADAPTED: &str = "t_frame_luminance";
 /// ceiling, where the two scales meet): the first program reads the adapted mean. Where it
 /// is not bound (an exe without patch 170) it reads 0, and the floor is this one, the
 /// longest exposure's: no point is metered brighter than 0.69d meters it.
+#[cfg(test)]
 fn pixel_floor(e: &ExposureProfile) -> f32 {
     PIXEL_FLOOR_069 * e.floor / e.ceiling
 }
