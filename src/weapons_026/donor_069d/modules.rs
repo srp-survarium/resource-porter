@@ -1258,7 +1258,7 @@ pub fn port_modules(
         for module in links_of(&catalog, item) {
             let module = catalog.module(module)?;
             let sold = plan::kind(module).is_some_and(|k| k != Kind::Scope) && catalog.has_stats(module);
-            if sold && !offered(module) {
+            if sold && !ids.contains_key(&module.id) {
                 without_item.insert(module.id.clone());
             }
         }
