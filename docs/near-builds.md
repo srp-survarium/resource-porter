@@ -109,9 +109,11 @@ asks the archive for it, and stops with an assert ("cannot find shader") when it
   `offscreen_particle_lighting.ps` (`config_append` to `shaders/masks`), every program of players'
   two families again under its wider key (the new macros 0), and every program of the donors'
   forward, particle lighting and z-shifted vertex families players then lack, by the gate above
-  with `constant_tile_uv` 16 bytes (the patch sends a float4 where 0.26g sent a float2). Two donors
-  (0.44a5 and 0.32a4) must agree byte for byte on a key both have. The London manifests `require`
-  it, so their programs are composed first.
+  with `constant_tile_uv` 16 bytes (the patch sends a float4 where 0.26g sent a float2). Where both
+  donors have a key, the code is compared (the include records keep each source file's time): the
+  same code is one program; other code is the first donor's (0.44a5's), and the report lists each
+  (`donors_differ`: 448 of the 870 keys both have, e.g. an exp2 fade scale). The London manifests
+  `require` it, so their programs are composed first.
 - **What 0.26g has no field for, even patched,** is listed (`switches_not_in_026g`): today
   `use_angle_attenuation_falloff` (CONFIG_ANGLE_DEPENDANT_ALPHA_TEST, a macro 0.26g's key order has
   not); no material of either London turns it on.
