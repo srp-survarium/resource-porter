@@ -18,6 +18,8 @@ isolation review remain pending.
 | --- | --- |
 | Geometry fog | 1, original arithmetic and authored Rayleigh colour |
 | Tone curve | 4 supported native variants, original dark-scene behavior; an exposure profile (a 0.69d scene) also in the 6 of post-process quality 0 and 1 |
+| Luminance metering, first pass | 1 (`gather_log_luminance`), only with an exposure profile: its scene's logarithm of the luminance; native sum for every other scene |
+| Luminance metering, last pass | 1 (`gather_exp_luminance`), only with an exposure profile: its scene's mean of the logarithms turned back (the geometric mean); native mean for every other scene |
 | Sky and atmospheric lookup | 2, original sky and scattering equations |
 | Clouds | 8, original lit/unlit programs |
 | Ambient occlusion | 1, original quality-1 generator normalized for native application |
@@ -80,6 +82,43 @@ without the vignette): under the native block such a scene is about ten times to
 The two depth-of-field programs (`__3__...10`, `__3__...11`) are not adapted yet: their
 block is the same arithmetic in another order and they already bind `static_globals` with
 fewer rows.
+
+### Metering
+
+The mean the tone block follows is metered as 0.69d meters it (`metering.rs`). 0.26g's is
+the arithmetic mean of 256 x 256 points of the frame: `gather_log_luminance` writes
+`dot(clamp(c, 0, 1e6), luma) + 0.001` (no logarithm), eight 2 x 2 reductions sum it and the
+last, `gather_exp_luminance`, multiplies by 1/65536. 0.69d's is the geometric mean:
+`sample_luminance.ps` writes `ln(max(luminance, 0.01))` of 64 x 64 points of its
+pre-exposed frame (and a weight: 1 within two half-heights of the frame's centre, 0
+outside, which leaves out nothing of a 16:10 frame, 0.1 % of a 16:9 one, its corners, and
+18 % of a 21:9 one, its sides), six reductions average both, and the game takes
+`exp(sum / weight)` and divides it by the
+exposure the frame was drawn with (`hdr_downsample_stage`, 0x20051CCBE of the retail exe;
+0x200504640 and 0x200504517). A dark room with a sunlit doorway is so exposed for the room
+by 0.69d and for the doorway by 0.26g: the church of Rudnya drew at a mean of 4/255 where
+0.69d shows 52/255.
+
+With an exposure profile the two programs at the ends of the chain are replaced. For the
+profile's scene the first writes `log2(max(luminance, floor))` into x, the reductions sum
+it as they sum the native value, and the last writes `2^(sum / 65536)`: the geometric mean
+of the frame in 0.26g's light scale, the quantity 0.69d's exposure value is the logarithm
+of, so the profile's `floor`, `ceiling` and `key` stay as they are. y and z (the least and
+the greatest luminance) and every other scene keep the native instructions.
+
+- `floor` is 0.69d's 0.01, which is of its pre-exposed frame: `0.01 * Lc / ceiling` in
+  0.26g's scale, with `Lc` the profile's clamped mean. The first program does not have the
+  adapted mean (its pass binds the frame alone), so it uses the least of them,
+  `0.01 * floor / ceiling` (Rudnya v0.69: 0.00011), and meters a point darker than 0.69d's
+  floor of the moment below what 0.69d meters it at: the mean is then lower than 0.69d's,
+  by `(Lc / floor)^p` at most for a part `p` of the frame that dark.
+- The weight is not kept (the whole frame is metered, also a 21:9 one): the reductions
+  between the two programs are native and write 0 into the one free channel.
+- Both programs had no constant buffer, so the marker's `static_globals` is their first
+  and is declared at b0, not b1: the game binds a program's buffers by their order in its
+  reflection (`constants_handler<1>::apply`, 0x3D5A30 of the 0.26g exe), and every one of
+  the 14745 stock programs has each buffer at its own index.
+- The two depth-of-field tone programs, not adapted, read the same mean for such a scene.
 
 `tools/content/three_maps_021_environment.py` generates the two source edit
 lists from the donor and canonical map packs. It verifies authored numeric

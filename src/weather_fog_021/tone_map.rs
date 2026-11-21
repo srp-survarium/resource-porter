@@ -23,7 +23,7 @@ const EXPOSURE_ONLY_HASHES: [&str; 1] = ["469fb8c0864690159b1c8e01b36671e6e4f34f
 /// The native tone curve's exposure key (`div r, l(4.5), r` in every native program).
 const NATIVE_KEY: f32 = 4.5;
 /// A key profile's marker: a whole height above any camera of a map.
-const MIN_KEY_MARKER: f32 = 1000.0;
+pub(super) const MIN_KEY_MARKER: f32 = 1000.0;
 
 /// A scene drawn with the native tone curve at its own build's exposure key, selected by
 /// its own marker: London (0.31a2's curve is 0.26g's with key 6.0 where 0.26g has 4.5,
@@ -318,23 +318,13 @@ impl Reflection {
     }
 }
 
-/// The retail reflection implementation treats binding names before the
-/// buffer table as their own string pool. Keep them there, not after variables.
+/// The tone program's reflection (nine bindings, the 22 `$Globals` of 304 bytes at b0)
+/// with the marker's buffer at b1.
 fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
     ensure!(
         u32_at(old, 0)? == 1 && u32_at(old, 8)? == 9,
         "unexpected tone-map reflection tables"
     );
-    let mut bindings = Vec::new();
-    for i in 0..9 {
-        let at = u32_at(old, 12)? as usize + 32 * i;
-        let values = words(old.get(at..at + 32).context("truncated binding")?)?;
-        bindings.push((
-            name(old, values[0] as usize)?.to_owned(),
-            values[1..].to_vec(),
-        ));
-    }
-    bindings.push(("static_globals".into(), vec![0, 0, 0, 0, 1, 1, 0]));
     let cb = u32_at(old, 4)? as usize;
     ensure!(
         name(old, u32_at(old, cb)? as usize)? == "$Globals"
@@ -344,60 +334,113 @@ fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
             && u32_at(old, cb + 20)? == 0,
         "unexpected tone-map globals layout"
     );
-    let mut variables = Vec::new();
-    for i in 0..22 {
-        let at = u32_at(old, cb + 8)? as usize + 24 * i;
-        let v = words(old.get(at..at + 24).context("truncated variable")?)?;
-        let ty: [u8; 16] = old
-            .get(v[4] as usize..v[4] as usize + 16)
-            .context("truncated type")?
-            .try_into()?;
-        ensure!(
-            ty[10..] == [0; 6] && v[5] == 0,
-            "unsupported structured/defaulted tone-map constant"
-        );
-        variables.push((name(old, v[0] as usize)?.to_owned(), v[1..4].to_vec(), ty));
+    let (out, slot) = add_marker_buffer(old)?;
+    ensure!(slot == 1, "the tone-map marker buffer is not at b1");
+    Ok(out)
+}
+
+/// A program's reflection with the marker's constant buffer after the buffers it has:
+/// `static_globals` (304 bytes) with the one variable `atmosphere_parameters3` at offset
+/// 288, and its binding. Returns the buffer's slot too: the game binds a pixel program's
+/// constant buffers by their order in the reflection (`constants_handler<1>::apply`,
+/// 0x3D5A30 of the 0.26g exe: `PSSetConstantBuffers(i, 1, &table.buffers[i])`), and binds
+/// each used variable by its name (`shader_constant_table::parse_constant_buffer`), so the
+/// slot is the count of buffers the program had: b1 beside `$Globals`, b0 for a program
+/// with no constant buffer.
+///
+/// The retail reflection implementation treats binding names before the
+/// buffer table as their own string pool. Keep them there, not after variables.
+pub(super) fn add_marker_buffer(old: &[u8]) -> Result<(Vec<u8>, u32)> {
+    const MARKER_BUFFER: &str = "static_globals";
+    let buffer_count = u32_at(old, 0)? as usize;
+    let binding_count = u32_at(old, 8)? as usize;
+    // A program has 14 constant-buffer slots.
+    ensure!(buffer_count < 14 && binding_count < 128, "unexpected reflection tables");
+    let cb = u32_at(old, 4)? as usize;
+    let mut buffers = Vec::new();
+    for b in 0..buffer_count {
+        let at = cb + 24 * b;
+        let header = words(old.get(at..at + 24).context("truncated buffer")?)?;
+        let mut variables = Vec::new();
+        for i in 0..header[1] as usize {
+            let at = header[2] as usize + 24 * i;
+            let v = words(old.get(at..at + 24).context("truncated variable")?)?;
+            let ty: [u8; 16] = old
+                .get(v[4] as usize..v[4] as usize + 16)
+                .context("truncated type")?
+                .try_into()?;
+            ensure!(
+                ty[10..] == [0; 6] && v[5] == 0,
+                "unsupported structured/defaulted constant"
+            );
+            variables.push((name(old, v[0] as usize)?.to_owned(), v[1..4].to_vec(), ty));
+        }
+        buffers.push((name(old, header[0] as usize)?.to_owned(), header[3..6].to_vec(), variables));
     }
+    let mut bindings = Vec::new();
+    for i in 0..binding_count {
+        let at = u32_at(old, 12)? as usize + 32 * i;
+        let values = words(old.get(at..at + 32).context("truncated binding")?)?;
+        let label = name(old, values[0] as usize)?.to_owned();
+        // A constant buffer's slot is its place in the buffer table (the game's rule).
+        ensure!(
+            values[1] != 0 || buffers.iter().position(|b| b.0 == label) == Some(values[5] as usize),
+            "a constant buffer is not bound at its place in the reflection"
+        );
+        bindings.push((label, values[1..].to_vec()));
+    }
+    ensure!(
+        bindings.iter().all(|b| b.0 != MARKER_BUFFER),
+        "the program already binds the marker's buffer"
+    );
+    let slot = buffer_count as u32;
+    bindings.push((MARKER_BUFFER.into(), vec![0, 0, 0, 0, slot, 1, 0]));
     let resources = 28;
     let mut out = Reflection {
         bytes: vec![0; resources + bindings.len() * 32],
         ..Default::default()
     };
-    out.bytes[..28].copy_from_slice(&old[..28]);
+    out.bytes[..28].copy_from_slice(old.get(..28).context("truncated reflection")?);
     for (i, (name, values)) in bindings.iter().enumerate() {
         let label = out.name(name);
         out.put(resources + 32 * i, &[label]);
         out.put(resources + 32 * i + 4, values);
     }
     out.align();
-    let buffers = out.bytes.len();
-    let vars0 = buffers + 48;
-    let vars1 = vars0 + 24 * variables.len();
-    out.bytes.resize(vars1 + 24, 0);
-    let globals = out.name("$Globals");
-    let statics = out.name("static_globals");
-    out.put(
-        buffers,
-        &[globals, variables.len() as u32, vars0 as u32, 304, 0, 0],
+    let table = out.bytes.len();
+    let mut variables_at = table + 24 * (buffers.len() + 1);
+    out.bytes.resize(
+        variables_at + 24 * (buffers.iter().map(|b| b.2.len()).sum::<usize>() + 1),
+        0,
     );
-    out.put(buffers + 24, &[statics, 1, vars1 as u32, 304, 0, 0]);
-    for (i, (name, fields, ty)) in variables.iter().enumerate() {
+    let mut rows = Vec::new();
+    for (i, (name, fields, variables)) in buffers.iter().enumerate() {
         let label = out.name(name);
-        let ty = out.ty(*ty);
         out.put(
-            vars0 + 24 * i,
-            &[label, fields[0], fields[1], fields[2], ty, 0],
+            table + 24 * i,
+            &[label, variables.len() as u32, variables_at as u32, fields[0], fields[1], fields[2]],
         );
+        rows.push(variables_at);
+        variables_at += 24 * variables.len();
+    }
+    let statics = out.name(MARKER_BUFFER);
+    out.put(table + 24 * buffers.len(), &[statics, 1, variables_at as u32, 304, 0, 0]);
+    for ((_, _, variables), at) in buffers.iter().zip(rows) {
+        for (i, (name, fields, ty)) in variables.iter().enumerate() {
+            let label = out.name(name);
+            let ty = out.ty(*ty);
+            out.put(at + 24 * i, &[label, fields[0], fields[1], fields[2], ty, 0]);
+        }
     }
     let label = out.name("atmosphere_parameters3");
     let ty = out.ty([1, 0, 3, 0, 1, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    out.put(vars1, &[label, 288, 16, 2, ty, 0]);
+    out.put(variables_at, &[label, 288, 16, 2, ty, 0]);
     let creator = out.name(name(old, u32_at(old, 24)? as usize)?);
     out.put(
         0,
         &[
-            2,
-            buffers as u32,
+            buffers.len() as u32 + 1,
+            table as u32,
             bindings.len() as u32,
             resources as u32,
             u32_at(old, 16)?,
@@ -405,7 +448,7 @@ fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
             creator,
         ],
     );
-    Ok(out.bytes)
+    Ok((out.bytes, slot))
 }
 
 #[cfg(test)]

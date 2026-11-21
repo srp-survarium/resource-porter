@@ -180,6 +180,27 @@ fn main() -> Result<()> {
         "unexpected tone-map variant count: {}",
         converted.len() - tone_start
     );
+    // An exposure profile's scene is metered as 0.69d meters, by the geometric mean of the
+    // frame: the first and the last program of the luminance chain (one variant each).
+    if !exposures.is_empty() {
+        for (prefix, build) in [
+            (
+                shaders::LOG_METER_PREFIX,
+                shaders::build_log_meter as fn(&[u8], &[shaders::ExposureProfile]) -> Result<Vec<u8>>,
+            ),
+            (shaders::MEAN_METER_PREFIX, shaders::build_mean_meter),
+        ] {
+            let paths: Vec<String> = native
+                .paths_with_prefix(prefix)
+                .filter(|p| native.is_file(p))
+                .map(str::to_owned)
+                .collect();
+            ensure!(paths.len() == 1, "unexpected variant count for {prefix}");
+            let before = native.read(&paths[0])?;
+            let after = build(&before, &exposures).with_context(|| paths[0].clone())?;
+            converted.push((paths[0].clone(), before, after));
+        }
+    }
     let sky = native.read(shaders::SKY_PATH)?;
     converted.push((
         shaders::SKY_PATH.into(),
