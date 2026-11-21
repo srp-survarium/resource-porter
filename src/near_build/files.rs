@@ -42,6 +42,11 @@ pub struct Effects {
     /// The switch sets in use by stage, effect id and what the stage is
     /// compiled for (`flags`).
     known: BTreeMap<(String, String, String), BTreeSet<Switches>>,
+    /// Effect fields skhid's client patches read, by stage and effect id
+    /// (`learn_client_fields`). Their switches select programs the content
+    /// that ships with the patch supplies, so they are kept and the rest of
+    /// a material's set is judged without them.
+    client_fields: BTreeSet<(String, String, String)>,
 }
 
 fn value_of(field: &ConfigValue) -> Option<&ConfigValue> {
@@ -112,10 +117,35 @@ impl Effects {
         }
     }
 
+    /// The fields skhid's client patches make 0.26g read (`stage`,
+    /// `effect`, `field` a row, tab-separated, then the patch and why;
+    /// `#` comments): a material keeps them.
+    pub fn learn_client_fields(&mut self, table: &str) -> Result<()> {
+        for line in table.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+            let mut cells = line.split('\t');
+            let (Some(stage), Some(effect), Some(field)) = (cells.next(), cells.next(), cells.next()) else {
+                bail!("client fields: `{line}` is not stage, effect, field");
+            };
+            if stage == "stage" {
+                continue;
+            }
+            self.effect_fields.entry((stage.to_owned(), effect.to_owned())).or_default().insert(field.to_owned());
+            self.client_fields.insert((stage.to_owned(), effect.to_owned(), field.to_owned()));
+        }
+        Ok(())
+    }
+
+    fn is_client_switch(&self, stage: &str, effect: &str, switch: &str) -> bool {
+        self.client_fields.contains(&(stage.to_owned(), effect.to_owned(), switch.to_owned()))
+    }
+
     /// The switch sets of a material players have: its programs are shipped.
+    /// The client fields are learnt first: their switches are not part of a
+    /// set.
     pub fn learn_programs(&mut self, material: &ConfigValue) {
         for stage in stages(material) {
-            let on = switches(&stage.value);
+            let id = effect_id(&stage.value);
+            let on: Switches = switches(&stage.value).into_iter().filter(|s| !self.is_client_switch(&stage.name, &id, s)).collect();
             for flag in flags(&stage.value) {
                 self.known.entry((stage.name.clone(), effect_id(&stage.value), flag)).or_default().insert(on.clone());
             }
@@ -443,7 +473,7 @@ impl<'a> Importer<'a> {
 
     /// Gives the stage a switch set that has programs.
     fn programs(&mut self, material: &str, stage: &str, effect: &str, value: &mut ConfigValue) {
-        let on = switches(value);
+        let on: Switches = switches(value).into_iter().filter(|s| !self.effects.is_client_switch(stage, effect, s)).collect();
         let stage_flags = flags(value);
         if self.effects.has_programs(stage, effect, &stage_flags, &on) {
             return;
@@ -460,7 +490,9 @@ impl<'a> Importer<'a> {
         for f in fields.iter_mut() {
             let Some(v) = f.value.named_mut("value") else { continue };
             match v {
-                ConfigValue::Boolean(b) if f.name.starts_with("use_") => *b = set.contains(&f.name),
+                ConfigValue::Boolean(b) if f.name.starts_with("use_") && !self.effects.is_client_switch(stage, effect, &f.name) => {
+                    *b = set.contains(&f.name)
+                }
                 ConfigValue::Integer(i) if is_selector(&f.name) => {
                     if let Some(n) = set.iter().find_map(|s| s.strip_prefix(&format!("{}=", f.name)).and_then(|n| n.parse().ok())) {
                         *i = n;
@@ -714,6 +746,20 @@ mod tests {
         let nearest = effects.nearest("g_stage", "g_stage_default", &flags, &wanted).unwrap();
         // Not the set with parallax: that would add a switch.
         assert_eq!(nearest.into_iter().collect::<Vec<_>>(), ["use_nmap", "use_tdiffuse"]);
+    }
+
+    #[test]
+    fn a_client_switch_is_kept_and_the_rest_of_the_set_judged_without_it() {
+        let mut effects = Effects::default();
+        effects.learn_fields(&material(&["use_tdiffuse"]));
+        effects.learn_client_fields("stage\teffect\tfield\tpatch\twhat\ng_stage\tg_stage_default\tuse_parallax\t169\ta test\n").unwrap();
+        effects.learn_programs(&material(&["use_tdiffuse", "use_parallax"]));
+        let flags = vec!["with_static_meshes".to_owned()];
+        let plain: Switches = ["use_tdiffuse"].iter().map(|s| (*s).to_owned()).collect();
+        // Players' set with the client switch is known without it.
+        assert!(effects.has_programs("g_stage", "g_stage_default", &flags, &plain));
+        assert!(effects.is_client_switch("g_stage", "g_stage_default", "use_parallax"));
+        assert!(effects.effect_fields[&("g_stage".to_owned(), "g_stage_default".to_owned())].contains("use_parallax"));
     }
 
     #[test]

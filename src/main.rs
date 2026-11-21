@@ -308,6 +308,25 @@ enum Command {
         #[arg(long)]
         donor_programs: bool,
     },
+    /// Shader macros a client patch makes 0.26g set, as a content pack: the
+    /// families' masks read them, players' programs under their wider keys,
+    /// the donors' programs players lack where 0.26g feeds them (one
+    /// manifest; two donors must agree byte for byte on a key both have).
+    BuildShaderMacroPack {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// A file naming a donor build's archives, one a line, bottom first;
+        /// once for each of the manifest's donor key orders.
+        #[arg(long, required = true)]
+        donor: Vec<PathBuf>,
+        /// A file naming what players have: the stock resources.db, then
+        /// every offered patch in order.
+        #[arg(long)]
+        shipped: PathBuf,
+        /// The pack folder to write (must be new).
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Add Team Deathmatch (mode 4) variants of a 0.21 maps pack's battery
     /// maps to the pack, in place: the battery project without the battery
     /// game (as 0.26g's own TDM projects are), the native TDM options with
@@ -1306,6 +1325,10 @@ fn main() -> Result<()> {
             use vostok_resource_porter::near_build::files::UnknownSwitches;
             let unknown = if keep_switch_sets { UnknownSwitches::Keep } else { UnknownSwitches::Nearest };
             vostok_resource_porter::near_build::build(&manifest, &donor, &shipped, &output, unknown, programs.as_deref(), donor_programs)?;
+            println!("pack={}", output.display());
+        }
+        Command::BuildShaderMacroPack { manifest, donor, shipped, output } => {
+            vostok_resource_porter::near_build::macro_pack::build(&manifest, &donor, &shipped, &output)?;
             println!("pack={}", output.display());
         }
         Command::BuildSurvarium021Maps {

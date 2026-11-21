@@ -50,7 +50,7 @@ impl KeyOrder {
         Ok(Self(names))
     }
 
-    fn place(&self, name: &str) -> Option<usize> {
+    pub fn place(&self, name: &str) -> Option<usize> {
         self.0.iter().position(|n| n == name)
     }
 }
@@ -148,6 +148,18 @@ impl Keys {
         }
         keys.masks.0.extend(inferred);
         Ok(keys)
+    }
+
+    /// These keys with `family` reading `macros` too (a mask that grows:
+    /// a client patch sets them).
+    pub fn with_macros(&self, family: &str, macros: &[String]) -> Result<Keys> {
+        let mut masks = self.masks.clone();
+        let mask = masks.0.get_mut(family).with_context(|| format!("{family}: no mask"))?;
+        for name in macros {
+            ensure!(self.order.place(name).is_some(), "{name} is no macro of the build's key order");
+            ensure!(mask.insert(name.clone()), "{family} reads {name} already");
+        }
+        Ok(Keys { order: self.order.clone(), masks })
     }
 
     /// The families the build has keys' macros for.
@@ -420,9 +432,61 @@ pub struct Supplier<'a> {
 /// What a family's programs read between them: each constant's longest
 /// declared size, and the textures and samplers.
 #[derive(Default)]
-struct Known {
+pub struct Known {
     constants: BTreeMap<String, u32>,
     bound: BTreeSet<String>,
+}
+
+impl Known {
+    /// What every program of `family` in `db` reads.
+    pub fn read(db: &mut ResourceDb, family: &str) -> Result<Self> {
+        let prefix = format!("{ROOT}{family}/");
+        let paths: Vec<String> = db.paths_with_prefix(&prefix).filter(|p| db.is_file(p)).map(str::to_owned).collect();
+        ensure!(!paths.is_empty(), "{family}: players have no program of the family");
+        let mut all = Known::default();
+        for path in paths {
+            let one = reads(&db.read(&path)?).with_context(|| path.clone())?;
+            for constant in one.constants {
+                let longest = all.constants.entry(constant.name).or_default();
+                *longest = (*longest).max(constant.size);
+            }
+            all.bound.extend(one.bound);
+        }
+        Ok(all)
+    }
+
+    /// A constant a client patch sets for the family at `size` bytes.
+    pub fn fill(&mut self, name: &str, size: u32) {
+        let longest = self.constants.entry(name.to_owned()).or_default();
+        *longest = (*longest).max(size);
+    }
+
+    /// Why 0.26g cannot feed the donor's `blob` (at `donor_path`), or None:
+    /// every texture and sampler it binds and every constant it reads is
+    /// one the family's programs bind or read, a constant declared longer
+    /// read no further than they fill.
+    pub fn refuses(&self, family: &str, donor_path: &str, blob: &[u8]) -> Result<Option<String>> {
+        let needs = reads(blob).with_context(|| donor_path.to_owned())?;
+        let mut constants = Vec::new();
+        for constant in &needs.constants {
+            match self.constants.get(&constant.name) {
+                None => constants.push(format!("{} (not one of 0.26g's)", constant.name)),
+                Some(filled) if *filled >= constant.size => {}
+                // Longer than 0.26g fills: its code must stay within what is filled.
+                Some(filled) => {
+                    let past = constant.start + filled..constant.start + constant.size;
+                    match &needs.bytes {
+                        Some(bytes) if !bytes.iter().any(|(slot, byte)| *slot == constant.slot && past.contains(byte)) => {}
+                        Some(_) => constants.push(format!("{} (read past the {filled} bytes 0.26g fills)", constant.name)),
+                        None => constants.push(format!("{} ({} bytes for 0.26g's {filled}, and the code indexes its buffer)", constant.name, constant.size)),
+                    }
+                }
+            }
+        }
+        let bound: Vec<&String> = needs.bound.difference(&self.bound).collect();
+        Ok((!constants.is_empty() || !bound.is_empty())
+            .then(|| format!("{donor_path} reads what no {family} program of players' does: constants {constants:?}, textures and samplers {bound:?}")))
+    }
 }
 
 impl<'a> Supplier<'a> {
@@ -433,19 +497,7 @@ impl<'a> Supplier<'a> {
     fn family(&mut self, shipped: &mut ResourceDb, family: &str) -> Result<&Known> {
         if !self.family_reads.contains_key(family) {
             self.target.check_family(shipped, family)?;
-            let prefix = format!("{ROOT}{family}/");
-            let paths: Vec<String> = shipped.paths_with_prefix(&prefix).filter(|p| shipped.is_file(p)).map(str::to_owned).collect();
-            ensure!(!paths.is_empty(), "{family}: players have no program of the family");
-            let mut all = Known::default();
-            for path in paths {
-                let one = reads(&shipped.read(&path)?).with_context(|| path.clone())?;
-                for constant in one.constants {
-                    let longest = all.constants.entry(constant.name).or_default();
-                    *longest = (*longest).max(constant.size);
-                }
-                all.bound.extend(one.bound);
-            }
-            self.family_reads.insert(family.to_owned(), all);
+            self.family_reads.insert(family.to_owned(), Known::read(shipped, family)?);
         }
         Ok(&self.family_reads[family])
     }
@@ -526,27 +578,8 @@ impl<'a> Supplier<'a> {
         }
         self.donor.check_family(donor_db, family)?;
         let blob = donor_db.read(&donor_path)?;
-        let needs = reads(&blob).with_context(|| donor_path.clone())?;
-        let known = self.family(shipped, family)?;
-        let mut constants = Vec::new();
-        for constant in &needs.constants {
-            match known.constants.get(&constant.name) {
-                None => constants.push(format!("{} (not one of 0.26g's)", constant.name)),
-                Some(filled) if *filled >= constant.size => {}
-                // Longer than 0.26g fills: its code must stay within what is filled.
-                Some(filled) => {
-                    let past = constant.start + filled..constant.start + constant.size;
-                    match &needs.bytes {
-                        Some(bytes) if !bytes.iter().any(|(slot, byte)| *slot == constant.slot && past.contains(byte)) => {}
-                        Some(_) => constants.push(format!("{} (read past the {filled} bytes 0.26g fills)", constant.name)),
-                        None => constants.push(format!("{} ({} bytes for 0.26g's {filled}, and the code indexes its buffer)", constant.name, constant.size)),
-                    }
-                }
-            }
-        }
-        let bound: Vec<&String> = needs.bound.difference(&known.bound).collect();
-        if !constants.is_empty() || !bound.is_empty() {
-            return Ok((no(format!("{donor_path} reads what no {family} program of players' does: constants {constants:?}, textures and samplers {bound:?}")), None));
+        if let Some(why) = self.family(shipped, family)?.refuses(family, &donor_path, &blob)? {
+            return Ok((no(why), None));
         }
         Ok((Supply { path: path.to_owned(), donor: Some(donor_path), not_supplied: None }, Some(blob)))
     }
@@ -575,6 +608,17 @@ mod tests {
         assert!(translate("2101", "g.ps", &target, &donor).is_err());
         // A character where the family reads nothing: not this build's order.
         assert!(translate("21010", "g.ps", &target, &donor).is_err());
+    }
+
+    #[test]
+    fn a_mask_that_grows_widens_every_key_with_the_new_macro_off() {
+        let old = keys(&["Q", "OLTA", "TDIFFUSE"], "f.ps", &["Q", "TDIFFUSE"]);
+        let new = old.with_macros("f.ps", &["OLTA".to_owned()]).unwrap();
+        assert_eq!(translate("2_1", "f.ps", &old, &new).unwrap(), "201");
+        // Back from a key with the new macro on: the old mask cannot hold it.
+        assert!(translate("211", "f.ps", &new, &old).is_err());
+        assert!(new.with_macros("f.ps", &["OLTA".to_owned()]).is_err(), "a macro the family reads already");
+        assert!(old.with_macros("f.ps", &["NOT_A_MACRO".to_owned()]).is_err());
     }
 
     #[test]

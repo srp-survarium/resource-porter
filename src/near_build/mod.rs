@@ -21,6 +21,7 @@
 pub mod fields;
 pub mod files;
 pub mod image;
+pub mod macro_pack;
 pub mod programs;
 pub mod schema;
 
@@ -65,6 +66,14 @@ pub struct Manifest {
     /// (`schema::without_kinds`).
     #[serde(default)]
     pub leave_out: BTreeMap<String, String>,
+    /// Packs this one's materials need composed before it (the programs of
+    /// forward-effects for the fields a client patch reads).
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// The material fields skhid's client patches make 0.26g read, a file
+    /// beside the manifest (`files::Effects::learn_client_fields`).
+    #[serde(default)]
+    pub client_fields: Option<PathBuf>,
     /// The two builds' shader key orders, for supplying programs
     /// (`programs`): files beside the manifest.
     #[serde(default)]
@@ -527,6 +536,10 @@ pub fn build(
             effects.learn_fields(&config.root);
         }
     }
+    if let Some(table) = &m.client_fields {
+        let beside = manifest_path.parent().unwrap_or(Path::new("."));
+        effects.learn_client_fields(&fs::read_to_string(beside.join(table)).with_context(|| format!("reading {}", table.display()))?)?;
+    }
     for path in materials(&shipped) {
         if let Ok(config) = BinaryConfig::parse(&shipped.read(&path)?) {
             effects.learn_programs(&config.root);
@@ -745,7 +758,7 @@ pub fn build(
         version: m.pack.version.clone(),
         target_build: TARGET_BUILD.into(),
         description: Some(m.pack.description.clone()),
-        requires: vec![],
+        requires: m.requires.clone(),
         base_db_sha256: Some(m.stock_sha256.clone()),
         operations,
         server: (!new_ids.is_empty()).then(|| json!({"maps": new_ids})),

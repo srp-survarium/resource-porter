@@ -12,9 +12,10 @@
   "leave_out": {
     "timeout_anomaly_core": "no anomalies on this map; 0.26g has no object of this kind",
     "generic_anomaly_core": "no anomalies on this map",
-    "artefact_container": "no anomalies on this map: an artefact's place belongs to one",
-    "track": "the evening's camera track: 0.26g has the kind in its lobby scene alone, and London's weathers left it out"
+    "artefact_container": "no anomalies on this map: an artefact's place belongs to one"
   },
+  "requires": ["forward-effects"],
+  "client_fields": "near-build/client-fields-026g.tsv",
   "shader_keys": {
     "target": "near-build/shader-key-order-026g.tsv",
     "donor": "near-build/shader-key-order-032a4.tsv",

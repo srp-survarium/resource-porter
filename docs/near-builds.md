@@ -58,7 +58,13 @@ config. A project without `map` replaces one players have (its row and config st
 
 ## Materials and shader programs
 
-A material keeps the stage and effect fields 0.26g's materials have for its effect. Its switches
+A material keeps the stage and effect fields 0.26g's materials have for its effect, and the fields
+skhid's client patches make 0.26g read (`ports/near-build/client-fields-026g.tsv`, the manifest's
+`client_fields`): patch 28's uv scrolling (`use_uv_scrolling`, the four `*_map_scroll_*_direction`) and
+patch 169's forward effects (`use_ttransparency_dxt1` of forward_default and particle_lighting,
+`use_uv_tiling` with its four `*_map_tiling_*_factor`, `apply_distortion_to_emissive_only`). Before
+that table the converter dropped them as fields stock materials lack, so a donor's scrolling sand,
+tiled fires and DXT1 cut-outs became blank quads. Its switches
 (`use_*`, techniques, modes) select shader programs, one set for each kind of mesh the stage is
 compiled for (`with_static_meshes`, `with_vegetation`, ...). 0.26g cannot compile a program: it
 asks the archive for it, and stops with an assert ("cannot find shader") when it is not there.
@@ -93,10 +99,22 @@ asks the archive for it, and stops with an assert ("cannot find shader") when it
   it reads the macros its keys have values at. London (v0.42) gets 1 038 of 0.44a5's 1 420 (1 032
   g-buffer programs and six vertex shaders: a mesh of vertex type 2 or 11 with wind motion 3, which
   no mesh of players' has; the first headless load stopped on one). Wind motion selects programs,
-  so it is part of a switch set. Players' `forward_base.ps` keys do not fit 0.26g's stock mask
-  since skhid's patch 14 added a macro to it; the family is not named and stays as it is.
-- **What 0.26g has no field for** is listed (`switches_not_in_026g`): the forward stage's
-  `use_uv_tiling` and `use_ttransparency_dxt1`, the g-buffer's angle-dependent alpha test.
+  so it is part of a switch set. The forward families are not named here: the shared pack below
+  supplies them for every map at once.
+- **The client fields' switches select programs** the pack `forward-effects` ships with patch 169,
+  so a material's other switches are judged without them (players' sets alike) and the client
+  fields are kept as the donor has them.
+- **`build-shader-macro-pack`** makes that pack (`ports/forward-effects-026g.json`): the macros the
+  patch sets (CONFIG_USE_OLTA, CONFIG_USE_FUZZINESS) appended to the masks of `forward_base.ps` and
+  `offscreen_particle_lighting.ps` (`config_append` to `shaders/masks`), every program of players'
+  two families again under its wider key (the new macros 0), and every program of the donors'
+  forward, particle lighting and z-shifted vertex families players then lack, by the gate above
+  with `constant_tile_uv` 16 bytes (the patch sends a float4 where 0.26g sent a float2). Two donors
+  (0.44a5 and 0.32a4) must agree byte for byte on a key both have. The London manifests `require`
+  it, so their programs are composed first.
+- **What 0.26g has no field for, even patched,** is listed (`switches_not_in_026g`): today
+  `use_angle_attenuation_falloff` (CONFIG_ANGLE_DEPENDANT_ALPHA_TEST, a macro 0.26g's key order has
+  not); no material of either London turns it on.
 
 `examples/near-build-programs.rs` prints those counts for a family; `near-build-reads.rs` what a
 program reads; `near-build-survey.rs` and `shader-programs.rs` what a donor's map needs against
