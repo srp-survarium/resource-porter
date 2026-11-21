@@ -180,14 +180,15 @@ fn main() -> Result<()> {
         "unexpected tone-map variant count: {}",
         converted.len() - tone_start
     );
-    // An exposure profile's scene is metered as 0.69d meters, by the geometric mean of the
-    // frame: the first and the last program of the luminance chain (one variant each).
+    // An exposure profile's scene is metered as 0.69d meters, by the weighted geometric mean
+    // of the frame: the three programs of the luminance chain (one variant each).
     if !exposures.is_empty() {
         for (prefix, build) in [
             (
                 shaders::LOG_METER_PREFIX,
                 shaders::build_log_meter as fn(&[u8], &[shaders::ExposureProfile]) -> Result<Vec<u8>>,
             ),
+            (shaders::SUM_METER_PREFIX, shaders::build_sum_meter),
             (shaders::MEAN_METER_PREFIX, shaders::build_mean_meter),
         ] {
             let paths: Vec<String> = native

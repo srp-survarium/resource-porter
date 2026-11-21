@@ -95,35 +95,38 @@ scene that sets it would need these two programs adapted too.
 
 The mean the tone block follows is metered as 0.69d meters it (`metering.rs`). 0.26g's is
 the arithmetic mean of 256 x 256 points of the frame: `gather_log_luminance` writes
-`dot(clamp(c, 0, 1e6), luma) + 0.001` (no logarithm), eight 2 x 2 reductions sum it and the
-last, `gather_exp_luminance`, multiplies by 1/65536. 0.69d's is the geometric mean:
-`sample_luminance.ps` writes `ln(max(luminance, 0.01))` of 64 x 64 points of its
-pre-exposed frame (and a weight: 1 within two half-heights of the frame's centre, 0
-outside, which leaves out nothing of a 16:10 frame, 0.1 % of a 16:9 one, its corners, and
-18 % of a 21:9 one, its sides), six reductions average both, and the game takes
-`exp(sum / weight)` and divides it by the
-exposure the frame was drawn with (`hdr_downsample_stage`, 0x20051CCBE of the retail exe;
-0x200504640 and 0x200504517). A dark room with a sunlit doorway is so exposed for the room
-by 0.69d and for the doorway by 0.26g: the church of Rudnya drew at a mean of 4/255 where
-0.69d shows 52/255.
+`dot(clamp(c, 0, 1e6), luma) + 0.001` (no logarithm), eight 2 x 2 reductions
+(`gather_luminance`, the last `gather_exp_luminance`) sum it and the last multiplies by
+1/65536. 0.69d's is a weighted geometric mean: `sample_luminance.ps` writes
+`w ln(max(luminance, 0.01))` and `w` of 64 x 64 points of its pre-exposed frame (`w` 1
+within two half-heights of the frame's centre, 0 outside: nothing of a 16:10 frame is left
+out, 0.1 % of a 16:9 one, its corners, and 18 % of a 21:9 one, its sides), six reductions
+average both, and the game takes `exp(x / w)` and divides it by the exposure the frame was
+drawn with (`hdr_downsample_stage`, 0x20051CCBE of the retail exe; 0x200504640 and
+0x200504517). A dark room with a sunlit doorway is so exposed for the room by 0.69d and for
+the doorway by 0.26g: the church of Rudnya drew at a mean of 4/255 where 0.69d shows 52/255.
 
-With an exposure profile the two programs at the ends of the chain are replaced. For the
-profile's scene the first writes `log2(max(luminance, floor))` into x, the reductions sum
-it as they sum the native value, and the last writes `2^(sum / 65536)`: the geometric mean
-of the frame in 0.26g's light scale, the quantity 0.69d's exposure value is the logarithm
-of, so the profile's `floor`, `ceiling` and `key` stay as they are. y and z (the least and
-the greatest luminance) and every other scene keep the native instructions.
+With an exposure profile the three programs of the chain are replaced. For the profile's
+scene the first writes `w log2(max(luminance, floor))` into x and `w` into w (the frame's
+aspect from its own size, `resinfo`), the reductions sum w as they sum x, and the last
+writes `2^(x / w)`: the weighted geometric mean of the frame in 0.26g's light scale, the
+quantity 0.69d's exposure value is the logarithm of, so the profile's `floor`, `ceiling`
+and `key` stay as they are. y and z (the least and the greatest luminance) and every other
+scene keep the native instructions (and w its native 0).
 
 - `floor` is 0.69d's 0.01, which is of its pre-exposed frame: `0.01 * Lc / ceiling` in
   0.26g's scale, with `Lc` the profile's clamped mean. The first program does not have the
-  adapted mean (its pass binds the frame alone), so it uses the least of them,
+  adapted mean (its pass binds the frame alone, and a texture is bound only to the program
+  current when the stage sets it: `backend::set_ps_texture`, 0x11B630, looks the name up in
+  the bound program's reflection, 0x3D6960), so it uses the least of them,
   `0.01 * floor / ceiling` (Rudnya v0.69: 0.00011), and meters a point darker than 0.69d's
   floor of the moment below what 0.69d meters it at: the mean is then lower than 0.69d's,
-  by `(Lc / floor)^p` at most for a part `p` of the frame that dark.
-- The weight is not kept (the whole frame is metered, also a 21:9 one): the reductions
-  between the two programs are native and write 0 into the one free channel.
-- Both programs had no constant buffer, so the marker's `static_globals` is their first
-  and is declared at b0, not b1: the game binds a program's buffers by their order in its
+  by `(Lc / floor)^p` at most for a part `p` of the frame that dark. Exact needs the stage
+  to bind the adapted luminance in that pass (an executable change).
+- Where no weight reaches the last program (a target that dropped w), it divides by 65536:
+  the unweighted mean, never a division by 0.
+- The programs had no constant buffer, so the marker's `static_globals` is their first and
+  is declared at b0, not b1: the game binds a program's buffers by their order in its
   reflection (`constants_handler<1>::apply`, 0x3D5A30 of the 0.26g exe), and every one of
   the 14745 stock programs has each buffer at its own index.
 - The two depth-of-field tone programs, not adapted, would read the same mean for such a
