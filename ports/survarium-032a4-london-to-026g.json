@@ -2,13 +2,13 @@
   "pack": {
     "id": "london-v032",
     "version": "1",
-    "description": "London (v0.32): 0.32a4's London (level_09, the vegetation and detail pass) in place of the London players have, the same maps and level, from 0.32a4's own day, evening and rain projects"
+    "description": "London (v0.32): 0.32a4's London (the vegetation and detail pass) as projects of its own, v032a_level_09, from 0.32a4's own day, evening and rain projects; the London maps players have switch to them by one edit list (london-v032-1), the same map ids, level 9 and names"
   },
   "donor_build": "0.32a4",
   "stock_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
   "namespace": "ported/v032a",
   "donor_level": "level_09",
-  "level": "level_09",
+  "level": "v032a_level_09",
   "leave_out": {
     "timeout_anomaly_core": "no anomalies on this map; 0.26g has no object of this kind",
     "generic_anomaly_core": "no anomalies on this map",

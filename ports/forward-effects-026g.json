@@ -2,18 +2,60 @@
   "pack": {
     "id": "forward-effects",
     "version": "1",
-    "description": "The forward effects as 0.44a5 draws them, with client patch 169: a DXT1 transparency map (CONFIG_USE_OLTA) and the distortion of the emissive map alone (CONFIG_USE_FUZZINESS) in the masks of forward_base and offscreen_particle_lighting, players' programs under their wider keys, and 0.44a5's (= 0.32a4's) forward, particle lighting and z-shifted vertex programs players lack"
+    "description": "The forward effects as 0.44a5 draws them, with client patch 169: a DXT1 transparency map (CONFIG_USE_OLTA) and the distortion of the emissive map alone (CONFIG_USE_FUZZINESS) in the masks of forward_base and offscreen_particle_lighting, players' programs under their wider keys, and the forward, particle lighting and z-shifted vertex programs players lack from 0.44a5 (from 0.32a4 where 0.44a5 has none of the key) (0.26g with patch 169 sets constant_tile_uv as a float4 and probe_diffuse_mult)"
   },
   "stock_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
   "client_patch": 169,
   "target_key_order": "near-build/shader-key-order-026g.tsv",
-  "donor_key_orders": ["near-build/shader-key-order-044a5.tsv", "near-build/shader-key-order-032a4.tsv"],
+  "donor_key_orders": [
+    "near-build/shader-key-order-044a5.tsv",
+    "near-build/shader-key-order-032a4.tsv"
+  ],
   "new_macros": {
-    "forward_base.ps": ["CONFIG_USE_OLTA", "CONFIG_USE_FUZZINESS"],
-    "offscreen_particle_lighting.ps": ["CONFIG_USE_OLTA"]
+    "forward_base.ps": [
+      "CONFIG_USE_OLTA",
+      "CONFIG_USE_FUZZINESS"
+    ],
+    "offscreen_particle_lighting.ps": [
+      "CONFIG_USE_OLTA"
+    ]
   },
-  "families": ["forward_base.ps", "offscreen_particle_lighting.ps", "vertex_base_z_shifted.vs"],
+  "patch_macros": {
+    "forward_base.ps": [
+      "CONFIG_USE_OLTA",
+      "CONFIG_USE_FUZZINESS",
+      "CONFIG_USE_DISPLACEMENT"
+    ],
+    "offscreen_particle_lighting.ps": [
+      "CONFIG_USE_OLTA"
+    ],
+    "vertex_base_z_shifted.vs": [
+      "CONFIG_USE_DISPLACEMENT"
+    ]
+  },
+  "families": [
+    "forward_base.ps",
+    "offscreen_particle_lighting.ps",
+    "vertex_base_z_shifted.vs"
+  ],
+  "runtime_macros": [
+    "GLOBAL_PARTICLE_QUALITY",
+    "GLOBAL_SHADING_QUALITY",
+    "GLOBAL_POST_PROCESS_QUALITY",
+    "GLOBAL_LIGHTING_QUALITY",
+    "GLOBAL_SHADOWMAP_QUALITY",
+    "CONFIG_LIGHT_TYPE",
+    "CONFIG_SHADOWED_LIGHT",
+    "CONFIG_LOD_INDEX",
+    "CONFIG_USE_INSTANCING",
+    "CONFIG_VERTEX_INPUT_TYPE"
+  ],
   "filled": {
-    "forward_base.ps": {"constant_tile_uv": 16}
+    "forward_base.ps": {
+      "constant_tile_uv": 16
+    },
+    "offscreen_particle_lighting.ps": {
+      "probe_diffuse_mult": 16
+    }
   }
 }

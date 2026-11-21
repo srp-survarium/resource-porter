@@ -50,6 +50,11 @@ impl KeyOrder {
         Ok(Self(names))
     }
 
+    /// The macros, in the key's order.
+    pub fn names(&self) -> &[String] {
+        &self.0
+    }
+
     pub fn place(&self, name: &str) -> Option<usize> {
         self.0.iter().position(|n| n == name)
     }
@@ -162,6 +167,11 @@ impl Keys {
         Ok(Keys { order: self.order.clone(), masks })
     }
 
+    /// Whether `family` reads the macro `name`.
+    pub fn reads(&self, family: &str, name: &str) -> bool {
+        self.masks.0.get(family).is_some_and(|mask| mask.contains(name))
+    }
+
     /// The families the build has keys' macros for.
     pub fn families(&self) -> impl Iterator<Item = &str> {
         self.masks.0.keys().map(String::as_str)
@@ -258,6 +268,21 @@ fn chunk<'a>(dxbc: &'a [u8], tag: &[u8; 4]) -> Result<Option<&'a [u8]>> {
         }
     }
     Ok(None)
+}
+
+/// A blob's code: its DXBC chunks by tag, without the include records
+/// before it (each source file's path and time) and the container's
+/// checksum. Two builds' programs with the same code are one program.
+pub fn code(blob: &[u8]) -> Result<BTreeMap<[u8; 4], Vec<u8>>> {
+    let container = dxbc(blob)?;
+    let mut out = BTreeMap::new();
+    for index in 0..u32_at(container, 28)? {
+        let at = u32_at(container, 32 + 4 * index)?;
+        let tag: [u8; 4] = container.get(at..at + 4).context("a chunk outside the blob")?.try_into().expect("four bytes");
+        let size = u32_at(container, at + 4)?;
+        out.insert(tag, container.get(at + 8..at + 8 + size).context("a chunk runs past the blob")?.to_vec());
+    }
+    Ok(out)
 }
 
 /// What the blob reads: its reflection (`RDEF`, shader model 4) for the

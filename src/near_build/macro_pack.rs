@@ -17,8 +17,10 @@
 //!    its 0.26g key where 0.26g can feed it (`programs::Known::refuses`,
 //!    with the constants the patch sets), a family the manifest names.
 //!
-//! Two donors may be given (both Londons': 0.32a4 and 0.44a5); a key both
-//! have must be the same bytes in both, or the build stops.
+//! Two donors may be given (both Londons': 0.44a5 and 0.32a4); a key both
+//! have is one program when its code is the same (the include records before
+//! the code keep each source file's time); where the code differs the first
+//! donor's is supplied and the report lists it (`donors_differ`).
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -26,11 +28,11 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::programs::{KeyOrder, Keys, Known, translate};
+use super::programs::{KeyOrder, Keys, Known, code, translate};
 use crate::{
     ResourceDb,
     content_pack::{Operation, PackManifest, TARGET_BUILD},
@@ -51,8 +53,18 @@ pub struct Manifest {
     pub donor_key_orders: Vec<std::path::PathBuf>,
     /// The macros each family's mask gains.
     pub new_macros: BTreeMap<String, Vec<String>>,
+    /// The macros the patch sets in each family's keys (the new ones and
+    /// those 0.26g's masks list but never set on): the report counts the
+    /// supplied programs with one on, and each such key must cover every
+    /// runtime choice.
+    pub patch_macros: BTreeMap<String, Vec<String>>,
     /// The families whose donors' programs are supplied.
     pub families: Vec<String>,
+    /// Macros a draw or a player's setting chooses, not the material (the
+    /// quality settings, the light, the mesh's vertex input, the level of
+    /// detail): a key with a new macro on must be there for each of their
+    /// values the key with it off has.
+    pub runtime_macros: Vec<String>,
     /// Constants the patch sets for a family, with their bytes: a donor
     /// program may read them that far.
     #[serde(default)]
@@ -73,8 +85,13 @@ pub struct FamilyReport {
     /// Of the supplied, those with a new macro not 0 (the patch's own).
     pub supplied_with_new_macros: usize,
     pub not_supplied: BTreeMap<String, usize>,
-    /// Keys both donors have, all the same bytes.
+    /// Keys both donors have.
     pub keys_in_both_donors: usize,
+    /// Of those, the ones whose code differs: the first donor's is supplied.
+    pub donors_differ: Vec<String>,
+    /// Groups of keys with a new macro on that lack a runtime choice (the
+    /// build stops on any).
+    pub incomplete: Vec<String>,
 }
 
 fn layers(list: &Path) -> Result<Vec<std::path::PathBuf>> {
@@ -142,9 +159,20 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
         for (name, size) in m.filled.get(family).into_iter().flatten() {
             known.fill(name, *size);
         }
-        let new_macros: Vec<usize> = m.new_macros.get(family).into_iter().flatten().filter_map(|name| new.order.place(name)).collect();
+        let new_macros: Vec<usize> = m.patch_macros.get(family).into_iter().flatten().filter_map(|name| new.order.place(name)).collect();
+        // The values players' keys give each macro: a macro 0.26g's family reads
+        // and a donor's does not (0.44a5's particle lighting has no quality
+        // variants) takes each of them, the donor's one program serving all.
+        let mut players_values: BTreeMap<usize, BTreeSet<String>> = BTreeMap::new();
+        for key in &players_keys {
+            for (at, v) in new.values(family, key)?.into_iter().enumerate() {
+                players_values.entry(at).or_default().insert(v.to_owned());
+            }
+        }
         let mut found: BTreeMap<String, (String, Vec<u8>)> = BTreeMap::new();
         for (index, (db, keys)) in donor_dbs.iter_mut().zip(&donor_keys).enumerate() {
+            let target_only: Vec<usize> =
+                new.order.names().iter().enumerate().filter(|(_, name)| new.reads(family, name) && !keys.reads(family, name)).map(|(at, _)| at).collect();
             for key in programs(db, family) {
                 // A key with a macro 0.26g does not read on is no key 0.26g computes.
                 let Ok(target) = translate(&key, family, keys, &new) else { continue };
@@ -156,16 +184,32 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
                 }
                 let donor_path = format!("{ROOT}{family}/{key}");
                 let blob = db.read(&donor_path)?;
+                let mut targets = vec![new.values(family, &target)?.into_iter().map(str::to_owned).collect::<Vec<String>>()];
+                for at in &target_only {
+                    let choices = players_values.get(at).cloned().unwrap_or_else(|| ["0".to_owned()].into());
+                    targets = targets
+                        .into_iter()
+                        .flat_map(|t| choices.iter().map(move |c| { let mut t = t.clone(); t[*at] = c.clone(); t }))
+                        .collect();
+                }
+                for target in targets.into_iter().map(|values| values.concat()) {
                 match found.get(&target) {
                     Some((first, bytes)) => {
-                        if *bytes != blob {
-                            bail!("{family}/{target}: the donors differ ({first} and donor {} {donor_path})", index + 1);
-                        }
                         r.keys_in_both_donors += 1;
+                        // The same code is one program (the include records keep
+                        // each source file's time); other code is the first donor's,
+                        // listed.
+                        let (ours, theirs) = (code(bytes)?, code(&blob)?);
+                        if ours != theirs {
+                            let chunks: Vec<String> =
+                                ours.keys().chain(theirs.keys()).filter(|t| ours.get(*t) != theirs.get(*t)).map(|t| String::from_utf8_lossy(t).into_owned()).collect::<BTreeSet<_>>().into_iter().collect();
+                            r.donors_differ.push(format!("{target}: {first} kept; donor {} {donor_path} differs in {}", index + 1, chunks.join(", ")));
+                        }
                     }
                     None => {
-                        found.insert(target, (format!("donor {} {donor_path}", index + 1), blob));
+                        found.insert(target, (format!("donor {} {donor_path}", index + 1), blob.clone()));
                     }
+                }
                 }
             }
         }
@@ -185,6 +229,56 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
             }
             r.donor_supplied += 1;
             out.insert(format!("{ROOT}{family}/{target}"), blob);
+        }
+        // A key with a new macro on is there for every choice a draw or a
+        // player's setting makes (`runtime_macros`) that the same key with the
+        // new macros off has, or a material that turns the macro on finds no
+        // program at some quality.
+        if !new_macros.is_empty() {
+            let runtime: Vec<usize> = m.runtime_macros.iter().filter_map(|name| new.order.place(name)).collect();
+            let prefix = format!("{ROOT}{family}/");
+            let mut have: BTreeSet<String> = players_keys.clone();
+            have.extend(out.keys().filter_map(|p| p.strip_prefix(&prefix)).map(str::to_owned));
+            let split = |key: &str| -> Result<(Vec<String>, Vec<String>, bool)> {
+                let values = new.values(family, key)?;
+                let mut material = Vec::new();
+                let mut choice = Vec::new();
+                for (at, v) in values.iter().enumerate() {
+                    if runtime.contains(&at) {
+                        choice.push((*v).to_owned());
+                    } else if new_macros.contains(&at) {
+                        material.push("0".to_owned());
+                    } else {
+                        material.push((*v).to_owned());
+                    }
+                }
+                Ok((material, choice, new_macros.iter().any(|at| values[*at] != "0")))
+            };
+            let mut choices: BTreeMap<Vec<String>, BTreeSet<Vec<String>>> = BTreeMap::new();
+            let mut on: BTreeMap<(Vec<String>, Vec<String>), BTreeSet<Vec<String>>> = BTreeMap::new();
+            for key in &have {
+                let (material, choice, with_new) = split(key)?;
+                if with_new {
+                    let values = new.values(family, key)?;
+                    let new_values: Vec<String> = new_macros.iter().map(|at| values[*at].to_owned()).collect();
+                    on.entry((material, new_values)).or_default().insert(choice);
+                } else {
+                    choices.entry(material).or_default().insert(choice);
+                }
+            }
+            for ((material, new_values), got) in &on {
+                let wanted = choices.get(material).cloned().unwrap_or_default();
+                let missing: Vec<&Vec<String>> = wanted.difference(got).collect();
+                if !missing.is_empty() {
+                    r.incomplete.push(format!(
+                        "new macros {new_values:?} of material values {}: {} of {} runtime choices missing, e.g. {:?}",
+                        material.join(""),
+                        missing.len(),
+                        wanted.len(),
+                        missing.first()
+                    ));
+                }
+            }
         }
     }
 
@@ -222,11 +316,17 @@ pub fn build(manifest_path: &Path, donors: &[std::path::PathBuf], shipped: &Path
     };
     fs::create_dir_all(output)?;
     fs::write(output.join("pack.json"), serde_json::to_vec_pretty(&pack)?)?;
+    fs::create_dir_all(output)?;
     fs::write(output.join("report.json"), serde_json::to_vec_pretty(&report)?)?;
+    let incomplete: Vec<&String> = report.values().flat_map(|r| &r.incomplete).collect();
+    ensure!(
+        incomplete.is_empty(),
+        "programs with a patch's macro on lack runtime choices the same keys with it off have (a material would find no program at some quality; report.json says which and why the donors' were not supplied): {incomplete:#?}"
+    );
     for (family, r) in &report {
         println!(
-            "{family}: {} of players' rekeyed ({} stale left); donors' lacking {}, supplied {} ({} with a new macro on), {} keys in both donors; not supplied {:?}",
-            r.players_rekeyed, r.players_stale, r.donor_lacking, r.donor_supplied, r.supplied_with_new_macros, r.keys_in_both_donors, r.not_supplied
+            "{family}: {} of players' rekeyed ({} stale left); donors' lacking {}, supplied {} ({} with a new macro on), {} keys in both donors ({} with other code); not supplied {:?}",
+            r.players_rekeyed, r.players_stale, r.donor_lacking, r.donor_supplied, r.supplied_with_new_macros, r.keys_in_both_donors, r.donors_differ.len(), r.not_supplied
         );
     }
     Ok(())

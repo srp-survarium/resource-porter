@@ -52,9 +52,16 @@ fn group_of(id: &str) -> Option<&str> {
 }
 
 /// A static's id without what tells its render visual, collision and
-/// walker collision apart.
+/// walker collision apart, and which of them it is. The donors' projects
+/// end a walker collision's id in `/walker` (0.32a4's and 0.44a5's alike):
+/// missed, a walker kept the donor's name while its collision took its
+/// group's, and 0.26g's battery rule, which looks `walker_<name>` up for a
+/// collision with same_walker_collision and uses it unchecked (0x3156EC,
+/// 0x31595C), crashed the mode's first activation.
 fn static_owner(id: &str) -> Option<(&str, &str)> {
-    ["/render", "/collision", "/walker_collision"].iter().find_map(|part| id.strip_suffix(part).map(|owner| (owner, &part[1..])))
+    [("/render", "render"), ("/collision", "collision"), ("/walker", "walker_collision"), ("/walker_collision", "walker_collision")]
+        .iter()
+        .find_map(|(suffix, part)| id.strip_suffix(suffix).map(|owner| (owner, *part)))
 }
 
 fn text<'a>(object: &'a ConfigValue, key: &str) -> Option<&'a str> {
@@ -672,7 +679,8 @@ mod tests {
                     collision("<box>/collision", "props/3/box"),
                     collision("<prop>/collision", "props/3/cap"),
                     collision("<g>/<b1>/collision", "props/3/barrel/barrel"),
-                    collision("<g>/<b1>/walker_collision", "walker_props/3/barrel/barrel"),
+                    // The donors end a walker collision's id in `/walker`.
+                    collision("<g>/<b1>/walker", "walker_props/3/barrel/barrel"),
                 ]),
             ),
             ("server_objects", named(vec![("victory_item_spawn_points", ConfigValue::Indexed(vec![point])), ("victory_item_spawners", ConfigValue::Indexed(vec![spawner]))])),
