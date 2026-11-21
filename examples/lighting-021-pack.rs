@@ -31,6 +31,25 @@ struct Manifest {
     /// 0.31a2's rain_shadow_diffuse_multiplier 0.7 for 0.26g's fixed 0.85).
     #[serde(default)]
     shelter_profiles: Vec<ShelterProfileSpec>,
+    /// Scenes whose sun 0.69d's cloud shadows dim (`CloudShadowProfile`): each 0.69d map's
+    /// day with `use_cloud_shadows`, with the values resource-porter's 0.69d map builder
+    /// prints for it.
+    #[serde(default)]
+    cloud_shadow_profiles: Vec<CloudShadowProfileSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudShadowProfileSpec {
+    name: String,
+    marker: f32,
+    /// The direction sunlight travels.
+    light: [f32; 3],
+    cloud_altitude_km: f32,
+    cloud_shadow_opacity: f32,
+    cloud_shadow_opacity_power: f32,
+    clouds_rounds_per_minute: f32,
+    sky_clouds_rotation_degrees: f32,
 }
 
 #[derive(Deserialize)]
@@ -200,6 +219,32 @@ fn main() -> Result<()> {
             let before = native.read(&paths[0])?;
             let after = build(&before, &exposures).with_context(|| paths[0].clone())?;
             converted.push((paths[0].clone(), before, after));
+        }
+    }
+    // A cloud shadow profile's scene takes 0.69d's cloud shadows on its sun: the 16
+    // sun_shadow variants that read sky_shadows_texture.
+    let clouds: Vec<shaders::CloudShadowProfile> = manifest
+        .cloud_shadow_profiles
+        .iter()
+        .map(|p| {
+            println!("{}: marker {}, cloud shadows {:?} km {} opacity {} power {} rpm {} rotation {}", p.name, p.marker, p.light, p.cloud_altitude_km, p.cloud_shadow_opacity, p.cloud_shadow_opacity_power, p.clouds_rounds_per_minute, p.sky_clouds_rotation_degrees);
+            shaders::CloudShadowProfile {
+                marker: p.marker,
+                light: p.light,
+                altitude_km: p.cloud_altitude_km,
+                opacity: p.cloud_shadow_opacity,
+                power: p.cloud_shadow_opacity_power,
+                rate: p.clouds_rounds_per_minute / 60.0,
+                phase: p.sky_clouds_rotation_degrees / 360.0,
+            }
+        })
+        .collect();
+    if !clouds.is_empty() {
+        for (variant, _) in shaders::SKY_SHADOW_VARIANTS {
+            let path = format!("{}{variant}", shaders::SUN_SHADOW_PREFIX);
+            let before = native.read(&path)?;
+            let after = shaders::build_cloud_shadow(&before, variant, &clouds).with_context(|| path.clone())?;
+            converted.push((path, before, after));
         }
     }
     let sky = native.read(shaders::SKY_PATH)?;
