@@ -1429,6 +1429,14 @@ pub fn port_modules(
             })();
             match placed {
                 Ok(placed) => {
+                    // Its slot (or its rail's seat) hangs on `scope_point`'s bone: the table keeps
+                    // the aimed idle pose of every bone a slot hangs on.
+                    let bone = placed.at.bone.0;
+                    if !gun.pose.iter().any(|(b, _)| *b == bone) {
+                        let frame = pose.get(usize::from(bone)).with_context(|| format!("{item}: bone {bone} has no pose"))?;
+                        gun.pose.push((bone, frame.affine()));
+                        gun.pose.sort_by_key(|(b, _)| *b);
+                    }
                     let module = catalog.module(&placed.report.module)?;
                     let optic = optic_report(&rows.modules[placed.row], module)?;
                     if let Some(before) = optics.insert(module.id.clone(), optic.clone()) {
