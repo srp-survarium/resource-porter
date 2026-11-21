@@ -18,7 +18,7 @@
 //! `w` into w, the reductions sum w as they sum x, and the last writes `2^(x / w)`: the same
 //! weighted geometric mean, in 0.26g's light scale. y and z and every other scene keep the
 //! native instructions.
-use super::tone_map::{ExposureProfile, MIN_KEY_MARKER, add_marker_buffer};
+use super::tone_map::{ExposureProfile, MIN_KEY_MARKER, add_marker_buffer_and_textures};
 use super::{assemble, bytes, chunks, instructions, pinned_code, words};
 use anyhow::{Context, Result, ensure};
 use std::collections::BTreeSet;
@@ -39,14 +39,26 @@ const PIXEL_FLOOR_069: f32 = 0.01;
 /// of a 16:10 frame, all but 0.1 % of a 16:9 one (its corners), 82 % of a 21:9 one.
 const DISC_RADIUS_069: f32 = 2.0;
 
+/// The adapted mean luminance the first program reads (the tone pass's name for it; patch
+/// 170 binds `$user$frame_luminance` there, which holds the previous frame's when the chain
+/// begins).
+const ADAPTED: &str = "t_frame_luminance";
+
 /// The least luminance a point of a marked scene's frame is metered at, in 0.26g's light
 /// scale. 0.69d's floor is 0.01 of its pre-exposed frame, which in 0.26g's scale is
-/// `0.01 * Lc / ceiling` (`Lc` the profile's clamped mean: 0.01 at the ceiling, where the
-/// two scales meet). The metering program does not have the adapted mean (the stage binds
-/// it no texture but the frame), so it takes the floor of the longest exposure, the least
-/// one 0.69d has: no point is metered brighter than 0.69d meters it.
+/// `0.01 * Lc / ceiling`, `Lc` the adapted mean clamped to the profile's range (0.01 at the
+/// ceiling, where the two scales meet): the first program reads the adapted mean. Where it
+/// is not bound (an exe without patch 170) it reads 0, and the floor is this one, the
+/// longest exposure's: no point is metered brighter than 0.69d meters it.
 fn pixel_floor(e: &ExposureProfile) -> f32 {
     PIXEL_FLOOR_069 * e.floor / e.ceiling
+}
+
+/// What a program's reflection binds besides its own: the marker's buffer and the textures
+/// asked for, in order.
+struct Bound {
+    marker: u32,
+    textures: Vec<u32>,
 }
 
 fn check(exposures: &[ExposureProfile]) -> Result<()> {
@@ -107,7 +119,11 @@ fn open(ops: &[Vec<u32>], slot: u32, body: usize, extra: u32) -> Result<(Vec<Vec
 ///
 /// ```text
 /// add o0.yz, r0.xxxx, l(0, 0.001, 0.001, 0)           y and z as the native add
-/// max r1.x, r0.x, l(floor)
+/// ld r2.x, l(0, 0, 0, 0), t1.xyzw                     the adapted mean (0 unbound)
+/// max r2.x, r2.x, l(floor)
+/// min r2.x, r2.x, l(ceiling)
+/// mul r2.x, r2.x, l(0.01 / ceiling)                   0.69d's floor of the moment
+/// max r1.x, r0.x, r2.x
 /// log r1.x, r1.x
 /// resinfo r2.xy, l(0), t0.xyzw                        the frame's width and height
 /// div r2.x, r2.x, r2.y
@@ -119,7 +135,7 @@ fn open(ops: &[Vec<u32>], slot: u32, body: usize, extra: u32) -> Result<(Vec<Vec
 /// mul o0.x, r1.x, r2.y
 /// mov o0.w, r2.y
 /// ```
-fn log_meter(ops: &[Vec<u32>], slot: u32, exposures: &[ExposureProfile]) -> Result<Vec<Vec<u32>>> {
+fn log_meter(ops: &[Vec<u32>], bound: &Bound, exposures: &[ExposureProfile]) -> Result<Vec<Vec<u32>>> {
     const DP3: [u32; 10] = [0x0a000010, 0x00100012, 0, 0x00100246, 0, 0x00004002, 0x3e59999a, 0x3f372474, 0x3d93a92a, 0];
     const ADD: [u32; 10] = [0x0a000000, 0x00102072, 0, 0x00100006, 0, 0x00004002, 0x3a83126f, 0x3a83126f, 0x3a83126f, 0];
     const ALPHA: [u32; 5] = [0x05000036, 0x00102082, 0, 0x00004001, 0];
@@ -128,14 +144,23 @@ fn log_meter(ops: &[Vec<u32>], slot: u32, exposures: &[ExposureProfile]) -> Resu
         n > 4 && ops[n - 4] == DP3 && ops[n - 3] == ADD && ops[n - 2] == ALPHA && ops[n - 1] == [0x0100003e],
         "the native luminance program changed"
     );
+    let slot = bound.marker;
+    let adapted = *bound.textures.first().context("no texture for the adapted mean")?;
     let (mut out, t) = open(ops, slot, n - 3, 2)?;
     let u = t + 1;
+    // dcl_resource_texture2d (float,float,float,float) t<adapted>, after the frame's.
+    let frame = out.iter().position(|op| op[0] & 2047 == 88).context("missing the frame's declaration")?;
+    out.insert(frame + 1, vec![0x04001858, 0x00107000, adapted, 0x00005555]);
     let two = 2f32.to_bits();
     let minus_one = (-1f32).to_bits();
     for e in exposures {
         out.extend(if_marked(slot, t, e.marker));
         out.push(vec![0x0a000000, 0x00102062, 0, 0x00100006, 0, 0x00004002, 0, ADD[7], ADD[8], 0]);
-        out.push(vec![0x07000034, 0x00100012, t, 0x0010000a, 0, 0x00004001, pixel_floor(e).to_bits()]);
+        out.push(vec![0x0a00002d, 0x00100012, u, 0x00004002, 0, 0, 0, 0, 0x00107e46, adapted]);
+        out.push(vec![0x07000034, 0x00100012, u, 0x0010000a, u, 0x00004001, e.floor.to_bits()]);
+        out.push(vec![0x07000033, 0x00100012, u, 0x0010000a, u, 0x00004001, e.ceiling.to_bits()]);
+        out.push(vec![0x07000038, 0x00100012, u, 0x0010000a, u, 0x00004001, (PIXEL_FLOOR_069 / e.ceiling).to_bits()]);
+        out.push(vec![0x07000034, 0x00100012, t, 0x0010000a, 0, 0x0010000a, u]);
         out.push(vec![0x0500002f, 0x00100012, t, 0x0010000a, t]);
         out.push(vec![0x0700003d, 0x00100032, u, 0x00004001, 0, 0x00107e46, 0]);
         out.push(vec![0x0700000e, 0x00100012, u, 0x0010000a, u, 0x0010001a, u]);
@@ -169,7 +194,8 @@ fn sum_of_weights(dest: u32, register: u32, t: u32) -> [Vec<u32>; 3] {
 /// `gather_luminance` summing the weight of a marked scene's points into w as it sums x.
 /// Its first instruction (`mov o0.w, l(0)`) and last (`ret`) are pinned; a marked scene
 /// then has `w = r0.w + r1.w + r2.w + r3.w`.
-fn sum_meter(ops: &[Vec<u32>], slot: u32, exposures: &[ExposureProfile]) -> Result<Vec<Vec<u32>>> {
+fn sum_meter(ops: &[Vec<u32>], bound: &Bound, exposures: &[ExposureProfile]) -> Result<Vec<Vec<u32>>> {
+    let slot = bound.marker;
     let n = ops.len();
     let first = ops.iter().position(|op| op[0] & 2047 == 104).context("missing temporaries")? + 1;
     ensure!(
@@ -197,7 +223,8 @@ fn sum_meter(ops: &[Vec<u32>], slot: u32, exposures: &[ExposureProfile]) -> Resu
 ///
 /// and a marked scene has `w = r0.w + r1.w + r2.w + r3.w` (65536 where it is 0: no weight
 /// reached it), then `div r4.x, r0.x, r4.y` and `exp o0.x, r4.x`.
-fn mean_meter(ops: &[Vec<u32>], slot: u32, exposures: &[ExposureProfile]) -> Result<Vec<Vec<u32>>> {
+fn mean_meter(ops: &[Vec<u32>], bound: &Bound, exposures: &[ExposureProfile]) -> Result<Vec<Vec<u32>>> {
+    let slot = bound.marker;
     const MEAN: [u32; 7] = [0x07000038, 0x00102012, 0, 0x0010000a, 0, 0x00004001, 0x37800000];
     let n = ops.len();
     ensure!(
@@ -220,9 +247,9 @@ fn mean_meter(ops: &[Vec<u32>], slot: u32, exposures: &[ExposureProfile]) -> Res
     Ok(out)
 }
 
-type Meter = fn(&[Vec<u32>], u32, &[ExposureProfile]) -> Result<Vec<Vec<u32>>>;
+type Meter = fn(&[Vec<u32>], &Bound, &[ExposureProfile]) -> Result<Vec<Vec<u32>>>;
 
-fn build(target: &[u8], hash: &str, exposures: &[ExposureProfile], meter: Meter) -> Result<Vec<u8>> {
+fn build(target: &[u8], hash: &str, exposures: &[ExposureProfile], textures: &[&str], meter: Meter) -> Result<Vec<u8>> {
     check(exposures)?;
     let (offset, native) = pinned_code(target, hash)?;
     let mut entries = chunks(native)?;
@@ -230,15 +257,16 @@ fn build(target: &[u8], hash: &str, exposures: &[ExposureProfile], meter: Meter)
         .iter_mut()
         .find(|(t, _)| t == b"RDEF")
         .context("missing metering reflection")?;
-    let (with_marker, slot) = add_marker_buffer(&reflection.1)?;
+    let (with_marker, marker, textures) = add_marker_buffer_and_textures(&reflection.1, textures)?;
     reflection.1 = with_marker;
+    let bound = Bound { marker, textures };
     let program = entries
         .iter_mut()
         .find(|(t, _)| t == b"SHDR")
         .context("missing metering program")?;
     let native_words = words(&program.1)?;
     let mut updated = native_words[..2].to_vec();
-    updated.extend(meter(&instructions(&native_words)?, slot, exposures)?.iter().flatten());
+    updated.extend(meter(&instructions(&native_words)?, &bound, exposures)?.iter().flatten());
     updated[1] = updated.len() as u32;
     instructions(&updated)?;
     program.1 = bytes(&updated);
@@ -250,23 +278,24 @@ fn build(target: &[u8], hash: &str, exposures: &[ExposureProfile], meter: Meter)
 /// The native `gather_log_luminance` program metering each exposure profile's scene by the
 /// weighted logarithm of its luminance.
 pub fn build_log_meter(target: &[u8], exposures: &[ExposureProfile]) -> Result<Vec<u8>> {
-    build(target, LOG_METER_HASH, exposures, log_meter)
+    build(target, LOG_METER_HASH, exposures, &[ADAPTED], log_meter)
 }
 
 /// The native `gather_luminance` program summing each exposure profile's scene's weights.
 pub fn build_sum_meter(target: &[u8], exposures: &[ExposureProfile]) -> Result<Vec<u8>> {
-    build(target, SUM_METER_HASH, exposures, sum_meter)
+    build(target, SUM_METER_HASH, exposures, &[], sum_meter)
 }
 
 /// The native `gather_exp_luminance` program giving each exposure profile's scene the
 /// weighted geometric mean.
 pub fn build_mean_meter(target: &[u8], exposures: &[ExposureProfile]) -> Result<Vec<u8>> {
-    build(target, MEAN_METER_HASH, exposures, mean_meter)
+    build(target, MEAN_METER_HASH, exposures, &[], mean_meter)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::weather_fog_021::tone_map::add_marker_buffer;
     use crate::weather_fog_021::u32_at;
 
     const RUDNYA: ExposureProfile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.2334 };
@@ -353,14 +382,21 @@ mod tests {
         (0..text.len() / 2).map(|i| u8::from_str_radix(&text[2 * i..2 * i + 2], 16).unwrap()).collect()
     }
 
-    /// A 16:9 frame's centre: where every point weighs 1.
-    const CENTRE: Point = Point { uv: [0.5, 0.5], size: [1920.0, 1080.0] };
+    /// The marker's buffer at `marker`, the adapted mean (the first program's) at t1.
+    fn at(marker: u32) -> Bound {
+        Bound { marker, textures: vec![1] }
+    }
 
-    /// A point of the frame (`v1`) and the frame's size (`resinfo` of `t0`).
+    /// A 16:9 frame's centre: where every point weighs 1; no adapted mean bound.
+    const CENTRE: Point = Point { uv: [0.5, 0.5], size: [1920.0, 1080.0], adapted: 0.0 };
+
+    /// A point of the frame (`v1`), the frame's size (`resinfo` of `t0`) and the adapted
+    /// mean (`ld` of t1: 0 where it is not bound).
     #[derive(Clone, Copy)]
     struct Point {
         uv: [f32; 2],
         size: [f32; 2],
+        adapted: f32,
     }
 
     /// What a program writes at the frame's centre.
@@ -442,6 +478,7 @@ mod tests {
                 29 => std::array::from_fn(|i| bits(source(1)[i] >= source(2)[i])),
                 50 => std::array::from_fn(|i| source(1)[i] * source(2)[i] + source(3)[i]),
                 55 => std::array::from_fn(|i| if source(1)[i].to_bits() != 0 { source(2)[i] } else { source(3)[i] }),
+                45 => [point.adapted, 0.0, 0.0, 0.0],
                 61 => [point.size[0], point.size[1], 1.0, 1.0],
                 16 => [(0..3).map(|i| source(1)[i] * source(2)[i]).sum(); 4],
                 24 => std::array::from_fn(|i| bits(source(1)[i] == source(2)[i])),
@@ -490,16 +527,16 @@ mod tests {
         // declared is not one of these two.
         let mut other = native_log();
         other[9][6] = 0.002f32.to_bits();
-        assert!(log_meter(&other, 0, &[RUDNYA]).is_err());
+        assert!(log_meter(&other, &at(0), &[RUDNYA]).is_err());
         let mut other = native_mean();
         other[21][6] = 0.5f32.to_bits();
-        assert!(mean_meter(&other, 0, &[RUDNYA]).is_err());
+        assert!(mean_meter(&other, &at(0), &[RUDNYA]).is_err());
         let mut other = native_sum();
         other[5][4] = 1f32.to_bits();
-        assert!(sum_meter(&other, 0, &[RUDNYA]).is_err());
+        assert!(sum_meter(&other, &at(0), &[RUDNYA]).is_err());
         let mut other = native_log();
         other.insert(0, vec![0x04000059, 0x00208e46, 0, 1]);
-        assert!(log_meter(&other, 1, &[RUDNYA]).is_err());
+        assert!(log_meter(&other, &at(1), &[RUDNYA]).is_err());
     }
 
     #[test]
@@ -548,16 +585,38 @@ mod tests {
     }
 
     #[test]
+    fn the_adapted_mean_is_bound_after_the_frame() {
+        let (new, slot, textures) = add_marker_buffer_and_textures(&native_reflection(), &[ADAPTED]).unwrap();
+        assert_eq!((slot, textures), (0, vec![1]));
+        assert_eq!(u32_at(&new, 8).unwrap(), 4);
+        let text = |at: usize| {
+            let at = u32_at(&new, at).unwrap() as usize;
+            std::str::from_utf8(&new[at..at + new[at..].iter().position(|b| *b == 0).unwrap()]).unwrap().to_owned()
+        };
+        // The native sampler and frame, the adapted mean (a float4 2D texture at t1), the buffer.
+        for (i, name) in ["s_accumulator", "t_frame_color0", ADAPTED, "static_globals"].iter().enumerate() {
+            assert_eq!(&text(28 + 32 * i), name);
+        }
+        assert_eq!(words(&new[28 + 64 + 4..28 + 96]).unwrap(), [2, 5, 4, u32::MAX, 1, 1, 0x0c]);
+        assert_eq!(words(&new[28 + 32 + 4..28 + 64]).unwrap()[..5], [2, 5, 4, u32::MAX, 0]);
+        // The same name twice is refused.
+        assert!(add_marker_buffer_and_textures(&native_reflection(), &["t_frame_color0"]).is_err());
+    }
+
+    #[test]
     fn an_unmarked_scene_keeps_the_native_arithmetic() {
         let two = [RUDNYA, ExposureProfile { marker: 33002.0, ..RUDNYA }];
         for profiles in [&two[..1], &two[..]] {
-            let (native, adapted) = (native_log(), log_meter(&native_log(), 0, profiles).unwrap());
+            let (native, adapted) = (native_log(), log_meter(&native_log(), &at(0), profiles).unwrap());
             // The declarations but the buffer's and one more temporary; the native
             // instructions in their order, the `add` in the innermost else.
-            assert_eq!(adapted[..4], native[..4]);
-            assert_eq!(adapted[4], [0x04000059, 0x00208e46, 0, 19]);
-            assert_eq!(adapted[5], [0x02000068, 3]);
-            assert_eq!(adapted[6..10], native[5..9]);
+            // The adapted mean's texture declared after the frame's.
+            assert_eq!(adapted[..2], native[..2]);
+            assert_eq!(adapted[2], [0x04001858, 0x00107000, 1, 0x00005555]);
+            assert_eq!(adapted[3..5], native[2..4]);
+            assert_eq!(adapted[5], [0x04000059, 0x00208e46, 0, 19]);
+            assert_eq!(adapted[6], [0x02000068, 3]);
+            assert_eq!(adapted[7..11], native[5..9]);
             let n = adapted.len();
             let ends = profiles.len();
             // The `add` and the `mov` in the innermost else, then the `ret`.
@@ -571,7 +630,7 @@ mod tests {
                     assert_eq!(run(&adapted, &[colour], marker).map(f32::to_bits), expected);
                 }
             }
-            let (native, adapted) = (native_mean(), mean_meter(&native_mean(), 0, profiles).unwrap());
+            let (native, adapted) = (native_mean(), mean_meter(&native_mean(), &at(0), profiles).unwrap());
             assert_eq!(adapted[..4], native[..4]);
             assert_eq!(adapted[4], [0x04000059, 0x00208e46, 0, 19]);
             assert_eq!(adapted[5], [0x02000068, 5]);
@@ -585,7 +644,7 @@ mod tests {
             for marker in [0.0, -32198.0, 33003.0] {
                 assert_eq!(run(&adapted, &texels, marker).map(f32::to_bits), expected);
             }
-            let (native, adapted) = (native_sum(), sum_meter(&native_sum(), 0, profiles).unwrap());
+            let (native, adapted) = (native_sum(), sum_meter(&native_sum(), &at(0), profiles).unwrap());
             assert_eq!(adapted[..4], native[..4]);
             assert_eq!(adapted[4], [0x04000059, 0x00208e46, 0, 19]);
             assert_eq!(adapted[5], [0x02000068, 5]);
@@ -609,8 +668,8 @@ mod tests {
         let floor = pixel_floor(&RUDNYA);
         // 0.69d's 0.01 of the pre-exposed frame at its longest exposure (EV 6 of 6..12.5).
         assert!((floor / (0.01 * 2f32.powf(6.0 - 12.5)) - 1.0).abs() < 1e-3);
-        let log = log_meter(&native_log(), 0, &[RUDNYA]).unwrap();
-        let mean = mean_meter(&native_mean(), 0, &[RUDNYA]).unwrap();
+        let log = log_meter(&native_log(), &at(0), &[RUDNYA]).unwrap();
+        let mean = mean_meter(&native_mean(), &at(0), &[RUDNYA]).unwrap();
         let native = [native_log(), native_mean()];
         let grey = |l: f32| [l, l, l, 1.0];
         let luminance = |l: f32| l * (0.2125 + 0.7154 + 0.0721);
@@ -623,7 +682,7 @@ mod tests {
         }
         // The reductions sum the weight; the last gives 2^(x / w), the least y and the
         // greatest z as before.
-        let sum = sum_meter(&native_sum(), 0, &[RUDNYA]).unwrap();
+        let sum = sum_meter(&native_sum(), &at(0), &[RUDNYA]).unwrap();
         let texels = [[-200000.0, 0.2, 0.9, 16384.0], [-150000.0, 0.004, 0.5, 16384.0], [-80000.0, 0.3, 4.0, 16384.0], [-94288.0, 0.1, 0.2, 16384.0]];
         let (marked, plain) = (run(&sum, &texels, 33001.0), run(&native_sum(), &texels, 33001.0));
         assert_eq!(marked.map(f32::to_bits)[..3], plain.map(f32::to_bits)[..3]);
@@ -665,9 +724,26 @@ mod tests {
     }
 
     #[test]
+    fn the_floor_follows_the_adapted_mean_as_0_69d_s_follows_its_exposure() {
+        let log = log_meter(&native_log(), &at(0), &[RUDNYA]).unwrap();
+        let black = |adapted: f32| run_at(&log, &[[0.0; 4]], 33001.0, Point { adapted, ..CENTRE })[0];
+        // 0.01 of the frame as exposed: at the ceiling (a sunlit view) 0.01 itself; at the
+        // floor, and with nothing bound (0), the longest exposure's, `pixel_floor`.
+        assert!((black(RUDNYA.ceiling) - 0.01f32.log2()).abs() < 1e-5);
+        assert!((black(RUDNYA.ceiling * 10.0) - 0.01f32.log2()).abs() < 1e-5);
+        assert!((black(0.01) - (0.01 * 0.01 / RUDNYA.ceiling).log2()).abs() < 1e-5);
+        for adapted in [0.0, RUDNYA.floor, RUDNYA.floor / 4.0, f32::NAN] {
+            assert_eq!(black(adapted), pixel_floor(&RUDNYA).log2(), "{adapted}");
+        }
+        // A point above the floor is metered as itself whatever the mean.
+        let grey = run_at(&log, &[[0.2; 4]], 33001.0, Point { adapted: RUDNYA.ceiling, ..CENTRE })[0];
+        assert!((grey - (0.2f32 * (0.2125 + 0.7154 + 0.0721)).log2()).abs() < 1e-5);
+    }
+
+    #[test]
     fn points_outside_0_69d_s_disc_weigh_nothing() {
-        let log = log_meter(&native_log(), 0, &[RUDNYA]).unwrap();
-        let at = |uv: [f32; 2], size: [f32; 2]| run_at(&log, &[[0.2, 0.2, 0.2, 1.0]], 33001.0, Point { uv, size });
+        let log = log_meter(&native_log(), &at(0), &[RUDNYA]).unwrap();
+        let shot = |uv: [f32; 2], size: [f32; 2]| run_at(&log, &[[0.2, 0.2, 0.2, 1.0]], 33001.0, Point { uv, size, adapted: 0.0 });
         let inside = 0.2f32.log2();
         for (uv, size, weight) in [
             // A 16:10 frame is metered whole, a 16:9 one but its corners.
@@ -680,16 +756,16 @@ mod tests {
             ([0.9, 0.5], [2560.0, 1080.0], 1.0),
             ([0.5, 0.0], [2560.0, 1080.0], 1.0),
         ] {
-            let [x, _, _, w] = at(uv, size);
+            let [x, _, _, w] = shot(uv, size);
             assert_eq!(w, weight, "{uv:?} {size:?}");
             assert!((x - weight * inside).abs() < 1e-5, "{uv:?} {size:?}");
         }
         // Unmarked, the native 0 in w wherever the point is.
-        assert_eq!(run_at(&log, &[[0.2; 4]], 0.0, Point { uv: [0.02, 0.5], size: [2560.0, 1080.0] })[3], 0.0);
+        assert_eq!(run_at(&log, &[[0.2; 4]], 0.0, Point { uv: [0.02, 0.5], size: [2560.0, 1080.0], adapted: 0.0 })[3], 0.0);
         // A 21:9 frame bright at its sides and dark within: metered as the dark part
         // (0.69d's), not as the whole frame.
-        let mean = mean_meter(&native_mean(), 0, &[RUDNYA]).unwrap();
-        let point = |u: f32, l: f32| run_at(&log, &[[l, l, l, 1.0]], 33001.0, Point { uv: [u, 0.5], size: [2560.0, 1080.0] });
+        let mean = mean_meter(&native_mean(), &at(0), &[RUDNYA]).unwrap();
+        let point = |u: f32, l: f32| run_at(&log, &[[l, l, l, 1.0]], 33001.0, Point { uv: [u, 0.5], size: [2560.0, 1080.0], adapted: 0.0 });
         let (side, middle) = (point(0.02, 2.0), point(0.5, 0.01));
         let quarter = 65536.0 / 4.0;
         // Four quarters of the frame: one of sides, three of the middle.
@@ -701,16 +777,16 @@ mod tests {
     #[test]
     fn each_profile_has_its_own_branch_and_floor() {
         let other = ExposureProfile { marker: 33002.0, floor: 0.01, ceiling: 0.1, key: 0.2 };
-        let log = log_meter(&native_log(), 0, &[RUDNYA, other]).unwrap();
-        let mean = mean_meter(&native_mean(), 0, &[RUDNYA, other]).unwrap();
+        let log = log_meter(&native_log(), &at(0), &[RUDNYA, other]).unwrap();
+        let mean = mean_meter(&native_mean(), &at(0), &[RUDNYA, other]).unwrap();
         assert_eq!(run(&log, &[[0.0; 4]], 33001.0)[0], pixel_floor(&RUDNYA).log2());
         assert_eq!(run(&log, &[[0.0; 4]], 33002.0)[0], 0.001f32.log2());
         for marker in [33001.0, 33002.0] {
             assert_eq!(run(&mean, &[[-65536.0, 0.0, 0.0, 0.0]; 4], marker)[0], 2f32.powf(-4.0));
         }
         // The buffer's slot is the one the reflection gave it.
-        let at_b1 = log_meter(&native_log(), 1, &[RUDNYA]).unwrap();
-        assert_eq!(at_b1[4], [0x04000059, 0x00208e46, 1, 19]);
-        assert_eq!(at_b1[10][3..6], [0x0020803a, 1, 18]);
+        let at_b1 = log_meter(&native_log(), &at(1), &[RUDNYA]).unwrap();
+        assert_eq!(at_b1[5], [0x04000059, 0x00208e46, 1, 19]);
+        assert_eq!(at_b1[11][3..6], [0x0020803a, 1, 18]);
     }
 }

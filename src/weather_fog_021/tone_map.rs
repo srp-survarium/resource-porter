@@ -351,6 +351,13 @@ fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
 /// The retail reflection implementation treats binding names before the
 /// buffer table as their own string pool. Keep them there, not after variables.
 pub(super) fn add_marker_buffer(old: &[u8]) -> Result<(Vec<u8>, u32)> {
+    let (bytes, slot, _) = add_marker_buffer_and_textures(old, &[])?;
+    Ok((bytes, slot))
+}
+
+/// `add_marker_buffer`, and a float4 2D texture binding for each of `textures` at the
+/// texture slots after the program's own (returned, in order).
+pub(super) fn add_marker_buffer_and_textures(old: &[u8], textures: &[&str]) -> Result<(Vec<u8>, u32, Vec<u32>)> {
     const MARKER_BUFFER: &str = "static_globals";
     let buffer_count = u32_at(old, 0)? as usize;
     let binding_count = u32_at(old, 8)? as usize;
@@ -394,6 +401,15 @@ pub(super) fn add_marker_buffer(old: &[u8]) -> Result<(Vec<u8>, u32)> {
         "the program already binds the marker's buffer"
     );
     let slot = buffer_count as u32;
+    // A texture binding: D3D_SIT_TEXTURE, float, 2D, no sample count, its slot, one, 4 components.
+    let mut next = bindings.iter().filter(|b| b.1[0] == 2).map(|b| b.1[4] + 1).max().unwrap_or(0);
+    let mut texture_slots = Vec::new();
+    for texture in textures {
+        ensure!(bindings.iter().all(|b| b.0 != *texture), "the program already binds {texture}");
+        bindings.push(((*texture).into(), vec![2, 5, 4, u32::MAX, next, 1, 0x0c]));
+        texture_slots.push(next);
+        next += 1;
+    }
     bindings.push((MARKER_BUFFER.into(), vec![0, 0, 0, 0, slot, 1, 0]));
     let resources = 28;
     let mut out = Reflection {
@@ -448,7 +464,7 @@ pub(super) fn add_marker_buffer(old: &[u8]) -> Result<(Vec<u8>, u32)> {
             creator,
         ],
     );
-    Ok((out.bytes, slot))
+    Ok((out.bytes, slot, texture_slots))
 }
 
 #[cfg(test)]

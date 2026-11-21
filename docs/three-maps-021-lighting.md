@@ -115,14 +115,15 @@ and `key` stay as they are. y and z (the least and the greatest luminance) and e
 scene keep the native instructions (and w its native 0).
 
 - `floor` is 0.69d's 0.01, which is of its pre-exposed frame: `0.01 * Lc / ceiling` in
-  0.26g's scale, with `Lc` the profile's clamped mean. The first program does not have the
-  adapted mean (its pass binds the frame alone, and a texture is bound only to the program
-  current when the stage sets it: `backend::set_ps_texture`, 0x11B630, looks the name up in
-  the bound program's reflection, 0x3D6960), so it uses the least of them,
-  `0.01 * floor / ceiling` (Rudnya v0.69: 0.00011), and meters a point darker than 0.69d's
-  floor of the moment below what 0.69d meters it at: the mean is then lower than 0.69d's,
-  by `(Lc / floor)^p` at most for a part `p` of the frame that dark. Exact needs the stage
-  to bind the adapted luminance in that pass (an executable change).
+  0.26g's scale, with `Lc` the adapted mean clamped to the profile's range. The first
+  program reads the adapted mean (`t_frame_luminance`, render target 60, the eye
+  adaptation's output, which holds the previous frame's when the chain begins: 0.69d too
+  meters a frame by the exposure it was drawn with). A texture is bound only to the program
+  current when the stage sets it (`backend::set_ps_texture`, 0x11B630, looks the name up in
+  the bound program's reflection, 0x3D6960), and this pass binds the frame alone: Skhid's
+  exe patch 170 binds the adapted mean at the pass's compile. Without it the program reads
+  0 and the floor is the longest exposure's, `0.01 * floor / ceiling` (Rudnya v0.69:
+  0.00011), which meters a point darker than 0.69d's floor of the moment below 0.69d.
 - Where no weight reaches the last program (a target that dropped w), it divides by 65536:
   the unweighted mean, never a division by 0.
 - The programs had no constant buffer, so the marker's `static_globals` is their first and
