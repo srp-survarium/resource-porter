@@ -5748,7 +5748,7 @@ mod tests {
             donor_mode: "d".into(), loading_screen_id: None, level_id: None, map_name: None,
             native_objects: None, modes: Vec::new(), published_patches: Vec::new(),
         };
-        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new(), None).unwrap();
+        let scene = convert_scene(&donor, &template, &Port::Map(spec.clone()), true, &BTreeMap::new(), None).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let zones: Vec<_> = objects.iter().filter(|o| kind(o) == "resupply_zone").collect();
         assert_eq!(zones.iter().map(|z| integer(z, "team").unwrap()).collect::<Vec<_>>(), vec![0, 1]);
@@ -5770,6 +5770,43 @@ mod tests {
         assert!(matches!(scene.project.named("victory_item_spawn_points"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(matches!(scene.project.named("temporary_render_visuals"), Some(ConfigValue::Named(v)) if v.is_empty()));
         assert!(scene.project.named("levelmap_min").is_none());
+
+        // The donor's own sound emitters (the playable ones) and a particle
+        // 0.26 ships, each on the template's object of its kind.
+        let text = |v: &str| ConfigValue::String(v.into());
+        let add = |project: &ConfigValue, more: Vec<ConfigValue>| {
+            let mut project = project.clone();
+            if let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") {
+                objects.extend(more);
+            }
+            project
+        };
+        let template = add(&template, vec![
+            with(tf([0.0; 3]), vec![("game_object_type", text("object_sound")), ("sound_name", text("native/sound")), ("sound_type", ConfigValue::Integer(0)), ("layer", text("default"))]),
+            with(tf([0.0; 3]), vec![("game_object_type", text("particle")), ("lib_name", text("native/particle"))]),
+        ]);
+        let sound = |name: &str, x: f32| with(tf([x, 0.0, 0.0]), vec![("game_object_type", text("object_sound")), ("full_name", text(&format!("sounds/{x}"))), ("sound_name", text(name)), ("sound_type", ConfigValue::Integer(1)), ("fade_in_time", ConfigValue::Integer(0))]);
+        let donor = add(&donor, vec![
+            sound("scapes/a", 1.0),
+            sound("scapes/nowhere", 2.0),
+            with(tf([3.0, 0.0, 0.0]), vec![("game_object_type", text("particle")), ("full_name", text("fx/fly")), ("particle_name", text("fx/environment/fly"))]),
+        ]);
+        let particles = BTreeMap::from([("fx/environment/fly".to_owned(), "fx/environment/fly".to_owned())]);
+        let playable = BTreeSet::from(["scapes/a".to_owned()]);
+        let scene = convert_scene(&donor, &template, &Port::Map(spec.clone()), true, &particles, Some(&playable)).unwrap();
+        let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
+        let sounds: Vec<_> = objects.iter().filter(|o| kind(o) == "object_sound").collect();
+        assert_eq!(sounds.len(), 1);
+        assert_eq!((string(sounds[0], "sound_name"), integer(sounds[0], "sound_type"), string(sounds[0], "layer")), (Some("scapes/a"), Some(1), Some("default")));
+        assert_eq!(float3(sounds[0], "position").unwrap(), [1.0, 0.0, 0.0]);
+        assert!(sounds[0].named("fade_in_time").is_none(), "only fields 0.26's emitter has");
+        assert_eq!(scene.sounds, playable);
+        assert!(scene.notes.iter().any(|n| n.contains("object_sound scapes/nowhere")), "{:?}", scene.notes);
+        let particle = objects.iter().find(|o| kind(o) == "particle").unwrap();
+        assert_eq!(string(particle, "lib_name"), Some("fx/environment/fly"));
+        // Without the donor's sounds (a manifest that takes a native map's) none is made.
+        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new(), None).unwrap();
+        assert!(!array(scene.project.named("client_objects").unwrap()).unwrap().iter().any(|o| matches!(kind(o), "object_sound" | "particle")));
     }
 
     #[test]
