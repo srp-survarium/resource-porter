@@ -54,6 +54,16 @@ vostok-port render-weapon --model BUNDLE/overlay/models/weapons/G/G.skinned_mode
 
 The build prints what it left out or kept native per config; read it.
 
+## STK2's guns (donor build `stk2`)
+
+STK2 (2012) ships static models and textures only. skhid-srp's `scripts/weapons-stk2/donor.py`
+makes them 0.26g files on a live gun's rig (its skeleton, bind pose and locators; each mesh island
+on the bone that moves it; materials and textures on the live gun's), with that gun's config as the
+donor item; `examples/pack-donor-tree` packs the tree. `ports/weapons-stk2.json` then ports them as
+any donor: its configs are 0.26g's, so the build's rules convert nothing (`RULES_STK2`). No build
+drew an icon of these guns: a weapon's `lobby_icon.file` is the port's own image
+(`ports/icons/stk2/`, skhid-srp's `scripts/weapons-stk2/icons.py`).
+
 ## Modules (scopes, flash hiders, muzzle brakes, grips)
 
 `modules.rs`: a module's item config from a native template of its kind (a scope's idle and

@@ -33,6 +33,11 @@ pub enum DonorBuild {
     /// materials, attachment modules ([`super::donor_069d`]).
     #[serde(rename = "0.69d0")]
     V069d0,
+    /// STK2 (the 2012 S.T.A.L.K.E.R. 2): models and textures only, made
+    /// into 0.26g's layouts on a live gun's rig (skhid-srp's
+    /// `scripts/weapons-stk2/donor.py`); its configs are 0.26g's own.
+    #[serde(rename = "stk2")]
+    Stk2,
 }
 
 /// What a build's configs mean, against 0.26g's.
@@ -119,12 +124,26 @@ pub const RULES_069D0: Rules = Rules {
     aim_offset_in_config: false,
 };
 
+/// STK2's guns are 0.26g configs (a live gun's) on STK2's meshes: nothing
+/// to convert. Every state type is 0.26g's; the template's `aim_offset`
+/// stays (the donor's config is the template's).
+pub const RULES_STK2: Rules = Rules {
+    state_types: &[],
+    same_state_types_up_to: 321,
+    renames: &[],
+    scaled: &[],
+    clips_12_byte_events: false,
+    mesh_statistics: false,
+    aim_offset_in_config: false,
+};
+
 impl DonorBuild {
     pub fn rules(self) -> &'static Rules {
         match self {
             Self::V029a3 => &RULES_029A3,
             Self::V031a2 => &RULES_031A2,
             Self::V069d0 => &RULES_069D0,
+            Self::Stk2 => &RULES_STK2,
         }
     }
 }

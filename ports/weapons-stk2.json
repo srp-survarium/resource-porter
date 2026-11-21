@@ -1,0 +1,50 @@
+{
+  "format_version": 1,
+  "id": "weapons-stk2",
+  "donor_build": "stk2",
+  "weapons": [
+    {
+      "name": "ak74_tactical",
+      "dict_id": 2296,
+      "donor_item": "donor/ak74_tactical.options",
+      "config": "gameplay/items/weapons/wpn_ak74_tactical.options",
+      "template": "gameplay/items/weapons/wpn_ak_74m.options",
+      "base_cost": 47500,
+      "ammo": [217, 331],
+      "copy_of_template": false,
+      "set": {
+        "object.model": "weapons/ak74_tactical/ak74_tactical",
+        "ui_desc.text_descriptions.name": "st_srp_weaponstk2_ak74_tactical_name",
+        "ui_desc.text_descriptions.description": "st_srp_weaponstk2_ak74_tactical_desc"
+      },
+      "lobby_icon": {"row": 11, "col": 6, "file": "icons/stk2/ak74_tactical.png"},
+      "kill_feed": {"icon": 100, "donor_png": null},
+      "notes": [
+        "STK2's ak74_4tir2 (long barrel, collapsible stock, rails) on the live AK-74M's rig, clips, sounds, rounds, stats, faction, level and price (skhid-srp docs/notes/weapons-stk2.md)."
+      ]
+    },
+    {
+      "name": "ak74_tactical_carbine",
+      "dict_id": 2297,
+      "donor_item": "donor/ak74_tactical_carbine.options",
+      "config": "gameplay/items/weapons/wpn_ak74_tactical_carbine.options",
+      "template": "gameplay/items/weapons/wpn_ak_74m.options",
+      "base_cost": 47500,
+      "ammo": [217, 331],
+      "copy_of_template": false,
+      "set": {
+        "object.model": "weapons/ak74_tactical/ak74_tactical_carbine",
+        "ui_desc.text_descriptions.name": "st_srp_weaponstk2_ak74_tactical_carbine_name",
+        "ui_desc.text_descriptions.description": "st_srp_weaponstk2_ak74_tactical_carbine_desc",
+        "parameters.base_dispersion": 0.3,
+        "parameters.max_damage_distance": 15,
+        "parameters.min_damage_distance": 40
+      },
+      "lobby_icon": {"row": 12, "col": 6, "file": "icons/stk2/ak74_tactical_carbine.png"},
+      "kill_feed": {"icon": 101, "donor_png": null},
+      "notes": [
+        "STK2's ak74_4tir1 (short barrel, side-folding stock) without its built-in red dot, on the live AK-74M's rig; the AK-74M's stats but the short barrel's spread and fall-off, the AKS-74U's (0.3, 15-40 m), as the AKMSU took them."
+      ]
+    }
+  ]
+}
