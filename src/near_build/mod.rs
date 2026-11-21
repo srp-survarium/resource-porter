@@ -596,6 +596,20 @@ pub fn build(
             }
             *report.added.entry(kind_of_path(path).to_owned()).or_default() += 1;
         }
+        // The level's own files that players have under the same name (the old London's vegetation
+        // layers) are the donor's too: under the port's level, and in place where they differ.
+        for path in plan.target_files.iter().filter(|f| f.starts_with(&level_folder) && !f.ends_with("/client_project")) {
+            let rest = &path[level_folder.len()..];
+            let to_path = format!("projects/{}/{rest}", m.level);
+            if !scan_donor.is_file(path) || importer.out.contains_key(&to_path) {
+                continue;
+            }
+            let bytes = scan_donor.read(path)?;
+            if m.level != m.donor_level || bytes != scan_shipped.read(path)? {
+                importer.out.insert(to_path, bytes);
+                *report.added.entry("level file".to_owned()).or_default() += 1;
+            }
+        }
         for path in &plan.target_files {
             let kind = kind_of_path(path);
             if matches!(kind, "particle" | "sound" | "animation" | "other") && scan_donor.is_file(path) && scan_donor.read(path)? != scan_shipped.read(path)? {
