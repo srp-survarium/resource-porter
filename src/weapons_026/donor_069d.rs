@@ -121,9 +121,11 @@ pub struct Gun069 {
     /// scope variants draw, as 0.69d0 folds the sights under any optic.
     #[serde(default)]
     pub optic_model_path: Option<String>,
-    /// Modules 0.69d0 only links to the gun that the live gun has built in, each with its
-    /// slot: its suppressor (the 9A-91's). Never typed: `port-modules` finds them by laying
-    /// each linked suppressor on the live mesh (`modules::built_in`). Baked as the gun's own.
+    /// Modules that the live gun has built in, each with its slot: 0.69d0 only links them to
+    /// the gun, or bundles them with a premium item (the VSK-94's suppressor; the SR-3M's and
+    /// the OTs-14's own foregrips). Never typed: `port-modules` finds them by laying each
+    /// linked suppressor and grip on the live mesh (`modules::built_in`). Baked as the gun's
+    /// own, once, whatever `separable` or 0.69d0's own entries say of them.
     #[serde(default, skip)]
     pub fixed: Vec<(String, String)>,
 }
@@ -893,6 +895,7 @@ impl Donor069 {
                 "{item}: {id} is none of its modules"
             );
         }
+        entries.retain(|(id, _)| !gun.is_fixed(id));
         for (id, slot) in &gun.fixed {
             entries.push((id.clone(), Some(slot.clone())));
         }
@@ -946,7 +949,7 @@ impl Donor069 {
                 !(baked
                     && is_attachment(&id, &model)
                     && !gun.bake.contains(&id)
-                    && !gun.fixed.iter().any(|(m, _)| *m == id)),
+                    && !gun.is_fixed(&id)),
                 "{item}: {id} ({model}) is an attachment, not structural; list it as separable"
             );
             if baked {
@@ -1816,14 +1819,19 @@ pub fn remodel_069d(
 }
 
 impl Gun069 {
+    fn is_fixed(&self, module: &str) -> bool {
+        self.fixed.iter().any(|(m, _)| m == module)
+    }
+
     /// The modules the gun's body has, in 0.69d0's attach order (bundled,
     /// then default), each with the slot its entry names: every one of its
-    /// own but those left to the kit (`separable`).
+    /// own but those left to the kit (`separable`); then the live gun's
+    /// built-in ones (`fixed`).
     pub fn own(&self, gun: &catalog::GunDef) -> Vec<(String, Option<String>)> {
         gun.bundled
             .iter()
             .chain(&gun.defaults)
-            .filter(|e| !self.separable.contains(&e.module))
+            .filter(|e| !self.separable.contains(&e.module) && !self.is_fixed(&e.module))
             .map(|e| (e.module.clone(), e.slot.clone()))
             .chain(self.fixed.iter().map(|(m, slot)| (m.clone(), Some(slot.clone()))))
             .collect()

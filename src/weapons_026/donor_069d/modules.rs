@@ -216,7 +216,7 @@ struct Built {
     composed: Composed,
     fit: Option<fit::Fit>,
     look: Option<Look>,
-    suppressors: Vec<Suppressor>,
+    laid: Vec<Laid>,
     /// Under the gun's default optic (`Gun069::optic`): the slots whose sights are folded and
     /// the slots whose part makes way. Empty for a gun without one.
     folded: BTreeSet<String>,
@@ -250,18 +250,26 @@ pub struct Look {
 /// A vertex this far (metres) from the other body is a part the other lacks.
 pub const LOOK_LIMIT: f32 = 0.005;
 
-/// A suppressor 0.69d0 links to a gun, laid on the live gun's mesh.
+/// A suppressor or a grip 0.69d0 links to a gun, laid on the live gun's mesh.
 #[derive(Clone, Debug, Serialize)]
-pub struct Suppressor {
+pub struct Laid {
     pub module: String,
     pub slot: String,
     /// The median distance from its vertices to the live mesh, mm.
     pub gap_mm: f32,
-    /// The live gun has it: baked as the gun's own part.
+    /// The live gun has it: baked as the gun's own part (the first in its slot that lies on
+    /// the mesh).
     pub built_in: bool,
 }
 
-/// A suppressor lying this close (mm, median) on the live mesh is the live gun's own.
+impl Laid {
+    /// It lies on the live mesh: the live gun has this part, in this paint or another.
+    fn on_mesh(&self) -> bool {
+        self.gap_mm <= BUILT_IN_GAP_MM
+    }
+}
+
+/// A part lying this close (mm, median) on the live mesh is the live gun's own.
 pub const BUILT_IN_GAP_MM: f32 = 1.5;
 
 #[derive(Serialize)]
@@ -269,7 +277,7 @@ pub struct GunReport {
     pub model: String,
     pub bare: String,
     pub fits_like: String,
-    pub suppressors: Vec<Suppressor>,
+    pub laid: Vec<Laid>,
     pub fit: Option<fit::Fit>,
     pub look: Option<Look>,
     /// The bones the live rig binds otherwise than 0.69d0, each with the seat its locators took.
@@ -289,6 +297,9 @@ pub struct Report {
     pub left_out: BTreeSet<String>,
     /// Slots 0.69d0's rules bring at a locator the module's model lacks.
     pub missing_locators: BTreeSet<String>,
+    /// Suppressors by their shape, each with the suppressor whose material it draws
+    /// (`Catalog::find_suppressor_shapes`): no fit, as every suppressor.
+    pub suppressor_shapes: BTreeMap<String, String>,
     pub modules: usize,
     pub table_bytes: usize,
     pub checks: Vec<Checked>,
@@ -317,9 +328,10 @@ fn slot_id(name: &str) -> Result<SlotId> {
         .with_context(|| format!("slot {name} is none of the table's (skhid-srp's scripts/weapon-modules/slot_ids.py)"))
 }
 
-/// The base gun of an item whose own links fit nothing: the item of the
-/// longest proper prefix of its name (cut at `_`) that 0.69d0 links modules
-/// to (`ak_74n_premium`: `ak_74n`).
+/// The gun whose links an item takes when its own and its base item's ([`Catalog::linked`])
+/// fit nothing: the item of the longest proper prefix of its name (cut at `_`) that 0.69d0
+/// links modules to. In 0.69d0 that is the Neostead 2, which is its own base item and has no
+/// link: the pair's links are the `neostead`'s, whose base item it is.
 fn base_of<'a>(catalog: &'a Catalog, item: &str) -> Option<&'a str> {
     let mut cut = item;
     while let Some((head, _)) = cut.rsplit_once('_') {
@@ -329,6 +341,15 @@ fn base_of<'a>(catalog: &'a Catalog, item: &str) -> Option<&'a str> {
         cut = head;
     }
     None
+}
+
+/// The modules 0.69d0 links an item: its own and its base item's, else those of [`base_of`].
+fn links_of<'a>(catalog: &'a Catalog, item: &str) -> Vec<&'a str> {
+    let links = catalog.linked(item);
+    match base_of(catalog, item) {
+        Some(base) if links.is_empty() => catalog.linked(base),
+        _ => links,
+    }
 }
 
 impl Donor069 {
@@ -556,9 +577,11 @@ pub(super) fn live_points(target: &mut ResourceDb, model: &str) -> Result<Vec<[f
     Ok(out)
 }
 
-/// The suppressors 0.69d0 links to a gun that go in a free slot of its own, each laid on the
-/// live gun's mesh: one that lies on it is the live gun's own (the first such is taken). A
-/// gun 0.26g draws with a suppressor keeps it so, and what hangs on it has its slot.
+/// The suppressors and grips 0.69d0 links to a gun that go in a free slot of its own, each
+/// laid on the live gun's mesh: one that lies on it is the live gun's own (the first such in
+/// its slot is taken; another there is the same part in another paint, the SR-3M premium's
+/// two foregrips). A gun 0.26g draws with a suppressor or a foregrip of its own keeps it so
+/// in both bodies, with its live hand locators, and what hangs on it has its slot.
 fn built_in(
     donor: &mut Donor069,
     catalog: &Catalog,
@@ -566,15 +589,15 @@ fn built_in(
     gun: &Gun069,
     measured: &Composed,
     live: &[[f32; 3]],
-) -> Result<Vec<Suppressor>> {
+) -> Result<Vec<Laid>> {
     let own = gun.own(catalog.gun(item)?);
-    let standing = plan::plan(catalog, item, &own, item, &|_| false)?;
-    let links = catalog.links.get(item).or_else(|| base_of(catalog, item).and_then(|b| catalog.links.get(b)));
+    let standing = plan::plan(catalog, item, &own, &[], &|_| false)?;
     let shift = Frame::translation(gun.offset);
-    let mut out: Vec<Suppressor> = vec![];
-    for id in links.into_iter().flatten() {
+    let mut out: Vec<Laid> = vec![];
+    for id in links_of(catalog, item) {
         let module = catalog.module(id)?;
-        if !module.is_suppressor() || own.iter().any(|(m, _)| m == id) {
+        let candidate = module.is_suppressor() || plan::kind(module) == Some(Kind::Grip);
+        if !candidate || own.iter().any(|(m, _)| m == id) {
             continue;
         }
         let Some(model) = module.models_on(item).model else {
@@ -599,14 +622,14 @@ fn built_in(
                 .iter()
                 .flat_map(|m| m.positions.iter().map(|p| frame.apply(p.map(f64::from)).map(|c| c as f32)))
                 .collect();
-            let gap_mm = fit::median_gap_mm(&points, live);
-            let built_in = gap_mm <= BUILT_IN_GAP_MM && !out.iter().any(|s| s.built_in);
-            out.push(Suppressor {
-                module: id.clone(),
+            let mut laid = Laid {
+                module: id.to_owned(),
                 slot: attach.slot.clone(),
-                gap_mm,
-                built_in,
-            });
+                gap_mm: fit::median_gap_mm(&points, live),
+                built_in: false,
+            };
+            laid.built_in = laid.on_mesh() && !out.iter().any(|l| l.built_in && l.slot == laid.slot);
+            out.push(laid);
             break;
         }
     }
@@ -851,8 +874,16 @@ pub fn port_modules(
     let work = output.with_extension("work");
     let mut donor = Donor069::empty(donor_db, spec)?;
     let mut target = ResourceDb::open_layers(target_layers)?;
-    let catalog = Catalog::read(&donor.game)?;
-    let offered = |m: &ModuleDef| ids.contains_key(&m.id);
+    let mut catalog = Catalog::read(&donor.game)?;
+    catalog.find_suppressor_shapes(&mut |model| {
+        let source = format!("models/{model}.model");
+        if !donor.db.contains(&format!("{source}/settings")) {
+            return Ok(None);
+        }
+        let settings = db_config(&mut donor.db, &format!("{source}/settings"))?;
+        Ok(Some(lod0_surfaces(&settings, &source)?.into_iter().map(|(_, material)| material).collect()))
+    })?;
+    let catalog = catalog;
     let dictionary = parse_config(&mut target, "gameplay/db_static_dictionaries", "dictionary")?.root;
     let dict_row = |name: &str| -> Result<(u16, String)> {
         let row = list(dictionary.named("items_dict"))
@@ -881,7 +912,7 @@ pub fn port_modules(
             "{item}: optic_model_path: a folded body is the bare one with its sights as parts"
         );
         let mut gun = gun.clone();
-        let (mut measured, mut look, mut suppressors) = (None, None, vec![]);
+        let (mut measured, mut look, mut laid) = (None, None, vec![]);
         if let Rig::Live(live) = &gun.rig {
             gun.offset = [0.0; 3];
             let ours = donor
@@ -890,10 +921,14 @@ pub fn port_modules(
             let theirs = live_points(&mut target, live)?;
             let fit = fit::fit(&theirs, &ours.points);
             gun.offset = fit.shift;
-            suppressors = built_in(&mut donor, &catalog, item, &gun, &ours, &theirs).with_context(|| format!("{item}: suppressors"))?;
+            laid = built_in(&mut donor, &catalog, item, &gun, &ours, &theirs).with_context(|| format!("{item}: built-in parts"))?;
             let mut points = ours.points;
-            if let Some(found) = suppressors.iter().find(|s| s.built_in) {
+            for found in laid.iter().filter(|l| l.built_in) {
+                // (A premium's bundled extra the sidecar left to the kit is the gun's own after all.)
+                gun.separable.retain(|m| *m != found.module);
                 gun.fixed.push((found.module.clone(), found.slot.clone()));
+            }
+            if !gun.fixed.is_empty() {
                 gun.offset = [0.0; 3];
                 points = donor.compose_model(item, &gun, &Body::Measure, &mut target, &work)?.points;
                 gun.offset = fit.shift;
@@ -906,16 +941,27 @@ pub fn port_modules(
             measured = Some(fit);
         }
         let own = gun.own(catalog.gun(item)?);
+        // A part the live gun has built in has no item on it, in any paint.
+        let offered = |m: &ModuleDef| ids.contains_key(&m.id) && !laid.iter().any(|l| l.module == m.id && l.on_mesh());
         let mut fits_like = item.clone();
-        let mut plan = plan::plan(&catalog, item, &own, item, &offered)?;
+        let mut plan = plan::plan(&catalog, item, &own, &catalog.linked(item), &offered)?;
+        if let Some(base) = &catalog.gun(item)?.base {
+            // A skin whose own links add no fit and no carrier takes its base item's fits as
+            // they are (the table's `fits_of`).
+            let of_base = |module: &String| catalog.links.get(base).is_some_and(|links| links.contains(module));
+            let carried = plan.carriers.values().flatten().map(|link| &link.module);
+            if !plan.fits.is_empty() && plan.fits.iter().map(|fit| &fit.module).chain(carried).all(of_base) {
+                fits_like = base.clone();
+            }
+        }
         if plan.fits.is_empty()
             && let Some(base) = base_of(&catalog, item)
         {
             fits_like = base.to_owned();
-            plan = plan::plan(&catalog, item, &own, base, &offered)?;
+            plan = plan::plan(&catalog, item, &own, &catalog.linked(base), &offered)?;
         }
         let (folded, taken) = if gun.optic { donor.optic_slots()? } else { Default::default() };
-        for module in catalog.links.get(&fits_like).into_iter().flatten() {
+        for module in links_of(&catalog, item) {
             let module = catalog.module(module)?;
             let sold = plan::kind(module).is_some_and(|k| k != Kind::Scope) && catalog.has_stats(module);
             if sold && !offered(module) {
@@ -948,7 +994,7 @@ pub fn port_modules(
             composed,
             fit: measured,
             look,
-            suppressors,
+            laid,
             folded,
             taken,
         });
@@ -1169,7 +1215,7 @@ pub fn port_modules(
                     fit: b.fit,
                     look: b.look,
                     seats: b.composed.seats,
-                    suppressors: b.suppressors,
+                    laid: b.laid,
                     plan: b.plan,
                 };
                 (b.item, report)
@@ -1179,6 +1225,11 @@ pub fn port_modules(
         without_item,
         left_out: donor.left_out.clone(),
         missing_locators: maker.missing.borrow().clone(),
+        suppressor_shapes: catalog
+            .modules
+            .values()
+            .filter_map(|m| Some((m.id.clone(), m.suppressor_shape.clone()?)))
+            .collect(),
         modules: source.modules.len(),
         table_bytes: table.len(),
         checks,

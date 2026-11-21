@@ -8,10 +8,11 @@
 //! 1. **Own parts.** The gun's modules attach in their order, each in the
 //!    slot its entry names, else the first of its slots the gun has by then;
 //!    its `slots_to_add` and `slots_to_override` then hold for the next.
-//! 2. **Fits.** A module `module_to_item_links` gives the gun is a fit when
-//!    a player can fit its kind ([`kind`]: no suppressor) and has an item
-//!    for it (`offered`). It goes in the first slot it names that the gun
-//!    with its own parts has; else in the first it names that carriers
+//! 2. **Fits.** A module `module_to_item_links` gives the gun or its base
+//!    item ([`Catalog::linked`]) is a fit when a player can fit its kind
+//!    ([`kind`]: no suppressor) and has an item for it (`offered`). It goes
+//!    in the first slot it names that the gun with its own parts has; else
+//!    in the first it names that carriers
 //!    bring: linked modules that are no fit themselves, the shortest chain,
 //!    and among equals the one 0.69d0 links first (the owner's rule of
 //!    2026-11-20). No slot either way: a refusal with its reason, never a
@@ -232,24 +233,18 @@ fn chain(
 }
 
 /// The plan of `item`, whose own modules are `own` (in attach order) and
-/// whose fits are those 0.69d0 links to `fits_like` (the item itself, or a
-/// premium item's base gun). `offered` says whether a module has an item a
-/// player can fit.
+/// whose fits are among `linked` (0.69d0's links of the item with its base
+/// item's, [`Catalog::linked`], or another item's). `offered` says whether a
+/// module has an item a player can fit.
 pub fn plan(
     catalog: &Catalog,
     item: &str,
     own: &[(String, Option<String>)],
-    fits_like: &str,
+    linked: &[&str],
     offered: &dyn Fn(&ModuleDef) -> bool,
 ) -> Result<GunPlan> {
     let mut plan = stand(catalog, item, own)?;
-    let linked: Vec<&ModuleDef> = catalog
-        .links
-        .get(fits_like)
-        .into_iter()
-        .flatten()
-        .map(|id| catalog.module(id))
-        .collect::<Result<_>>()?;
+    let linked: Vec<&ModuleDef> = linked.iter().map(|id| catalog.module(id)).collect::<Result<_>>()?;
     let fitted = |m: &ModuleDef| kind(m).is_some() && offered(m);
     let carriers: Vec<&ModuleDef> = linked
         .iter()
@@ -366,7 +361,7 @@ mod tests {
             .map(|e| (e.module.clone(), e.slot.clone()))
             .collect();
         let offered = |m: &ModuleDef| kind(m) == Some(Kind::Scope) || catalog.has_stats(m);
-        plan(catalog, item, &own, item, &offered).unwrap()
+        plan(catalog, item, &own, &catalog.linked(item), &offered).unwrap()
     }
 
     fn fit<'a>(plan: &'a GunPlan, module: &str) -> &'a Fit {
