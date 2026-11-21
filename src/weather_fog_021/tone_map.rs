@@ -13,10 +13,17 @@ const TARGET_HASHES: [&str; 2] = [
     "53a7ec7a0281328e5a298d83e9463fb06945af517ebd1391f04ea0ac3dc4847d",
 ];
 
+/// The family's program of post-process quality 0 and 1 (six paths): the same tone block
+/// and declarations, no vignette. The 0.21 adaptation and the key profiles were made for
+/// the two programs above and leave this one native; an exposure profile cannot (a scene
+/// of one is lit for its own exposure range: under the native block it draws ten times
+/// too bright), so this program takes the exposure profiles alone.
+const EXPOSURE_ONLY_HASHES: [&str; 1] = ["469fb8c0864690159b1c8e01b36671e6e4f34f9388af3d71fabf2239f19b1633"];
+
 /// The native tone curve's exposure key (`div r, l(4.5), r` in every native program).
 const NATIVE_KEY: f32 = 4.5;
 /// A key profile's marker: a whole height above any camera of a map.
-const MIN_KEY_MARKER: f32 = 1000.0;
+pub(super) const MIN_KEY_MARKER: f32 = 1000.0;
 
 /// A scene drawn with the native tone curve at its own build's exposure key, selected by
 /// its own marker: London (0.31a2's curve is 0.26g's with key 6.0 where 0.26g has 4.5,
@@ -32,19 +39,47 @@ pub struct KeyProfile {
     pub key: f32,
 }
 
+/// A scene whose exposure follows the view as its own build's does, selected by its own
+/// marker (as a key profile's): a 0.69d map. 0.69d exposes a view by its mean luminance
+/// between its environment's minimum and maximum exposure values and holds the exposure
+/// outside them; 0.26g's curve follows the adapted mean `L` between 0.05 and 2 only, and
+/// by `(key / L)^0.2` everywhere. The profile is the native tone block with the mean
+/// clamped to `floor..ceiling` before both uses (the two instructions that clamp and
+/// divide change places), no `+ 1` beside `10 L` (it stops the curve following a dark
+/// view) and its own exposure key:
+///
+/// ```text
+/// Lc = clamp(L, floor, ceiling)
+/// c  = (c * (k(L) / Lc)^0.2)^1.2            k(L) = 1.03 - 0.1 / (2 + log10(L + 1))
+/// c  = 1 - exp(-c * key / (10 * Lc))
+/// ```
+///
+/// so the exposure is constant above the ceiling and below the floor and follows the
+/// mean between them (as `Lc^-1.24`), as 0.69d's does. What the curve then shows is made
+/// 0.69d's by the scene's own colour grading texture.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ExposureProfile {
+    pub marker: f32,
+    pub floor: f32,
+    pub ceiling: f32,
+    pub key: f32,
+}
+
 /// Only the selected maps use original tone mapping. Native bloom, texture
 /// bindings, grading, gamma, vignette and unmarked tone mapping are preserved.
 pub fn build_tonemap(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Option<Vec<u8>>> {
-    build_tonemap_profiles(source, target, markers, &[])
+    build_tonemap_profiles(source, target, markers, &[], &[])
 }
 
-/// `build_tonemap` with key profiles: after the original branches, one more branch per
-/// key profile runs the native tone block with its key; then the unchanged native block.
+/// `build_tonemap` with key and exposure profiles: after the original branches, one more
+/// branch per key profile runs the native tone block with its key and one per exposure
+/// profile the native block with its exposure range; then the unchanged native block.
 pub fn build_tonemap_profiles(
     source: &[u8],
     target: &[u8],
     markers: &[f32],
     keys: &[KeyProfile],
+    exposures: &[ExposureProfile],
 ) -> Result<Option<Vec<u8>>> {
     ensure!(!markers.is_empty(), "no original tone-map markers");
     let mut seen = BTreeSet::new();
@@ -65,10 +100,23 @@ pub fn build_tonemap_profiles(
             "invalid or duplicate key profile"
         );
     }
+    for e in exposures {
+        ensure!(
+            e.marker.is_finite()
+                && e.marker >= MIN_KEY_MARKER
+                && e.marker.fract() == 0.0
+                && seen.insert(e.marker.to_bits())
+                && [e.floor, e.ceiling, e.key].iter().all(|v| v.is_finite() && *v > 0.0)
+                && e.floor < e.ceiling,
+            "invalid or duplicate exposure profile"
+        );
+    }
     let target_hash = format!("{:x}", Sha256::digest(target));
-    if !TARGET_HASHES.contains(&target_hash.as_str()) {
+    let exposure_only = EXPOSURE_ONLY_HASHES.contains(&target_hash.as_str());
+    if exposure_only && exposures.is_empty() || !exposure_only && !TARGET_HASHES.contains(&target_hash.as_str()) {
         return Ok(None);
     }
+    let (markers, keys): (&[f32], &[KeyProfile]) = if exposure_only { (&[], &[]) } else { (markers, keys) };
     let (_, original) = pinned_code(source, SOURCE_HASH)?;
     let (offset, native) = pinned_code(target, &target_hash)?;
     let original_chunks = chunks(original)?;
@@ -142,8 +190,25 @@ pub fn build_tonemap_profiles(
         updated.extend(with_key(&native_ops[18..41], k.key)?.iter().flatten());
         updated.push(0x01000012);
     }
+    for e in exposures {
+        updated.extend([
+            0x08000018,
+            0x00100012,
+            2,
+            0x0020803a,
+            1,
+            18,
+            0x00004001,
+            e.marker.to_bits(),
+            0x0304001f,
+            0x0010000a,
+            2,
+        ]);
+        updated.extend(with_exposure(&native_ops[18..41], e)?.iter().flatten());
+        updated.push(0x01000012);
+    }
     updated.extend(native_ops[18..41].iter().flatten());
-    updated.extend(std::iter::repeat_n(0x01000015, markers.len() + keys.len()));
+    updated.extend(std::iter::repeat_n(0x01000015, markers.len() + keys.len() + exposures.len()));
     updated.extend(native_ops[41..].iter().flatten());
     updated[1] = updated.len() as u32;
     instructions(&updated)?;
@@ -175,6 +240,35 @@ fn with_key(block: &[Vec<u32>], key: f32) -> Result<Vec<Vec<u32>>> {
         }
     }
     ensure!(found == 1, "{found} native exposure keys in the tone block, expected one");
+    Ok(out)
+}
+
+/// The native tone block as an exposure profile draws it (`ExposureProfile`). The five
+/// instructions it touches are pinned token for token:
+///
+/// ```text
+/// [1]  max r1.xy, r1.xxxx, l(0.001, 0.05, 0, 0)   0.05 -> floor
+/// [8]  div r0.w, r0.w, r1.x                        after [9]: divides by the clamped mean
+/// [9]  min r1.x, r1.y, l(2.0)                      2.0 -> ceiling
+/// [10] mad r1.x, r1.x, l(10.0), l(1.000001)        1.000001 -> 0
+/// [11] div r1.x, l(4.5), r1.x                      4.5 -> key
+/// ```
+fn with_exposure(block: &[Vec<u32>], e: &ExposureProfile) -> Result<Vec<Vec<u32>>> {
+    const MAX: [u32; 10] = [0x0a000034, 0x00100032, 1, 0x00100006, 1, 0x00004002, 0x3a83126f, 0x3d4ccccd, 0, 0];
+    const DIV: [u32; 7] = [0x0700000e, 0x00100082, 0, 0x0010003a, 0, 0x0010000a, 1];
+    const MIN: [u32; 7] = [0x07000033, 0x00100012, 1, 0x0010001a, 1, 0x00004001, 0x40000000];
+    const MAD: [u32; 9] = [0x09000032, 0x00100012, 1, 0x0010000a, 1, 0x00004001, 0x41200000, 0x00004001, 0x3f800008];
+    const KEY: [u32; 7] = [0x0700000e, 0x00100012, 1, 0x00004001, 0x40900000, 0x0010000a, 1];
+    ensure!(
+        block.len() == 23 && block[1] == MAX && block[8] == DIV && block[9] == MIN && block[10] == MAD && block[11] == KEY,
+        "the native tone block's exposure instructions changed"
+    );
+    let mut out = block.to_vec();
+    out[1][7] = e.floor.to_bits();
+    out[9][6] = e.ceiling.to_bits();
+    out[10][8] = 0f32.to_bits();
+    out[11][4] = e.key.to_bits();
+    out.swap(8, 9);
     Ok(out)
 }
 
@@ -224,23 +318,13 @@ impl Reflection {
     }
 }
 
-/// The retail reflection implementation treats binding names before the
-/// buffer table as their own string pool. Keep them there, not after variables.
+/// The tone program's reflection (nine bindings, the 22 `$Globals` of 304 bytes at b0)
+/// with the marker's buffer at b1.
 fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
     ensure!(
         u32_at(old, 0)? == 1 && u32_at(old, 8)? == 9,
         "unexpected tone-map reflection tables"
     );
-    let mut bindings = Vec::new();
-    for i in 0..9 {
-        let at = u32_at(old, 12)? as usize + 32 * i;
-        let values = words(old.get(at..at + 32).context("truncated binding")?)?;
-        bindings.push((
-            name(old, values[0] as usize)?.to_owned(),
-            values[1..].to_vec(),
-        ));
-    }
-    bindings.push(("static_globals".into(), vec![0, 0, 0, 0, 1, 1, 0]));
     let cb = u32_at(old, 4)? as usize;
     ensure!(
         name(old, u32_at(old, cb)? as usize)? == "$Globals"
@@ -250,60 +334,113 @@ fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
             && u32_at(old, cb + 20)? == 0,
         "unexpected tone-map globals layout"
     );
-    let mut variables = Vec::new();
-    for i in 0..22 {
-        let at = u32_at(old, cb + 8)? as usize + 24 * i;
-        let v = words(old.get(at..at + 24).context("truncated variable")?)?;
-        let ty: [u8; 16] = old
-            .get(v[4] as usize..v[4] as usize + 16)
-            .context("truncated type")?
-            .try_into()?;
-        ensure!(
-            ty[10..] == [0; 6] && v[5] == 0,
-            "unsupported structured/defaulted tone-map constant"
-        );
-        variables.push((name(old, v[0] as usize)?.to_owned(), v[1..4].to_vec(), ty));
+    let (out, slot) = add_marker_buffer(old)?;
+    ensure!(slot == 1, "the tone-map marker buffer is not at b1");
+    Ok(out)
+}
+
+/// A program's reflection with the marker's constant buffer after the buffers it has:
+/// `static_globals` (304 bytes) with the one variable `atmosphere_parameters3` at offset
+/// 288, and its binding. Returns the buffer's slot too: the game binds a pixel program's
+/// constant buffers by their order in the reflection (`constants_handler<1>::apply`,
+/// 0x3D5A30 of the 0.26g exe: `PSSetConstantBuffers(i, 1, &table.buffers[i])`), and binds
+/// each used variable by its name (`shader_constant_table::parse_constant_buffer`), so the
+/// slot is the count of buffers the program had: b1 beside `$Globals`, b0 for a program
+/// with no constant buffer.
+///
+/// The retail reflection implementation treats binding names before the
+/// buffer table as their own string pool. Keep them there, not after variables.
+pub(super) fn add_marker_buffer(old: &[u8]) -> Result<(Vec<u8>, u32)> {
+    const MARKER_BUFFER: &str = "static_globals";
+    let buffer_count = u32_at(old, 0)? as usize;
+    let binding_count = u32_at(old, 8)? as usize;
+    // A program has 14 constant-buffer slots.
+    ensure!(buffer_count < 14 && binding_count < 128, "unexpected reflection tables");
+    let cb = u32_at(old, 4)? as usize;
+    let mut buffers = Vec::new();
+    for b in 0..buffer_count {
+        let at = cb + 24 * b;
+        let header = words(old.get(at..at + 24).context("truncated buffer")?)?;
+        let mut variables = Vec::new();
+        for i in 0..header[1] as usize {
+            let at = header[2] as usize + 24 * i;
+            let v = words(old.get(at..at + 24).context("truncated variable")?)?;
+            let ty: [u8; 16] = old
+                .get(v[4] as usize..v[4] as usize + 16)
+                .context("truncated type")?
+                .try_into()?;
+            ensure!(
+                ty[10..] == [0; 6] && v[5] == 0,
+                "unsupported structured/defaulted constant"
+            );
+            variables.push((name(old, v[0] as usize)?.to_owned(), v[1..4].to_vec(), ty));
+        }
+        buffers.push((name(old, header[0] as usize)?.to_owned(), header[3..6].to_vec(), variables));
     }
+    let mut bindings = Vec::new();
+    for i in 0..binding_count {
+        let at = u32_at(old, 12)? as usize + 32 * i;
+        let values = words(old.get(at..at + 32).context("truncated binding")?)?;
+        let label = name(old, values[0] as usize)?.to_owned();
+        // A constant buffer's slot is its place in the buffer table (the game's rule).
+        ensure!(
+            values[1] != 0 || buffers.iter().position(|b| b.0 == label) == Some(values[5] as usize),
+            "a constant buffer is not bound at its place in the reflection"
+        );
+        bindings.push((label, values[1..].to_vec()));
+    }
+    ensure!(
+        bindings.iter().all(|b| b.0 != MARKER_BUFFER),
+        "the program already binds the marker's buffer"
+    );
+    let slot = buffer_count as u32;
+    bindings.push((MARKER_BUFFER.into(), vec![0, 0, 0, 0, slot, 1, 0]));
     let resources = 28;
     let mut out = Reflection {
         bytes: vec![0; resources + bindings.len() * 32],
         ..Default::default()
     };
-    out.bytes[..28].copy_from_slice(&old[..28]);
+    out.bytes[..28].copy_from_slice(old.get(..28).context("truncated reflection")?);
     for (i, (name, values)) in bindings.iter().enumerate() {
         let label = out.name(name);
         out.put(resources + 32 * i, &[label]);
         out.put(resources + 32 * i + 4, values);
     }
     out.align();
-    let buffers = out.bytes.len();
-    let vars0 = buffers + 48;
-    let vars1 = vars0 + 24 * variables.len();
-    out.bytes.resize(vars1 + 24, 0);
-    let globals = out.name("$Globals");
-    let statics = out.name("static_globals");
-    out.put(
-        buffers,
-        &[globals, variables.len() as u32, vars0 as u32, 304, 0, 0],
+    let table = out.bytes.len();
+    let mut variables_at = table + 24 * (buffers.len() + 1);
+    out.bytes.resize(
+        variables_at + 24 * (buffers.iter().map(|b| b.2.len()).sum::<usize>() + 1),
+        0,
     );
-    out.put(buffers + 24, &[statics, 1, vars1 as u32, 304, 0, 0]);
-    for (i, (name, fields, ty)) in variables.iter().enumerate() {
+    let mut rows = Vec::new();
+    for (i, (name, fields, variables)) in buffers.iter().enumerate() {
         let label = out.name(name);
-        let ty = out.ty(*ty);
         out.put(
-            vars0 + 24 * i,
-            &[label, fields[0], fields[1], fields[2], ty, 0],
+            table + 24 * i,
+            &[label, variables.len() as u32, variables_at as u32, fields[0], fields[1], fields[2]],
         );
+        rows.push(variables_at);
+        variables_at += 24 * variables.len();
+    }
+    let statics = out.name(MARKER_BUFFER);
+    out.put(table + 24 * buffers.len(), &[statics, 1, variables_at as u32, 304, 0, 0]);
+    for ((_, _, variables), at) in buffers.iter().zip(rows) {
+        for (i, (name, fields, ty)) in variables.iter().enumerate() {
+            let label = out.name(name);
+            let ty = out.ty(*ty);
+            out.put(at + 24 * i, &[label, fields[0], fields[1], fields[2], ty, 0]);
+        }
     }
     let label = out.name("atmosphere_parameters3");
     let ty = out.ty([1, 0, 3, 0, 1, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-    out.put(vars1, &[label, 288, 16, 2, ty, 0]);
+    out.put(variables_at, &[label, 288, 16, 2, ty, 0]);
     let creator = out.name(name(old, u32_at(old, 24)? as usize)?);
     out.put(
         0,
         &[
-            2,
-            buffers as u32,
+            buffers.len() as u32 + 1,
+            table as u32,
             bindings.len() as u32,
             resources as u32,
             u32_at(old, 16)?,
@@ -311,7 +448,7 @@ fn add_marker_binding(old: &[u8]) -> Result<Vec<u8>> {
             creator,
         ],
     );
-    Ok(out.bytes)
+    Ok((out.bytes, slot))
 }
 
 #[cfg(test)]
@@ -341,10 +478,21 @@ mod tests {
             vec![KeyProfile { marker: 32909.0, key: f32::NAN }],
             vec![KeyProfile { marker: 32909.0, key: 6.0 }; 2],
         ] {
-            assert!(build_tonemap_profiles(&[], &[], &[-32198.], &keys).is_err());
+            assert!(build_tonemap_profiles(&[], &[], &[-32198.], &keys, &[]).is_err());
         }
         let ok = [KeyProfile { marker: 32909.0, key: 6.0 }];
-        assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok).unwrap().is_none());
+        assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok, &[]).unwrap().is_none());
+        // An exposure profile: a marker of its own, a floor below its ceiling.
+        let exposure = ExposureProfile { marker: 33001.0, floor: 0.001, ceiling: 0.1, key: 1.0 };
+        assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok, &[exposure]).unwrap().is_none());
+        for bad in [
+            ExposureProfile { marker: 32909.0, ..exposure },
+            ExposureProfile { marker: 60.0, ..exposure },
+            ExposureProfile { floor: 0.2, ..exposure },
+            ExposureProfile { key: 0.0, ..exposure },
+        ] {
+            assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok, &[bad]).is_err());
+        }
         let div = vec![0x0800000e, 0x00100012, 1, 0x00004001, NATIVE_KEY.to_bits(), 0x0010000a, 1];
         let block = vec![vec![0x01000012], div.clone()];
         let out = with_key(&block, 6.0).unwrap();
@@ -459,5 +607,79 @@ mod tests {
         let mut damaged = source;
         damaged[0] ^= 1;
         assert!(build_tonemap(&damaged, &target, &[-32198.]).is_err());
+    }
+    /// The native tone block (instructions 18..41 of both converted programs).
+    fn native_block() -> Vec<Vec<u32>> {
+        let text = "0c000045 001000f2 00000001 00004002 3f000000 3f000000 00000000 00000000 00107e46 00000002 00106000 00000001
+0a000034 00100032 00000001 00100006 00000001 00004002 3a83126f 3d4ccccd 00000000 00000000
+07000000 00100082 00000000 0010000a 00000001 00004001 3f800000
+0500002f 00100082 00000000 0010003a 00000000
+09000032 00100082 00000000 0010003a 00000000 00004001 3e9a209b 00004001 40000000
+07000038 00100082 00000000 0010003a 00000000 00004001 41a00000
+0700000e 00100082 00000000 00004001 40000000 0010003a 00000000
+08000000 00100082 00000000 8010003a 00000041 00000000 00004001 3f83d70a
+0700000e 00100082 00000000 0010003a 00000000 0010000a 00000001
+07000033 00100012 00000001 0010001a 00000001 00004001 40000000
+09000032 00100012 00000001 0010000a 00000001 00004001 41200000 00004001 3f800008
+0700000e 00100012 00000001 00004001 40900000 0010000a 00000001
+07000034 00100082 00000000 0010003a 00000000 00004001 38d1b717
+0500002f 00100082 00000000 0010003a 00000000
+07000038 00100082 00000000 0010003a 00000000 00004001 3e4ccccd
+05000019 00100082 00000000 0010003a 00000000
+07000038 00100072 00000000 00100246 00000000 00100ff6 00000000
+0600002f 00100072 00000000 80100246 00000081 00000000
+0a000038 00100072 00000000 00100246 00000000 00004002 3f99999a 3f99999a 3f99999a 00000000
+05000019 00100072 00000000 00100246 00000000
+08000038 00100072 00000000 00100246 00000000 80100006 00000041 00000001
+05000019 00100072 00000000 00100246 00000000
+0b000000 00100072 00000000 80100246 00000041 00000000 00004002 3f800000 3f800000 3f800000 00000000";
+        text.lines().map(|l| l.split(' ').map(|w| u32::from_str_radix(w, 16).unwrap()).collect()).collect()
+    }
+
+    /// The block's arithmetic on one channel: `lum` the adapted mean, `c` the colour.
+    fn run(block: &[Vec<u32>], lum: f32, c: f32) -> f32 {
+        let f = |w: u32| f32::from_bits(w);
+        // Read back the constants and the order of the two instructions the profile moves.
+        let (l_min, floor) = (f(block[1][6]), f(block[1][7]));
+        let divide_first = block[8][0] & 2047 == 14;
+        let ceiling = f(block[if divide_first { 9 } else { 8 }][6]);
+        let mad = &block[10];
+        let key = f(block[11][4]);
+        let (l, lb) = (lum.max(l_min), lum.max(floor));
+        let k = 1.03 - 2.0 / ((l + 1.0).log2() * 0.301_03 + 2.0) / 20.0;
+        let clamped = lb.min(ceiling);
+        let gain = (k / if divide_first { l } else { clamped }).max(0.0001).powf(0.2);
+        let a = key / (clamped * f(mad[6]) + f(mad[8]));
+        1.0 - (-(c * gain).powf(1.2) * a).exp()
+    }
+
+    #[test]
+    fn an_exposure_profile_follows_the_mean_between_its_floor_and_ceiling() {
+        let native = native_block();
+        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.2334 };
+        let block = with_exposure(&native, &profile).unwrap();
+        // The same instructions but two that changed places; four constants changed.
+        assert_eq!(block.len(), native.len());
+        assert_eq!((&block[8], &block[9]), (&native[9][..5].iter().cloned().chain([0x00004001, profile.ceiling.to_bits()]).collect::<Vec<_>>(), &native[8]));
+        let changed = (0..23).filter(|i| ![8, 9].contains(i) && block[*i] != native[*i]).collect::<Vec<_>>();
+        assert_eq!(changed, [1, 10, 11]);
+        // Native: a grey at the mean is shown alike from 0.1 up, and falls with the mean below.
+        let shown = |b: &[Vec<u32>], lum: f32| run(b, lum, lum);
+        assert!((shown(&native, 1.0) / shown(&native, 0.3) - 1.0).abs() < 0.3);
+        assert!(shown(&native, 0.005) < 0.1 * shown(&native, 0.3));
+        // The profile: alike between floor and ceiling, constant exposure outside them.
+        let (hi, lo) = (shown(&block, 0.104167), shown(&block, 0.001151));
+        assert!((hi / lo - 1.0).abs() < 0.25, "{hi} {lo}");
+        assert!((shown(&block, 0.01) / hi - 1.0).abs() < 0.15);
+        let exposure = |lum: f32| (-(1.0 - run(&block, lum, 0.01)).ln()).powf(1.0 / 1.2);
+        // (k(L) moves the exposure by 0.2 % from the ceiling to a mean of 2.)
+        assert!((exposure(2.0) / exposure(0.104167) - 1.0).abs() < 3e-3 && (exposure(0.5) / exposure(0.2) - 1.0).abs() < 3e-3);
+        assert!((exposure(0.0001) / exposure(0.001151) - 1.0).abs() < 3e-3);
+        // The light 0.69d's curve shows as white (6.9 at the ceiling) stays below the curve's top.
+        assert!((run(&block, 0.104167, 6.9) - 0.98).abs() < 0.005);
+        // Another native block is refused.
+        let mut other = native.clone();
+        other[9][6] = 3f32.to_bits();
+        assert!(with_exposure(&other, &profile).is_err());
     }
 }

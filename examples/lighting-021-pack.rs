@@ -22,6 +22,11 @@ struct Manifest {
     /// (London: 0.31a2's 6.0), one marker per weather.
     #[serde(default)]
     key_profiles: Vec<KeyProfileSpec>,
+    /// Scenes whose exposure follows the view as 0.69d's does (`ExposureProfile`): each
+    /// 0.69d map's day, with the range and key resource-porter's 0.69d map builder prints
+    /// for it.
+    #[serde(default)]
+    exposure_profiles: Vec<ExposureProfileSpec>,
     /// Scenes whose rain darkens what it does not reach by their own factor (London's rain:
     /// 0.31a2's rain_shadow_diffuse_multiplier 0.7 for 0.26g's fixed 0.85).
     #[serde(default)]
@@ -43,6 +48,17 @@ struct KeyProfileSpec {
     key: f32,
     /// Each weather's `mie_fog_base_height` marker as its projects carry it.
     markers: Vec<f32>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExposureProfileSpec {
+    name: String,
+    /// The scene's `mie_fog_base_height` marker as its projects carry it.
+    marker: f32,
+    floor: f32,
+    ceiling: f32,
+    key: f32,
 }
 
 #[derive(Deserialize)]
@@ -134,6 +150,14 @@ fn main() -> Result<()> {
             p.markers.iter().map(|&marker| shaders::KeyProfile { marker, key: p.key })
         })
         .collect();
+    let exposures: Vec<shaders::ExposureProfile> = manifest
+        .exposure_profiles
+        .iter()
+        .map(|p| {
+            println!("{}: marker {}, exposure follows the mean from {} to {}, key {}", p.name, p.marker, p.floor, p.ceiling, p.key);
+            shaders::ExposureProfile { marker: p.marker, floor: p.floor, ceiling: p.ceiling, key: p.key }
+        })
+        .collect();
     let native_fog = native.read(shaders::PATH)?;
     let fog = shaders::build(&donor.read(shaders::PATH)?, &native_fog, &profiles)?;
     let mut converted = vec![(shaders::PATH.to_owned(), native_fog, fog)];
@@ -142,13 +166,42 @@ fn main() -> Result<()> {
         .paths_with_prefix(shaders::TONEMAP_PREFIX)
         .map(str::to_owned)
         .collect();
+    let tone_start = converted.len();
     for path in paths {
         let before = native.read(&path)?;
-        if let Some(after) = shaders::build_tonemap_profiles(&source_tone, &before, &markers, &keys)? {
+        if let Some(after) = shaders::build_tonemap_profiles(&source_tone, &before, &markers, &keys, &exposures)? {
             converted.push((path, before, after));
         }
     }
-    ensure!(converted.len() == 5, "unexpected compatible tone-map count");
+    // Four programs take every profile; with an exposure profile, the six of post-process
+    // quality 0 and 1 take it too. The two depth-of-field programs stay native.
+    ensure!(
+        converted.len() - tone_start == if exposures.is_empty() { 4 } else { 10 },
+        "unexpected tone-map variant count: {}",
+        converted.len() - tone_start
+    );
+    // An exposure profile's scene is metered as 0.69d meters, by the weighted geometric mean
+    // of the frame: the three programs of the luminance chain (one variant each).
+    if !exposures.is_empty() {
+        for (prefix, build) in [
+            (
+                shaders::LOG_METER_PREFIX,
+                shaders::build_log_meter as fn(&[u8], &[shaders::ExposureProfile]) -> Result<Vec<u8>>,
+            ),
+            (shaders::SUM_METER_PREFIX, shaders::build_sum_meter),
+            (shaders::MEAN_METER_PREFIX, shaders::build_mean_meter),
+        ] {
+            let paths: Vec<String> = native
+                .paths_with_prefix(prefix)
+                .filter(|p| native.is_file(p))
+                .map(str::to_owned)
+                .collect();
+            ensure!(paths.len() == 1, "unexpected variant count for {prefix}");
+            let before = native.read(&paths[0])?;
+            let after = build(&before, &exposures).with_context(|| paths[0].clone())?;
+            converted.push((paths[0].clone(), before, after));
+        }
+    }
     let sky = native.read(shaders::SKY_PATH)?;
     converted.push((
         shaders::SKY_PATH.into(),

@@ -4,6 +4,7 @@
 use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 mod tone_map;
+mod metering;
 mod shelter;
 mod local_lights;
 pub mod visibility;
@@ -11,8 +12,9 @@ pub mod forward_glass;
 pub mod vertex_blend;
 pub mod vertex_alpha;
 pub use local_lights::{local_light_pairs, build_local_light};
+pub use metering::{LOG_METER_PREFIX, MEAN_METER_PREFIX, SUM_METER_PREFIX, build_log_meter, build_mean_meter, build_sum_meter};
 pub use shelter::{ShelterProfile, build_shelter};
-pub use tone_map::{KeyProfile, TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap, build_tonemap_profiles};
+pub use tone_map::{ExposureProfile, KeyProfile, TONEMAP_PREFIX, TONEMAP_SOURCE, build_tonemap, build_tonemap_profiles};
 
 pub const PATH: &str = "shaders/sm_4_0/atmospheric_scattering_on_geometry_temporary.ps/___________________________________________________________________";
 pub const SKY_PATH: &str = "shaders/sm_4_0/atmosphere.ps/___________________________________________________________________";

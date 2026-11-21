@@ -17,7 +17,9 @@ isolation review remain pending.
 | Pass | Resources / scope |
 | --- | --- |
 | Geometry fog | 1, original arithmetic and authored Rayleigh colour |
-| Tone curve | 4 supported native variants, original dark-scene behavior |
+| Tone curve | 4 supported native variants, original dark-scene behavior; an exposure profile (a 0.69d scene) also in the 6 of post-process quality 0 and 1 |
+| Luminance metering, first pass | 1 (`gather_log_luminance`), only with an exposure profile: its scene's logarithm of the luminance; native sum for every other scene |
+| Luminance metering, last pass | 1 (`gather_exp_luminance`), only with an exposure profile: its scene's mean of the logarithms turned back (the geometric mean); native mean for every other scene |
 | Sky and atmospheric lookup | 2, original sky and scattering equations |
 | Clouds | 8, original lit/unlit programs |
 | Ambient occlusion | 1, original quality-1 generator normalized for native application |
@@ -57,6 +59,78 @@ inputs must be preserved when enabling it. Other scenes keep the native
 shader instruction bodies. These markers follow the existing adapter's
 `-32021 - map_id` convention and are runtime selectors, not visual tuning
 parameters.
+
+## Exposure profiles (0.69d scenes)
+
+A 0.69d map is lit for 0.69d's exposure, which follows each view's mean luminance between
+the environment's minimum and maximum exposure values and holds outside them; 0.26g's tone
+block follows the adapted mean between 0.05 and 2 only. `exposure_profiles` in the manifest
+(`ExposureProfile` in `tone_map.rs`) gives such a scene the native tone block with the mean
+clamped to its own range and its own key, behind its marker (`mie_fog_base_height`, a whole
+number of at least 1000: 33000 plus the 0.69d level's number). The row's `floor`, `ceiling`
+and `key` are the numbers resource-porter's 0.69d map builder prints in its notes ("tone:
+...") for that map; what the curve then shows is made 0.69d's by the scene's own colour
+grading texture, which the map's pack carries.
+
+| Scene | Marker | floor | ceiling | key |
+| --- | --- | --- | --- | --- |
+| Rudnya v0.69 (0.69d `level_01` day, EV 6 to 12.5) | 33001 | 0.001151 | 0.104167 | 0.2334 |
+
+Unlike the 0.21 curve and the key profiles, an exposure profile is also drawn by the tone
+program of post-process quality 0 and 1 (six paths, one program: the same tone block
+without the vignette): under the native block such a scene is about ten times too bright.
+The two depth-of-field programs (`__3__...10`, `__3__...11`) are not adapted, and need not
+be: they never draw a scene without `use_bokeh_dof`. `stage_postprocess::execute` (0x1B2270
+of the 0.26g exe) takes the tone effect from four at `stage+0xA4` by
+`2 * dof + bokeh_template` (0x1B29F0..0x1B2A35), and `dof` is 1 only when the scene's
+environment has `use_bokeh_dof` (`+0x248` of its environment properties, read at 0x34F5B5;
+0 by default, 0x34D9A0) with `r_post_process_quality` above 0, or while the lobby's decal
+close-up sets the byte at 0x1F1DA26 (0x265EA4, cleared at 0x265F2B: the lobby's scene, never
+a map's). No 0.69d scene sets `use_bokeh_dof` (the converter writes the donor's environment,
+which has no such property); 209 native and ported environments set it true (rain,
+pre-rain, the ported STALKER and 0.11e maps), and no gameplay effect does. An exposure profile for a
+scene that sets it would need these two programs adapted too.
+
+### Metering
+
+The mean the tone block follows is metered as 0.69d meters it (`metering.rs`). 0.26g's is
+the arithmetic mean of 256 x 256 points of the frame: `gather_log_luminance` writes
+`dot(clamp(c, 0, 1e6), luma) + 0.001` (no logarithm), eight 2 x 2 reductions
+(`gather_luminance`, the last `gather_exp_luminance`) sum it and the last multiplies by
+1/65536. 0.69d's is a weighted geometric mean: `sample_luminance.ps` writes
+`w ln(max(luminance, 0.01))` and `w` of 64 x 64 points of its pre-exposed frame (`w` 1
+within two half-heights of the frame's centre, 0 outside: nothing of a 16:10 frame is left
+out, 0.1 % of a 16:9 one, its corners, and 18 % of a 21:9 one, its sides), six reductions
+average both, and the game takes `exp(x / w)` and divides it by the exposure the frame was
+drawn with (`hdr_downsample_stage`, 0x20051CCBE of the retail exe; 0x200504640 and
+0x200504517). A dark room with a sunlit doorway is so exposed for the room by 0.69d and for
+the doorway by 0.26g: the church of Rudnya drew at a mean of 4/255 where 0.69d shows 52/255.
+
+With an exposure profile the three programs of the chain are replaced. For the profile's
+scene the first writes `w log2(max(luminance, floor))` into x and `w` into w (the frame's
+aspect from its own size, `resinfo`), the reductions sum w as they sum x, and the last
+writes `2^(x / w)`: the weighted geometric mean of the frame in 0.26g's light scale, the
+quantity 0.69d's exposure value is the logarithm of, so the profile's `floor`, `ceiling`
+and `key` stay as they are. y and z (the least and the greatest luminance) and every other
+scene keep the native instructions (and w its native 0).
+
+- `floor` is 0.69d's 0.01, which is of its pre-exposed frame: `0.01 * Lc / ceiling` in
+  0.26g's scale, with `Lc` the profile's clamped mean. The first program does not have the
+  adapted mean (its pass binds the frame alone, and a texture is bound only to the program
+  current when the stage sets it: `backend::set_ps_texture`, 0x11B630, looks the name up in
+  the bound program's reflection, 0x3D6960), so it uses the least of them,
+  `0.01 * floor / ceiling` (Rudnya v0.69: 0.00011), and meters a point darker than 0.69d's
+  floor of the moment below what 0.69d meters it at: the mean is then lower than 0.69d's,
+  by `(Lc / floor)^p` at most for a part `p` of the frame that dark. Exact needs the stage
+  to bind the adapted luminance in that pass (an executable change).
+- Where no weight reaches the last program (a target that dropped w), it divides by 65536:
+  the unweighted mean, never a division by 0.
+- The programs had no constant buffer, so the marker's `static_globals` is their first and
+  is declared at b0, not b1: the game binds a program's buffers by their order in its
+  reflection (`constants_handler<1>::apply`, 0x3D5A30 of the 0.26g exe), and every one of
+  the 14745 stock programs has each buffer at its own index.
+- The two depth-of-field tone programs, not adapted, would read the same mean for such a
+  scene; they never draw one (above).
 
 `tools/content/three_maps_021_environment.py` generates the two source edit
 lists from the donor and canonical map packs. It verifies authored numeric
