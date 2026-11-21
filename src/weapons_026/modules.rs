@@ -107,9 +107,15 @@ impl Mesh {
     /// The mesh with every vertex moved by `by`; the rest of a vertex (its
     /// basis, its texture coordinates) as it is.
     pub fn moved(&self, by: [f32; 3]) -> Vec<u8> {
+        self.mapped(|p| std::array::from_fn(|k| p[k] + by[k]))
+    }
+
+    /// The mesh with every vertex at `to(its position)`; the rest of a
+    /// vertex (its basis, its texture coordinates) as it is.
+    pub fn mapped(&self, to: impl Fn([f32; 3]) -> [f32; 3]) -> Vec<u8> {
         let mut moved = Self {
             stride: self.stride,
-            positions: self.positions.iter().map(|p| std::array::from_fn(|k| p[k] + by[k])).collect(),
+            positions: self.positions.iter().map(|&p| to(p)).collect(),
             triangles: self.triangles.clone(),
             vertex_chunk: self.vertex_chunk.clone(),
             tail: self.tail.clone(),

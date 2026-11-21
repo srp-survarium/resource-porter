@@ -927,6 +927,18 @@ pub fn static_069_to_026(b: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// A 0.69d0 static mesh's first UV pair (the half2 at bytes 24..28 of a
+/// vertex, as [`static_069_to_026`] reads it), as its file has it.
+pub fn static_uvs_069(b: &[u8]) -> Result<Vec<[f32; 2]>> {
+    let chunks = chunks(b)?;
+    let (vertices, stride) = vertex_chunk(&chunks)?;
+    ensure!(stride >= 28, "not a 0.69d static mesh (stride {stride})");
+    Ok(vertices
+        .chunks_exact(stride)
+        .map(|v| [half(u16::from_le_bytes([v[24], v[25]])), half(u16::from_le_bytes([v[26], v[27]]))])
+        .collect())
+}
+
 /// A 0.69d0 static mesh's vertex positions, as its file has them.
 pub fn static_positions_069(b: &[u8]) -> Result<Vec<[f32; 3]>> {
     let chunks = chunks(b)?;

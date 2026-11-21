@@ -389,9 +389,10 @@ fn module_path(model: &str) -> Result<String> {
 /// until a player picks another); 0.26g draws a scope's aimed model alone.
 /// So the reticle goes into the aimed model as a surface: the players' own
 /// emitter of that shape (patch 19's 0.51c5 optics have it in their mesh),
-/// its middle on the line of the optic's eye, [`RETICLE_AHEAD`] before it.
-/// At rest the eye is the screen's centre, so the reticle is there on every
-/// gun the optic goes on, whatever its mount.
+/// where 0.69d0 draws its reticle model (the `reticle` slot is the optic's
+/// `aim` locator), its lit feature 0.69d0's size ([`Reticle::feature`]):
+/// seen from any eye it subtends 0.69d0's angle. Its middle is on the line
+/// of the optic's eye, the screen's centre at rest, on every gun.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reticle {
     /// A red dot (0.69d0's `ncstar_4_dot_*`).
@@ -418,6 +419,44 @@ impl Reticle {
         }
     }
 
+    /// The size of the shape's lit feature, metres: a dot's diameter, a
+    /// ring's diameter along its line's middle. `at(x, y)` is how lit the
+    /// shape is at a point of its plane (0 to 1) within `half` of `middle`.
+    fn feature(self, middle: [f32; 2], half: f32, at: &dyn Fn(f32, f32) -> f32) -> Result<f32> {
+        let steps = 400;
+        let step = half / steps as f32;
+        match self {
+            // The dot: across its middle, where it is at least half as lit as there.
+            Reticle::Dot => {
+                let peak = at(middle[0], middle[1]);
+                ensure!(peak > 0.0, "an unlit dot");
+                let reach = |dx: f32, dy: f32| {
+                    (1..=steps)
+                        .map(|i| i as f32 * step)
+                        .take_while(|&r| at(middle[0] + dx * r, middle[1] + dy * r) >= peak / 2.0)
+                        .last()
+                        .unwrap_or(0.0)
+                };
+                Ok(reach(1.0, 0.0) + reach(-1.0, 0.0) + step)
+            }
+            // The ring: its brightest radius on eight lines off the axes (the
+            // EOTech's ticks are on the axes), past the middle dot.
+            Reticle::Ring => {
+                let mut sum = 0.0;
+                for k in 0..8 {
+                    let angle = (22.5 + 45.0 * k as f32).to_radians();
+                    let (dx, dy) = (angle.cos(), angle.sin());
+                    let radius = (steps / 5..=steps)
+                        .map(|i| i as f32 * step)
+                        .max_by(|a, b| at(middle[0] + dx * a, middle[1] + dy * a).total_cmp(&at(middle[0] + dx * b, middle[1] + dy * b)))
+                        .context("a ring")?;
+                    sum += radius;
+                }
+                Ok(2.0 * sum / 8.0)
+            }
+        }
+    }
+
     /// The players' aimed model whose [`RETICLE_SURFACE`] is this shape.
     fn from(self) -> &'static str {
         match self {
@@ -429,9 +468,6 @@ impl Reticle {
 
 /// The reticle's surface in the players' collimators, and in ours.
 const RETICLE_SURFACE: &str = "collimator_glowing_dot_s";
-/// How far before the eye the reticle is drawn, metres (the players' own
-/// stand 0.52 to 0.54 before their optic's origin; the released ports' 0.6).
-const RETICLE_AHEAD: f64 = 0.6;
 /// The first-person lens of 0.69d0's aimed models (`scope_lense_1p_s`): no
 /// collimator of the players' has one in its aimed model.
 const AIMED_LENS: &str = "scope_lense";
@@ -486,7 +522,7 @@ impl Donor069 {
         &mut self,
         model: &str,
         aimed: Option<&str>,
-        reticle: Reticle,
+        (reticle, first): (Reticle, &str),
         eye: &Frame,
         target: &mut ResourceDb,
         work: &Path,
@@ -500,14 +536,57 @@ impl Donor069 {
         let bounds = Bounds::of(mesh.positions.iter().copied()).context("an empty reticle")?;
         let settings = parse_config(target, &format!("{}/settings", reticle.from()), "the reticle's model")?.root;
         let material = string_of(get(&settings, &format!("material_settings.{RETICLE_SURFACE}.material_name")))?.to_owned();
-        // The reticle's middle on the eye's own line, RETICLE_AHEAD before the eye.
-        let at = eye.apply([0.0, 0.0, RETICLE_AHEAD]);
-        let by = std::array::from_fn(|k| at[k] as f32 - (bounds.min[k] + bounds.max[k]) / 2.0);
+        let middle: [f32; 3] = std::array::from_fn(|k| (bounds.min[k] + bounds.max[k]) / 2.0);
+        // Ours is lit where its mesh is: a dot's width, a ring's line between its inner and outer edge.
+        let ours = match reticle {
+            Reticle::Dot => bounds.max[0] - bounds.min[0],
+            Reticle::Ring => {
+                let radii: Vec<f32> =
+                    mesh.positions.iter().map(|p| (p[0] - middle[0]).hypot(p[1] - middle[1])).collect();
+                let outer = radii.iter().copied().fold(0.0, f32::max);
+                let ring: Vec<f32> = radii.into_iter().filter(|&r| r > outer / 2.0).collect();
+                ring.iter().copied().fold(f32::MAX, f32::min) + outer
+            }
+        };
+        let scale = self.reticle_feature_069(reticle, first).with_context(|| format!("0.69d0's reticle {first}"))? / ours;
+        // Where 0.69d0 draws its reticle: the optic's `aim` locator, the eye's own frame.
+        let at = eye.apply([0.0; 3]);
         let baked = Baked {
             material,
-            mesh: mesh.moved(by),
+            mesh: mesh.mapped(|p| std::array::from_fn(|k| at[k] as f32 + (p[k] - middle[k]) * scale)),
         };
         self.module_model_at(aimed.unwrap_or(model), path, Some(&baked), target, work)
+    }
+
+    /// The size of the lit feature of 0.69d0's reticle model `first` (a quad
+    /// whose texture's alpha draws the shape), metres ([`Reticle::feature`]).
+    fn reticle_feature_069(&mut self, reticle: Reticle, first: &str) -> Result<f32> {
+        let root = format!("models/{first}.model");
+        let settings = db_config(&mut self.db, &format!("{root}/settings"))?;
+        let (surface, material) = lod0_surfaces(&settings, &root)?.into_iter().next().context("no surface")?;
+        let bytes = self.db.read(&format!("{root}/render/{surface}/converted_model"))?;
+        let (positions, uvs) = (super::convert::static_positions_069(&bytes)?, super::convert::static_uvs_069(&bytes)?);
+        let instance = db_config(&mut self.db, &format!("material_instances/{material}.material"))?;
+        let texture = string_of(get(&instance, "material.forward.effect.t_emission.value"))?.to_owned();
+        let (w, h, px) = super::convert::decode_dds(&self.db.read(&format!("textures/{texture}.dds"))?)?;
+        // The quad's plane to its texture: u along x, v along y, each by the vertices furthest apart.
+        let by = |axis: usize, uv: usize| -> Result<(f32, f32)> {
+            let lo = (0..positions.len()).min_by(|&a, &b| positions[a][axis].total_cmp(&positions[b][axis])).context("no vertex")?;
+            let hi = (0..positions.len()).max_by(|&a, &b| positions[a][axis].total_cmp(&positions[b][axis])).context("no vertex")?;
+            let span = positions[hi][axis] - positions[lo][axis];
+            ensure!(span > 0.0, "a flat quad");
+            let slope = (uvs[hi][uv] - uvs[lo][uv]) / span;
+            Ok((slope, uvs[lo][uv] - slope * positions[lo][axis]))
+        };
+        let ((su, bu), (sv, bv)) = (by(0, 0)?, by(1, 1)?);
+        let lit = |x: f32, y: f32| {
+            let (u, v) = (su * x + bu, sv * y + bv);
+            let (i, j) = ((u * w as f32) as usize, (v * h as f32) as usize);
+            px.get(j.min(h - 1) * w + i.min(w - 1)).map_or(0.0, |p| f32::from(p[3]) / 255.0)
+        };
+        let b = Bounds::of(positions.iter().copied()).context("an empty quad")?;
+        let middle = [(b.min[0] + b.max[0]) / 2.0, (b.min[1] + b.max[1]) / 2.0];
+        reticle.feature(middle, (b.max[0] - b.min[0]) / 2.0, &lit)
     }
 
     /// `model` written at `path`. With `reticle`: an aimed collimator, its
@@ -953,7 +1032,8 @@ impl ModuleMaker<'_> {
                     module.id
                 );
                 let eye = locator(&eye.locator)?;
-                Some(donor.collimator_aimed(&model, models.aimed.as_deref(), reticle, &eye, target, work)?)
+                let first = module.reticles.first().context("a reticle of its own")?;
+                Some(donor.collimator_aimed(&model, models.aimed.as_deref(), (reticle, first), &eye, target, work)?)
             }
             (Role::Fitted(weapon_modules::Kind::Scope), None) => path(&models.aimed, donor, target)?,
             _ => None,
