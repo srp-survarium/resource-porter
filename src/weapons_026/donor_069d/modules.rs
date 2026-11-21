@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 use weapon_modules::encode::{AttachSource, GunSource, ModuleSource, Source, encode};
-use weapon_modules::{Affine, DictId, EyeAnchor, Loadout, Placement, Role, SlotId, Table, Wanted};
+use weapon_modules::{Affine, AttachEye, DictId, EyeAnchor, Loadout, Placement, Role, SlotId, Table, Wanted};
 
 use super::catalog::{AttachDef, Catalog, ModuleDef};
 use super::plan::{self, Base, GunPlan, Kind, Site};
@@ -232,7 +232,8 @@ pub struct Checked {
     pub gun: String,
     /// The fitted module, or `-` for a refusal of the fit itself.
     pub fit: String,
-    /// What was compared: a part's model, `eye`, `fire_point`, `hand`, `optic`.
+    /// What was compared: a part's model, `eye` (`eye line`: an eye at the gun's own eye plane,
+    /// its line of sight), `fire_point`, `hand`, `optic`.
     pub what: String,
     /// The largest distance between ours and 0.69d0's, mm.
     pub mm: f64,
@@ -1070,7 +1071,14 @@ impl ModuleMaker<'_> {
         }
         for point in &rules.overrides {
             match point.id.as_str() {
-                "aim" => out.eye = Some(own(&point.locator)?),
+                "aim" => {
+                    let at = own(&point.locator)?;
+                    out.eye = Some(match point.plane.as_deref() {
+                        None => AttachEye::Own(at),
+                        Some("body_aim") => AttachEye::InGunPlane(at),
+                        Some(other) => bail!("{module}: aim keeps the plane of {other}, a slot the table has no rule for"),
+                    });
+                }
                 "fire_point" => out.fire_point = Some(own(&point.locator)?),
                 // The charging handle and the second aim points: 0.26g has one zoom and one eye.
                 _ => {}
@@ -1451,6 +1459,8 @@ pub fn port_modules(
             dict,
             bones: u16::try_from(b.composed.ship_bind.len())?,
             aim_bone: u16::try_from(aim.bone_idx)?,
+            // the plane an open sight's eye keeps (0.69d0's `body_aim`): the game's own eye
+            body_aim: (u16::try_from(aim.bone_idx)?, locator_frame(aim).affine()),
             fits_of: None,
             bare: body_path(model_path, &Body::Bare(&BTreeSet::new())),
             ..GunSource::default()
@@ -1715,6 +1725,14 @@ pub fn port_modules(
     };
     fs::write(output.join("modules-069d.json"), serde_json::to_vec_pretty(&report)?)?;
     Ok(report)
+}
+
+/// `frame` moved along its own line of sight (its k) to where that line
+/// passes nearest `point`.
+fn nearest_on_line(frame: &Frame, point: &[f64; 3]) -> Frame {
+    let k = frame.r[2];
+    let along = (0..3).map(|i| (point[i] - frame.t[i]) * k[i]).sum::<f64>() / (0..3).map(|i| k[i] * k[i]).sum::<f64>();
+    Frame { t: [0, 1, 2].map(|i| frame.t[i] + along * k[i]), ..*frame }
 }
 
 /// The largest distance between `points` through `ours` and through
@@ -2044,7 +2062,15 @@ fn check(
                 row("optic", spread(&PROBE, &ours(&optic.frame)?, &fit_frame.then(&shift)), "");
                 match (bare.eye, point("aim")) {
                     (Some(eye), Some(theirs)) => {
-                        row("eye", spread(&PROBE, &ours(&eye.placed(EyeAnchor::Optic))?, &theirs), "");
+                        let ours_eye = ours(&eye.placed(EyeAnchor::Optic))?;
+                        // An open sight's eye keeps the gun's own eye plane (table version 3):
+                        // ours the live gun's, 0.69d0's its own body's, so the two eyes agree on
+                        // the line of sight, not on the place along it.
+                        let in_plane = rules
+                            .and_then(|rules| rules.overrides.iter().find(|o| o.id == "aim"))
+                            .is_some_and(|aim| aim.plane.is_some());
+                        let theirs = if in_plane { nearest_on_line(&theirs, &ours_eye.t) } else { theirs };
+                        row(if in_plane { "eye line" } else { "eye" }, spread(&PROBE, &ours_eye, &theirs), "");
                         if !push_centre(donor, live_item, &fit.module, &optic, &eye, aimed, centres)? {
                             row("reticle", 0.0, "its aimed model has no reticle surface");
                         }
@@ -2066,8 +2092,11 @@ fn check(
             let wrist = module.finger_locators.last().and_then(|name| own.get(name));
             match (bare.left_hand, wrist) {
                 (Some(hand), Some(l)) => {
-                    // As a gun rig's locator on the grip: half turn x L x half turn x grip's frame.
-                    let theirs = HALF_TURN.then(l).then(&HALF_TURN).then(&fit_frame).then(&shift);
+                    // As a gun rig's locator on the grip: half turn x L x half turn, at the grip's
+                    // place in the gun's axes, not turned with the grip (the crate's Hand::new: the
+                    // PKP's own grip, a quarter turn on its gun, holds the hand 139 mm off otherwise).
+                    let at = Frame { r: Frame::IDENTITY.r, t: fit_frame.t };
+                    let theirs = HALF_TURN.then(l).then(&HALF_TURN).then(&at).then(&shift);
                     row("hand", spread(&PROBE, &ours(&hand.wrist)?, &theirs), "");
                 }
                 _ => row("hand", 0.0, "no hand on one side"),

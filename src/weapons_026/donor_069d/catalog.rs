@@ -23,6 +23,10 @@ use crate::weapons_026::get;
 pub struct SlotDef {
     pub id: String,
     pub locator: String,
+    /// `plane_slot` of an override: the slot of the gun whose plane the
+    /// point keeps (`body_aim`, the gun's own eye: an open sight's line of
+    /// sight at the gun's eye relief, `get_slot_transform` of 0.69d0's exe).
+    pub plane: Option<String>,
 }
 
 /// One of a gun's own modules: `default_modules` or `bundled_modules`.
@@ -92,14 +96,14 @@ pub struct ModuleDef {
     pub attaches: Vec<AttachDef>,
     /// A grip's sixteen locator names: fifteen fingers, then the hand.
     pub finger_locators: Vec<String>,
-    /// A collimator's `possible_reticles`, its models' paths; the first is
-    /// the one it comes with. No magnified scope has any.
-    pub reticles: Vec<String>,
     /// The suppressor whose material every surface of its model draws, for a module of muzzle
     /// slots that is none by its group or name: that suppressor in another shape (the VSSK's
     /// heavy and long barrels). Read from the models ([`Catalog::find_suppressor_shapes`]);
     /// None until then.
     pub suppressor_shape: Option<String>,
+    /// A collimator's `possible_reticles`, its models' paths; the first is
+    /// the one it comes with. No magnified scope has any.
+    pub reticles: Vec<String>,
 }
 
 impl ModuleDef {
@@ -201,6 +205,7 @@ fn slot_defs(v: Option<&V>) -> Result<Vec<SlotDef>> {
             Ok(SlotDef {
                 id: text(s, "id")?,
                 locator: text(s, "locator")?,
+                plane: optional(s, "plane_slot")?,
             })
         })
         .collect()
@@ -373,11 +378,11 @@ impl Catalog {
                         .iter()
                         .map(|n| string_of(Some(n)).map(str::to_owned))
                         .collect::<Result<_>>()?,
+                    suppressor_shape: None,
                     reticles: list(v.named("possible_reticles"))
                         .iter()
                         .map(|r| text(r, "path"))
                         .collect::<Result<_>>()?,
-                    suppressor_shape: None,
                 })
             })()
             .with_context(|| format!("weapon_modules.{}", m.name))?;
