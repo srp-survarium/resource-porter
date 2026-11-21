@@ -145,7 +145,7 @@ impl Effects {
         self.supplied.insert((stage.to_owned(), effect.to_owned()));
     }
 
-    fn is_client_switch(&self, stage: &str, effect: &str, switch: &str) -> bool {
+    fn is_client_field(&self, stage: &str, effect: &str, switch: &str) -> bool {
         self.client_fields.contains(&(stage.to_owned(), effect.to_owned(), switch.to_owned()))
     }
 
@@ -155,7 +155,7 @@ impl Effects {
     pub fn learn_programs(&mut self, material: &ConfigValue) {
         for stage in stages(material) {
             let id = effect_id(&stage.value);
-            let on: Switches = switches(&stage.value).into_iter().filter(|s| !self.is_client_switch(&stage.name, &id, s)).collect();
+            let on: Switches = switches(&stage.value).into_iter().filter(|s| !self.is_client_field(&stage.name, &id, s)).collect();
             for flag in flags(&stage.value) {
                 self.known.entry((stage.name.clone(), effect_id(&stage.value), flag)).or_default().insert(on.clone());
             }
@@ -441,6 +441,14 @@ impl<'a> Importer<'a> {
                         continue;
                     }
                     let mut f = f.clone();
+                    // A number a client patch reads is a float there (an editor's
+                    // whole number is an int): written as 0.26g's materials keep it.
+                    if self.effects.is_client_field(stage, &id, &f.name)
+                        && let Some(v) = f.value.named_mut("value")
+                        && let ConfigValue::Integer(i) = *v
+                    {
+                        *v = ConfigValue::Float(i as f32);
+                    }
                     if f.name.starts_with("texture")
                         && let Some(ConfigValue::String(texture)) = value_of(&f.value)
                         && !texture.is_empty()
@@ -483,7 +491,7 @@ impl<'a> Importer<'a> {
 
     /// Gives the stage a switch set that has programs.
     fn programs(&mut self, material: &str, stage: &str, effect: &str, value: &mut ConfigValue) {
-        let on: Switches = switches(value).into_iter().filter(|s| !self.effects.is_client_switch(stage, effect, s)).collect();
+        let on: Switches = switches(value).into_iter().filter(|s| !self.effects.is_client_field(stage, effect, s)).collect();
         let stage_flags = flags(value);
         if self.effects.supplied.contains(&(stage.to_owned(), effect.to_owned())) || self.effects.has_programs(stage, effect, &stage_flags, &on) {
             return;
@@ -500,7 +508,7 @@ impl<'a> Importer<'a> {
         for f in fields.iter_mut() {
             let Some(v) = f.value.named_mut("value") else { continue };
             match v {
-                ConfigValue::Boolean(b) if f.name.starts_with("use_") && !self.effects.is_client_switch(stage, effect, &f.name) => {
+                ConfigValue::Boolean(b) if f.name.starts_with("use_") && !self.effects.is_client_field(stage, effect, &f.name) => {
                     *b = set.contains(&f.name)
                 }
                 ConfigValue::Integer(i) if is_selector(&f.name) => {
@@ -768,7 +776,7 @@ mod tests {
         let plain: Switches = ["use_tdiffuse"].iter().map(|s| (*s).to_owned()).collect();
         // Players' set with the client switch is known without it.
         assert!(effects.has_programs("g_stage", "g_stage_default", &flags, &plain));
-        assert!(effects.is_client_switch("g_stage", "g_stage_default", "use_parallax"));
+        assert!(effects.is_client_field("g_stage", "g_stage_default", "use_parallax"));
         assert!(effects.effect_fields[&("g_stage".to_owned(), "g_stage_default".to_owned())].contains("use_parallax"));
     }
 
