@@ -14,6 +14,7 @@
 use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
 use super::lighting::{DonorLight, DonorProbe, LightEffect, LightScale, NativeLight, Shape, Volume};
+use super::surface::Gloss;
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
 use serde::Deserialize;
@@ -45,9 +46,12 @@ pub struct Manifest {
     pub game_material_names: BTreeMap<String, String>,
     /// 0.26 template material per converted-material category.
     pub material_templates: BTreeMap<String, String>,
-    /// Scale from 0.69d smoothness to the value range of 0.26's
-    /// `t_roughness` channel (which the gbuffer pass consumes as gloss).
-    pub roughness_scale: f32,
+    /// A factor from the donor's gloss values to 0.26's `t_roughness` channel
+    /// (which the g-buffer pass reads as gloss), in place of the build's own
+    /// rule (`ConversionManifest::gloss`): the ports made before the rule
+    /// keep the factor they were fitted with.
+    #[serde(default)]
+    pub roughness_scale: Option<f32>,
     /// Models never taken from 0.26 even when an equivalent ships there.
     #[serde(default)]
     pub force_donor_models: BTreeSet<String>,
@@ -468,6 +472,17 @@ impl Manifest {
     /// unitless intensities.
     fn photometric(&self) -> bool {
         self.source_build == SourceBuild::V069d
+    }
+
+    /// The donor's gloss values in 0.26's: 0.69d's smoothness by the two
+    /// builds' GGX alpha (`surface::Gloss::Smoothness`), 0.46c2's as they
+    /// are (it has 0.26's gloss channel), or the manifest's own factor.
+    fn gloss(&self) -> Gloss {
+        match (self.roughness_scale, self.source_build) {
+            (Some(factor), _) => Gloss::Scaled(factor),
+            (None, SourceBuild::V069d) => Gloss::Smoothness,
+            (None, _) => Gloss::Scaled(1.0),
+        }
     }
 }
 
@@ -1388,6 +1403,9 @@ pub struct ConvertedMaterial {
     pub template: String,
     pub category: Category,
     pub notes: Vec<String>,
+    /// Set for a material with a metalness map: the build binds the maps it
+    /// makes (`MetalSource`).
+    pub metal: Option<MetalSource>,
 }
 
 /// Convert one 0.69d material onto its category's native 0.26 template.
@@ -1400,11 +1418,12 @@ pub fn convert_material(
     donor: &ConfigValue,
     usage: Usage,
     templates: &BTreeMap<String, (String, ConfigValue)>,
-    roughness_scale: f32,
+    gloss: Gloss,
     default_normal: &str,
 ) -> Result<ConvertedMaterial> {
     let mut category = categorize(donor, usage)?;
     let mut notes = Vec::new();
+    let mut metal = None;
     // A metalness map (0.69d's `_fmap`, as 0.26's metals name theirs) takes
     // the category's `_metal` template where the manifest has one: 0.26's
     // Fresnel map, which darkens the diffuse by f0 and tints the specular by
@@ -1520,12 +1539,12 @@ pub fn convert_material(
                 match &smoothness_map {
                     Some(map) => {
                         set_effect(&mut root, stage, "texture_roughness", ConfigValue::String(map.clone()))?;
-                        set_effect(&mut root, stage, "constant_roughness_min", ConfigValue::Float(min * roughness_scale))?;
-                        set_effect(&mut root, stage, "constant_roughness_max", ConfigValue::Float(max * roughness_scale))?;
+                        set_effect(&mut root, stage, "constant_roughness_min", ConfigValue::Float(gloss.end(min)))?;
+                        set_effect(&mut root, stage, "constant_roughness_max", ConfigValue::Float(gloss.end(max)))?;
                     }
                     None => {
                         // A flat channel: min == max makes the tap irrelevant.
-                        let v = constant * roughness_scale;
+                        let v = gloss.constant(constant);
                         set_effect(&mut root, stage, "texture_roughness", ConfigValue::String(albedo.clone()))?;
                         set_effect(&mut root, stage, "constant_roughness_min", ConfigValue::Float(v))?;
                         set_effect(&mut root, stage, "constant_roughness_max", ConfigValue::Float(v))?;
@@ -1538,7 +1557,7 @@ pub fn convert_material(
                 .and_then(|e| e.named("constant_roughness"))
                 .is_some()
             {
-                set_effect(&mut root, stage, "constant_roughness", ConfigValue::Float(constant * roughness_scale))?;
+                set_effect(&mut root, stage, "constant_roughness", ConfigValue::Float(gloss.constant(constant)))?;
             }
             if effect_flag(&root, stage, "use_tspecular_intensity") {
                 let map = smoothness_map.clone().unwrap_or_else(|| albedo.clone());
@@ -1594,17 +1613,36 @@ pub fn convert_material(
                     set_effect(&mut root, stage, "constant_diffuse", ConfigValue::Float4(*c))?;
                 }
             }
-            match (&metalness, metal_template) {
-                (Some(map), true) if effect_flag(&root, stage, "use_tfresnel") => {
-                    set_effect(&mut root, stage, "texture_fresnel", ConfigValue::String(map.clone()))?;
-                    set_effect(&mut root, stage, "constant_fresnel_min", ConfigValue::Float(0.04))?;
-                    set_effect(&mut root, stage, "constant_fresnel_max", ConfigValue::Float(1.0))?;
-                    notes.push(format!("metalness map {map} as 0.26's Fresnel map (f0 0.04 to 1)"));
+            // A metalness map: the build makes the surface's diffuse and
+            // Fresnel maps from it and the albedo (`MetalSource`).
+            if let Some(map) = &metalness {
+                let colour = match value_of(effect, "albedo_color") {
+                    Some(ConfigValue::Float4(c)) => [c[0], c[1], c[2]].map(|v| v.max(0.0).powf(2.2)),
+                    _ => [1.0; 3],
+                };
+                metal = Some(MetalSource { albedo: albedo.clone(), metalness: map.clone(), colour });
+                let _ = metal_template;
+            } else if gloss == Gloss::Smoothness {
+                // 0.69d without a map: Fresnel 0.04 + m (A - 0.04) of its
+                // constant `metalness`, which is 0 to 0.1 on every material
+                // met (the old Fresnel numbers, 0.02 and 0.04 on most): a
+                // dielectric's 0.04 within 0.1 (A - 0.04). A constant metal
+                // would need its albedo's maps made as a mapped one's are.
+                let m = number(effect, "metalness").unwrap_or(0.0);
+                ensure!(m <= 0.1, "constant metalness {m} without a metalness map is not converted");
+                flat_fresnel(&mut root, stage, 0.04)?;
+            }
+            if gloss == Gloss::Smoothness {
+                // 0.69d has no specular scale or map: 0.26's at 1 (its sun
+                // highlight still carries 1/pi of 0.69d's energy).
+                for (field, value) in [("constant_specular_color_multiplier", 1.0), ("constant_specular_intensity_min", 1.0), ("constant_specular_intensity_max", 1.0)] {
+                    if matches!(effect_value(&root, stage, field), Some(ConfigValue::Float(_))) {
+                        set_effect(&mut root, stage, field, ConfigValue::Float(value))?;
+                    }
                 }
-                _ if flag(effect, "use_t_metalness") => {
-                    notes.push("metalness map has no 0.26 counterpart for this template; the albedo is drawn as a dielectric".into())
+                if matches!(effect_value(&root, stage, "constant_specular_color"), Some(ConfigValue::Float4(_))) {
+                    set_effect(&mut root, stage, "constant_specular_color", ConfigValue::Float4([1.0; 4]))?;
                 }
-                _ => {}
             }
             for (switch, what) in [
                 ("use_parallax", "parallax"),
@@ -1628,7 +1666,29 @@ pub fn convert_material(
         template: template_path.clone(),
         category,
         notes,
+        metal,
     })
+}
+
+/// One Fresnel value on a converted material, whether its template draws a
+/// constant or a map's range.
+fn flat_fresnel(root: &mut ConfigValue, stage: &str, value: f32) -> Result<()> {
+    for field in ["constant_fresnel", "constant_fresnel_min", "constant_fresnel_max"] {
+        if matches!(effect_value(root, stage, field), Some(ConfigValue::Float(_))) {
+            set_effect(root, stage, field, ConfigValue::Float(value))?;
+        }
+    }
+    Ok(())
+}
+
+/// A converted material's metal surface: 0.69d's albedo and metalness maps
+/// and its linear albedo multiplier (`albedo_color^2.2`), from which the build
+/// makes 0.26's diffuse and Fresnel maps (`surface::metal_maps`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MetalSource {
+    pub albedo: String,
+    pub metalness: String,
+    pub colour: [f32; 3],
 }
 
 /// 0.46c2 materials still name their maps as 0.26 does (`texture_diffuse`,
@@ -2364,10 +2424,35 @@ fn copy_shared(native: &mut ConfigValue, donor: &ConfigValue, fields: &[&str]) -
     Ok(())
 }
 
-/// The 0.26 ambient light colour is packed ARGB in an i32.
+/// The 0.26 ambient light colour: an i32 with red in the low byte (A, B, G,
+/// R from the top; `object_ambient_light::load`, skhid-srp renderer-026g.md
+/// 5.4). Packed the other way round, a warm fill draws blue.
 fn packed_colour(rgb: [f32; 3]) -> i32 {
     let c = |v: f32| ((v.clamp(0.0, 1.0) * 255.0).round() as u32) & 255;
-    (0xff00_0000 | c(rgb[0]) << 16 | c(rgb[1]) << 8 | c(rgb[2])) as i32
+    (0xff00_0000 | c(rgb[2]) << 16 | c(rgb[1]) << 8 | c(rgb[0])) as i32
+}
+
+/// Where a donor emitter's sound comes from: 0.26 ships it (0.69d kept most
+/// of 0.26's ambience under the same names), or the donor's own files of a
+/// single sound are imported (`sounds/single/<name>.*`: an Ogg stream, its
+/// loudness track and options with the same fields in both builds).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SoundFiles {
+    Native,
+    Imported(Vec<String>),
+}
+
+impl SoundFiles {
+    /// None when neither build can supply the sound (a collection 0.26
+    /// lacks: its members and their rules are not converted).
+    fn find(donor: &ResourceDb, target: &ResourceDb, name: &str) -> Option<Self> {
+        if target.is_file(&format!("sounds/single/{name}.raw_options")) || target.is_file(&format!("sounds/collections/{name}.sound_collection")) {
+            return Some(Self::Native);
+        }
+        let prefix = format!("sounds/single/{name}.");
+        let files: Vec<String> = donor.paths_with_prefix(&prefix).filter(|p| donor.is_file(p)).map(str::to_owned).collect();
+        files.iter().any(|p| p.ends_with(".raw_options")).then_some(Self::Imported(files))
+    }
 }
 
 pub struct SceneReport {
@@ -2387,6 +2472,8 @@ pub struct SceneReport {
     /// The donor's exposure, grading and curve for a donor-lit map
     /// (`SceneTone`).
     pub tone: Option<SceneTone>,
+    /// Sounds the donor's emitters kept in the scene play (`sound_name`).
+    pub sounds: BTreeSet<String>,
     pub decal_materials: BTreeSet<String>,
     pub counts: BTreeMap<String, usize>,
     pub notes: Vec<String>,
@@ -2414,6 +2501,7 @@ pub fn convert_scene(
     port: &Port,
     photometric: bool,
     particle_replacements: &BTreeMap<String, String>,
+    donor_sounds: Option<&BTreeSet<String>>,
 ) -> Result<SceneReport> {
     let mut counts = BTreeMap::<String, usize>::new();
     let mut notes = Vec::new();
@@ -2528,7 +2616,8 @@ pub fn convert_scene(
                 let tone = super::tone::Tone::read(donor_environment)?;
                 let exposure = tone.exposure(exposure_marker(&map.level)?);
                 let like = environment.named("properties").and_then(|p| string(p, "color_grading_texture")).context("the template environment has no colour grading texture")?.to_owned();
-                environment.set_path("properties.mie_fog_base_height", ConfigValue::Float(exposure.marker))?;
+                // 0.26g keeps the field as an integer (a whole marker).
+                environment.set_path("properties.mie_fog_base_height", ConfigValue::Integer(exposure.marker as i32))?;
                 environment.set_path("properties.use_color_grading_texture", ConfigValue::Boolean(true))?;
                 environment.set_path("properties.color_grading_texture", ConfigValue::String(GRADING_TEXTURE.into()))?;
                 // 0.26g turns dark colours blue (`blueshift`: its share of
@@ -2777,6 +2866,8 @@ pub fn convert_scene(
         Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => AmbientLights::Converted,
     };
     let particle_template = templates_of(template, "particle").first().map(|p| (*p).clone());
+    let sound_template = templates_of(template, "object_sound").first().map(|p| (*p).clone());
+    let mut sounds = BTreeSet::new();
 
     let mut kept_collision_geometry = BTreeSet::new();
     for object in donor_objects {
@@ -2960,6 +3051,22 @@ pub fn convert_scene(
                         count("particle");
                     }
                     _ => *dropped.entry(format!("particle {name}")).or_default() += 1,
+                }
+            }
+            // A sound emitter: the same object in both builds (0.69d adds a
+            // fade-in time and an importance flag 0.26 does not read).
+            "object_sound" if donor_sounds.is_some() => {
+                let name = string(object, "sound_name").unwrap_or("");
+                match (donor_sounds.is_some_and(|playable| playable.contains(name)), &sound_template) {
+                    (true, Some(template)) => {
+                        let mut s = template.clone();
+                        place(&mut s, object, &full_name)?;
+                        copy_shared(&mut s, object, &["sound_name", "sound_type", "resource_id"])?;
+                        objects.push(s);
+                        count("object_sound");
+                        sounds.insert(name.to_owned());
+                    }
+                    _ => *dropped.entry(format!("object_sound {name} (0.26 has no such sound and the donor none to import)")).or_default() += 1,
                 }
             }
             // A hanging cable: the same object in both builds (0.46c2 adds a
@@ -3146,6 +3253,7 @@ pub fn convert_scene(
         probe_textures,
         generated_probes,
         tone: scene_tone,
+        sounds,
         decal_materials,
         counts,
         notes,
@@ -3488,7 +3596,32 @@ pub fn build(
     let template = cfg(&mut target, port.template_project())?;
     let donor_project = cfg(&mut donor, port.donor_project())?;
     eprintln!("Converting the scene...");
-    let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &m.particle_replacements)?;
+    // Scene objects both builds have, from the donor's own project:
+    // a particle 0.26 ships under the same name (0.69d kept the effect) is
+    // drawn with 0.26's, and, unless the manifest takes a native map's
+    // emitters (`ambient_sounds`), the donor's sound emitters play the sounds
+    // 0.26 ships or the donor's own files can be imported for (`SoundFiles`).
+    let donor_client_objects = array(donor_project.named("client_objects").context("no client_objects")?)?;
+    let mut particles = m.particle_replacements.clone();
+    for object in donor_client_objects.iter().filter(|o| kind(o) == "particle") {
+        if let Some(name) = string(object, "particle_name").or_else(|| string(object, "lib_name")) {
+            if !particles.contains_key(name) && target.is_file(&format!("particles/{name}.particle")) {
+                particles.insert(name.to_owned(), name.to_owned());
+            }
+        }
+    }
+    let sound_files: BTreeMap<String, SoundFiles> = if m.ambient_sounds.is_none() && !m.source_build.early() {
+        donor_client_objects
+            .iter()
+            .filter(|o| kind(o) == "object_sound")
+            .filter_map(|o| string(o, "sound_name"))
+            .filter_map(|name| Some((name.to_owned(), SoundFiles::find(&donor, &target, name)?)))
+            .collect()
+    } else {
+        BTreeMap::new()
+    };
+    let playable: BTreeSet<String> = sound_files.keys().cloned().collect();
+    let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &particles, m.ambient_sounds.is_none().then_some(&playable))?;
     let donor_lit = matches!(port, Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }));
     let ambient_scale = if m.photometric() && !donor_lit {
         Some(calibrate_ambient(&mut scene.project, median_ambient(&template))?)
@@ -3512,6 +3645,14 @@ pub fn build(
         }
         scene.counts.insert("object_sound".into(), added);
         scene.notes.push(format!("ambience: {added} native object_sound emitters from {} (the donor's sound environments have no 0.26 counterpart)", sounds.project));
+    }
+    if m.ambient_sounds.is_none() && !scene.sounds.is_empty() {
+        let imported: Vec<&str> = scene.sounds.iter().filter(|n| matches!(sound_files.get(*n), Some(SoundFiles::Imported(_)))).map(String::as_str).collect();
+        scene.notes.push(format!(
+            "ambience: the donor's {} sound emitters where it has them, {} sounds; its own files for the ones 0.26 does not ship: {imported:?}",
+            scene.counts.get("object_sound").copied().unwrap_or(0),
+            scene.sounds.len()
+        ));
     }
     let mut notes = std::mem::take(&mut scene.notes);
     match ambient_scale {
@@ -3697,7 +3838,8 @@ pub fn build(
         }
     }
     // Probe cubemaps this build makes (`MapProbes::Donor`).
-    let generated_textures: BTreeSet<String> = scene.generated_probes.iter().map(|g| format!("{ns}/{}", g.texture)).collect();
+    let mut generated_textures: BTreeSet<String> = scene.generated_probes.iter().map(|g| format!("{ns}/{}", g.texture)).collect();
+    let mut metal_maps = BTreeMap::<String, (MetalSource, super::surface::MetalMaps)>::new();
     let mut material_notes = BTreeMap::<String, Vec<String>>::new();
     for (material, usage) in &material_usage {
         let path = format!("material_instances/{material}.material");
@@ -3751,7 +3893,7 @@ pub fn build(
                         ),
                     ]),
                 )]);
-                let mut converted = convert_material(&synthetic, Usage::default(), &templates, m.roughness_scale, default_normal)?;
+                let mut converted = convert_material(&synthetic, Usage::default(), &templates, m.gloss(), default_normal)?;
                 if let Some((t, template)) = templates.get("terrain") {
                     // Prefer the native terrain template's switches.
                     let mut root = template.clone();
@@ -3760,11 +3902,13 @@ pub fn build(
                     }
                     if effect_flag(&root, "g_stage", "use_troughness") {
                         set_effect(&mut root, "g_stage", "texture_roughness", ConfigValue::String(smoothness.unwrap_or(albedo).into()))?;
-                        let s = if smoothness.is_some() { m.roughness_scale } else { 0.1 * m.roughness_scale };
-                        set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(0.0))?;
-                        set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(s))?;
+                        // A layer without a smoothness map draws its albedo
+                        // there: a tenth of the range, as before the rule.
+                        let top = if smoothness.is_some() { 1.0 } else { 0.1 };
+                        set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(m.gloss().end(0.0)))?;
+                        set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(m.gloss().end(top)))?;
                     }
-                    converted = ConvertedMaterial { root, template: t.clone(), category: Category::Terrain, notes: Vec::new() };
+                    converted = ConvertedMaterial { root, template: t.clone(), category: Category::Terrain, notes: Vec::new(), metal: None };
                 }
                 layer_maps.push((albedo.to_owned(), normal.map(str::to_owned), smoothness.map(str::to_owned)));
                 let layer_material = format!("{material}_layer_{layer}");
@@ -3830,15 +3974,15 @@ pub fn build(
                             }
                             if effect_flag(&root, "g_stage", "use_troughness") {
                                 set_effect(&mut root, "g_stage", "texture_roughness", ConfigValue::String(a.2.clone().unwrap_or_else(|| a.0.clone())))?;
-                                set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(0.0))?;
-                                set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(m.roughness_scale))?;
+                                set_effect(&mut root, "g_stage", "constant_roughness_min", ConfigValue::Float(m.gloss().end(0.0)))?;
+                                set_effect(&mut root, "g_stage", "constant_roughness_max", ConfigValue::Float(m.gloss().end(1.0)))?;
                             }
                             let exists = |t: &str| donor.is_file(&format!("textures/{t}.dds")) || target.is_file(&format!("textures/{t}.dds"));
                             fill_missing_textures(&mut root, &exists, &cube)?;
                             for t in bound_textures(&root) {
                                 textures.insert(t);
                             }
-                            converted_materials.insert(blend.clone(), ConvertedMaterial { root, template: template_path.clone(), category: Category::Terrain, notes: Vec::new() });
+                            converted_materials.insert(blend.clone(), ConvertedMaterial { root, template: template_path.clone(), category: Category::Terrain, notes: Vec::new(), metal: None });
                         }
                         terrain_surface_material.insert(surface.clone(), blend);
                         terrain_blend.insert(surface.clone(), (layer, second));
@@ -3855,8 +3999,45 @@ pub fn build(
             notes.push(format!("{material}: the native 0.26 material of the same name is used"));
             continue;
         }
-        let mut converted = convert_material(&root, *usage, &templates, m.roughness_scale, default_normal)
+        let mut converted = convert_material(&root, *usage, &templates, m.gloss(), default_normal)
             .with_context(|| format!("converting {material}"))?;
+        // A metal surface: its two maps made texel by texel
+        // (`surface::metal_maps`), under the port's namespace, one pair for
+        // every material of the same albedo, metalness map and colour.
+        if let Some(source) = &converted.metal {
+            let tinted = source.colour != [1.0; 3];
+            let name = format!(
+                "{ns}/metal/{}__{}{}",
+                plain_texture(&source.albedo),
+                plain_texture(source.metalness.rsplit('/').next().unwrap_or(&source.metalness)),
+                if tinted { format!("__{:06x}", source.colour.iter().fold(0u32, |a, c| a << 8 | (c.clamp(0.0, 1.0) * 255.0).round() as u32)) } else { String::new() }
+            );
+            if !metal_maps.contains_key(&name) {
+                let maps = super::surface::metal_maps(
+                    &donor.read(&format!("textures/{}.dds", source.albedo))?,
+                    &donor.read(&format!("textures/{}.dds", source.metalness))?,
+                    source.colour,
+                )
+                .with_context(|| format!("the metal maps of {material}"))?;
+                metal_maps.insert(name.clone(), (source.clone(), maps));
+            }
+            let mean = metal_maps[&name].1.mean_fresnel;
+            set_effect(&mut converted.root, "g_stage", "texture_diffuse", ConfigValue::String(format!("{name}_d")))?;
+            generated_textures.insert(format!("{name}_d"));
+            if matches!(effect_value(&converted.root, "g_stage", "constant_diffuse"), Some(ConfigValue::Float4(_))) {
+                set_effect(&mut converted.root, "g_stage", "constant_diffuse", ConfigValue::Float4([1.0; 4]))?;
+            }
+            if effect_flag(&converted.root, "g_stage", "use_tfresnel") {
+                set_effect(&mut converted.root, "g_stage", "texture_fresnel", ConfigValue::String(format!("{name}_f")))?;
+                set_effect(&mut converted.root, "g_stage", "constant_fresnel_min", ConfigValue::Float(0.0))?;
+                set_effect(&mut converted.root, "g_stage", "constant_fresnel_max", ConfigValue::Float(1.0))?;
+                generated_textures.insert(format!("{name}_f"));
+                converted.notes.push(format!("metal: diffuse and Fresnel maps {name}_d, _f from the albedo and {} (mean Fresnel {mean:.3})", source.metalness));
+            } else {
+                flat_fresnel(&mut converted.root, "g_stage", mean)?;
+                converted.notes.push(format!("metal: diffuse map {name}_d from the albedo and {}; its template draws one Fresnel value, the map's mean {mean:.3}", source.metalness));
+            }
+        }
         if converted.category == Category::Water {
             // 0.26's water reflects a fixed sky probe where its screen-space
             // reflection finds nothing: in the caves it drew bright flat sheets.
@@ -3978,6 +4159,37 @@ pub fn build(
 
     crate::weapon::prepare_empty_output(output)?;
     let mut files: Vec<BuiltFile> = Vec::new();
+    // Metal surfaces' diffuse and Fresnel maps (`surface::metal_maps`), with
+    // the options of the albedo and of the metalness map.
+    for (name, (source, maps)) in &metal_maps {
+        let what = format!("0.26's diffuse and Fresnel of the 0.69d metal surface {} with {}", source.albedo, source.metalness);
+        for (suffix, bytes, like) in [("d", &maps.diffuse, &source.albedo), ("f", &maps.fresnel, &source.metalness)] {
+            if !generated_textures.contains(&format!("{name}_{suffix}")) {
+                continue;
+            }
+            let mut dds = bytes.clone();
+            canonical_dds(&mut dds).with_context(|| format!("{name}_{suffix}"))?;
+            emit(output, &format!("textures/{name}_{suffix}.dds"), &dds, &what, &mut files)?;
+            let mut options = BinaryConfig::parse(&donor.read(&format!("textures/{like}.options"))?)?;
+            // The Fresnel map is laid out as the albedo is.
+            if suffix == "f" {
+                let format = if &maps.fresnel[84..88] == b"DXT5" { "DXT5" } else { "DXT1" };
+                options.root.set_path("options.format", ConfigValue::String(format.into()))?;
+            }
+            emit(output, &format!("textures/{name}_{suffix}.options"), &options.to_bytes()?, &what, &mut files)?;
+        }
+    }
+    // Sounds the donor's emitters play that 0.26 does not ship (`SoundFiles`).
+    for name in &scene.sounds {
+        if let Some(SoundFiles::Imported(paths)) = sound_files.get(name) {
+            let what = format!("0.69d sound {name}: a donor emitter plays it and 0.26 ships none");
+            for path in paths {
+                let bytes = donor.read(path)?;
+                let bytes = if path.ends_with(".raw_options") { BinaryConfig::parse(&bytes)?.to_bytes()? } else { bytes };
+                emit(output, path, &bytes, &what, &mut files)?;
+            }
+        }
+    }
     // The scene's own colour grading texture (`SceneTone`), on the header
     // and options of the template's.
     if let Some(t) = &scene.tone {
@@ -5382,7 +5594,7 @@ mod tests {
             "opaque".to_owned(),
             ("tiled/concrete/concrete_01".to_owned(), template(&[("use_nmap", true), ("use_troughness", true)])),
         )]);
-        let c = convert_material(&donor, Usage::default(), &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, Usage::default(), &templates, Gloss::Scaled(0.2), "editor/default_nmap").unwrap();
         assert_eq!(c.category, Category::Opaque);
         let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
         assert_eq!(text(e, "texture_diffuse"), Some("tiled/a"));
@@ -5390,9 +5602,15 @@ mod tests {
         assert_eq!(text(e, "texture_roughness"), Some("tiled/a_smap"));
         assert_eq!(number(e, "constant_roughness_max"), Some(0.2));
         assert!(flag(e, "use_troughness") && flag(e, "use_nmap"));
-        assert!(c.notes.iter().any(|n| n.contains("metalness")));
-        // With a metalness map and an `opaque_metal` template, the map is
-        // 0.26's Fresnel map.
+        // The switch without a map is no metal surface.
+        assert!(c.metal.is_none());
+        // 0.69d's own rule: the smoothness range by the two builds' alpha.
+        let c = convert_material(&donor, Usage::default(), &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        let (offset, slope) = crate::survarium_026::surface::gloss_line();
+        assert_eq!((number(e, "constant_roughness_min"), number(e, "constant_roughness_max")), (Some(offset), Some(offset + slope)));
+        // With a metalness map the `opaque_metal` template is taken and the
+        // build is told which maps to make its diffuse and Fresnel from.
         let mut donor = donor;
         donor.set_path("material.g_stage.effect.t_metalness", ConfigValue::String("tiled/a_fmap".into())).unwrap();
         let mut templates = templates;
@@ -5400,11 +5618,9 @@ mod tests {
             "opaque_metal".to_owned(),
             ("props/box/props_boxes_metal".to_owned(), template(&[("use_nmap", true), ("use_troughness", true), ("use_tfresnel", true)])),
         );
-        let c = convert_material(&donor, Usage::default(), &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, Usage::default(), &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
         assert_eq!(c.template, "props/box/props_boxes_metal");
-        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
-        assert_eq!(text(e, "texture_fresnel"), Some("tiled/a_fmap"));
-        assert_eq!((number(e, "constant_fresnel_min"), number(e, "constant_fresnel_max")), (Some(0.04), Some(1.0)));
+        assert_eq!(c.metal, Some(MetalSource { albedo: "tiled/a".into(), metalness: "tiled/a_fmap".into(), colour: [1.0; 3] }));
     }
 
     #[test]
@@ -5468,11 +5684,11 @@ mod tests {
         };
         let vc = Usage { vertex_colour: true, vegetation: false };
         let mut templates = BTreeMap::from([("alpha_test_two_sided_vc".to_owned(), vc_template("tiled/window/window_brokengl_vc"))]);
-        let c = convert_material(&donor, vc, &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, vc, &templates, Gloss::Scaled(0.2), "editor/default_nmap").unwrap();
         assert_eq!(c.category, Category::AlphaTestTwoSided);
         assert!(c.notes.iter().any(|n| n.contains("vertex_blend_alpha_test_two_sided")));
         templates.insert("vertex_blend_alpha_test_two_sided".to_owned(), vc_template("tiled/stucco/stucco_wood_stucco_04_vc"));
-        let c = convert_material(&donor, vc, &templates, 0.2, "editor/default_nmap").unwrap();
+        let c = convert_material(&donor, vc, &templates, Gloss::Scaled(0.2), "editor/default_nmap").unwrap();
         assert_eq!(c.category, Category::VertexBlend { two_sided: true, alpha_test: true });
         assert_eq!(c.template, "tiled/stucco/stucco_wood_stucco_04_vc");
         let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
@@ -5532,7 +5748,7 @@ mod tests {
             donor_mode: "d".into(), loading_screen_id: None, level_id: None, map_name: None,
             native_objects: None, modes: Vec::new(), published_patches: Vec::new(),
         };
-        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new()).unwrap();
+        let scene = convert_scene(&donor, &template, &Port::Map(spec), true, &BTreeMap::new(), None).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let zones: Vec<_> = objects.iter().filter(|o| kind(o) == "resupply_zone").collect();
         assert_eq!(zones.iter().map(|z| integer(z, "team").unwrap()).collect::<Vec<_>>(), vec![0, 1]);
@@ -5658,7 +5874,7 @@ mod tests {
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
         };
-        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new()).unwrap();
+        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new(), None).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
         let srp = scene.project.named("srp_lobby").unwrap();
         assert_eq!(float3(srp, "weapon").unwrap(), [-9.9, 1.3, 6.95]);

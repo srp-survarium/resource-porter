@@ -155,20 +155,6 @@
     "terrain_blend": "tiled/bricks/brick_02_burn_vc",
     "opaque_metal": "props/box/props_boxes_metal"
   },
-  "roughness_scale": 0.2,
-  "ambient_sounds": {
-    "project": "projects/level_01/day_4/client_project",
-    "include": [
-      "scapes/",
-      "sounds/",
-      "weather/"
-    ],
-    "offset": [
-      0.0,
-      0.0,
-      0.0
-    ]
-  },
   "dedup_translated_copies": true,
   "lod1_shares_lod0": true,
   "reuse_native_textures": true,
@@ -181,14 +167,5 @@
   "namespace": "v069d_rudnya",
   "native_materials": {
     "generic/underground_black_mat": "tiled/concrete/concrete_black"
-  },
-  "material_constants": [
-    {
-      "prefix": "terrain_tiled/",
-      "g_stage": {
-        "constant_fresnel": 0.0,
-        "constant_fresnel_min": 0.0
-      }
-    }
-  ]
+  }
 }
