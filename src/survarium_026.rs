@@ -13,6 +13,7 @@ use std::{
 };
 
 mod early;
+pub mod atmosphere;
 pub mod later;
 pub mod lighting;
 pub mod surface;

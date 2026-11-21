@@ -386,21 +386,25 @@ pub fn specular_cube(donor_dds: &[u8], probe: &DonorProbe, scale: LightScale, fi
     Ok((encode_cube(&CubeRgba8 { size: cube.size >> first_mip, faces }, 0), clamped))
 }
 
+/// The Bruneton solar irradiance in lux per sRGB channel
+/// (`sun_lighting.ps`, `sky_dome.ps` immediates).
+pub const SOLAR: [f32; 3] = [144_809.86, 129_443.62, 127_098.89];
+
 /// 0.69d sun: `sun_lighting.ps` lights a white surface facing it with
-/// `sun_intensity_r2 / pi * SOLAR * T` (cd/m^2), `SOLAR` the Bruneton
-/// solar irradiance in lux and `T` the transmittance of its atmosphere
-/// (Rayleigh `air_density` x (5.8045, 13.5629, 33.1125)e-3/km over 8 km,
-/// Mie `air_turbidity` x 2e-3/km over 1.2 km, ozone over 15 km) along the
-/// sun's path at `elevation` degrees.
+/// `sun_intensity_r2 / pi * SOLAR * T` (cd/m^2), `T` the transmittance of
+/// its atmosphere toward the sun at `elevation` degrees
+/// (`atmosphere::sun_transmittance`).
 pub fn sun_radiance(sun_intensity_r2: f32, air_density: f32, air_turbidity: f32, elevation: f32) -> [f32; 3] {
-    const SOLAR: [f32; 3] = [144_809.86, 129_443.62, 127_098.89];
-    const RAYLEIGH: [f32; 3] = [5.8045e-3, 1.35629e-2, 3.31125e-2];
-    const OZONE: [f32; 3] = [0.650e-3, 1.881e-3, 0.085e-3];
-    let mu = elevation.to_radians().sin().max(0.05);
-    std::array::from_fn(|c| {
-        let tau = air_density * RAYLEIGH[c] * 8.0 + air_turbidity * 2e-3 * 1.2 + OZONE[c] * 15.0;
-        sun_intensity_r2 / std::f32::consts::PI * SOLAR[c] * (-tau / mu).exp()
-    })
+    use super::atmosphere::{Environment, Sun, sun_transmittance};
+    let environment = Environment {
+        sun: Sun { elevation_deg: elevation, azimuth_deg: 0.0 },
+        sun_intensity_r2,
+        air_density,
+        air_turbidity,
+        ..Environment::default()
+    };
+    let t = sun_transmittance(&environment);
+    std::array::from_fn(|c| sun_intensity_r2 / std::f32::consts::PI * SOLAR[c] * t[c])
 }
 
 #[cfg(test)]
