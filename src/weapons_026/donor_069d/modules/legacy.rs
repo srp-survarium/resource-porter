@@ -177,6 +177,7 @@ pub(super) fn place(
     maker: &ModuleMaker,
     rows: &mut Rows,
     gun: &mut GunSource,
+    named: &[SlotId],
 ) -> Result<Placed> {
     let item = &b.item;
     let variant = parse_config(target, &released.variant_config, "a variant's config")?.root;
@@ -238,14 +239,16 @@ pub(super) fn place(
         bone: seat.bone,
         offset: Frame::translation(moved.map(|c| c as f32)).then(&locator_frame(point)).affine(),
     };
-    // The slots: the optic's own first that the gun lacks; a rail's seat likewise.
+    // The slots: the optic's own first that the gun lacks; a rail's seat likewise. Of those, first
+    // one no module the gun takes names (`named`): `resolve` puts a module in the first slot it
+    // names that the gun has, so a slot another fit names would draw that fit onto this rail.
     let has = |gun: &GunSource, slot: SlotId| gun.slots.iter().any(|(s, _, _)| *s == slot) || gun.carriers.iter().any(|(s, _)| *s == slot);
-    let slot = module
-        .attaches_on(item)
-        .iter()
-        .filter_map(|a| Some((a.slot.as_str(), SlotId::from_name(&a.slot)?)))
-        .find(|(_, id)| !has(gun, *id))
-        .with_context(|| format!("{}: the gun has every slot it names", module.id))?;
+    let free = |gun: &GunSource, choices: &[SlotId], but: Option<SlotId>| {
+        let lacking: Vec<SlotId> = choices.iter().copied().filter(|id| !has(gun, *id) && Some(*id) != but).collect();
+        lacking.iter().find(|id| !named.contains(id)).or(lacking.first()).map(|id| (id.name(), *id))
+    };
+    let names: Vec<SlotId> = module.attaches_on(item).iter().filter_map(|a| SlotId::from_name(&a.slot)).collect();
+    let slot = free(gun, &names, None).with_context(|| format!("{}: the gun has every slot it names", module.id))?;
     let optic_names: BTreeSet<&str> = ours.iter().map(|(name, _)| name.as_str()).collect();
     let rails: Vec<&(String, String, Vec<u8>)> = surfaces
         .iter()
@@ -259,11 +262,8 @@ pub(super) fn place(
     if rails.is_empty() {
         gun.slots.push((slot.1, at.bone.0, at.offset));
     } else {
-        let seat_slot = RAIL_SEATS
-            .iter()
-            .filter_map(|name| Some((*name, SlotId::from_name(name)?)))
-            .find(|(_, id)| *id != slot.1 && !has(gun, *id))
-            .context("the gun has every rail seat")?;
+        let seats: Vec<SlotId> = RAIL_SEATS.iter().filter_map(|name| SlotId::from_name(name)).collect();
+        let seat_slot = free(gun, &seats, Some(slot.1)).context("the gun has every rail seat")?;
         // The rail: the variant's own surfaces as a model of its own, at `scope_point`.
         let name = idle.rsplit('/').next().unwrap_or(&idle);
         let path = format!("{MODULES_ROOT}/legacy/{name}_rail");

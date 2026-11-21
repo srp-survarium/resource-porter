@@ -346,10 +346,10 @@ pub struct Centre {
     /// The angle between the eye's line and the reticle's middle, mrad, at the clip's start,
     /// middle and end. The screen's centre is 0.
     pub off_mrad: [f64; 3],
-    /// How far before the eye the reticle's middle is at the clip's start, metres.
+    /// The reticle's middle along the eye's own k at the clip's start, metres, signed (which sign is in
+    /// front of the camera is the game's pictures' to say).
     pub ahead: f64,
-    /// How far behind the optic's own origin the eye is at the clip's start, metres (the
-    /// eye relief: along the eye's line).
+    /// The optic's own origin along the eye's k at the clip's start, metres, signed (the eye relief).
     pub eye_behind_optic: f64,
 }
 
@@ -1158,6 +1158,48 @@ pub fn port_modules(
                 });
             }
         }
+        // The released pairs no link gives whose optic names a slot the gun itself has free (the
+        // PSO-1 on the Saiga-12's dovetail): in that slot by 0.69d0's rules (legacy.rs, 1b).
+        let lives: Vec<&str> = items.iter().filter(|i| i.donor_item == *item).map(|i| i.name.as_str()).collect();
+        for pair in released.iter().filter(|r| lives.contains(&r.weapon.as_str())) {
+            let Some((module, _)) = ids.iter().find(|(_, id)| **id == pair.scope) else {
+                continue;
+            };
+            if plan.fits.iter().any(|f| f.module == *module) {
+                continue;
+            }
+            let def = catalog.module(module)?;
+            if plan::kind(def) != Some(Kind::Scope) {
+                continue;
+            }
+            let free = def
+                .attaches_on(item)
+                .iter()
+                .map(|a| &a.slot)
+                .find(|slot| plan.slots.contains_key(*slot) && !plan.parts.iter().any(|p| p.slot == **slot))
+                .cloned();
+            let Some(slot) = free else {
+                continue;
+            };
+            plan.fits.push(plan::Fit {
+                module: module.clone(),
+                kind: Kind::Scope,
+                slot: slot.clone(),
+                chain: vec![],
+            });
+            legacy.push(LegacyReport {
+                gun: pair.weapon.clone(),
+                module: module.clone(),
+                how: format!("own slot {slot}"),
+                slot,
+                found: String::new(),
+                residual_mm: 0.0,
+                moved: [0.0; 3],
+                rails: vec![],
+                rail_slot: String::new(),
+                optic_mm: 0.0,
+            });
+        }
         let (folded, taken) = if gun.optic { donor.optic_slots()? } else { Default::default() };
         for module in catalog.links.get(&fits_like).into_iter().flatten() {
             let module = catalog.module(module)?;
@@ -1372,6 +1414,8 @@ pub fn port_modules(
             None => gun.fits.clone(),
         };
         let have: BTreeSet<u16> = fitted.iter().map(|&row| rows.modules[row].dict).collect();
+        let named: Vec<weapon_modules::SlotId> =
+            fitted.iter().flat_map(|&row| rows.modules[row].attaches.iter().map(|a| a.slot)).collect();
         let mut own_legacy = BTreeSet::new();
         for pair in released.iter().filter(|r| r.weapon == live.name && !have.contains(&r.scope)) {
             let placed = (|| -> Result<legacy::Placed> {
@@ -1381,7 +1425,7 @@ pub fn port_modules(
                     .with_context(|| format!("no module of the ids has the dict id {}", pair.scope))?;
                 let module = catalog.module(module)?;
                 ensure!(plan::kind(module) == Some(Kind::Scope), "{} is no optic of 0.69d0's", module.id);
-                legacy::place(pair, module, b, &live.name, &config, &mut donor, &mut target, &work, &maker, &mut rows, &mut gun)
+                legacy::place(pair, module, b, &live.name, &config, &mut donor, &mut target, &work, &maker, &mut rows, &mut gun, &named)
             })();
             match placed {
                 Ok(placed) => {
@@ -1907,15 +1951,24 @@ fn push_centre(
     centres: &mut Vec<Centre>,
 ) -> Result<bool> {
     let aimed_model = optic.module.aimed().unwrap_or(optic.module.model()).to_str()?;
-    let reticle = [RETICLE_SURFACE, SCOPE_RETICLE].into_iter().find_map(|surface| {
-        let mesh = donor.files.get(&format!("models/{aimed_model}.model/render/{surface}/converted_model"))?;
+    // A collimator's dot; else a magnified scope's lens, whose middle is its optical axis (the
+    // reticle's own box is not: the PSO-1's chevron and range scale stand off its middle).
+    let render = format!("models/{aimed_model}.model/render/");
+    let lens = donor
+        .files
+        .keys()
+        .filter_map(|key| key.strip_prefix(render.as_str())?.strip_suffix("/converted_model"))
+        .filter(|surface| surface.starts_with(AIMED_LENS))
+        .min();
+    let reticle = [Some(RETICLE_SURFACE), lens, Some(SCOPE_RETICLE)].into_iter().flatten().find_map(|surface| {
+        let mesh = donor.files.get(&format!("{render}{surface}/converted_model"))?;
         let bounds = Bounds::of(Mesh::parse(mesh).ok()?.positions)?;
-        Some((surface, std::array::from_fn(|k| f64::from(bounds.min[k] + bounds.max[k]) / 2.0)))
+        Some((surface.to_owned(), std::array::from_fn(|k| f64::from(bounds.min[k] + bounds.max[k]) / 2.0)))
     });
     let Some((surface, middle)) = reticle else {
         return Ok(false);
     };
-    centres.push(centre(gun, fit, surface, middle, &optic.frame, eye, &aimed.poses)?);
+    centres.push(centre(gun, fit, &surface, middle, &optic.frame, eye, &aimed.poses)?);
     Ok(true)
 }
 
@@ -1957,8 +2010,8 @@ fn centre(
         fit: fit.to_owned(),
         surface: surface.to_owned(),
         off_mrad: seen.map(|p| round(off(p))),
-        ahead: round(seen[0][2].abs()),
-        eye_behind_optic: round(origin[2].abs()),
+        ahead: round(seen[0][2]),
+        eye_behind_optic: round(origin[2]),
     })
 }
 
