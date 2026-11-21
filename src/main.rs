@@ -302,6 +302,11 @@ enum Command {
         /// own blobs where 0.26g can feed it.
         #[arg(long)]
         programs: Option<PathBuf>,
+        /// Supply every shader program of the donor's that players lack and
+        /// 0.26g can feed, at its 0.26g key: whatever 0.26g computes for the
+        /// donor's own materials and meshes, the donor computed too.
+        #[arg(long)]
+        donor_programs: bool,
     },
     /// Add Team Deathmatch (mode 4) variants of a 0.21 maps pack's battery
     /// maps to the pack, in place: the battery project without the battery
@@ -1297,10 +1302,10 @@ fn main() -> Result<()> {
             println!("replaced_project={}", record.replaced_project);
             println!("bundle={}", output.display());
         }
-        Command::BuildSurvariumNearMap { manifest, donor, shipped, output, keep_switch_sets, programs } => {
+        Command::BuildSurvariumNearMap { manifest, donor, shipped, output, keep_switch_sets, programs, donor_programs } => {
             use vostok_resource_porter::near_build::files::UnknownSwitches;
             let unknown = if keep_switch_sets { UnknownSwitches::Keep } else { UnknownSwitches::Nearest };
-            vostok_resource_porter::near_build::build(&manifest, &donor, &shipped, &output, unknown, programs.as_deref())?;
+            vostok_resource_porter::near_build::build(&manifest, &donor, &shipped, &output, unknown, programs.as_deref(), donor_programs)?;
             println!("pack={}", output.display());
         }
         Command::BuildSurvarium021Maps {

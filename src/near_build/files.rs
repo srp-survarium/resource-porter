@@ -28,7 +28,7 @@ use crate::{
 };
 
 /// A stage's switches: `use_*` fields that are on, and `<name>=<n>` for its
-/// techniques and modes.
+/// techniques, modes and wind motion.
 type Switches = BTreeSet<String>;
 
 /// What 0.26g's materials are made of, and which switch sets players'
@@ -63,6 +63,12 @@ fn effect_id(stage: &ConfigValue) -> String {
     }
 }
 
+/// A field whose number selects programs: a technique, a mode, the wind's
+/// motion (a vertex shader for each).
+fn is_selector(name: &str) -> bool {
+    name.ends_with("_technique") || name.ends_with("_mode") || name == "wind_motion"
+}
+
 fn switches(stage: &ConfigValue) -> Switches {
     let mut on = Switches::new();
     if let Some(ConfigValue::Named(effect)) = stage.named("effect") {
@@ -71,7 +77,7 @@ fn switches(stage: &ConfigValue) -> Switches {
                 Some(ConfigValue::Boolean(true)) if field.name.starts_with("use_") => {
                     on.insert(field.name.clone());
                 }
-                Some(ConfigValue::Integer(i)) if field.name.ends_with("_technique") || field.name.ends_with("_mode") => {
+                Some(ConfigValue::Integer(i)) if is_selector(&field.name) => {
                     on.insert(format!("{}={i}", field.name));
                 }
                 _ => {}
@@ -455,7 +461,7 @@ impl<'a> Importer<'a> {
             let Some(v) = f.value.named_mut("value") else { continue };
             match v {
                 ConfigValue::Boolean(b) if f.name.starts_with("use_") => *b = set.contains(&f.name),
-                ConfigValue::Integer(i) if f.name.ends_with("_technique") || f.name.ends_with("_mode") => {
+                ConfigValue::Integer(i) if is_selector(&f.name) => {
                     if let Some(n) = set.iter().find_map(|s| s.strip_prefix(&format!("{}=", f.name)).and_then(|n| n.parse().ok())) {
                         *i = n;
                     }

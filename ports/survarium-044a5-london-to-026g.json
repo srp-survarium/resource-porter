@@ -14,11 +14,13 @@
   "leave_out": {
     "timeout_anomaly_core": "no anomalies on this map; 0.26g has no object of this kind",
     "generic_anomaly_core": "no anomalies on this map",
-    "artefact_container": "no anomalies on this map: an artefact's place belongs to one"
+    "artefact_container": "no anomalies on this map: an artefact's place belongs to one",
+    "track": "the evening's camera track: 0.26g has the kind in its lobby scene alone, and London's weathers left it out"
   },
   "shader_keys": {
     "target": "near-build/shader-key-order-026g.tsv",
-    "donor": "near-build/shader-key-order-044a5.tsv"
+    "donor": "near-build/shader-key-order-044a5.tsv",
+    "families": ["gbuffer_pass.ps", "vertex_base.vs"]
   },
   "projects": [
     {"donor": "day_3", "project": "day_2", "layer": "day", "without_lists": [ "victory_item_spawn_points" ], "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41 }},

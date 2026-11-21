@@ -79,6 +79,10 @@ pub struct ShaderKeys {
     pub target: PathBuf,
     /// The donor's.
     pub donor: PathBuf,
+    /// The families `--donor-programs` supplies: the g-buffer's pixel and
+    /// vertex shaders, what a material and its mesh select.
+    #[serde(default)]
+    pub families: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -113,11 +117,13 @@ pub struct Project {
     #[serde(default)]
     pub environment_overrides: BTreeMap<String, f32>,
     /// A probe the donor box-projects (`use_parallax_correction`, a field
-    /// 0.26g has not) is marked by `smart_attenuation`, which no probe of
-    /// the project may use itself: the channel pack london-probes reads on
+    /// 0.26g has not) is marked by `smart_attenuation`: the channel pack
+    /// london-probes reads on
     /// a scene that carries London's marker (`environment_overrides`),
     /// where its smart box programs project the reflection and draw the
-    /// plain falloff. Only for a project with that marker.
+    /// plain falloff. Only for a project with that marker. A probe that
+    /// uses smart attenuation itself draws the plain falloff there and is
+    /// counted.
     #[serde(default)]
     pub parallax_probes_by_smart_attenuation: bool,
 }
@@ -144,6 +150,9 @@ pub struct ProjectReport {
     pub collision_objects: usize,
     /// Probes marked as box-projected (`parallax_probes_by_smart_attenuation`).
     pub parallax_probes: usize,
+    /// Of the project's probes, those that used smart attenuation themselves
+    /// and draw the plain falloff on the marked scene.
+    pub smart_probes_lost: usize,
     /// Donor files added as they are, by kind of path.
     pub added: BTreeMap<String, usize>,
     /// Files players have in another form than the donor's and keep, by kind.
@@ -206,7 +215,14 @@ fn materials_of(value: &mut ConfigValue, importer: &mut files::Importer<'_>) -> 
 
 /// The old-form project with every model, material and probe cubemap by the
 /// name the port places it by.
-fn place_files(project: &mut ConfigValue, m: &Manifest, p: &Project, importer: &mut files::Importer<'_>, parallax_probes: &mut usize) -> Result<()> {
+fn place_files(
+    project: &mut ConfigValue,
+    m: &Manifest,
+    p: &Project,
+    importer: &mut files::Importer<'_>,
+    parallax_probes: &mut usize,
+    smart_probes_lost: &mut usize,
+) -> Result<()> {
     let ConfigValue::Named(top) = project else { bail!("a project is not a table") };
     for field in top {
         match (field.name.as_str(), &mut field.value) {
@@ -255,7 +271,9 @@ fn place_files(project: &mut ConfigValue, m: &Manifest, p: &Project, importer: &
                             if p.parallax_probes_by_smart_attenuation {
                                 let projected = object.named("use_parallax_correction") == Some(&ConfigValue::Boolean(true));
                                 let smart = object.named_mut("smart_attenuation").context("a probe has no smart_attenuation")?;
-                                ensure!(*smart == ConfigValue::Boolean(false), "a probe uses smart attenuation itself: it cannot mark the box-projected ones");
+                                // The marked scene's smart programs draw the plain
+                                // falloff: a probe that used the smart one loses it.
+                                *smart_probes_lost += usize::from(*smart == ConfigValue::Boolean(true));
                                 *smart = ConfigValue::Boolean(projected);
                                 *parallax_probes += usize::from(projected);
                             }
@@ -475,8 +493,17 @@ fn archives(list: &Path) -> Result<Vec<PathBuf>> {
 /// file naming shader programs the game asked for and did not find (any
 /// text with `shaders/sm_4_0/<family>/<key>` paths in it, such as the
 /// asserts of a headless load): each is supplied from the donor or listed
-/// with why not (`programs`).
-pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, unknown_switches: files::UnknownSwitches, wanted_programs: Option<&Path>) -> Result<()> {
+/// with why not (`programs`). `donor_programs`: every program of the
+/// donor's that players lack and 0.26g can feed is supplied.
+pub fn build(
+    manifest_path: &Path,
+    donor: &Path,
+    shipped: &Path,
+    output: &Path,
+    unknown_switches: files::UnknownSwitches,
+    wanted_programs: Option<&Path>,
+    donor_programs: bool,
+) -> Result<()> {
     let m: Manifest = serde_json::from_slice(&fs::read(manifest_path)?).with_context(|| format!("reading {}", manifest_path.display()))?;
     ensure!(!output.exists(), "output must be new");
     let (donor_layers, shipped_layers) = (archives(donor)?, archives(shipped)?);
@@ -530,7 +557,7 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
         for (list, n) in without_lists(&mut old, &p.without_lists) {
             *report.left_out_by_decision.entry(format!("without {}: {list}", p.without_lists.join(", "))).or_default() += n;
         }
-        place_files(&mut old, &m, p, &mut importer, &mut report.parallax_probes).with_context(|| from.clone())?;
+        place_files(&mut old, &m, p, &mut importer, &mut report.parallax_probes, &mut report.smart_probes_lost).with_context(|| from.clone())?;
         let scene = fields::Scene { project: &p.project, weather_layer: &p.layer };
         let mut built = with_026g_fields(&old, &templates, &scene, &mut report.fields).with_context(|| from.clone())?;
         with_overrides(&mut built, &p.environment_overrides)?;
@@ -606,35 +633,57 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
     let files::Importer { out, report: file_report, shipped, donor, .. } = importer;
     let mut out = out;
     let mut supplied = Vec::new();
-    if let Some(wanted) = wanted_programs {
+    let mut families = BTreeMap::new();
+    let mut families_skipped = BTreeMap::new();
+    if wanted_programs.is_some() || donor_programs {
         let orders = m.shader_keys.as_ref().context("the manifest names no shader key orders")?;
         let beside = manifest_path.parent().unwrap_or(Path::new("."));
         let order = |file: &Path| -> Result<programs::KeyOrder> {
             programs::KeyOrder::parse(&fs::read_to_string(beside.join(file)).with_context(|| format!("reading {}", file.display()))?)
         };
-        let target_keys = programs::Keys { order: order(&orders.target)?, masks: programs::Masks::read(shipped)? };
-        let donor_keys = programs::Keys { order: order(&orders.donor)?, masks: programs::Masks::read(donor)? };
-        let text = fs::read_to_string(wanted).with_context(|| format!("reading {}", wanted.display()))?;
-        let mut paths = BTreeSet::new();
-        for word in text.split(|c: char| !(c.is_ascii_alphanumeric() || "/._".contains(c))) {
-            if let Some(at) = word.find("shaders/sm_4_0/") {
-                paths.insert(word[at..].trim_end_matches('.').to_owned());
-            }
-        }
+        let target_keys = programs::Keys::read(order(&orders.target)?, shipped)?;
+        let donor_keys = programs::Keys::read(order(&orders.donor)?, donor)?;
         let mut supplier = programs::Supplier::new(&target_keys, &donor_keys);
-        for path in &paths {
-            let (supply, blob) = supplier.supply(shipped, donor, path)?;
-            if let Some(blob) = blob {
-                out.insert(path.clone(), blob);
-            }
-            supplied.push(supply);
+        if donor_programs {
+            ensure!(!orders.families.is_empty(), "the manifest's shader_keys names no families to supply");
+            let (blobs, by_family, skipped) = supplier.supply_all(shipped, donor, &orders.families)?;
+            println!(
+                "the donor's programs players lack: {} supplied of {} in {} families; {} families left alone",
+                blobs.len(),
+                by_family.values().map(|f: &programs::FamilySupply| f.lacking).sum::<usize>(),
+                by_family.len(),
+                skipped.len()
+            );
+            out.extend(blobs);
+            families = by_family;
+            families_skipped = skipped;
         }
-        println!(
-            "programs asked for {}: supplied from the donor {}, not supplied {}",
-            supplied.len(),
-            supplied.iter().filter(|s| s.donor.is_some()).count(),
-            supplied.iter().filter(|s| s.not_supplied.is_some()).count()
-        );
+        if let Some(wanted) = wanted_programs {
+            let text = fs::read_to_string(wanted).with_context(|| format!("reading {}", wanted.display()))?;
+            let mut paths = BTreeSet::new();
+            for word in text.split(|c: char| !(c.is_ascii_alphanumeric() || "/._".contains(c))) {
+                if let Some(at) = word.find("shaders/sm_4_0/") {
+                    paths.insert(word[at..].trim_end_matches('.').to_owned());
+                }
+            }
+            for path in &paths {
+                if out.contains_key(path) {
+                    supplied.push(programs::Supply { path: path.clone(), donor: Some("supplied with the donor's programs".into()), not_supplied: None });
+                    continue;
+                }
+                let (supply, blob) = supplier.supply(shipped, donor, path)?;
+                if let Some(blob) = blob {
+                    out.insert(path.clone(), blob);
+                }
+                supplied.push(supply);
+            }
+            println!(
+                "programs asked for {}: supplied from the donor {}, not supplied {}",
+                supplied.len(),
+                supplied.iter().filter(|s| s.donor.is_some()).count(),
+                supplied.iter().filter(|s| s.not_supplied.is_some()).count()
+            );
+        }
     }
     ensure!(
         file_report.without_programs.is_empty(),
@@ -690,7 +739,7 @@ pub fn build(manifest_path: &Path, donor: &Path, shipped: &Path, output: &Path, 
     };
     fs::create_dir_all(output)?;
     fs::write(output.join("pack.json"), serde_json::to_vec_pretty(&pack)?)?;
-    fs::write(output.join("report.json"), serde_json::to_vec_pretty(&json!({"files": file_report, "projects": reports, "programs": supplied}))?)?;
+    fs::write(output.join("report.json"), serde_json::to_vec_pretty(&json!({"files": file_report, "projects": reports, "programs": supplied, "donor_programs": families, "donor_program_families_left_alone": families_skipped}))?)?;
     println!(
         "{added} files added, {replaced} replaced, {same} already players'; textures {:?}, materials {:?}, models {:?}; {} materials took a smaller switch set; {} names missing in both builds",
         file_report.textures,

@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use vostok_resource_porter::{
     ResourceDb,
-    near_build::programs::{KeyOrder, Keys, Masks, Supplier, translate},
+    near_build::programs::{KeyOrder, Keys, Supplier, translate},
 };
 
 fn layers(list: &str) -> Result<Vec<PathBuf>> {
@@ -45,8 +45,8 @@ fn main() -> Result<()> {
     let mut donor = ResourceDb::open_layers(&layers(&a[0])?)?;
     let mut shipped = ResourceDb::open_layers(&layers(&a[1])?)?;
     let order = |f: &str| -> Result<KeyOrder> { KeyOrder::parse(&std::fs::read_to_string(f)?) };
-    let target = Keys { order: order(&a[2])?, masks: Masks::read(&mut shipped)? };
-    let donor_keys = Keys { order: order(&a[3])?, masks: Masks::read(&mut donor)? };
+    let target = Keys::read(order(&a[2])?, &mut shipped)?;
+    let donor_keys = Keys::read(order(&a[3])?, &mut donor)?;
     for family in &a[4..] {
         let prefix = format!("shaders/sm_4_0/{family}/");
         let ours: Vec<String> = shipped.paths_with_prefix(&prefix).filter(|p| shipped.is_file(p)).map(str::to_owned).collect();

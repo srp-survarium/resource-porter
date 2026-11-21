@@ -7,7 +7,9 @@
 //! (`KeyOrder`: read from each build's executable, checked here against the
 //! build's archives), `_` where the family does not read the macro; a
 //! value of ten or more (the vertex input type has fifteen) takes two.
-//! Which macros a family reads is data, `shaders/masks`. Both builds compile the
+//! Which macros a family reads is data, `shaders/masks`; a family the file
+//! does not list (the vertex shaders, keyed by the mesh alone) reads the
+//! macros its own keys have a value at. Both builds compile the
 //! same sources' descendants, so the donor's program for a 0.26g key is the
 //! one at the same macro values, in the donor's order, with the macros only
 //! the donor has at 0.
@@ -120,6 +122,39 @@ impl Keys {
 
     /// Checks the order against the archive: every key of `family` reads as
     /// values of the family's macros. Returns how many.
+    /// The build's keys: its order, its masks, and for each family
+    /// `shaders/masks` does not list the macros its keys in `db` have a
+    /// value at.
+    pub fn read(order: KeyOrder, db: &mut ResourceDb) -> Result<Self> {
+        let mut keys = Self { order, masks: Masks::read(db)? };
+        let count = keys.order.0.len();
+        let wide = keys.order.place(WIDE);
+        let mut inferred: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for path in db.paths_with_prefix(ROOT).filter(|p| db.is_file(p)) {
+            let Some((family, key)) = path[ROOT.len()..].split_once('/') else { continue };
+            if keys.masks.0.contains_key(family) || !key.is_ascii() || key.len() < count {
+                continue;
+            }
+            let extra = key.len() - count;
+            let mask = inferred.entry(family.to_owned()).or_default();
+            let mut at = 0;
+            for (place, name) in keys.order.0.iter().enumerate() {
+                let width = if Some(place) == wide && key.as_bytes()[at] != b'_' { 1 + extra } else { 1 };
+                if &key[at..at + 1] != "_" {
+                    mask.insert(name.clone());
+                }
+                at += width;
+            }
+        }
+        keys.masks.0.extend(inferred);
+        Ok(keys)
+    }
+
+    /// The families the build has keys' macros for.
+    pub fn families(&self) -> impl Iterator<Item = &str> {
+        self.masks.0.keys().map(String::as_str)
+    }
+
     pub fn check_family(&self, db: &ResourceDb, family: &str) -> Result<usize> {
         let prefix = format!("{ROOT}{family}/");
         let mut fit = 0;
@@ -352,6 +387,16 @@ fn operand(code: &[u8], cursor: &mut usize, reads: &mut BTreeSet<(u32, u32)>) ->
     Ok(whole)
 }
 
+/// What supplying every program of the donor's came to, by family.
+#[derive(Debug, Default, serde::Serialize)]
+pub struct FamilySupply {
+    /// The donor's programs players lack, in 0.26g's keys.
+    pub lacking: usize,
+    pub supplied: usize,
+    /// Why the others were not, with how many.
+    pub not_supplied: BTreeMap<String, usize>,
+}
+
 /// A program asked for, and what came of it.
 #[derive(Debug, serde::Serialize)]
 pub struct Supply {
@@ -403,6 +448,63 @@ impl<'a> Supplier<'a> {
             self.family_reads.insert(family.to_owned(), all);
         }
         Ok(&self.family_reads[family])
+    }
+
+    /// Every program of the donor's in the families `only` that players lack
+    /// and 0.26g can feed, at its 0.26g path: whatever key 0.26g computes for the donor's own
+    /// materials and meshes is one the donor computed too. A family whose
+    /// keys do not read as the order's (players' forward programs, since
+    /// patch 14 added a macro to their mask) is left alone and said so.
+    pub fn supply_all(
+        &mut self,
+        shipped: &mut ResourceDb,
+        donor_db: &mut ResourceDb,
+        only: &[String],
+    ) -> Result<(BTreeMap<String, Vec<u8>>, BTreeMap<String, FamilySupply>, BTreeMap<String, String>)> {
+        let mut blobs = BTreeMap::new();
+        let mut by_family = BTreeMap::new();
+        let mut skipped = BTreeMap::new();
+        for family in only {
+            ensure!(self.donor.masks.0.contains_key(family) && self.target.masks.0.contains_key(family), "{family}: not a shader family of both builds");
+        }
+        let families: Vec<String> = only.to_vec();
+        for family in families {
+            if let Err(error) = self.target.check_family(shipped, &family).and_then(|_| self.donor.check_family(donor_db, &family)) {
+                skipped.insert(family, format!("{error:#}"));
+                continue;
+            }
+            let prefix = format!("{ROOT}{family}/");
+            let theirs: Vec<String> = donor_db.paths_with_prefix(&prefix).filter(|p| donor_db.is_file(p)).map(str::to_owned).collect();
+            let mut count = FamilySupply::default();
+            for path in theirs {
+                // The donor's key in 0.26g's order; one with a macro of the
+                // donor's own on is no key 0.26g computes.
+                let Ok(key) = translate(&path[prefix.len()..], &family, self.donor, self.target) else { continue };
+                let wanted = format!("{prefix}{key}");
+                if shipped.is_file(&wanted) || blobs.contains_key(&wanted) {
+                    continue;
+                }
+                count.lacking += 1;
+                let (supply, blob) = self.supply(shipped, donor_db, &wanted)?;
+                match blob {
+                    // The round trip must name the same donor program.
+                    Some(blob) if supply.donor.as_deref() == Some(path.as_str()) => {
+                        count.supplied += 1;
+                        blobs.insert(wanted, blob);
+                    }
+                    Some(_) => *count.not_supplied.entry("another donor program has the same 0.26g key".into()).or_default() += 1,
+                    None => {
+                        let why = supply.not_supplied.unwrap_or_default();
+                        let why = why.split_once(" reads what ").map_or(why.clone(), |(_, w)| format!("reads what {w}"));
+                        *count.not_supplied.entry(why).or_default() += 1;
+                    }
+                }
+            }
+            if count.lacking > 0 {
+                by_family.insert(family, count);
+            }
+        }
+        Ok((blobs, by_family, skipped))
     }
 
     /// The donor's blob for the 0.26g program at `path`, or why there is none.
