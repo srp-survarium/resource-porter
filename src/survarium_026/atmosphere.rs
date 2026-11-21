@@ -22,9 +22,23 @@
 //! code 10, exe 0x2004CF9ED) and the sampler (taken as f32 and bilinear with
 //! clamped edges, as Bruneton's).
 //!
-//! Against the donor's global probe (`rudnya_probe_check`) this sky is 1.8
-//! to 1.9 times the probe away from the sun in all three channels (its
-//! colour agrees within 10 %), 1.0 to 1.4 toward it: not explained yet.
+//! Checked against 0.69d itself (2026-11-21):
+//! * The programs: 0.69d's six `calculate_*.ps`, run from their own bytecode
+//!   (an interpreter of their listings) with this module's constants, give
+//!   this module's tables within 0.1 % (the density within 0.4 %). The
+//!   constants are the exe's (0x200555E80, 0x2005567C0, its caller
+//!   0x200510B65; the environment fields by the loader 0x200222EF0); the
+//!   pass and order sequence is the exe's (0x200555B50); the sRGB weights
+//!   integrated at 1 nm give `sky_dome.ps`'s solar constants exactly.
+//! * Its sky: Rudnya's `global` probe is in the units of its own SH (band 0
+//!   within 0.7 %, `rudnya_probe_sh0`), and a kept 0.69d frame taken back
+//!   through its curve and grading agrees with it (`rudnya_shot_sky`). With
+//!   Rudnya's `air_density` 2 this sky is 1.6 to 1.7 times the probe in all
+//!   channels; with 1 (Rudnya's turbidity 9, sun 0.85, four orders) it is
+//!   0.92, 0.94, 0.97 of it (median, quartiles within 0.84..0.99, the probe's
+//!   clouds adding light), every other variant worse (`rudnya_probe_check`
+//!   with `SKHID_ATM`). Why 0.69d's tables take the Rayleigh of density 1
+//!   is not found: every step read passes the environment's 2 through.
 
 // Planet (every program's immediates): ground and top radius (km), and
 // H = sqrt(TOP^2 - BOTTOM^2).
@@ -849,6 +863,10 @@ pub struct Atmosphere {
 
 impl Atmosphere {
     pub fn new(environment: Environment) -> Self {
+        Self::with_orders(environment, ORDERS)
+    }
+
+    fn with_orders(environment: Environment, orders: u32) -> Self {
         let (w, h) = SCATTERING_SIZE;
         let mut scattering = Table { width: w, height: h, texels: vec![ScatteringTexel::default(); w * h] };
         let add = |a: ScatteringTexel, b: ScatteringTexel| ScatteringTexel {
@@ -865,7 +883,7 @@ impl Atmosphere {
             let (rayleigh, mie, single) = single_scattering(&c, &t);
             scattering = scattering.zip(&single, add);
             let mut multiple: Option<Table<Spectral>> = None;
-            for _order in 2..=ORDERS {
+            for _order in 2..=orders {
                 let incident = match &multiple {
                     None => Incident::Single { rayleigh: &rayleigh, mie: &mie },
                     Some(m) => Incident::Multiple(m),
@@ -1217,6 +1235,270 @@ mod tests {
         }
     }
 
+    /// The sun's illuminance through the passes' weights against
+    /// `sky_dome.ps`'s constant (144809.86, 129443.62, 127098.89).
+    #[test]
+    #[ignore]
+    fn solar_illuminance_by_the_weights() {
+        let mut sum = [0.0f64; 3];
+        for i in 0..PASSES {
+            for l in pass_wavelengths(i) {
+                let e = interpolate(|j| SOLAR_IRRADIANCE[j], l);
+                for k in 0..3 {
+                    sum[k] += 683.0 * e * srgb_weight(l, k, 470.0 / 15.0) as f64;
+                }
+            }
+        }
+        let mut fine = [0.0f64; 3];
+        for l in 360..830 {
+            let e = interpolate(|j| SOLAR_IRRADIANCE[j], l as f64);
+            for k in 0..3 {
+                fine[k] += 683.0 * e * srgb_weight(l as f64, k, 1.0) as f64;
+            }
+        }
+        println!("15 wavelengths {sum:?}, 1 nm {fine:?}, sky_dome (144809.86, 129443.62, 127098.89)");
+    }
+
+    /// Dumps, for an interpreter of 0.69d's own programs, every pass's
+    /// constants and pass 0's tables as this transcription makes them
+    /// (`SKHID_ATM_DUMP`: a folder; raw little-endian f32, rows of texels).
+    #[test]
+    #[ignore]
+    fn dump_for_interpreter() {
+        use std::io::Write;
+        let dir = std::path::PathBuf::from(std::env::var("SKHID_ATM_DUMP").expect("SKHID_ATM_DUMP"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, values: Vec<f32>| {
+            let mut f = std::fs::File::create(dir.join(name)).unwrap();
+            for v in values {
+                f.write_all(&v.to_le_bytes()).unwrap();
+            }
+        };
+        let spectral = |t: &Table<Spectral>| t.texels.iter().flat_map(|s| s.0).collect::<Vec<f32>>();
+        let texel = |t: &Table<ScatteringTexel>| t.texels.iter().flat_map(|s| [s.rayleigh.0[0], s.rayleigh.0[1], s.rayleigh.0[2], s.mie_red]).collect::<Vec<f32>>();
+        let env = rudnya();
+        let cb = |c: &PassConstants, order: f32| -> Vec<f32> {
+            let mut v = vec![c.solar.0[0], c.solar.0[1], c.solar.0[2], order];
+            v.extend([c.rayleigh.0[0], c.rayleigh.0[1], c.rayleigh.0[2], c.sun_angular_radius]);
+            v.extend([c.ozone.0[0], c.ozone.0[1], c.ozone.0[2], c.mie_scattering]);
+            v.extend([c.light[0], c.light[1], c.light[2], c.mie_extinction]);
+            for j in 0..3 {
+                v.extend([c.to_rgb[j][0], c.to_rgb[j][1], c.to_rgb[j][2], 0.0]);
+            }
+            v
+        };
+        let mut all = Vec::new();
+        for i in 0..PASSES {
+            let lambdas = pass_wavelengths(i);
+            let to_rgb = lambdas.map(|l| std::array::from_fn(|k| srgb_weight(l, k, 470.0 / 15.0)));
+            all.extend(cb(&env.pass(lambdas, to_rgb), 1.0));
+        }
+        all.extend(cb(&env.pass([680.0, 550.0, 440.0], [[0.0; 3]; 3]), 1.0));
+        write("cb.bin", all);
+        let lambdas = pass_wavelengths(0);
+        let to_rgb = lambdas.map(|l| std::array::from_fn(|k| srgb_weight(l, k, 470.0 / 15.0)));
+        let c = env.pass(lambdas, to_rgb);
+        let t = transmittance(&c);
+        write("p0_transmittance.bin", spectral(&t));
+        let irradiance = direct_irradiance(&c, &t);
+        write("p0_direct_irradiance.bin", spectral(&irradiance));
+        let (rayleigh, mie, single) = single_scattering(&c, &t);
+        write("p0_single_rayleigh.bin", spectral(&rayleigh));
+        write("p0_single_mie.bin", spectral(&mie));
+        write("p0_single_combined.bin", texel(&single));
+        let incident = Incident::Single { rayleigh: &rayleigh, mie: &mie };
+        let density = scattering_density(&c, &t, &incident, &irradiance);
+        write("p0_density2.bin", spectral(&density));
+        write("p0_indirect1.bin", spectral(&indirect_irradiance(&incident)));
+        let (delta, added) = multiple_scattering(&c, &density);
+        write("p0_delta2.bin", spectral(&delta));
+        write("p0_added2.bin", texel(&added));
+        write("scattering.bin", texel(Atmosphere::new(env).scattering()));
+    }
+
+    /// Each scattering order's share of the sky (diagnostic).
+    #[test]
+    #[ignore]
+    fn rudnya_orders() {
+        let dirs = [("zenith", [0.0f32, 1.0, 0.0]), ("el30 az90", [0.0, 0.5, -0.866_025]), ("el30 az180", [0.866_025, 0.5, 0.0]), ("el10 az90", [0.0, 0.173_648, -0.984_808])];
+        let runs: Vec<Atmosphere> = (1..=4).map(|o| Atmosphere::with_orders(rudnya(), o)).collect();
+        for (name, d) in dirs {
+            let v: Vec<[f32; 3]> = runs.iter().map(|a| a.sky(d, 20.4).0.map(|x| x.round())).collect();
+            println!("{name}: orders<=1 {:?} <=2 {:?} <=3 {:?} <=4 {:?}", v[0], v[1], v[2], v[3]);
+        }
+    }
+
+    /// The global probe's cube against its own stored SH band 0 (1.84652,
+    /// 1.82129, 2.33578: `level_01/day_tdm` client_objects[72]), which
+    /// `environment_probe.ps` lights with directly: the ratio is the cube's
+    /// unit against the SH's.
+    #[test]
+    #[ignore]
+    fn rudnya_probe_sh0() {
+        use super::super::lighting::{cube_direction, decode_069d};
+        let path = std::env::var("SKHID_069D_GLOBAL_PROBE").expect("SKHID_069D_GLOBAL_PROBE");
+        let cube = crate::dds_cube::decode_cube(&std::fs::read(path).unwrap()).unwrap();
+        let n = cube.size;
+        let (mut c0, mut omega, mut up, mut up_omega) = ([0.0f64; 3], 0.0f64, [0.0f64; 3], 0.0f64);
+        for face in 0..6 {
+            for y in 0..n {
+                for x in 0..n {
+                    let s = (x as f64 + 0.5) / n as f64 * 2.0 - 1.0;
+                    let t = (y as f64 + 0.5) / n as f64 * 2.0 - 1.0;
+                    let dw = 4.0 / (n * n) as f64 / (1.0 + s * s + t * t).powf(1.5);
+                    let l = decode_069d(cube.faces[face][0][y * n + x]);
+                    let d = cube_direction(face, x, y, n);
+                    for k in 0..3 {
+                        c0[k] += 0.282_094_78 * l[k] as f64 * dw;
+                        if d[1] > 0.0 {
+                            up[k] += l[k] as f64 * dw;
+                        }
+                    }
+                    omega += dw;
+                    if d[1] > 0.0 {
+                        up_omega += dw;
+                    }
+                }
+            }
+        }
+        let stored = [1.84652, 1.82129, 2.33578];
+        println!("size {n}, total solid angle {omega:.4} (4 pi = {:.4})", 4.0 * std::f64::consts::PI);
+        println!("cube SH0 {c0:?}, stored {stored:?}, cube/stored {:?}", std::array::from_fn::<f64, 3, _>(|k| c0[k] / stored[k]));
+        println!("upper hemisphere mean radiance {:?}", up.map(|v| v / up_omega));
+    }
+
+    /// 0.69d's own frame against its probe and the model: a kept 0.69d shot
+    /// (`SKHID_069D_SHOT`, raw RGB8 1280 x 720, its camera `SKHID_069D_SHOT_FORWARD`
+    /// "x,y,z", 97.6 degrees across) taken back through 0.69d's sRGB, curve and
+    /// grading (level_01's) to scene luminance at the maximum EV 12.5 (a sunlit
+    /// view meters above the range). Sky texels: the bluest tenth of each
+    /// 5 x 30 degree cell above 8 degrees.
+    #[test]
+    #[ignore]
+    fn rudnya_shot_sky() {
+        use super::super::lighting::decode_069d;
+        use super::super::tone::{Curve, Grading, Range, Tone};
+        let range = |sat: f32, con: f32, gam: [f32; 3], gain: f32| Range { saturation: [sat; 3], contrast: [con; 3], gamma: gam, gain: [gain; 3], offset: 0.0 };
+        let tone = Tone {
+            min_ev: 6.0,
+            max_ev: 12.5,
+            bias: 0.0,
+            grading: Some(Grading {
+                shadows: range(0.969, 0.946_725, [1.142_857, 1.084_599, 1.0], 0.9918),
+                midtones: range(1.02, 0.971, [1.044_932, 1.027_749, 1.0], 0.95),
+                highlights: range(1.02, 0.971, [1.0; 3], 0.95),
+                shadows_max: 0.02,
+                highlights_min: 0.75,
+            }),
+            curve: Curve::new(1.3, 0.0, 0.28, 0.18, 2.0, -0.5),
+        };
+        // shown -> exposed colour: the curve by bisection, the grading by iteration.
+        let curve_inv = |y: f32| {
+            let (mut lo, mut hi) = (0.0f32, 64.0f32);
+            for _ in 0..60 {
+                let mid = 0.5 * (lo + hi);
+                if tone.curve.shown(mid) < y { lo = mid } else { hi = mid }
+            }
+            0.5 * (lo + hi)
+        };
+        let unshow = |srgb: [u8; 3]| -> Option<[f32; 3]> {
+            if srgb.iter().any(|&v| v >= 250) {
+                return None;
+            }
+            let target = srgb.map(|v| curve_inv(((v as f32 / 255.0 + 0.055) / 1.055).powf(2.4)));
+            let g = tone.grading.unwrap();
+            let mut x = target;
+            for _ in 0..200 {
+                let y = g.graded(x);
+                x = std::array::from_fn(|k| (x[k] + 0.7 * (target[k] - y[k])).max(0.0));
+            }
+            Some(x)
+        };
+        let raw = std::fs::read(std::env::var("SKHID_069D_SHOT").expect("SKHID_069D_SHOT")).unwrap();
+        let f: Vec<f32> = std::env::var("SKHID_069D_SHOT_FORWARD").unwrap().split(',').map(|v| v.parse().unwrap()).collect();
+        let cube = crate::dds_cube::decode_cube(&std::fs::read(std::env::var("SKHID_069D_GLOBAL_PROBE").unwrap()).unwrap()).unwrap();
+        let (w, h) = (1280usize, 720usize);
+        let fw = normalize([f[0], f[1], f[2]]);
+        let right = normalize([fw[2], 0.0, -fw[0]]);
+        let up = [fw[1] * right[2] - fw[2] * right[1], fw[2] * right[0] - fw[0] * right[2], fw[0] * right[1] - fw[1] * right[0]];
+        let tx = (97.6f32.to_radians() / 2.0).tan();
+        let ty = tx * h as f32 / w as f32;
+        // Diagnostic overrides: SKHID_ATM="density,turbidity,sun_intensity_r2,orders".
+        let mut env = rudnya();
+        let mut orders = ORDERS;
+        if let Ok(v) = std::env::var("SKHID_ATM") {
+            let v: Vec<f32> = v.split(',').map(|x| x.parse().unwrap()).collect();
+            (env.air_density, env.air_turbidity, env.sun_intensity_r2, orders) = (v[0], v[1], v[2], v[3] as u32);
+        }
+        let a = Atmosphere::with_orders(env, orders);
+        let frame_scale = 1.2 * 2f32.powf(12.5);
+        let probe_scale = 1.2 * 2f32.powi(12);
+        // The probe texel along a direction (nearest, mip 0).
+        let probe_at = |d: [f32; 3]| -> [f32; 3] {
+            let (ax, ay, az) = (d[0].abs(), d[1].abs(), d[2].abs());
+            let (face, sc, tc, ma) = if ax >= ay && ax >= az {
+                if d[0] > 0.0 { (0, -d[2], -d[1], ax) } else { (1, d[2], -d[1], ax) }
+            } else if ay >= az {
+                if d[1] > 0.0 { (2, d[0], d[2], ay) } else { (3, d[0], -d[2], ay) }
+            } else if d[2] > 0.0 {
+                (4, d[0], -d[1], az)
+            } else {
+                (5, -d[0], -d[1], az)
+            };
+            let n = cube.size;
+            let px = (((sc / ma + 1.0) * 0.5 * n as f32) as usize).min(n - 1);
+            let py = (((tc / ma + 1.0) * 0.5 * n as f32) as usize).min(n - 1);
+            decode_069d(cube.faces[face][0][py * n + px]).map(|v| v * probe_scale)
+        };
+        let mut cells: std::collections::BTreeMap<(i32, i32), Vec<(f32, [f32; 3], [f32; 3], [f32; 3])>> = Default::default();
+        for py in 0..h {
+            for px in 0..w {
+                let x = (2.0 * (px as f32 + 0.5) / w as f32 - 1.0) * tx;
+                let y = (1.0 - 2.0 * (py as f32 + 0.5) / h as f32) * ty;
+                let d = normalize(std::array::from_fn(|k| fw[k] + x * right[k] + y * up[k]));
+                let el = d[1].asin().to_degrees();
+                if el < 8.0 {
+                    continue;
+                }
+                let i = 3 * (py * w + px);
+                let Some(e) = unshow([raw[i], raw[i + 1], raw[i + 2]]) else { continue };
+                let shot = e.map(|v| v * frame_scale);
+                let az = (-d[2]).atan2(-d[0]).to_degrees().abs();
+                let blue = shot[2] / (shot[0] + shot[1] + shot[2]).max(1e-9);
+                if blue < 0.36 {
+                    continue; // not sky: leaves, roofs, haze over the ground
+                }
+                cells.entry(((el / 5.0) as i32, (az / 30.0) as i32)).or_default().push((blue, shot, probe_at(d), a.sky(d, 20.392).0));
+            }
+        }
+        println!("el    az-sun   n   shot cd/m2              probe/shot           model/shot");
+        let mut all = (Vec::new(), Vec::new());
+        for ((e, z), mut v) in cells {
+            if v.len() < 50 {
+                continue;
+            }
+            v.sort_by(|p, q| q.0.total_cmp(&p.0));
+            let v = &v[..v.len().div_ceil(10)];
+            let mean = |f: &dyn Fn(&(f32, [f32; 3], [f32; 3], [f32; 3])) -> [f32; 3]| {
+                let s = v.iter().map(f).fold([0.0f32; 3], |a, b| [a[0] + b[0], a[1] + b[1], a[2] + b[2]]);
+                s.map(|x| x / v.len() as f32)
+            };
+            let (s, p, m) = (mean(&|t| t.1), mean(&|t| t.2), mean(&|t| t.3));
+            let r = |x: [f32; 3]| -> [f32; 3] { std::array::from_fn(|k| (x[k] / s[k] * 100.0).round() / 100.0) };
+            println!("{:2}-{:2} {:3}-{:3} {:4} {:?} {:?} {:?}", e * 5, e * 5 + 5, z * 30, z * 30 + 30, v.len(), s.map(|x| x.round()), r(p), r(m));
+            all.0.push(r(p));
+            all.1.push(r(m));
+        }
+        for (name, v) in [("probe/shot", &all.0), ("model/shot", &all.1)] {
+            let med = |k: usize| {
+                let mut c: Vec<f32> = v.iter().map(|x| x[k]).collect();
+                c.sort_by(f32::total_cmp);
+                c.get(c.len() / 2).copied().unwrap_or(f32::NAN)
+            };
+            println!("{name}: median {:?}", [med(0), med(1), med(2)]);
+        }
+    }
+
     /// The check against 0.69d's own sky: Rudnya's `global` probe
     /// (`level_01/day/global_3728.dds`, captured at EV 12 from y 20.392 m,
     /// clouds at one phase, no sun disc), its path in
@@ -1229,7 +1511,13 @@ mod tests {
         use super::super::lighting::{cube_direction, decode_069d};
         let path = std::env::var("SKHID_069D_GLOBAL_PROBE").expect("SKHID_069D_GLOBAL_PROBE");
         let cube = crate::dds_cube::decode_cube(&std::fs::read(path).unwrap()).unwrap();
-        let a = Atmosphere::new(rudnya());
+        let mut env = rudnya();
+        let mut orders = ORDERS;
+        if let Ok(v) = std::env::var("SKHID_ATM") {
+            let v: Vec<f32> = v.split(',').map(|x| x.parse().unwrap()).collect();
+            (env.air_density, env.air_turbidity, env.sun_intensity_r2, orders) = (v[0], v[1], v[2], v[3] as u32);
+        }
+        let a = Atmosphere::with_orders(env, orders);
         let exposure = 1.0 / (1.2 * 2f32.powi(12));
         // (band, sector) -> (blueness, model, probe)
         let mut cells: std::collections::BTreeMap<(i32, i32), Vec<(f32, [f32; 3], [f32; 3])>> = Default::default();
@@ -1269,6 +1557,13 @@ mod tests {
             all.extend(v.iter().cloned());
         }
         let ratios: Vec<[f32; 3]> = all.iter().map(|(m, p)| std::array::from_fn(|k| m[k] / p[k])).collect();
+        // Away from the sun only (azimuth from the sun 60..180): where clouds lit by the sun add least.
+        let lsd: Vec<f32> = (0..3).map(|k| {
+            let l: Vec<f32> = all.iter().map(|(m, p)| (m[k] / p[k]).ln()).collect();
+            let mean = l.iter().sum::<f32>() / l.len() as f32;
+            (l.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / l.len() as f32).sqrt()
+        }).collect();
+        println!("log-ratio spread per channel {lsd:?}");
         for k in 0..3 {
             let mut r: Vec<f32> = ratios.iter().map(|x| x[k]).collect();
             r.sort_by(f32::total_cmp);
