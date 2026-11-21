@@ -17,6 +17,7 @@
     "artefact_container": "no anomalies on this map: an artefact's place belongs to one"
   },
   "requires": ["forward-effects"],
+  "programs_supplied": [["forward", "forward_default"], ["lighting", "particle_lighting"]],
   "client_fields": "near-build/client-fields-026g.tsv",
   "shader_keys": {
     "target": "near-build/shader-key-order-026g.tsv",

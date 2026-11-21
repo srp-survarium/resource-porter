@@ -47,6 +47,11 @@ pub struct Effects {
     /// that ships with the patch supplies, so they are kept and the rest of
     /// a material's set is judged without them.
     client_fields: BTreeSet<(String, String, String)>,
+    /// Stages and effects whose programs a required pack supplies in full
+    /// from the donor (forward-effects: every donor program of their
+    /// families players lack, for every runtime choice): a material keeps
+    /// its donor switch set there.
+    supplied: BTreeSet<(String, String)>,
 }
 
 fn value_of(field: &ConfigValue) -> Option<&ConfigValue> {
@@ -133,6 +138,11 @@ impl Effects {
             self.client_fields.insert((stage.to_owned(), effect.to_owned(), field.to_owned()));
         }
         Ok(())
+    }
+
+    /// The stage and effect whose programs a required pack supplies in full.
+    pub fn learn_supplied(&mut self, stage: &str, effect: &str) {
+        self.supplied.insert((stage.to_owned(), effect.to_owned()));
     }
 
     fn is_client_switch(&self, stage: &str, effect: &str, switch: &str) -> bool {
@@ -475,7 +485,7 @@ impl<'a> Importer<'a> {
     fn programs(&mut self, material: &str, stage: &str, effect: &str, value: &mut ConfigValue) {
         let on: Switches = switches(value).into_iter().filter(|s| !self.effects.is_client_switch(stage, effect, s)).collect();
         let stage_flags = flags(value);
-        if self.effects.has_programs(stage, effect, &stage_flags, &on) {
+        if self.effects.supplied.contains(&(stage.to_owned(), effect.to_owned())) || self.effects.has_programs(stage, effect, &stage_flags, &on) {
             return;
         }
         if self.unknown_switches == UnknownSwitches::Keep {

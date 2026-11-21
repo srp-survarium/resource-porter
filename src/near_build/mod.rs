@@ -70,6 +70,11 @@ pub struct Manifest {
     /// forward-effects for the fields a client patch reads).
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Stages and their effects (`["forward", "forward_default"]`) whose
+    /// programs a required pack supplies from the donor in full: a material
+    /// keeps its donor switch set there.
+    #[serde(default)]
+    pub programs_supplied: Vec<(String, String)>,
     /// The material fields skhid's client patches make 0.26g read, a file
     /// beside the manifest (`files::Effects::learn_client_fields`).
     #[serde(default)]
@@ -539,6 +544,9 @@ pub fn build(
     if let Some(table) = &m.client_fields {
         let beside = manifest_path.parent().unwrap_or(Path::new("."));
         effects.learn_client_fields(&fs::read_to_string(beside.join(table)).with_context(|| format!("reading {}", table.display()))?)?;
+    }
+    for (stage, effect) in &m.programs_supplied {
+        effects.learn_supplied(stage, effect);
     }
     for path in materials(&shipped) {
         if let Ok(config) = BinaryConfig::parse(&shipped.read(&path)?) {
