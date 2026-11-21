@@ -86,6 +86,15 @@ asks the archive for it, and stops with an assert ("cannot find shader") when it
     programs read its first component only). Of the donors' g-buffer programs players lack,
     0.26g can feed 798 of 0.32a4's and 1 032 of 0.44a5's; the others read `scene_slomo` or the
     parallax scale and scrolling factors, which 0.26g does not set.
+- **`--donor-programs`** supplies, by the same gate, every program of the donor's in the
+  manifest's families (`shader_keys.families`: `gbuffer_pass.ps` and `vertex_base.vs`, what a
+  material and its mesh select) that players lack: whatever key 0.26g computes for the donor's own
+  materials and meshes, the donor computed too. A vertex shader's family is not in `shaders/masks`;
+  it reads the macros its keys have values at. London (v0.42) gets 1 038 of 0.44a5's 1 420 (1 032
+  g-buffer programs and six vertex shaders: a mesh of vertex type 2 or 11 with wind motion 3, which
+  no mesh of players' has; the first headless load stopped on one). Wind motion selects programs,
+  so it is part of a switch set. Players' `forward_base.ps` keys do not fit 0.26g's stock mask
+  since skhid's patch 14 added a macro to it; the family is not named and stays as it is.
 - **What 0.26g has no field for** is listed (`switches_not_in_026g`): the forward stage's
   `use_uv_tiling` and `use_ttransparency_dxt1`, the g-buffer's angle-dependent alpha test.
 
