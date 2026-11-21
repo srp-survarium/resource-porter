@@ -14,6 +14,12 @@ vostok-port build-survarium-near-map --manifest ports/survarium-044a5-london-to-
 `resources.db`, then every offered patch in order), one a line, bottom first. The pack's
 `report.json` says what each rule did; `pack.json`'s notes say what was left out by decision.
 
+A pack the manifest `requires` is part of what players have: two packs may not add the same path,
+so a map built after another lists that pack's files too (`players.list` with, last, a content patch
+that composes it). London (v0.32) requires London (v0.42): 1 230 files both donors add (the same
+g-buffer programs, flora and level models) are London (v0.42)'s, the 1 022 the same bytes are
+shared and the 208 that differ go in under `ported/v032a`.
+
 London (v0.42) (`ports/survarium-044a5-london-to-026g.json`, donor 0.44a5) and London (v0.32)
 (`ports/survarium-032a4-london-to-026g.json`, donor 0.32a4) are the two manifests. A manifest
 names the level, the namespace imports go under, the kinds left out by decision, and each project:

@@ -14,7 +14,7 @@
     "generic_anomaly_core": "no anomalies on this map",
     "artefact_container": "no anomalies on this map: an artefact's place belongs to one"
   },
-  "requires": ["forward-effects"],
+  "requires": ["forward-effects", "london-v042"],
   "programs_supplied": [["forward", "forward_default"], ["lighting", "particle_lighting"]],
   "client_fields": "near-build/client-fields-026g.tsv",
   "shader_keys": {
