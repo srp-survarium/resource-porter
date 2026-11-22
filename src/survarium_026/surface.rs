@@ -300,33 +300,55 @@ pub struct MetalMaps {
     pub mean_fresnel: f32,
 }
 
+/// A metal surface's metalness: 0.69d's map (a DDS), or one value for every
+/// texel.
+pub enum MetalInput {
+    Map(Vec<u8>),
+    Constant(f32),
+}
+
 /// `colour`: the material's linear albedo multiplier (0.69d's
-/// `albedo_color^2.2`). The metalness is the map's green as it is, as 0.69d
+/// `albedo_color^2.2`). A map's metalness is its green as it is, as 0.69d
 /// reads it.
-pub fn metal_maps(albedo: &[u8], metalness: &[u8], colour: [f32; 3]) -> Result<MetalMaps> {
-    let (a, m) = (Blocks::new(albedo)?, Blocks::new(metalness)?);
+pub fn metal_maps(albedo: &[u8], metalness: &MetalInput, colour: [f32; 3]) -> Result<MetalMaps> {
+    // The metalness as read: a map's blocks and its bytes, or the value.
+    enum Read<'a> {
+        Map(Blocks<'a>, &'a [u8]),
+        Constant(f32),
+    }
+    let a = Blocks::new(albedo)?;
+    let m = match metalness {
+        MetalInput::Map(map) => Read::Map(Blocks::new(map)?, map),
+        MetalInput::Constant(value) => Read::Constant(value.clamp(0.0, 1.0)),
+    };
     let end = a.offset(a.levels);
     let mut diffuse = albedo[..128].to_vec();
     let mut fresnel = albedo[..128].to_vec();
     let (mut sum, mut count) = (0.0f64, 0usize);
     for level in 0..a.levels {
         let (across, down) = a.grid(level);
-        let like = m.level_like(across);
-        let (m_across, m_down) = m.grid(like);
         for by in 0..down {
             for bx in 0..across {
                 let (colours, cut) = a.colours(level, bx, by);
                 // The metalness map's block at the same place (the maps are
                 // one layout; a map of another size is read at its nearest
                 // level and block).
-                let (metal, _) = m.colours(like, bx * m_across / across, by * m_down / down);
-                let same = m_across == across && m_down == down;
+                let metal: [f32; 16] = match &m {
+                    Read::Map(m, _) => {
+                        let like = m.level_like(across);
+                        let (m_across, m_down) = m.grid(like);
+                        let (metal, _) = m.colours(like, bx * m_across / across, by * m_down / down);
+                        let mean = (metal.iter().map(|t| t[1] as u32).sum::<u32>() / 16) as u8;
+                        let same = m_across == across && m_down == down;
+                        std::array::from_fn(|i| if same { metal[i][1] } else { mean } as f32 / 255.0)
+                    }
+                    Read::Constant(value) => [*value; 16],
+                };
                 let mut d = [[0u8; 3]; 16];
                 let mut f = [[0u8; 3]; 16];
                 for i in 0..16 {
-                    let metal_at = if same { metal[i][1] } else { (metal.iter().map(|t| t[1] as u32).sum::<u32>() / 16) as u8 };
                     let linear: [f32; 3] = std::array::from_fn(|c| srgb_decode(colours[i][c]) * colour[c]);
-                    let (body, value) = metal_texel(linear, metal_at as f32 / 255.0);
+                    let (body, value) = metal_texel(linear, metal[i]);
                     d[i] = body.map(srgb_encode);
                     f[i] = [(value * 255.0).round() as u8; 3];
                     if level == 0 && !cut[i] {
@@ -347,7 +369,11 @@ pub fn metal_maps(albedo: &[u8], metalness: &[u8], colour: [f32; 3]) -> Result<M
     // The colour-space byte: the diffuse keeps the albedo's, the Fresnel map
     // is linear data like the metalness map.
     diffuse.extend_from_slice(&albedo[end..]);
-    fresnel.extend_from_slice(&metalness[m.offset(m.levels)..]);
+    match &m {
+        Read::Map(m, map) => fresnel.extend_from_slice(&map[m.offset(m.levels)..]),
+        // Linear (0), as 0.26g's own Fresnel maps are.
+        Read::Constant(_) => fresnel.push(0),
+    }
     Ok(MetalMaps { diffuse, fresnel, mean_fresnel: (sum / count.max(1) as f64) as f32 })
 }
 
@@ -422,8 +448,12 @@ mod tests {
     #[test]
     fn metal_maps_keep_the_albedos_layout() {
         let (albedo, metal) = (dxt1([128, 128, 128], 4), dxt1([255, 255, 255], 4));
-        let maps = metal_maps(&albedo, &metal, [1.0; 3]).unwrap();
+        let maps = metal_maps(&albedo, &MetalInput::Map(metal), [1.0; 3]).unwrap();
         assert_eq!((maps.diffuse.len(), maps.fresnel.len()), (albedo.len(), albedo.len()));
+        // A constant metalness of 1 makes the same maps but a linear Fresnel map.
+        let constant = metal_maps(&albedo, &MetalInput::Constant(1.0), [1.0; 3]).unwrap();
+        assert_eq!(constant.diffuse, maps.diffuse);
+        assert_eq!((&constant.fresnel[..constant.fresnel.len() - 1], constant.fresnel.last()), (&maps.fresnel[..maps.fresnel.len() - 1], Some(&0)));
         assert_eq!(&maps.diffuse[..128], &albedo[..128]);
         // Grey 128 is 0.216 linear: all metal, so no diffuse beyond the hue's
         // floor and a Fresnel of about 0.22.
