@@ -1,7 +1,7 @@
 {
   "pack": {
     "id": "london-v042",
-    "version": "3",
+    "version": "4",
     "description": "London (v0.42): 0.44a5's London (level_09, the first archived build with the 0.42 rework) as a map of its own, level 32, projects v044a_level_09/<weather>_<mode>, from 0.44a5's own projects"
   },
   "donor_build": "0.44a5",

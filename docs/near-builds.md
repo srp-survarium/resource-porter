@@ -84,8 +84,17 @@ asks the archive for it, and stops with an assert ("cannot find shader") when it
   the donors draw: 31 materials of each London lost parallax, roughness or translucency maps,
   blended terrain edges went hard (vertex_blend_technique 2 to 0), and static walls took
   wind_motion 2 and swayed.
+- **A kept set must have its programs.** A material keeps its donor set only where every g-buffer
+  program it selects is players' or the pack's, for each runtime choice the donor compiled for it
+  (shading quality, vertex input, level of detail, instancing; `coverage.rs`). Its macros come from
+  its switches by 0.26g's mapping, which gives the key of 1 700 of the stock game's 1 711 g-stage
+  materials. A set short of programs takes the nearest players have (`kept_refitted`); one with no
+  such set stops the build. The programs the supplier cannot feed are why: 0.44a5's parallax at
+  shading quality 3 reads `parallax_uv_scale_factors` and `parallax_uv_scrolling_factors` (the
+  material's `parallax_u/v_scale` and `parallax_u/v_scrolling_speed`), which 0.26g never sets.
 - **A texture no archive has** (the donor's, players', the pack's) that a switch which is on
-  samples is cleared and the switch off (`textures_off`; `texture_<x>` is sampled by `use_t<x>`,
+  samples is cleared and the switch off, where the set without it has programs (a kept donor set
+  stays whole: 0.44a5's saksaul tile without parallax was a set no build compiled) (`textures_off`; `texture_<x>` is sampled by `use_t<x>`,
   `texture_normal` by `use_nmap`, `texture_bump` by `use_parallax`, ...): 0.32a4's own `decals/puddle_rust` and
   `tiled/wood/*` name textures it never shipped, 0.44a5's sand glass its bump map. 0.26g logs
   each as not found and samples a stand-in. One no switch samples is cleared; the diffuse map stays
