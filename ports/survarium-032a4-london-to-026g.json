@@ -1,7 +1,7 @@
 {
   "pack": {
     "id": "london-v032",
-    "version": "3",
+    "version": "4",
     "description": "London (v0.32): 0.32a4's London (the vegetation and detail pass) as projects of its own, v032a_level_09, from 0.32a4's own day, evening and rain projects; the London maps players have switch to them by one edit list (london-v032-1), the same map ids, level 9 and names"
   },
   "donor_build": "0.32a4",
