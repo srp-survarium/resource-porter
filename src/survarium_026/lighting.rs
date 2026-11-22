@@ -403,6 +403,58 @@ pub fn sun_radiance(sun_intensity_r2: f32, air_density: f32, air_turbidity: f32,
     })
 }
 
+/// 0.69d point and spot lights (`deferred_lighting.ps`, constants from
+/// 0x4427a0): a white Lambertian surface at `d` facing the light sends back
+/// `c * luminous_power * 1000 / D * (1 - (d / range)^16)^2 / d^2` cd/m^2,
+/// `c` the linear colour, `D` 4 pi^2 for a point light and pi^2 for a spot
+/// (its power is not spread over the cone), times `diffuse_influence_factor`;
+/// the object's `intensity` and `attenuation_power` are not read. 0.26 draws
+/// `c * intensity * (1 - (d / R)^2)^p` with no 1/d^2 (`point_light_accumulator.ps`),
+/// `R` the range, a spot's `range / sin(penumbra / 2)`. The 0.26 light keeps
+/// the donor's range (where its light ends) and takes the intensity and
+/// power closest to the donor's falloff in ratio, by volume over a tenth to
+/// nine tenths of the range (the 1/d^2 near the bulb has no 0.26 shape).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PointLight {
+    pub luminous_power: f32,
+    pub range: f32,
+    pub diffuse_influence: f32,
+    /// A spot's full penumbra angle (radians); none for a point light.
+    pub spot_penumbra: Option<f32>,
+}
+
+impl PointLight {
+    /// 0.69d's radiance off a white surface at `d` facing it (cd/m^2, white light).
+    pub fn radiance(&self, d: f32) -> f32 {
+        let denominator = if self.spot_penumbra.is_some() { std::f32::consts::PI.powi(2) } else { 4.0 * std::f32::consts::PI.powi(2) };
+        let window = (1.0 - (d / self.range).powi(16)).max(0.0).powi(2);
+        self.luminous_power * 1000.0 / denominator * self.diffuse_influence * window / (d * d).max(1e-4)
+    }
+
+    /// The 0.26 light's (intensity, attenuation power) in `scale`.
+    pub fn native(&self, scale: LightScale) -> (f32, f32) {
+        // 0.26's falloff radius in ranges.
+        let rho = self.spot_penumbra.map_or(1.0, |p| 1.0 / (0.5 * p).sin().max(0.05));
+        // Weighted least squares of ln(donor) = ln(k) + p ln(1 - (u / rho)^2).
+        const N: usize = 256;
+        let (mut sw, mut sx, mut sy, mut sxx, mut sxy) = (0f64, 0f64, 0f64, 0f64, 0f64);
+        for i in 0..=N {
+            let u = 0.1 + 0.8 * i as f32 / N as f32;
+            let w = (u * u) as f64;
+            let x = (1.0 - (u / rho).powi(2)).ln() as f64;
+            let y = (self.radiance(u * self.range) as f64).ln();
+            sw += w;
+            sx += w * x;
+            sy += w * y;
+            sxx += w * x * x;
+            sxy += w * x * y;
+        }
+        let p = (sw * sxy - sx * sy) / (sw * sxx - sx * sx);
+        let ln_k = (sy - p * sx) / sw;
+        (ln_k.exp() as f32 * scale.0, p as f32)
+    }
+}
+
 #[cfg(test)]
 mod light_tests {
     use super::*;
@@ -415,6 +467,21 @@ mod light_tests {
         for (got, want) in r.iter().zip([106_653.0, 80_874.0, 57_098.0]) {
             assert!((got / want - 1.0).abs() < 0.02, "{r:?}");
         }
+    }
+
+    #[test]
+    fn a_point_light_follows_the_donors_falloff() {
+        // The lobby's workshop lamp: 11 lm, 1.8 m; 1114 cd/m^2 at 0.5 m, 279 at 1 m.
+        let lamp = PointLight { luminous_power: 11.0, range: 1.8, diffuse_influence: 1.0, spot_penumbra: None };
+        assert!((lamp.radiance(0.5) / 1114.6 - 1.0).abs() < 0.01 && (lamp.radiance(1.0) / 278.7 - 1.0).abs() < 0.01);
+        let (intensity, power) = lamp.native(LightScale(1.0));
+        let native = |d: f32| intensity * (1.0 - (d / 1.8f32).powi(2)).max(0.0).powf(power);
+        for d in [0.5, 1.0, 1.4] {
+            assert!((native(d) / lamp.radiance(d)).ln().abs() < 0.5, "{d}: {} {}", native(d), lamp.radiance(d));
+        }
+        // A spot's power is not spread over its cone: four times a point's.
+        let spot = PointLight { spot_penumbra: Some(2.269), ..lamp };
+        assert!((spot.radiance(0.5) / lamp.radiance(0.5) - 4.0).abs() < 1e-3);
     }
 
     #[test]

@@ -271,13 +271,33 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   becomes 0.26's 65535. Its lights are 0.26 intensities; its probes are
   0.26's format (a cubemap and its `_diffuse`) and are imported
   (`"probes": "donor"`). Wire sets are the same object and are kept.
-* **0.69d**: lux and lumen as for Duga, but the lobby keeps its ambient
-  lights: `type` 1 (multiplying, the painted contact shadows) is dropped,
-  spheres take radius x scale, and intensities are scaled to the 0.26 lobby's
-  median and capped at 3. Its probes keep their volumes on the 0.26 lobby's
-  cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
-  Year snow of volume 72's project; `native_materials` draws its window panes
-  (`water/glass_water`) with 0.26's `tiled/window/glass`.
+* **0.69d** (`"probes": "donor_light"`): the camp is lit as a donor-lit map is (Rudnya
+  below, `Lighting::Donor`): every probe with its own cubemap re-encoded and its SH
+  irradiance, the largest also as the map-wide sphere (a lobby's reaches 1 km, its
+  horizon), every ambient light as a 0.26 ambient light, the sun, 0.69d's exposure and
+  curve (the lighting pack's exposure profile, marker 33100) and materials by the two
+  builds' shading, all in one scale. Its environment's exposure is fixed (minimum and
+  maximum EV 9.5), so its profile's floor is its ceiling; it has no colour grading, no
+  `sun_tint` and `sky_intensity` 1. Two rules only a lobby meets so far:
+  * point and spot lights (`lighting::PointLight`, 0.69d's `deferred_lighting.ps` and the
+    constants of 0x4427a0): `c * luminous_power * 1000 / D * (1 - (d/r)^16)^2 / d^2`,
+    `D` 4 pi^2 for a point and pi^2 for a spot (not spread over its cone), times
+    `diffuse_influence_factor`; `intensity` and `attenuation_power` are not read. 0.26 has
+    no 1/d^2: the light keeps its range and takes the intensity and attenuation power
+    closest to that falloff in ratio, by volume over 0.1 to 0.9 of the range;
+  * emission (`donor_emission`; 0.69d's is the forward effect's, constants at 0x53d758):
+    `t_emission * colour^2.2 * 2^(EV_m - 3)`, `EV_m` the material's `exposure_value` moved
+    towards the scene's by `autoexposure_factor`, an additive one times its alpha; 0.26
+    adds `constant_emissive * multiplier * texture` unlit, so the colour goes linear and
+    the multiplier into the scene's scale (the notebook's screen: 0.295).
+
+  `exclude_models` leaves out the New Year snow of volume 72's project;
+  `native_materials` draws its window panes (`water/glass_water`) with 0.26's
+  `tiled/window/glass`.
+* `reuse_native_textures` (both manifests, as Rudnya's): a donor texture whose 0.26g
+  namesake is the same image (`native_same_image`) is drawn from 0.26g's file, not
+  imported. The hangar: 72 of 131 (13 byte for byte, 59 decode alike), 123.8 MiB; the
+  camp: 54 of 220 (50 of them re-encodes about 1 level apart), 59.3 MiB.
 * What skhid-srp's lobby choice (client patch 81, `srp-026g/docs/notes/lobby-scenes.md` there)
   takes from a lobby project: the 0.26 lobby's camera `track` (copied; a project without one
   is refused), the root `camera`, and the root table `srp_lobby` with `weapon` (where the
@@ -285,7 +305,34 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   convention: forward = (-sin yaw, 0, cos yaw)), both from the manifest. The lobby camera's
   distance is cut by a ray against the project's static collision; `camera_walls` adds
   invisible boxes (0.26's unit primitive `editor/walker_collision`, scaled) where the walls'
-  own collision is open (the camp's windows and doorway).
+  own collision is open (the camp's windows and doorway), over the floor and under the
+  ceiling (the eye stops 0.15 m short of them, never on them) and around the props the eye
+  would get into (the camp's counters, pillows, cylinder, chandelier...): the boxes the
+  lobby audit of 2026-10-30 found (skhid-srp's lobby-scenes.md).
+* `native_props`: 0.26's own models placed in the lobby frame, `{lib, position, yaw}` (a
+  render visual and its collision, cgroup 8 / cmask 16, which the camera's ray meets): the
+  hangar has no table, so the stock `props/furniture/workbench_02` stands against its
+  sandbags under the weapon's spot.
+* The view out of the windows (the 0.26 lobby camera orbits all the way round; 0.69d's was
+  fixed). The camp's room is a floor 22.7 m over the donor's own background (level 02's
+  apartment blocks `bg_house_1/2`, `bg_shop`, its billboard trees, a terrain patch):
+  * A lobby's box probes (`"probes": "donor"`, the hangar) get `radius` 0.75 x their largest half-extent. 0.26g draws the
+    visible probes largest radius first, each over the ones before (stage_visibility's sort),
+    and equal radii in its probe tree's order, which changes from run to run with the order
+    the cubemaps load in. With every probe at the template's 15.3, the camp's outdoor box drew
+    after the room's probes in about half the runs: a bluish haze over the room's shadows.
+    0.10b's engine set this radius itself; 0.26g takes the project's, and a box's radius is
+    only that sort key (its volume is its scale). So the outdoor box draws first and the
+    room's probes, smaller, over it. A box whose radius ties the one before it (equal largest
+    half-extents: two of the hangar's) goes just below it, so the donor's order decides.
+  * `environment_overrides` gives the camp level 02 day's outdoor fog (rayleigh 15..300 m,
+    mie 40..1200 m): the lobby template's (rayleigh from 1 m to 185 m) is an interior's.
+  * `native_scenery`: 0.26's own models drawn outside, `{lib, position, yaw, scale}`, as
+    render visuals only (no collision, so the camera's ray never meets them): the camp's
+    overgrown yard (level 02's poplars, birches, willows, fruit and dead trees, bushes, the
+    yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
+    belts past the blocks, and level 02's own background terrain and tree rings (as the
+    school map has them, one transform for the four) for the horizon.
 
 ## Rudnya (0.69d level_01)
 
