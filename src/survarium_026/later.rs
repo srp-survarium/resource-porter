@@ -3405,8 +3405,15 @@ pub fn convert_scene(
                     l.set_path("intensity", ConfigValue::Float(intensity))?;
                     l.set_path("attenuation_power", ConfigValue::Float(power))?;
                     // 0.26's lights ignore both factors; the diffuse one is in the intensity.
-                    l.set_path("diffuse_influence_factor", ConfigValue::Float(1.0))?;
-                    l.set_path("specular_influence_factor", ConfigValue::Float(1.0))?;
+                    // 1 in the type 0.26g's own lights keep each in (diffuse an integer: a
+                    // float there is refused by skhid's build-content type check).
+                    for field in ["diffuse_influence_factor", "specular_influence_factor"] {
+                        let one = match light_template()?.named(field) {
+                            Some(ConfigValue::Integer(_)) => ConfigValue::Integer(1),
+                            _ => ConfigValue::Float(1.0),
+                        };
+                        l.set_path(field, one)?;
+                    }
                     notes.push(format!(
                         "{full_name}: {} lm over {} m as 0.26 intensity {intensity:.3}, attenuation power {power:.2}",
                         light.luminous_power, light.range
