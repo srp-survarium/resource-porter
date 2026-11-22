@@ -1,0 +1,22 @@
+# The material fields skhid's client patches make 0.26g read, beyond what its stock materials have
+# (files::Effects::learn_client_fields): a ported material keeps them, and their switches select
+# programs the content shipped with the patch supplies (pack forward-effects for patch 169), or feed
+# constants the donor's programs read (patch 183, the manifests' shader_keys.filled).
+stage	effect	field	patch	what
+forward	forward_default	use_uv_scrolling	28	the maps scroll (configuration byte 0Ch bit 6, CONFIG_USE_UV_SCROLLING)
+forward	forward_default	emissive_map_scroll_u_direction	28	uv_scrolling_parameters1.x
+forward	forward_default	emissive_map_scroll_v_direction	28	uv_scrolling_parameters1.y
+forward	forward_default	transparency_map_scroll_u_direction	28	uv_scrolling_parameters0.z
+forward	forward_default	transparency_map_scroll_v_direction	28	uv_scrolling_parameters0.w
+forward	forward_default	use_ttransparency_dxt1	169	the transparency map is a DXT1 image (byte 0Dh bit 6, CONFIG_USE_OLTA)
+forward	forward_default	use_uv_tiling	169	the maps tile (byte 0Dh bit 7, CONFIG_USE_DISPLACEMENT)
+forward	forward_default	emissive_map_tiling_u_factor	169	constant_tile_uv.x
+forward	forward_default	emissive_map_tiling_v_factor	169	constant_tile_uv.y
+forward	forward_default	transparency_map_tiling_u_factor	169	constant_tile_uv.z
+forward	forward_default	transparency_map_tiling_v_factor	169	constant_tile_uv.w
+forward	forward_default	apply_distortion_to_emissive_only	169	the uv distortion moves the emissive map alone (byte 0Dh bit 0, CONFIG_USE_FUZZINESS)
+lighting	particle_lighting	use_ttransparency_dxt1	169	the transparency map is a DXT1 image (byte 0Dh bit 6, CONFIG_USE_OLTA)
+g_stage	g_stage_default	parallax_u_scrolling_speed	183	parallax_uv_scrolling_factors.x (0 when missing)
+g_stage	g_stage_default	parallax_v_scrolling_speed	183	parallax_uv_scrolling_factors.y (0 when missing)
+g_stage	g_stage_default	parallax_u_scale	183	parallax_uv_scale_factors.x (1 when missing)
+g_stage	g_stage_default	parallax_v_scale	183	parallax_uv_scale_factors.y (1 when missing)

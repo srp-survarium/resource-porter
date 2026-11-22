@@ -22,6 +22,7 @@ pub mod maya_binary;
 pub mod model_relocation;
 pub mod model_validation;
 pub mod native_equivalence;
+pub mod near_build;
 pub mod outfit_026;
 pub mod resource_copy_patch;
 pub mod sdk;
