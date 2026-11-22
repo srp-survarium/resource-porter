@@ -1,7 +1,7 @@
 {
   "pack": {
     "id": "london-v042",
-    "version": "4",
+    "version": "5",
     "description": "London (v0.42): 0.44a5's London (level_09, the first archived build with the 0.42 rework) as a map of its own, level 32, projects v044a_level_09/<weather>_<mode>, from 0.44a5's own projects"
   },
   "donor_build": "0.44a5",
@@ -24,15 +24,16 @@
     "donor": "near-build/shader-key-order-044a5.tsv",
     "families": ["gbuffer_pass.ps", "gbuffer_emissive_pass.ps", "z_only.ps", "depth_accumulate.ps", "depth_accumulate_batched.ps", "motion_vectors_accumulation.ps", "fill_reflective_shadow_map.ps", "gbuffer_nomaterial_pass.ps", "vertex_base.vs", "vertex_base_shadow.vs", "vertex_base_shadow_batched.vs", "vertex_base_z_shifted.vs", "vertex_base_lpv.vs", "vertex_base_unwrap.vs", "vertex_base_bake_decal_occlusion.vs"]
   },
+  "profile_markers": { "day": 32909, "rain": 32919, "evening": 32929 },
   "projects": [
-    {"donor": "day_3", "project": "day_2", "layer": "day", "without_lists": [ "victory_item_spawn_points" ], "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41 }},
-    {"donor": "day_3", "project": "day_3", "layer": "day", "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 291, "options": "v044a_level_09_day_3", "options_from": "gameplay/game_modes/level_09_day_3.options", "weather_id": 1, "loading_screen_id": 41 }},
-    {"donor": "day_4", "project": "day_4", "layer": "day", "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 292, "options": "v044a_level_09_day_4", "options_from": "gameplay/game_modes/level_09_day_4.options", "weather_id": 1, "loading_screen_id": 41 }},
+    {"donor": "day_3", "project": "day_2", "layer": "day", "without_lists": [ "victory_item_spawn_points" ], "map": { "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41 }},
+    {"donor": "day_3", "project": "day_3", "layer": "day", "map": { "id": 291, "options": "v044a_level_09_day_3", "options_from": "gameplay/game_modes/level_09_day_3.options", "weather_id": 1, "loading_screen_id": 41 }},
+    {"donor": "day_4", "project": "day_4", "layer": "day", "map": { "id": 292, "options": "v044a_level_09_day_4", "options_from": "gameplay/game_modes/level_09_day_4.options", "weather_id": 1, "loading_screen_id": 41 }},
     {"donor": "rain_3", "project": "rain_2", "layer": "rain", "without_lists": [ "victory_item_spawn_points" ], "map": { "id": 293, "options": "v044a_level_09_rain_2", "options_from": "gameplay/game_modes/level_09_rain_2.options", "weather_id": 2, "loading_screen_id": 43 }},
     {"donor": "rain_3", "project": "rain_3", "layer": "rain", "map": { "id": 294, "options": "v044a_level_09_rain_3", "options_from": "gameplay/game_modes/level_09_rain_3.options", "weather_id": 2, "loading_screen_id": 43 }},
     {"donor": "rain_4", "project": "rain_4", "layer": "rain", "map": { "id": 295, "options": "v044a_level_09_rain_4", "options_from": "gameplay/game_modes/level_09_rain_4.options", "weather_id": 2, "loading_screen_id": 43 }},
-    {"donor": "evn_3", "project": "evening_2", "layer": "evening", "without_lists": [ "victory_item_spawn_points" ], "environment_overrides": { "mie_fog_base_height": 32929.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 296, "options": "v044a_level_09_evn_2", "options_from": "gameplay/game_modes/level_09_evn_2.options", "weather_id": 3, "loading_screen_id": 42 }},
-    {"donor": "evn_3", "project": "evening_3", "layer": "evening", "environment_overrides": { "mie_fog_base_height": 32929.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 297, "options": "v044a_level_09_evn_3", "options_from": "gameplay/game_modes/level_09_evn_3.options", "weather_id": 3, "loading_screen_id": 42 }},
-    {"donor": "evn_4", "project": "evening_4", "layer": "evening", "environment_overrides": { "mie_fog_base_height": 32929.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 298, "options": "v044a_level_09_evn_4", "options_from": "gameplay/game_modes/level_09_evn_4.options", "weather_id": 3, "loading_screen_id": 42 }}
+    {"donor": "evn_3", "project": "evening_2", "layer": "evening", "without_lists": [ "victory_item_spawn_points" ], "map": { "id": 296, "options": "v044a_level_09_evn_2", "options_from": "gameplay/game_modes/level_09_evn_2.options", "weather_id": 3, "loading_screen_id": 42 }},
+    {"donor": "evn_3", "project": "evening_3", "layer": "evening", "map": { "id": 297, "options": "v044a_level_09_evn_3", "options_from": "gameplay/game_modes/level_09_evn_3.options", "weather_id": 3, "loading_screen_id": 42 }},
+    {"donor": "evn_4", "project": "evening_4", "layer": "evening", "map": { "id": 298, "options": "v044a_level_09_evn_4", "options_from": "gameplay/game_modes/level_09_evn_4.options", "weather_id": 3, "loading_screen_id": 42 }}
   ]
 }

@@ -1,7 +1,7 @@
 {
   "pack": {
     "id": "london-v032",
-    "version": "2",
+    "version": "3",
     "description": "London (v0.32): 0.32a4's London (the vegetation and detail pass) as projects of its own, v032a_level_09, from 0.32a4's own day, evening and rain projects; the London maps players have switch to them by one edit list (london-v032-1), the same map ids, level 9 and names"
   },
   "donor_build": "0.32a4",
@@ -22,16 +22,17 @@
     "donor": "near-build/shader-key-order-032a4.tsv",
     "families": ["gbuffer_pass.ps", "gbuffer_emissive_pass.ps", "z_only.ps", "depth_accumulate.ps", "depth_accumulate_batched.ps", "motion_vectors_accumulation.ps", "fill_reflective_shadow_map.ps", "gbuffer_nomaterial_pass.ps", "vertex_base.vs", "vertex_base_shadow.vs", "vertex_base_shadow_batched.vs", "vertex_base_z_shifted.vs", "vertex_base_lpv.vs", "vertex_base_unwrap.vs", "vertex_base_bake_decal_occlusion.vs"]
   },
+  "profile_markers": { "day": 32909, "rain": 32919, "evening": 32929 },
   "projects": [
-    {"donor": "day_2", "project": "day_2", "layer": "day", "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true},
-    {"donor": "day_3", "project": "day_3", "layer": "day", "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true},
-    {"donor": "day_4", "project": "day_4", "layer": "day", "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true},
-    {"donor": "day_5", "project": "day_5", "layer": "day", "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true},
+    {"donor": "day_2", "project": "day_2", "layer": "day"},
+    {"donor": "day_3", "project": "day_3", "layer": "day"},
+    {"donor": "day_4", "project": "day_4", "layer": "day"},
+    {"donor": "day_5", "project": "day_5", "layer": "day"},
     {"donor": "rain_2", "project": "rain_2", "layer": "rain"},
     {"donor": "rain_3", "project": "rain_3", "layer": "rain"},
     {"donor": "rain_4", "project": "rain_4", "layer": "rain"},
-    {"donor": "evn_2", "project": "evening_2", "layer": "evening", "environment_overrides": { "mie_fog_base_height": 32929.0 }, "parallax_probes_by_smart_attenuation": true},
-    {"donor": "evn_3", "project": "evening_3", "layer": "evening", "environment_overrides": { "mie_fog_base_height": 32929.0 }, "parallax_probes_by_smart_attenuation": true},
-    {"donor": "evn_4", "project": "evening_4", "layer": "evening", "environment_overrides": { "mie_fog_base_height": 32929.0 }, "parallax_probes_by_smart_attenuation": true}
+    {"donor": "evn_2", "project": "evening_2", "layer": "evening"},
+    {"donor": "evn_3", "project": "evening_3", "layer": "evening"},
+    {"donor": "evn_4", "project": "evening_4", "layer": "evening"}
   ]
 }
