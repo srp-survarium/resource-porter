@@ -29,7 +29,45 @@
         "native_project": "projects/level_03/day_2/client_project",
         "native_mode": "gameplay/game_modes/level_03_day_2.options",
         "output_project": "v069d_level_03/day_2",
-        "mode_name": "v069d_level_03_day_2.options"
+        "mode_name": "v069d_level_03_day_2.options",
+        "moves": [
+          {
+            "full_name": "logic/vip/mode_2/victory_item_spawner(4)",
+            "by": [
+              0.0,
+              -0.82,
+              0.0
+            ],
+            "why": "its battery 0.94 m over 0.69d's ground, on a surface 0.69d lacks: down onto the ground, 0.12 m above as on native Vostok"
+          },
+          {
+            "full_name": "logic/vip/mode_2/victory_item_spawner(12)",
+            "by": [
+              0.0,
+              -0.874,
+              0.0
+            ],
+            "why": "its battery 0.99 m over 0.69d's ground, on a surface 0.69d lacks: down onto the ground, 0.11 m above as on native Vostok"
+          },
+          {
+            "full_name": "logic/vip/mode_2/victory_item_spawner(25)",
+            "by": [
+              -0.5,
+              0.0,
+              0.1
+            ],
+            "why": "its battery inside 0.69d's debris (a surface 0.04 m under it and 0.68 m over it): 0.5 m aside onto the clear ground at native Vostok's height"
+          },
+          {
+            "full_name": "logic/vip/mode_2/victory_item_spawner(46)",
+            "by": [
+              -0.3,
+              0.0,
+              0.1
+            ],
+            "why": "its battery on the edge of a slab 0.69d cut: 0.3 m aside onto the slab, 0.12 m above as on native Vostok"
+          }
+        ]
       }
     ],
     "published_patches": [
