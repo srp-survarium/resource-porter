@@ -29,7 +29,7 @@ use serde_json::json;
 
 use super::build::Carry;
 use super::donor::{ArchiveDonor, Donor, DonorBuild};
-use super::donor_069d::{Donor069, NATIVE_HANDS_CLIP, Spec069, bind_pose, clip_bones};
+use super::donor_069d::{Donor069, NATIVE_HANDS_CLIP, Renames, Spec069, bind_pose, clip_bones};
 use super::tactical::{
     REST_ROTATION, REST_TRANSLATION, bones_names, bspline, part_distances, placement, sound_list,
     strings,
@@ -104,6 +104,8 @@ pub fn build(
             let spec = Spec069 {
                 format_version: 1,
                 guns: BTreeMap::new(),
+                renames: Renames::default(),
+                clip_events: BTreeMap::new(),
             };
             let mut d = Donor069::open(donor, &spec, target_layers, &output.join("work"))?;
             build_with(port, &mut d, target_layers, output)
