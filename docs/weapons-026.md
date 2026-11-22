@@ -77,6 +77,15 @@ moved some guns in the hands: its hands' `Weapon` bone carries what 0.26g's clip
 `offset` bone). The 0.69d0 donor: the reload states' files, `scripts/weapons-069d-donor.py
 --reload`. skhid's packs: `tactical-clips-029`, `tactical-clips-069`.
 
+`ports/tactical-reload-069d-rebased.json` (pack `tactical-clips-rebased-069`) is the guns 0.69d0
+moved in the hands, with `"placement": "live_rest"`: the hands' `Weapon` bone is held as the live
+reload holds it and the gun's `offset` curve is rebased to start where the live reload's does, so
+the gun stays where 0.26g has it and moves as the donor's. The rebased curve is fitted on the
+donor's knots (a triple knot at each frame) and checked every quarter frame (0.1 mm, 0.001 rad).
+It is run over the files players have (every released patch), not the base patches alone: the
+SVU-A is a gun of pack weapons-046, and its live reload is the two-clip one with one clip in both
+slots.
+
 ## Newer animations of a live gun
 
 `vostok-port port-animation-set` (`animation_set.rs`, `ports/animations-*.json`): a live config's

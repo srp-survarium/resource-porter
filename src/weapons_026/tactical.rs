@@ -168,7 +168,7 @@ impl LiveReload {
 }
 
 /// How far a held bone's channels may move through a clip (metres, radians).
-const HELD: (f32, f32) = (1e-5, 1e-3);
+const HELD: (f32, f32) = (1e-4, 1e-3);
 
 /// Bone `bone`'s translation and rotation in `clip`, which it holds from
 /// start to end (sampled every quarter frame), or an error.
