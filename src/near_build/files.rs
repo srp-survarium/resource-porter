@@ -225,6 +225,26 @@ pub struct FileReport {
     pub surface_chunks_dropped: BTreeMap<u32, usize>,
     /// Names the donor refers to and neither build has.
     pub missing: BTreeSet<String>,
+    /// Textures in no archive, cleared, and their switches turned off.
+    pub textures_off: BTreeSet<String>,
+    /// Materials with wind that surfaces without wind weights draw with:
+    /// those take a copy without wind (`<name>_still`).
+    pub still_materials: BTreeSet<String>,
+}
+
+/// The switches that may sample a material's texture field: `texture_<x>`
+/// is `use_t<x>` (`use_troughness`, `use_tsmoothness`), and a few have names
+/// of their own.
+fn texture_switch(field: &str) -> Vec<String> {
+    let x = field.strip_prefix("texture_").unwrap_or(field);
+    let own: &[&str] = match x {
+        "normal" => &["use_nmap"],
+        "normal_mask" => &["use_normal_mask_texture"],
+        "bump" => &["use_parallax"],
+        "detail_normal" => &["use_detail_nmap"],
+        _ => &[],
+    };
+    own.iter().map(|s| (*s).to_owned()).chain([format!("use_t{x}"), format!("use_{x}"), format!("use_{x}_map"), format!("use_{x}_texture")]).collect()
 }
 
 /// What a material does when players' materials do not use its switch set.
@@ -249,6 +269,11 @@ pub struct Importer<'a> {
     pub report: FileReport,
     textures: BTreeMap<String, String>,
     materials: BTreeMap<String, String>,
+    /// The names surfaces without wind weights draw a material by.
+    still: BTreeMap<String, String>,
+    /// Whether materials are made with their missing textures off
+    /// (`missing_textures_off`); not while one is compared with players'.
+    textures_off: bool,
     models: BTreeMap<(String, &'static str), String>,
 }
 
@@ -267,6 +292,19 @@ fn chunks(bytes: &[u8]) -> Option<Vec<(u32, &[u8])>> {
 
 const VERTICES: u32 = 3;
 const INDICES: u32 = 4;
+
+/// 0.26g's static vertex without a colour element: position, normal,
+/// tangent, binormal, uv. A vertex-colour mesh's 32 bytes add COLOR_AND_WIND,
+/// whose w is the vertex's wind weight.
+const STATIC_VERTEX: usize = 28;
+
+/// Whether a static surface's vertices carry wind weights (any layout but
+/// the plain static one).
+fn has_wind_weights(bytes: &[u8]) -> bool {
+    let Some(vertices) = chunks(bytes).and_then(|c| c.into_iter().find(|c| c.0 == VERTICES).map(|c| c.1)) else { return true };
+    let count = vertices.get(..4).map_or(0, |n| u32::from_le_bytes(n.try_into().unwrap()) as usize);
+    count == 0 || (vertices.len() - 4) / count != STATIC_VERTEX
+}
 
 /// The triangles of an index chunk (a count, then 16-bit indices), each
 /// turned to start at its smallest index, sorted: later builds write the
@@ -351,6 +389,8 @@ impl<'a> Importer<'a> {
             report: FileReport::default(),
             textures: BTreeMap::new(),
             materials: BTreeMap::new(),
+            still: BTreeMap::new(),
+            textures_off: true,
             models: BTreeMap::new(),
         }
     }
@@ -460,6 +500,9 @@ impl<'a> Importer<'a> {
                     }
                     out_effect.push(f);
                 }
+                if self.textures_off {
+                    self.missing_textures_off(name, stage, &mut out_effect);
+                }
                 let stage_known = self.effects.stage_fields.get(stage);
                 let ConfigValue::Named(stage_fields) = &part.value else { unreachable!() };
                 let mut out_stage = Vec::new();
@@ -487,6 +530,45 @@ impl<'a> Importer<'a> {
             out_top.push(NamedValue { name: "material".into(), value: ConfigValue::Named(out_parts) });
         }
         Ok(ConfigValue::Named(out_top))
+    }
+
+    /// A texture no archive has (the donor's, players', the pack's) that a
+    /// switch which is on samples: the switch is off and the texture
+    /// cleared. The donors name some they never shipped (0.32a4's
+    /// `decal/puddles_rust_smap`, `tiled/wood`, 0.44a5's
+    /// `terrain_tile_aref/sand_glass_bump`), and 0.26g logs each as not
+    /// found and samples a stand-in. One that no switch samples is cleared;
+    /// one whose switch is off is left as it is (players' own materials keep
+    /// such names); the diffuse map is the surface itself and stays.
+    fn missing_textures_off(&mut self, material: &str, stage: &str, effect: &mut [NamedValue]) {
+        let missing: Vec<(String, String)> = effect
+            .iter()
+            .filter(|f| f.name.starts_with("texture") && f.name != "texture_diffuse")
+            .filter_map(|f| match value_of(&f.value) {
+                Some(ConfigValue::String(t)) if !t.is_empty() && self.report.missing.contains(&format!("textures/{t}.dds")) => {
+                    Some((f.name.clone(), t.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (field, texture) in missing {
+            let switch = texture_switch(&field).into_iter().find(|s| effect.iter().any(|f| &f.name == s));
+            let on = |f: &NamedValue| matches!(value_of(&f.value), Some(ConfigValue::Boolean(true)));
+            let what = match &switch {
+                Some(switch) if effect.iter().any(|f| &f.name == switch && on(f)) => format!("{switch} off"),
+                Some(_) => continue,
+                None => "no switch samples it".to_owned(),
+            };
+            for f in effect.iter_mut() {
+                let Some(v) = f.value.named_mut("value") else { continue };
+                if f.name == field {
+                    *v = ConfigValue::String(String::new());
+                } else if Some(&f.name) == switch.as_ref() {
+                    *v = ConfigValue::Boolean(false);
+                }
+            }
+            self.report.textures_off.insert(format!("{material}: {stage}.{field} {texture} ({what})"));
+        }
     }
 
     /// Gives the stage a switch set that has programs.
@@ -527,6 +609,29 @@ impl<'a> Importer<'a> {
         });
     }
 
+    /// Whether the donor's material is players' own: the same values, or
+    /// the same before its missing textures were turned off (players' own
+    /// draws as it does today, and the objects naming it stay theirs).
+    fn is_theirs(&mut self, name: &str, own: &ConfigValue, made: &ConfigValue, theirs: &ConfigValue) -> Result<bool> {
+        if same_config(made, theirs) {
+            return Ok(true);
+        }
+        let mine = format!("{name}: ");
+        if !self.report.textures_off.iter().any(|e| e.starts_with(&mine)) {
+            return Ok(false);
+        }
+        let report = std::mem::take(&mut self.report);
+        self.textures_off = false;
+        let plain = self.material_026g(name, own);
+        self.textures_off = true;
+        self.report = report;
+        let same = same_config(&plain?, theirs);
+        if same {
+            self.report.textures_off.retain(|e| !e.starts_with(&mine));
+        }
+        Ok(same)
+    }
+
     /// The name to draw the donor's material `name` by.
     pub fn material(&mut self, name: &str) -> Result<String> {
         if let Some(known) = self.materials.get(name) {
@@ -543,14 +648,17 @@ impl<'a> Importer<'a> {
         }
         let own = parse(&self.donor.read(&path)?, &path)?;
         let made = self.material_026g(name, &own)?;
-        let used = if !self.shipped.is_file(&path) {
-            self.report.materials.added += 1;
-            name.to_owned()
-        } else if same_config(&made, &parse(&self.shipped.read(&path)?, &path)?) {
+        let theirs = if self.shipped.is_file(&path) { Some(parse(&self.shipped.read(&path)?, &path)?) } else { None };
+        let used = if let Some(theirs) = &theirs
+            && self.is_theirs(name, &own, &made, theirs)?
+        {
             // Players' own material: it draws as it does today. A switch set
             // it lost stays reported, for the programs that would restore it.
             self.report.materials.theirs += 1;
             return Ok(name.to_owned());
+        } else if theirs.is_none() {
+            self.report.materials.added += 1;
+            name.to_owned()
         } else {
             self.report.materials.imported += 1;
             let own = self.own(name);
@@ -563,8 +671,62 @@ impl<'a> Importer<'a> {
         Ok(used)
     }
 
-    /// A model's settings with its materials by the names to draw them by.
-    fn settings(&mut self, root: &ConfigValue) -> Result<ConfigValue> {
+    /// The name to draw a surface without wind weights by with the donor's
+    /// material `name`: the material itself if it has no wind, else a copy
+    /// of it without (`<namespace>/<name>_still`). Wind moves each vertex by
+    /// its COLOR_AND_WIND weight; a mesh with no colour element gives every
+    /// vertex, its base too, the same one, and the whole mesh slides
+    /// (X-Ray foliage did, resource-porter 4b21213).
+    fn still_material(&mut self, name: &str) -> Result<String> {
+        if let Some(known) = self.still.get(name) {
+            return Ok(known.clone());
+        }
+        let path = format!("material_instances/{name}.material");
+        let made = if self.donor.is_file(&path) {
+            let own = parse(&self.donor.read(&path)?, &path)?;
+            self.material_026g(name, &own)?
+        } else if self.shipped.is_file(&path) {
+            parse(&self.shipped.read(&path)?, &path)?
+        } else {
+            return self.material(name);
+        };
+        let mut still = made;
+        let mut windy = false;
+        if let Some(ConfigValue::Named(parts)) = still.named_mut("material") {
+            for part in parts.iter_mut() {
+                let id = effect_id(&part.value);
+                let Some(ConfigValue::Named(effect)) = part.value.named_mut("effect") else { continue };
+                let mut changed = false;
+                for f in effect.iter_mut().filter(|f| f.name == "wind_motion") {
+                    if let Some(v) = f.value.named_mut("value")
+                        && matches!(v, ConfigValue::Integer(i) if *i != 0)
+                    {
+                        *v = ConfigValue::Integer(0);
+                        changed = true;
+                    }
+                }
+                if changed {
+                    windy = true;
+                    self.programs(name, &part.name, &id, &mut part.value);
+                }
+            }
+        }
+        if !windy {
+            let used = self.material(name)?;
+            self.still.insert(name.to_owned(), used.clone());
+            return Ok(used);
+        }
+        let used = format!("{}_still", self.own(name));
+        let to = format!("material_instances/{used}.material");
+        self.out.insert(to.clone(), encode(still, &to)?);
+        self.report.still_materials.insert(name.to_owned());
+        self.still.insert(name.to_owned(), used.clone());
+        Ok(used)
+    }
+
+    /// A model's settings with its materials by the names to draw them by
+    /// (`still`: its surfaces without wind weights).
+    fn settings(&mut self, root: &ConfigValue, still: &BTreeSet<String>) -> Result<ConfigValue> {
         let ConfigValue::Named(fields) = root else { bail!("a model's settings are not a table") };
         let mut out = Vec::new();
         for field in fields {
@@ -573,10 +735,12 @@ impl<'a> Importer<'a> {
                 && let ConfigValue::Named(surfaces) = &mut field.value
             {
                 for surface in surfaces {
+                    let is_still = still.contains(&surface.name);
                     if let Some(ConfigValue::String(material)) = surface.value.named_mut("material_name")
                         && !material.is_empty()
                     {
-                        *material = self.material(&material.replace('\\', "/"))?;
+                        let name = material.replace('\\', "/");
+                        *material = if is_still { self.still_material(&name)? } else { self.material(&name)? };
                     }
                 }
             }
@@ -630,11 +794,19 @@ impl<'a> Importer<'a> {
         if !theirs.is_empty() && theirs != paths.iter().cloned().collect() {
             why = Some("other files than players' model of the name".to_owned());
         }
+        let mut still = BTreeSet::new();
+        for path in &paths {
+            if let Some(surface) = path[prefix.len()..].strip_prefix("render/").and_then(|p| p.strip_suffix("/converted_model"))
+                && !has_wind_weights(&self.donor.read(path)?)
+            {
+                still.insert(surface.to_owned());
+            }
+        }
         for path in &paths {
             let own = self.donor.read(path)?;
             let part = &path[prefix.len()..];
             let bytes = if part == "settings" {
-                let settings = self.settings(&parse(&own, path)?)?;
+                let settings = self.settings(&parse(&own, path)?, &still)?;
                 if why.is_none() && theirs.contains(path) && !same_config(&settings, &self.settings_of_theirs(path)?) {
                     why = Some("other settings or materials than players' model of the name".to_owned());
                 }

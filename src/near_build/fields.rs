@@ -136,6 +136,8 @@ pub struct FieldReport {
     pub environment_settings: usize,
     /// Settings whose key frames differ: the first frame's value is used.
     pub environment_animated: Vec<String>,
+    /// Settings the donor leaves empty (""), left to the game's default.
+    pub environment_empty: Vec<String>,
 }
 
 /// The number as 0.26g's objects write the field: both builds store a whole
@@ -229,7 +231,10 @@ impl Templates {
     /// The environment as 0.26g writes it: the object's own fields and
     /// `properties`, each setting a 0.26g project sets that the donor has, at
     /// the donor's first key frame. A setting the donor lacks is left to the
-    /// game's default; one no 0.26g project sets is reported.
+    /// game's default, and so is one it leaves empty (0.44a5's rain has
+    /// `sky_clouds_normal_texture` ""): 0.26g cooks the named texture, and ""
+    /// is a cook that fails ("resources/textures/.dds"), where 0.26g's own
+    /// rain projects have no such key. One no 0.26g project sets is reported.
     fn environment(&self, object: &ConfigValue, known: &Kind, scene: &Scene<'_>, report: &mut FieldReport) -> Result<ConfigValue> {
         let frames = match object.named("effect").and_then(|e| e.named("key_frames")) {
             Some(ConfigValue::Indexed(frames)) => frames.as_slice(),
@@ -250,6 +255,10 @@ impl Templates {
                 }
                 continue;
             };
+            if matches!(&field.value, ConfigValue::String(text) if text.is_empty()) {
+                report.environment_empty.push(field.name.clone());
+                continue;
+            }
             if frames.iter().skip(1).any(|f| f.named("properties").and_then(|p| p.named(&field.name)).is_some_and(|v| v != &field.value)) {
                 report.environment_animated.push(field.name.clone());
             }

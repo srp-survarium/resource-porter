@@ -57,7 +57,9 @@ config. A project without `map` replaces one players have (its row and config st
    a field every 0.26g object of the kind has takes 0.26g's one value. A kind 0.26g has no object
    of is left out (`portal_system`, `primitive_geometry`, `sound_environment`, `winner_point`).
    The environment's `properties` are the donor's first key frame, each setting some 0.26g
-   project sets; `layer` is `default`, the environment's the weather's.
+   project sets; `layer` is `default`, the environment's the weather's. A setting the donor
+   leaves empty is left to the game's default (`environment_empty`): 0.44a5's rain has
+   `sky_clouds_normal_texture` "", which 0.26g cooks as `resources/textures/.dds` and fails.
 4. **The rest** (`dependency`). Particles, sounds, animations and sky textures the project needs
    and players lack are added as the donor has them; one players have in another form stays
    theirs (counted in the report).
@@ -77,8 +79,22 @@ asks the archive for it, and stops with an assert ("cannot find shader") when it
 
 - **A switch set players' materials do not use** is not known to have its programs. By default
   such a material takes the largest set players' materials use that adds no switch
-  (`report.json`: `degraded`). `--keep-switch-sets` keeps the donor's sets instead: a build for
-  listing what the game then asks for (its asserts in a headless load).
+  (`report.json`: `degraded`). `--keep-switch-sets` keeps the donor's sets instead, with
+  `--donor-programs` supplying them: the Londons are built so. Taking the nearest set changed what
+  the donors draw: 31 materials of each London lost parallax, roughness or translucency maps,
+  blended terrain edges went hard (vertex_blend_technique 2 to 0), and static walls took
+  wind_motion 2 and swayed.
+- **A texture no archive has** (the donor's, players', the pack's) that a switch which is on
+  samples is cleared and the switch off (`textures_off`; `texture_<x>` is sampled by `use_t<x>`,
+  `texture_normal` by `use_nmap`, `texture_bump` by `use_parallax`, ...): 0.32a4's own `decals/puddle_rust` and
+  `tiled/wood/*` name textures it never shipped, 0.44a5's sand glass its bump map. 0.26g logs
+  each as not found and samples a stand-in. One no switch samples is cleared; the diffuse map stays
+  (it is the surface).
+- **Wind needs weights.** Wind moves each vertex by its COLOR_AND_WIND weight, which only a
+  vertex-colour mesh (32-byte vertices) carries; a surface of 0.26g's plain static layout (28
+  bytes) whose material has wind draws with a copy of the material without it
+  (`<namespace>/<name>_still`, `still_materials`), as X-Ray foliage does
+  (`disable_foliage_wind`): otherwise the whole mesh slides.
 - **`--programs <file>`** supplies the programs a file names (any text holding
   `shaders/sm_4_0/<family>/<key>` paths, such as that load's asserts) from the donor's own blobs
   (`programs`).
@@ -99,8 +115,8 @@ asks the archive for it, and stops with an assert ("cannot find shader") when it
     0.26g can feed 798 of 0.32a4's and 1 032 of 0.44a5's; the others read `scene_slomo` or the
     parallax scale and scrolling factors, which 0.26g does not set.
 - **`--donor-programs`** supplies, by the same gate, every program of the donor's in the
-  manifest's families (`shader_keys.families`: `gbuffer_pass.ps` and `vertex_base.vs`, what a
-  material and its mesh select) that players lack: whatever key 0.26g computes for the donor's own
+  manifest's families (`shader_keys.families`: `gbuffer_pass.ps`, `gbuffer_emissive_pass.ps`,
+  `vertex_base.vs` and its two shadow passes, what a material and its mesh select) that players lack: whatever key 0.26g computes for the donor's own
   materials and meshes, the donor computed too. A vertex shader's family is not in `shaders/masks`;
   it reads the macros its keys have values at. London (v0.42) gets 1 038 of 0.44a5's 1 420 (1 032
   g-buffer programs and six vertex shaders: a mesh of vertex type 2 or 11 with wind motion 3, which
