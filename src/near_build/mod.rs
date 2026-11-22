@@ -18,6 +18,7 @@
 //! projects are one consistent build. What could not be carried over is in
 //! the pack's `report.json`, by rule, never by place.
 
+pub mod coverage;
 pub mod fields;
 pub mod files;
 pub mod image;
@@ -665,7 +666,7 @@ pub fn build(
         reports.insert(to, serde_json::to_value(&report)?);
     }
 
-    let files::Importer { out, report: file_report, shipped, donor, .. } = importer;
+    let files::Importer { out, report: mut file_report, shipped, donor, .. } = importer;
     let mut out = out;
     let mut supplied = Vec::new();
     let mut families = BTreeMap::new();
@@ -692,6 +693,11 @@ pub fn build(
             out.extend(blobs);
             families = by_family;
             families_skipped = skipped;
+            if unknown_switches == files::UnknownSwitches::Keep {
+                let coverage = coverage::Coverage::read(&target_keys, &donor_keys, shipped, &out, donor)?;
+                files::refit_kept(&mut out, &mut file_report, &effects, &coverage, &m.namespace)?;
+                println!("kept donor switch sets: {} kept whole, {} took the nearest players' set (their programs are not all there)", file_report.kept_unknown_switches.len(), file_report.kept_refitted.len());
+            }
         }
         if let Some(wanted) = wanted_programs {
             let text = fs::read_to_string(wanted).with_context(|| format!("reading {}", wanted.display()))?;

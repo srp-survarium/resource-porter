@@ -80,18 +80,23 @@ fn is_selector(name: &str) -> bool {
 }
 
 fn switches(stage: &ConfigValue) -> Switches {
+    match stage.named("effect") {
+        Some(ConfigValue::Named(effect)) => effect_switches(effect),
+        _ => Switches::new(),
+    }
+}
+
+fn effect_switches(effect: &[NamedValue]) -> Switches {
     let mut on = Switches::new();
-    if let Some(ConfigValue::Named(effect)) = stage.named("effect") {
-        for field in effect {
-            match value_of(&field.value) {
-                Some(ConfigValue::Boolean(true)) if field.name.starts_with("use_") => {
-                    on.insert(field.name.clone());
-                }
-                Some(ConfigValue::Integer(i)) if is_selector(&field.name) => {
-                    on.insert(format!("{}={i}", field.name));
-                }
-                _ => {}
+    for field in effect {
+        match value_of(&field.value) {
+            Some(ConfigValue::Boolean(true)) if field.name.starts_with("use_") => {
+                on.insert(field.name.clone());
             }
+            Some(ConfigValue::Integer(i)) if is_selector(&field.name) => {
+                on.insert(format!("{}={i}", field.name));
+            }
+            _ => {}
         }
     }
     on
@@ -162,6 +167,23 @@ impl Effects {
         }
     }
 
+    /// Gives a stage the switch set `set` (its client fields as they are).
+    fn take_set(&self, stage: &str, effect: &str, value: &mut ConfigValue, set: &Switches) {
+        let Some(ConfigValue::Named(fields)) = value.named_mut("effect") else { return };
+        for f in fields.iter_mut() {
+            let Some(v) = f.value.named_mut("value") else { continue };
+            match v {
+                ConfigValue::Boolean(b) if f.name.starts_with("use_") && !self.is_client_field(stage, effect, &f.name) => *b = set.contains(&f.name),
+                ConfigValue::Integer(i) if is_selector(&f.name) => {
+                    if let Some(n) = set.iter().find_map(|s| s.strip_prefix(&format!("{}=", f.name)).and_then(|n| n.parse().ok())) {
+                        *i = n;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn has_programs(&self, stage: &str, effect: &str, flags: &[String], on: &Switches) -> bool {
         flags.iter().all(|flag| self.known.get(&(stage.to_owned(), effect.to_owned(), flag.clone())).is_some_and(|sets| sets.contains(on)))
     }
@@ -227,6 +249,12 @@ pub struct FileReport {
     pub missing: BTreeSet<String>,
     /// Textures in no archive, cleared, and their switches turned off.
     pub textures_off: BTreeSet<String>,
+    /// Textures in no archive left named: their switch stays on because the
+    /// set without it has no programs (a kept donor set).
+    pub textures_kept_named: BTreeSet<String>,
+    /// Kept donor sets whose g-buffer programs are not all there, and the
+    /// nearest set players have programs for that each took (`coverage`).
+    pub kept_refitted: Vec<Degraded>,
     /// Materials with wind that surfaces without wind weights draw with:
     /// those take a copy without wind (`<name>_still`).
     pub still_materials: BTreeSet<String>,
@@ -501,7 +529,8 @@ impl<'a> Importer<'a> {
                     out_effect.push(f);
                 }
                 if self.textures_off {
-                    self.missing_textures_off(name, stage, &mut out_effect);
+                    let stage_flags = flags(&part.value);
+                    self.missing_textures_off(name, stage, &id, &stage_flags, &mut out_effect);
                 }
                 let stage_known = self.effects.stage_fields.get(stage);
                 let ConfigValue::Named(stage_fields) = &part.value else { unreachable!() };
@@ -537,10 +566,14 @@ impl<'a> Importer<'a> {
     /// cleared. The donors name some they never shipped (0.32a4's
     /// `decal/puddles_rust_smap`, `tiled/wood`, 0.44a5's
     /// `terrain_tile_aref/sand_glass_bump`), and 0.26g logs each as not
-    /// found and samples a stand-in. One that no switch samples is cleared;
-    /// one whose switch is off is left as it is (players' own materials keep
-    /// such names); the diffuse map is the surface itself and stays.
-    fn missing_textures_off(&mut self, material: &str, stage: &str, effect: &mut [NamedValue]) {
+    /// found and samples a stand-in. The switch goes off only where the set
+    /// without it is one players have programs for: a donor set the pack
+    /// keeps stays whole (0.44a5's saksaul tile with parallax off was a set
+    /// no build compiled, and the game stopped at load). One that no switch
+    /// samples is cleared; one whose switch is off is left as it is
+    /// (players' own materials keep such names); the diffuse map is the
+    /// surface itself and stays.
+    fn missing_textures_off(&mut self, material: &str, stage: &str, effect_id: &str, stage_flags: &[String], effect: &mut [NamedValue]) {
         let missing: Vec<(String, String)> = effect
             .iter()
             .filter(|f| f.name.starts_with("texture") && f.name != "texture_diffuse")
@@ -555,7 +588,17 @@ impl<'a> Importer<'a> {
             let switch = texture_switch(&field).into_iter().find(|s| effect.iter().any(|f| &f.name == s));
             let on = |f: &NamedValue| matches!(value_of(&f.value), Some(ConfigValue::Boolean(true)));
             let what = match &switch {
-                Some(switch) if effect.iter().any(|f| &f.name == switch && on(f)) => format!("{switch} off"),
+                Some(switch) if effect.iter().any(|f| &f.name == switch && on(f)) => {
+                    let without: Switches = effect_switches(effect)
+                        .into_iter()
+                        .filter(|s| s != switch && !self.effects.is_client_field(stage, effect_id, s))
+                        .collect();
+                    if !self.effects.has_programs(stage, effect_id, stage_flags, &without) {
+                        self.report.textures_kept_named.insert(format!("{material}: {stage}.{field} {texture} ({switch} stays: the set without it has no programs)"));
+                        continue;
+                    }
+                    format!("{switch} off")
+                }
                 Some(_) => continue,
                 None => "no switch samples it".to_owned(),
             };
@@ -586,21 +629,7 @@ impl<'a> Importer<'a> {
             self.report.without_programs.push(format!("{material}: {stage} {effect} [{}] for {}", on.iter().cloned().collect::<Vec<_>>().join(","), stage_flags.join(",")));
             return;
         };
-        let Some(ConfigValue::Named(fields)) = value.named_mut("effect") else { return };
-        for f in fields.iter_mut() {
-            let Some(v) = f.value.named_mut("value") else { continue };
-            match v {
-                ConfigValue::Boolean(b) if f.name.starts_with("use_") && !self.effects.is_client_field(stage, effect, &f.name) => {
-                    *b = set.contains(&f.name)
-                }
-                ConfigValue::Integer(i) if is_selector(&f.name) => {
-                    if let Some(n) = set.iter().find_map(|s| s.strip_prefix(&format!("{}=", f.name)).and_then(|n| n.parse().ok())) {
-                        *i = n;
-                    }
-                }
-                _ => {}
-            }
-        }
+        self.effects.take_set(stage, effect, value, &set);
         self.report.degraded.push(Degraded {
             material: material.to_owned(),
             stage: stage.to_owned(),
@@ -959,4 +988,45 @@ mod tests {
         assert!(same_config(&a, &b));
         assert!(!same_config(&a, &ConfigValue::Named(vec![switch("x", false), NamedValue { name: "n".into(), value: ConfigValue::Integer(2) }])));
     }
+}
+
+/// The kept donor sets (`UnknownSwitches::Keep`) whose g-buffer programs are
+/// not all there, players' or the pack's, for every runtime choice the donor
+/// compiled (`coverage`), take the nearest set players have programs for, in
+/// the pack's material files (`out`); `kept_refitted` says which and what
+/// they dropped. One with no such set stops the build (`without_programs`).
+pub fn refit_kept(out: &mut BTreeMap<String, Vec<u8>>, report: &mut FileReport, effects: &Effects, coverage: &super::coverage::Coverage, namespace: &str) -> Result<()> {
+    let kept: Vec<String> = report.kept_unknown_switches.keys().cloned().collect();
+    for entry in kept {
+        let Some((material, stage)) = entry.split_once(": ") else { continue };
+        if stage != "g_stage" {
+            continue;
+        }
+        let candidates = [format!("{namespace}/{material}"), material.to_owned(), format!("{namespace}/{material}_still")];
+        for name in candidates {
+            let path = format!("material_instances/{name}.material");
+            let Some(bytes) = out.get(&path) else { continue };
+            let mut root = parse(bytes, &path)?;
+            let Some(part) = root.named_mut("material").and_then(|m| m.named_mut(stage)) else { continue };
+            let effect = effect_id(part);
+            let Some(ConfigValue::Named(fields)) = part.named("effect") else { continue };
+            let key = coverage.part(fields);
+            if coverage.lacking(&key) == Some(0) {
+                continue;
+            }
+            let on: Switches = switches(part).into_iter().filter(|s| !effects.is_client_field(stage, &effect, s)).collect();
+            let stage_flags = flags(part);
+            let Some(set) = effects.nearest(stage, &effect, &stage_flags, &on) else {
+                report.without_programs.push(format!("{material}: {stage} {effect} [{}]: the donor's programs are not all there and players have no smaller set", coverage.describe(&key)));
+                continue;
+            };
+            effects.take_set(stage, &effect, part, &set);
+            out.insert(path.clone(), encode(root, &path)?);
+            report.kept_refitted.push(Degraded { material: name, stage: stage.to_owned(), dropped: on.difference(&set).cloned().collect(), set: set.into_iter().collect() });
+        }
+        if report.kept_refitted.iter().any(|r| r.material.trim_start_matches(&format!("{namespace}/")).trim_end_matches("_still") == material) {
+            report.kept_unknown_switches.remove(&entry);
+        }
+    }
+    Ok(())
 }
