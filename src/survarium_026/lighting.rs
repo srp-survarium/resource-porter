@@ -17,8 +17,9 @@
 //!   `_diffuse` cube holds irradiance `E = integral of L cos` encoded the same
 //!   way without the 4, so it decodes to `E / 4`, which the lighting
 //!   multiplies by the albedo (and the sun's colour likewise, with no 1/pi).
+use crate::binary_config::ConfigValue;
 use crate::dds_cube::{CubeRgba8, decode_cube, encode_cube};
-use anyhow::{Result, ensure};
+use anyhow::{Result, bail, ensure};
 
 /// 0.69d scene luminance (its capture units times `1.2 * 2^EV`) to 0.26
 /// linear radiance.
@@ -403,9 +404,80 @@ pub fn sun_radiance(sun_intensity_r2: f32, air_density: f32, air_turbidity: f32,
     })
 }
 
+/// What 0.69d's environment does to its sun and sky beyond `sun_radiance`.
+/// Its sun light (0x200443310) and the sun its sky scatters (0x200442D33)
+/// are `sun_intensity_r2 * sun_tint.rgb`; the sky is also times
+/// `sky_intensity`. Absent, each is 1 (the loader 0x200222F18).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DonorSky {
+    pub sun_tint: [f32; 3],
+    pub sky_intensity: f32,
+}
+
+impl DonorSky {
+    pub fn read(environment: &ConfigValue) -> Result<Self> {
+        let sun_tint = match environment.named("sun_tint") {
+            None => [1.0; 3],
+            Some(ConfigValue::Float4([r, g, b, _]) | ConfigValue::Float3([r, g, b])) => [*r, *g, *b],
+            Some(ConfigValue::Float(v)) => [*v; 3],
+            Some(ConfigValue::Integer(v)) => [*v as f32; 3],
+            Some(other) => bail!("sun_tint is not a colour: {other:?}"),
+        };
+        let sky_intensity = match environment.named("sky_intensity") {
+            None => 1.0,
+            Some(ConfigValue::Float(v)) => *v,
+            Some(ConfigValue::Integer(v)) => *v as f32,
+            Some(other) => bail!("sky_intensity is not a number: {other:?}"),
+        };
+        ensure!(
+            sun_tint.iter().chain([&sky_intensity]).all(|v| v.is_finite() && *v >= 0.0),
+            "sun_tint {sun_tint:?} or sky_intensity {sky_intensity} out of range"
+        );
+        Ok(Self { sun_tint, sky_intensity })
+    }
+
+    pub fn tinted(&self, sun: [f32; 3]) -> [f32; 3] {
+        std::array::from_fn(|c| sun[c] * self.sun_tint[c])
+    }
+
+    /// 0.69d's sky over the one 0.26's atmosphere draws under the tinted sun
+    /// `sun`, both relative to the untinted `white` (where they agree: Rudnya).
+    /// 0.69d's follows the tinted sun's luminance times `sky_intensity`;
+    /// 0.26's Rayleigh sky follows `sun_intensity^1.4`.
+    pub fn scale_over_026(&self, white: [f32; 3], sun: [f32; 3]) -> f32 {
+        let luma = |v: [f32; 3]| 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+        let peak = |v: [f32; 3]| v.iter().cloned().fold(0.0, f32::max);
+        let donor = luma(sun) / luma(white) * self.sky_intensity;
+        let native = (peak(sun) / peak(white)).powf(1.4);
+        donor / native
+    }
+}
+
 #[cfg(test)]
 mod light_tests {
     use super::*;
+
+    #[test]
+    fn the_sun_takes_its_tint_and_the_sky_its_intensity() {
+        let env = |fields: Vec<(&str, ConfigValue)>| {
+            ConfigValue::Named(fields.into_iter().map(|(n, value)| crate::binary_config::NamedValue { name: n.into(), value }).collect())
+        };
+        let white = sun_radiance(0.85, 2.0, 20.0, 38.17);
+        // Rudnya has neither key: nothing changes.
+        let plain = DonorSky::read(&env(vec![])).unwrap();
+        assert_eq!(plain.tinted(white), white);
+        assert_eq!(plain.scale_over_026(white, white), 1.0);
+        // School: a grey 0.518 tint; 0.26's sky falls as 0.518^1.4.
+        let tint = ConfigValue::Float4([0.518, 0.518, 0.518, 1.0]);
+        let school = DonorSky::read(&env(vec![("sun_tint", tint), ("sky_intensity", ConfigValue::Integer(1))])).unwrap();
+        let sun = school.tinted(white);
+        assert!((sun[1] / white[1] - 0.518).abs() < 1e-6);
+        assert!((school.scale_over_026(white, sun) - 0.518f32.powf(-0.4)).abs() < 1e-4);
+        // Chemical Plant: half the sky.
+        let tint = ConfigValue::Float4([0.604, 0.604, 0.604, 1.0]);
+        let chem = DonorSky::read(&env(vec![("sun_tint", tint), ("sky_intensity", ConfigValue::Float(0.5))])).unwrap();
+        assert!((chem.scale_over_026(white, chem.tinted(white)) - 0.5 * 0.604f32.powf(-0.4)).abs() < 1e-4);
+    }
 
     #[test]
     fn sun_matches_the_atmosphere_model() {
