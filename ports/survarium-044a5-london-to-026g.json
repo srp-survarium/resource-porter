@@ -1,7 +1,7 @@
 {
   "pack": {
     "id": "london-v042",
-    "version": "2",
+    "version": "3",
     "description": "London (v0.42): 0.44a5's London (level_09, the first archived build with the 0.42 rework) as a map of its own, level 32, projects v044a_level_09/<weather>_<mode>, from 0.44a5's own projects"
   },
   "donor_build": "0.44a5",
@@ -22,7 +22,7 @@
   "shader_keys": {
     "target": "near-build/shader-key-order-026g.tsv",
     "donor": "near-build/shader-key-order-044a5.tsv",
-    "families": ["gbuffer_pass.ps", "gbuffer_emissive_pass.ps", "vertex_base.vs", "vertex_base_shadow.vs", "vertex_base_shadow_batched.vs"]
+    "families": ["gbuffer_pass.ps", "gbuffer_emissive_pass.ps", "z_only.ps", "depth_accumulate.ps", "depth_accumulate_batched.ps", "motion_vectors_accumulation.ps", "fill_reflective_shadow_map.ps", "gbuffer_nomaterial_pass.ps", "vertex_base.vs", "vertex_base_shadow.vs", "vertex_base_shadow_batched.vs", "vertex_base_z_shifted.vs", "vertex_base_lpv.vs", "vertex_base_unwrap.vs", "vertex_base_bake_decal_occlusion.vs"]
   },
   "projects": [
     {"donor": "day_3", "project": "day_2", "layer": "day", "without_lists": [ "victory_item_spawn_points" ], "environment_overrides": { "mie_fog_base_height": 32909.0 }, "parallax_probes_by_smart_attenuation": true, "map": { "id": 290, "options": "v044a_level_09_day_2", "options_from": "gameplay/game_modes/level_09_day_2.options", "weather_id": 1, "loading_screen_id": 41 }},
