@@ -59,7 +59,7 @@ fn check(exposures: &[ExposureProfile]) -> Result<()> {
                 && e.marker.fract() == 0.0
                 && seen.insert(e.marker.to_bits())
                 && [e.floor, e.ceiling].iter().all(|v| v.is_finite() && *v > 0.0)
-                && e.floor < e.ceiling,
+                && e.floor <= e.ceiling,
             "invalid or duplicate exposure profile"
         );
     }
