@@ -121,6 +121,74 @@ pub fn engine_words_cleared(b: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// A 0.26g-layout clip with bone `bone`'s (its index in the clip)
+/// translation and rotation curves (the first six of its nine) replaced by
+/// `curves`. The other curves, the events and their data stay byte for
+/// byte; the bone slots and event headers are offset to where their curves
+/// and data now are (each slot must resolve to its curve, as
+/// [`events_12_to_16`] leaves them).
+pub fn replace_bone_curves(
+    b: &[u8],
+    bone: usize,
+    curves: &[crate::skeleton_animation::Channel; 6],
+) -> Result<Vec<u8>> {
+    let h = clip_header(b)?;
+    ensure!(bone < h.bones, "the clip has {} bones, not {}", h.bones, bone + 1);
+    let base = 4 + h.bones * BONE_RECORD;
+    let data = base + h.events * EVENT_HEADER_026;
+    let mut curves_out = vec![];
+    let mut starts = vec![];
+    let mut at = data;
+    for index in 0..h.bones {
+        for channel in 0..9 {
+            let slot = 4 + (index * 9 + channel) * 8;
+            ensure!(
+                slot + u32_at(b, slot)? as usize == at,
+                "bone slot {index}.{channel} does not point at its curve"
+            );
+            let pairs = u32_at(b, at)? as usize;
+            let end = at + 4 + pairs * 8;
+            ensure!(b.len() >= end, "truncated curve of bone {index}");
+            starts.push(data + curves_out.len());
+            match curves.get(channel).filter(|_| index == bone) {
+                Some(curve) => {
+                    ensure!(
+                        curve.knots.len() == curve.points.len() && curve.knots.len() >= 5,
+                        "a replacement curve of {} knots and {} points",
+                        curve.knots.len(),
+                        curve.points.len()
+                    );
+                    curves_out.extend_from_slice(&u32::try_from(curve.knots.len())?.to_le_bytes());
+                    for (knot, point) in curve.knots.iter().zip(&curve.points) {
+                        curves_out.extend_from_slice(&knot.to_le_bytes());
+                        curves_out.extend_from_slice(&point.to_le_bytes());
+                    }
+                }
+                None => curves_out.extend_from_slice(&b[at..end]),
+            }
+            at = end;
+        }
+    }
+    let shift = (data + curves_out.len()) as i64 - at as i64;
+    let mut out = b[..data].to_vec();
+    for (k, start) in starts.iter().enumerate() {
+        let slot = 4 + k * 8;
+        out[slot..slot + 4].copy_from_slice(&u32::try_from(start - slot)?.to_le_bytes());
+    }
+    for event in 0..h.events {
+        let header = base + event * EVENT_HEADER_026;
+        let offset = i64::from(u32_at(b, header)?);
+        ensure!(
+            header as i64 + offset >= at as i64,
+            "event channel {event}'s data is not after the curves"
+        );
+        out[header..header + 4].copy_from_slice(&u32::try_from(offset + shift)?.to_le_bytes());
+    }
+    out.extend_from_slice(&curves_out);
+    out.extend_from_slice(&b[at..]);
+    Ok(out)
+}
+
 /// The names of a 0.26g-layout clip's event channels.
 pub fn event_names(b: &[u8]) -> Result<Vec<String>> {
     let h = clip_header(b)?;

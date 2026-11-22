@@ -33,6 +33,12 @@
 //! is its hands' `Weapon` bone's), and their reload would slide the gun at
 //! its start and end. A part a port lists in `accept` (a lever, a cartridge)
 //! is reported, not refused.
+//!
+//! A gun the donor holds by other bones' numbers, its hands the same, takes
+//! [`Placement::LiveRest`]: the hands' `Weapon` held as the live reload holds
+//! it and the gun's `offset` curve rebased to start where the live reload's
+//! does ([`Rebase`]); the gun's own motion stays the donor's. A live two-clip reload that plays one clip for both (the
+//! SVU-A of weapons-046) is converted as a one-clip one.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -44,9 +50,11 @@ use serde_json::json;
 
 use super::build::Carry;
 use super::donor::{ArchiveDonor, Donor, DonorBuild};
-use super::donor_069d::{Donor069, NATIVE_HANDS_CLIP, Spec069, bind_pose, clip_bones};
+use super::donor_069d::{Donor069, NATIVE_HANDS_CLIP, Spec069, clip_bones};
 use super::{clips, get, string_of};
-use crate::skeleton_animation::{Clip, Frame, Rig, euler_to_basis, multiply, transform};
+use crate::skeleton_animation::{
+    Channel, Clip, Frame, Rig, basis_to_euler, euler_to_basis, multiply, transform, transpose,
+};
 use crate::weapon::{parse_config, prepare_empty_output};
 use crate::{ConfigValue as V, ResourceDb};
 
@@ -86,6 +94,316 @@ pub struct TacticalGun {
     /// differ from 0.26g's, each with why; reported.
     #[serde(default)]
     pub accept: BTreeMap<String, String>,
+    /// Where the gun hangs in the hands through the donor's reload.
+    #[serde(default)]
+    pub placement: Placement,
+}
+
+/// Where a ported reload hangs the gun in the hands.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+    /// The donor's clips as they are: its hands' `Weapon` bone and its gun's
+    /// `offset` bone place the gun as 0.26g's do.
+    #[default]
+    Donor,
+    /// The donor keeps the gun's place in the hands in other bones' numbers
+    /// than 0.26g, its hands as ours: 0.69d0 moved the SR-2M's, SR-3M's and
+    /// UMP-45's from the gun's `offset` bone to the hands' `Weapon` bone, and
+    /// the AEK-919K's offset to nothing. The hands' `Weapon` is held as the
+    /// live reload holds it and the gun's `offset` curve is rebased to start
+    /// where the live reload's does ([`Rebase`]): the gun's root, and what
+    /// hangs on it (the SR-2M's left-hand `_reload` points), stays where
+    /// 0.26g has it; the gun's own motion is the donor's.
+    LiveRest,
+}
+
+/// The live reload a port replaces, by its clips.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum LiveReload {
+    /// 0.26g's one-clip reload (303): one hands clip in its four slots, one
+    /// item clip.
+    OneClip { hands: String, item: String },
+    /// The two-clip reload (314) with one clip in both slots: weapons-046's
+    /// SVU-A (0.46c2 reloads it with one).
+    SameClipTwice { hands: String, item: String },
+}
+
+impl LiveReload {
+    fn parse(state: &V) -> Result<Self> {
+        let hands = strings(get(state, "user_animations"))?;
+        let item = strings(get(state, "animations"))?;
+        let one = |list: &[String], count: usize| {
+            (list.len() == count && list.iter().all(|c| *c == list[0])).then(|| list[0].clone())
+        };
+        let clips = |count: usize| match (one(&hands, 4 * count), one(&item, count)) {
+            (Some(hands), Some(item)) => Ok((hands, item)),
+            _ => bail!(
+                "its reload's {} hands and {} item clips are not one of each in every slot",
+                hands.len(),
+                item.len()
+            ),
+        };
+        match get(state, "state_type") {
+            Some(V::Integer(ONE_CLIP_RELOAD)) => {
+                let (hands, item) = clips(1)?;
+                Ok(Self::OneClip { hands, item })
+            }
+            Some(V::Integer(TWO_CLIP_RELOAD)) => {
+                let (hands, item) = clips(2)?;
+                Ok(Self::SameClipTwice { hands, item })
+            }
+            other => bail!(
+                "its reload state {other:?} is neither the one-clip ({ONE_CLIP_RELOAD}) nor the \
+                 two-clip one ({TWO_CLIP_RELOAD})"
+            ),
+        }
+    }
+
+    fn clips(&self) -> (&str, &str) {
+        match self {
+            Self::OneClip { hands, item } | Self::SameClipTwice { hands, item } => (hands, item),
+        }
+    }
+}
+
+/// How far a held bone's channels may move through a clip (metres, radians).
+const HELD: f32 = 1e-5;
+
+/// Bone `bone`'s translation and rotation in `clip`, which it holds from
+/// start to end (sampled every quarter frame), or an error.
+fn holds(clip: &Clip, bone: &str) -> Result<[f32; 6]> {
+    let i = clip
+        .bones
+        .iter()
+        .position(|b| b == bone)
+        .with_context(|| format!("the clip has no {bone} bone"))?;
+    let channels = &clip.tracks[i].channels;
+    let start: [f32; 6] = std::array::from_fn(|c| channels[c].evaluate(0.0));
+    let frames = (clip.duration() * 4.0).ceil() as usize;
+    for step in 0..=frames {
+        let t = step as f32 / 4.0;
+        for (c, value) in start.iter().enumerate() {
+            let now = channels[c].evaluate(t);
+            ensure!(
+                (now - value).abs() <= HELD,
+                "{bone} moves in the clip (channel {c}: {value} at its start, {now} at frame {t})"
+            );
+        }
+    }
+    Ok(start)
+}
+
+fn frame_of(v: [f32; 6]) -> Frame {
+    (euler_to_basis([v[3], v[4], v[5]]), [v[0], v[1], v[2]])
+}
+
+/// `a`, then `b` (row vectors: `a`'s frame inside `b`'s).
+fn then(a: &Frame, b: &Frame) -> Frame {
+    let moved = transform(a.1, &b.0);
+    (multiply(&a.0, &b.0), [0, 1, 2].map(|k| moved[k] + b.1[k]))
+}
+
+fn inverse(f: &Frame) -> Frame {
+    let basis = transpose(&f.0);
+    let moved = transform(f.1, &basis);
+    (basis, moved.map(|v| -v))
+}
+
+/// How far apart two frames are: metres, and radians (from the bases'
+/// difference, `|A - B| = 2 sqrt 2 sin(angle / 2)`, which resolves small
+/// turns an f32 `acos` of the trace does not).
+fn apart(a: &Frame, b: &Frame) -> (f32, f32) {
+    let distance = (0..3).map(|k| (a.1[k] - b.1[k]).powi(2)).sum::<f32>().sqrt();
+    let norm = (0..3)
+        .flat_map(|r| (0..3).map(move |c| (r, c)))
+        .map(|(r, c)| (a.0[r][c] - b.0[r][c]).powi(2))
+        .sum::<f32>()
+        .sqrt();
+    (distance, 2.0 * (norm / (2.0 * 2f32.sqrt())).min(1.0).asin())
+}
+
+/// Whether both of `(distance, turn)` are within `limit`'s.
+fn within((distance, turn): (f32, f32), limit: (f32, f32)) -> bool {
+    distance <= limit.0 && turn <= limit.1
+}
+
+/// How far a refitted `offset` curve may stray from the frames it was fitted
+/// to, between its samples (every quarter frame): metres, radians.
+const REFIT_TRANSLATION: f32 = 1e-4;
+const REFIT_ROTATION: f32 = 1e-3;
+
+/// [`Placement::LiveRest`]: the hands' `Weapon` held as the live reload
+/// holds it, and the gun's `offset` curve `O(t) * Q` ([`then`]'s order) with
+/// `Q = O(0)^-1 * O_live(0)`, `O` the donor's (local frames, under the gun's
+/// root, which the donor's and the live clips hold alike). The offset starts
+/// where the live reload's does and moves as the donor's; nothing else of the
+/// clips changes. 0.69d0's SR-2M, SR-3M, AEK-919K and UMP-45 empty reloads
+/// are their live reloads so re-expressed: rebased, each reproduces the live
+/// `offset` curve within 2 mm and 0.012 rad.
+struct Rebase {
+    /// The live hands' `Weapon`, and the donor's it replaces.
+    weapon: [f32; 6],
+    donor_weapon: [f32; 6],
+    q: Frame,
+}
+
+impl Rebase {
+    fn new(
+        rig: &Rig,
+        (live_hands, live_item): (&Clip, &Clip),
+        donor_hands: &[Clip; 2],
+        donor_item: &[Clip; 2],
+    ) -> Result<Self> {
+        let weapon = holds(live_hands, "Weapon").context("the live reload's hands")?;
+        let [donor_weapon, empty] = [0, 1].map(|k| holds(&donor_hands[k], "Weapon"));
+        let (donor_weapon, empty) = (
+            donor_weapon.context("the donor's tactical hands")?,
+            empty.context("the donor's empty hands")?,
+        );
+        ensure!(
+            within(apart(&frame_of(donor_weapon), &frame_of(empty)), (HELD, 1e-3)),
+            "the donor's tactical and empty hands hold Weapon at {donor_weapon:?} and {empty:?}"
+        );
+        let offset = rig.index("offset").context("the gun has no offset bone")?;
+        let root = rig.bones[offset]
+            .parent
+            .map(|p| rig.bones[p].name.clone())
+            .context("the gun's offset bone is its root")?;
+        let at_start = |clip: &Clip, bone: &str| -> Result<Frame> {
+            let i = clip
+                .bones
+                .iter()
+                .position(|b| b == bone)
+                .with_context(|| format!("an item clip without {bone}"))?;
+            Ok(frame_of(std::array::from_fn(|c| {
+                clip.tracks[i].channels[c].evaluate(0.0)
+            })))
+        };
+        let live_root = at_start(live_item, &root)?;
+        for clip in donor_item {
+            holds(clip, &root).context("the donor's item clip")?;
+            ensure!(
+                within(apart(&at_start(clip, &root)?, &live_root), (HELD, 1e-3)),
+                "the donor's item clip holds the gun's root {root} otherwise than the live one"
+            );
+        }
+        let [tactical, empty] = [0, 1].map(|k| at_start(&donor_item[k], "offset"));
+        let (tactical, empty) = (tactical?, empty?);
+        ensure!(
+            within(apart(&tactical, &empty), (1e-4, 1e-3)),
+            "the donor's tactical and empty item clips start the offset bone {:?} apart",
+            apart(&tactical, &empty)
+        );
+        Ok(Self {
+            weapon,
+            donor_weapon,
+            q: then(&inverse(&tactical), &at_start(live_item, "offset")?),
+        })
+    }
+
+    /// A donor hands clip with `Weapon` held at the live hands'.
+    fn hands(&self, bytes: &[u8], clip: &Clip) -> Result<Vec<u8>> {
+        let w = clip
+            .bones
+            .iter()
+            .position(|b| b == "Weapon")
+            .context("a hands clip without the Weapon bone")?;
+        let channels = &clip.tracks[w].channels;
+        let curves = std::array::from_fn(|c| {
+            Channel::constant(self.weapon[c], *channels[c].knots.last().expect("knots"))
+        });
+        self.check(bytes, clip, w, clips::replace_bone_curves(bytes, w, &curves)?, |_| {
+            frame_of(self.weapon)
+        })
+    }
+
+    /// A donor item clip with its `offset` curve rebased: sampled every
+    /// frame (and at its end), fitted again, then checked every quarter frame.
+    fn item(&self, bytes: &[u8], clip: &Clip) -> Result<Vec<u8>> {
+        let o = clip
+            .bones
+            .iter()
+            .position(|b| b == "offset")
+            .context("an item clip without the offset bone")?;
+        let channels = &clip.tracks[o].channels;
+        let rebased = |t: f32| {
+            then(
+                &frame_of(std::array::from_fn(|c| channels[c].evaluate(t))),
+                &self.q,
+            )
+        };
+        let start = channels[..6]
+            .iter()
+            .map(|c| c.knots[0])
+            .fold(f32::INFINITY, f32::min);
+        let end = clip.duration();
+        let mut times: Vec<f32> = (0..)
+            .map(|k| start + k as f32)
+            .take_while(|t| *t < end)
+            .collect();
+        times.push(end);
+        let mut values: [Vec<f32>; 6] = Default::default();
+        for t in &times {
+            let (basis, at) = rebased(*t);
+            let mut angles = basis_to_euler(&basis);
+            // Continuous through the clip: no jump of a full turn.
+            if let Some(prev) = values[3].last().map(|_| [3, 4, 5].map(|c| *values[c].last().unwrap())) {
+                for (a, p) in angles.iter_mut().zip(prev) {
+                    *a -= std::f32::consts::TAU * ((*a - p) / std::f32::consts::TAU).round();
+                }
+            }
+            for (c, v) in at.iter().chain(&angles).enumerate() {
+                values[c].push(*v);
+            }
+        }
+        let curves: [Channel; 6] = (0..6)
+            .map(|c| Channel::fit(&times, &values[c]))
+            .collect::<Result<Vec<_>>>()?
+            .try_into()
+            .expect("six curves");
+        self.check(bytes, clip, o, clips::replace_bone_curves(bytes, o, &curves)?, rebased)
+    }
+
+    /// `out` (`bytes` with bone `bone`'s curves replaced) checked: every other
+    /// curve as it was, and the bone within [`REFIT_TRANSLATION`] and
+    /// [`REFIT_ROTATION`] of `wanted` every quarter frame.
+    fn check(
+        &self,
+        bytes: &[u8],
+        clip: &Clip,
+        bone: usize,
+        out: Vec<u8>,
+        wanted: impl Fn(f32) -> Frame,
+    ) -> Result<Vec<u8>> {
+        let names = clip.to_bones_names()?;
+        let new = Clip::parse(&out, &names)?;
+        ensure!(new.bones == clip.bones, "the rebased clip drives other bones");
+        for (i, (a, b)) in new.tracks.iter().zip(&clip.tracks).enumerate() {
+            let same = |c: usize| a.channels[c] == b.channels[c];
+            ensure!(
+                (0..9).all(|c| (i == bone && c < 6) || same(c)),
+                "the rebase changed the curves of {}",
+                clip.bones[i]
+            );
+        }
+        ensure!(
+            clips::event_names(&out)? == clips::event_names(bytes)?,
+            "the rebase lost an event channel"
+        );
+        let channels = &new.tracks[bone].channels;
+        for step in 0..=(clip.duration() * 4.0).ceil() as usize {
+            let t = (step as f32 / 4.0).min(clip.duration());
+            let got = frame_of(std::array::from_fn(|c| channels[c].evaluate(t)));
+            let (dt, dr) = apart(&got, &wanted(t));
+            ensure!(
+                dt <= REFIT_TRANSLATION && dr <= REFIT_ROTATION,
+                "the rebased {} strays {dt} m / {dr} rad at frame {t}",
+                clip.bones[bone]
+            );
+        }
+        Ok(out)
+    }
 }
 
 impl TacticalPort {
@@ -339,11 +657,7 @@ fn build_with<D: Donor>(
         let live = parse_config(carry.target(), &gun.config, "live weapon")?.root;
         let theirs = carry.donor().item_config(&gun.donor_item)?;
         let state = get(&live, "states.reload").with_context(what)?.clone();
-        ensure!(
-            get(&state, "state_type") == Some(&V::Integer(ONE_CLIP_RELOAD)),
-            "{}: its reload is not the one-clip one ({ONE_CLIP_RELOAD})",
-            what()
-        );
+        let live_reload = LiveReload::parse(&state).with_context(what)?;
         let donor_state = get(&theirs, "states.reload").with_context(what)?.clone();
         let kind = match get(&donor_state, "state_type") {
             Some(V::Integer(k)) => rules.state_type(*k)?,
@@ -363,25 +677,99 @@ fn build_with<D: Donor>(
             "{}: the donor's reload is not [tactical, empty] x 4 and [tactical, empty]",
             what()
         );
-        let live_hands = strings(get(&state, "user_animations"))?;
-        let live_item = strings(get(&state, "animations"))?;
-        ensure!(
-            live_hands.len() == 4 && live_item.len() == 1,
-            "{}: the live reload has {} hands and {} item clips, not 4 and 1",
-            what(),
-            live_hands.len(),
-            live_item.len()
+        let (live_hands, live_item) = live_reload.clips();
+        let mut notes = vec![];
+        if let LiveReload::SameClipTwice { .. } = live_reload {
+            notes.push(format!(
+                "the live reload is the two-clip one ({TWO_CLIP_RELOAD}) with one clip for both"
+            ));
+        }
+
+        // The live clips and the gun's rig, which the donor's are checked
+        // against (and placed by).
+        let read_target = |name: &str, carry: &mut Carry<'_, D>| -> Result<Clip> {
+            Clip::parse(
+                &carry.target().read(&bspline(name))?,
+                &carry.target().read(&bones_names(name))?,
+            )
+            .with_context(|| name.to_owned())
+        };
+        let live_h = read_target(live_hands, &mut carry)?;
+        let live_i = read_target(live_item, &mut carry)?;
+        let live_idle = read_target(
+            &strings(get(&live, "states.idle.animations"))?[0],
+            &mut carry,
+        )?;
+        let model = string_of(get(&live, "object.model")).context("object.model")?;
+        let skeleton = string_of(get(&live, "object.skeleton")).context("object.skeleton")?;
+        let rig = Rig::parse_root_as_skeleton(
+            &carry
+                .target()
+                .read(&format!("models/{model}.skinned_model/render/bind_pose"))?,
+            &carry
+                .target()
+                .read(&format!("animations/skeletons/{skeleton}.skeleton"))?,
         );
+        let rig = match rig {
+            Ok((r, renamed)) => {
+                if let Some((ours, theirs)) = renamed {
+                    notes.push(format!(
+                        "the model's root {ours} is the skeleton's {theirs}, which the clips drive"
+                    ));
+                }
+                r
+            }
+            Err(e) => {
+                refused.push(format!("{}: the gun's rig: {e}", what()));
+                continue;
+            }
+        };
+
+        // The donor's clips; with `placement: live_rest` the hands' `Weapon`
+        // held where the live reload's `offset` puts the gun.
+        let read_donor = |name: &String, carry: &mut Carry<'_, D>| -> Result<(Vec<u8>, Vec<u8>)> {
+            Ok((
+                carry.donor().read(&bspline(name))?,
+                carry.donor().read(&bones_names(name))?,
+            ))
+        };
+        let mut hands_files = [
+            read_donor(&donor_hands[0], &mut carry)?,
+            read_donor(&donor_hands[1], &mut carry)?,
+        ];
+        let mut item_files = [
+            read_donor(&donor_item[0], &mut carry)?,
+            read_donor(&donor_item[1], &mut carry)?,
+        ];
+        if gun.placement == Placement::LiveRest {
+            let parse = |(b, n): &(Vec<u8>, Vec<u8>)| Clip::parse(b, n);
+            let hands_clips = [parse(&hands_files[0])?, parse(&hands_files[1])?];
+            let item_clips = [parse(&item_files[0])?, parse(&item_files[1])?];
+            let rebase = Rebase::new(&rig, (&live_h, &live_i), &hands_clips, &item_clips)
+                .with_context(what)?;
+            for (files, clip) in hands_files.iter_mut().zip(&hands_clips) {
+                files.0 = rebase.hands(&files.0, clip).with_context(what)?;
+            }
+            for (files, clip) in item_files.iter_mut().zip(&item_clips) {
+                files.0 = rebase.item(&files.0, clip).with_context(what)?;
+            }
+            notes.push(format!(
+                "the hands' Weapon held at {:?} (the live reload's), not the donor's {:?}; the \
+                 gun's offset curve rebased by {:?}: it starts where the live reload's does",
+                rebase.weapon, rebase.donor_weapon, rebase.q
+            ));
+        }
 
         // The clips: 0.26g's where it has them alike, else the donor's.
-        let mut ship = |name: &String, carry: &mut Carry<'_, D>| -> Result<String> {
+        let mut ship = |name: &String,
+                        (bytes, names): &(Vec<u8>, Vec<u8>),
+                        carry: &mut Carry<'_, D>|
+         -> Result<String> {
             let path = bspline(name);
-            let bytes = carry.donor().read(&path)?;
-            let names = carry.donor().read(&bones_names(name))?;
             if carry.target().contains(&path)
-                && clip_bones(&carry.target().read(&bones_names(name))?)? == clip_bones(&names)?
+                && clip_bones(&carry.target().read(&bones_names(name))?)? == clip_bones(names)?
                 && clips::engine_words_cleared(&carry.target().read(&path)?)?
-                    == clips::engine_words_cleared(&bytes)?
+                    == clips::engine_words_cleared(bytes)?
             {
                 return Ok(name.clone());
             }
@@ -390,22 +778,31 @@ fn build_with<D: Donor>(
             } else {
                 name.clone()
             };
-            if !written.contains_key(&at) {
-                ensure!(
-                    !carry.target().contains(&bspline(&at)),
-                    "{at}: the target has it"
-                );
-                carry.raw(&bspline(&at), &bytes)?;
-                carry.raw(&bones_names(&at), &names)?;
-                written.insert(at.clone(), bytes);
+            match written.get(&at) {
+                Some(shipped) => ensure!(
+                    shipped == bytes,
+                    "{at}: two guns make it otherwise (their placements differ)"
+                ),
+                None => {
+                    ensure!(
+                        !carry.target().contains(&bspline(&at)),
+                        "{at}: the target has it"
+                    );
+                    carry.raw(&bspline(&at), bytes)?;
+                    carry.raw(&bones_names(&at), names)?;
+                    written.insert(at.clone(), bytes.clone());
+                }
             }
             Ok(at)
         };
-        let mut pair = |list: &[String], carry: &mut Carry<'_, D>| -> Result<[String; 2]> {
-            Ok([ship(&list[0], carry)?, ship(&list[1], carry)?])
-        };
-        let hands_pair = pair(&donor_hands, &mut carry)?;
-        let item_pair = pair(&donor_item, &mut carry)?;
+        let hands_pair = [
+            ship(&donor_hands[0], &hands_files[0], &mut carry)?,
+            ship(&donor_hands[1], &hands_files[1], &mut carry)?,
+        ];
+        let item_pair = [
+            ship(&donor_item[0], &item_files[0], &mut carry)?,
+            ship(&donor_item[1], &item_files[1], &mut carry)?,
+        ];
 
         // The checks against the live rig and rest.
         let read_clip = |name: &str, carry: &mut Carry<'_, D>| -> Result<Clip> {
@@ -422,23 +819,8 @@ fn build_with<D: Donor>(
             };
             Clip::parse(&b, &n).with_context(|| name.to_owned())
         };
-        let mut notes = vec![];
-        let live_h = read_clip(&live_hands[0], &mut carry)?;
-        let live_i = read_clip(&live_item[0], &mut carry)?;
-        let live_idle = read_clip(
-            &strings(get(&live, "states.idle.animations"))?[0],
-            &mut carry,
-        )?;
         let live_set: BTreeSet<String> = live_i.bones.iter().cloned().collect();
-        let model = string_of(get(&live, "object.model")).context("object.model")?;
-        let mut model_bones: BTreeSet<String> = bind_pose(
-            &carry
-                .target()
-                .read(&format!("models/{model}.skinned_model/render/bind_pose"))?,
-        )?
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
+        let mut model_bones: BTreeSet<String> = rig.bones.iter().map(|b| b.name.clone()).collect();
         model_bones.insert("object_movement".into());
         let mut pairs = vec![];
         for k in 0..2 {
@@ -479,22 +861,6 @@ fn build_with<D: Donor>(
             }
             pairs.push((h, i, item_pair[k].clone()));
         }
-        let skeleton = string_of(get(&live, "object.skeleton")).context("object.skeleton")?;
-        let rig = Rig::parse(
-            &carry
-                .target()
-                .read(&format!("models/{model}.skinned_model/render/bind_pose"))?,
-            &carry
-                .target()
-                .read(&format!("animations/skeletons/{skeleton}.skeleton"))?,
-        );
-        let rig = match rig {
-            Ok(r) => r,
-            Err(e) => {
-                refused.push(format!("{}: the gun's rig: {e}", what()));
-                continue;
-            }
-        };
         let mut rest = [0.0f32; 2];
         for ((h, i, item_name), (end, at)) in pairs
             .iter()
@@ -555,7 +921,7 @@ fn build_with<D: Donor>(
         cfg.set_path("states.reload.state_type", V::Integer(TWO_CLIP_RELOAD))?;
         cfg.set_path(
             "states.reload.user_animations",
-            names(live_hands.iter().flat_map(|_| hands_pair.clone()).collect()),
+            names((0..4).flat_map(|_| hands_pair.clone()).collect()),
         )?;
         cfg.set_path("states.reload.animations", names(item_pair.to_vec()))?;
         let mut donor_sounds = false;
