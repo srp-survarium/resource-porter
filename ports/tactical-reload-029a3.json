@@ -1,0 +1,106 @@
+{
+ "format_version": 1,
+ "id": "tactical-clips-029",
+ "donor_build": "0.29a3",
+ "guns": [
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74m.options",
+   "donor_item": "gameplay/items/weapons/wpn_ak_74m.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74n.options",
+   "donor_item": "gameplay/items/weapons/wpn_ak_74n.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74n_premium.options",
+   "donor_item": "gameplay/items/weapons/wpn_ak_74n_premium.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74u.options",
+   "donor_item": "gameplay/items/weapons/wpn_ak_74u.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ak_74u_premium.options",
+   "donor_item": "gameplay/items/weapons/wpn_ak_74u_premium.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_akmn.options",
+   "donor_item": "gameplay/items/weapons/wpn_akmn.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_akmn_premium.options",
+   "donor_item": "gameplay/items/weapons/wpn_akmn_premium.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_akmn_premium_2.options",
+   "donor_item": "gameplay/items/weapons/wpn_akmn_premium_2.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_rpk.options",
+   "donor_item": "gameplay/items/weapons/wpn_rpk.options",
+   "accept": {
+    "patron": "the top round in the magazine's lips: 1.3 cm and 8 degrees from 0.26g's idle at the tactical clip's start and end, under the receiver"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_uzi.options",
+   "donor_item": "gameplay/items/weapons/wpn_uzi.options",
+   "accept": {
+    "zatvor": "the bolt: 7 mm back at the tactical clip's end"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_uzi_premium.options",
+   "donor_item": "gameplay/items/weapons/wpn_uzi_premium.options",
+   "accept": {
+    "zatvor": "the bolt: 7 mm back at the tactical clip's end"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_uzi_premium_2.options",
+   "donor_item": "gameplay/items/weapons/wpn_uzi_premium_2.options",
+   "accept": {
+    "zatvor": "the bolt: 7 mm back at the tactical clip's end"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_val.options",
+   "donor_item": "gameplay/items/weapons/wpn_val.options"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vss.options",
+   "donor_item": "gameplay/items/weapons/wpn_vss.options"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vss_premium.options",
+   "donor_item": "gameplay/items/weapons/wpn_vss_premium.options"
+  }
+ ],
+ "not_ported": {
+  "(the rest)": "no two-clip reload in 0.29a3: ports/tactical-reload-069d.json takes them from 0.69d0 or says why not"
+ }
+}

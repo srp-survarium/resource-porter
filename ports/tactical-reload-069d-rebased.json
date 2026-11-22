@@ -1,0 +1,63 @@
+{
+ "format_version": 1,
+ "id": "tactical-clips-rebased-069",
+ "donor_build": "0.69d0",
+ "guns": [
+  {
+   "config": "gameplay/items/weapons/wpn_sr3m.options",
+   "donor_item": "sr3m",
+   "placement": "live_rest"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sr3m_premium.options",
+   "donor_item": "sr3m",
+   "placement": "live_rest"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_sr2m.options",
+   "donor_item": "sr2m",
+   "placement": "live_rest"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ump45.options",
+   "donor_item": "ump45",
+   "placement": "live_rest"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_aek_919k.options",
+   "donor_item": "aek_919k",
+   "placement": "live_rest"
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vepr.options",
+   "donor_item": "vepr",
+   "placement": "live_rest",
+   "accept": {
+    "safety": "the fire selector lever: 0.69d0's Vepr clips hold it 12 degrees from 0.26g's idle"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_vepr_premium.options",
+   "donor_item": "vepr",
+   "placement": "live_rest",
+   "accept": {
+    "safety": "the fire selector lever: 0.69d0's Vepr clips hold it 12 degrees from 0.26g's idle"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_ppsh.options",
+   "donor_item": "ppsh",
+   "placement": "live_rest",
+   "accept": {
+    "zatvor": "the bolt: 0.69d0 rests it 1.3 cm from 0.26g's idle, and starts the empty reload with it 5.7 cm away (the open bolt forward on an empty gun)"
+   }
+  },
+  {
+   "config": "gameplay/items/weapons/wpn_svu_a.options",
+   "donor_item": "svu_a"
+  }
+ ],
+ "not_ported": {
+  "gameplay/items/weapons/wpn_jackhammer.options": "0.69d0 plays one clip in both slots too (tactical_reload_time 3.2 = reload_time)"
+ }
+}

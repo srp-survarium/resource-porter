@@ -91,7 +91,9 @@ pub struct BuildReport {
     pub notes: BTreeMap<String, Vec<String>>,
 }
 
-struct Carry<'a, D: Donor> {
+/// Carries files from a donor into a bundle's overlay (the rules above);
+/// what [`build`] and the reload port ([`super::tactical_069d`]) share.
+pub(crate) struct Carry<'a, D: Donor> {
     donor: &'a mut D,
     target: &'a mut ResourceDb,
     overlay: &'a Path,
@@ -104,7 +106,42 @@ struct Carry<'a, D: Donor> {
     material_templates: BTreeMap<String, V>,
 }
 
-impl<D: Donor> Carry<'_, D> {
+impl<'a, D: Donor> Carry<'a, D> {
+    pub(crate) fn new(
+        donor: &'a mut D,
+        target: &'a mut ResourceDb,
+        overlay: &'a Path,
+        source: String,
+    ) -> Self {
+        Self {
+            donor,
+            target,
+            overlay,
+            files: vec![],
+            written: BTreeSet::new(),
+            reused: BTreeSet::new(),
+            source,
+            file_values: BTreeMap::new(),
+            warnings: vec![],
+            material_templates: BTreeMap::new(),
+        }
+    }
+
+    /// The files written, the target's files reused, the warnings.
+    pub(crate) fn finish(self) -> (Vec<BuiltFile>, BTreeSet<String>, Vec<String>) {
+        let mut files = self.files;
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        (files, self.reused, self.warnings)
+    }
+
+    pub(crate) fn donor(&mut self) -> &mut D {
+        self.donor
+    }
+
+    pub(crate) fn target(&mut self) -> &mut ResourceDb {
+        self.target
+    }
+
     /// A native material of base material `base`: the listed one, or the
     /// first native weapon material of that base.
     fn material_template(&mut self, base: &str) -> Result<V> {
@@ -134,7 +171,7 @@ impl<D: Donor> Carry<'_, D> {
         bail!("the target has no weapon material of base {base}")
     }
 
-    fn raw(&mut self, path: &str, bytes: &[u8]) -> Result<()> {
+    pub(crate) fn raw(&mut self, path: &str, bytes: &[u8]) -> Result<()> {
         ensure!(self.written.insert(path.into()), "{path} written twice");
         let dest = crate::archive::safe_join(self.overlay, path)?;
         fs::create_dir_all(dest.parent().unwrap())?;
@@ -143,7 +180,7 @@ impl<D: Donor> Carry<'_, D> {
         Ok(())
     }
 
-    fn config(&mut self, path: &str, root: V) -> Result<()> {
+    pub(crate) fn config(&mut self, path: &str, root: V) -> Result<()> {
         ensure!(self.written.insert(path.into()), "{path} written twice");
         write_generated_config(
             self.overlay,
@@ -156,7 +193,7 @@ impl<D: Donor> Carry<'_, D> {
 
     /// Ships `path` from the donor, in 0.26g's layout, unless the target has
     /// it, and everything it names.
-    fn file(&mut self, path: &str) -> Result<()> {
+    pub(crate) fn file(&mut self, path: &str) -> Result<()> {
         if self.written.contains(path) || self.reused.contains(path) {
             return Ok(());
         }
@@ -225,13 +262,13 @@ impl<D: Donor> Carry<'_, D> {
         Ok(())
     }
 
-    fn clip(&mut self, name: &str) -> Result<()> {
+    pub(crate) fn clip(&mut self, name: &str) -> Result<()> {
         let name = name.trim_start_matches("resources/");
         self.file(&format!("{name}.b-spline"))?;
         self.file(&format!("{name}.bones_names"))
     }
 
-    fn sound(&mut self, kind: i32, name: &str) -> Result<()> {
+    pub(crate) fn sound(&mut self, kind: i32, name: &str) -> Result<()> {
         match kind {
             256 => {
                 for ext in ["high.ogg", "high.rms", "raw_options"] {

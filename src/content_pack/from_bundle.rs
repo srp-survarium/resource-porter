@@ -33,6 +33,8 @@ pub struct FromBundleOptions<'a> {
     /// them: the pack is measured against what players have.
     pub base_patches: &'a [PathBuf],
     pub build_base_db: Option<&'a Path>,
+    /// Pack ids the pack builds on (it edits a file one of them adds).
+    pub requires: &'a [String],
     pub bundle: &'a Path,
     pub output: &'a Path,
     pub id: &'a str,
@@ -231,7 +233,7 @@ pub fn from_bundle(options: &FromBundleOptions<'_>) -> Result<PackManifest> {
             .get("asset_id")
             .and_then(Json::as_str)
             .map(|asset| format!("converted from bundle {asset}")),
-        requires: Vec::new(),
+        requires: options.requires.to_vec(),
         base_db_sha256: record
             .get("target_db_sha256")
             .and_then(Json::as_str)

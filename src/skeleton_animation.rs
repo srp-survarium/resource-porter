@@ -206,6 +206,18 @@ impl Channel {
     /// there are samples, so without it the extra degree of freedom is
     /// unconstrained.
     pub fn fit(times: &[f32], values: &[f32]) -> Result<Self> {
+        Self::fit_on(times, times, values)
+    }
+
+    /// [`Self::fit`] with the knots apart from the samples: a knot at each of
+    /// `knot_times` (from the first of `times` to the last) and the curve the
+    /// least-squares one through `values` at `times`. With several samples a
+    /// knot the curve is held between the knots too, which a fit through as
+    /// many samples as knots is not (its start is free).
+    pub fn fit_on(knot_times: &[f32], times: &[f32], values: &[f32]) -> Result<Self> {
+        if knot_times.first() != times.first() || knot_times.last() != times.last() {
+            bail!("the knots do not span the samples");
+        }
         if times.len() != values.len() {
             bail!(
                 "fitting a channel needs one value per time, got {} and {}",
@@ -224,8 +236,8 @@ impl Channel {
 
         // Knots: the start repeated four times so the curve begins there, then
         // one knot per interior sample, then the final time.
-        let mut knots = vec![times[0]; 4];
-        knots.extend(times[1..].iter().copied());
+        let mut knots = vec![knot_times[0]; 4];
+        knots.extend(knot_times[1..].iter().copied());
         let pairs = knots.len();
         let unknowns = pairs - 1;
 
@@ -591,10 +603,58 @@ pub struct Rig {
 
 impl Rig {
     pub fn parse(bind_pose: &[u8], skeleton: &[u8]) -> Result<Self> {
-        let frames = parse_bind_pose(bind_pose)?;
+        Self::from_parts(&parse_bind_pose(bind_pose)?, &parse_skeleton_parents(skeleton)?)
+    }
+
+    /// [`Self::parse`] for a model whose root bone (its bind pose's first)
+    /// the skeleton it plays on names otherwise, every other bone alike: the
+    /// live SR-3M's model roots at `wpn_sr3m`, the Val's skeleton and clips
+    /// it plays at `wpn_val`. The root takes the skeleton's name. Returns the
+    /// rig and the renaming (the model's name, the skeleton's), `None` when
+    /// the names agree.
+    pub fn parse_root_as_skeleton(
+        bind_pose: &[u8],
+        skeleton: &[u8],
+    ) -> Result<(Self, Option<(String, String)>)> {
+        let mut frames = parse_bind_pose(bind_pose)?;
         let parents = parse_skeleton_parents(skeleton)?;
+        let unnamed: Vec<&str> = frames
+            .iter()
+            .map(|(name, _, _)| name.as_str())
+            .filter(|name| !parents.contains_key(*name))
+            .collect();
+        let renamed = match unnamed.as_slice() {
+            [] => None,
+            [model_root] if *model_root == frames[0].0 => {
+                let roots: Vec<&String> = parents
+                    .iter()
+                    .filter(|(name, parent)| {
+                        name.as_str() != ROOT_MOTION_CHANNEL
+                            && parent.as_deref().is_none_or(|p| p == ROOT_MOTION_CHANNEL)
+                    })
+                    .map(|(name, _)| name)
+                    .collect();
+                let [root] = roots.as_slice() else {
+                    bail!("the skeleton has the roots {roots:?}, the model's is {model_root}");
+                };
+                if frames.iter().any(|(name, _, _)| name == *root) {
+                    bail!("the bind pose has the skeleton's root {root} and {model_root}");
+                }
+                let renamed = (model_root.to_string(), (*root).clone());
+                frames[0].0 = (*root).clone();
+                Some(renamed)
+            }
+            _ => bail!("the skeleton does not name the bind-pose bones {unnamed:?}"),
+        };
+        Ok((Self::from_parts(&frames, &parents)?, renamed))
+    }
+
+    fn from_parts(
+        frames: &[(String, [f32; 3], [f32; 3])],
+        parents: &std::collections::BTreeMap<String, Option<String>>,
+    ) -> Result<Self> {
         let mut bones = Vec::with_capacity(frames.len());
-        for (name, translation, rotation) in &frames {
+        for (name, translation, rotation) in frames {
             let parent = match parents.get(name) {
                 // The skeleton hangs everything off the root-motion channel,
                 // which is not a bone and carries no bind frame: a bone
