@@ -473,6 +473,17 @@ impl Reticle {
 
 /// The reticle's surface in the players' collimators, and in ours.
 const RETICLE_SURFACE: &str = "collimator_glowing_dot_s";
+/// The reticle's material: the players' emitter of [`RETICLE_SURFACE`]
+/// without its fade by the view's angle. The fade (`forward_base.ps`: alpha
+/// times |cos|^7000 of the angle between the pixel's ray and the view's axis)
+/// leaves a pixel lit only within about a degree of the screen's centre; it is
+/// made for the 0.51c5 optics' dot, about 0.6 m ahead of the eye, which the
+/// gun's moves hardly move. Ours is at 0.69d0's place, 0.08 to 0.8 m ahead,
+/// where a few millimetres of the gun's move took it out of that degree: it
+/// flickered and went dark. 0.69d0's reticle and 0.26g's own EOTech and Walther
+/// emitters, at the same place, are not faded.
+const RETICLE_MATERIAL: &str = "weapons/modules_069/collimator_glowing_dot_red";
+const ANGLE_FADE: &str = "material.forward.effect.use_angle_depended_attenuation.value";
 /// The first-person lens of 0.69d0's aimed models (`scope_lense_1p_s`): no
 /// collimator of the players' has one in its aimed model.
 const AIMED_LENS: &str = "scope_lense";
@@ -540,7 +551,8 @@ impl Donor069 {
         let mesh = Mesh::parse(&target.read(&format!("{from}/converted_model"))?).with_context(|| from.clone())?;
         let bounds = Bounds::of(mesh.positions.iter().copied()).context("an empty reticle")?;
         let settings = parse_config(target, &format!("{}/settings", reticle.from()), "the reticle's model")?.root;
-        let material = string_of(get(&settings, &format!("material_settings.{RETICLE_SURFACE}.material_name")))?.to_owned();
+        let players = string_of(get(&settings, &format!("material_settings.{RETICLE_SURFACE}.material_name")))?.to_owned();
+        let material = self.reticle_material(&players, target)?;
         let middle: [f32; 3] = std::array::from_fn(|k| (bounds.min[k] + bounds.max[k]) / 2.0);
         // Ours is lit where its mesh is: a dot's width, a ring's line between its inner and outer edge.
         let ours = match reticle {
@@ -561,6 +573,20 @@ impl Donor069 {
             mesh: mesh.mapped(|p| std::array::from_fn(|k| at[k] as f32 + (p[k] - middle[k]) * scale)),
         };
         self.module_model_at(aimed.unwrap_or(model), path, Some(&baked), target, work)
+    }
+
+    /// [`RETICLE_MATERIAL`], made once of the players' `players`.
+    fn reticle_material(&mut self, players: &str, target: &mut ResourceDb) -> Result<String> {
+        let path = format!("material_instances/{RETICLE_MATERIAL}.material");
+        if !self.files.contains_key(&path) {
+            ensure!(!target.contains(&path), "{path}: the target has it; a module's material path must be new");
+            let mut material =
+                parse_config(target, &format!("material_instances/{players}.material"), "the players' reticle material")?.root;
+            ensure!(get(&material, ANGLE_FADE).is_some(), "{players}: no {ANGLE_FADE}");
+            material.set_path(ANGLE_FADE, V::Boolean(false))?;
+            self.put(path, encode_config(material)?)?;
+        }
+        Ok(RETICLE_MATERIAL.to_owned())
     }
 
     /// The size of the lit feature of 0.69d0's reticle model `first` (a quad
