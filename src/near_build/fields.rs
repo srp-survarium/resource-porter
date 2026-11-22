@@ -138,6 +138,30 @@ pub struct FieldReport {
     pub environment_animated: Vec<String>,
     /// Settings the donor leaves empty (""), left to the game's default.
     pub environment_empty: Vec<String>,
+    /// The donor's ambient occlusion strength above native 0.26g's, with the
+    /// value it takes (`native_ao_saturation`).
+    pub ao_saturation_capped: Option<(f32, f32)>,
+}
+
+/// The strongest ambient occlusion a native 0.26g map draws (`ao_saturation`,
+/// an exponent of the occlusion: levels 1 to 8 have 1 to 1.29).
+const NATIVE_AO_SATURATION_MAX: f32 = 1.29;
+/// What a stronger one takes: the STALKER maps' rule (stalker-maps-ao-1,
+/// level_03's 1), so the halo round objects is a native map's.
+const PORTED_AO_SATURATION: f32 = 1.0;
+
+/// `ao_saturation` above native 0.26g's range takes the STALKER maps' value.
+fn native_ao_saturation(value: ConfigValue, report: &mut FieldReport) -> ConfigValue {
+    let donor = match value {
+        ConfigValue::Float(f) => f,
+        ConfigValue::Integer(i) => i as f32,
+        other => return other,
+    };
+    if donor <= NATIVE_AO_SATURATION_MAX {
+        return value;
+    }
+    report.ao_saturation_capped = Some((donor, PORTED_AO_SATURATION));
+    ConfigValue::Float(PORTED_AO_SATURATION)
 }
 
 /// The number as 0.26g's objects write the field: both builds store a whole
@@ -262,7 +286,9 @@ impl Templates {
             if frames.iter().skip(1).any(|f| f.named("properties").and_then(|p| p.named(&field.name)).is_some_and(|v| v != &field.value)) {
                 report.environment_animated.push(field.name.clone());
             }
-            properties.push(NamedValue { name: field.name.clone(), value: as_written(field.value.clone(), like) });
+            let value = as_written(field.value.clone(), like);
+            let value = if field.name == "ao_saturation" { native_ao_saturation(value, report) } else { value };
+            properties.push(NamedValue { name: field.name.clone(), value });
         }
         report.environment_settings = properties.len();
         let mut out = Vec::new();
