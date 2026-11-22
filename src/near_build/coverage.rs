@@ -10,9 +10,9 @@
 //! g-stage materials); the runtime choices are those the donor compiled for
 //! that part. A kept set is covered when each of those keys is a program of
 //! players' or of the pack. One that is not (a donor program 0.26g cannot
-//! feed: 0.44a5's parallax at shading quality 3 reads
-//! `parallax_uv_scale_factors`; or a part no donor program has) takes the
-//! nearest set players have programs for (`files::Importer::refit_kept`).
+//! feed: 0.44a5's that read `scene_slomo`; or a part no donor program has)
+//! takes the nearest set players have programs for
+//! (`files::Importer::refit_kept`).
 
 use std::collections::{BTreeMap, BTreeSet};
 
