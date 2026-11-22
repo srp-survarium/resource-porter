@@ -237,7 +237,8 @@ impl Tone {
                 n("tone_mapping_white_clip", 0.0),
             ),
         };
-        ensure!(tone.min_ev < tone.max_ev, "the exposure range is empty");
+        // Equal ends are a fixed exposure (0.69d's lobby: EV 9.5).
+        ensure!(tone.min_ev <= tone.max_ev, "the exposure range is empty");
         Ok(tone)
     }
 
