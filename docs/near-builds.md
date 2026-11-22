@@ -20,6 +20,12 @@ that composes it). London (v0.32) requires London (v0.42): 1 230 files both dono
 g-buffer programs, flora and level models) are London (v0.42)'s, the 1 022 the same bytes are
 shared and the 208 that differ go in under `ported/v032a`.
 
+Every pack the manifest `requires` goes in `players.list`, with its operations composed, never
+only the live patches. The composer refuses a path two packs both add, even with the same bytes.
+London (v0.42)@5 was built against the live patches without forward-effects, and it re-shipped 13
+`vertex_base_z_shifted.vs` programs forward-effects already ships. Release 69's content build then
+stopped on them.
+
 London (v0.42) (`ports/survarium-044a5-london-to-026g.json`, donor 0.44a5) and London (v0.32)
 (`ports/survarium-032a4-london-to-026g.json`, donor 0.32a4) are the two manifests. A manifest
 names the level, the namespace imports go under, the kinds left out by decision, and each project:
