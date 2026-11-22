@@ -110,6 +110,11 @@ pub struct ShaderKeys {
     /// vertex shaders, what a material and its mesh select.
     #[serde(default)]
     pub families: Vec<String>,
+    /// Constants a client patch sets for a family that players' programs
+    /// do not read, with their bytes (`programs::Known::fill`): a donor
+    /// program may read them that far.
+    #[serde(default)]
+    pub filled: BTreeMap<String, BTreeMap<String, u32>>,
 }
 
 #[derive(Deserialize)]
@@ -678,7 +683,7 @@ pub fn build(
         };
         let target_keys = programs::Keys::read(order(&orders.target)?, shipped)?;
         let donor_keys = programs::Keys::read(order(&orders.donor)?, donor)?;
-        let mut supplier = programs::Supplier::new(&target_keys, &donor_keys);
+        let mut supplier = programs::Supplier::new(&target_keys, &donor_keys, &orders.filled);
         if donor_programs {
             ensure!(!orders.families.is_empty(), "the manifest's shader_keys names no families to supply");
             let (blobs, by_family, skipped) = supplier.supply_all(shipped, donor, &orders.families)?;

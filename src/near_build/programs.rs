@@ -450,7 +450,9 @@ pub struct Supply {
 pub struct Supplier<'a> {
     pub target: &'a Keys,
     pub donor: &'a Keys,
-    /// What the programs players have read, by family.
+    /// Constants a client patch sets, by family, with their bytes.
+    filled: &'a BTreeMap<String, BTreeMap<String, u32>>,
+    /// What the programs players have read, by family, and what a patch fills.
     family_reads: BTreeMap<String, Known>,
 }
 
@@ -521,14 +523,18 @@ impl Known {
 }
 
 impl<'a> Supplier<'a> {
-    pub fn new(target: &'a Keys, donor: &'a Keys) -> Self {
-        Self { target, donor, family_reads: BTreeMap::new() }
+    pub fn new(target: &'a Keys, donor: &'a Keys, filled: &'a BTreeMap<String, BTreeMap<String, u32>>) -> Self {
+        Self { target, donor, filled, family_reads: BTreeMap::new() }
     }
 
     fn family(&mut self, shipped: &mut ResourceDb, family: &str) -> Result<&Known> {
         if !self.family_reads.contains_key(family) {
             self.target.check_family(shipped, family)?;
-            self.family_reads.insert(family.to_owned(), Known::read(shipped, family)?);
+            let mut known = Known::read(shipped, family)?;
+            for (name, size) in self.filled.get(family).into_iter().flatten() {
+                known.fill(name, *size);
+            }
+            self.family_reads.insert(family.to_owned(), known);
         }
         Ok(&self.family_reads[family])
     }
