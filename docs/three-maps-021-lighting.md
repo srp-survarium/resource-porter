@@ -67,7 +67,8 @@ the environment's minimum and maximum exposure values and holds outside them; 0.
 block follows the adapted mean between 0.05 and 2 only. `exposure_profiles` in the manifest
 (`ExposureProfile` in `tone_map.rs`) gives such a scene the native tone block with the mean
 clamped to its own range and its own key, behind its marker (`mie_fog_base_height`, a whole
-number of at least 1000: 33000 plus the 0.69d level's number). The row's `floor`, `ceiling`
+number of at least 1000: 33000 plus the 0.69d level's number, 33100 for 0.69d's lobby). A floor equal
+to the ceiling is a fixed exposure (the lobby's). The row's `floor`, `ceiling`
 and `key` are the numbers resource-porter's 0.69d map builder prints in its notes ("tone:
 ...") for that map; what the curve then shows is made 0.69d's by the scene's own colour
 grading texture, which the map's pack carries.
@@ -75,6 +76,7 @@ grading texture, which the map's pack carries.
 | Scene | Marker | floor | ceiling | key |
 | --- | --- | --- | --- | --- |
 | Rudnya v0.69 (0.69d `level_01` day, EV 6 to 12.5) | 33001 | 0.001151 | 0.104167 | 0.2334 |
+| The lobby room v0.69 (0.69d `lobby_scene/day`, EV fixed at 9.5) | 33100 | 0.104167 | 0.104167 | 0.1820 |
 
 Unlike the 0.21 curve and the key profiles, an exposure profile is also drawn by the tone
 program of post-process quality 0 and 1 (six paths, one program: the same tone block

@@ -55,7 +55,8 @@ pub struct KeyProfile {
 /// ```
 ///
 /// so the exposure is constant above the ceiling and below the floor and follows the
-/// mean between them (as `Lc^-1.24`), as 0.69d's does. What the curve then shows is made
+/// mean between them (as `Lc^-1.24`), as 0.69d's does. A floor equal to the ceiling is a
+/// fixed exposure (0.69d's lobby: EV 9.5 at both ends). What the curve then shows is made
 /// 0.69d's by the scene's own colour grading texture.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ExposureProfile {
@@ -107,7 +108,7 @@ pub fn build_tonemap_profiles(
                 && e.marker.fract() == 0.0
                 && seen.insert(e.marker.to_bits())
                 && [e.floor, e.ceiling, e.key].iter().all(|v| v.is_finite() && *v > 0.0)
-                && e.floor < e.ceiling,
+                && e.floor <= e.ceiling,
             "invalid or duplicate exposure profile"
         );
     }
