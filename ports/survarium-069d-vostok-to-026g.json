@@ -10,18 +10,8 @@
     "template_mode": "gameplay/game_modes/level_03_day_4.options",
     "output_project": "v069d_level_03/day_4",
     "mode_name": "v069d_level_03_day_4.options",
-    "global_probe_position": [
-      16.257,
-      8.088,
-      11.807
-    ],
-    "global_probe_radius": 664.9,
     "probes": {
-      "donor": {
-        "global": "environment_and_lights/probes/fake/environment_probe",
-        "exposure_bias": 1.0,
-        "sun_saturation": 0.6
-      }
+      "donor": {}
     },
     "spawn_folder": "logic/modes/team-deathmatch/",
     "donor_mode": "gameplay/game_modes/level_03_day_tdm.options",
@@ -103,20 +93,6 @@
     "terrain_blend": "tiled/bricks/brick_02_burn_vc",
     "opaque_metal": "props/box/props_boxes_metal"
   },
-  "roughness_scale": 0.2,
-  "ambient_sounds": {
-    "project": "projects/level_03/day_4/client_project",
-    "include": [
-      "scapes/",
-      "sounds/",
-      "weather/"
-    ],
-    "offset": [
-      0.0,
-      0.0,
-      0.0
-    ]
-  },
   "dedup_translated_copies": true,
   "lod1_shares_lod0": true,
   "reuse_native_textures": true,
@@ -129,14 +105,5 @@
   "namespace": "v069d_vostok",
   "native_materials": {
     "generic/underground_black_mat": "tiled/concrete/concrete_black"
-  },
-  "material_constants": [
-    {
-      "prefix": "terrain_tiled/",
-      "g_stage": {
-        "constant_fresnel": 0.0,
-        "constant_fresnel_min": 0.0
-      }
-    }
-  ]
+  }
 }
