@@ -206,6 +206,18 @@ impl Channel {
     /// there are samples, so without it the extra degree of freedom is
     /// unconstrained.
     pub fn fit(times: &[f32], values: &[f32]) -> Result<Self> {
+        Self::fit_on(times, times, values)
+    }
+
+    /// [`Self::fit`] with the knots apart from the samples: a knot at each of
+    /// `knot_times` (from the first of `times` to the last) and the curve the
+    /// least-squares one through `values` at `times`. With several samples a
+    /// knot the curve is held between the knots too, which a fit through as
+    /// many samples as knots is not (its start is free).
+    pub fn fit_on(knot_times: &[f32], times: &[f32], values: &[f32]) -> Result<Self> {
+        if knot_times.first() != times.first() || knot_times.last() != times.last() {
+            bail!("the knots do not span the samples");
+        }
         if times.len() != values.len() {
             bail!(
                 "fitting a channel needs one value per time, got {} and {}",
@@ -224,8 +236,8 @@ impl Channel {
 
         // Knots: the start repeated four times so the curve begins there, then
         // one knot per interior sample, then the final time.
-        let mut knots = vec![times[0]; 4];
-        knots.extend(times[1..].iter().copied());
+        let mut knots = vec![knot_times[0]; 4];
+        knots.extend(knot_times[1..].iter().copied());
         let pairs = knots.len();
         let unknowns = pairs - 1;
 

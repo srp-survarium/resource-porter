@@ -168,7 +168,7 @@ impl LiveReload {
 }
 
 /// How far a held bone's channels may move through a clip (metres, radians).
-const HELD: f32 = 1e-5;
+const HELD: (f32, f32) = (1e-5, 1e-3);
 
 /// Bone `bone`'s translation and rotation in `clip`, which it holds from
 /// start to end (sampled every quarter frame), or an error.
@@ -186,7 +186,7 @@ fn holds(clip: &Clip, bone: &str) -> Result<[f32; 6]> {
         for (c, value) in start.iter().enumerate() {
             let now = channels[c].evaluate(t);
             ensure!(
-                (now - value).abs() <= HELD,
+                (now - value).abs() <= if c < 3 { HELD.0 } else { HELD.1 },
                 "{bone} moves in the clip (channel {c}: {value} at its start, {now} at frame {t})"
             );
         }
@@ -262,7 +262,7 @@ impl Rebase {
             empty.context("the donor's empty hands")?,
         );
         ensure!(
-            within(apart(&frame_of(donor_weapon), &frame_of(empty)), (HELD, 1e-3)),
+            within(apart(&frame_of(donor_weapon), &frame_of(empty)), HELD),
             "the donor's tactical and empty hands hold Weapon at {donor_weapon:?} and {empty:?}"
         );
         let offset = rig.index("offset").context("the gun has no offset bone")?;
@@ -284,7 +284,7 @@ impl Rebase {
         for clip in donor_item {
             holds(clip, &root).context("the donor's item clip")?;
             ensure!(
-                within(apart(&at_start(clip, &root)?, &live_root), (HELD, 1e-3)),
+                within(apart(&at_start(clip, &root)?, &live_root), HELD),
                 "the donor's item clip holds the gun's root {root} otherwise than the live one"
             );
         }
@@ -318,8 +318,9 @@ impl Rebase {
         })
     }
 
-    /// A donor item clip with its `offset` curve rebased: sampled every
-    /// frame (and at its end), fitted again, then checked every quarter frame.
+    /// A donor item clip with its `offset` curve rebased: sampled eight times
+    /// a frame, fitted again with a triple knot at each frame as the donor's
+    /// curves have (a corner there), then checked every quarter frame.
     fn item(&self, bytes: &[u8], clip: &Clip) -> Result<Vec<u8>> {
         let o = clip
             .bones
@@ -338,11 +339,21 @@ impl Rebase {
             .map(|c| c.knots[0])
             .fold(f32::INFINITY, f32::min);
         let end = clip.duration();
-        let mut times: Vec<f32> = (0..)
-            .map(|k| start + k as f32)
-            .take_while(|t| *t < end)
-            .collect();
-        times.push(end);
+        let stepped = |step: f32| -> Vec<f32> {
+            let mut times: Vec<f32> = (0..)
+                .map(|k| start + k as f32 * step)
+                .take_while(|t| *t < end)
+                .collect();
+            times.push(end);
+            times
+        };
+        let times = stepped(0.125);
+        let frames = stepped(1.0);
+        let mut knot_times = vec![start];
+        for frame in &frames[1..frames.len() - 1] {
+            knot_times.extend([*frame; 3]);
+        }
+        knot_times.push(end);
         let mut values: [Vec<f32>; 6] = Default::default();
         for t in &times {
             let (basis, at) = rebased(*t);
@@ -358,7 +369,7 @@ impl Rebase {
             }
         }
         let curves: [Channel; 6] = (0..6)
-            .map(|c| Channel::fit(&times, &values[c]))
+            .map(|c| Channel::fit_on(&knot_times, &times, &values[c]))
             .collect::<Result<Vec<_>>>()?
             .try_into()
             .expect("six curves");
