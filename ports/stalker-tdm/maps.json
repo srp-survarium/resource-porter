@@ -1154,7 +1154,8 @@
       28.0
      ],
      "width": 1.0,
-     "reason": "replaces ladder clmbl#1 (6.66 to the 11.23 roof edge, 4.6 m) 3.6 m south of it, rising east against the west wall at 34 degrees; opens the 678 m2 west roof (also the top of clmbl#0, 5.8 m) with 3 DM spawns"
+     "reason": "replaces ladder clmbl#1 (6.66 to the 11.23 roof edge, 4.6 m) 3.6 m south of it, rising east against the west wall at 34 degrees; opens the 678 m2 west roof (also the top of clmbl#0, 5.8 m) with 3 DM spawns; planks on it as on ladder0_planks (stalker-maps-2@4 had none: walked but not drawn)",
+     "planks": true
     },
     {
      "name": "ladder0_planks",

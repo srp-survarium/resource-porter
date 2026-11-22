@@ -10,7 +10,7 @@ deathmatch (native mode 4: tickets, two teams, no batteries or chargers).
 | 198 | `training-camp-cs-dm` | CS `mp_training_camp` + summer meadow and forest | foliage through 0.26's own systems |
 | 199 | `rembasa-cs-dm` | CS `mp_rembasa` | 2 ladders to empty ledges, blocked |
 | 200 | `sport-center-cs-dm` | CS `mp_sport_center` | wooden plank ramps out of the basin, up to the galleries and over the steep steel stairs; crates and planks up through the third-floor hatches |
-| 201 | `firestation-cs-dm` | CS `mp_firestation` | one hidden ramp to the west roof; the tower and the small roofs are blocked |
+| 201 | `firestation-cs-dm` | CS `mp_firestation` | one plank ramp to the west roof; the tower and the small roofs are blocked |
 
 IDs 152–193 and 194–196 are in use by the other imported maps. 197 is the
 first free ID after them.
@@ -235,7 +235,7 @@ given by the shape matrix, and its landings were mapped. Reachability on a
 | sports center | clmbl#7/#6, #4/#5 | basin −1.24/−4.3 → rim 0.44 | plank ramps `basin_exit_west` and `basin_exit_east` (29°); the deep end walks up the basin slope |
 | sports center | clmbl#2/#3 | gallery 4.16 → tribune 9.2 (upper level, 2,684 m², 4 spawns) | plank ramp `stand_ramp`, **39.4°**: the tribune joists every 2.3 m leave no room for a shallower run |
 | sports center | clmbl#0/#1 | stair landing 7.68 → third floor 11.61 | ladder cut out, hatch widened, crate stack and plank `hatch_south_plank` / `hatch_north_plank`, 34.9° |
-| fire station | clmbl#1 (and #0) | 6.66 → west roof 11.23 (678 m², 3 spawns) | hidden ramp `roof_west_ramp`, 34° |
+| fire station | clmbl#1 (and #0) | 6.66 → west roof 11.23 (678 m², 3 spawns) | plank ramp `roof_west_ramp`, 34° (hidden until stalker-maps-2@5: walked, not drawn) |
 | fire station | clmbl#2 | 7.5 → 14.6 roof pocket (97 m²) | blocked (rung slab); 1 spawn dropped |
 | fire station | clmbl#3 | 5.4 → 11.2 | none needed: reachable on foot |
 | fire station | clmbl#7–#10, #6 | the 17.5 m tower chain, a stairwell ledge and an unresolved ladder to the tower top (118 m²) | blocked (rung slabs on #7 and #9); 2 tower spawns dropped |
