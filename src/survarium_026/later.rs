@@ -1948,6 +1948,10 @@ pub struct MetalSource {
     pub colour: [f32; 3],
 }
 
+/// A 0.69d light's `luminous_power` when its object has none (lumen): the light
+/// class's constructor default.
+const DONOR_LUMINOUS_POWER: f32 = 1200.0;
+
 /// The most metalness a 0.69d material without a map has and is still drawn
 /// as a dielectric (Fresnel 0.04, within 0.1 (A - 0.04) of 0.69d's).
 const DIELECTRIC_METALNESS: f32 = 0.1;
@@ -3389,7 +3393,10 @@ pub fn convert_scene(
                 if let Some((scale, _)) = light_scale {
                     // A donor-lit scene: 0.69d's light in the scene's scale (`PointLight`).
                     let light = super::lighting::PointLight {
-                        luminous_power: real(object, "luminous_power").context("luminous_power")?,
+                        // A light without the field has its class's default: 0.69d0's light
+                        // constructor sets 1200 lm (`+0x54`, 0x2001e4058; the loader at
+                        // 0x2006196b8 leaves it when the key is absent). Vostok's spot_light(12).
+                        luminous_power: real(object, "luminous_power").unwrap_or(DONOR_LUMINOUS_POWER),
                         range: real(object, "range").context("range")?,
                         diffuse_influence: real(object, "diffuse_influence_factor").unwrap_or(1.0),
                         spot_penumbra: (integer(object, "light_type") == Some(1)).then(|| real(object, "spot_penumbra_angle").unwrap_or(0.785)),
