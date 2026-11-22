@@ -231,7 +231,6 @@ fn materials_of(value: &mut ConfigValue, importer: &mut files::Importer<'_>) -> 
 fn place_files(
     project: &mut ConfigValue,
     m: &Manifest,
-    p: &Project,
     importer: &mut files::Importer<'_>,
     parallax_probes: &mut usize,
     smart_probes_lost: &mut usize,
@@ -579,7 +578,7 @@ pub fn build(
         for (list, n) in without_lists(&mut old, &p.without_lists) {
             *report.left_out_by_decision.entry(format!("without {}: {list}", p.without_lists.join(", "))).or_default() += n;
         }
-        place_files(&mut old, &m, p, &mut importer, &mut report.parallax_probes, &mut report.smart_probes_lost).with_context(|| from.clone())?;
+        place_files(&mut old, &m, &mut importer, &mut report.parallax_probes, &mut report.smart_probes_lost).with_context(|| from.clone())?;
         let scene = fields::Scene { project: &p.project, weather_layer: &p.layer };
         let mut built = with_026g_fields(&old, &templates, &scene, &mut report.fields).with_context(|| from.clone())?;
         with_marker(&mut built, m.profile_markers.get(&p.layer).copied())?;
