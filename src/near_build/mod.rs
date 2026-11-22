@@ -84,6 +84,18 @@ pub struct Manifest {
     /// (`programs`): files beside the manifest.
     #[serde(default)]
     pub shader_keys: Option<ShaderKeys>,
+    /// A shader profile's markers by weather layer (London's: `day` 32909,
+    /// `rain` 32919, `evening` 32929, which three-maps-021-lighting and
+    /// london-probes select on): each project's environment carries its
+    /// layer's in `mie_fog_base_height`, and the probes the donor
+    /// box-projects (`use_parallax_correction`, a field 0.26g has not) are
+    /// marked by `smart_attenuation`, which london-probes' smart box programs
+    /// read on a marked scene (they project the reflection and draw the plain
+    /// falloff; a probe that used smart attenuation itself loses it and is
+    /// counted). Every project's layer must have one: a weather left out
+    /// would draw without the profile.
+    #[serde(default)]
+    pub profile_markers: BTreeMap<String, f32>,
     pub projects: Vec<Project>,
 }
 
@@ -127,20 +139,6 @@ pub struct Project {
     /// `victory_item_spawn_points`).
     #[serde(default)]
     pub without_lists: Vec<String>,
-    /// Environment settings written after the build (a shader profile's
-    /// marker); each must be a setting the project has.
-    #[serde(default)]
-    pub environment_overrides: BTreeMap<String, f32>,
-    /// A probe the donor box-projects (`use_parallax_correction`, a field
-    /// 0.26g has not) is marked by `smart_attenuation`: the channel pack
-    /// london-probes reads on
-    /// a scene that carries London's marker (`environment_overrides`),
-    /// where its smart box programs project the reflection and draw the
-    /// plain falloff. Only for a project with that marker. A probe that
-    /// uses smart attenuation itself draws the plain falloff there and is
-    /// counted.
-    #[serde(default)]
-    pub parallax_probes_by_smart_attenuation: bool,
 }
 
 #[derive(Deserialize)]
@@ -163,7 +161,7 @@ pub struct ProjectReport {
     pub client_objects: usize,
     pub render_visuals: usize,
     pub collision_objects: usize,
-    /// Probes marked as box-projected (`parallax_probes_by_smart_attenuation`).
+    /// Probes marked as box-projected (`Manifest::profile_markers`).
     pub parallax_probes: usize,
     /// Of the project's probes, those that used smart attenuation themselves
     /// and draw the plain falloff on the marked scene.
@@ -233,7 +231,6 @@ fn materials_of(value: &mut ConfigValue, importer: &mut files::Importer<'_>) -> 
 fn place_files(
     project: &mut ConfigValue,
     m: &Manifest,
-    p: &Project,
     importer: &mut files::Importer<'_>,
     parallax_probes: &mut usize,
     smart_probes_lost: &mut usize,
@@ -283,7 +280,7 @@ fn place_files(
                             if let Some(ConfigValue::String(texture)) = object.named_mut("texture") {
                                 *texture = probe_cubemap(texture, m, importer)?;
                             }
-                            if p.parallax_probes_by_smart_attenuation {
+                            if !m.profile_markers.is_empty() {
                                 let projected = object.named("use_parallax_correction") == Some(&ConfigValue::Boolean(true));
                                 let smart = object.named_mut("smart_attenuation").context("a probe has no smart_attenuation")?;
                                 // The marked scene's smart programs draw the plain
@@ -428,22 +425,19 @@ fn options(from: &ConfigValue, m: &Manifest, project: &str, map: &NewMap) -> Res
     Ok(out)
 }
 
-fn with_overrides(project: &mut ConfigValue, overrides: &BTreeMap<String, f32>) -> Result<()> {
-    if overrides.is_empty() {
-        return Ok(());
-    }
+/// The profile's marker in the environment's `mie_fog_base_height`.
+fn with_marker(project: &mut ConfigValue, marker: Option<f32>) -> Result<()> {
+    let Some(marker) = marker else { return Ok(()) };
     let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no client objects") };
     let environment = objects.iter_mut().find(|o| text(o, "game_object_type") == Some("environment")).context("no environment")?;
-    for (name, value) in overrides {
-        // In the number type the setting has: a whole number where it is one.
-        let written = match environment.named("properties").and_then(|p| p.named(name)) {
-            Some(ConfigValue::Integer(_)) if value.fract() == 0.0 => ConfigValue::Integer(*value as i32),
-            Some(_) => ConfigValue::Float(*value),
-            None => bail!("the environment has no {name} to override"),
-        };
-        environment.set_path(&format!("properties.{name}"), written)?;
-    }
-    Ok(())
+    const FIELD: &str = "mie_fog_base_height";
+    // In the number type the setting has: a whole number where it is one.
+    let written = match environment.named("properties").and_then(|p| p.named(FIELD)) {
+        Some(ConfigValue::Integer(_)) if marker.fract() == 0.0 => ConfigValue::Integer(marker as i32),
+        Some(_) => ConfigValue::Float(marker),
+        None => bail!("the environment has no {FIELD} to carry the marker"),
+    };
+    environment.set_path(&format!("properties.{FIELD}"), written)
 }
 
 /// The old-form project with 0.26g's fields on every object and static.
@@ -561,6 +555,11 @@ pub fn build(
     let mut reports = Map::new();
     let mut dictionary = Vec::new();
     let mut projects: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    if !m.profile_markers.is_empty() {
+        for p in &m.projects {
+            ensure!(m.profile_markers.contains_key(&p.layer), "{}: no profile marker for its layer {}", p.project, p.layer);
+        }
+    }
     for p in &m.projects {
         let mut report = ProjectReport::default();
         let from = format!("projects/{}/{}/client_project", m.donor_level, p.donor);
@@ -579,10 +578,10 @@ pub fn build(
         for (list, n) in without_lists(&mut old, &p.without_lists) {
             *report.left_out_by_decision.entry(format!("without {}: {list}", p.without_lists.join(", "))).or_default() += n;
         }
-        place_files(&mut old, &m, p, &mut importer, &mut report.parallax_probes, &mut report.smart_probes_lost).with_context(|| from.clone())?;
+        place_files(&mut old, &m, &mut importer, &mut report.parallax_probes, &mut report.smart_probes_lost).with_context(|| from.clone())?;
         let scene = fields::Scene { project: &p.project, weather_layer: &p.layer };
         let mut built = with_026g_fields(&old, &templates, &scene, &mut report.fields).with_context(|| from.clone())?;
-        with_overrides(&mut built, &p.environment_overrides)?;
+        with_marker(&mut built, m.profile_markers.get(&p.layer).copied())?;
         report.client_objects = count(&built, "client_objects");
         report.render_visuals = count(&built, "render_visuals");
         report.collision_objects = count(&built, "collision_objects");

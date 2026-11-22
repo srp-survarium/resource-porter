@@ -25,6 +25,10 @@ London (v0.42) (`ports/survarium-044a5-london-to-026g.json`, donor 0.44a5) and L
 names the level, the namespace imports go under, the kinds left out by decision, and each project:
 the donor's folder, the port's, its weather layer, and for a new map its `maps_dict` id and mode
 config. A project without `map` replaces one players have (its row and config stay).
+`profile_markers` gives a shader profile's marker by weather layer (London's day 32909, rain
+32919, evening 32929, as the old London's projects carry them): every project gets its layer's in
+`mie_fog_base_height` and the probes the donor box-projects marked by `smart_attenuation`; a
+layer without one stops the build, so no weather is left without the profile.
 
 ## The four steps (`src/near_build/`)
 
