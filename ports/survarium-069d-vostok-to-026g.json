@@ -20,7 +20,8 @@
     "native_objects": {
       "project": "projects/level_03/day_4/client_project",
       "include": [
-        "logic/anomaly/"
+        "logic/anomaly/",
+        "fx/smoke"
       ]
     },
     "modes": [
