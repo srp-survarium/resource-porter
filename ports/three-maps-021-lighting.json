@@ -115,14 +115,16 @@
       "marker": 33002.0,
       "floor": 0.018414,
       "ceiling": 0.104167,
-      "key": 0.0854
+      "key": 0.0854,
+      "sky": 1.301
     },
     {
       "name": "vostok v0.69 (0.69d level_03 day: exposure EV 10 to 12)",
       "marker": 33003.0,
       "floor": 0.026042,
       "ceiling": 0.104167,
-      "key": 0.0854
+      "key": 0.0854,
+      "sky": 1.0
     }
   ]
 }

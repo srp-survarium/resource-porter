@@ -1668,6 +1668,70 @@ pub fn build_sky(source: &[u8], target: &[u8], markers: &[f32]) -> Result<Vec<u8
     Ok(blob)
 }
 
+/// A 0.69d scene's sky over 0.26g's (`exposure_profiles`' `sky`): 0.69d's sky scatters its
+/// tinted sun times `sky_intensity`, 0.26g's Rayleigh sky follows `sun_intensity^1.4`, so under
+/// the port's sun 0.69d's sky is `sky` times 0.26g's (resource-porter's 0.69d map builder
+/// prints it). Behind the scene's marker (`mie_fog_base_height`, cb1[18].w) the native sky's
+/// radiance is scaled by it before its clamp at 10 (`min o0.xyz, r0.xyz, l(10)`, the program's
+/// last three instructions with `mov o0.w, l(1)` and `ret`); a scale of 1 adds nothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SkyScale {
+    pub marker: f32,
+    pub sky: f32,
+}
+
+/// `build_sky`'s program with each `SkyScale` other than 1 (`scales`) in its native tail.
+pub fn scale_sky(program: &[u8], scales: &[SkyScale]) -> Result<Vec<u8>> {
+    let scales: Vec<&SkyScale> = scales.iter().filter(|s| s.sky != 1.0).collect();
+    if scales.is_empty() {
+        return Ok(program.to_vec());
+    }
+    let offset = 4 + u32_at(program, 0)? as usize * 264;
+    let code = program.get(offset..).context("truncated sky shader header")?;
+    ensure!(checksum(code)? == code[4..20], "sky DXBC checksum mismatch");
+    let mut entries = chunks(code)?;
+    let index = entries.iter().position(|(tag, _)| tag == b"SHDR").context("missing sky shader chunk")?;
+    let program_words = words(&entries[index].1)?;
+    let ops = instructions(&program_words)?;
+    // The native tail: min o0.xyz, r0.xyzx, l(10, 10, 10, 0); mov o0.w, l(1.0); ret.
+    let tail = ops.len().checked_sub(3).context("short sky program")?;
+    let clamp = &ops[tail];
+    ensure!(
+        clamp.len() == 10
+            && clamp[0] == 0x0a000033
+            && clamp[1] == 0x00102072
+            && clamp[3..5] == [0x00100246, 0]
+            && clamp[5] == 0x00004002
+            && clamp[6..10] == [10f32.to_bits(), 10f32.to_bits(), 10f32.to_bits(), 0]
+            && ops[tail + 1][0] & 2047 == 54
+            && ops[tail + 2] == [0x0100003e],
+        "the native sky's tail changed"
+    );
+    let mut updated = program_words[..2].to_vec();
+    updated.extend(ops[..tail].iter().flatten());
+    let mut seen = std::collections::BTreeSet::new();
+    for s in scales {
+        ensure!(
+            s.marker.is_finite() && s.marker.fract() == 0.0 && s.marker >= 1000.0 && seen.insert(s.marker.to_bits())
+                && s.sky.is_finite() && s.sky > 0.0,
+            "invalid or duplicate sky scale"
+        );
+        // eq r2.w, cb1[18].w, l(marker); if_nz r2.w (r2 is free after the native body's last read
+        // of r2.x); mul r0.xyz, r0.xyzx, l(sky, sky, sky, 0); endif
+        updated.extend([0x08000018, 0x00100082, 2, 0x0020803a, 1, 18, 0x00004001, s.marker.to_bits()]);
+        updated.extend([0x0304001f, 0x0010003a, 2]);
+        updated.extend([0x0a000038, 0x00100072, 0, 0x00100246, 0, 0x00004002, s.sky.to_bits(), s.sky.to_bits(), s.sky.to_bits(), 0]);
+        updated.push(0x01000015);
+    }
+    updated.extend(ops[tail..].iter().flatten());
+    updated[1] = updated.len() as u32;
+    instructions(&updated)?;
+    entries[index].1 = bytes(&updated);
+    let mut blob = program[..offset].to_vec();
+    blob.extend(assemble(code, &entries)?);
+    Ok(blob)
+}
+
 /// DXBC's MD5 padding variant. The compression rounds are standard MD5.
 /// Padding reference: Wine libs/vkd3d/libs/vkd3d-shader/checksum.c.
 fn checksum(code: &[u8]) -> Result<[u8; 16]> {

@@ -80,6 +80,12 @@ grading texture, which the map's pack carries.
 | School v0.69 (0.69d `level_02` day, EV 11.5 to 14) | 33002 | 0.018414 | 0.104167 | 0.0854 |
 | Vostok Radar Station v0.69 (0.69d `level_03` day, EV 10 to 12) | 33003 | 0.026042 | 0.104167 | 0.0854 |
 
+A row's `sky` (1 when absent) scales the native sky behind its marker (`scale_sky`, after
+`build_sky`): 0.69d's sky scatters its tinted sun times `sky_intensity`, 0.26g's Rayleigh sky
+follows `sun_intensity^1.4`, so under the port's sun 0.69d's sky is that factor times 0.26g's
+(resource-porter's 0.69d map builder prints it, `DonorSky::scale_over_026`). School v0.69 1.301;
+Rudnya, Vostok and the lobby room 1 (no change to the program for them).
+
 Unlike the 0.21 curve and the key profiles, an exposure profile is also drawn by the tone
 program of post-process quality 0 and 1 (six paths, one program: the same tone block
 without the vignette): under the native block such a scene is about ten times too bright.
