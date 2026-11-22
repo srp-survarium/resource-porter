@@ -994,6 +994,9 @@ enum PackCommand {
         /// and carries reused files the base lacks.
         #[arg(long)]
         build_base_db: Option<PathBuf>,
+        /// A pack the new one builds on: it edits a file that pack adds (repeatable).
+        #[arg(long)]
+        requires: Vec<String>,
         #[arg(long)]
         bundle: PathBuf,
         #[arg(long)]
@@ -2847,6 +2850,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
             base_db,
             base_patches,
             build_base_db,
+            requires,
             bundle,
             output,
             id,
@@ -2857,6 +2861,7 @@ fn run_pack_command(command: PackCommand) -> Result<()> {
                     base_db: &base_db,
                     base_patches: &base_patches,
                     build_base_db: build_base_db.as_deref(),
+                    requires: &requires,
                     bundle: &bundle,
                     output: &output,
                     id: &id,
