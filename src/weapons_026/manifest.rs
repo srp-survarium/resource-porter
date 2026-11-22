@@ -123,6 +123,11 @@ pub struct LobbyIcon {
     /// manifest's folder): an item the donor has no icon for.
     #[serde(default)]
     pub file: Option<String>,
+    /// Rectangles of the finished cell made transparent, `[x0, y0, x1, y1)`
+    /// in its pixels: a part the donor drew that the gun has not (the
+    /// SVU's PSO-1, which 0.46c2 mounts and the port leaves out).
+    #[serde(default)]
+    pub erase: Vec<[u32; 4]>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

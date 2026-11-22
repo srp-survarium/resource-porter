@@ -30,7 +30,7 @@ use serde_json::json;
 
 use super::config::weapon_config;
 use super::donor::{Donor, is_config};
-use super::icons::{cell_png, kill_feed_name, kill_feed_png};
+use super::icons::{cell_png, erase_rects, kill_feed_name, kill_feed_png};
 use super::manifest::{Weapon, WeaponPort};
 use super::{field, get, s, string_of};
 use crate::manifest::BuiltFile;
@@ -329,6 +329,17 @@ impl<'a, D: Donor> Carry<'a, D> {
             if let Some(skeleton) = string_of(root.named("skeleton")) {
                 let name = skeleton.trim_start_matches("resources/").to_owned();
                 self.file(&format!("{name}.skeleton"))?;
+            }
+        } else if path.ends_with(".raw_options") {
+            // The sound's loudness curve: a preset 0.26g lacks (0.46c2's
+            // `main_3rd_view_suppressed`, on the Beretta's and Glock's
+            // shutters) left the sound cook a null config, read at
+            // exe+0x62731 (`sound_spl`, `spl`, `volume`): every match with
+            // the CZ 75, Beretta, Glock or Colt crashed at load. It ships
+            // from the donor, or the port stops.
+            if let Some(preset) = super::resources::spl_preset(root) {
+                self.file(&super::resources::spl_file(preset))
+                    .with_context(|| format!("{path}: its SPL preset {preset}"))?;
             }
         } else if path.ends_with(".composite_sound") || path.ends_with(".sound_collection") {
             let items =
@@ -661,6 +672,29 @@ pub fn build<D: Donor>(
         .collect::<Result<_>>()?;
     let schema = super::config::schema(&natives);
     let mut native_refs = super::resources::native_references(&natives);
+    // Every weapon the players' files have (the stock database, the
+    // patches, the packs built under this one): their kill feed icons.
+    let mut live_icons: BTreeMap<i32, Vec<String>> = BTreeMap::new();
+    let target_weapons: Vec<String> = carry
+        .target
+        .paths_with_prefix("gameplay/items/weapons/wpn_")
+        .filter(|p| p.ends_with(".options"))
+        .map(str::to_owned)
+        .collect();
+    for path in target_weapons {
+        let cfg = parse_config(carry.target, &path, "weapon")?.root;
+        if let Some(V::Integer(icon)) = get(&cfg, "ui_desc.combat_log_icon") {
+            live_icons.entry(*icon).or_default().push(path);
+        }
+    }
+    super::icons::check_kill_feed(
+        &port
+            .weapons
+            .iter()
+            .map(|w| (w.name.as_str(), &w.kill_feed))
+            .collect::<Vec<_>>(),
+        &live_icons,
+    )?;
     let mut configs: Vec<(&Weapon, V)> = vec![];
     for w in &port.weapons {
         ensure!(!carry.target.contains(&w.config), "{} exists", w.config);
@@ -709,6 +743,7 @@ pub fn build<D: Donor>(
         for (path, value) in &a.set {
             super::config::set_typed(&mut cfg, path, value).with_context(|| a.name.clone())?;
         }
+        super::config::ammo_card(&mut cfg).with_context(|| a.name.clone())?;
         if let Some(icon) = &a.lobby_icon {
             cfg.set_path(
                 "ui_desc.icon",
@@ -725,6 +760,40 @@ pub fn build<D: Donor>(
         let (target, written) = (&*carry.target, &carry.written);
         let exists = |file: &str| target.contains(file) || written.contains(file);
         super::resources::check_resources(&w.config, cfg, &exists, &native_refs)?;
+    }
+    // Every clip a config names animates the skeleton it is played on.
+    {
+        let overlay = carry.overlay;
+        let target = &mut *carry.target;
+        let mut read = |path: &str| -> Result<Option<Vec<u8>>> {
+            let local = overlay.join(path);
+            if local.is_file() {
+                Ok(Some(fs::read(local)?))
+            } else if target.contains(path) {
+                Ok(Some(target.read(path)?))
+            } else {
+                Ok(None)
+            }
+        };
+        let player = super::resources::skeleton_bones(
+            &read(super::resources::PLAYER_SKELETON)?.context("the player's skeleton")?,
+        )?;
+        for (w, cfg) in &configs {
+            let skeleton = format!(
+                "animations/skeletons/{}.skeleton",
+                string_of(get(cfg, "object.skeleton")).context("object.skeleton")?
+            );
+            let gun = super::resources::skeleton_bones(
+                &read(&skeleton)?.with_context(|| skeleton.clone())?,
+            )
+            .with_context(|| skeleton.clone())?;
+            let mut bones_of = |path: &str| -> Result<Option<BTreeSet<String>>> {
+                read(path)?
+                    .map(|b| super::resources::clip_bones(&b))
+                    .transpose()
+            };
+            super::resources::check_clip_skeletons(&w.config, cfg, &gun, &player, &mut bones_of)?;
+        }
     }
     let mut texts = BTreeSet::new();
     for (w, cfg) in &configs {
@@ -784,8 +853,12 @@ pub fn build<D: Donor>(
             let name = format!("{symbol}-r{:02}c{:02}.png", icon.row, icon.col);
             fs::write(
                 icons_dir.join(&name),
-                cell_png(&carry.donor.read(&icon.donor_png)?)
-                    .with_context(|| icon.donor_png.clone())?,
+                erase_rects(
+                    &cell_png(&carry.donor.read(&icon.donor_png)?)
+                        .with_context(|| icon.donor_png.clone())?,
+                    &icon.erase,
+                )
+                .with_context(|| icon.donor_png.clone())?,
             )?;
             icons.push(json!({"symbol": symbol, "row": icon.row, "col": icon.col, "source": format!("icons/{name}"), "donor": icon.donor_png}));
         }

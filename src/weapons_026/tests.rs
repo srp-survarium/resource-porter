@@ -693,3 +693,302 @@ fn a_config_naming_a_missing_resource_is_refused() {
     let odd = t(vec![("data", t(vec![("strange", s("some/where"))]))]);
     assert!(resource_files(&odd).is_err());
 }
+
+#[test]
+fn a_new_rounds_card_shows_its_own_pack_and_weight() {
+    let row = |id: i32, v: &str| t(vec![("prop_value", s(v)), ("prop_id", V::Integer(id))]);
+    let mut cfg = t(vec![
+        (
+            "parameters",
+            t(vec![
+                ("clip_size", V::Integer(100)),
+                ("clip_weight", V::Float(1.0)),
+            ]),
+        ),
+        (
+            "ui_desc",
+            t(vec![(
+                "props_list",
+                list(vec![
+                    row(21, "100"),
+                    row(22, "100"),
+                    row(16, "30"),
+                    row(15, "0.3"),
+                ]),
+            )]),
+        ),
+    ]);
+    config::ammo_card(&mut cfg).unwrap();
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.2.prop_value")),
+        Some("100")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.3.prop_value")),
+        Some("1.0")
+    );
+    assert_eq!(
+        string_of(get(&cfg, "ui_desc.props_list.0.prop_value")),
+        Some("100")
+    );
+}
+
+#[test]
+fn a_vector_set_stays_a_vector() {
+    let mut cfg = t(vec![("p", V::Float3([0.0, 0.0868, 0.178]))]);
+    config::set_typed(&mut cfg, "p", &serde_json::json!([0.0, 0.0824, 0.178])).unwrap();
+    assert_eq!(get(&cfg, "p"), Some(&V::Float3([0.0, 0.0824, 0.178])));
+    assert!(config::set_typed(&mut cfg, "p", &serde_json::json!([0.0, 1.0])).is_err());
+}
+
+/// The lobby's `preview_item` is the gun's own idle, not the template's
+/// gun's (the PKP's lobby idle on the Fort-401 crashed the lobby).
+#[test]
+fn preview_item_is_the_guns_own_idle() {
+    let mut cfg = t(vec![
+        (
+            "states",
+            t(vec![(
+                "idle",
+                t(vec![(
+                    "animations",
+                    list(vec![
+                        s("resources/animations/single/weapons/g/item/stand/3rd_view/idle"),
+                        s("resources/animations/single/weapons/g/item/stand/3rd_view/idle_empty"),
+                    ]),
+                )]),
+            )]),
+        ),
+        (
+            "user_animations_in_place",
+            t(vec![(
+                "preview_item",
+                s("resources/animations/single/weapons/pkp/item/stand/3rd_view/idle"),
+            )]),
+        ),
+    ]);
+    let mut notes = vec![];
+    super::config::own_preview_item(&mut cfg, &mut notes).unwrap();
+    assert_eq!(
+        get(&cfg, "user_animations_in_place.preview_item"),
+        Some(&s(
+            "resources/animations/single/weapons/g/item/stand/3rd_view/idle"
+        ))
+    );
+    assert_eq!(notes.len(), 1);
+    // The gun's own lobby pose stays.
+    cfg.set_path(
+        "user_animations_in_place.preview_item",
+        s("resources/animations/single/weapons/g/item/stand/3rd_view/preview"),
+    )
+    .unwrap();
+    super::config::own_preview_item(&mut cfg, &mut notes).unwrap();
+    assert_eq!(
+        get(&cfg, "user_animations_in_place.preview_item"),
+        Some(&s(
+            "resources/animations/single/weapons/g/item/stand/3rd_view/preview"
+        ))
+    );
+    assert_eq!(notes.len(), 1);
+    // A config without the key (no lobby pose) is left alone.
+    let mut bare = t(vec![]);
+    super::config::own_preview_item(&mut bare, &mut notes).unwrap();
+    assert_eq!(bare, t(vec![]));
+}
+
+/// A clip is checked against the skeleton it is played on: the gun's for a
+/// state's `animations` and `preview_item`, the player's for the rest.
+#[test]
+fn clips_of_another_skeleton_are_refused() {
+    use super::resources::{ClipOwner, check_clip_skeletons};
+    use std::collections::{BTreeMap, BTreeSet};
+    assert_eq!(ClipOwner::of("states.idle.animations"), ClipOwner::Gun);
+    assert_eq!(
+        ClipOwner::of("user_animations_in_place.preview_item"),
+        ClipOwner::Gun
+    );
+    assert_eq!(
+        ClipOwner::of("states.idle.user_animations"),
+        ClipOwner::Player
+    );
+    assert_eq!(
+        ClipOwner::of("user_animations_in_place.preview"),
+        ClipOwner::Player
+    );
+    assert_eq!(ClipOwner::of("recoil_animations"), ClipOwner::Player);
+    let set = |b: &[&str]| b.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+    let gun = set(&["wpn_g", "offset", "bn_g_slide"]);
+    let player = set(&["bip01", "bip01_r_hand"]);
+    let clips: BTreeMap<&str, BTreeSet<String>> = BTreeMap::from([
+        (
+            "animations/g/idle.bones_names",
+            set(&["object_movement", "wpn_g", "offset", "bn_g_slide"]),
+        ),
+        (
+            "animations/pkp/idle.bones_names",
+            set(&["object_movement", "wpn_pkp", "offset", "bn_pkp_belt"]),
+        ),
+        (
+            "animations/hands/idle.bones_names",
+            set(&["object_movement", "bip01", "bip01_r_hand"]),
+        ),
+    ]);
+    let mut bones_of = |path: &str| Ok(clips.get(path).cloned());
+    let cfg = |preview: &str, hands: &str| {
+        t(vec![
+            (
+                "states",
+                t(vec![(
+                    "idle",
+                    t(vec![
+                        ("animations", list(vec![s("resources/animations/g/idle")])),
+                        ("user_animations", list(vec![s(hands)])),
+                    ]),
+                )]),
+            ),
+            (
+                "user_animations_in_place",
+                t(vec![("preview_item", s(preview))]),
+            ),
+        ])
+    };
+    check_clip_skeletons(
+        "wpn_g",
+        &cfg(
+            "resources/animations/g/idle",
+            "resources/animations/hands/idle",
+        ),
+        &gun,
+        &player,
+        &mut bones_of,
+    )
+    .unwrap();
+    let error = check_clip_skeletons(
+        "wpn_g",
+        &cfg(
+            "resources/animations/pkp/idle",
+            "resources/animations/hands/idle",
+        ),
+        &gun,
+        &player,
+        &mut bones_of,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("preview_item: animations/pkp/idle"),
+        "{error}"
+    );
+    assert!(error.contains("bn_pkp_belt, wpn_pkp"), "{error}");
+    // A gun clip played on the character is refused as well.
+    let error = check_clip_skeletons(
+        "wpn_g",
+        &cfg("resources/animations/g/idle", "resources/animations/g/idle"),
+        &gun,
+        &player,
+        &mut bones_of,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("user_animations: animations/g/idle"),
+        "{error}"
+    );
+    // A clip no archive has is the missing-resource check's.
+    check_clip_skeletons(
+        "wpn_g",
+        &cfg(
+            "resources/animations/g/idle",
+            "resources/animations/gone/idle",
+        ),
+        &gun,
+        &player,
+        &mut bones_of,
+    )
+    .unwrap();
+}
+
+/// A resource key naming nothing is refused.
+#[test]
+fn an_empty_resource_name_is_refused() {
+    use super::resources::{resource_file, sound_file};
+    assert!(resource_file("object.model", "").is_err());
+    assert!(resource_file("particles.shoot", "").is_err());
+    assert!(resource_file("states.idle.animations", "").is_err());
+    assert!(sound_file(257, "").is_err());
+    // An empty string under a key that names no resource is no reference.
+    assert_eq!(
+        resource_file("ui_desc.text_descriptions.name", "").unwrap(),
+        None
+    );
+}
+
+/// Screen shake is the template's (the live class's), not the donor's: a
+/// 0.31a2 gun on 0.2/0.4 gets the live 0.8/1.0 x8.
+#[test]
+fn screen_shake_is_the_templates() {
+    let recoil = |min: f32, max: f32, ts: i32| {
+        t(vec![(
+            "recoil",
+            t(vec![
+                ("min_shake_recoil", V::Float(min)),
+                ("max_shake_recoil", V::Float(max)),
+                ("shake_time_scale", V::Integer(ts)),
+                ("recoil_power", V::Float(0.8)),
+            ]),
+        )])
+    };
+    let template = recoil(0.8, 1.0, 8);
+    let mut cfg = recoil(2.4, 3.0, 8);
+    let mut notes = vec![];
+    config::template_shake(&mut cfg, &template, &mut notes).unwrap();
+    assert_eq!(cfg, template);
+    assert_eq!(notes.len(), 2);
+}
+
+/// A sound's SPL preset is a file it needs (0.46c2's
+/// `main_3rd_view_suppressed`, which 0.26g lacks, crashed matches).
+#[test]
+fn a_sounds_spl_preset_is_a_file_it_needs() {
+    use super::resources::{spl_file, spl_preset};
+    let options = |p: &str| t(vec![("options", t(vec![("spl_preset", s(p))]))]);
+    assert_eq!(
+        spl_preset(&options("main_3rd_view_suppressed")),
+        Some("main_3rd_view_suppressed")
+    );
+    assert_eq!(spl_file("default"), "sounds/spl/default.spl");
+    assert_eq!(spl_preset(&options("")), None);
+    assert_eq!(spl_preset(&t(vec![])), None);
+}
+
+/// Kill feed icons: a new number belongs to one gun, an image of its own
+/// never replaces a live gun's, and a variant may share a live icon.
+#[test]
+fn kill_feed_icons_do_not_clash() {
+    use super::icons::check_kill_feed;
+    use std::collections::BTreeMap;
+    let feed = |icon: i32, png: Option<&str>| KillFeed {
+        icon,
+        donor_png: png.map(str::to_owned),
+    };
+    let live = BTreeMap::from([(33, vec!["wpn_ppsh.options".to_owned()])]);
+    let (cz, colt, drum) = (
+        feed(82, Some("icon_83.png")),
+        feed(99, None),
+        feed(33, None),
+    );
+    check_kill_feed(
+        &[("cz_75", &cz), ("colt_m1911", &colt), ("ppsh_drum", &drum)],
+        &live,
+    )
+    .unwrap();
+    let shared = feed(82, Some("icon_83.png"));
+    let error = check_kill_feed(&[("cz_75", &cz), ("colt_m1911", &shared)], &live)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("82 is cz_75's too"), "{error}");
+    let own_over_live = feed(33, Some("icon_34.png"));
+    assert!(check_kill_feed(&[("ppsh_drum", &own_over_live)], &live).is_err());
+    let twice = feed(99, None);
+    assert!(check_kill_feed(&[("colt_m1911", &colt), ("other", &twice)], &live).is_err());
+}

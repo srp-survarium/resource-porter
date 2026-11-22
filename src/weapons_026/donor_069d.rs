@@ -27,6 +27,10 @@
 //! template's) is the core manifest's, as for any donor.
 
 pub mod convert;
+pub mod renames;
+pub mod socket;
+
+pub use renames::Renames;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -62,12 +66,6 @@ pub enum Rig {
     /// skeleton bone for bone (checked); the model takes its bind pose,
     /// skeleton file and hand locators.
     Live(String),
-    /// As [`Rig::Live`], on a body that is that live model's own mesh (the
-    /// Drum's PPSh): its `aim` locator is the live one's too. The live aim
-    /// carries the angle the live clips hold those sights at (the PPSh's
-    /// 0.015 rad of yaw); the donor's, written for 0.69d0's clips, put the
-    /// Drum's sights 6-7 px right of the screen's centre.
-    LiveSights(String),
     /// The donor's own skeleton and clips.
     Donor,
 }
@@ -83,10 +81,6 @@ pub struct Gun069 {
     /// suppressor. Every other one is structural and baked.
     #[serde(default)]
     pub separable: Vec<String>,
-    /// Baked modules turned about the vertical axis (degrees) before they
-    /// are placed: meshes 0.69d0 authored facing another way than the gun.
-    #[serde(default)]
-    pub module_turns: BTreeMap<String, f32>,
 }
 
 /// The donor sidecar of a 0.69d0 port (`ports/donor-weapons-*.json`).
@@ -96,6 +90,15 @@ pub struct Spec069 {
     pub format_version: u32,
     /// By the core manifest's `donor_item` (0.69d0's item name).
     pub guns: BTreeMap<String, Gun069>,
+    /// 0.69d0's clips and sounds moved to names of their own where 0.26g
+    /// has an older file of the same name ([`Renames`]).
+    #[serde(default)]
+    pub renames: Renames,
+    /// Event channels of a donor clip set anew, by the clip's donor name
+    /// (no extension): channel to the knots' values (a `sound_events`
+    /// channel's: the indices in its state's sound list).
+    #[serde(default)]
+    pub clip_events: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
 }
 
 impl Spec069 {
@@ -141,6 +144,8 @@ pub struct Donor069 {
     files: BTreeMap<String, Vec<u8>>,
     attach_points: BTreeMap<String, Vec<AttachPoint>>,
     modules: BTreeMap<String, Vec<PlacedModule>>,
+    renames: Renames,
+    clip_events: BTreeMap<String, BTreeMap<String, Vec<u8>>>,
 }
 
 fn string_of(v: Option<&V>) -> Result<&str> {
@@ -181,8 +186,16 @@ fn encode(root: V) -> Result<Vec<u8>> {
     BinaryConfig { root }.to_bytes()
 }
 
-/// A bind pose: per bone its name and translation.
-pub fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
+/// A bone's bind frame: its translation and its rotation (the engine's
+/// Euler angles, radians). Its scale is 1 (checked).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BindFrame {
+    pub translation: [f32; 3],
+    pub rotation: [f32; 3],
+}
+
+/// A bind pose: per bone its name and bind frame.
+pub fn bind_pose(b: &[u8]) -> Result<Vec<(String, BindFrame)>> {
     ensure!(b.len() >= 2, "bind pose shorter than its count");
     let n = usize::from(u16::from_le_bytes([b[0], b[1]]));
     let mut at = 2;
@@ -205,7 +218,13 @@ pub fn bind_pose(b: &[u8]) -> Result<Vec<(String, [f32; 3])>> {
             f[6..9].iter().all(|s| (s - 1.0).abs() < 1e-4),
             "bone {name} is scaled"
         );
-        out.push((name, [f[0], f[1], f[2]]));
+        out.push((
+            name,
+            BindFrame {
+                translation: [f[0], f[1], f[2]],
+                rotation: [f[3], f[4], f[5]],
+            },
+        ));
     }
     ensure!(at == b.len(), "bind pose has trailing bytes");
     Ok(out)
@@ -256,8 +275,8 @@ pub fn without_069d_only(v: &V) -> V {
                 .map(|f| field(&f.name, without_069d_only(&f.value)))
                 .collect(),
         ),
-        V::Indexed(items) => V::Indexed(
-            items
+        V::Indexed(items) => {
+            let mut kept: Vec<V> = items
                 .iter()
                 .filter(|item| match item {
                     V::String(s) => !drops_clip(s),
@@ -268,8 +287,23 @@ pub fn without_069d_only(v: &V) -> V {
                     _ => true,
                 })
                 .map(without_069d_only)
-                .collect(),
-        ),
+                .collect();
+            // A fire state's sound list is two halves, unsuppressed then
+            // suppressed; a gun without a suppressed sound repeats the
+            // first (the KS-23M's eight). 0.26g has no suppressors: the
+            // first half, as the live Remington 870's four. Every entry of
+            // an item config counts against the 16 KB the client rebuilds
+            // it in (srp's MAX_CONFIG_ENTRIES).
+            let half = kept.len() / 2;
+            if half > 0
+                && kept.len().is_multiple_of(2)
+                && kept.iter().all(|i| matches!(i, V::Indexed(p) if matches!(p.as_slice(), [V::Integer(_), V::String(_)])))
+                && kept[..half] == kept[half..]
+            {
+                kept.truncate(half);
+            }
+            V::Indexed(kept)
+        }
         other => other.clone(),
     }
 }
@@ -309,40 +343,37 @@ fn locator_value(l: &Locator) -> V {
     ])
 }
 
-/// Where a module's origin lands in mesh space: the socket bone's bind
-/// translation plus the locator's position, both in the bind frame.
-fn socket(loc: &Locator, bind: &[(String, [f32; 3])]) -> Result<[f32; 3]> {
-    let (_, t) = bind
+/// Where a module at `loc` lands in mesh space: at the locator's frame in
+/// its bone's bind frame, by the engine's own arithmetic
+/// ([`socket::placement`]).
+fn socket(loc: &Locator, bind: &[(String, BindFrame)]) -> Result<socket::Placement> {
+    let (_, frame) = bind
         .iter()
         .find(|(n, _)| *n == loc.bone)
         .with_context(|| format!("{} names an unknown bone {}", loc.name, loc.bone))?;
-    let p = mesh_from_bind(loc.position);
-    Ok([t[0] + p[0], t[1] + p[1], t[2] + p[2]])
+    Ok(socket::placement(loc.rotation, loc.position, frame))
 }
 
-/// A socket's turn in mesh space. Only a turn about the bore's crosswise
-/// axis (x) is met (the PPSh's drum well, -3.7 degrees); in mesh space, half
-/// a turn about y from the bind frame, it is the opposite angle about x.
-fn socket_rotation(loc: &Locator) -> Result<[[f32; 3]; 3]> {
-    let [x, y, z] = loc.rotation;
+/// `loc` on the gun's body bone (`offset`, where every gun's rails hang),
+/// which must be bound as its own bone, so it stays where it was.
+fn on_body(loc: &Locator, bind: &[(String, BindFrame)]) -> Result<Locator> {
+    let index = |name: &str| {
+        bind.iter()
+            .position(|(n, _)| n == name)
+            .with_context(|| format!("{} names an unknown bone {name}", loc.name))
+    };
+    let (body, own) = (index("offset")?, index(&loc.bone)?);
     ensure!(
-        y.abs() < 1e-5 && z.abs() < 1e-5,
-        "{} turns about y or z ({:?}); only turns about x are baked",
+        bind[body].1 == bind[own].1,
+        "{} hangs on {}, bound otherwise than offset",
         loc.name,
-        loc.rotation
+        loc.bone
     );
-    let (s, c) = (-x).sin_cos();
-    Ok([[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]])
-}
-
-fn turn_about_y(a: f32) -> [[f32; 3]; 3] {
-    let (s, c) = a.sin_cos();
-    [[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]]
-}
-
-/// `a` after `b`: the matrix applying `b` first.
-fn multiply3(a: &[[f32; 3]; 3], b: &[[f32; 3]; 3]) -> [[f32; 3]; 3] {
-    std::array::from_fn(|r| std::array::from_fn(|c| (0..3).map(|k| a[r][k] * b[k][c]).sum()))
+    Ok(Locator {
+        bone: "offset".into(),
+        bone_idx: i32::try_from(body)?,
+        ..loc.clone()
+    })
 }
 
 /// Locator names of the 0.26g contract that are made, not copied.
@@ -381,20 +412,25 @@ fn lod0_surfaces(settings: &V, path: &str) -> Result<Vec<(String, String)>> {
         .collect()
 }
 
-/// The donor map roles and the 0.26g ones they feed.
-const MAP_ROLES: [(&str, &str, Option<convert::ToneCurve>); 4] = [
-    ("t_albedo", "texture_diffuse", Some(convert::ALBEDO)),
-    ("t_normal", "texture_normal", None),
-    (
-        "t_smoothness",
-        "texture_roughness",
-        Some(convert::SMOOTHNESS_TO_GLOSS),
-    ),
-    (
-        "t_metalness",
-        "texture_fresnel",
-        Some(convert::METALNESS_TO_FRESNEL),
-    ),
+/// What a donor map becomes in 0.26g (see [`convert::diffuse_from_albedo`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MapRole {
+    /// The albedo, with the metalness, the diffuse (sRGB).
+    Diffuse,
+    /// The normal map as it is (both builds' layout: x in alpha, y in green).
+    Normal,
+    /// The smoothness, the gloss ([`convert::gloss_from_smoothness`]).
+    Gloss,
+    /// The metalness, the Fresnel F0 ([`convert::fresnel_from_metalness`]).
+    Fresnel,
+}
+
+/// The donor map slots, the 0.26g ones they feed and how.
+const MAP_ROLES: [(&str, &str, MapRole); 4] = [
+    ("t_albedo", "texture_diffuse", MapRole::Diffuse),
+    ("t_normal", "texture_normal", MapRole::Normal),
+    ("t_smoothness", "texture_roughness", MapRole::Gloss),
+    ("t_metalness", "texture_fresnel", MapRole::Fresnel),
 ];
 
 /// The 0.26g diffuse of a 0.69d albedo and metalness pair (see
@@ -409,13 +445,34 @@ fn diffuse_dds(albedo: &[u8], metalness: &[u8], name: &str, work: &Path) -> Resu
             convert::diffuse_from_albedo(a[i], metal)
         })
         .collect();
+    encode_dxt1(w, h, &px, name, true, work)
+}
+
+/// A 0.69d grey map (smoothness or metalness) with `map` applied to each
+/// pixel, DXT1 with mips like a native weapon's, read linear.
+fn mapped_dds(bytes: &[u8], map: fn(u8) -> u8, name: &str, work: &Path) -> Result<Vec<u8>> {
+    let (w, h, px) = convert::decode_dxt1(bytes)?;
+    let px: Vec<[u8; 3]> = px.iter().map(|p| [map(p[0]); 3]).collect();
+    encode_dxt1(w, h, &px, name, false, work)
+}
+
+/// Pixels as a game DXT1 .dds: its mips and the sRGB byte 0.26g reads at
+/// its end (`srgb` for a diffuse).
+fn encode_dxt1(
+    w: usize,
+    h: usize,
+    px: &[[u8; 3]],
+    name: &str,
+    srgb: bool,
+    work: &Path,
+) -> Result<Vec<u8>> {
     fs::create_dir_all(work)?;
     let stem = name.replace('/', "_");
     let tga = work.join(format!("{stem}.tga"));
     let dds = work.join(format!("{stem}.dds"));
-    fs::write(&tga, convert::tga(w, h, &px)?)?;
+    fs::write(&tga, convert::tga(w, h, px)?)?;
     crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt1)?;
-    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, true)?;
+    let out = crate::duty_026::texture_dds(&fs::read(&dds)?, name, srgb)?;
     fs::remove_file(&tga)?;
     fs::remove_file(&dds)?;
     Ok(out)
@@ -436,6 +493,8 @@ impl Donor069 {
             files: BTreeMap::new(),
             attach_points: BTreeMap::new(),
             modules: BTreeMap::new(),
+            renames: spec.renames.clone(),
+            clip_events: spec.clip_events.clone(),
         };
         for (item, gun) in &spec.guns {
             let materials = donor
@@ -467,6 +526,21 @@ impl Donor069 {
     /// Each gun's bundled and default modules, baked or left out.
     pub fn modules(&self) -> &BTreeMap<String, Vec<PlacedModule>> {
         &self.modules
+    }
+
+    /// The donor archive's path for `path`: its own, or the one a rename
+    /// moved to it.
+    fn source(&self, path: &str) -> String {
+        match self.renames.donor_path(path) {
+            Some(old) if !self.db.contains(path) => old,
+            _ => path.to_owned(),
+        }
+    }
+
+    /// `v` with the clips and sounds it names moved as [`Renames`] says.
+    fn renamed(&self, v: &mut V) {
+        let db = &self.db;
+        self.renames.apply(v, &|path: &str| db.contains(path));
     }
 
     fn weapon(&self, item: &str) -> Result<&V> {
@@ -568,7 +642,7 @@ impl Donor069 {
         // The bind pose shipped: the live model's for a live rig (its clips
         // are written for it), else the donor's.
         let (ship_bind, live_props, skeleton_file) = match &gun.rig {
-            Rig::Live(model) | Rig::LiveSights(model) => {
+            Rig::Live(model) => {
                 let live = target.read(&format!("{model}/render/bind_pose"))?;
                 let names: Vec<String> = bind_pose(&live)?.into_iter().map(|(n, _)| n).collect();
                 let ours: Vec<String> = bind.iter().map(|(n, _)| n.clone()).collect();
@@ -627,11 +701,11 @@ impl Donor069 {
             // the module sits at the shipped bind frame of its bone (the live
             // rig's on a live rig: the AKMSU's magazine bone rests 15 cm off
             // in 0.69d0's bind pose, where the AK clips never take it).
-            let origin = socket(loc, &ship_bones)?;
-            let mut rotation = socket_rotation(loc)?;
-            if let Some(degrees) = gun.module_turns.get(&module.id) {
-                rotation = multiply3(&rotation, &turn_about_y(degrees.to_radians()));
-            }
+            // Every module of a slot is authored in the slot's frame (the
+            // PPSh's 30-round box and 71-round drum alike: rounds along the
+            // bore, the neck in the well), so none is turned beyond it; the
+            // slot's own turn and its bone's are the engine's (`socket`).
+            let at = socket(loc, &ship_bones)?;
             let bone = bind
                 .iter()
                 .position(|(n, _)| *n == loc.bone)
@@ -640,7 +714,7 @@ impl Donor069 {
                 let bytes = self
                     .db
                     .read(&format!("{path}/render/{surface}/converted_model"))?;
-                let mesh = convert::static_069_to_skinned(&bytes, rotation, origin, bone)?;
+                let mesh = convert::static_069_to_skinned(&bytes, at.rotation, at.origin, bone)?;
                 let module_name = module.model.rsplit('/').next().unwrap();
                 let name = format!("{module_name}_{surface}");
                 ensure!(
@@ -670,26 +744,25 @@ impl Donor069 {
         // model's on a live rig).
         let muzzle = find("muzzle_point").or_else(|_| find("fire_point"))?;
         let aim = find("aim")?;
-        let scope = ["scope_picatinnyrail_point", "picatinny_scope_point"]
+        // A gun with no scope rail draws its scope at the eye, on the gun's
+        // body: 0.69d0's aim hangs on the root bone, which the clips leave
+        // behind when they move the gun (the AKMSU's reload, 2026-11-16).
+        let scope = match ["scope_picatinnyrail_point", "picatinny_scope_point"]
             .iter()
             .find_map(|n| find(n).ok())
-            .unwrap_or(aim);
+        {
+            Some(rail) => rail.clone(),
+            None => on_body(aim, &ship_bones)?,
+        };
         let handguard = ["handguard_point", "forend_point", "LeftHand_idle"]
             .iter()
             .find_map(|n| find(n).ok())
             .context("no handguard locator")?;
-        let aim = match (&gun.rig, &live_props) {
-            (Rig::LiveSights(model), Some(live)) => locators(live)?
-                .into_iter()
-                .find(|l| l.name == "aim")
-                .with_context(|| format!("{model} has no aim locator"))?,
-            _ => Locator {
+        let mut locs = vec![
+            Locator {
                 name: "aim".into(),
                 ..aim.clone()
             },
-        };
-        let mut locs = vec![
-            aim,
             Locator {
                 name: "barrel_point".into(),
                 rotation: [0.0; 3],
@@ -698,7 +771,7 @@ impl Donor069 {
             Locator {
                 name: "scope_point".into(),
                 rotation: [0.0; 3],
-                ..scope.clone()
+                ..scope
             },
             Locator {
                 name: "handguard_point".into(),
@@ -843,22 +916,24 @@ impl Donor069 {
             )?;
             names.insert(role, texture);
         }
-        for (role, _, curve) in MAP_ROLES {
+        for (role, _, map) in MAP_ROLES {
             let texture = &names[role];
             let dds = format!("textures/{texture}.dds");
             if self.files.contains_key(&dds) {
                 continue;
             }
             let bytes = self.db.read(&dds)?;
-            let bytes = if role == "t_albedo" {
-                let metalness = self
-                    .db
-                    .read(&format!("textures/{}.dds", names["t_metalness"]))?;
-                diffuse_dds(&bytes, &metalness, &dds, work)?
-            } else {
-                match curve {
-                    Some(curve) => convert::remap_dds(&bytes, curve)?,
-                    None => bytes,
+            let bytes = match map {
+                MapRole::Diffuse => {
+                    let metalness = self
+                        .db
+                        .read(&format!("textures/{}.dds", names["t_metalness"]))?;
+                    diffuse_dds(&bytes, &metalness, &dds, work)?
+                }
+                MapRole::Normal => bytes,
+                MapRole::Gloss => mapped_dds(&bytes, convert::gloss_from_smoothness, &dds, work)?,
+                MapRole::Fresnel => {
+                    mapped_dds(&bytes, convert::fresnel_from_metalness, &dds, work)?
                 }
             };
             self.put(dds, bytes)?;
@@ -874,10 +949,10 @@ impl Donor for Donor069 {
         DonorBuild::V069d0
     }
     fn contains(&self, path: &str) -> bool {
-        self.files.contains_key(path) || self.db.contains(path)
+        self.files.contains_key(path) || self.db.contains(&self.source(path))
     }
     fn is_file(&self, path: &str) -> bool {
-        self.files.contains_key(path) || self.db.is_file(path)
+        self.files.contains_key(path) || self.db.is_file(&self.source(path))
     }
     fn paths_with_prefix(&self, prefix: &str) -> Vec<String> {
         let mut out: BTreeSet<String> = self
@@ -901,28 +976,47 @@ impl Donor for Donor069 {
         if let Some(bytes) = self.files.get(path) {
             return Ok(bytes.clone());
         }
+        let source = self.source(path);
         let bytes = self
             .db
-            .read(path)
-            .with_context(|| format!("reading donor {path}"))?;
+            .read(&source)
+            .with_context(|| format!("reading donor {source}"))?;
+        // 0.69d0 draws its lobby icons diagonally; 0.26g's cells are level.
+        if path.starts_with("flash_movies/textures/ui_icons/items/weapons/") {
+            return convert::level_lobby_icon(&bytes)
+                .with_context(|| format!("levelling {source}"));
+        }
         if path.ends_with(".b-spline") {
-            return clips::events_12_to_16(&bytes).with_context(|| format!("converting {path}"));
+            let mut clip =
+                clips::events_12_to_16(&bytes).with_context(|| format!("converting {source}"))?;
+            if let Some(channels) = self.clip_events.get(source.trim_end_matches(".b-spline")) {
+                for (channel, values) in channels {
+                    convert::set_event_values(&mut clip, channel, values)
+                        .with_context(|| format!("{source}: {channel}"))?;
+                }
+            }
+            return Ok(clip);
         }
         ensure!(
             !path.ends_with("/converted_model") && !path.ends_with("/bind_pose"),
             "{path}: 0.69d0's meshes are served only as composed models"
         );
-        if is_config(path) && BinaryConfig::is_compact(&bytes) {
-            return encode(
-                BinaryConfig::parse(&bytes)
-                    .with_context(|| format!("parsing donor {path}"))?
-                    .root,
-            );
+        if is_config(path) {
+            let parsed = BinaryConfig::parse(&bytes)
+                .with_context(|| format!("parsing donor {source}"))?
+                .root;
+            let mut root = parsed.clone();
+            self.renamed(&mut root);
+            if root != parsed || BinaryConfig::is_compact(&bytes) {
+                return encode(root);
+            }
         }
         Ok(bytes)
     }
     fn item_config(&mut self, item: &str) -> Result<V> {
-        Ok(without_069d_only(self.weapon(item)?))
+        let mut cfg = without_069d_only(self.weapon(item)?);
+        self.renamed(&mut cfg);
+        Ok(cfg)
     }
     fn dictionary(&mut self) -> Result<V> {
         bail!("0.69d0 keeps its dictionary on its server")
@@ -936,8 +1030,7 @@ impl Donor for Donor069 {
 /// Builds a 0.69d0 port: the core's bundle ([`super::build`]) from
 /// [`Donor069`] (new rounds are the core manifest's `ammo_items`), then
 /// `donor-069d.json` (each gun's modules, baked or left out, and its attach
-/// points for the weapon kit), `equipment.json`, `icons-069d.json` (what
-/// `scripts/render-weapons-069d-icons.py` renders), and the check that every
+/// points for the weapon kit, its model), `equipment.json`, and the check that every
 /// carried clip drives its rig's bones.
 pub fn build_069d(
     port: &super::manifest::WeaponPort,
@@ -965,31 +1058,21 @@ pub fn build_069d(
     let overlay = output.join("overlay");
     let mut target = ResourceDb::open_layers(target_layers)?;
 
-    // The record and the icons' list.
+    // The record.
     let mut guns = serde_json::Map::new();
-    let mut icons = vec![];
     for w in &port.weapons {
+        let cfg =
+            BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, &w.config)?)?)?.root;
+        let model = string_of(get(&cfg, "object.model"))?;
         guns.insert(
             w.name.clone(),
             serde_json::json!({
                 "donor_item": w.donor_item,
+                "model_root": format!("models/{model}.skinned_model"),
                 "modules": donor.modules().get(&w.donor_item),
                 "attach_points": donor.attach_points().get(&w.donor_item),
             }),
         );
-        let cfg =
-            BinaryConfig::parse(&fs::read(crate::archive::safe_join(&overlay, &w.config)?)?)?.root;
-        let model = string_of(get(&cfg, "object.model"))?;
-        let icon: Vec<i32> = list(get(&cfg, "ui_desc.icon"))
-            .iter()
-            .map(|v| int_of(Some(v)))
-            .collect::<Result<_>>()?;
-        icons.push(serde_json::json!({
-            "name": w.name,
-            "model_root": format!("models/{model}.skinned_model"),
-            "icon": icon,
-            "template": w.template,
-        }));
         check_clips(&cfg, &overlay, &mut target).with_context(|| w.name.clone())?;
         check_kit_ammo(w, &cfg, &dict_after(&overlay)?, &overlay, &mut target)
             .with_context(|| w.name.clone())?;
@@ -997,10 +1080,6 @@ pub fn build_069d(
     fs::write(
         output.join("donor-069d.json"),
         serde_json::to_vec_pretty(&guns)?,
-    )?;
-    fs::write(
-        output.join("icons-069d.json"),
-        serde_json::to_vec_pretty(&serde_json::json!({"weapons": icons}))?,
     )?;
     let ids: Vec<serde_json::Value> = port
         .weapons

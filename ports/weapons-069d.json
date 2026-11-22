@@ -33,24 +33,8 @@
      -1,
      1
     ],
-    "ui_desc.icon": [
-     17,
-     5
-    ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_akmsu_name",
-    "ui_desc.text_descriptions.description": "st_srp_weapon069_akmsu_desc",
-    "states.fire.sounds.first_view": [
-     [
-      257,
-      "weapons/akm_n"
-     ]
-    ],
-    "states.fire.sounds.third_view": [
-     [
-      257,
-      "weapons/akm_n_m"
-     ]
-    ]
+    "ui_desc.text_descriptions.description": "st_srp_weapon069_akmsu_desc"
    },
    "from_template": [
     "breath_vibration",
@@ -60,21 +44,19 @@
     "recoil",
     "recoil_animations",
     "weapon_affinities",
-    "user_animations",
-    "states.show",
-    "states.hide",
-    "states.idle",
-    "states.fire",
-    "states.reload"
+    "user_animations"
    ],
-   "lobby_icon": null,
+   "lobby_icon": {
+    "row": 17,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_6_11.png"
+   },
    "kill_feed": {
     "icon": 96,
     "donor_png": "flash_movies/textures/ui_icons/log/icon_97.png"
    },
    "notes": [
-    "AKMSU: the AKM's round and damage, 0.69d0's +4 % rate, the AKS-74U's short-barrel spread and falloff; the AKM's level and seller",
-    "on the live AK rig: the AKS-74U's clips and reload sounds, 0.69d0's AKM firing sound (weapons/akm_n, 0.26g's AKM's)"
+    "on 0.69d0's own AK rig, clips (moved to animations/single/weapons/akmsu_069/: 0.26g's ak/ folder has older clips of the same names) and hand points: its left hand on its own forend (the AKS-74U's sits 3.6 cm behind it); its own reload of eight sounds and 0.69d0's AKM firing mix (weapons/akm_n_069)"
    ]
   },
   {
@@ -107,22 +89,18 @@
      1,
      3
     ],
-    "ui_desc.icon": [
-     18,
-     5
-    ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_famas_name",
     "ui_desc.text_descriptions.description": "st_srp_weapon069_famas_desc",
     "states.fire.sounds.first_view": [
      [
       257,
-      "weapons/m4a1"
+      "weapons/m4a1_069"
      ]
     ],
     "states.fire.sounds.third_view": [
      [
       257,
-      "weapons/m4a1_m"
+      "weapons/m4a1_069_m"
      ]
     ],
     "parameters.movement_speed_modifier": 0
@@ -136,12 +114,14 @@
     "recoil_animations",
     "weapon_affinities",
     "user_animations",
-    "states.show",
-    "states.hide",
     "states.idle",
     "states.fire"
    ],
-   "lobby_icon": null,
+   "lobby_icon": {
+    "row": 18,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_6_39.png"
+   },
    "kill_feed": {
     "icon": 97,
     "donor_png": "flash_movies/textures/ui_icons/log/icon_98.png"
@@ -149,7 +129,8 @@
    "notes": [
     "FAMAS: 5.56x45 at the M4A1's damage, 0.69d0's 900 rpm and 3-round burst, reload 4.0 s (0.69d0's +33 % on the H&K); level 14 beside the H&K, Scavengers",
     "on the live Ash-12 rig and clips, as 0.69d0, but its own reload (two clips, 0.26g state 314); the M4A1's firing sound",
-    "movement 0, as its peers the M4A1 and the H&K 416 (the Ash-12 template's -5 % is a 12.7 mm gun's)"
+    "movement 0, as its peers the M4A1 and the H&K 416 (the Ash-12 template's -5 % is a 12.7 mm gun's)",
+    "0.69d0's own draw and holster (with their sound; the Ash-12 template's are silent) and its M4A1 firing mix (weapons/m4a1_069)"
    ]
   },
   {
@@ -181,10 +162,6 @@
      1,
      3
     ],
-    "ui_desc.icon": [
-     19,
-     5
-    ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_g3sg1_name",
     "ui_desc.text_descriptions.description": "st_srp_weapon069_g3sg1_desc",
     "user_animations_in_place.preview_item": "resources/animations/single/weapons/g3a3/item/stand/3rd_view/idle"
@@ -199,7 +176,11 @@
     "weapon_affinities",
     "user_animations"
    ],
-   "lobby_icon": null,
+   "lobby_icon": {
+    "row": 19,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_6_40.png"
+   },
    "kill_feed": {
     "icon": 98,
     "donor_png": "flash_movies/textures/ui_icons/log/icon_99.png"
@@ -240,10 +221,6 @@
      -1,
      1
     ],
-    "ui_desc.icon": [
-     20,
-     5
-    ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_mauser_m712_name",
     "ui_desc.text_descriptions.description": "st_srp_weapon069_mauser_m712_desc",
     "user_animations_in_place.preview_item": "resources/animations/single/weapons/mauser/item/stand/3rd_view/idle",
@@ -271,7 +248,11 @@
     "weapon_affinities",
     "user_animations"
    ],
-   "lobby_icon": null,
+   "lobby_icon": {
+    "row": 20,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_48.png"
+   },
    "kill_feed": {
     "icon": 86,
     "donor_png": "flash_movies/textures/ui_icons/log/icon_87.png"
@@ -281,7 +262,8 @@
     "its own 0.69d0 rig and clips; the aimed shots (_calim) left out",
     "the lobby's preview of the item: its own idle clip (the template's plays on the template's skeleton)",
     "death poses: the four on_site death clips the live Kedr, Kiparis and PP-2000 play (the APS's ak/on_site/death_fwd is in no archive)",
-    "aim_offset 0: its own 0.69d0 aim locator puts the sights within 2 px (the APS template's -0.1 is for the APS's model)"
+    "aim_offset 0: its own 0.69d0 aim locator puts the sights within 2 px (the APS template's -0.1 is for the APS's model)",
+    "its empty reload's fifth sound event plays the slide (sound 6): 0.69d0's clip leaves its events' indices at 255"
    ]
   },
   {
@@ -313,10 +295,6 @@
      1
     ],
     "parameters.chamber_a_round_time": 0.75,
-    "ui_desc.icon": [
-     21,
-     5
-    ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_ks_23m_name",
     "ui_desc.text_descriptions.description": "st_srp_weapon069_ks_23m_desc",
     "user_animations_in_place.preview_item": "resources/animations/single/weapons/ks_23/item/stand/3rd_view/idle"
@@ -331,7 +309,11 @@
     "weapon_affinities",
     "user_animations"
    ],
-   "lobby_icon": null,
+   "lobby_icon": {
+    "row": 21,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_41.png"
+   },
    "kill_feed": {
     "icon": 85,
     "donor_png": "flash_movies/textures/ui_icons/log/icon_86.png"
@@ -372,10 +354,6 @@
      -1,
      1
     ],
-    "ui_desc.icon": [
-     22,
-     5
-    ],
     "ui_desc.text_descriptions.name": "st_srp_weapon069_ppsh_drum_name",
     "ui_desc.text_descriptions.description": "st_srp_weapon069_ppsh_drum_desc"
    },
@@ -387,13 +365,13 @@
     "recoil",
     "recoil_animations",
     "weapon_affinities",
-    "user_animations",
-    "states.show",
-    "states.hide",
-    "states.idle",
-    "states.fire"
+    "user_animations"
    ],
-   "lobby_icon": null,
+   "lobby_icon": {
+    "row": 22,
+    "col": 5,
+    "donor_png": "flash_movies/textures/ui_icons/items/weapons/weapon_5_43.png"
+   },
    "kill_feed": {
     "icon": 33,
     "donor_png": null
@@ -401,7 +379,7 @@
    "notes": [
     "PPSH-41 \"Drum\": the PPSh-41 with 0.69d0's 71-round drum, reload +25 % (4.6 s), aim 0.3 s; level 2, Scavengers",
     "on the live PPSh rig and clips but the drum's own reload (two clips, 0.26g state 314)",
-    "the live PPSh's aim locator and aim_offset (0.01): its body is the live PPSh's mesh (live_sights rig)"
+    "on 0.69d0's own PPSh rig, clips (moved to animations/single/weapons/ppsh_drum/) and hand points: the drum grip, the left wrist on the drum's front as 0.69d0 holds it, not the box magazine's place; the live PPSh's aim_offset (0.01) over 0.69d0's aim, at the live aim's height"
    ]
   }
  ],

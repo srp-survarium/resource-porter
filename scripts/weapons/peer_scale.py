@@ -10,7 +10,8 @@ live_peer x donor / donor_peer (the owner's rule, 2026-11-01: the donor's own st
 gun both builds share), so the gun differs from its peer as it did in its build. Where the peer is 0
 in the donor, the donor's value if it has one, else the live peer's. A min/max pair (recoil kicks)
 of recoil is scaled by one factor, the ratio of the pair's sums, so min stays below max. Only what
-differs from the donor's own value is written (the port takes the donor's otherwise). Durability, repair,
+differs from the donor's own value is written (the port takes the donor's otherwise). Screen shake (the
+3 recoil.*shake* keys) is the class's live value, the template's. Durability, repair,
 levels, faction and drops are not balance (the native systems' and the port's own): left out, as
 the keys of --keep. Rounded: distances and rates to integers, the rest to 0.01 (0.001 under 0.1).
 """
@@ -18,7 +19,10 @@ import argparse, json, re, sys
 
 SKIP = {'parameters.degrade_per_match', 'parameters.degrade_per_use', 'parameters.repair_cost_ratio',
         'parameters.item_level', 'parameters.match_making_level', 'parameters.drop_weight',
-        'parameters.faction', 'parameters.min_damage_amount', 'parameters.reliability'}
+        'parameters.faction', 'parameters.min_damage_amount', 'parameters.reliability',
+        # Screen shake is the class's live value (the template's, by the port's core):
+        # 0.31a2 cut its M4A1's to 0.2/0.4, so a gun scaled by it shook 3 times harder.
+        'recoil.min_shake_recoil', 'recoil.max_shake_recoil', 'recoil.shake_time_scale'}
 INTEGER = re.compile(r'(distance|rounds_per_minute|magazine_capacity|stamina_damage)$')
 
 def load(p):

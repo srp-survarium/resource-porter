@@ -13,8 +13,9 @@
 //! * **Static meshes** (the attachment modules) become skinned surfaces of
 //!   the weapon, bound to one bone and moved to their socket.
 //! * **Textures**: the same DDS layout. 0.69d's maps are PBR (albedo,
-//!   smoothness, metalness); [`ToneCurve`]s map them onto 0.26g's diffuse,
-//!   gloss and Fresnel ranges by editing the DXT block endpoints.
+//!   smoothness, metalness); [`diffuse_from_albedo`], [`gloss_from_smoothness`]
+//!   and [`fresnel_from_metalness`] map each pixel onto 0.26g's diffuse, gloss
+//!   and Fresnel, and the map is encoded again (DXT1, the source's mips).
 
 use anyhow::{Context, Result, bail, ensure};
 
@@ -317,113 +318,6 @@ fn turn_basis(value: f32, turn: &impl Fn([f32; 3]) -> [f32; 3]) -> Result<f32> {
 // Textures
 // ---------------------------------------------------------------------------
 
-/// A monotone map of 8-bit channel values, piecewise linear through knots.
-#[derive(Clone, Copy, Debug)]
-pub struct ToneCurve(pub &'static [(u8, u8)]);
-
-impl ToneCurve {
-    pub fn apply(&self, v: u8) -> u8 {
-        let knots = self.0;
-        let x = f32::from(v);
-        for pair in knots.windows(2) {
-            let ((x0, y0), (x1, y1)) = (pair[0], pair[1]);
-            if v <= x1 {
-                let t = (x - f32::from(x0)) / f32::from(x1 - x0).max(1.0);
-                return (f32::from(y0) + t * (f32::from(y1) - f32::from(y0)))
-                    .round()
-                    .clamp(0.0, 255.0) as u8;
-            }
-        }
-        knots.last().map_or(v, |k| k.1)
-    }
-}
-
-/// 0.69d -> 0.26g calibration, fitted on the seven assault-rifle texture sets
-/// both builds ship (AK-74N, AK-12, A-545, AKMN, Vepr main/second, SR-3M):
-/// quantiles of each 0.69d map against its 0.26g counterpart (mip 3), pooled.
-/// Smoothness is 0.36 x (power 0.98, kept linear); metalness to Fresnel
-/// follows 0.162 x m^0.388 (normalised). Per-pixel fits do no better for
-/// these two (RMS 0.100 against 0.103, 0.082 against 0.093), so they are
-/// remapped losslessly in the DXT endpoints. [`ALBEDO`] alone (about half as
-/// bright from 32 up) leaves bare metal bright: the diffuse uses
-/// [`diffuse_from_albedo`] instead; the curve stays for reference.
-pub const ALBEDO: ToneCurve = ToneCurve(&[
-    (0, 4),
-    (16, 15),
-    (32, 20),
-    (48, 25),
-    (64, 32),
-    (80, 37),
-    (96, 43),
-    (112, 51),
-    (128, 63),
-    (144, 75),
-    (160, 83),
-    (255, 134),
-]);
-pub const SMOOTHNESS_TO_GLOSS: ToneCurve = ToneCurve(&[(0, 0), (255, 91)]);
-pub const METALNESS_TO_FRESNEL: ToneCurve = ToneCurve(&[
-    (0, 0),
-    (4, 8),
-    (16, 14),
-    (32, 18),
-    (64, 24),
-    (96, 28),
-    (128, 32),
-    (160, 34),
-    (192, 37),
-    (224, 39),
-    (255, 41),
-]);
-
-fn remap_565(c: u16, curve: ToneCurve) -> u16 {
-    let r = u32::from(c >> 11) * 255 / 31;
-    let g = u32::from((c >> 5) & 63) * 255 / 63;
-    let b = u32::from(c & 31) * 255 / 31;
-    let [r, g, b] = [r, g, b].map(|v| u32::from(curve.apply(v as u8)));
-    let pack = |v: u32, max: u32| ((v * max + 127) / 255) as u16;
-    (pack(r, 31) << 11) | (pack(g, 63) << 5) | pack(b, 31)
-}
-
-/// Applies `curve` to every colour endpoint of a DXT1 or DXT5 DDS, every
-/// mip. Blocks keep their indices; DXT1 blocks keep their mode (an endpoint
-/// pair that the curve would make equal or reorder is left as it is, so a
-/// transparent-black block cannot appear).
-pub fn remap_dds(bytes: &[u8], curve: ToneCurve) -> Result<Vec<u8>> {
-    ensure!(bytes.len() >= 128 && &bytes[..4] == b"DDS ", "not a DDS");
-    let h = u32_at(bytes, 12)? as usize;
-    let w = u32_at(bytes, 16)? as usize;
-    let mips = (u32_at(bytes, 28)? as usize).max(1);
-    let block = match &bytes[84..88] {
-        b"DXT1" => 8,
-        b"DXT5" => 16,
-        other => bail!(
-            "unsupported DDS format {:?}",
-            String::from_utf8_lossy(other)
-        ),
-    };
-    let mut out = bytes.to_vec();
-    let mut at = 128;
-    for mip in 0..mips {
-        let blocks = (w >> mip).max(1).div_ceil(4) * (h >> mip).max(1).div_ceil(4);
-        for _ in 0..blocks {
-            let c = at + block - 8;
-            ensure!(c + 8 <= out.len(), "DDS shorter than its mips");
-            let c0 = u16::from_le_bytes([out[c], out[c + 1]]);
-            let c1 = u16::from_le_bytes([out[c + 2], out[c + 3]]);
-            let (n0, n1) = (remap_565(c0, curve), remap_565(c1, curve));
-            // DXT1 picks its mode by c0 > c1; DXT5 colour is always 4-colour.
-            let keeps_mode = block == 16 || (c0 > c1) == (n0 > n1) && (c0 == c1) == (n0 == n1);
-            if keeps_mode {
-                out[c..c + 2].copy_from_slice(&n0.to_le_bytes());
-                out[c + 2..c + 4].copy_from_slice(&n1.to_le_bytes());
-            }
-            at += block;
-        }
-    }
-    Ok(out)
-}
-
 /// The top mip of a DXT1 DDS as RGB pixels, row by row: `(width, height,
 /// pixels)`.
 pub fn decode_dxt1(bytes: &[u8]) -> Result<(usize, usize, Vec<[u8; 3]>)> {
@@ -480,21 +374,45 @@ pub fn decode_dxt1(bytes: &[u8]) -> Result<(usize, usize, Vec<[u8; 3]>)> {
     Ok((w, h, px))
 }
 
-/// 0.26g diffuse from a 0.69d albedo and metalness, per pixel (sRGB, 0..1):
-/// `0.514 * (albedo * (1 - 0.8 * metalness)) ^ 0.75`.
+/// The calibration, fitted on the ten texture sets both builds ship with the
+/// same layout (their normal maps match: the A-545, AK-12, AK-74M, AK-74N,
+/// AKMN, ASh-12, PPSh, ACOG, Cobra and CompM4). The gloss and Fresnel are
+/// fitted per pixel; the diffuse to each set's mean, contrast and saturation
+/// (the PPSh: stock 34.5, 20.9, 7.0 of 255; made 32.2, 16.4, 5.4).
 ///
-/// A metalness workflow paints bare metal bright in the albedo (it is the
-/// metal's reflectance there); 0.26g draws the diffuse map as diffuse, so
-/// metal must go dark. Fitted per pixel on the seven assault-rifle texture
-/// sets both builds ship, whose UV layouts match (RMS error 0.054 against
-/// 0.071 for albedo alone; metalness correlates 0.90 with the AK-12's 0.26g
-/// Fresnel map).
+/// Before, the gloss and Fresnel curves were applied to the DXT colour
+/// endpoints and a block whose endpoints the curve made equal was left as it
+/// was: raw metalness as Fresnel in up to 63 % of a map's blocks (the AK-74M's;
+/// the A-545's 38 %), so the guns came out 2 to 3 times as metallic as the
+/// stock ones (Fresnel 0.26 to 0.38 against 0.10 to 0.18). The Fresnel was 0
+/// where the metalness is 0, where 0.26g gives every surface some (median
+/// 21/255). And the diffuse, `0.514 * (albedo * (1 - 0.8 m)) ^ 0.75`, was right
+/// on average but had half the stock contrast and saturation.
+///
+/// 0.26g diffuse from a 0.69d albedo and metalness, per pixel (sRGB values):
+/// `0.76 * albedo * (1 - 0.5 * metalness)`. A metalness workflow paints bare
+/// metal bright in the albedo (its reflectance there); 0.26g draws the
+/// diffuse map as diffuse, so metal goes darker.
 pub fn diffuse_from_albedo(albedo: [u8; 3], metalness: u8) -> [u8; 3] {
     let m = f32::from(metalness) / 255.0;
     albedo.map(|a| {
-        let v = 0.514 * ((f32::from(a) / 255.0) * (1.0 - 0.8 * m)).powf(0.75);
-        (v * 255.0).round().clamp(0.0, 255.0) as u8
+        (0.76 * f32::from(a) * (1.0 - 0.5 * m))
+            .round()
+            .clamp(0.0, 255.0) as u8
     })
+}
+
+/// 0.26g gloss (the `texture_roughness` slot: 0.26g's g-buffer pass reads it
+/// as smoothness, `1 - (min + (max - min) g)` the GGX roughness) from a 0.69d
+/// smoothness: `0.36 * smoothness`.
+pub fn gloss_from_smoothness(smoothness: u8) -> u8 {
+    (0.36 * f32::from(smoothness)).round() as u8
+}
+
+/// 0.26g Fresnel F0 from a 0.69d metalness: `0.08 + 0.09 * sqrt(metalness)`.
+pub fn fresnel_from_metalness(metalness: u8) -> u8 {
+    let m = f32::from(metalness) / 255.0;
+    (255.0 * (0.08 + 0.09 * m.sqrt())).round().clamp(0.0, 255.0) as u8
 }
 
 /// An uncompressed 24-bit TGA, top row first, for the DDS encoder.
@@ -508,6 +426,163 @@ pub fn tga(w: usize, h: usize, px: &[[u8; 3]]) -> Result<Vec<u8>> {
     out[17] = 0x20; // origin top-left
     for p in px {
         out.extend([p[2], p[1], p[0]]);
+    }
+    Ok(out)
+}
+
+/// Sets the values of the event channel `name` of a clip in 0.26g's layout
+/// (the knots' times, then a byte value each: a `sound_events` channel's
+/// indices in its state's sound list), one for each knot.
+pub fn set_event_values(clip: &mut [u8], name: &str, values: &[u8]) -> Result<()> {
+    use crate::weapons_026::clips::{BONE_RECORD, EVENT_HEADER_026, clip_header, event_names};
+    let h = clip_header(clip)?;
+    let index = event_names(clip)?
+        .iter()
+        .position(|n| n == name)
+        .with_context(|| format!("no event channel {name}"))?;
+    let header = 4 + h.bones * BONE_RECORD + index * EVENT_HEADER_026;
+    let knots = usize::from(clip[header + 8]);
+    ensure!(
+        knots == values.len(),
+        "{name} has {knots} knots, {} values given",
+        values.len()
+    );
+    let at = header + u32_at(clip, header)? as usize + 4 * knots;
+    clip.get_mut(at..at + knots)
+        .context("event values outside the clip")?
+        .copy_from_slice(values);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Lobby icons
+// ---------------------------------------------------------------------------
+
+/// A 0.69d0 lobby icon (`weapon_<y>_<x>.png`: a 128x128 square, the gun
+/// drawn diagonally, muzzle up and to the left) as 0.26g draws its cells:
+/// level and muzzle right. Mirrored, then turned clockwise by the art's own
+/// angle (its principal axis, about 45 degrees), sampled bilinearly, and
+/// cropped to the art; the core's `cell_png` fits it into the cell.
+pub fn level_lobby_icon(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND);
+    let mut reader = decoder.read_info()?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf)?;
+    ensure!(info.bit_depth == png::BitDepth::Eight, "icon is not 8-bit");
+    let channels = match info.color_type {
+        png::ColorType::Rgba => 4,
+        png::ColorType::Rgb => 3,
+        other => bail!("icon colour type {other:?} after expansion"),
+    };
+    let (w, h) = (info.width as usize, info.height as usize);
+    // Premultiplied, mirrored.
+    let src: Vec<[f32; 4]> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (w - 1 - i % w, i / w);
+            let p = &buf[(y * w + x) * channels..(y * w + x + 1) * channels];
+            let a = if channels == 4 {
+                f32::from(p[3]) / 255.0
+            } else {
+                1.0
+            };
+            [
+                f32::from(p[0]) * a,
+                f32::from(p[1]) * a,
+                f32::from(p[2]) * a,
+                a,
+            ]
+        })
+        .collect();
+    // The art's principal axis (alpha-weighted).
+    let (mut sw, mut mx, mut my) = (0f64, 0f64, 0f64);
+    for (i, p) in src.iter().enumerate() {
+        let a = f64::from(p[3]);
+        sw += a;
+        mx += a * (i % w) as f64;
+        my += a * (i / w) as f64;
+    }
+    ensure!(sw > 0.0, "an empty icon");
+    let (mx, my) = (mx / sw, my / sw);
+    let (mut sxx, mut syy, mut sxy) = (0f64, 0f64, 0f64);
+    for (i, p) in src.iter().enumerate() {
+        let a = f64::from(p[3]);
+        let (dx, dy) = ((i % w) as f64 - mx, (i / w) as f64 - my);
+        sxx += a * dx * dx;
+        syy += a * dy * dy;
+        sxy += a * dx * dy;
+    }
+    // Screen coordinates (y down): the axis rises to the right at `-angle`.
+    let angle = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    ensure!(
+        (-60f64.to_radians()..=-30f64.to_radians()).contains(&angle),
+        "the icon's art lies at {:.0} degrees, not diagonally",
+        angle.to_degrees()
+    );
+    let turn = -angle; // clockwise on screen
+    let (s, c) = (turn.sin() as f32, turn.cos() as f32);
+    let side = ((w.max(h) as f32) * std::f32::consts::SQRT_2).ceil() as usize;
+    let (ox, oy) = (side as f32 / 2.0, side as f32 / 2.0);
+    let sample = |x: f32, y: f32| -> [f32; 4] {
+        let (x0, y0) = (x.floor(), y.floor());
+        let (fx, fy) = (x - x0, y - y0);
+        let mut out = [0f32; 4];
+        for (dx, dy, k) in [
+            (0, 0, (1.0 - fx) * (1.0 - fy)),
+            (1, 0, fx * (1.0 - fy)),
+            (0, 1, (1.0 - fx) * fy),
+            (1, 1, fx * fy),
+        ] {
+            let (xi, yi) = (x0 as i64 + dx, y0 as i64 + dy);
+            if xi < 0 || yi < 0 || xi >= w as i64 || yi >= h as i64 {
+                continue;
+            }
+            let p = src[yi as usize * w + xi as usize];
+            for (o, c) in out.iter_mut().zip(p) {
+                *o += c * k;
+            }
+        }
+        out
+    };
+    let mut turned = vec![[0f32; 4]; side * side];
+    for v in 0..side {
+        for u in 0..side {
+            // Inverse of the clockwise turn about the art's centre.
+            let (du, dv) = (u as f32 + 0.5 - ox, v as f32 + 0.5 - oy);
+            let x = du * c + dv * s + mx as f32;
+            let y = -du * s + dv * c + my as f32;
+            turned[v * side + u] = sample(x - 0.5, y - 0.5);
+        }
+    }
+    // Cropped to the art.
+    let opaque = |p: &[f32; 4]| p[3] > 2.0 / 255.0;
+    let rows: Vec<usize> = (0..side)
+        .filter(|&v| (0..side).any(|u| opaque(&turned[v * side + u])))
+        .collect();
+    let cols: Vec<usize> = (0..side)
+        .filter(|&u| (0..side).any(|v| opaque(&turned[v * side + u])))
+        .collect();
+    let (top, bottom) = (rows[0], rows[rows.len() - 1] + 1);
+    let (left, right) = (cols[0], cols[cols.len() - 1] + 1);
+    let (cw, ch) = (right - left, bottom - top);
+    let mut out_px = Vec::with_capacity(cw * ch * 4);
+    for v in top..bottom {
+        for u in left..right {
+            let p = turned[v * side + u];
+            let a = p[3].clamp(0.0, 1.0);
+            for c in &p[..3] {
+                let straight = if a > 0.0 { c / a } else { 0.0 };
+                out_px.push(straight.round().clamp(0.0, 255.0) as u8);
+            }
+            out_px.push((a * 255.0).round() as u8);
+        }
+    }
+    let mut out = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut out, cw as u32, ch as u32);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header()?.write_image_data(&out_px)?;
     }
     Ok(out)
 }
@@ -661,7 +736,20 @@ mod tests {
         let metal = diffuse_from_albedo([230, 230, 230], 255);
         assert!(metal[0] < paint[0], "{metal:?} {paint:?}");
         assert_eq!(diffuse_from_albedo([0, 0, 0], 0), [0, 0, 0]);
-        assert!(paint[0] > paint[2]);
+        assert_eq!(paint, [106, 91, 68], "the albedo's contrast and hue kept");
+    }
+
+    #[test]
+    fn every_surface_has_some_fresnel_and_gloss_follows_smoothness() {
+        assert_eq!(
+            fresnel_from_metalness(0),
+            20,
+            "a dielectric's F0 as 0.26g's maps have it"
+        );
+        assert_eq!(fresnel_from_metalness(255), 43);
+        assert!((0..255).all(|m| fresnel_from_metalness(m) <= fresnel_from_metalness(m + 1)));
+        assert_eq!(gloss_from_smoothness(0), 0);
+        assert_eq!(gloss_from_smoothness(255), 92);
     }
 
     #[test]
@@ -681,28 +769,5 @@ mod tests {
         let t = tga(4, 4, &px).unwrap();
         assert_eq!(t.len(), 18 + 48);
         assert_eq!(&t[18..21], &[255, 0, 0], "BGR");
-    }
-
-    #[test]
-    fn tone_curves_interpolate_and_keep_dxt1_modes() {
-        assert_eq!(ALBEDO.apply(0), 4);
-        assert_eq!(ALBEDO.apply(24), 18);
-        assert_eq!(SMOOTHNESS_TO_GLOSS.apply(255), 91);
-        assert_eq!(SMOOTHNESS_TO_GLOSS.apply(144), 51);
-        // One 4x4 DXT1 block, one mip: c0 > c1 stays four-colour.
-        let mut dds = vec![0u8; 128];
-        dds[..4].copy_from_slice(b"DDS ");
-        dds[12..16].copy_from_slice(&4u32.to_le_bytes());
-        dds[16..20].copy_from_slice(&4u32.to_le_bytes());
-        dds[28..32].copy_from_slice(&1u32.to_le_bytes());
-        dds[84..88].copy_from_slice(b"DXT1");
-        dds.extend(0xffffu16.to_le_bytes());
-        dds.extend(0x8410u16.to_le_bytes());
-        dds.extend([0x1b; 4]);
-        let out = remap_dds(&dds, SMOOTHNESS_TO_GLOSS).unwrap();
-        let c0 = u16::from_le_bytes([out[128], out[129]]);
-        let c1 = u16::from_le_bytes([out[130], out[131]]);
-        assert!(c0 > c1 && c0 < 0xffff);
-        assert_eq!(&out[132..136], &[0x1b; 4]);
     }
 }

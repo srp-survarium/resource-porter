@@ -5,7 +5,7 @@
 core makes the item configs, the dictionary rows, the sounds and the bundle as for any donor.
 A port is `ports/weapons-069d.json` (the core's manifest: guns, ids, templates, balance, which
 states stay the template's) and its sidecar `ports/donor-weapons-069d.json` (what only 0.69d0
-needs: each gun's rig, the modules left out, modules to turn, new rounds). skhid-srp's packs
+needs: each gun's rig, the modules left out, new rounds). skhid-srp's packs
 weapons-069 and weapons-069-camo are made from it (`scripts/weapons-069/make_pack.sh` there).
 
 The converter was first written for the H&K 416A5 and MSBS Radon (7eabfa8, 9314977), dropped
@@ -19,12 +19,10 @@ when those came from 0.31a2 (6dedabe), revived beside the core (#24) and then fo
 scripts/weapons-069d-donor.py <survey vostok-port> full069.split paths069.txt LIST akmsu famas g3a3 mauser ks_23 ppsh_drum
 vostok-port extract-bundle --db full069.split $(sed 's/^/--prefix /' LIST) --output TREE
 cargo run --release --example pack-donor-tree -- TREE/overlay donor.db
-# 2. The bundle over what packs are composed over (the stock db and skhid-srp's base patches),
-#    then its lobby icons.
+# 2. The bundle over what packs are composed over (the stock db and skhid-srp's base patches).
 vostok-port port-weapons-069d --manifest ports/weapons-069d.json \
   --donor-spec ports/donor-weapons-069d.json --donor donor.db \
   --target-db STOCK --target-patch resources.db.patch_12 ... --output B
-scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu.swf>
 ```
 
 ## What the donor does (0.69d0 only)
@@ -38,27 +36,52 @@ scripts/render-weapons-069d-icons.py --bundle B --lobby-swf <players' lobby_menu
   32 bytes (position, bone, three basis floats, half2 UV) or two in 36 (two `u8` bones, the
   first one's weight); 0.26g's are 36 bytes, one bone (position, bone, three packed basis words,
   float2 UV). A two-bone vertex goes to its heavier bone. The **structural** bundled and default
-  modules are baked as surfaces bound to their socket bone, at the shipped bind frame of that
-  bone plus the locator (`bind + R_y(pi) * locator`): in the game a bone's vertices are drawn at
-  clip * bind^-1, and 0.69d0 drew the module at clip * locator (the AKMSU's magazine bone rests
-  15 cm off in 0.69d0's bind pose, where no clip takes it). A socket turned about x turns its
-  module; `module_turns` turns a module authored facing another way (the 71-round drum). Every
-  LOD0 surface of a module is baked. **Muzzle devices, foregrips, scopes and suppressors are
+  modules are baked as surfaces bound to their socket bone, at the locator's frame in the shipped
+  bind frame of that bone: in the game a bone's vertices are drawn at clip * bind^-1, and 0.69d0
+  drew the module at clip * locator (the AKMSU's magazine bone rests 15 cm off in 0.69d0's bind
+  pose, where no clip takes it). The frames are the engine's own, on row vectors
+  (`donor_069d/socket.rs`): a bone's is `create_rotation(rotation) * create_translation(translation)`,
+  a locator's `create_rotation(rotation) * create_translation(position)`, and a module's vertex
+  `v` lands at `(v * H) * locator * bone`, `H` half a turn about Y (a module is modelled in the
+  mesh's directions, and 0.69d0's weapon bones are bound half a turn about Y from the mesh). A
+  socket's turn about any axis and a bone's own tilt are taken so; nothing else turns a module:
+  every module of a slot is authored in the slot's frame (the PPSh's 71-round drum as its 30-round
+  box: rounds along the bore, the neck in the well, the drum across the gun). What the rule
+  stands on: 0.69d0's VSK-94, whose sockets' turns (0.85, 0.01, 0.35 degrees) undo its `offset`
+  bone's tilt to 1e-4 degrees by it; and its PPSh, whose `mag_point` is turned -3.74 degrees
+  about X: the drum's neck then stands 0.4 mm behind the magazine well's front wall at every
+  height, and the 30-round box fills the well to within 0.4 mm of the rear wall. Until 2026-11-10
+  the turn was taken with the other sign (skhid-srp's weapons-069@15 and before): the drum leant
+  7.5 degrees off, its neck 6 to 8 mm inside the well's front wall and 9 to 10 mm short of the
+  rear one. Every LOD0 surface of a module is baked. **Muzzle devices, foregrips, scopes and suppressors are
   never baked** (refused unless `separable`); `donor-069d.json` records each gun's modules and
   its attach points (`muzzle_point`, the rails) for the weapon kit.
 * **Rigs.** `live`: the donor rig is a live weapon's skeleton bone for bone (checked); the model
   takes the live model's bind pose, skeleton file and hand locators, so the live clips play on
-  it. `donor`: the donor's skeleton, bind pose and clips. Every carried clip is checked against
-  its rig (hands: 0.26g's player rig; item: the gun's bones).
+  it (the FAMAS on the Ash-12's, whose clips 0.69d0 plays too). `donor`: the donor's
+  skeleton, bind pose, clips and hand points (the AKMSU, the Drum: a live rig's clips hold their
+  bodies where the live gun's are, the Drum's left hand on the box magazine's place). Every
+  carried clip is checked against its rig (hands: 0.26g's player rig; item: the gun's bones).
+* **Renames** (the sidecar's `renames`, `donor_069d/renames.rs`). The core ships a donor file
+  only when the target lacks its path, so 0.69d0's files under a name 0.26g also uses would play
+  as 0.26g's older ones. A rename serves a donor file at a path of its own and renames every
+  name of it in the donor's configs: clip folders (0.69d0's `ak/` as `akmsu_069/`, `ppsh/` as
+  `ppsh_drum/`) and sound names with everything under them (`weapons/akm_n` as
+  `weapons/akm_n_069`, which takes `weapons/akm_n_m` and `weapons/akm_n/...` along). A name
+  is renamed only when the donor has its file; a template's name stays.
+* **Clip events** (the sidecar's `clip_events`): a donor clip's event channel set anew (the
+  Mauser's empty reload: 0.69d0 leaves its sound events' indices at 255, 0.26g plays none).
 * **Locators.** 0.26g's contract: `aim`, `barrel_point` (the bare barrel's `muzzle_point`, else
   `fire_point`), `scope_point` (the scope rail, else the aim), `handguard_point`, and the hand
   locators (`_idle`, `_lobby`, `_reload`, `_reload_pivot`).
 * **Materials.** 0.69d0 is metalness PBR. Each material the models draw is the native AK-12's
-  with four maps: diffuse `0.514 * (albedo * (1 - 0.8 * metalness)) ^ 0.75` (re-encoded DXT1),
-  gloss 0.36 x smoothness and Fresnel 0.162 x metalness^0.388 (both in the DXT endpoints), the
-  normal map as it is.
-* **New rounds** (the sidecar's `rounds`): a live round's config and dictionary row with its own
-  values, added to the core's bundle.
-* **Icons.** `icons-069d.json` lists each gun's model and cell and each round's; the renderer
-  draws the converted meshes (right side, muzzle right, pistols at 0.6), exposure matched to
-  native rifle icons; a new round takes a live round's icon (`icon_like`).
+  with four maps, each pixel mapped and the map encoded DXT1 again: diffuse
+  `0.76 * albedo * (1 - 0.5 * metalness)` (sRGB), gloss `0.36 * smoothness`, Fresnel
+  `0.08 + 0.09 * sqrt(metalness)`, the normal map as it is. Fitted on the ten texture sets both
+  builds ship with the same layout (`convert.rs`); the curves applied before to the DXT endpoints
+  left the blocks they collapsed raw (raw metalness as Fresnel: 2 to 3 times stock).
+* **New rounds** are the core manifest's `ammo_items`.
+* **Icons.** Each gun's lobby cell is 0.69d0's own icon (`weapon_<y>_<x>.png` of its
+  `ui_desc.icon`) through the core's `lobby_icon`; 0.69d0 draws them diagonally in a 128x128
+  square, so the donor serves them level (mirrored, turned by the art's own axis, muzzle
+  right, `convert::level_lobby_icon`) and the core's `cell_png` fits them.

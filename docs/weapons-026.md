@@ -38,7 +38,10 @@ side view. The code: `src/weapons_026/` (its module docs say each rule and why).
    `donor_item`, `config` (`gameplay/items/weapons/wpn_<name>.options`), `template`, `base_cost`,
    `ammo` (0.26g ids), `set`, `lobby_icon` (`row`, `col`, `donor_png`), `kill_feed` (`icon`,
    `donor_png`), `notes`. `copy_of_template` for a skin of a stock weapon (keeps the stock states);
-   `file_values` to fix a donor file (a material's key, a model's empty material).
+   `file_values` to fix a donor file (a material's key, a model's empty material, an aim
+   locator's `position` / `rotation`: a list of numbers stays the file's float3). A new round
+   is an `ammo_items` entry on a native round's config; its card's bullets in a pack (prop 16)
+   and weight (prop 15) are written from its own `clip_size` and `clip_weight`.
 6. **Build, pack, look:**
 
 ```sh
