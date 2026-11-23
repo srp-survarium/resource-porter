@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pub mod ambient_facing;
 pub mod archive;
 pub mod armor;
 pub mod bandit_026;

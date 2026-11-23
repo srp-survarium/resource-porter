@@ -210,3 +210,14 @@ All 32 pairs passed. `check_021_profile_preservation.py OLD_PACK OLD_MANIFEST
 NEW_PACK NEW_MANIFEST` additionally proves that all 88 resources preserve every
 executable instruction for the three previously approved map profiles.
 Clippy retained the 44 pre-existing library warnings and introduced none.
+
+## Fill-light facing (0.69d scenes, @13)
+
+Behind a 0.69d scene's marker (an exposure profile's, `atmosphere_parameters3.w`, marked used in
+each program's reflection), the 8 dot_normal `ambient_light.ps` variants draw 0.69d's facing term
+`sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power` to the light's centre in place of `max(N.L, 0)`,
+for a light whose `attenuation_power` carries it (`ambient_wrap.rs`, `src/ambient_facing.rs`:
+bits `0x49800000 + payload`, the distance power n/128, the facing power n*0.1, the cutoff
+(n-128)*0.01; 0.26g's own maps use 0.5 to 13.2). Every other scene and light runs the native
+instructions. Rudnya's bus stop wall, turned from its fill lights, drew black (2.4 against 0.69d's
+27, region mean 0-255).
