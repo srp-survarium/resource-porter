@@ -383,8 +383,12 @@ the formulas come from both builds' shader disassembly):
   is the closest by volume (`sphere_fit`; 0.26 has no flat middle, a light with one is
   followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`); a
   box's band holds the same light (`box_side_width`); a cylinder is the box around it. The
-  facing term (`dot_normal`): 0.26's `max(N.L, 0)` times the factor closest to 0.69d's
-  wrapped term (`facing_scale`: 0.81 for its usual power 4). The colour is packed with red
+  facing term (`dot_normal`) is 0.69d's own, `sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power`
+  to the light's centre, not 0.26's `max(N.L, 0)`: the light's `attenuation_power` carries
+  0.26's distance power with the cutoff and power (`ambient_facing`; exact for every value
+  0.69d uses, a value it cannot carry stops the build), and the lighting pack's
+  `ambient_light.ps` draws the term in a 0.69d scene (without the pack a sphere light so
+  encoded draws nothing). The colour is packed with red
   in the low byte (packed the other way a warm fill draws blue). Lights 0.69d fades out
   (`fade_out_distance`) farther than every spawn is from them never show in play and are
   left out (`ambient_light_chaes`, 430 m, over the power plant 456 m away: kept, it lit the
@@ -443,6 +447,17 @@ the formulas come from both builds' shader disassembly):
 * Sky: the donor's clouds (`sky/sky_test`, imported; lit through the template's cloud normal
   map, since the donor's have none and 0.26 draws unlit clouds dark) over 0.26's own
   atmosphere.
+* Cloud shadows: 0.69d dims its sun by its clouds' shadows (`use_cloud_shadows`;
+  `cloud_shadows.ps`: the clouds' panorama where a point's ray to the sun meets the cloud shell,
+  turning with the clouds), 0.27 to 0.93 of the sun over Rudnya as they turn, locally down to
+  nothing, 0.64 on average; without them the port's sun was 1.56 times 0.69d's on average against
+  the same sky light, the exposure followed the sunlit parts and the shade went black (the
+  tester's plank walls and the slab wall of 2026-11-22). A donor with `use_cloud_shadows` gets
+  0.26g's `use_sky_shadows` with the clouds' panorama as `sky_shadows_texture`; the lighting
+  pack's 16 `sun_shadow.ps` variants that read it compute 0.69d's instructions behind the scene's
+  marker (`cloud_shadow_profiles`, the row the build prints). Seen in the game: the sun goes and
+  comes back over a minute as in 0.69d (it changes the light on the whole map). Rudnya, Vostok
+  (level_03) and Cologne (level_08) have cloud shadows; School (level_02) has none.
 * Exposure, grading and curve are 0.69d's own (`tone.rs`), not fitted to frames. 0.69d
   exposes each view by `1 / (1.2 * 2^EV)`, `EV = clamp(log2(L) + 3 + bias, min, max)` of
   the view's metered luminance (the environment's 6 to 12.5), grades in AP1 (shadows,
