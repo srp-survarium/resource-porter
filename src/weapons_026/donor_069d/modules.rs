@@ -473,9 +473,10 @@ impl Reticle {
 
 /// The reticle's surface in the players' collimators, and in ours.
 const RETICLE_SURFACE: &str = "collimator_glowing_dot_s";
-/// The first-person lens of 0.69d0's aimed models (`scope_lense_1p_s`): no
-/// collimator of the players' has one in its aimed model.
-const AIMED_LENS: &str = "scope_lense";
+/// 0.69d0's lens surfaces: the first-person one of an aimed model (`scope_lense_1p_s`, which
+/// no collimator of the players' has in its aimed model) and the outside one of an idle model
+/// (`scope_lense_3p_s`).
+const LENS: &str = "scope_lense";
 
 /// A reticle's surface, ready for an aimed model.
 struct Baked {
@@ -616,7 +617,7 @@ impl Donor069 {
         let settings = db_config(&mut self.db, &format!("{source}/settings"))?;
         let mut surfaces = vec![];
         for (surface, material) in lod0_surfaces(&settings, &source)? {
-            if reticle.is_some() && surface.starts_with(AIMED_LENS) {
+            if reticle.is_some() && surface.starts_with(LENS) {
                 continue;
             }
             let bytes = self.db.read(&format!("{source}/render/{surface}/converted_model"))?;
@@ -626,19 +627,24 @@ impl Donor069 {
             // another kind of thing): the players' own material of its name (patch 19's 0.51c5
             // modules: `weapons/loc2/<name>`) where they have one, else the surface is left
             // out and recorded (an optic's glass is its scope item's: the scopes' lane's).
+            // A lens is always the players' own: 0.69d0's outside lens is an opaque stage with
+            // all its maps, and remade on the AK-12's material it kept that template's Fresnel
+            // map, which drew the AK-12's parts in the glass.
             let donor_material = db_config(&mut self.db, &format!("material_instances/{material}.material"))?;
-            let makes = get(&donor_material, "material.g_stage.effect").is_some_and(|effect| {
-                ["t_albedo", "t_normal", "t_smoothness", "t_metalness"].iter().all(|role| {
-                    // (A map switched off and not in the archive is none: compose_material.)
-                    let off = get(effect, &format!("use_{role}.value")) == Some(&V::Boolean(false));
-                    match string_of(get(effect, &format!("{role}.value"))) {
-                        Ok(texture) if !texture.is_empty() => {
-                            self.db.contains(&format!("textures/{texture}.dds")) || (off && *role != "t_albedo")
+            let makes = !surface.starts_with(LENS)
+                && get(&donor_material, "material.g_stage.effect").is_some_and(|effect| {
+                    ["t_albedo", "t_normal", "t_smoothness", "t_metalness"].iter().all(|role| {
+                        // (A map switched off and not in the archive is none: compose_material.)
+                        let off = get(effect, &format!("use_{role}.value")) == Some(&V::Boolean(false));
+                        match string_of(get(effect, &format!("{role}.value"))) {
+                            Ok(texture) if !texture.is_empty() => {
+                                self.db.contains(&format!("textures/{texture}.dds"))
+                                    || (off && *role != "t_albedo")
+                            }
+                            _ => true,
                         }
-                        _ => true,
-                    }
-                })
-            });
+                    })
+                });
             let material = if makes {
                 self.compose_material(&material, target, work)
                     .with_context(|| format!("material {material}"))?
@@ -2130,7 +2136,7 @@ fn push_centre(
         .files
         .keys()
         .filter_map(|key| key.strip_prefix(render.as_str())?.strip_suffix("/converted_model"))
-        .filter(|surface| surface.starts_with(AIMED_LENS))
+        .filter(|surface| surface.starts_with(LENS))
         .min();
     let reticle = [Some(RETICLE_SURFACE), lens, Some(SCOPE_RETICLE)].into_iter().flatten().find_map(|surface| {
         let mesh = donor.files.get(&format!("{render}{surface}/converted_model"))?;
