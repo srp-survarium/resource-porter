@@ -241,3 +241,31 @@ bit 11: the box branch then takes the distance from its axis, `sqrt(p_x^2 + p_z^
 x and z factors (0.69d's `ambient_light_*.ps` geometry 2). Drawn as the plain box, Rudnya's
 three near-black darkening cylinders in the church towers also darkened the box's corners
 outside their disc.
+
+## Probe tiers (0.69d scenes, @15)
+
+0.69d composes its environment probes in tiers (`layer`): in a tier every probe adds its light
+times its weight and the weight, the tier's light is `sum(w L) / max(W, 1)`, and the tier below
+(global) shows only where `1 - W` remains. 0.26g lerps every probe over the ones before it
+(SRC_ALPHA / INV_SRC_ALPHA, compiled in the exe), so between two abutting local probes the
+outdoor light of the global probes shows through their falloff bands: the pale line across
+Rudnya's church nave (0.69d 83 -> 87-94 -> 100, the port 83 -> 160-293 -> 100). skhid's exe patch
+202 draws a 0.69d scene's local probes (the converter marks them by a radius below 0) three more
+times, with three program families this pack adds (`src/weather_fog_021/probe_tiers.rs`):
+
+| Family | Pass | Blend |
+| --- | --- | --- |
+| `environment_probe_tier_weight` | rt 32 (accum_ambient_lights) minus w/4, w 0.69d's linear falloff over the side width (a cylinder's in its circumscribed box) | ONE / ONE, reverse subtract |
+| `environment_probe_tier_damp` | the light under the tier times (1 - min(W, 1))^(w/W) | ZERO / SRC_ALPHA |
+| `environment_probe_tier_light` | the stock probe program's diffuse and specular, times w / max(W, 1) | ONE / ONE |
+
+Each family has the stock `environment_probe_lighting.ps`'s mask and its 8 box keys (geometry 1,
+LOD_INDEX 0; GLOBAL_LIGHTING_QUALITY 0 and 3, affect_diffuse, blend), each blob the stock blob's
+include records with the program's DXBC. The DXBC is compiled from skhid's
+`srp-026g/shaders/sm_4_0/environment_probe_lighting.ps` (`probes.sh build`, the June 2010 SDK's
+fxc as every 0.26g blob) into `assets/probe-tiers/`; that source's stock program compiles back to
+the shipped one (`probes.sh check`: 6 of 8 byte-identical, the other two one mul's operands
+apart). The light pass is the stock pass times w / max(W, 1) and nothing else: the normal, the
+diffuse by the normal and the specular by the reflection vector as the stock program has them.
+No native program changes, and no scene without patch 202's local probes draws these: the pack
+and the exe patch ship together.

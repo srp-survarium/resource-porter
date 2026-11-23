@@ -12,6 +12,7 @@ pub mod visibility;
 pub mod forward_glass;
 pub mod vertex_blend;
 pub mod vertex_alpha;
+pub mod probe_tiers;
 pub use local_lights::{local_light_pairs, build_local_light};
 pub use ambient_wrap::{AMBIENT_LIGHT_PREFIX, DOT_NORMAL_VARIANTS, Shape as AmbientLightShape, build_ambient_wrap};
 pub use metering::{LOG_METER_PREFIX, MEAN_METER_PREFIX, SUM_METER_PREFIX, build_log_meter, build_mean_meter, build_sum_meter};
