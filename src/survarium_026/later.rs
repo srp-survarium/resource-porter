@@ -2564,6 +2564,66 @@ struct LitVolume {
     texture: String,
     probe: DonorProbe,
     specular_multiplier: f32,
+    tier: ProbeTier,
+}
+
+/// 0.69d's probe tiers (`layer`, render properties +214h): it averages the probes of a tier by
+/// their weights, `sum(w L) / max(W, 1)`, and draws the tier below only where `1 - W` remains
+/// (`environment_probe_stage::execute` 0x20050B200). 0.26 lerps every probe over the ones before
+/// it; skhid's exe patch 202 draws the local tier as 0.69d does, for the probes this marks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeTier {
+    /// Layer 0, and the map-wide sphere: 0.26's own draw.
+    Global,
+    /// Layer 1: the radius below 0 marks it for patch 202 (`local_probe_radius`).
+    Local,
+}
+
+impl ProbeTier {
+    fn of(object: &ConfigValue, full_name: &str) -> Result<ProbeTier> {
+        match integer(object, "layer").unwrap_or(0) {
+            0 => Ok(ProbeTier::Global),
+            1 => {
+                // Patch 202's programs draw 0.69d's linear falloff (attenuation_power 1).
+                let power = real(object, "attenuation_power").unwrap_or(1.0);
+                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 202's tier programs draw 1 only");
+                Ok(ProbeTier::Local)
+            }
+            layer => bail!("{full_name}: probe layer {layer} (0.69d's detail tier): no 0.26 draw for it"),
+        }
+    }
+}
+
+/// A local probe's radius for patch 202: below 0 (the mark), its whole part's magnitude the shape
+/// the tier programs draw (1 a box, 2 a cylinder about local y in its circumscribed box), its
+/// fraction `0.25 + 0.5 / (1 + R)` of the sort radius `R`, so the sort (largest first) and the
+/// forward models' choice (the smallest radius whose box holds them) keep 0.26's order among
+/// local probes. The exe reads only the sign; the programs read the shape from `light_range`
+/// (0.98 radius) and the side width from `inner_radius` (radius - side width - 0.05).
+fn local_probe_radius(volume: &Volume) -> Result<f32> {
+    let shape = match volume.shape {
+        Shape::Box { .. } => 1.0,
+        Shape::Cylinder { .. } => 2.0,
+        Shape::Sphere { .. } => bail!("a local sphere probe: patch 202's tier programs draw boxes and cylinders"),
+    };
+    Ok(-(shape + 0.25 + 0.5 / (1.0 + volume.sort_radius())))
+}
+
+/// Put a 0.69d local probe on `volume` for patch 202: a box (a cylinder's circumscribed one, the
+/// programs cut the cylinder out of it), the marked radius, no smart attenuation (the four box
+/// effects without it are the ones with tier techniques).
+fn place_local_probe(native: &mut ConfigValue, volume: &Volume, full_name: &str) -> Result<()> {
+    place_volume(native, volume, full_name)?;
+    let scale = match volume.shape {
+        Shape::Box { half } => half,
+        Shape::Cylinder { radius, half_height } => [radius, half_height, radius],
+        Shape::Sphere { .. } => bail!("{full_name}: a local sphere probe"),
+    };
+    native.set_path("geometry", ConfigValue::Integer(1))?;
+    native.set_path("scale", ConfigValue::Float3(scale))?;
+    native.set_path("radius", ConfigValue::Float(local_probe_radius(volume).with_context(|| full_name.to_owned())?))?;
+    native.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
+    Ok(())
 }
 
 struct DonorLighting {
@@ -2690,12 +2750,13 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
         Shape::Cylinder { radius, half_height } => 6.28 * radius * radius * half_height,
     };
-    let mut pending: Vec<(String, Volume, DonorProbe, f32)> = Vec::new();
+    let mut pending: Vec<(String, Volume, DonorProbe, f32, ProbeTier)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
         // 0.69d: specular_multiplier -1 turns the cube's reflections off.
         let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
-        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular));
+        let tier = ProbeTier::of(object, &full_name)?;
+        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular, tier));
     }
     let largest = pending
         .iter()
@@ -2705,10 +2766,10 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         .clone();
     // 0.26's order: larger first; the map-wide sphere first of all.
     pending.sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
-    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0));
+    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0, ProbeTier::Global));
     let mut volumes: Vec<LitVolume> = Vec::new();
     let mut names = BTreeSet::new();
-    for (full_name, volume, probe, specular_multiplier) in pending {
+    for (full_name, volume, probe, specular_multiplier, tier) in pending {
         let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
         let stem = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
         let mut texture = stem.clone();
@@ -2717,7 +2778,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
             n += 1;
             texture = format!("{stem}_{n}");
         }
-        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier });
+        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier, tier });
     }
 
     let mut donor_lights = Vec::new();
@@ -3196,7 +3257,10 @@ pub fn convert_scene(
             // blends with the weight in alpha).
             for v in &lit.volumes {
                 let mut p = global.clone();
-                place_volume(&mut p, &v.volume, &v.full_name)?;
+                match v.tier {
+                    ProbeTier::Global => place_volume(&mut p, &v.volume, &v.full_name)?,
+                    ProbeTier::Local => place_local_probe(&mut p, &v.volume, &v.full_name)?,
+                }
                 set_probe_texture(&mut p, &v.texture)?;
                 p.set_path("diffuse_multiplier", ConfigValue::Float(1.0))?;
                 p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
@@ -3204,6 +3268,12 @@ pub fn convert_scene(
                 count("environment_probe");
                 generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
             }
+            let locals = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local).count();
+            notes.push(format!(
+                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 202 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
+                lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local && matches!(v.volume.shape, Shape::Cylinder { .. })).count(),
+                lit.volumes.len() - locals
+            ));
             let ambient_template = first_template(template, "ambient_light")?;
             for (full_name, light) in &lit.lights {
                 let mut a = ambient_template.clone();
@@ -6891,5 +6961,30 @@ mod tests {
         assert_eq!(float3(spawner.named("spawned_item").unwrap(), "position").unwrap(), [1.0, 2.75, 3.0]);
         let missing = ModeSpec { drop: vec![PlacedModel { model: "transmitter".into(), position: [9.0; 3], why: String::new() }], ..mode };
         assert!(mode_project(&scene, &native, &template, &missing, &mut notes).is_err(), "a drop that matches nothing is an error");
+    }
+}
+
+#[cfg(test)]
+mod probe_tier_tests {
+    use super::*;
+
+    fn boxed(half: [f32; 3]) -> Volume {
+        Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Box { half }, side_width: 0.3 }
+    }
+
+    #[test]
+    fn a_local_probes_radius_marks_it_and_keeps_the_order() {
+        let small = local_probe_radius(&boxed([1.0, 1.0, 1.0])).unwrap();
+        let large = local_probe_radius(&boxed([4.0, 3.0, 5.0])).unwrap();
+        let cylinder = local_probe_radius(&Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 2.6 }, ..boxed([1.0; 3]) }).unwrap();
+        assert!(small < 0.0 && large < 0.0 && cylinder < 0.0);
+        // largest first, as 0.26 sorts; the shape the programs read from the whole part
+        assert!(large > small);
+        assert_eq!((-small).floor(), 1.0);
+        assert_eq!((-large).floor(), 1.0);
+        assert_eq!((-cylinder).floor(), 2.0);
+        let f = -small - 1.0;
+        assert!(f > 0.25 && f < 0.75);
+        assert!(local_probe_radius(&Volume { shape: Shape::Sphere { radius: 3.0 }, ..boxed([1.0; 3]) }).is_err());
     }
 }
