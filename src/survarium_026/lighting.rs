@@ -17,6 +17,7 @@
 //!   `_diffuse` cube holds irradiance `E = integral of L cos` encoded the same
 //!   way without the 4, so it decodes to `E / 4`, which the lighting
 //!   multiplies by the albedo (and the sun's colour likewise, with no 1/pi).
+use crate::ambient_facing::{self, Facing};
 use crate::dds_cube::{CubeRgba8, decode_cube, encode_cube};
 use anyhow::{Result, ensure};
 
@@ -233,14 +234,8 @@ pub struct DonorLight {
     pub volume: Volume,
     pub effect: LightEffect,
     pub attenuation_power: f32,
-    /// `dot_normal`: (cutoff, power) of its facing term.
-    pub facing: Option<(f32, f32)>,
-}
-
-/// 0.69d's facing term (`ambient_light_*.ps`) for the cosine `x` between a
-/// surface's normal and the direction to the light.
-fn facing_069d(x: f32, cutoff: f32, power: f32) -> f32 {
-    ((x * 0.5 + 0.5) * (1.0 + cutoff) - cutoff).clamp(0.0, 1.0).powf(power)
+    /// `dot_normal`: its facing term (`dot_normal_cutoff`, `dot_normal_power`).
+    pub facing: Option<Facing>,
 }
 
 /// Simpson's rule over [a, b].
@@ -249,13 +244,6 @@ fn integral(a: f32, b: f32, f: impl Fn(f32) -> f32) -> f32 {
     let h = (b - a) / N as f32;
     let sum: f32 = (0..=N).map(|i| f(a + h * i as f32) * if i == 0 || i == N { 1.0 } else if i % 2 == 1 { 4.0 } else { 2.0 }).sum();
     sum * h / 3.0
-}
-
-/// 0.26's facing term (`dot_normal`) is `max(x, 0)`. The factor on it that
-/// comes closest to 0.69d's term over every facing (least squares over x in
-/// [-1, 1]): 0.81 for 0.69d's usual power 4, 1.25 for its half-Lambert.
-pub fn facing_scale(cutoff: f32, power: f32) -> f32 {
-    3.0 * integral(0.0, 1.0, |x| facing_069d(x, cutoff, power) * x)
 }
 
 /// 0.26 draws a sphere light with `(1 - (d / 0.98 R)^2)^p` (`ambient_light.ps`);
@@ -294,8 +282,17 @@ pub struct NativeLight {
     /// sRGB, as the object stores it.
     pub colour: [f32; 3],
     pub intensity: f32,
+    /// The property: 0.26's distance power, or for a light with 0.69d's facing
+    /// term that power and the term encoded (`ambient_facing`), which the
+    /// lighting pack's `ambient_light.ps` draws in a 0.69d scene.
     pub attenuation_power: f32,
-    pub dot_normal: bool,
+}
+
+impl NativeLight {
+    /// `dot_normal`: on for a light whose power carries 0.69d's facing term.
+    pub fn dot_normal(&self) -> bool {
+        ambient_facing::decode(self.attenuation_power).is_some()
+    }
 }
 
 impl DonorLight {
@@ -316,22 +313,30 @@ impl DonorLight {
         }
     }
 
+    /// The property `attenuation_power` for the distance power `power`: with a
+    /// facing term, the two encoded.
+    fn attenuation_power(&self, power: f32) -> Result<f32> {
+        match self.facing {
+            None => Ok(power),
+            Some(facing) => ambient_facing::encode(power, facing).map_err(anyhow::Error::msg),
+        }
+    }
+
     /// The 0.26 light that adds `radiance` (0.26's scale, the light a white
     /// surface facing it sends back) with this light's shape, falloff and
     /// facing.
-    pub fn native_additive(&self, radiance: [f32; 3]) -> NativeLight {
-        let (volume, attenuation_power) = self.native_volume();
-        let k = self.facing.map_or(1.0, |(cutoff, power)| facing_scale(cutoff, power));
-        let v = radiance.map(|c| (c * k).max(0.0));
+    pub fn native_additive(&self, radiance: [f32; 3]) -> Result<NativeLight> {
+        let (volume, power) = self.native_volume();
+        let v = radiance.map(|c| c.max(0.0));
         let peak = v.iter().cloned().fold(1e-6, f32::max);
-        NativeLight { volume, colour: v.map(|c| (c / peak).powf(1.0 / 2.2)), intensity: 1.0 + peak, attenuation_power, dot_normal: self.facing.is_some() }
+        Ok(NativeLight { volume, colour: v.map(|c| (c / peak).powf(1.0 / 2.2)), intensity: 1.0 + peak, attenuation_power: self.attenuation_power(power)? })
     }
 
     /// The 0.26 light that multiplies the light under it by `factor` (each
     /// channel at most 1).
-    pub fn native_multiply(&self, factor: [f32; 3]) -> NativeLight {
-        let (volume, attenuation_power) = self.native_volume();
-        NativeLight { volume, colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)), intensity: 1.0, attenuation_power, dot_normal: self.facing.is_some() }
+    pub fn native_multiply(&self, factor: [f32; 3]) -> Result<NativeLight> {
+        let (volume, power) = self.native_volume();
+        Ok(NativeLight { volume, colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)), intensity: 1.0, attenuation_power: self.attenuation_power(power)? })
     }
 }
 
@@ -511,10 +516,7 @@ mod light_tests {
     }
 
     #[test]
-    fn fits_follow_the_donor_falloff_and_facing() {
-        // Half-Lambert against Lambert: 1.25; 0.69d's usual power 4: 0.81.
-        assert!((facing_scale(0.0, 1.0) - 1.25).abs() < 1e-3);
-        assert!((facing_scale(0.0, 4.0) - 0.806).abs() < 2e-3);
+    fn fits_follow_the_donor_falloff() {
         // A sphere that fades over its whole radius with power 2 is (1 - d/R)^2:
         // 0.26's (1 - (d/R)^2)^p is closest by volume at p 4.9, within 0.18
         // everywhere (0.26 has no flat middle: a light with one is followed
@@ -535,20 +537,32 @@ mod light_tests {
     #[test]
     fn donor_lights_become_native_lights() {
         let volume = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: 4.0 }, side_width: 2.0 };
-        let light = DonorLight { volume, effect: LightEffect::Add { radiance: [0.0; 3] }, attenuation_power: 2.0, facing: Some((0.0, 4.0)) };
-        let n = light.native_additive([0.4, 0.2, 0.1]);
-        // Adds colour^2.2 * (intensity - 1): the radiance times the facing fit.
-        let k = facing_scale(0.0, 4.0);
+        let facing = Facing { cutoff: 0.0, power: 4.0 };
+        let light = DonorLight { volume, effect: LightEffect::Add { radiance: [0.0; 3] }, attenuation_power: 2.0, facing: Some(facing) };
+        let n = light.native_additive([0.4, 0.2, 0.1]).unwrap();
+        // Adds colour^2.2 * (intensity - 1): the radiance; the shader draws
+        // 0.69d's facing term from the power, the fitted distance power with it.
         for c in 0..3 {
             let added = n.colour[c].powf(2.2) * (n.intensity - 1.0);
-            assert!((added - [0.4, 0.2, 0.1][c] * k).abs() < 1e-4, "{n:?}");
+            assert!((added - [0.4, 0.2, 0.1][c]).abs() < 1e-4, "{n:?}");
         }
-        assert!(n.intensity > 1.0 && n.dot_normal && matches!(n.volume.shape, Shape::Sphere { radius } if (radius - 4.0 / 0.98).abs() < 1e-5));
-        // A cylinder is the box around it; a darkening light keeps intensity 1.
+        let fit = sphere_fit(4.0, 2.0, 2.0).1;
+        let carried = ambient_facing::decode(n.attenuation_power).unwrap();
+        assert_eq!((carried.facing, carried.power), (facing, ambient_facing::quantize_power(fit)));
+        assert!(n.intensity > 1.0 && n.dot_normal() && matches!(n.volume.shape, Shape::Sphere { radius } if (radius - 4.0 / 0.98).abs() < 1e-5));
+        // A box keeps the donor's power (0.26 draws none) beside the term.
+        let cube = DonorLight { volume: Volume { shape: Shape::Box { half: [2.0, 1.0, 3.0] }, ..volume }, ..light };
+        let b = cube.native_multiply([0.5, 0.5, 0.5]).unwrap();
+        assert_eq!(ambient_facing::decode(b.attenuation_power).unwrap().power, 2.0);
+        // A cylinder is the box around it; a darkening light keeps intensity 1;
+        // without a facing term the power is the plain one.
         let cylinder = DonorLight { volume: Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 3.0 }, ..volume }, facing: None, ..light };
-        let d = cylinder.native_multiply([0.5, 0.25, 0.0]);
+        let d = cylinder.native_multiply([0.5, 0.25, 0.0]).unwrap();
         assert_eq!(d.volume.shape, Shape::Box { half: [2.0, 3.0, 2.0] });
-        assert!(d.intensity == 1.0 && !d.dot_normal && (d.colour[0].powf(2.2) - 0.5).abs() < 1e-4 && d.colour[2] == 0.0);
+        assert!(d.intensity == 1.0 && !d.dot_normal() && d.attenuation_power == 2.0);
+        assert!((d.colour[0].powf(2.2) - 0.5).abs() < 1e-4 && d.colour[2] == 0.0);
+        // A term the encoding cannot carry exactly is refused.
+        let odd = DonorLight { facing: Some(Facing { cutoff: 0.0, power: 0.25 }), ..light };
+        assert!(odd.native_additive([0.1; 3]).is_err());
     }
 }
-

@@ -383,8 +383,12 @@ the formulas come from both builds' shader disassembly):
   is the closest by volume (`sphere_fit`; 0.26 has no flat middle, a light with one is
   followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`); a
   box's band holds the same light (`box_side_width`); a cylinder is the box around it. The
-  facing term (`dot_normal`): 0.26's `max(N.L, 0)` times the factor closest to 0.69d's
-  wrapped term (`facing_scale`: 0.81 for its usual power 4). The colour is packed with red
+  facing term (`dot_normal`) is 0.69d's own, `sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power`
+  to the light's centre, not 0.26's `max(N.L, 0)`: the light's `attenuation_power` carries
+  0.26's distance power with the cutoff and power (`ambient_facing`; exact for every value
+  0.69d uses, a value it cannot carry stops the build), and the lighting pack's
+  `ambient_light.ps` draws the term in a 0.69d scene (without the pack a sphere light so
+  encoded draws nothing). The colour is packed with red
   in the low byte (packed the other way a warm fill draws blue). Lights 0.69d fades out
   (`fade_out_distance`) farther than every spawn is from them never show in play and are
   left out (`ambient_light_chaes`, 430 m, over the power plant 456 m away: kept, it lit the
