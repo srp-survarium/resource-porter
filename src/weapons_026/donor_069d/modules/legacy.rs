@@ -264,7 +264,7 @@ pub(super) fn place(
     let optic_names: BTreeSet<&str> = ours.iter().map(|(name, _)| name.as_str()).collect();
     let rails: Vec<&(String, String, Vec<u8>)> = surfaces
         .iter()
-        .filter(|(name, _, _)| *name != optic_surface && !optic_names.contains(name.as_str()) && !name.starts_with(AIMED_LENS))
+        .filter(|(name, _, _)| *name != optic_surface && !optic_names.contains(name.as_str()) && !name.starts_with(LENS))
         .collect();
     // (The optic's row first: nothing of the gun's record is changed when it cannot be made.)
     let mut row = maker
