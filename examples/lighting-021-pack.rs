@@ -211,6 +211,19 @@ fn main() -> Result<()> {
             converted.push((paths[0].clone(), before, after));
         }
     }
+    // An exposure profile's scene is a 0.69d scene: its ambient lights converted with
+    // dot_normal draw 0.69d's facing term (the 8 dot_normal variants of ambient_light.ps,
+    // for the lights whose attenuation_power carries it: `ambient_facing`).
+    let facing_markers: Vec<f32> = manifest.exposure_profiles.iter().map(|p| p.marker).collect();
+    if !facing_markers.is_empty() {
+        println!("0.69d ambient light facing on markers {facing_markers:?}");
+        for (variant, _, _) in shaders::DOT_NORMAL_VARIANTS {
+            let path = format!("{}{variant}", shaders::AMBIENT_LIGHT_PREFIX);
+            let before = native.read(&path)?;
+            let after = shaders::build_ambient_wrap(&before, variant, &facing_markers).with_context(|| path.clone())?;
+            converted.push((path, before, after));
+        }
+    }
     let sky = native.read(shaders::SKY_PATH)?;
     let sky_scales: Vec<shaders::SkyScale> = manifest
         .exposure_profiles
