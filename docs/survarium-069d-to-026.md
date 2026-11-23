@@ -447,9 +447,19 @@ the formulas come from both builds' shader disassembly):
     `scripts/v021d-weather/vertex-blend.md`). The converted materials kept the template's
     strength, falloff, tile, mask scale and rotation: 55 of Rudnya's 68 blends drew their
     moss, trash and brick patches other than 0.69d's (the lath under the wallpaper at a
-    third of its tiling). Where the template draws another technique or mask switch than
-    the donor (10 on Rudnya) the formula is not the same and the template's numbers stay,
-    with a note.
+    third of its tiling). The formula depends on the blend's technique and tiled-mask
+    switch (linear; by the albedo's alpha; by a tiled mask), so a manifest names a template
+    per switch the category's own does not draw (`<category>_technique<n>[_tiled_mask]`:
+    Rudnya's technique 0, technique 1 without a mask, technique 2 with one, and the two-sided
+    technique 0, each a native 0.26 blend of that switch with the category template's other
+    switches, which stock 0.26 has for every combination). With one template a category,
+    10 of Rudnya's 68 blends kept the template's numbers: the sheds' rusty roof sheets
+    (metal over rust, technique 0) drew rust all over where 0.69d shows its patches (with
+    the rule the patches follow 0.69d's; the rust layer's colour stays more saturated than
+    0.69d's: the blended layer is not made a metal surface). The alpha-tested ones (4 on Rudnya,
+    technique 1 without a mask) stay on their category's template: their cut is the blend
+    pack's selector for it, and stock 0.26 has no one-sided alpha-tested template of that
+    switch; noted.
   - Not converted: 0.69d can cut an alpha-tested blend by its second layer's alpha
     (`consider_blended_albedo_opaque` false: `alpha = lerp(blended.a, 1, w)` with the base
     opaque); 0.26g's programs read only the base's (`lerp(1, base.a, w)`). The lath
