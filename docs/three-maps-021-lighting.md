@@ -86,7 +86,7 @@ curve as `1 - e^(-X)` for its key and its grading texture, so a scene showed 0.6
 `ln(2)^(1/1.2)` = 0.74 of its light. @15 takes Rudnya's key from the builder that reads it in
 base 2 (0.2334 to 0.3367, with its grading texture in rudnya-069d after @8). The other rows
 are still the base-e builder's and draw as before until their scenes are rebuilt: the lobby
-room's key 0.1820 (0.2626 in base 2, live with lobby-camp-069), School's and Vostok's 0.0854
+room's key 0.1820 (0.2626 in base 2; no live scene: the shipped lobby predates the 0.69d rules), School's and Vostok's 0.0854
 (0.1232; no live scene yet).
 
 A row's `sky` (1 when absent) scales the native sky behind its marker (`scale_sky`, after
