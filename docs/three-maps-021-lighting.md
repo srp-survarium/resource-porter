@@ -221,3 +221,17 @@ bits `0x49800000 + payload`, the distance power n/128, the facing power n*0.1, t
 (n-128)*0.01; 0.26g's own maps use 0.5 to 13.2). Every other scene and light runs the native
 instructions. Rudnya's bus stop wall, turned from its fill lights, drew black (2.4 against 0.69d's
 27, region mean 0-255).
+
+## Fill-light boxes (0.69d scenes, @14)
+
+In the same marked branch the 4 box variants draw 0.69d's own box falloff
+(`ambient_light_additive.ps` / `_multiplicative.ps`, read from the bytecode) in place of
+0.26g's smoothstep: per axis `(1 - t)^p` from the inner face `max(1 - s, 0.01 / half)` (0.69d
+keeps the inner box 0.01 m from the centre, exe 0x20029BBBC) to the outer one, and for a light
+with `gradient_attenuation` times `sat(0.5 - 0.5 y)^p` along its local y: full at one face,
+nothing at the other, the light from a window or door falling off into a room. 0.26g's box
+program has no power, so a box's `attenuation_power` carries its power (bits 0..11, n/128)
+and the gradient (bit 12) beside the facing term (`src/ambient_facing.rs`, `Falloff::Box`); a
+box without 0.69d's `dot_normal` carries the term 1 (cutoff -1). Rudnya's church floor, barn,
+apiary and two sheds have 9 gradient boxes, which had drawn uniform at full strength (2 to 5
+times 0.69d's light, hard-edged); School (v0.69) has 15.

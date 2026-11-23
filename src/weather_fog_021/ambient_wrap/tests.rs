@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 use super::*;
-use crate::ambient_facing::{Facing, encode};
+use crate::ambient_facing::{Facing, Falloff, encode};
 
 /// One pixel of an SM 4.0 pixel program: the instructions these programs use.
 struct Pixel<'a> {
@@ -190,7 +190,7 @@ fn the_decode_and_facing_blocks_compute_0_69ds_term() {
     let mut ops = vec![op(DCL_TEMPS, &[vec![2]])];
     ops.extend(condition(0, &MARKERS));
     ops.push(if_nz(rc(0, "x")));
-    ops.extend(decode(0));
+    ops.extend(decode(0, Shape::Sphere));
     ops.push(op(MOV, &[r(1, "x"), cbc(0, 0, "x")]));
     ops.extend(facing(0, 1, "x"));
     ops.push(op(MOV, &[o(0, "x"), rc(1, "x")]));
@@ -200,7 +200,7 @@ fn the_decode_and_facing_blocks_compute_0_69ds_term() {
     let texel = |_: u32| [0.0f32; 4];
     for (cutoff, power) in [(0.0, 0.1), (0.0, 0.5), (0.0, 1.0), (0.0, 4.0), (0.0, 10.0), (0.3, 2.0), (-0.5, 1.5), (1.0, 1.0)] {
         let facing = Facing { cutoff, power };
-        let e = encode(2.75, facing).unwrap();
+        let e = encode(Falloff::Sphere { power: 2.75 }, facing).unwrap();
         for x in [-1.0f32, -0.7, -0.2, 0.0, 0.1, 0.33, 0.8, 1.0] {
             for (marker, marked) in [(33003.0, true), (33002.0, false), (-32281.0, false)] {
                 let mut p = Pixel::new(&texel);
@@ -209,10 +209,10 @@ fn the_decode_and_facing_blocks_compute_0_69ds_term() {
                 p.cb[1][18] = [0, 0, 0, u(marker)];
                 p.run(&ops);
                 if marked {
-                    let carried = crate::ambient_facing::decode(e).unwrap();
+                    let carried = crate::ambient_facing::decode(e, Shape::Sphere).unwrap();
                     assert_eq!(f(p.o[0][0]).to_bits(), carried.facing.eval(x).to_bits(), "{cutoff} {power} {x}");
-                    assert_eq!([f(p.o[0][1]), f(p.o[0][2]), f(p.o[0][3])], [carried.power, carried.facing.cutoff, carried.facing.power]);
-                    assert!((carried.facing.cutoff - cutoff).abs() < 1e-7 && carried.power == 2.75);
+                    assert_eq!([f(p.o[0][1]), f(p.o[0][2]), f(p.o[0][3])], [2.75, carried.facing.cutoff, carried.facing.power]);
+                    assert!((carried.facing.cutoff - cutoff).abs() < 1e-7 && carried.falloff == Falloff::Sphere { power: 2.75 });
                 } else {
                     assert_eq!(p.o[0], [0; 4]);
                 }
@@ -323,7 +323,7 @@ fn a_marked_sphere_draws_0_69ds_facing_and_others_the_native_body() {
         assert_eq!(ops[1][3], 19);
         for (cutoff, power) in [(0.0, 4.0), (0.0, 0.1), (0.25, 2.0)] {
             let facing = Facing { cutoff, power };
-            let e = encode(3.5, facing).unwrap();
+            let e = encode(Falloff::Sphere { power: 3.5 }, facing).unwrap();
             for (marker, power_bits) in [(33001.0, e), (33002.0, e), (33001.0, 3.5), (-32281.0, 2.0)] {
                 let run = |ops: &[Vec<u32>]| {
                     let mut p = Pixel::new(&texel);
@@ -345,8 +345,21 @@ fn a_marked_sphere_draws_0_69ds_facing_and_others_the_native_body() {
     }
 }
 
+/// 0.69d's box falloff (`ambient_light_*.ps`) at the local position `l` (unit coordinates) of a
+/// box of half extents `half` and side widths `side` (over the half extents).
+fn falloff_069d(l: [f32; 3], half: [f32; 3], side: [f32; 3], power: f32, gradient: bool) -> f32 {
+    let fall: f32 = (0..3)
+        .map(|i| {
+            let inner = (1.0 - side[i]).max(0.01 / half[i]);
+            let t = ((l[i].abs().min(1.0) - inner) / (1.0 - inner)).clamp(0.0, 1.0);
+            (1.0 - t).powf(power)
+        })
+        .product();
+    if gradient { fall * (0.5 - 0.5 * l[1]).clamp(0.0, 1.0).powf(power) } else { fall }
+}
+
 #[test]
-fn a_marked_box_draws_its_falloff_times_0_69ds_facing_to_its_centre() {
+fn a_marked_box_draws_0_69ds_falloff_and_gradient_times_its_facing_to_its_centre() {
     let texel = |_: u32| [0.0f32; 4];
     let n = normalize([-0.2, 0.9, 0.3]);
     let (half, centre, side) = ([2.0, 0.7, 3.5], [1.0, -2.0, 6.0], [0.4, 0.9, 0.2]);
@@ -357,8 +370,8 @@ fn a_marked_box_draws_its_falloff_times_0_69ds_facing_to_its_centre() {
         let ops = splice(&native, Shape::Box, &MARKERS).unwrap();
         let at = ops.iter().position(|i| *i == op(ELSE, &[])).unwrap();
         assert_eq!(&ops[at + 1..ops.len() - 2], &native[3..native.len() - 1]);
-        let facing = Facing { cutoff: 0.0, power: 4.0 };
-        let e = encode(1.0, facing).unwrap();
+        for (falloff_power, gradient, facing) in [(1.0, false, Facing { cutoff: 0.0, power: 4.0 }), (3.0, true, Facing::NONE), (0.5, true, Facing { cutoff: 0.0, power: 1.0 })] {
+        let e = encode(Falloff::Box { power: falloff_power, gradient }, facing).unwrap();
         for (marker, power_bits) in [(33003.0, e), (33002.0, e), (33003.0, 1.0)] {
             let run = |ops: &[Vec<u32>]| {
                 let mut px = Pixel::new(&texel);
@@ -371,22 +384,42 @@ fn a_marked_box_draws_its_falloff_times_0_69ds_facing_to_its_centre() {
             };
             let out = run(&ops);
             if marker == 33003.0 && power_bits == e {
-                let fall: f32 = (0..3)
-                    .map(|i| {
-                        let l = (offset[i] / half[i]).abs().min(1.0);
-                        let t = ((l - (1.0 - side[i])) / side[i]).clamp(0.0, 1.0);
-                        1.0 - t * t * (3.0 - 2.0 * t)
-                    })
-                    .product();
+                let l: [f32; 3] = std::array::from_fn(|i| offset[i] / half[i]);
+                let fall = falloff_069d(l, half, side, falloff_power, gradient);
                 let d: [f32; 3] = std::array::from_fn(|i| centre[i] - p[i]);
                 let want = fall * facing.eval(cosine(n, d));
-                assert!((f(out[0][3]) - want).abs() < 1e-5, "{offset:?}: {} {want}", f(out[0][3]));
+                assert!((f(out[0][3]) - want).abs() < 1e-5, "{offset:?} {falloff_power} {gradient}: {} {want}", f(out[0][3]));
                 assert_eq!(out[1][3], out[0][3]);
                 assert_eq!(&out[0][..3], &[u(0.9), u(0.8), u(0.7)]);
             } else {
                 assert_eq!(out, run(&native));
             }
         }
+        }
+    }
+}
+
+#[test]
+fn the_gradient_runs_from_full_at_minus_y_to_nothing_at_plus_y() {
+    let texel = |_: u32| [0.0f32; 4];
+    let (half, centre) = ([1.0, 2.0, 1.0], [0.0, 0.0, 0.0]);
+    let ident = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let rows = view_to_local(ident, half, centre);
+    let e = encode(Falloff::Box { power: 2.0, gradient: true }, Facing::NONE).unwrap();
+    let mut last = f32::INFINITY;
+    for y in [-1.99f32, -1.0, 0.0, 1.0, 1.99] {
+        let ops = splice(&box_native([0.0, 0.0, 1.0], [0.0, y, 0.0]), Shape::Box, &MARKERS).unwrap();
+        let mut px = Pixel::new(&texel);
+        px.cb[0][7..10].copy_from_slice(&rows);
+        px.cb[0][12] = [0, 0, 0, u(e)];
+        px.cb[0][14] = [u(0.01), u(0.005), u(0.01), 0];
+        px.cb[1][18] = [0, 0, 0, u(33001.0)];
+        px.run(&ops);
+        let a = f(px.o[0][3]);
+        let want = (0.5 - 0.25 * y).powi(2);
+        assert!((a - want).abs() < 1e-3, "{y}: {a} {want}");
+        assert!(a < last);
+        last = a;
     }
 }
 
@@ -419,9 +452,9 @@ fn native_normal(t: [f32; 2]) -> [f32; 3] {
 fn retail_dot_normal_variants_draw_0_69ds_facing_and_keep_the_native_path() {
     let root = std::path::PathBuf::from(std::env::var("WEATHER_SHADER_AUDIT").unwrap());
     let read = |hash: &str| std::fs::read(root.join(format!("ambient_light-{hash}.blob"))).unwrap();
-    // the variants without dot_normal: the falloff 0.69d's term multiplies
+    // the sphere variant without dot_normal: the falloff 0.69d's term multiplies (a box draws
+    // 0.69d's own falloff)
     let plain_sphere = program(&read("e8d229fce0059c24b6ddccadeeeac7cbe3041e2fc9ded8ececa73b8fc89f6e71"), "e8d229fce0059c24b6ddccadeeeac7cbe3041e2fc9ded8ececa73b8fc89f6e71");
-    let plain_box = program(&read("cc42bd8806c268aac00d069529cd720abc6c994673b7fc05231fef5b6198c1d4"), "cc42bd8806c268aac00d069529cd720abc6c994673b7fc05231fef5b6198c1d4");
     let (screen, ray, depth) = ([64.0f32, 48.0], [1.1f32, 0.8, 1.0], 6.0f32);
     let (mut cases, mut lit) = (0, 0);
     for (variant, shape, hash) in DOT_NORMAL_VARIANTS {
@@ -445,7 +478,11 @@ fn retail_dot_normal_variants_draw_0_69ds_facing_and_keep_the_native_path() {
                     let centre: [f32; 3] = std::array::from_fn(|i| pos[i] + offset[i]);
                     for (cutoff, power) in [(0.0, 4.0), (0.0, 0.5), (0.0, 10.0), (0.0, 1.0)] {
                         let facing = Facing { cutoff, power };
-                        let e = encode(2.25, facing).unwrap();
+                        let falloff = match shape {
+                            Shape::Sphere => Falloff::Sphere { power: 2.25 },
+                            Shape::Box => Falloff::Box { power: 2.25, gradient: power > 2.0 },
+                        };
+                        let e = encode(falloff, facing).unwrap();
                         let run = |ops: &[Vec<u32>], marker: f32, power_bits: f32, dot: bool| {
                             // the dot variants read the normal from t0 and depth from t1
                             let texel = |slot: u32| if dot && slot == 0 { [normal[0], normal[1], 0.0, 0.0] } else { [depth, 0.0, 0.0, 0.0] };
@@ -462,7 +499,14 @@ fn retail_dot_normal_variants_draw_0_69ds_facing_and_keep_the_native_path() {
                             p.o
                         };
                         let out = run(&ops, 33003.0, e, true);
-                        let fall = f(run(if shape == Shape::Sphere { &plain_sphere } else { &plain_box }, 0.0, 2.25, false)[0][3]);
+                        let fall = match falloff {
+                            Falloff::Sphere { .. } => f(run(&plain_sphere, 0.0, 2.25, false)[0][3]),
+                            Falloff::Box { power, gradient } => {
+                                let rows = view_to_local(basis(), [2.5, 1.5, 3.0], centre);
+                                let l: [f32; 3] = std::array::from_fn(|i| (0..3).map(|k| f(rows[i][k]) * pos[k]).sum::<f32>() + f(rows[i][3]));
+                                falloff_069d(l, [2.5, 1.5, 3.0], [0.5, 0.6, 0.3], power, gradient)
+                            }
+                        };
                         let d: [f32; 3] = std::array::from_fn(|i| centre[i] - pos[i]);
                         let want = fall * facing.eval(cosine(n, d));
                         assert!((f(out[0][3]) - want).abs() < 2e-5, "{variant} {normal:?} {pixel:?} {offset:?} {power}: {} {want}", f(out[0][3]));
