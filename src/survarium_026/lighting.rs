@@ -295,18 +295,20 @@ impl NativeLight {
 impl DonorLight {
     /// The light's shape and falloff as 0.26 draws them: a sphere with 0.26's
     /// falloff fitted to 0.69d's; a box with 0.69d's own (its side width, power and
-    /// gradient), which the lighting pack draws. 0.26 has no cylinder: the box
-    /// around it.
+    /// gradient), which the lighting pack draws; a cylinder (0.26 has none) on the
+    /// box around it, the lighting pack drawing 0.69d's cylinder in it.
     fn native_volume(&self) -> (Volume, Falloff) {
         let v = self.volume;
-        let cube = Falloff::Box { power: self.attenuation_power, gradient: self.gradient };
+        let (power, gradient) = (self.attenuation_power, self.gradient);
         match v.shape {
             Shape::Sphere { radius } => {
-                let (radius, power) = sphere_fit(radius, v.side_width, self.attenuation_power);
+                let (radius, power) = sphere_fit(radius, v.side_width, power);
                 (Volume { shape: Shape::Sphere { radius }, ..v }, Falloff::Sphere { power })
             }
-            Shape::Box { .. } => (v, cube),
-            Shape::Cylinder { radius, half_height } => (Volume { shape: Shape::Box { half: [radius, half_height, radius] }, ..v }, cube),
+            Shape::Box { .. } => (v, Falloff::Box { power, gradient }),
+            Shape::Cylinder { radius, half_height } => {
+                (Volume { shape: Shape::Box { half: [radius, half_height, radius] }, ..v }, Falloff::Cylinder { power, gradient })
+            }
         }
     }
 
@@ -318,7 +320,7 @@ impl DonorLight {
         match (falloff, self.facing) {
             (Falloff::Sphere { power }, None) => Ok(power),
             (Falloff::Sphere { .. }, Some(facing)) => encode(facing),
-            (Falloff::Box { .. }, facing) => encode(facing.unwrap_or(Facing::NONE)),
+            (Falloff::Box { .. } | Falloff::Cylinder { .. }, facing) => encode(facing.unwrap_or(Facing::NONE)),
         }
     }
 
@@ -554,13 +556,13 @@ mod light_tests {
         let carried = ambient_facing::decode(b.attenuation_power, ambient_facing::Shape::Box).unwrap();
         assert_eq!((carried.facing, carried.falloff), (facing, Falloff::Box { power: 2.0, gradient: true }));
         assert!(b.dot_normal() && b.volume.side_width == 2.0);
-        // A cylinder is the box around it; a darkening light keeps intensity 1; a box
-        // without a facing term carries none, and is drawn by the adapted program too.
+        // A cylinder is drawn on the box around it, as a cylinder; a darkening light keeps
+        // intensity 1; without a facing term it carries none, drawn by the adapted program.
         let cylinder = DonorLight { volume: Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 3.0 }, ..volume }, facing: None, ..light };
         let d = cylinder.native_multiply([0.5, 0.25, 0.0]).unwrap();
         assert_eq!(d.volume.shape, Shape::Box { half: [2.0, 3.0, 2.0] });
         let carried = ambient_facing::decode(d.attenuation_power, ambient_facing::Shape::Box).unwrap();
-        assert_eq!((carried.facing, carried.falloff), (Facing::NONE, Falloff::Box { power: 2.0, gradient: false }));
+        assert_eq!((carried.facing, carried.falloff), (Facing::NONE, Falloff::Cylinder { power: 2.0, gradient: false }));
         assert!(d.intensity == 1.0 && d.dot_normal());
         assert!((d.colour[0].powf(2.2) - 0.5).abs() < 1e-4 && d.colour[2] == 0.0);
         // A sphere without a facing term keeps a plain power.

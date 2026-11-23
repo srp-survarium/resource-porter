@@ -390,7 +390,10 @@ the formulas come from both builds' shader disassembly):
   into the room. Rudnya's church floor, barn, apiary and two sheds have 9 such boxes, which
   the port had drawn uniform at full strength, 2 to 5 times 0.69d's light and hard-edged. The
   power and the gradient ride in `attenuation_power` with the facing term (`ambient_facing`;
-  a box without `dot_normal` carries the term 1). A cylinder is the box around it. The
+  a box without `dot_normal` carries the term 1). 0.26 has no cylinder: one is placed as the
+  box around it (half extents radius, half height, radius) and the lighting pack draws 0.69d's
+  cylinder in it (the distance from the axis); drawn as that box, the church towers' three
+  near-black darkening cylinders also darkened the box's four corners outside their disc. The
   facing term (`dot_normal`) is 0.69d's own, `sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power`
   to the light's centre, not 0.26's `max(N.L, 0)`: the light's `attenuation_power` carries
   0.26's distance power with the cutoff and power (`ambient_facing`; exact for every value

@@ -23,9 +23,9 @@
 //! | 21..29  | cutoff                | `(n - 128) * 0.01f` (-1.28 to 1.27) |
 //!
 //! The falloff field is the shape's ([`Falloff`]): a sphere's 0.26g distance power `n / 128`
-//! (0 to 63.99); a box's 0.69d falloff, which 0.26g's box program does not draw (it has no
-//! power): its power `n / 128` in bits 0..11 (to 15.99), bit 11 kept clear, bit 12 its
-//! `gradient_attenuation`.
+//! (0 to 63.99); a box's or a cylinder's 0.69d falloff, which 0.26g's box program (a cylinder
+//! is drawn by it, on the box around it) does not draw (it has no power): its power `n / 128`
+//! in bits 0..11 (to 15.99), bit 11 set for a cylinder, bit 12 its `gradient_attenuation`.
 //!
 //! A light without 0.69d's facing (`dot_normal` off) whose falloff only the adapted program
 //! draws (every box) carries [`Facing::NONE`], cutoff -1: the term is exactly 1.
@@ -53,6 +53,7 @@ pub const MAX_POWER: f32 = ((1 << POWER_BITS) - 1) as f32 * POWER_STEP;
 /// A box's falloff: its power in the low bits, its gradient in bit 12.
 pub const BOX_POWER_BITS: u32 = 11;
 pub const BOX_GRADIENT: u32 = 1 << 12;
+pub const BOX_CYLINDER: u32 = 1 << 11;
 /// The largest falloff power a box holds.
 pub const MAX_BOX_POWER: f32 = ((1 << BOX_POWER_BITS) - 1) as f32 * POWER_STEP;
 
@@ -93,13 +94,17 @@ pub enum Falloff {
     /// `gradient` (`gradient_attenuation`) times `saturate(0.5 - 0.5 y)^power` along its local
     /// y, `y` -1 to 1 face to face.
     Box { power: f32, gradient: bool },
+    /// 0.69d's cylinder (geometry 2), drawn on the box around it (half extents `r`, `h`, `r`):
+    /// `(1 - t)^power` of the distance from its axis and of `|y|`, each from its inner face, and
+    /// with `gradient` the box's gradient.
+    Cylinder { power: f32, gradient: bool },
 }
 
 impl Falloff {
     pub fn shape(&self) -> Shape {
         match self {
             Falloff::Sphere { .. } => Shape::Sphere,
-            Falloff::Box { .. } => Shape::Box,
+            Falloff::Box { .. } | Falloff::Cylinder { .. } => Shape::Box,
         }
     }
 }
@@ -135,12 +140,13 @@ fn falloff_field(falloff: Falloff) -> Result<u32, String> {
             }
             Ok((quantize_power(power) / POWER_STEP) as u32)
         }
-        Falloff::Box { power, gradient } => {
+        Falloff::Box { power, gradient } | Falloff::Cylinder { power, gradient } => {
             if !power.is_finite() || power <= 0.0 || power > MAX_BOX_POWER {
                 return Err(format!("box falloff power {power} is not in (0, {MAX_BOX_POWER}]"));
             }
             let n = ((power / POWER_STEP).round() as u32).max(1);
-            Ok(n | if gradient { BOX_GRADIENT } else { 0 })
+            let cylinder = matches!(falloff, Falloff::Cylinder { .. });
+            Ok(n | if gradient { BOX_GRADIENT } else { 0 } | if cylinder { BOX_CYLINDER } else { 0 })
         }
     }
 }
@@ -175,7 +181,10 @@ pub fn decode(value: f32, shape: Shape) -> Option<Encoded> {
     let bits = payload & ((1 << POWER_BITS) - 1);
     let falloff = match shape {
         Shape::Sphere => Falloff::Sphere { power: bits as f32 * POWER_STEP },
-        Shape::Box => Falloff::Box { power: (bits & ((1 << BOX_POWER_BITS) - 1)) as f32 * POWER_STEP, gradient: bits & BOX_GRADIENT != 0 },
+        Shape::Box => {
+            let (power, gradient) = ((bits & ((1 << BOX_POWER_BITS) - 1)) as f32 * POWER_STEP, bits & BOX_GRADIENT != 0);
+            if bits & BOX_CYLINDER != 0 { Falloff::Cylinder { power, gradient } } else { Falloff::Box { power, gradient } }
+        }
     };
     let facing_power = ((payload >> FACING_POWER_SHIFT) & 0xff) as f32 * FACING_POWER_STEP;
     let cutoff = ((payload >> CUTOFF_SHIFT) as i32 - CUTOFF_OFFSET) as f32 * CUTOFF_STEP;
@@ -272,6 +281,11 @@ mod tests {
             }
         }
         assert_eq!(Falloff::Box { power: 1.0, gradient: true }.shape(), Shape::Box);
+        for gradient in [false, true] {
+            let c = Falloff::Cylinder { power: 2.0, gradient };
+            assert_eq!(decode(encode(c, Facing::NONE).unwrap(), Shape::Box).unwrap().falloff, c);
+            assert_eq!(c.shape(), Shape::Box);
+        }
     }
 
     #[test]
