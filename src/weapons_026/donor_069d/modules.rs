@@ -481,9 +481,15 @@ const LENS: &str = "scope_lense";
 const OUTSIDE_LENS: &str = "scope_lense_3p";
 /// The material the outside lens is drawn with: 0.26g's own PSO-1 lens, which blends.
 const GLASS_TEMPLATE: &str = "material_instances/weapons/pso_1_lens.material";
-/// The glass's opacity (of 255) and its colour (sRGB), a light cool tint.
+/// The glass's opacity in its map (of 255) and its colour (sRGB), a light cool tint.
 const GLASS_OPACITY: u8 = 40;
 const GLASS_TINT: [u8; 3] = [90, 110, 120];
+/// Both stages' opacity is the map's times this: 88 of 255 in the glass.
+const GLASS_ALPHA_SCALE: f32 = 2.2;
+/// The lit stage's diffuse times the map's colour: a dark blue-violet coating, about (22, 24, 54).
+const GLASS_DIFFUSE: [f32; 4] = [0.25, 0.22, 0.45, 1.0];
+/// The lit stage's specular times this (the PSO-1's 0.1): sharp highlights that show at that opacity.
+const GLASS_SPECULAR: f32 = 0.5;
 
 /// A reticle's surface, ready for an aimed model.
 struct Baked {
@@ -729,8 +735,23 @@ impl Donor069 {
             ("lighting.effect.texture_normal", format!("{MAPS}_nmap")),
             ("lighting.effect.texture_roughness", format!("{MAPS}_smap")),
             ("forward.effect.texture_transparency", TEXTURE.to_owned()),
+            ("lighting.effect.texture_transparency", TEXTURE.to_owned()),
         ] {
             material.set_path(&format!("material.{key}.value"), s(&texture))?;
+        }
+        // The lit stage blends by its own alpha, `constant_transparency` alone unless it reads the
+        // map too: the PSO-1's 1 drew the lit glass over everything behind it (the owner's milky
+        // disc, 2026-11-23). With the map (stock `weapons/pasted_glass`'s switches) the glass is
+        // GLASS_ALPHA_SCALE x the map's alpha in both stages, nearly no diffuse, and the light's
+        // highlights scaled up so they still show at that opacity.
+        for (key, value) in [
+            ("lighting.effect.use_ttransparency", V::Boolean(true)),
+            ("lighting.effect.constant_transparency", V::Float(GLASS_ALPHA_SCALE)),
+            ("forward.effect.constant_transparency", V::Float(GLASS_ALPHA_SCALE)),
+            ("lighting.effect.constant_diffuse", V::Float4(GLASS_DIFFUSE)),
+            ("lighting.effect.constant_specular_color_multiplier", V::Float3([GLASS_SPECULAR; 3])),
+        ] {
+            material.set_path(&format!("material.{key}.value"), value)?;
         }
         self.put(path, encode_config(material)?)?;
         Ok(MATERIAL.to_owned())
