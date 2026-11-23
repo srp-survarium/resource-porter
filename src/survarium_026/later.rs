@@ -2570,12 +2570,12 @@ struct LitVolume {
 /// 0.69d's probe tiers (`layer`, render properties +214h): it averages the probes of a tier by
 /// their weights, `sum(w L) / max(W, 1)`, and draws the tier below only where `1 - W` remains
 /// (`environment_probe_stage::execute` 0x20050B200). 0.26 lerps every probe over the ones before
-/// it; skhid's exe patch 202 draws the local tier as 0.69d does, for the probes this marks.
+/// it; skhid's exe patch 203 draws the local tier as 0.69d does, for the probes this marks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProbeTier {
     /// Layer 0, and the map-wide sphere: 0.26's own draw.
     Global,
-    /// Layer 1: the radius below 0 marks it for patch 202 (`local_probe_radius`).
+    /// Layer 1: the radius below 0 marks it for patch 203 (`local_probe_radius`).
     Local,
 }
 
@@ -2584,9 +2584,9 @@ impl ProbeTier {
         match integer(object, "layer").unwrap_or(0) {
             0 => Ok(ProbeTier::Global),
             1 => {
-                // Patch 202's programs draw 0.69d's linear falloff (attenuation_power 1).
+                // Patch 203's programs draw 0.69d's linear falloff (attenuation_power 1).
                 let power = real(object, "attenuation_power").unwrap_or(1.0);
-                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 202's tier programs draw 1 only");
+                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 203's tier programs draw 1 only");
                 Ok(ProbeTier::Local)
             }
             layer => bail!("{full_name}: probe layer {layer} (0.69d's detail tier): no 0.26 draw for it"),
@@ -2594,7 +2594,7 @@ impl ProbeTier {
     }
 }
 
-/// A local probe's radius for patch 202: below 0 (the mark), its whole part's magnitude the shape
+/// A local probe's radius for patch 203: below 0 (the mark), its whole part's magnitude the shape
 /// the tier programs draw (1 a box, 2 a cylinder about local y in its circumscribed box), its
 /// fraction `0.25 + 0.5 / (1 + R)` of the sort radius `R`, so the sort (largest first) and the
 /// forward models' choice (the smallest radius whose box holds them) keep 0.26's order among
@@ -2604,12 +2604,12 @@ fn local_probe_radius(volume: &Volume) -> Result<f32> {
     let shape = match volume.shape {
         Shape::Box { .. } => 1.0,
         Shape::Cylinder { .. } => 2.0,
-        Shape::Sphere { .. } => bail!("a local sphere probe: patch 202's tier programs draw boxes and cylinders"),
+        Shape::Sphere { .. } => bail!("a local sphere probe: patch 203's tier programs draw boxes and cylinders"),
     };
     Ok(-(shape + 0.25 + 0.5 / (1.0 + volume.sort_radius())))
 }
 
-/// Put a 0.69d local probe on `volume` for patch 202: a box (a cylinder's circumscribed one, the
+/// Put a 0.69d local probe on `volume` for patch 203: a box (a cylinder's circumscribed one, the
 /// programs cut the cylinder out of it), the marked radius, no smart attenuation (the four box
 /// effects without it are the ones with tier techniques).
 fn place_local_probe(native: &mut ConfigValue, volume: &Volume, full_name: &str) -> Result<()> {
@@ -3270,7 +3270,7 @@ pub fn convert_scene(
             }
             let locals = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local).count();
             notes.push(format!(
-                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 202 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
+                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
                 lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local && matches!(v.volume.shape, Shape::Cylinder { .. })).count(),
                 lit.volumes.len() - locals
             ));

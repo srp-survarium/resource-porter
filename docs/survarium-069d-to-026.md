@@ -372,7 +372,7 @@ the formulas come from both builds' shader disassembly):
   remains; 0.26 lerps each probe over the ones before it, so between two abutting local probes
   the outdoor light of the global ones showed through (the church nave's pale line: 0.69d
   83 -> 87-94 -> 100, the port 83 -> 160-293 -> 100). A local probe (layer 1) is placed for skhid's
-  exe patch 202, which draws a 0.69d scene's local probes as 0.69d's tier with three-maps-021-lighting's
+  exe patch 203, which draws a 0.69d scene's local probes as 0.69d's tier with three-maps-021-lighting's
   `environment_probe_tier_*` programs (@15): a box (a cylinder in its circumscribed box), no smart
   attenuation, its radius `-(shape + 0.25 + 0.5 / (1 + R))` (`local_probe_radius`: below 0 the
   mark, shape 1 a box and 2 a cylinder for the programs, the fraction keeping 0.26's order by the
@@ -381,7 +381,7 @@ the formulas come from both builds' shader disassembly):
   probe. Global probes stay 0.26's own draw. Rudnya: 62 local (2 cylinders, the church's
   belfry and tower), 7 global and the map-wide sphere. A lobby's probes are not marked (its
   builder places them as 0.26 draws them). The map's pack ships with the exe patch and the
-  lighting pack: an exe without patch 202 would draw the local probes by 0.26's lerp after every
+  lighting pack: an exe without patch 203 would draw the local probes by 0.26's lerp after every
   global one, with the box programs' smoothstep.
 * Ambient lights are 0.26's own ambient lights, all 288 (`lighting::NativeLight`). 0.26 draws
   one with an intensity above 1 as adding `colour^2.2 * (intensity - 1)` times its falloff to
