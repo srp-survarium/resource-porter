@@ -1739,6 +1739,16 @@ pub fn convert_material(
             let max = number(effect, "max_smoothness").unwrap_or(1.0);
             let min = number(effect, "min_smoothness").unwrap_or(0.0);
             let constant = number(effect, "smoothness").unwrap_or(0.5);
+            // With a map 0.69d never reads the constant (`g_stage_default.ps`:
+            // `min + (max - min) * map.g`): a template that cannot draw the map
+            // would draw that unused value instead (0.8 on Rudnya's rusty
+            // sheet metal, which its map makes nearly matte: a wet shine).
+            ensure!(
+                smoothness_map.is_none() || effect_flag(&root, stage, "use_troughness"),
+                "{template_path}, the {} template, draws no gloss map and {} binds a smoothness map; declare a template with use_troughness",
+                category.key(),
+                albedo
+            );
             if effect_flag(&root, stage, "use_troughness") {
                 match &smoothness_map {
                     Some(map) => {
@@ -1804,6 +1814,44 @@ pub fn convert_material(
                         .map(str::to_owned)
                         .unwrap_or_else(|| albedo.clone());
                     set_effect(&mut root, stage, "texture_vertex_blended_tiled_mask", ConfigValue::String(mask))?;
+                }
+                // The blend's own numbers. Both builds weigh the base layer by
+                // `sat(pow(w, (1 - mask)^2 falloff) strength)` with the mask
+                // turned and scaled by its rotation and UV scale, and sample the
+                // second layer at the UV times its tile (0.69d
+                // `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`): the donor's
+                // values, where the template draws the same technique with the
+                // same mask switch (else the formula differs and the template's
+                // stay, noted).
+                if blends {
+                    let same = number(effect, "vertex_blend_technique") == effect_value(&root, stage, "vertex_blend_technique").and_then(|v| match v {
+                        ConfigValue::Integer(i) => Some(*i as f32),
+                        ConfigValue::Float(f) => Some(*f),
+                        _ => None,
+                    }) && flag(effect, "use_tiled_vertex_blended_mask") == effect_flag(&root, stage, "use_tiled_vertex_blended_mask");
+                    if same {
+                        for field in [
+                            "constant_vertex_blended_strength",
+                            "constant_vertex_blended_falloff",
+                            "constant_vertex_blended_textures_tile",
+                            "constant_tiled_mask_uv_scale",
+                            "constant_tiled_mask_uv_rotation",
+                        ] {
+                            // In the template's own type (an integer stays one
+                            // where the value is whole).
+                            let value = match (number(effect, field), effect_value(&root, stage, field)) {
+                                (Some(v), Some(ConfigValue::Integer(_))) if v.fract() == 0.0 => ConfigValue::Integer(v as i32),
+                                (Some(v), Some(_)) => ConfigValue::Float(v),
+                                _ => continue,
+                            };
+                            set_effect(&mut root, stage, field, value)?;
+                        }
+                    } else {
+                        notes.push("vertex blend: the template's technique or tiled-mask switch differs from the donor's; its blend constants are kept".into());
+                    }
+                    if let Some(note) = blend_cut(effect, &mut root, stage, same)? {
+                        notes.push(note);
+                    }
                 }
             }
             if let Some(ConfigValue::Float4(c)) = value_of(effect, "albedo_color") {
@@ -1921,6 +1969,73 @@ fn donor_emission(donor: &ConfigValue, converted: &mut ConvertedMaterial, scale:
     set_effect(&mut converted.root, stage, "constant_emissive_multiplier", ConfigValue::Float(multiplier))?;
     converted.notes.push(format!("emission: 0.69d's at its exposure value {ev_m} (alpha {alpha}) in the scene's scale: multiplier {multiplier:.3}, linear colour"));
     Ok(())
+}
+
+/// 0.69d cuts an alpha-tested blend by its second layer's alpha where that
+/// layer is not considered opaque (`consider_blended_albedo_opaque` false);
+/// 0.26g's programs only cut by the base layer. The selector is the blend
+/// strength, as skhid's `v021d-vertex-blend@4` reads it (resource-porter
+/// `weather_fog_021::vertex_blend::blend_cut`, on the lighting packs' line).
+pub const BLEND_CUT_LINEAR: i32 = -21069;
+
+/// The strength that selects the masked cut with `strength` (`-(2^25 + strength * 2^17)`).
+pub fn blend_cut_masked(strength: f32) -> Option<i32> {
+    let encoded = -(33_554_432.0f64 + strength as f64 * 131_072.0);
+    ((0.0..256.0).contains(&strength) && encoded == encoded.round() && (encoded as f32) as f64 == encoded).then_some(encoded as i32)
+}
+
+/// Select 0.69d's cut on a converted alpha-tested blend, from the donor's
+/// own flags (technique 1, `g_stage_default.ps`): without a tiled mask and
+/// with the base layer opaque, `alpha = B.a + w (1 - B.a)` on the raw vertex
+/// weight; with a tiled mask and neither layer opaque,
+/// `alpha = B.a + W (mask - B.a)` on the masked weight. `same`: the template
+/// draws the donor's technique and mask switch (its blend numbers are the
+/// donor's). A note for what is selected or left as 0.26g cuts it.
+fn blend_cut(effect: &ConfigValue, root: &mut ConfigValue, stage: &str, same: bool) -> Result<Option<String>> {
+    let cuts_by_second = flag(effect, "use_alpha_test") && flag(effect, "alpha_test_consider_vertex_blend") && !flag(effect, "consider_blended_albedo_opaque");
+    if !cuts_by_second {
+        return Ok(None);
+    }
+    let template_cuts = effect_flag(root, stage, "use_alpha_test") && effect_flag(root, stage, "alpha_test_consider_vertex_blend");
+    let technique = number(effect, "vertex_blend_technique").unwrap_or(0.0);
+    let mask = flag(effect, "use_tiled_vertex_blended_mask");
+    let base_opaque = flag(effect, "consider_albedo_opaque");
+    let typed = |root: &ConfigValue, field: &str, v: f32| match effect_value(root, stage, field) {
+        Some(ConfigValue::Integer(_)) if v.fract() == 0.0 => Some(ConfigValue::Integer(v as i32)),
+        Some(_) => Some(ConfigValue::Float(v)),
+        None => None,
+    };
+    let selector = match (template_cuts, technique == 1.0, mask, base_opaque) {
+        (true, true, false, true) => {
+            // The weight is the raw vertex alpha whatever the template's
+            // mask; the second layer keeps its own tile.
+            if let Some(tile) = number(effect, "constant_vertex_blended_textures_tile")
+                && let Some(value) = typed(root, "constant_vertex_blended_textures_tile", tile)
+            {
+                set_effect(root, stage, "constant_vertex_blended_textures_tile", value)?;
+            }
+            Some((BLEND_CUT_LINEAR, "the raw vertex weight, the base layer opaque"))
+        }
+        (true, true, true, false) if same && effect_flag(root, stage, "use_tiled_vertex_blended_mask") => {
+            let strength = number(effect, "constant_vertex_blended_strength").unwrap_or(1.0);
+            let encoded = blend_cut_masked(strength).with_context(|| format!("blend strength {strength} has no exact masked-cut encoding"))?;
+            Some((encoded, "the masked weight, the tiled mask as the base layer's alpha"))
+        }
+        _ => None,
+    };
+    let Some((value, what)) = selector else {
+        return Ok(Some(format!(
+            "vertex blend: 0.69d cuts it by its second layer's alpha (technique {technique}, tiled mask {mask}, base opaque {base_opaque}); not converted, 0.26g cuts by the base layer"
+        )));
+    };
+    let field = "constant_vertex_blended_strength";
+    let written = match effect_value(root, stage, field) {
+        Some(ConfigValue::Integer(_)) => ConfigValue::Integer(value),
+        Some(_) => ConfigValue::Float(value as f32),
+        None => bail!("the template has no {field}"),
+    };
+    set_effect(root, stage, field, written)?;
+    Ok(Some(format!("vertex blend: 0.69d's cut by the second layer's alpha ({what}), strength selector {value} (v021d-vertex-blend@4)")))
 }
 
 /// One Fresnel value on a converted material, whether its template draws a
@@ -6155,6 +6270,11 @@ mod tests {
         assert_eq!(text(e, "texture_roughness"), Some("tiled/a_smap"));
         assert_eq!(number(e, "constant_roughness_max"), Some(0.2));
         assert!(flag(e, "use_troughness") && flag(e, "use_nmap"));
+        // A template with no gloss map would draw the donor's unused
+        // constant: the build stops and names the template to declare.
+        let flat = BTreeMap::from([("opaque".to_owned(), ("flora/roots_tile".to_owned(), template(&[("use_nmap", true), ("use_troughness", false)])))]);
+        let error = convert_material(&donor, Usage::default(), &flat, Gloss::Smoothness, "editor/default_nmap").err().unwrap();
+        assert!(format!("{error:#}").contains("use_troughness"), "{error:#}");
         // The switch without a map is no metal surface.
         assert!(c.metal.is_none());
         // 0.69d's own rule: the smoothness range by the two builds' alpha.
@@ -6213,6 +6333,100 @@ mod tests {
         assert_eq!(categorize(&blending(false, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: false });
         assert_eq!(categorize(&blending(true, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: true });
         assert_eq!(categorize(&blending(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
+    }
+
+    #[test]
+    fn a_blend_takes_the_donors_numbers_where_it_draws_the_same_technique() {
+        let donor = |mask: bool| {
+            material(
+                vec![
+                    ("effect_id", ConfigValue::String("g_stage_default".into())),
+                    ("t_albedo", ConfigValue::String("tiled/a".into())),
+                    ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/b".into())),
+                    ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+                    ("vertex_blend_technique", ConfigValue::Integer(1)),
+                    ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(mask)),
+                    ("constant_vertex_blended_strength", ConfigValue::Integer(2)),
+                    ("constant_vertex_blended_falloff", ConfigValue::Integer(4)),
+                    ("constant_vertex_blended_textures_tile", ConfigValue::Integer(3)),
+                    ("constant_tiled_mask_uv_scale", ConfigValue::Float(1.5)),
+                ],
+                "dielectric",
+            )
+        };
+        let mut t = template(&[("use_vertex_blended_textures", true), ("use_tiled_vertex_blended_mask", true)]);
+        for (k, v) in [
+            ("texture_vertex_blended_diffuse", ConfigValue::String("native/b".into())),
+            ("vertex_blend_technique", ConfigValue::Integer(1)),
+            ("constant_vertex_blended_strength", ConfigValue::Integer(4)),
+            ("constant_vertex_blended_falloff", ConfigValue::Integer(15)),
+            ("constant_vertex_blended_textures_tile", ConfigValue::Integer(1)),
+            ("constant_tiled_mask_uv_scale", ConfigValue::Integer(2)),
+        ] {
+            t.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+        }
+        t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+        let templates = BTreeMap::from([("vertex_blend".to_owned(), ("tiled/x_vc".to_owned(), t))]);
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let c = convert_material(&donor(true), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(2)));
+        assert_eq!(value_of(e, "constant_vertex_blended_falloff"), Some(&ConfigValue::Integer(4)));
+        assert_eq!(value_of(e, "constant_vertex_blended_textures_tile"), Some(&ConfigValue::Integer(3)));
+        assert_eq!(value_of(e, "constant_tiled_mask_uv_scale"), Some(&ConfigValue::Float(1.5)));
+        // Without the donor's mask the template's formula is another one: its numbers stay.
+        let c = convert_material(&donor(false), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(4)));
+        assert!(c.notes.iter().any(|n| n.contains("blend constants are kept")));
+    }
+
+    #[test]
+    fn a_blend_cut_by_its_second_layer_selects_0_69d_cut_by_its_own_flags() {
+        let donor = |mask: bool, base_opaque: bool, technique: i32| {
+            material(
+                vec![
+                    ("effect_id", ConfigValue::String("g_stage_default".into())),
+                    ("t_albedo", ConfigValue::String("tiled/wall/paper".into())),
+                    ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/stucco/lath".into())),
+                    ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+                    ("use_alpha_test", ConfigValue::Boolean(true)),
+                    ("alpha_test_consider_vertex_blend", ConfigValue::Boolean(true)),
+                    ("consider_albedo_opaque", ConfigValue::Boolean(base_opaque)),
+                    ("consider_blended_albedo_opaque", ConfigValue::Boolean(false)),
+                    ("vertex_blend_technique", ConfigValue::Integer(technique)),
+                    ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(mask)),
+                    ("constant_vertex_blended_strength", ConfigValue::Integer(3)),
+                    ("constant_vertex_blended_textures_tile", ConfigValue::Integer(3)),
+                ],
+                "dielectric",
+            )
+        };
+        let mut t = template(&[("use_vertex_blended_textures", true), ("use_tiled_vertex_blended_mask", true), ("use_alpha_test", true), ("alpha_test_consider_vertex_blend", true)]);
+        for (k, v) in [
+            ("texture_vertex_blended_diffuse", ConfigValue::String("native/b".into())),
+            ("vertex_blend_technique", ConfigValue::Integer(1)),
+            ("constant_vertex_blended_strength", ConfigValue::Integer(4)),
+            ("constant_vertex_blended_textures_tile", ConfigValue::Integer(1)),
+        ] {
+            t.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+        }
+        t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+        let templates = BTreeMap::from([("vertex_blend_alpha_test".to_owned(), ("tiled/x_vc".to_owned(), t))]);
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let strength = |c: &ConvertedMaterial| value_of(c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap(), "constant_vertex_blended_strength").cloned();
+        // The lath under the wallpaper: no mask, base opaque.
+        let c = convert_material(&donor(false, true, 1), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(strength(&c), Some(ConfigValue::Integer(BLEND_CUT_LINEAR)));
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_textures_tile"), Some(&ConfigValue::Integer(3)));
+        // Masked, neither layer opaque: the donor's strength rides in the selector.
+        let c = convert_material(&donor(true, false, 1), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(strength(&c), Some(ConfigValue::Integer(-(33_554_432 + 3 * 131_072))));
+        // Another technique: left as 0.26g cuts it, noted.
+        let c = convert_material(&donor(true, false, 2), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert!(c.notes.iter().any(|n| n.contains("not converted")), "{:?}", c.notes);
+        assert_eq!(blend_cut_masked(0.5), Some(-(33_554_432 + 65_536)));
     }
 
     #[test]
