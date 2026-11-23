@@ -380,9 +380,9 @@ the formulas come from both builds' shader disassembly):
   `attenuation_power` is not 1 (the programs draw 0.69d's linear falloff) and a detail-tier
   probe. Global probes stay 0.26's own draw. Rudnya: 62 local (2 cylinders, the church's
   belfry and tower), 7 global and the map-wide sphere. A lobby's probes are not marked (its
-  builder places them as 0.26 draws them). The map's pack needs the exe patch and the lighting
-  pack: without patch 202 a negative radius sorts the local probes after the globals in reverse
-  size and draws them by 0.26's lerp.
+  builder places them as 0.26 draws them). The map's pack ships with the exe patch and the
+  lighting pack: an exe without patch 202 would draw the local probes by 0.26's lerp after every
+  global one, with the box programs' smoothstep.
 * Ambient lights are 0.26's own ambient lights, all 288 (`lighting::NativeLight`). 0.26 draws
   one with an intensity above 1 as adding `colour^2.2 * (intensity - 1)` times its falloff to
   the diffuse light, and one at or below 1 as multiplying the light under it
