@@ -373,7 +373,7 @@ the formulas come from both builds' shader disassembly):
   the outdoor light of the global ones showed through (the church nave's pale line: 0.69d
   83 -> 87-94 -> 100, the port 83 -> 160-293 -> 100). A local probe (layer 1) is placed for skhid's
   exe patch 203, which draws a 0.69d scene's local probes as 0.69d's tier with three-maps-021-lighting's
-  `environment_probe_tier_*` programs (@15): a box (a cylinder in its circumscribed box), no smart
+  `environment_probe_tier_*` programs (@16): a box (a cylinder in its circumscribed box), no smart
   attenuation, its radius `-(shape + 0.25 + 0.5 / (1 + R))` (`local_probe_radius`: below 0 the
   mark, shape 1 a box and 2 a cylinder for the programs, the fraction keeping 0.26's order by the
   sort radius R among them). The build stops on a local sphere, a local probe whose
