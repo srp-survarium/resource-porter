@@ -17,7 +17,7 @@
 //!   `_diffuse` cube holds irradiance `E = integral of L cos` encoded the same
 //!   way without the 4, so it decodes to `E / 4`, which the lighting
 //!   multiplies by the albedo (and the sun's colour likewise, with no 1/pi).
-use crate::ambient_facing::{self, Facing};
+use crate::ambient_facing::{self, Facing, Falloff};
 use crate::dds_cube::{CubeRgba8, decode_cube, encode_cube};
 use anyhow::{Result, ensure};
 
@@ -236,6 +236,9 @@ pub struct DonorLight {
     pub attenuation_power: f32,
     /// `dot_normal`: its facing term (`dot_normal_cutoff`, `dot_normal_power`).
     pub facing: Option<Facing>,
+    /// `gradient_attenuation`: a box's falloff times `saturate(0.5 - 0.5 y)^power` along its
+    /// local y (unit coordinates), full at one face, nothing at the other.
+    pub gradient: bool,
 }
 
 /// Simpson's rule over [a, b].
@@ -263,62 +266,59 @@ pub fn sphere_fit(outer: f32, side_width: f32, power: f32) -> (f32, f32) {
     (outer / 0.98, (0.5 * (lo + hi)).exp())
 }
 
-/// 0.26 fades a box light by a smoothstep over `side_width` inside each face
-/// (mean 1/2 over the band); 0.69d by `(1 - t)^p` or `1 - t^(1/p)` (mean
-/// `1 / (p + 1)`). The 0.26 band that holds the same light.
-pub fn box_side_width(side_width: f32, power: f32, half: [f32; 3]) -> f32 {
-    let least = half.iter().cloned().fold(f32::INFINITY, f32::min);
-    (2.0 * side_width / (power.max(1e-3) + 1.0)).clamp(0.01, least.max(0.01))
-}
-
 /// A 0.26 ambient light (`object_ambient_light`, drawn by `ambient_light.ps`):
 /// with an intensity above 1 it adds `colour^2.2 * (intensity - 1)` times its
 /// falloff to the diffuse light, otherwise it multiplies the light under it
 /// towards `colour^2.2 * intensity`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NativeLight {
-    /// A sphere (its radius 0.26's) or a box, its `side_width` 0.26's.
+    /// A sphere (its radius 0.26's) or a box (its `side_width` the donor's).
     pub volume: Volume,
     /// sRGB, as the object stores it.
     pub colour: [f32; 3],
     pub intensity: f32,
-    /// The property: 0.26's distance power, or for a light with 0.69d's facing
-    /// term that power and the term encoded (`ambient_facing`), which the
-    /// lighting pack's `ambient_light.ps` draws in a 0.69d scene.
+    /// The property: a sphere's 0.26 distance power, or encoded (`ambient_facing`) a
+    /// sphere's with 0.69d's facing term, or a box's 0.69d falloff (its power and gradient)
+    /// with its facing term or none; the lighting pack's `ambient_light.ps` draws an encoded
+    /// light in a 0.69d scene.
     pub attenuation_power: f32,
 }
 
 impl NativeLight {
-    /// `dot_normal`: on for a light whose power carries 0.69d's facing term.
+    /// `dot_normal`: on for a light whose power is encoded (only the `dot_normal` programs
+    /// decode it).
     pub fn dot_normal(&self) -> bool {
-        ambient_facing::decode(self.attenuation_power).is_some()
+        ambient_facing::is_encoded(self.attenuation_power)
     }
 }
 
 impl DonorLight {
-    /// The light's shape and falloff as 0.26 draws them. 0.26 has no
-    /// cylinder: the box around it, which fades to nothing at its corners.
-    fn native_volume(&self) -> (Volume, f32) {
+    /// The light's shape and falloff as 0.26 draws them: a sphere with 0.26's
+    /// falloff fitted to 0.69d's; a box with 0.69d's own (its side width, power and
+    /// gradient), which the lighting pack draws. 0.26 has no cylinder: the box
+    /// around it.
+    fn native_volume(&self) -> (Volume, Falloff) {
         let v = self.volume;
+        let cube = Falloff::Box { power: self.attenuation_power, gradient: self.gradient };
         match v.shape {
             Shape::Sphere { radius } => {
                 let (radius, power) = sphere_fit(radius, v.side_width, self.attenuation_power);
-                (Volume { shape: Shape::Sphere { radius }, ..v }, power)
+                (Volume { shape: Shape::Sphere { radius }, ..v }, Falloff::Sphere { power })
             }
-            Shape::Box { half } => (Volume { side_width: box_side_width(v.side_width, self.attenuation_power, half), ..v }, self.attenuation_power),
-            Shape::Cylinder { radius, half_height } => {
-                let half = [radius, half_height, radius];
-                (Volume { shape: Shape::Box { half }, side_width: box_side_width(v.side_width, self.attenuation_power, half), ..v }, self.attenuation_power)
-            }
+            Shape::Box { .. } => (v, cube),
+            Shape::Cylinder { radius, half_height } => (Volume { shape: Shape::Box { half: [radius, half_height, radius] }, ..v }, cube),
         }
     }
 
-    /// The property `attenuation_power` for the distance power `power`: with a
-    /// facing term, the two encoded.
-    fn attenuation_power(&self, power: f32) -> Result<f32> {
-        match self.facing {
-            None => Ok(power),
-            Some(facing) => ambient_facing::encode(power, facing).map_err(anyhow::Error::msg),
+    /// The property `attenuation_power` for `falloff`: a sphere without a facing
+    /// term keeps its plain power; a sphere with one and every box are encoded
+    /// (a box without one with `Facing::NONE`).
+    fn attenuation_power(&self, falloff: Falloff) -> Result<f32> {
+        let encode = |facing| ambient_facing::encode(falloff, facing).map_err(anyhow::Error::msg);
+        match (falloff, self.facing) {
+            (Falloff::Sphere { power }, None) => Ok(power),
+            (Falloff::Sphere { .. }, Some(facing)) => encode(facing),
+            (Falloff::Box { .. }, facing) => encode(facing.unwrap_or(Facing::NONE)),
         }
     }
 
@@ -326,17 +326,17 @@ impl DonorLight {
     /// surface facing it sends back) with this light's shape, falloff and
     /// facing.
     pub fn native_additive(&self, radiance: [f32; 3]) -> Result<NativeLight> {
-        let (volume, power) = self.native_volume();
+        let (volume, falloff) = self.native_volume();
         let v = radiance.map(|c| c.max(0.0));
         let peak = v.iter().cloned().fold(1e-6, f32::max);
-        Ok(NativeLight { volume, colour: v.map(|c| (c / peak).powf(1.0 / 2.2)), intensity: 1.0 + peak, attenuation_power: self.attenuation_power(power)? })
+        Ok(NativeLight { volume, colour: v.map(|c| (c / peak).powf(1.0 / 2.2)), intensity: 1.0 + peak, attenuation_power: self.attenuation_power(falloff)? })
     }
 
     /// The 0.26 light that multiplies the light under it by `factor` (each
     /// channel at most 1).
     pub fn native_multiply(&self, factor: [f32; 3]) -> Result<NativeLight> {
-        let (volume, power) = self.native_volume();
-        Ok(NativeLight { volume, colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)), intensity: 1.0, attenuation_power: self.attenuation_power(power)? })
+        let (volume, falloff) = self.native_volume();
+        Ok(NativeLight { volume, colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)), intensity: 1.0, attenuation_power: self.attenuation_power(falloff)? })
     }
 }
 
@@ -529,16 +529,13 @@ mod light_tests {
         }
         // A light flat to half its radius keeps a low power.
         assert!((sphere_fit(4.0, 2.0, 2.0).1 - 1.37).abs() < 0.05);
-        // Box: the band of the same mean, never wider than the box.
-        assert!((box_side_width(3.0, 2.0, [5.0, 5.0, 5.0]) - 2.0).abs() < 1e-5);
-        assert_eq!(box_side_width(3.0, 0.5, [1.0, 5.0, 5.0]), 1.0);
     }
 
     #[test]
     fn donor_lights_become_native_lights() {
         let volume = Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Sphere { radius: 4.0 }, side_width: 2.0 };
         let facing = Facing { cutoff: 0.0, power: 4.0 };
-        let light = DonorLight { volume, effect: LightEffect::Add { radiance: [0.0; 3] }, attenuation_power: 2.0, facing: Some(facing) };
+        let light = DonorLight { volume, effect: LightEffect::Add { radiance: [0.0; 3] }, attenuation_power: 2.0, facing: Some(facing), gradient: false };
         let n = light.native_additive([0.4, 0.2, 0.1]).unwrap();
         // Adds colour^2.2 * (intensity - 1): the radiance; the shader draws
         // 0.69d's facing term from the power, the fitted distance power with it.
@@ -547,20 +544,28 @@ mod light_tests {
             assert!((added - [0.4, 0.2, 0.1][c]).abs() < 1e-4, "{n:?}");
         }
         let fit = sphere_fit(4.0, 2.0, 2.0).1;
-        let carried = ambient_facing::decode(n.attenuation_power).unwrap();
-        assert_eq!((carried.facing, carried.power), (facing, ambient_facing::quantize_power(fit)));
+        let carried = ambient_facing::decode(n.attenuation_power, ambient_facing::Shape::Sphere).unwrap();
+        assert_eq!((carried.facing, carried.falloff), (facing, Falloff::Sphere { power: ambient_facing::quantize_power(fit) }));
         assert!(n.intensity > 1.0 && n.dot_normal() && matches!(n.volume.shape, Shape::Sphere { radius } if (radius - 4.0 / 0.98).abs() < 1e-5));
-        // A box keeps the donor's power (0.26 draws none) beside the term.
-        let cube = DonorLight { volume: Volume { shape: Shape::Box { half: [2.0, 1.0, 3.0] }, ..volume }, ..light };
+        // A box keeps the donor's side width, power and gradient (0.26 draws no power)
+        // beside the term.
+        let cube = DonorLight { volume: Volume { shape: Shape::Box { half: [2.0, 1.0, 3.0] }, ..volume }, gradient: true, ..light };
         let b = cube.native_multiply([0.5, 0.5, 0.5]).unwrap();
-        assert_eq!(ambient_facing::decode(b.attenuation_power).unwrap().power, 2.0);
-        // A cylinder is the box around it; a darkening light keeps intensity 1;
-        // without a facing term the power is the plain one.
+        let carried = ambient_facing::decode(b.attenuation_power, ambient_facing::Shape::Box).unwrap();
+        assert_eq!((carried.facing, carried.falloff), (facing, Falloff::Box { power: 2.0, gradient: true }));
+        assert!(b.dot_normal() && b.volume.side_width == 2.0);
+        // A cylinder is the box around it; a darkening light keeps intensity 1; a box
+        // without a facing term carries none, and is drawn by the adapted program too.
         let cylinder = DonorLight { volume: Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 3.0 }, ..volume }, facing: None, ..light };
         let d = cylinder.native_multiply([0.5, 0.25, 0.0]).unwrap();
         assert_eq!(d.volume.shape, Shape::Box { half: [2.0, 3.0, 2.0] });
-        assert!(d.intensity == 1.0 && !d.dot_normal() && d.attenuation_power == 2.0);
+        let carried = ambient_facing::decode(d.attenuation_power, ambient_facing::Shape::Box).unwrap();
+        assert_eq!((carried.facing, carried.falloff), (Facing::NONE, Falloff::Box { power: 2.0, gradient: false }));
+        assert!(d.intensity == 1.0 && d.dot_normal());
         assert!((d.colour[0].powf(2.2) - 0.5).abs() < 1e-4 && d.colour[2] == 0.0);
+        // A sphere without a facing term keeps a plain power.
+        let plain = DonorLight { facing: None, ..light }.native_additive([0.1; 3]).unwrap();
+        assert!(!plain.dot_normal() && (plain.attenuation_power - fit).abs() < 1e-6);
         // A term the encoding cannot carry exactly is refused.
         let odd = DonorLight { facing: Some(Facing { cutoff: 0.0, power: 0.25 }), ..light };
         assert!(odd.native_additive([0.1; 3]).is_err());
