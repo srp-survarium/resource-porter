@@ -14,6 +14,7 @@
 use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
 use super::lighting::{DonorLight, DonorProbe, LightEffect, LightScale, NativeLight, Shape, Volume};
+use crate::ambient_facing::Facing;
 use super::surface::Gloss;
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
@@ -2592,7 +2593,7 @@ fn donor_light(object: &ConfigValue) -> Result<(DonorLight, [f32; 3])> {
         LightEffect::Add { radiance: linear.map(|c| c * e) }
     };
     let facing = matches!(object.named("dot_normal"), Some(ConfigValue::Boolean(true)))
-        .then(|| (real(object, "dot_normal_cutoff").unwrap_or(0.0), real(object, "dot_normal_power").unwrap_or(1.0)));
+        .then(|| Facing { cutoff: real(object, "dot_normal_cutoff").unwrap_or(0.0), power: real(object, "dot_normal_power").unwrap_or(1.0) });
     let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing };
     Ok((light, colour))
 }
@@ -2737,7 +2738,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
                 light.native_additive(std::array::from_fn(|c| (factor[c] - 1.0).max(0.0) * below[c] * scale.0))
             }
         };
-        lights.push((full_name.clone(), native));
+        lights.push((full_name.clone(), native.with_context(|| format!("ambient light {full_name}"))?));
     }
     Ok(DonorLighting { volumes, lights, counts })
 }
@@ -3220,7 +3221,7 @@ pub fn convert_scene(
                 a.set_path("intensity", ConfigValue::Float(light.intensity))?;
                 a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
                 a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
-                a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal))?;
+                a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal()))?;
                 // 0.69d's ambient lights leave the reflections alone.
                 a.set_path("affect_specular", ConfigValue::Boolean(false))?;
                 a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
