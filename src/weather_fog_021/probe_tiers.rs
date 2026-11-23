@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! 0.69d's local probe tier: the three program families skhid's exe patch 202 draws a 0.69d
+//! 0.69d's local probe tier: the three program families skhid's exe patch 203 draws a 0.69d
 //! scene's local environment probes with (`environment_probe_tier_weight`, `_damp`, `_light`).
 //!
 //! 0.69d composes the probes of a tier as `sum(w L) / max(W, 1)` and shows the tier below only
-//! where `1 - W` remains; 0.26g lerps every probe over the ones before it. Patch 202 draws a
+//! where `1 - W` remains; 0.26g lerps every probe over the ones before it. Patch 203 draws a
 //! scene's local probes (the 0.69d converter's, marked by a radius below 0) three more times
 //! with techniques the four box effects compile in addition, each pass with one of these:
 //! - weight: rt 32 minus `w/4` (0.69d's linear falloff over the side width, a cylinder's in its

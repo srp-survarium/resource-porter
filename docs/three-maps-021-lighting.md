@@ -267,5 +267,5 @@ fxc as every 0.26g blob) into `assets/probe-tiers/`; that source's stock program
 the shipped one (`probes.sh check`: 6 of 8 byte-identical, the other two one mul's operands
 apart). The light pass is the stock pass times w / max(W, 1) and nothing else: the normal, the
 diffuse by the normal and the specular by the reflection vector as the stock program has them.
-No native program changes, and no scene without patch 202's local probes draws these: the pack
+No native program changes, and no scene without patch 203's local probes draws these: the pack
 and the exe patch ship together.

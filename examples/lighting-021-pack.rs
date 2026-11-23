@@ -413,7 +413,7 @@ fn main() -> Result<()> {
             base_sha256: sha256_hex(&before),
         });
     }
-    // Patch 202's tier programs: new families at the stock probe family's keys, and their masks.
+    // Patch 203's tier programs: new families at the stock probe family's keys, and their masks.
     for (path, blob) in shaders::probe_tiers::build(&mut native)? {
         let file = args[3].join("files").join(&path);
         fs::create_dir_all(file.parent().context("file without parent")?)?;
@@ -425,7 +425,7 @@ fn main() -> Result<()> {
     let pack = PackManifest {
         format_version: 1, id: manifest.id, version: manifest.version,
         target_build: TARGET_BUILD.into(),
-        description: Some("Original 0.21 atmosphere, direct-sun lighting, quality-1 AO, ray falloff and tone curve for all six 0.21 maps in day, rain and evening; unchanged native shader fallback for unmarked scenes; the environment_probe_tier_* programs exe patch 202 draws a 0.69d scene's local probes with".into()),
+        description: Some("Original 0.21 atmosphere, direct-sun lighting, quality-1 AO, ray falloff and tone curve for all six 0.21 maps in day, rain and evening; unchanged native shader fallback for unmarked scenes; the environment_probe_tier_* programs exe patch 203 draws a 0.69d scene's local probes with".into()),
         requires: vec!["maps-021d-school-fort".into(), "maps-021d-rudnya".into()],
         base_db_sha256: Some(manifest.target_sha256), operations, server: None,
         notes: vec!["Built by examples/lighting-021-pack.rs from fingerprinted retail programs. Projects opt in with their explicit mie_fog_base_height marker; authored fog inputs are preserved by the content edit lists.".into()],
