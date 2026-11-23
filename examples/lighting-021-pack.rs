@@ -59,6 +59,14 @@ struct ExposureProfileSpec {
     floor: f32,
     ceiling: f32,
     key: f32,
+    /// 0.69d's sky over 0.26g's under the port's sun (`shaders::SkyScale`), as the 0.69d map
+    /// builder prints it; 1 when absent.
+    #[serde(default = "one")]
+    sky: f32,
+}
+
+fn one() -> f32 {
+    1.0
 }
 
 #[derive(Deserialize)]
@@ -203,10 +211,18 @@ fn main() -> Result<()> {
         }
     }
     let sky = native.read(shaders::SKY_PATH)?;
+    let sky_scales: Vec<shaders::SkyScale> = manifest
+        .exposure_profiles
+        .iter()
+        .map(|p| shaders::SkyScale { marker: p.marker, sky: p.sky })
+        .collect();
     converted.push((
         shaders::SKY_PATH.into(),
         sky.clone(),
-        shaders::build_sky(&donor.read(shaders::SKY_PATH)?, &sky, &markers)?,
+        shaders::scale_sky(
+            &shaders::build_sky(&donor.read(shaders::SKY_PATH)?, &sky, &markers)?,
+            &sky_scales,
+        )?,
     ));
     let before = native.read(shaders::SCATTERING_PATH)?;
     let after = shaders::build_scattering(
