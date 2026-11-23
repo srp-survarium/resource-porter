@@ -40,4 +40,4 @@ vostok-port pack from-bundle --base-db <stock> ${L//--target-patch/--base-patch}
 
 - Premium and skin copies; the `attaches`, `upgrade_possibilities` and `overrides` tables (0.46c2's
   attachment system; 0.26g has none).
-- 0.46c2's shared `weapons/base/*` clips (melee, grenade, lobby poses, recoil): the template's.
+- 0.46c2's shared `weapons/base/*` clips (melee, grenade, lobby poses, recoil): the template's. The pistols play their own copies of the template's melee and grenade clips, held by their grip where the template's gun is held (`hands::regrip`).
