@@ -235,3 +235,9 @@ and the gradient (bit 12) beside the facing term (`src/ambient_facing.rs`, `Fall
 box without 0.69d's `dot_normal` carries the term 1 (cutoff -1). Rudnya's church floor, barn,
 apiary and two sheds have 9 gradient boxes, which had drawn uniform at full strength (2 to 5
 times 0.69d's light, hard-edged); School (v0.69) has 15.
+
+A cylinder (0.69d's geometry 2; 0.26g has none) is placed as the box around it and carries
+bit 11: the box branch then takes the distance from its axis, `sqrt(p_x^2 + p_z^2)`, for the
+x and z factors (0.69d's `ambient_light_*.ps` geometry 2). Drawn as the plain box, Rudnya's
+three near-black darkening cylinders in the church towers also darkened the box's corners
+outside their disc.

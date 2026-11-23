@@ -22,12 +22,14 @@
 //!   to the box's centre: `view_to_local`'s rows are the box's axes over its half extents
 //!   (exe 0x181C6F: the inverse of the light's scaled world matrix times the view's), so
 //!   `P - C = sum_i p_i a_i / |a_i|^2` of the local position `p` and `|a_i|` is one over the
-//!   half extent. The falloff's power and gradient ride in the power field, which 0.26g's
-//!   box program does not read (`ambient_facing::Falloff::Box`).
+//!   half extent; a cylinder (0.69d's geometry 2, on the box around it) takes the distance
+//!   from its axis, `sqrt(p_x^2 + p_z^2)`, for the x and z factors. The falloff's power,
+//!   gradient and cylinder ride in the power field, which 0.26g's box program does not read
+//!   (`ambient_facing::Falloff`).
 //!
 //! Every other scene and light runs the native instructions, unchanged, in the other branch.
 use super::{assemble, bytes, chunks, instructions, pinned_code, u32_at, words};
-use crate::ambient_facing::{BASE, BOX_GRADIENT, BOX_POWER_BITS, CUTOFF_OFFSET, CUTOFF_SHIFT, CUTOFF_STEP, FACING_POWER_SHIFT, FACING_POWER_STEP, PAYLOAD_LIMIT, POWER_BITS, POWER_STEP};
+use crate::ambient_facing::{BASE, BOX_CYLINDER, BOX_GRADIENT, BOX_POWER_BITS, CUTOFF_OFFSET, CUTOFF_SHIFT, CUTOFF_STEP, FACING_POWER_SHIFT, FACING_POWER_STEP, PAYLOAD_LIMIT, POWER_BITS, POWER_STEP};
 pub use crate::ambient_facing::Shape;
 use anyhow::{Context, Result, bail, ensure};
 
@@ -52,6 +54,7 @@ mod asm {
     pub const ADD: u32 = 0x00;
     pub const AND: u32 = 0x01;
     pub const DIV: u32 = 0x0e;
+    pub const DP2: u32 = 0x0f;
     pub const DP3: u32 = 0x10;
     pub const DP4: u32 = 0x11;
     pub const ELSE: u32 = 0x12;
@@ -185,7 +188,8 @@ fn condition(t: u32, markers: &[f32]) -> Vec<Vec<u32>> {
 }
 
 /// The payload in `rT.y` into `rT.y` = the falloff's power, `rT.z` = cutoff, `rT.w` = facing
-/// power (`ambient_facing::decode`); a box's gradient bit into `r(T+1).w`.
+/// power (`ambient_facing::decode`); a box's gradient bit into `r(T+1).w`, its cylinder bit
+/// into `rT.x` (free once the branch is taken, until the facing term).
 fn decode(t: u32, shape: Shape) -> Vec<Vec<u32>> {
     let power_bits = match shape {
         Shape::Sphere => (1 << POWER_BITS) - 1,
@@ -193,7 +197,7 @@ fn decode(t: u32, shape: Shape) -> Vec<Vec<u32>> {
     };
     let mut out = match shape {
         Shape::Sphere => Vec::new(),
-        Shape::Box => vec![op(AND, &[r(t + 1, "w"), rc(t, "y"), lu(BOX_GRADIENT)])],
+        Shape::Box => vec![op(AND, &[r(t + 1, "w"), rc(t, "y"), lu(BOX_GRADIENT)]), op(AND, &[r(t, "x"), rc(t, "y"), lu(BOX_CYLINDER)])],
     };
     out.extend([
         op(USHR, &[r(t, "z"), rc(t, "y"), lu(CUTOFF_SHIFT)]),
@@ -266,7 +270,8 @@ fn cube(body: &[Vec<u32>], t: u32) -> Result<Vec<Vec<u32>>> {
     out.push(op(MOV, &[r(s, "xyz"), rs(1, "xyzx")]));
     out.extend_from_slice(&body[normal + 1..=local]);
     // 0.69d's box falloff from the local position r2, its power in rT.y, its gradient bit
-    // in rS.w: the inner face at max(1 - s_i, 0.01 |a_i|), (1 - t_i)^p per axis
+    // in rS.w, its cylinder bit in rT.x: the inner face at max(1 - s_i, 0.01 |a_i|), (1 - t_i)^p
+    // per axis; a cylinder's distance from its axis for x, nothing for z
     out.extend([
         op(DP3, &[r(3, "x"), cb(0, 7, "xyzx"), cb(0, 7, "xyzx")]),
         op(DP3, &[r(3, "y"), cb(0, 8, "xyzx"), cb(0, 8, "xyzx")]),
@@ -275,7 +280,12 @@ fn cube(body: &[Vec<u32>], t: u32) -> Result<Vec<Vec<u32>>> {
         op(MUL, &[r(3, "xyz"), rs(3, "xyzx"), l4([0.01, 0.01, 0.01, 0.0])]),
         op(ADD, &[r(1, "xyz"), neg(cb(0, 14, "xyzx")), one.clone()]),
         op(MAX, &[r(1, "xyz"), rs(1, "xyzx"), rs(3, "xyzx")]),
-        op(MIN, &[r(0, "xyz"), abs(rs(2, "xyzx")), one.clone()]),
+        op(MOV, &[r(0, "xyz"), abs(rs(2, "xyzx"))]),
+        op(DP2, &[r(0, "w"), rs(2, "xzxx"), rs(2, "xzxx")]),
+        op(SQRT, &[r(0, "w"), rc(0, "w")]),
+        op(MOVC, &[r(0, "x"), rc(t, "x"), rc(0, "w"), rc(0, "x")]),
+        op(MOVC, &[r(0, "z"), rc(t, "x"), l(0.0), rc(0, "z")]),
+        op(MIN, &[r(0, "xyz"), rs(0, "xyzx"), one.clone()]),
         op(ADD, &[r(0, "xyz"), rs(0, "xyzx"), neg(rs(1, "xyzx"))]),
         op(ADD, &[r(1, "xyz"), neg(rs(1, "xyzx")), one.clone()]),
         op_sat(DIV, &[r(0, "xyz"), rs(0, "xyzx"), rs(1, "xyzx")]),

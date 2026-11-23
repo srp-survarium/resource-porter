@@ -399,6 +399,41 @@ fn a_marked_box_draws_0_69ds_falloff_and_gradient_times_its_facing_to_its_centre
     }
 }
 
+/// 0.69d's cylinder (`ambient_light_*.ps`, geometry 2) at the local position `l` of the box
+/// around it (half extents `r`, `h`, `r`), side widths over the half extents `side`.
+fn cylinder_069d(l: [f32; 3], half: [f32; 3], side: [f32; 3], power: f32) -> f32 {
+    let fall = |d: f32, i: usize| {
+        let inner = (1.0 - side[i]).max(0.01 / half[i]);
+        (1.0 - ((d.min(1.0) - inner) / (1.0 - inner)).clamp(0.0, 1.0)).powf(power)
+    };
+    fall((l[0] * l[0] + l[2] * l[2]).sqrt(), 0) * fall(l[1].abs(), 1)
+}
+
+#[test]
+fn a_marked_cylinder_fades_by_the_distance_from_its_axis() {
+    let texel = |_: u32| [0.0f32; 4];
+    let (half, centre, side) = ([2.4, 1.1, 2.4], [3.0, 1.0, -2.0], [0.125, 0.27, 0.125]);
+    let rows = view_to_local(basis(), half, centre);
+    let e = encode(Falloff::Cylinder { power: 1.0, gradient: false }, Facing::NONE).unwrap();
+    // inside the disc, in its band, and in the box's corner outside the disc (0.69d: nothing)
+    for offset in [[0.3, 0.2, -1.0], [1.6, -0.5, 1.6], [2.2, 0.0, 2.2], [0.0, 0.9, 2.3], [-1.0, 0.0, 0.5]] {
+        let p: [f32; 3] = std::array::from_fn(|i| centre[i] + (0..3).map(|k| basis()[k][i] * offset[k]).sum::<f32>());
+        let ops = splice(&box_native([0.0, 0.0, 1.0], p), Shape::Box, &MARKERS).unwrap();
+        let mut px = Pixel::new(&texel);
+        px.cb[0][7..10].copy_from_slice(&rows);
+        px.cb[0][12] = [0, 0, 0, u(e)];
+        px.cb[0][14] = [u(side[0]), u(side[1]), u(side[2]), 0];
+        px.cb[1][18] = [0, 0, 0, u(33001.0)];
+        px.run(&ops);
+        let l: [f32; 3] = std::array::from_fn(|i| offset[i] / half[i]);
+        let want = cylinder_069d(l, half, side, 1.0);
+        assert!((f(px.o[0][3]) - want).abs() < 1e-5, "{offset:?}: {} {want}", f(px.o[0][3]));
+        if offset == [2.2, 0.0, 2.2] {
+            assert_eq!(want, 0.0);
+        }
+    }
+}
+
 #[test]
 fn the_gradient_runs_from_full_at_minus_y_to_nothing_at_plus_y() {
     let texel = |_: u32| [0.0f32; 4];
@@ -506,6 +541,7 @@ fn retail_dot_normal_variants_draw_0_69ds_facing_and_keep_the_native_path() {
                                 let l: [f32; 3] = std::array::from_fn(|i| (0..3).map(|k| f(rows[i][k]) * pos[k]).sum::<f32>() + f(rows[i][3]));
                                 falloff_069d(l, [2.5, 1.5, 3.0], [0.5, 0.6, 0.3], power, gradient)
                             }
+                            Falloff::Cylinder { .. } => unreachable!("the retail cases use no cylinder"),
                         };
                         let d: [f32; 3] = std::array::from_fn(|i| centre[i] - pos[i]);
                         let want = fall * facing.eval(cosine(n, d));
