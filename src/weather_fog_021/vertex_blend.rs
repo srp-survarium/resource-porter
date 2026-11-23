@@ -6,6 +6,7 @@ mod linear_set;
 pub use linear_set::{LinearProgram, LinearPrograms};
 mod masked;
 pub use masked::{MASKED_SOURCE, MaskedFactor, MaskedProgram, MaskedPrograms};
+pub mod blend_cut;
 pub mod consider_off;
 pub mod normal_off;
 pub mod normal_on;
