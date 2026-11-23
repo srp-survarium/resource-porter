@@ -443,6 +443,17 @@ the formulas come from both builds' shader disassembly):
 * Sky: the donor's clouds (`sky/sky_test`, imported; lit through the template's cloud normal
   map, since the donor's have none and 0.26 draws unlit clouds dark) over 0.26's own
   atmosphere.
+* Cloud shadows: 0.69d dims its sun by its clouds' shadows (`use_cloud_shadows`;
+  `cloud_shadows.ps`: the clouds' panorama where a point's ray to the sun meets the cloud shell,
+  turning with the clouds), 0.27 to 0.93 of the sun over Rudnya as they turn, locally down to
+  nothing, 0.64 on average; without them the port's sun was 1.56 times 0.69d's on average against
+  the same sky light, the exposure followed the sunlit parts and the shade went black (the
+  tester's plank walls and the slab wall of 2026-11-22). A donor with `use_cloud_shadows` gets
+  0.26g's `use_sky_shadows` with the clouds' panorama as `sky_shadows_texture`; the lighting
+  pack's 16 `sun_shadow.ps` variants that read it compute 0.69d's instructions behind the scene's
+  marker (`cloud_shadow_profiles`, the row the build prints). Seen in the game: the sun goes and
+  comes back over a minute as in 0.69d (it changes the light on the whole map). Rudnya, Vostok
+  (level_03) and Cologne (level_08) have cloud shadows; School (level_02) has none.
 * Exposure, grading and curve are 0.69d's own (`tone.rs`), not fitted to frames. 0.69d
   exposes each view by `1 / (1.2 * 2^EV)`, `EV = clamp(log2(L) + 3 + bias, min, max)` of
   the view's metered luminance (the environment's 6 to 12.5), grades in AP1 (shadows,
