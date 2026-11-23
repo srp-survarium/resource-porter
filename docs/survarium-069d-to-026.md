@@ -415,6 +415,31 @@ the formulas come from both builds' shader disassembly):
     highlight carries 1/pi of 0.69d's energy at the same alpha (its D has the 1/pi, neither
     diffuse has), and it cannot be rougher than alpha 0.6 (80 % of Rudnya's smoothness
     texels are).
+  - A smoothness map needs a template that draws one. With a map 0.69d never reads its
+    constant `smoothness` (`min + (max - min) * map.g`); a template without
+    `use_troughness` drew that unused constant instead: 19 of Rudnya's materials, the
+    alpha-tested two-sided ones on `flora/roots_tile`, among them the sheds' rusty sheet
+    metal (`tiled/metal/metal_rust`: constant 0.8, gloss 0.62 everywhere, where its map, a
+    mean smoothness of 0.07, is matte), `metal_gray_rust` (0.9) and the glass tiles (0.98):
+    a wet, greasy sun highlight. The build stops on such a template;
+    `alpha_test_two_sided` and `glass_cutout` take `tiled/roof/roof_broken`, the same
+    switches as `roots_tile` with the gloss map on. All of 0.69d has 83 alpha-tested
+    two-sided materials with a smoothness map.
+  - Vertex blending keeps the donor's own numbers. Both builds weigh the base layer by
+    `sat(pow(w, (1 - mask)^2 falloff) strength)`, the tiled mask turned by its rotation and
+    scaled by its UV scale, and sample the second layer at the UV times its tile (0.69d
+    `g_stage_default.ps`; 0.26g's `gbuffer_pass.ps`, skhid
+    `scripts/v021d-weather/vertex-blend.md`). The converted materials kept the template's
+    strength, falloff, tile, mask scale and rotation: 55 of Rudnya's 68 blends drew their
+    moss, trash and brick patches other than 0.69d's (the lath under the wallpaper at a
+    third of its tiling). Where the template draws another technique or mask switch than
+    the donor (10 on Rudnya) the formula is not the same and the template's numbers stay,
+    with a note.
+  - Not converted: 0.69d can cut an alpha-tested blend by its second layer's alpha
+    (`consider_blended_albedo_opaque` false: `alpha = lerp(blended.a, 1, w)` with the base
+    opaque); 0.26g's programs read only the base's (`lerp(1, base.a, w)`). The lath
+    `stucco_wood_pbr` is 38.5 % transparent with black under it, so those faces draw black
+    (house_7's stairs: `tiled/wall/paper_01_palki_vc`; 3 Rudnya materials, 17 in all of 0.69d).
 * Sky: the donor's clouds (`sky/sky_test`, imported; lit through the template's cloud normal
   map, since the donor's have none and 0.26 draws unlit clouds dark) over 0.26's own
   atmosphere.
