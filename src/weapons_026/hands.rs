@@ -173,22 +173,43 @@ impl Stance {
     }
 }
 
-/// The player's pose at `time` of the additive `hands` on `stance`: every
-/// bone's frame in the player's (model) frame.
-pub fn pose(skeleton: &Skeleton, stance: &Stance, hands: &Clip, time: f32) -> Result<Vec<Frame>> {
-    ensure!(
-        hands.animation_type == ADDITIVE,
-        "a hands clip is additive; this one is of type {}",
-        hands.animation_type
-    );
-    let mut frames: Vec<Frame> = Vec::with_capacity(skeleton.names.len());
-    for (bone, name) in skeleton.names.iter().enumerate() {
-        let (base_t, base_r) = stance.locals[bone];
-        let (add_t, add_r) = channels(hands, name, time).unwrap_or(([0.0; 3], [0.0; 3]));
-        let local = (
+/// A bone's local frame at `time` of `hands` on `stance`: an additive
+/// clip's on the stance's (its rotation after the stance's, translations
+/// added), a full clip's its own (the melee's `kick_sprint`, which plays in
+/// place of the body clip as the sprint does), the stance's where the clip
+/// does not drive the bone.
+fn local_frame(stance: &Stance, hands: &Clip, bone: usize, name: &str, time: f32) -> Frame {
+    let (base_t, base_r) = stance.locals[bone];
+    match channels(hands, name, time) {
+        Some((t, r)) if hands.animation_type != ADDITIVE => (euler_to_basis(r), t),
+        Some((add_t, add_r)) => (
             multiply(&euler_to_basis(base_r), &euler_to_basis(add_r)),
             [0, 1, 2].map(|k| base_t[k] + add_t[k]),
-        );
+        ),
+        None => (euler_to_basis(base_r), base_t),
+    }
+}
+
+/// What [`local_frame`] inverts: the rotation (a basis, for its Euler
+/// angles) and the translation `hands`' curves of `bone` take for the local
+/// frame `local` on `stance`.
+fn curve_values(stance: &Stance, hands: &Clip, bone: usize, local: &Frame) -> Frame {
+    if hands.animation_type != ADDITIVE {
+        return *local;
+    }
+    let (base_t, base_r) = stance.locals[bone];
+    (
+        multiply(&transpose(&euler_to_basis(base_r)), &local.0),
+        [0, 1, 2].map(|k| local.1[k] - base_t[k]),
+    )
+}
+
+/// The player's pose at `time` of the hands clip `hands` on `stance`: every
+/// bone's frame in the player's (model) frame.
+pub fn pose(skeleton: &Skeleton, stance: &Stance, hands: &Clip, time: f32) -> Result<Vec<Frame>> {
+    let mut frames: Vec<Frame> = Vec::with_capacity(skeleton.names.len());
+    for (bone, name) in skeleton.names.iter().enumerate() {
+        let local = local_frame(stance, hands, bone, name, time);
         frames.push(match skeleton.parents[bone] {
             None => local,
             Some(parent) => compose(&local, &frames[parent]),
@@ -274,6 +295,29 @@ impl Gun {
             contacts,
             locators,
         })
+    }
+
+    /// The gun of the model `model` (`models/<model>.skinned_model`) on the
+    /// skeleton `skeleton`, as `read` serves their files.
+    pub fn read(
+        read: &mut dyn FnMut(&str) -> Result<Vec<u8>>,
+        model: &str,
+        skeleton: &str,
+    ) -> Result<Self> {
+        let root = format!("models/{model}.skinned_model/render");
+        let rig = Rig::parse(
+            &read(&format!("{root}/bind_pose"))?,
+            &read(&format!("animations/skeletons/{skeleton}.skeleton"))?,
+        )
+        .with_context(|| format!("{model}: the gun's rig"))?;
+        let properties = BinaryConfig::parse(&read(&format!("{root}/export_properties"))?)?;
+        Self::new(rig, &properties.root)
+    }
+
+    /// The right hand's contact bone (the grip) in the gun's frame, as
+    /// `item` starts.
+    fn grip(&self, item: &Clip) -> Frame {
+        self.rig.pose(item, 0.0)[self.contacts[1]]
     }
 
     /// The hand's locator of `kind`, else its `_idle` one (as
@@ -389,8 +433,7 @@ pub fn drift(
 }
 
 /// A hands clip of a weapon state: the state (its key under `states`),
-/// the clip and the gun's clip of the same name in the state, else its
-/// first.
+/// the clip and the gun's clip it plays with.
 #[derive(Clone, Debug)]
 pub struct HandsClip {
     pub state: String,
@@ -398,34 +441,46 @@ pub struct HandsClip {
     pub item: String,
 }
 
-/// Every state's (and substate's) hands clips, in order.
+fn clip_list(v: &ConfigValue, key: &str) -> Vec<String> {
+    match v.named(key) {
+        Some(ConfigValue::Indexed(list)) => list
+            .iter()
+            .filter_map(|c| match c {
+                ConfigValue::String(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
+        _ => vec![],
+    }
+}
+
+/// Every state's (and substate's) hands clips, in order, each with the
+/// gun's clip of the same name in the state, else of the same slot. A
+/// state with no gun clips of its own (the melee, the grenade's substates)
+/// plays the idle state's: their `weapon_and_hands_expression` (0x310B10,
+/// 0x33A6A0) takes the gun's part from the idle state they keep.
 pub fn hands_pairs(states: &ConfigValue) -> Vec<HandsClip> {
-    fn walk(v: &ConfigValue, state: &str, out: &mut Vec<HandsClip>) {
+    fn walk(v: &ConfigValue, state: &str, idle: &[String], out: &mut Vec<HandsClip>) {
         let ConfigValue::Named(fields) = v else {
             return;
         };
-        let strings = |key: &str| -> Vec<String> {
-            match v.named(key) {
-                Some(ConfigValue::Indexed(list)) => list
-                    .iter()
-                    .filter_map(|c| match c {
-                        ConfigValue::String(s) => Some(s.clone()),
-                        _ => None,
-                    })
-                    .collect(),
-                _ => vec![],
-            }
-        };
-        let (users, items) = (strings("user_animations"), strings("animations"));
+        let users = clip_list(v, "user_animations");
+        let own = clip_list(v, "animations");
+        let items = if own.is_empty() { idle } else { &own[..] };
         let stem = |p: &str| p.rsplit('/').next().unwrap_or(p).to_owned();
         for (slot, user) in users.iter().enumerate() {
             // The gun's clip of the same name, else of the same slot (a
             // two-clip reload's `[tactical, empty] x 4` hands play its
-            // `[tactical, empty]` items by the magazine, 0x30FE90).
+            // `[tactical, empty]` items by the magazine, 0x30FE90); the
+            // idle's loaded one for a state that plays the idle's.
             let item = items
                 .iter()
                 .find(|i| stem(i) == stem(user))
-                .or(items.get(slot % items.len().max(1)));
+                .or(if own.is_empty() {
+                    items.first()
+                } else {
+                    items.get(slot % items.len().max(1))
+                });
             if let Some(item) = item {
                 out.push(HandsClip {
                     state: state.to_owned(),
@@ -435,13 +490,17 @@ pub fn hands_pairs(states: &ConfigValue) -> Vec<HandsClip> {
             }
         }
         for f in fields {
-            walk(&f.value, state, out);
+            walk(&f.value, state, idle, out);
         }
     }
+    let idle = states
+        .named("idle")
+        .map(|i| clip_list(i, "animations"))
+        .unwrap_or_default();
     let mut out = vec![];
     if let ConfigValue::Named(fields) = states {
         for f in fields {
-            walk(&f.value, &f.name, &mut out);
+            walk(&f.value, &f.name, &idle, &mut out);
         }
     }
     out
@@ -477,17 +536,7 @@ pub fn gun_contact(
         .with_context(|| name.to_owned())
     };
     let skeleton = Skeleton::parse(&read("animations/skeletons/scavengers_01.skeleton")?)?;
-    let (model, gun_skeleton) = (string("object.model")?, string("object.skeleton")?);
-    let gun = Gun::new(
-        Rig::parse(
-            &read(&format!("models/{model}.skinned_model/render/bind_pose"))?,
-            &read(&format!("animations/skeletons/{gun_skeleton}.skeleton"))?,
-        )?,
-        &BinaryConfig::parse(&read(&format!(
-            "models/{model}.skinned_model/render/export_properties"
-        ))?)?
-        .root,
-    )?;
+    let gun = Gun::read(read, &string("object.model")?, &string("object.skeleton")?)?;
     let body = match stance {
         Some(s) => s.to_owned(),
         None => {
@@ -509,9 +558,6 @@ pub fn gun_contact(
             continue;
         }
         let hands = clip(read, &user)?;
-        if hands.animation_type != ADDITIVE {
-            continue;
-        }
         let c = contact(&skeleton, &stance, &hands, &gun, &clip(read, &item)?)?;
         out.push((user, c));
     }
@@ -576,19 +622,12 @@ pub fn rebase(skeleton: &Skeleton, hands: &Clip, from: &Stance, to: &Stance) -> 
             let name = &skeleton.names[*bone];
             // The local frame the bone must have on `to`.
             let local: Frame = if arms.iter().any(|a| skeleton.is_under(*bone, *a)) {
-                let (base_t, base_r) = from.locals[*bone];
-                let (add_t, add_r) = channels(hands, name, *time).unwrap_or(([0.0; 3], [0.0; 3]));
-                (
-                    multiply(&euler_to_basis(base_r), &euler_to_basis(add_r)),
-                    [0, 1, 2].map(|k| base_t[k] + add_t[k]),
-                )
+                local_frame(from, hands, *bone, name, *time)
             } else {
                 let in_chest = relative(&drawn[*bone], &drawn[chest]);
                 relative(&compose(&in_chest, &ours[chest]), &ours[root])
             };
-            let (base_t, base_r) = to.locals[*bone];
-            let rotation = multiply(&transpose(&euler_to_basis(base_r)), &local.0);
-            let translation = [0, 1, 2].map(|k| local.1[k] - base_t[k]);
+            let (rotation, translation) = curve_values(to, hands, *bone, &local);
             let near = samples[slot]
                 .last()
                 .map(|s| s.1)
@@ -620,6 +659,85 @@ pub fn rebase(skeleton: &Skeleton, hands: &Clip, from: &Stance, to: &Stance) -> 
             );
             out.tracks[track].channels[k] = channel;
         }
+    }
+    Ok(out)
+}
+
+/// How far apart two guns (each with the clip it plays) have their grips
+/// (the right hand's contact bone) in the gun's frame, as the clips start:
+/// (metres, radians).
+pub fn grip_apart(a: (&Gun, &Clip), b: (&Gun, &Clip)) -> (f32, f32) {
+    let (a, b) = (a.0.grip(a.1), b.0.grip(b.1));
+    let r = multiply(&a.0, &transpose(&b.0));
+    let angle = ((r[0][0] + r[1][1] + r[2][2] - 1.0) / 2.0)
+        .clamp(-1.0, 1.0)
+        .acos();
+    (length(sub(a.1, b.1)), angle)
+}
+
+/// `hands` on `stance`, a clip drawn for the gun `drawn` (a gun and the clip
+/// it plays), made to hold `held` as it held that one: the `Weapon`
+/// bone moved in its own frame, all through the clip, by what puts `gun`'s
+/// right contact bone (its grip) where `drawn`'s was. Every other curve
+/// stays. For 0.26g's own melee and grenade clips, which a ported gun plays
+/// from its template: they hold the gun by the right hand (the left lets go
+/// or follows the IK), and a gun whose clips hang it elsewhere on the
+/// `Weapon` bone than the template's (0.46c2's pistols: 20 cm back) is held
+/// 20 cm from the hands, the IK pulling the arms there.
+pub fn regrip(
+    skeleton: &Skeleton,
+    stance: &Stance,
+    hands: &Clip,
+    drawn: (&Gun, &Clip),
+    held: (&Gun, &Clip),
+) -> Result<Clip> {
+    let weapon = skeleton.index(WEAPON)?;
+    let name = &skeleton.names[weapon];
+    let track = hands
+        .bones
+        .iter()
+        .position(|b| b == name)
+        .with_context(|| format!("the hands clip does not drive {name}"))?;
+    // In the carried frame (the gun's): the grip of `held` onto `drawn`'s.
+    let (from, to) = (held.0.grip(held.1), drawn.0.grip(drawn.1));
+    let inverse = relative(
+        &(crate::skeleton_animation::IDENTITY_BASIS, [0.0; 3]),
+        &from,
+    );
+    let in_gun = compose(&inverse, &to);
+    // The same in the `Weapon` bone's frame (the gun hangs on it half a turn
+    // about Y; the half turn is its own inverse).
+    let half = (HALF_TURN, [0.0; 3]);
+    let shift = compose(&compose(&half, &in_gun), &half);
+    let times = frames_of(hands);
+    let mut samples: Vec<Sample> = Vec::with_capacity(times.len());
+    for time in &times {
+        // The bone's model frame shifted in its own frame is its local frame
+        // (on the stance) shifted.
+        let local = compose(&shift, &local_frame(stance, hands, weapon, name, *time));
+        let moved = curve_values(stance, hands, weapon, &local);
+        let near = samples
+            .last()
+            .map(|s| s.1)
+            .or_else(|| channels(hands, name, *time).map(|c| c.1))
+            .unwrap_or([0.0; 3]);
+        let angles =
+            nearest_angles(&moved.0, near).with_context(|| format!("{name} at frame {time}"))?;
+        samples.push((moved.1, angles));
+    }
+    let mut out = hands.clone();
+    for k in 0..6 {
+        let values: Vec<f32> = samples
+            .iter()
+            .map(|(t, r)| if k < 3 { t[k] } else { r[k - 3] })
+            .collect();
+        let channel = Channel::fit(&times, &values)?;
+        let residual = channel.residual(&times, &values);
+        ensure!(
+            residual < 1e-4,
+            "{name}'s re-gripped channel {k} fits within {residual}"
+        );
+        out.tracks[track].channels[k] = channel;
     }
     Ok(out)
 }
@@ -1058,9 +1176,7 @@ pub fn bake_ik(
                 player[*bone] = frame;
             }
             for (k, bone) in chain.iter().enumerate() {
-                let (base_t, base_r) = stance.locals[*bone];
-                let rotation = multiply(&transpose(&euler_to_basis(base_r)), &locals[k].0);
-                let translation = [0, 1, 2].map(|i| locals[k].1[i] - base_t[i]);
+                let (rotation, translation) = curve_values(stance, hands, *bone, &locals[k]);
                 let name = &skeleton.names[*bone];
                 let near = samples[side][k]
                     .last()
@@ -1375,11 +1491,166 @@ mod tests {
     }
 
     #[test]
-    fn a_full_clip_is_not_a_hands_clip() {
+    fn a_full_clip_plays_in_place_of_the_stance() {
         let s = skeleton();
-        let st = stance(&s, [0.0; 3], [0.0; 3]);
-        let full = clip(&[("LeftHand", [0.0; 3], [0.0; 3], [0.0; 3], [0.0; 3])], 0);
-        assert!(pose(&s, &st, &full, 0.0).is_err());
+        let st = stance(&s, [0.2, 0.0, 0.0], [0.1, 0.05, 0.0]);
+        let (t, r) = ([0.4, 0.1, 0.0], [0.0, 0.3, 0.0]);
+        let full = clip(&[("LeftHand", t, r, t, r)], 0);
+        let p = pose(&s, &st, &full, 5.0).unwrap();
+        let hand = s.index("LeftHand").unwrap();
+        let parent = s.parents[hand].unwrap();
+        let local = relative(&p[hand], &p[parent]);
+        let want = euler_to_basis(r);
+        assert!(length(sub(local.1, t)) < 1e-4, "{:?}", local.1);
+        let turn = multiply(&local.0, &transpose(&want));
+        assert!((turn[0][0] + turn[1][1] + turn[2][2] - 3.0).abs() < 1e-4);
+        // The bones it does not drive stand as the stance has them.
+        let none = Clip {
+            bones: vec![],
+            tracks: vec![],
+            animation_type: ADDITIVE,
+        };
+        let chest = s.index(CHEST).unwrap();
+        assert_eq!(p[chest], pose(&s, &st, &none, 5.0).unwrap()[chest]);
+    }
+
+    /// A gun of one bone and its two contact bones, at rest where given.
+    fn gun(right: ([f32; 3], [f32; 3]), left: [f32; 3]) -> Gun {
+        use crate::skeleton_animation::RigBone;
+        let bone = |name: &str, parent, (t, r): ([f32; 3], [f32; 3])| RigBone {
+            name: name.into(),
+            parent,
+            rest_translation: t,
+            rest_rotation: r,
+        };
+        Gun {
+            rig: Rig {
+                bones: vec![
+                    bone("root", None, ([0.0; 3], [0.0; 3])),
+                    bone(HANDS[1].1, Some(0), right),
+                    bone(HANDS[0].1, Some(0), (left, [0.0; 3])),
+                ],
+            },
+            contacts: [2, 1],
+            locators: vec![],
+        }
+    }
+
+    #[test]
+    fn a_regripped_clip_holds_the_gun_by_its_grip_where_the_drawn_one_was() {
+        let s = skeleton();
+        let st = stance(&s, [0.2, 0.0, 0.0], [0.1, 0.05, 0.0]);
+        let z = [0.0; 3];
+        let drawn = gun(([0.0, -0.05, -0.2], [0.1, 0.0, 0.0]), [0.0, -0.06, -0.15]);
+        // The held gun's grip 20 cm further along it and turned otherwise.
+        let held = gun(([0.02, -0.04, 0.0], [0.0, 0.2, -0.1]), [0.0, -0.05, 0.05]);
+        let item = Clip {
+            bones: vec![],
+            tracks: vec![],
+            animation_type: 0,
+        };
+        let grip_at = |g: &Gun, hands: &Clip, t: f32| -> Frame {
+            let p = pose(&s, &st, hands, t).unwrap();
+            let w = p[s.index(WEAPON).unwrap()];
+            compose(&g.grip(&item), &(multiply(&HALF_TURN, &w.0), w.1))
+        };
+        let moves = [
+            ("RightHand", z, [0.1, 0.0, 0.0], [0.01, 0.0, 0.0], z),
+            (
+                WEAPON,
+                [0.0, 0.02, 0.01],
+                [0.0, 0.1, 0.0],
+                [0.05, 0.0, 0.1],
+                [0.3, -0.2, 0.1],
+            ),
+        ];
+        for kind in [ADDITIVE, 0] {
+            let mut m = moves;
+            if kind == 0 {
+                // A full clip's Weapon frame is its own, not on the stance's.
+                m[1].1 = [0.0, 1.3, 0.3];
+                m[1].3 = [0.05, 1.2, 0.4];
+            }
+            let hands = clip(&m, kind);
+            let regripped = regrip(&s, &st, &hands, (&drawn, &item), (&held, &item)).unwrap();
+            for t in [0.0, 3.0, 7.0, 10.0] {
+                let (want, got) = (grip_at(&drawn, &hands, t), grip_at(&held, &regripped, t));
+                assert!(
+                    length(sub(want.1, got.1)) < 1e-3,
+                    "{kind} at {t}: {got:?} for {want:?}"
+                );
+                let r = multiply(&want.0, &transpose(&got.0));
+                assert!(
+                    (r[0][0] + r[1][1] + r[2][2] - 3.0).abs() < 1e-3,
+                    "{kind} turned at {t}"
+                );
+                // The hands stay where they were.
+                let (a, b) = (
+                    pose(&s, &st, &hands, t).unwrap(),
+                    pose(&s, &st, &regripped, t).unwrap(),
+                );
+                let hand = s.index("RightHand").unwrap();
+                assert!(length(sub(a[hand].1, b[hand].1)) < 1e-6);
+            }
+        }
+        let (apart, _) = grip_apart((&drawn, &item), (&held, &item));
+        assert!((apart - length(sub([0.0, -0.05, -0.2], [0.02, -0.04, 0.0]))).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_state_without_gun_clips_plays_the_idles() {
+        let list = |names: &[&str]| {
+            ConfigValue::Indexed(
+                names
+                    .iter()
+                    .map(|n| ConfigValue::String((*n).into()))
+                    .collect(),
+            )
+        };
+        let field = |name: &str, value| NamedValue {
+            name: name.into(),
+            value,
+        };
+        let states = ConfigValue::Named(vec![
+            field(
+                "throw_grenade",
+                ConfigValue::Named(vec![field(
+                    "throw_substate",
+                    ConfigValue::Named(vec![field("user_animations", list(&["h/throw"; 4]))]),
+                )]),
+            ),
+            field(
+                "melee",
+                ConfigValue::Named(vec![field(
+                    "user_animations",
+                    list(&["h/kick", "h/kick_sprint"]),
+                )]),
+            ),
+            field(
+                "idle",
+                ConfigValue::Named(vec![
+                    field("user_animations", list(&["h/idle"])),
+                    field("animations", list(&["i/idle", "i/idle_empty"])),
+                ]),
+            ),
+        ]);
+        let pairs: Vec<(String, String)> = hands_pairs(&states)
+            .into_iter()
+            .map(|p| (p.user, p.item))
+            .collect();
+        let want = |u: &str, i: &str| (u.to_owned(), i.to_owned());
+        assert_eq!(
+            pairs,
+            [
+                want("h/throw", "i/idle"),
+                want("h/throw", "i/idle"),
+                want("h/throw", "i/idle"),
+                want("h/throw", "i/idle"),
+                want("h/kick", "i/idle"),
+                want("h/kick_sprint", "i/idle"),
+                want("h/idle", "i/idle"),
+            ]
+        );
     }
 
     #[test]

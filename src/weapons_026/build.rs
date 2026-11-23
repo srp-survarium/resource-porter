@@ -31,14 +31,14 @@ use serde_json::json;
 use super::config::weapon_config;
 use super::donor::{Donor, is_config};
 use super::hands::{
-    CHEST, Gun, HEAD, HandsClip, Skeleton, Stance, Target, bake_ik, contact, drift, hands_pairs,
-    rebase,
+    CHEST, Gun, HEAD, HandsClip, Skeleton, Stance, Target, bake_ik, contact, drift, grip_apart,
+    hands_pairs, rebase, regrip,
 };
 use super::icons::{cell_png, erase_rects, kill_feed_name, kill_feed_png};
 use super::manifest::{Weapon, WeaponPort};
 use super::{field, get, s, string_of};
 use crate::manifest::BuiltFile;
-use crate::skeleton_animation::{Clip, Rig};
+use crate::skeleton_animation::Clip;
 use crate::weapon::{parse_config, prepare_empty_output, record_file, write_generated_config};
 use crate::{BinaryConfig, ConfigValue as V, ResourceDb};
 
@@ -392,34 +392,52 @@ impl<D: Donor> Carry<'_, D> {
     /// the gun's contact bones all through ([`ON_THE_GUN`]), what the hand
     /// IK does to it is baked in ([`bake_ik`]): 0.26g's first view shows the
     /// clip's own hands. A clip the two change by less than 1 mm (a hand or
-    /// the gun) ships as the donor has it.
+    /// the gun) ships as the donor has it. Where the stances differ (the
+    /// pistols), 0.26g's own clips the gun plays from its `template` (the
+    /// melee, the grenade) are made to hold it as they hold the template's
+    /// gun ([`Carry::regripped`]).
+    #[allow(clippy::too_many_arguments)]
     fn hands(
         &mut self,
         config: &str,
         cfg: &mut V,
         donor_cfg: &V,
+        template: &V,
         model: &str,
         skeleton: &str,
         notes: &mut Vec<String>,
     ) -> Result<()> {
         let player = Skeleton::parse(&self.read_any(super::resources::PLAYER_SKELETON)?)?;
-        let root = format!("models/{model}.skinned_model/render");
-        let rig = Rig::parse(
-            &self.read_any(&format!("{root}/bind_pose"))?,
-            &self.read_any(&format!("animations/skeletons/{skeleton}.skeleton"))?,
-        )
-        .context("the gun's rig")?;
-        let properties =
-            BinaryConfig::parse(&self.read_any(&format!("{root}/export_properties"))?)?;
-        let gun = Gun::new(rig, &properties.root)?;
+        let gun = Gun::read(&mut |p| self.read_any(p), model, skeleton)?;
         let pairs = cfg.named("states").map(hands_pairs).unwrap_or_default();
-        let mut stances: Option<((String, Stance), (String, Stance))> = None;
+        let ((theirs_clip, theirs), (ours_clip, ours)) = (
+            self.stance(donor_cfg, &player, true)?,
+            self.stance(cfg, &player, false)?,
+        );
+        let (apart, turned) = theirs.gun_apart(&ours, &player)?;
+        let same_stance = apart < SAME_STANCE.0 && turned < SAME_STANCE.1;
         let mut done = BTreeSet::new();
         let mut copies: Vec<(String, String)> = vec![];
         for HandsClip { state, user, item } in pairs {
             let name = user.trim_start_matches("resources/").to_owned();
             let path = format!("{name}.b-spline");
-            if self.target.contains(&path) || !done.insert(path.clone()) {
+            if !done.insert(path.clone()) {
+                continue;
+            }
+            if self.target.contains(&path) {
+                // 0.26g's own clip (the template's melee, grenade): the
+                // later builds' pistols hang the gun elsewhere on the
+                // `Weapon` bone than 0.26g's pistol clips (as their stances
+                // hold it elsewhere); their rifles as 0.26g's, the grips
+                // apart by the guns' shapes, for the IK.
+                if !same_stance {
+                    copies.extend(
+                        self.regripped(
+                            config, template, &name, &gun, &item, &ours, &player, notes,
+                        )?
+                        .map(|c| (name.clone(), c)),
+                    );
+                }
                 continue;
             }
             let hands = self.read_clip(&user)?;
@@ -427,15 +445,8 @@ impl<D: Donor> Carry<'_, D> {
                 continue;
             }
             let item = self.read_clip(&item)?;
-            if stances.is_none() {
-                stances = Some((
-                    self.stance(donor_cfg, &player, true)?,
-                    self.stance(cfg, &player, false)?,
-                ));
-            }
-            let ((theirs_clip, theirs), (ours_clip, ours)) = stances.as_ref().unwrap();
-            let (apart, turned) = theirs.gun_apart(ours, &player)?;
-            let rebased = if apart < SAME_STANCE.0 && turned < SAME_STANCE.1 {
+            let (theirs, ours) = (&theirs, &ours);
+            let rebased = if same_stance {
                 None
             } else {
                 let rebased = rebase(&player, &hands, theirs, ours)?;
@@ -542,6 +553,85 @@ impl<D: Donor> Carry<'_, D> {
         Ok(())
     }
 
+    /// 0.26g's own hands clip `name` (no extension), which `config`'s gun
+    /// plays with its clip `item` as its `template` plays it, made to hold
+    /// the gun by its grip where it holds the template's ([`regrip`]), as
+    /// this gun's own copy `<clip>_<gun>`; returns that name. None where the
+    /// two guns' grips are within [`ON_THE_GUN`] and a degree of each other
+    /// (the clip holds this gun as it is), or the template does not play the
+    /// clip.
+    #[allow(clippy::too_many_arguments)]
+    fn regripped(
+        &mut self,
+        config: &str,
+        template: &V,
+        name: &str,
+        gun: &Gun,
+        item: &str,
+        stance: &Stance,
+        player: &Skeleton,
+        notes: &mut Vec<String>,
+    ) -> Result<Option<String>> {
+        let user = format!("resources/{name}");
+        let Some(theirs) = template
+            .named("states")
+            .map(hands_pairs)
+            .unwrap_or_default()
+            .into_iter()
+            .find(|p| p.user == user)
+        else {
+            return Ok(None);
+        };
+        let drawn = Gun::read(
+            &mut |p| self.read_any(p),
+            string_of(get(template, "object.model")).context("the template's object.model")?,
+            string_of(get(template, "object.skeleton"))
+                .context("the template's object.skeleton")?,
+        )?;
+        let (drawn_item, item) = (self.read_clip(&theirs.item)?, self.read_clip(item)?);
+        let (apart, turned) = grip_apart((&drawn, &drawn_item), (gun, &item));
+        if apart <= ON_THE_GUN && turned <= REGRIP_TURN {
+            return Ok(None);
+        }
+        let hands = self.read_clip(&user)?;
+        let held = regrip(player, stance, &hands, (&drawn, &drawn_item), (gun, &item))
+            .with_context(|| format!("{name}: re-gripped"))?;
+        let mm = |c: f32| c * 1000.0;
+        let (theirs_on, before, after) = (
+            contact(player, stance, &hands, &drawn, &drawn_item)?,
+            contact(player, stance, &hands, gun, &item)?,
+            contact(player, stance, &held, gun, &item)?,
+        );
+        let median = |v: &[f32]| {
+            let mut s = v.to_vec();
+            s.sort_by(f32::total_cmp);
+            mm(s[s.len() / 2])
+        };
+        let copy = format!("{name}_{}", gun_name(config)?);
+        notes.push(format!(
+            "{name}: 0.26g's, held by this gun's grip where it holds the template's \
+             ({:.1} mm and {:.1} degrees from it in the gun), as {copy}: the hands off this \
+             gun's contact bones left/right {:.1}/{:.1} mm (median), before {:.1}/{:.1} mm; \
+             the template's gun {:.1}/{:.1} mm",
+            mm(apart),
+            turned.to_degrees(),
+            median(&after.left),
+            median(&after.right),
+            median(&before.left),
+            median(&before.right),
+            median(&theirs_on.left),
+            median(&theirs_on.right),
+        ));
+        let bytes = self.target.read(&format!("{name}.b-spline"))?;
+        let names = self.target.read(&format!("{name}.bones_names"))?;
+        self.rebased.insert(
+            format!("{copy}.b-spline"),
+            super::clips::with_curves(&bytes, &held)?,
+        );
+        self.rebased.insert(format!("{copy}.bones_names"), names);
+        Ok(Some(copy))
+    }
+
     /// `config`'s gun makes the hands clip at `path` (the donor's `bytes`,
     /// `donor` parsed) `made`: shipped so. Where another gun made it first
     /// and needs its hands more than [`SHARED_HANDS`] elsewhere (two guns
@@ -569,12 +659,7 @@ impl<D: Donor> Carry<'_, D> {
                 ));
                 return Ok(None);
             }
-            let gun = config
-                .rsplit('/')
-                .next()
-                .and_then(|f| f.strip_suffix(".options"))
-                .and_then(|f| f.strip_prefix("wpn_"))
-                .with_context(|| format!("{config} is not a wpn_<name>.options"))?;
+            let gun = gun_name(config)?;
             let name = path.trim_end_matches(".b-spline");
             let copy = format!("{name}_{gun}");
             notes.push(format!(
@@ -672,6 +757,21 @@ fn state_playback(cfg: &V, state: &str, hands_name: &str, hands: &Clip) -> Resul
     };
     Ok((milliseconds, start))
 }
+
+/// `gameplay/items/weapons/wpn_<name>.options`'s `<name>`.
+fn gun_name(config: &str) -> Result<&str> {
+    config
+        .rsplit('/')
+        .next()
+        .and_then(|f| f.strip_suffix(".options"))
+        .and_then(|f| f.strip_prefix("wpn_"))
+        .with_context(|| format!("{config} is not a wpn_<name>.options"))
+}
+
+/// Two guns whose grips are turned this far apart (radians) or more, or
+/// further apart than [`ON_THE_GUN`], are held otherwise by one clip: one
+/// degree.
+const REGRIP_TURN: f32 = 0.0175;
 
 /// Two guns that play one hands clip may need its hands this far apart
 /// (metres) at most: the clip ships as the first makes it.
@@ -1066,7 +1166,7 @@ pub fn build<D: Donor>(
         carry.file(&format!("animations/skeletons/{skeleton}.skeleton"))?;
         carry
             .hands(
-                &w.config, &mut cfg, &donor_cfg, &model, &skeleton, &mut notes,
+                &w.config, &mut cfg, &donor_cfg, &template, &model, &skeleton, &mut notes,
             )
             .with_context(|| format!("{}: the hands", w.name))?;
         carry
