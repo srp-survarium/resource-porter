@@ -455,14 +455,11 @@ the formulas come from both builds' shader disassembly):
   the build's notes); and the scene's colour grading texture
   (`textures/<namespace>/color_grading/day`, 16^3) holds, for each colour 0.26's curve can
   show, what 0.69d's grading and curve show for the light that gives it. 0.26's blue shift
-  of dark colours is off, and so is 0.26's bloom (`bloom_intensity` 0): it replaces that
-  share of every colour by a blur of the frame times it, with no threshold (a flat colour
-  keeps `1 - x + x^2`: 0.79 with the template's 0.3, before the curve and after the meter),
-  where 0.69d adds its bloom (`bloom_intensity` 0.03) only above its luminance threshold.
-  Drawing none is nearer at both ends: a flat mid-tone keeps all its light (0.69d: all;
-  0.03 in 0.26's form: 0.971), a bright source keeps itself (0.69d: plus a halo of 0.03 of
-  its light above the threshold; 0.03 in 0.26's form: 3 % off it and a halo 30 times
-  fainter). Gone with it: `exposure_bias`, `sun_saturation`, the raising of
+  of dark colours is off, and so is 0.26's bloom (`bloom_intensity` 0, draft): it lerps the
+  frame toward a bloom with no threshold, which with the template's 0.3 brightens a flat
+  mid-tone slightly (1-2 levels per region in Rudnya v0.69's report views), where 0.69d adds
+  its bloom (0.03) only above its luminance threshold and nothing under it. Not a fix for
+  the port's overall level. Gone with it: `exposure_bias`, `sun_saturation`, the raising of
   dark interior probes (`adaptation_gain`), the per-area gains (`area_gains`) and the floor
   under darkening lights. The pond's mist is the donor's `volume_fog`, the same program and
   constants in both builds (its colour is a constant, `color^2.2`, lit by nothing): copied

@@ -3037,24 +3037,19 @@ pub fn convert_scene(
                 // the colour kept is `saturate(luma * blueshift + 0.21)`);
                 // 0.69d has no such term.
                 environment.set_path("properties.blueshift", ConfigValue::Float(1e6))?;
-                // 0.26g's bloom replaces `bloom_intensity` x of the frame by a
-                // blur of the frame times x (`complex_post_process_blend.ps`:
-                // lerp(frame, bloom, x), its bloom without a threshold), so a
-                // flat colour keeps 1 - x + x^2. 0.69d adds its
-                // `bloom_intensity` of a bloom of the light above its
-                // `bloom_luminance_threshold` and leaves a colour under it alone
-                // (`downsample_for_bloom.ps`, `tone_mapping.ps`). 0.26g's form
-                // cannot draw that; drawing none is nearer at both ends: a flat
-                // mid-tone keeps all its light (0.69d: all; the donor's x here:
-                // 1 - x + x^2), a bright source keeps itself without 0.69d's
-                // halo (the donor's x here: x^2 of a blur, x off the source).
+                // 0.26g's bloom lerps the frame toward its bloom texture by
+                // `bloom_intensity` (`complex_post_process_blend.ps`), a bloom
+                // with no threshold: with the template's 0.3 it brightens a flat
+                // mid-tone slightly (Rudnya v0.69's report views: 1-2 levels per
+                // region). 0.69d adds its `bloom_intensity` of a bloom of the
+                // light above its `bloom_luminance_threshold` and nothing to a
+                // colour under it (`downsample_for_bloom.ps`, `tone_mapping.ps`).
                 let template_bloom = environment.named("properties").and_then(|p| real(p, "bloom_intensity")).unwrap_or(0.0);
                 environment.set_path("properties.bloom_intensity", ConfigValue::Float(0.0))?;
                 notes.push(format!(
-                    "bloom: none (0.69d adds {} of its bloom above luminance {}; the template's bloom_intensity {template_bloom} would keep {:.3} of every flat colour)",
+                    "bloom: none (0.69d adds {} of its bloom above luminance {}; the template's bloom_intensity was {template_bloom})",
                     real(donor_environment, "bloom_intensity").unwrap_or(0.0),
-                    real(donor_environment, "bloom_luminance_threshold").unwrap_or(0.0),
-                    1.0 - template_bloom + template_bloom * template_bloom
+                    real(donor_environment, "bloom_luminance_threshold").unwrap_or(0.0)
                 ));
                 notes.push(format!(
                     "tone: 0.69d's exposure range EV {} to {} as exposure profile marker {} (mie_fog_base_height), floor {:.6}, ceiling {:.6}, key {:.4} (resource-porter's lighting pack draws it: its exposure_profiles row); its {}curve {:?} as the scene's own colour grading texture; no blue shift",
