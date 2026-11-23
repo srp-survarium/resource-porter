@@ -250,3 +250,16 @@ bit 11: the box branch then takes the distance from its axis, `sqrt(p_x^2 + p_z^
 x and z factors (0.69d's `ambient_light_*.ps` geometry 2). Drawn as the plain box, Rudnya's
 three near-black darkening cylinders in the church towers also darkened the box's corners
 outside their disc.
+
+## Cloud shadows (0.69d scenes, @15)
+
+Behind the same marker, the 16 `sun_shadow.ps` variants that read `sky_shadows_texture` run 0.69d's
+`cloud_shadows.ps` (`cloud_shadow.rs`, its instructions 12-72, exact literal words), one row of
+`cloud_shadow_profiles` per scene with the values the 0.69d map builder prints: the light through
+the clouds' panorama where the point's ray to the sun meets the cloud shell (`cloud_altitude`),
+`1 - min((alpha * cloud_shadow_opacity)^cloud_shadow_opacity_power, 1)`, turning with the clouds at
+`clouds_rounds_per_minute` of `scene_time` (seconds), least of it and the sun's own shadow. The
+converter gives such a scene `use_sky_shadows` and the panorama as `sky_shadows_texture`. 0.69d
+gates the pass on `use_cloud_shadows` (its sun shadow stage, 0x2004A6400) and reads nothing of it
+elsewhere: its sky, its atmosphere tables and its probes take no cloud-shadow input. Over Rudnya
+0.69d's transmission runs 0.27-0.93 as the clouds turn (0.64 on average).

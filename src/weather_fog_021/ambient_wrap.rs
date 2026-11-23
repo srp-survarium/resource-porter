@@ -394,7 +394,7 @@ pub fn build_ambient_wrap(target: &[u8], variant: &str, markers: &[f32]) -> Resu
 mod tests;
 
 /// Marks a constant of a buffer used (the game binds what the reflection says is used).
-fn mark_used(rdef: &mut [u8], buffer: &str, variable: &str, offset: u32, size: u32) -> Result<()> {
+pub(super) fn mark_used(rdef: &mut [u8], buffer: &str, variable: &str, offset: u32, size: u32) -> Result<()> {
     let string = |data: &[u8], at: usize| -> Result<String> {
         let tail = data.get(at..).context("missing reflection string")?;
         let len = tail.iter().position(|b| *b == 0).context("unterminated reflection string")?;
