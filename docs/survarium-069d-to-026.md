@@ -443,8 +443,9 @@ the formulas come from both builds' shader disassembly):
     technique 0, each a native 0.26 blend of that switch with the category template's other
     switches, which stock 0.26 has for every combination). With one template a category,
     10 of Rudnya's 68 blends kept the template's numbers: the sheds' rusty roof sheets
-    (metal over rust, technique 0) drew rust all over where 0.69d shows its patches, a
-    plastered pillar (stucco over bricks) drew bricks. The alpha-tested ones (4 on Rudnya,
+    (metal over rust, technique 0) drew rust all over where 0.69d shows its patches (with
+    the rule the patches follow 0.69d's; the rust layer's colour stays more saturated than
+    0.69d's: the blended layer is not made a metal surface). The alpha-tested ones (4 on Rudnya,
     technique 1 without a mask) stay on their category's template: their cut is the blend
     pack's selector for it, and stock 0.26 has no one-sided alpha-tested template of that
     switch; noted.
