@@ -488,6 +488,13 @@ const ANGLE_FADE: &str = "material.forward.effect.use_angle_depended_attenuation
 /// no collimator of the players' has in its aimed model) and the outside one of an idle model
 /// (`scope_lense_3p_s`).
 const LENS: &str = "scope_lense";
+/// An idle optic's outside lens: both glasses of the tube, front and rear, in one surface.
+const OUTSIDE_LENS: &str = "scope_lense_3p";
+/// The material the outside lens is drawn with: 0.26g's own PSO-1 lens, which blends.
+const GLASS_TEMPLATE: &str = "material_instances/weapons/pso_1_lens.material";
+/// The glass's opacity (of 255) and its colour (sRGB), a light cool tint.
+const GLASS_OPACITY: u8 = 40;
+const GLASS_TINT: [u8; 3] = [90, 110, 120];
 
 /// A reticle's surface, ready for an aimed model.
 struct Baked {
@@ -653,9 +660,15 @@ impl Donor069 {
             // another kind of thing): the players' own material of its name (patch 19's 0.51c5
             // modules: `weapons/loc2/<name>`) where they have one, else the surface is left
             // out and recorded (an optic's glass is its scope item's: the scopes' lane's).
-            // A lens is always the players' own: 0.69d0's outside lens is an opaque stage with
-            // all its maps, and remade on the AK-12's material it kept that template's Fresnel
-            // map, which drew the AK-12's parts in the glass.
+            // A lens is never remade: 0.69d0's outside lens is an opaque stage with all its maps,
+            // and on the AK-12's material it kept that template's Fresnel map, which drew the
+            // AK-12's parts in the glass. The outside lens is see-through glass of our own
+            // (outside_glass), the first-person one the players' own.
+            if surface.starts_with(OUTSIDE_LENS) {
+                let glass = self.outside_glass(target, work)?;
+                surfaces.push((surface, glass, mesh));
+                continue;
+            }
             let donor_material = db_config(&mut self.db, &format!("material_instances/{material}.material"))?;
             let makes = !surface.starts_with(LENS)
                 && get(&donor_material, "material.g_stage.effect").is_some_and(|effect| {
@@ -691,6 +704,62 @@ impl Donor069 {
         }
         self.put_static(&root, &format!("Survarium 0.69d0: {source}"), &surfaces, target)?;
         Ok(path)
+    }
+
+    /// The idle optics' outside lens, see-through: the stock PSO-1's lens material (a forward
+    /// lit stage whose highlights stay, and a blended one whose opacity is its transparency
+    /// map's alpha) on patch 19's lens maps. Its texture is that lens's own (alpha 0 in the
+    /// glass, 255 on the rim, the 0.69d0 lens's UVs) with GLASS_OPACITY in the glass and
+    /// GLASS_TINT there under the rim's colour. Made once; returns the material's name.
+    fn outside_glass(&mut self, target: &mut ResourceDb, work: &Path) -> Result<String> {
+        const MATERIAL: &str = "weapons/modules_069/scope_lense_3p_glass";
+        const TEXTURE: &str = "weapons/modules_069/scope_lense_3p_glass";
+        const MAPS: &str = "weapons/attach/scope/scope_lense/scope_lense_1p";
+        let path = format!("material_instances/{MATERIAL}.material");
+        if self.files.contains_key(&path) {
+            return Ok(MATERIAL.to_owned());
+        }
+        let (w, h, lens) = super::convert::decode_dds(&target.read(&format!("textures/{MAPS}.dds"))?)?;
+        let px: Vec<[u8; 4]> = lens
+            .iter()
+            .map(|p| {
+                let rim = u32::from(p[3]);
+                let mix = |glass: u8, edge: u8| {
+                    ((u32::from(glass) * (255 - rim) + u32::from(edge) * rim) / 255) as u8
+                };
+                [
+                    mix(GLASS_TINT[0], p[0]),
+                    mix(GLASS_TINT[1], p[1]),
+                    mix(GLASS_TINT[2], p[2]),
+                    mix(GLASS_OPACITY, 255),
+                ]
+            })
+            .collect();
+        fs::create_dir_all(work)?;
+        let tga = work.join("scope_lense_3p_glass.tga");
+        let dds = work.join("scope_lense_3p_glass.dds");
+        fs::write(&tga, super::convert::tga_rgba(w, h, &px)?)?;
+        crate::armor::convert_texture(&tga, &dds, crate::manifest::TextureCompression::Dxt5)?;
+        let bytes = crate::duty_026::texture_dds(&fs::read(&dds)?, TEXTURE, true)?;
+        fs::remove_file(&tga)?;
+        fs::remove_file(&dds)?;
+        ensure!(!target.contains(&format!("textures/{TEXTURE}.dds")), "{TEXTURE}: the target has it");
+        self.put(format!("textures/{TEXTURE}.dds"), bytes)?;
+        self.put(
+            format!("textures/{TEXTURE}.options"),
+            target.read("textures/weapons/attach/sight_11mm/pso_1/pso_1.options")?,
+        )?;
+        let mut material = parse_config(target, GLASS_TEMPLATE, "the stock PSO-1's lens")?.root;
+        for (key, texture) in [
+            ("lighting.effect.texture_diffuse", TEXTURE.to_owned()),
+            ("lighting.effect.texture_normal", format!("{MAPS}_nmap")),
+            ("lighting.effect.texture_roughness", format!("{MAPS}_smap")),
+            ("forward.effect.texture_transparency", TEXTURE.to_owned()),
+        ] {
+            material.set_path(&format!("material.{key}.value"), s(&texture))?;
+        }
+        self.put(path, encode_config(material)?)?;
+        Ok(MATERIAL.to_owned())
     }
 
     /// A static model of `surfaces` (each its name, its material and its
