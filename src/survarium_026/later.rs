@@ -2594,7 +2594,8 @@ fn donor_light(object: &ConfigValue) -> Result<(DonorLight, [f32; 3])> {
     };
     let facing = matches!(object.named("dot_normal"), Some(ConfigValue::Boolean(true)))
         .then(|| Facing { cutoff: real(object, "dot_normal_cutoff").unwrap_or(0.0), power: real(object, "dot_normal_power").unwrap_or(1.0) });
-    let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing };
+    let gradient = matches!(object.named("gradient_attenuation"), Some(ConfigValue::Boolean(true)));
+    let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing, gradient };
     Ok((light, colour))
 }
 

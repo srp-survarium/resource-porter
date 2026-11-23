@@ -381,8 +381,19 @@ the formulas come from both builds' shader disassembly):
   not read); 0.26 fades a sphere by `(1 - (d / 0.98 R)^2)^p` where 0.69d fades from
   `outer - side_width` to `outer`, so the radius ends where 0.69d's light ends and the power
   is the closest by volume (`sphere_fit`; 0.26 has no flat middle, a light with one is
-  followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`); a
-  box's band holds the same light (`box_side_width`); a cylinder is the box around it. The
+  followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`). A
+  box keeps 0.69d's own falloff, which the lighting pack's `ambient_light.ps` draws (0.26's
+  box program fades by a smoothstep and has no power): per axis `(1 - t)^p` over the donor's
+  `side_width` (its inner box at least 0.01 m from the centre), and with
+  `gradient_attenuation` times `sat(0.5 - 0.5 y)^p` along its local y, full at one face and
+  nothing at the other (a mean of `1 / (p + 1)`): the light from a window or door falling off
+  into the room. Rudnya's church floor, barn, apiary and two sheds have 9 such boxes, which
+  the port had drawn uniform at full strength, 2 to 5 times 0.69d's light and hard-edged. The
+  power and the gradient ride in `attenuation_power` with the facing term (`ambient_facing`;
+  a box without `dot_normal` carries the term 1). 0.26 has no cylinder: one is placed as the
+  box around it (half extents radius, half height, radius) and the lighting pack draws 0.69d's
+  cylinder in it (the distance from the axis); drawn as that box, the church towers' three
+  near-black darkening cylinders also darkened the box's four corners outside their disc. The
   facing term (`dot_normal`) is 0.69d's own, `sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power`
   to the light's centre, not 0.26's `max(N.L, 0)`: the light's `attenuation_power` carries
   0.26's distance power with the cutoff and power (`ambient_facing`; exact for every value
