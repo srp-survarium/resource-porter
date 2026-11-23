@@ -1641,11 +1641,25 @@ pub fn convert_material(
     // Vertex-colour meshes need a template compiled for that vertex input
     // (`<category>_vc`).
     let vc_key = |category: Category| format!("{}_vc", category.key());
+    // A vertex blend draws by its technique and tiled-mask switch (0.69d
+    // `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`: linear, by the albedo's
+    // alpha, by a tiled mask); a manifest may name a template per switch
+    // (`<category>_technique<n>[_tiled_mask]`), the category's own drawing the
+    // others.
+    let blend_key = |category: Category| {
+        let effect = g_stage(donor).and_then(|s| s.named("effect"))?;
+        matches!(category, Category::VertexBlend { .. }).then(|| {
+            let technique = number(effect, "vertex_blend_technique").unwrap_or(0.0) as i32;
+            let mask = if flag(effect, "use_tiled_vertex_blended_mask") { "_tiled_mask" } else { "" };
+            format!("{}_technique{technique}{mask}", category.key())
+        })
+    };
     let lookup = |category: Category| {
         let metal_key = format!("{}_metal", if usage.vertex_colour { vc_key(category) } else { category.key().to_owned() });
         let metal_template = metalness.as_ref().and_then(|_| templates.get(&metal_key));
         metal_template
             .map(|t| (t, true))
+            .or_else(|| blend_key(category).and_then(|k| templates.get(&k)).map(|t| (t, false)))
             .or_else(|| if usage.vertex_colour { templates.get(&vc_key(category)) } else { None }.map(|t| (t, false)))
             .or_else(|| templates.get(category.key()).map(|t| (t, false)))
     };
@@ -6380,6 +6394,18 @@ mod tests {
         let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
         assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(4)));
         assert!(c.notes.iter().any(|n| n.contains("blend constants are kept")));
+        // A manifest's template for that switch draws it, with the donor's numbers.
+        let mut unmasked = templates["vertex_blend"].1.clone();
+        unmasked.set_path("material.g_stage.effect.use_tiled_vertex_blended_mask", named(vec![("value", ConfigValue::Boolean(false))])).unwrap();
+        let mut templates = templates;
+        templates.insert("vertex_blend_technique1".to_owned(), ("tiled/y_vc".to_owned(), unmasked));
+        let c = convert_material(&donor(false), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(c.template, "tiled/y_vc");
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(2)));
+        assert!(!c.notes.iter().any(|n| n.contains("blend constants are kept")), "{:?}", c.notes);
+        // The masked donor keeps the category's template.
+        assert_eq!(convert_material(&donor(true), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap().template, "tiled/x_vc");
     }
 
     #[test]
