@@ -24,13 +24,33 @@ struct Manifest {
     key_profiles: Vec<KeyProfileSpec>,
     /// Scenes whose exposure follows the view as 0.69d's does (`ExposureProfile`): each
     /// 0.69d map's day, with the range and key resource-porter's 0.69d map builder prints
-    /// for it.
+    /// for it. Every 0.69d scene has one: its markers are also the scenes whose ambient
+    /// lights draw 0.69d's facing term (`shaders::build_ambient_wrap`).
     #[serde(default)]
     exposure_profiles: Vec<ExposureProfileSpec>,
     /// Scenes whose rain darkens what it does not reach by their own factor (London's rain:
     /// 0.31a2's rain_shadow_diffuse_multiplier 0.7 for 0.26g's fixed 0.85).
     #[serde(default)]
     shelter_profiles: Vec<ShelterProfileSpec>,
+    /// Scenes whose sun 0.69d's cloud shadows dim (`CloudShadowProfile`): each 0.69d map's
+    /// day with `use_cloud_shadows`, with the values resource-porter's 0.69d map builder
+    /// prints for it.
+    #[serde(default)]
+    cloud_shadow_profiles: Vec<CloudShadowProfileSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CloudShadowProfileSpec {
+    name: String,
+    marker: f32,
+    /// The direction sunlight travels.
+    light: [f32; 3],
+    cloud_altitude_km: f32,
+    cloud_shadow_opacity: f32,
+    cloud_shadow_opacity_power: f32,
+    clouds_rounds_per_minute: f32,
+    sky_clouds_rotation_degrees: f32,
 }
 
 #[derive(Deserialize)]
@@ -208,6 +228,45 @@ fn main() -> Result<()> {
             let before = native.read(&paths[0])?;
             let after = build(&before, &exposures).with_context(|| paths[0].clone())?;
             converted.push((paths[0].clone(), before, after));
+        }
+    }
+    // A cloud shadow profile's scene takes 0.69d's cloud shadows on its sun: the 16
+    // sun_shadow variants that read sky_shadows_texture.
+    let clouds: Vec<shaders::CloudShadowProfile> = manifest
+        .cloud_shadow_profiles
+        .iter()
+        .map(|p| {
+            println!("{}: marker {}, cloud shadows {:?} km {} opacity {} power {} rpm {} rotation {}", p.name, p.marker, p.light, p.cloud_altitude_km, p.cloud_shadow_opacity, p.cloud_shadow_opacity_power, p.clouds_rounds_per_minute, p.sky_clouds_rotation_degrees);
+            shaders::CloudShadowProfile {
+                marker: p.marker,
+                light: p.light,
+                altitude_km: p.cloud_altitude_km,
+                opacity: p.cloud_shadow_opacity,
+                power: p.cloud_shadow_opacity_power,
+                rate: p.clouds_rounds_per_minute / 60.0,
+                phase: p.sky_clouds_rotation_degrees / 360.0,
+            }
+        })
+        .collect();
+    if !clouds.is_empty() {
+        for (variant, _) in shaders::SKY_SHADOW_VARIANTS {
+            let path = format!("{}{variant}", shaders::SUN_SHADOW_PREFIX);
+            let before = native.read(&path)?;
+            let after = shaders::build_cloud_shadow(&before, variant, &clouds).with_context(|| path.clone())?;
+            converted.push((path, before, after));
+        }
+    }
+    // An exposure profile's scene is a 0.69d scene: its ambient lights converted with
+    // dot_normal draw 0.69d's facing term (the 8 dot_normal variants of ambient_light.ps,
+    // for the lights whose attenuation_power carries it: `ambient_facing`).
+    let facing_markers: Vec<f32> = manifest.exposure_profiles.iter().map(|p| p.marker).collect();
+    if !facing_markers.is_empty() {
+        println!("0.69d ambient light facing on markers {facing_markers:?}");
+        for (variant, _, _) in shaders::DOT_NORMAL_VARIANTS {
+            let path = format!("{}{variant}", shaders::AMBIENT_LIGHT_PREFIX);
+            let before = native.read(&path)?;
+            let after = shaders::build_ambient_wrap(&before, variant, &facing_markers).with_context(|| path.clone())?;
+            converted.push((path, before, after));
         }
     }
     let sky = native.read(shaders::SKY_PATH)?;

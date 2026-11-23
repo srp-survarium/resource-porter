@@ -210,3 +210,22 @@ All 32 pairs passed. `check_021_profile_preservation.py OLD_PACK OLD_MANIFEST
 NEW_PACK NEW_MANIFEST` additionally proves that all 88 resources preserve every
 executable instruction for the three previously approved map profiles.
 Clippy retained the 44 pre-existing library warnings and introduced none.
+
+## Cloud shadows and fill-light facing (0.69d scenes, @13)
+
+Behind a 0.69d scene's marker (`atmosphere_parameters3.w`, marked used in each program's
+reflection), two of 0.69d's own terms 0.26g cannot draw:
+
+- **Cloud shadows** (`cloud_shadow.rs`, `cloud_shadow_profiles` rows): the 16 `sun_shadow.ps`
+  variants that read `sky_shadows_texture` run 0.69d's `cloud_shadows.ps` (its instructions 12-72,
+  exact literal words): the light through the clouds' panorama where the point's ray to the sun
+  meets the cloud shell, turning with the clouds at `scene_time` (seconds). The converter gives such
+  a scene `use_sky_shadows` and the panorama as `sky_shadows_texture`. Seen in the game (Rudnya,
+  2026-11-23): with every unmarked scene's term forced to 0 the marked one's sun went and came back
+  over a minute; 0.69d's own transmission over Rudnya runs 0.27-0.93 as the clouds turn.
+- **Fill-light facing** (`ambient_wrap.rs`, `src/ambient_facing.rs`): the 8 dot_normal
+  `ambient_light.ps` variants draw 0.69d's `sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power` to the
+  light's centre in place of `max(N.L, 0)` for a light whose `attenuation_power` carries the encoded
+  term (bits `0x49800000 + payload`: distance power n/128, facing power n*0.1, cutoff
+  (n-128)*0.01; 0.26g's own maps use 0.5 to 13.2). Every other scene and light runs the native
+  instructions.
