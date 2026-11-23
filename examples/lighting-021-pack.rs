@@ -24,7 +24,8 @@ struct Manifest {
     key_profiles: Vec<KeyProfileSpec>,
     /// Scenes whose exposure follows the view as 0.69d's does (`ExposureProfile`): each
     /// 0.69d map's day, with the range and key resource-porter's 0.69d map builder prints
-    /// for it.
+    /// for it. Every 0.69d scene has one: its markers are also the scenes whose ambient
+    /// lights draw 0.69d's facing term (`shaders::build_ambient_wrap`).
     #[serde(default)]
     exposure_profiles: Vec<ExposureProfileSpec>,
     /// Scenes whose rain darkens what it does not reach by their own factor (London's rain:
