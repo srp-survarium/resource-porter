@@ -242,7 +242,7 @@ x and z factors (0.69d's `ambient_light_*.ps` geometry 2). Drawn as the plain bo
 three near-black darkening cylinders in the church towers also darkened the box's corners
 outside their disc.
 
-## Probe tiers (0.69d scenes, @15)
+## Probe tiers (0.69d scenes, @16)
 
 0.69d composes its environment probes in tiers (`layer`): in a tier every probe adds its light
 times its weight and the weight, the tier's light is `sum(w L) / max(W, 1)`, and the tier below
