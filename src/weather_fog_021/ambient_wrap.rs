@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! 0.69d's facing term on the ambient lights of a 0.69d scene.
+//! 0.69d's facing term and box falloff on the ambient lights of a 0.69d scene.
 //!
 //! 0.26g's `dot_normal` ambient lights (`ambient_light.ps`, the 8 variants with the facing
 //! digit 1) draw `max(dot(N, L), 0)` times the falloff (a sphere) or fold a facing of the
@@ -14,24 +14,26 @@
 //! - a sphere: the native program with `max(x, 0)` replaced by 0.69d's term, the decoded
 //!   distance power for `cb0[12].w`, and 0.69d's `max(|d|, 0.01)` before the division
 //!   that makes the direction;
-//! - a box: the native normal and position, then the box's falloff as the variant without
-//!   `dot_normal` draws it (`1 - saturate(1 - prod(1 - smoothstep(t_i)))`), times 0.69d's
-//!   term, `x` taken to the box's centre: `view_to_local`'s rows are the box's axes over its
-//!   half extents (exe 0x181C6F: the inverse of the light's scaled world matrix times the
-//!   view's), so `P - C = sum_i p_i a_i / |a_i|^2` of the local position `p`.
+//! - a box: the native normal and position, then 0.69d's box falloff
+//!   (`ambient_light_*.ps`): per axis `(1 - t_i)^p`, `t_i` from 0.69d's inner face
+//!   `max(1 - s_i, 0.01 |a_i|)` to the outer one (`s_i` the side width over the half extent;
+//!   0.69d keeps the inner box 0.01 from the centre, 0x20029BBBC), and for a light with
+//!   `gradient_attenuation` times `saturate(0.5 - 0.5 p_y)^p`; times 0.69d's term, `x` taken
+//!   to the box's centre: `view_to_local`'s rows are the box's axes over its half extents
+//!   (exe 0x181C6F: the inverse of the light's scaled world matrix times the view's), so
+//!   `P - C = sum_i p_i a_i / |a_i|^2` of the local position `p` and `|a_i|` is one over the
+//!   half extent; a cylinder (0.69d's geometry 2, on the box around it) takes the distance
+//!   from its axis, `sqrt(p_x^2 + p_z^2)`, for the x and z factors. The falloff's power,
+//!   gradient and cylinder ride in the power field, which 0.26g's box program does not read
+//!   (`ambient_facing::Falloff`).
 //!
 //! Every other scene and light runs the native instructions, unchanged, in the other branch.
 use super::{assemble, bytes, chunks, instructions, pinned_code, u32_at, words};
-use crate::ambient_facing::{BASE, CUTOFF_OFFSET, CUTOFF_SHIFT, CUTOFF_STEP, FACING_POWER_SHIFT, FACING_POWER_STEP, PAYLOAD_LIMIT, POWER_BITS, POWER_STEP};
+use crate::ambient_facing::{BASE, BOX_CYLINDER, BOX_GRADIENT, BOX_POWER_BITS, CUTOFF_OFFSET, CUTOFF_SHIFT, CUTOFF_STEP, FACING_POWER_SHIFT, FACING_POWER_STEP, PAYLOAD_LIMIT, POWER_BITS, POWER_STEP};
+pub use crate::ambient_facing::Shape;
 use anyhow::{Context, Result, bail, ensure};
 
 pub const AMBIENT_LIGHT_PREFIX: &str = "shaders/sm_4_0/ambient_light.ps/";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Shape {
-    Sphere,
-    Box,
-}
 
 /// The 8 `dot_normal` variants of stock 0.26g (key digits: affect_specular, facing 1,
 /// geometry, mode), their shape and sha256. Modes 0 (multiplying, two targets) and 1
@@ -52,6 +54,7 @@ mod asm {
     pub const ADD: u32 = 0x00;
     pub const AND: u32 = 0x01;
     pub const DIV: u32 = 0x0e;
+    pub const DP2: u32 = 0x0f;
     pub const DP3: u32 = 0x10;
     pub const DP4: u32 = 0x11;
     pub const ELSE: u32 = 0x12;
@@ -66,6 +69,7 @@ mod asm {
     pub const MIN: u32 = 0x33;
     pub const MAX: u32 = 0x34;
     pub const MOV: u32 = 0x36;
+    pub const MOVC: u32 = 0x37;
     pub const MUL: u32 = 0x38;
     pub const OR: u32 = 0x3c;
     pub const RET: u32 = 0x3e;
@@ -183,10 +187,19 @@ fn condition(t: u32, markers: &[f32]) -> Vec<Vec<u32>> {
     out
 }
 
-/// The payload in `rT.y` into `rT.y` = distance power, `rT.z` = cutoff, `rT.w` = facing
-/// power (`ambient_facing::decode`).
-fn decode(t: u32) -> Vec<Vec<u32>> {
-    vec![
+/// The payload in `rT.y` into `rT.y` = the falloff's power, `rT.z` = cutoff, `rT.w` = facing
+/// power (`ambient_facing::decode`); a box's gradient bit into `r(T+1).w`, its cylinder bit
+/// into `rT.x` (free once the branch is taken, until the facing term).
+fn decode(t: u32, shape: Shape) -> Vec<Vec<u32>> {
+    let power_bits = match shape {
+        Shape::Sphere => (1 << POWER_BITS) - 1,
+        Shape::Box => (1 << BOX_POWER_BITS) - 1,
+    };
+    let mut out = match shape {
+        Shape::Sphere => Vec::new(),
+        Shape::Box => vec![op(AND, &[r(t + 1, "w"), rc(t, "y"), lu(BOX_GRADIENT)]), op(AND, &[r(t, "x"), rc(t, "y"), lu(BOX_CYLINDER)])],
+    };
+    out.extend([
         op(USHR, &[r(t, "z"), rc(t, "y"), lu(CUTOFF_SHIFT)]),
         op(IADD, &[r(t, "z"), rc(t, "z"), lu((-CUTOFF_OFFSET) as u32)]),
         op(ITOF, &[r(t, "z"), rc(t, "z")]),
@@ -195,10 +208,11 @@ fn decode(t: u32) -> Vec<Vec<u32>> {
         op(AND, &[r(t, "w"), rc(t, "w"), lu(0xff)]),
         op(UTOF, &[r(t, "w"), rc(t, "w")]),
         op(MUL, &[r(t, "w"), rc(t, "w"), l(FACING_POWER_STEP)]),
-        op(AND, &[r(t, "y"), rc(t, "y"), lu((1 << POWER_BITS) - 1)]),
+        op(AND, &[r(t, "y"), rc(t, "y"), lu(power_bits)]),
         op(UTOF, &[r(t, "y"), rc(t, "y")]),
         op(MUL, &[r(t, "y"), rc(t, "y"), l(POWER_STEP)]),
-    ]
+    ]);
+    out
 }
 
 /// 0.69d's term of the cosine in `reg.c`, in place (its program's six instructions, its
@@ -243,7 +257,7 @@ fn writes_output(op: &[u32]) -> bool {
     op.len() > 2 && op[0] & 0x8000_0000 == 0 && (op[1] >> 12) & 0xff == 2
 }
 
-/// The box's body drawing its falloff times 0.69d's term.
+/// The box's body drawing 0.69d's box falloff times its term.
 fn cube(body: &[Vec<u32>], t: u32) -> Result<Vec<Vec<u32>>> {
     let s = t + 1;
     let normal = find(body, &op(MIN, &[r(1, "xyz"), rs(1, "xyzx"), l4([1.0, 1.0, 1.0, 0.0])]), "min r1.xyz, r1.xyzx, l(1, 1, 1, 0)")?;
@@ -255,20 +269,39 @@ fn cube(body: &[Vec<u32>], t: u32) -> Result<Vec<Vec<u32>>> {
     let mut out = body[..=normal].to_vec();
     out.push(op(MOV, &[r(s, "xyz"), rs(1, "xyzx")]));
     out.extend_from_slice(&body[normal + 1..=local]);
-    // the falloff of the variant without dot_normal, from the local position r2
+    // 0.69d's box falloff from the local position r2, its power in rT.y, its gradient bit
+    // in rS.w, its cylinder bit in rT.x: the inner face at max(1 - s_i, 0.01 |a_i|), (1 - t_i)^p
+    // per axis; a cylinder's distance from its axis for x, nothing for z
     out.extend([
-        op(MIN, &[r(0, "xyz"), abs(rs(2, "xyzx")), one.clone()]),
+        op(DP3, &[r(3, "x"), cb(0, 7, "xyzx"), cb(0, 7, "xyzx")]),
+        op(DP3, &[r(3, "y"), cb(0, 8, "xyzx"), cb(0, 8, "xyzx")]),
+        op(DP3, &[r(3, "z"), cb(0, 9, "xyzx"), cb(0, 9, "xyzx")]),
+        op(SQRT, &[r(3, "xyz"), rs(3, "xyzx")]),
+        op(MUL, &[r(3, "xyz"), rs(3, "xyzx"), l4([0.01, 0.01, 0.01, 0.0])]),
         op(ADD, &[r(1, "xyz"), neg(cb(0, 14, "xyzx")), one.clone()]),
+        op(MAX, &[r(1, "xyz"), rs(1, "xyzx"), rs(3, "xyzx")]),
+        op(MOV, &[r(0, "xyz"), abs(rs(2, "xyzx"))]),
+        op(DP2, &[r(0, "w"), rs(2, "xzxx"), rs(2, "xzxx")]),
+        op(SQRT, &[r(0, "w"), rc(0, "w")]),
+        op(MOVC, &[r(0, "x"), rc(t, "x"), rc(0, "w"), rc(0, "x")]),
+        op(MOVC, &[r(0, "z"), rc(t, "x"), l(0.0), rc(0, "z")]),
+        op(MIN, &[r(0, "xyz"), rs(0, "xyzx"), one.clone()]),
         op(ADD, &[r(0, "xyz"), rs(0, "xyzx"), neg(rs(1, "xyzx"))]),
         op(ADD, &[r(1, "xyz"), neg(rs(1, "xyzx")), one.clone()]),
-        op(DIV, &[r(1, "xyz"), l4([1.0; 4]), rs(1, "xyzx")]),
-        op_sat(MUL, &[r(0, "xyz"), rs(0, "xyzx"), rs(1, "xyzx")]),
-        op(MAD, &[r(1, "xyz"), rs(0, "xyzx"), l4([-2.0, -2.0, -2.0, 0.0]), l4([3.0, 3.0, 3.0, 0.0])]),
-        op(MUL, &[r(0, "xyz"), rs(0, "xyzx"), rs(0, "xyzx")]),
-        op(MAD, &[r(0, "xyz"), neg(rs(1, "xyzx")), rs(0, "xyzx"), one.clone()]),
+        op_sat(DIV, &[r(0, "xyz"), rs(0, "xyzx"), rs(1, "xyzx")]),
+        op(ADD, &[r(0, "xyz"), neg(rs(0, "xyzx")), one.clone()]),
+        op(LOG, &[r(0, "xyz"), rs(0, "xyzx")]),
+        op(MUL, &[r(0, "xyz"), rs(0, "xyzx"), rs(t, "yyyy")]),
+        op(EXP, &[r(0, "xyz"), rs(0, "xyzx")]),
+        op(MUL, &[r(0, "x"), rc(0, "z"), rc(0, "x")]),
         op(MUL, &[r(0, "x"), rc(0, "y"), rc(0, "x")]),
-        op_sat(MAD, &[r(0, "x"), neg(rc(0, "x")), rc(0, "z"), l(1.0)]),
-        op(ADD, &[r(0, "x"), neg(rc(0, "x")), l(1.0)]),
+        // gradient_attenuation: saturate(0.5 - 0.5 p_y)^p
+        op_sat(MAD, &[r(0, "y"), neg(rc(2, "y")), l(0.5), l(0.5)]),
+        op(LOG, &[r(0, "y"), rc(0, "y")]),
+        op(MUL, &[r(0, "y"), rc(0, "y"), rc(t, "y")]),
+        op(EXP, &[r(0, "y"), rc(0, "y")]),
+        op(MUL, &[r(0, "y"), rc(0, "y"), rc(0, "x")]),
+        op(MOVC, &[r(0, "x"), rc(s, "w"), rc(0, "y"), rc(0, "x")]),
     ]);
     // P - C = sum_i p_i a_i / |a_i|^2 into r1, the direction to the centre, the cosine
     for (axis, row) in ["x", "y", "z"].into_iter().zip(7..) {
@@ -322,7 +355,7 @@ fn splice(ops: &[Vec<u32>], shape: Shape, markers: &[f32]) -> Result<Vec<Vec<u32
     cb1[3] = cb1[3].max(19);
     out.extend(condition(t, markers));
     out.push(if_nz(rc(t, "x")));
-    out.extend(decode(t));
+    out.extend(decode(t, shape));
     out.extend(marked);
     out.push(op(ELSE, &[]));
     out.extend_from_slice(body);
