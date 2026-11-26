@@ -17,7 +17,14 @@
 //!    and among equals the one 0.69d0 links first (the owner's rule of
 //!    2026-11-20). No slot either way: a refusal with its reason, never a
 //!    guess.
-//! 3. **Stock parts.** An own part is one a fit can displace when a fit or a
+//! 3. **Second sights.** An optic of the fits whose slots name 0.69d0's
+//!    side sight slots ([`SECOND_SIGHT_SLOTS`], the offset rail's) is a
+//!    second sight too, a fit a side: on each side the gun has that slot
+//!    or carriers bring it (rule 2's chain, the offset rail on the gun's
+//!    angled rail, or on the tactical forend that brings one). A gun 0.69d0
+//!    links a carrier that would bring one, and none stands: a refusal (a
+//!    dead link), never a guess.
+//! 4. **Stock parts.** An own part is one a fit can displace when a fit or a
 //!    carrier goes in its slot, closes its slot (`slots_to_disable`), shows
 //!    it folded (`slots_to_change_param` and the part has a `model_param1`),
 //!    or when it stands on a slot such a part brings. The gun's `bare` body
@@ -30,13 +37,36 @@ use serde::Serialize;
 
 use super::catalog::{Catalog, ModuleDef};
 
-/// What a player fits (the weapon kit's slots 3, 4 and 5).
+/// What a player fits (the weapon kit's slots 3, 4, 5 and 6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Kind {
     Scope,
     Muzzle,
     Grip,
+    /// A collimator on the offset rail at the gun's side, a fit a side
+    /// ([`SECOND_SIGHT_SLOTS`]); its eye is a second one.
+    SecondSight,
+}
+
+/// The slots a second sight goes in, left then right: 0.69d0's
+/// `angled_collim_short_l` and `_r`, which the NcStar MPR45 offset rail
+/// brings on the gun's angled rail of that side (`weapon_modules::Side`).
+pub const SECOND_SIGHT_SLOTS: [&str; 2] = ["angled_collim_short_l", "angled_collim_short_r"];
+
+/// A second eye a module's rules add: 0.69d0's `aim_2` .. `aim_5`
+/// (`slots_to_add`), the aim points a player switches to.
+pub fn second_eye(id: &str) -> bool {
+    id.strip_prefix("aim_").is_some_and(|n| n.parse::<u8>().is_ok())
+}
+
+/// The second sight slots `module` names on `item` (an optic's), in its order.
+pub fn second_sight_slots<'a>(module: &'a ModuleDef, item: &str) -> Vec<&'a str> {
+    if kind(module) != Some(Kind::Scope) {
+        return vec![];
+    }
+    let attaches = module.attaches_on(item);
+    attaches.iter().map(|a| a.slot.as_str()).filter(|s| SECOND_SIGHT_SLOTS.contains(s)).collect()
 }
 
 /// The carriers one fit brings, at most (`weapon_modules::MAX_CHAIN`).
@@ -300,6 +330,59 @@ pub fn plan(
             chain: links,
         });
     }
+    // Second sights: an optic again, a fit on each side the gun has its slot or carriers bring it.
+    for module in linked.iter().copied().filter(|m| fitted(m)) {
+        let sides = second_sight_slots(module, item);
+        if sides.is_empty() {
+            continue;
+        }
+        let mut any = false;
+        for side in sides {
+            let links = if plan.slots.contains_key(side) {
+                vec![]
+            } else {
+                let Some(links) = chain(item, &plan.slots, &carriers, side) else {
+                    continue;
+                };
+                match plan.carriers.get(side) {
+                    Some(known) => ensure!(*known == links, "{item}: two carrier chains bring {side}: {known:?} and {links:?}"),
+                    None => {
+                        plan.carriers.insert(side.to_owned(), links.clone());
+                    }
+                }
+                links
+            };
+            for link in &links {
+                goes.push((catalog.module(&link.module)?, link.slot.clone()));
+            }
+            goes.push((module, side.to_owned()));
+            plan.fits.push(Fit {
+                module: module.id.clone(),
+                kind: Kind::SecondSight,
+                slot: side.to_owned(),
+                chain: links,
+            });
+            any = true;
+        }
+        // A carrier 0.69d0 links the gun for a side sight's slot that stands nowhere on it: a dead link.
+        let dead: Vec<&ModuleDef> = carriers
+            .iter()
+            .copied()
+            .filter(|c| c.attaches_on(item).iter().any(|a| a.adds.iter().any(|s| SECOND_SIGHT_SLOTS.contains(&s.id.as_str()))))
+            .collect();
+        if !any && !dead.is_empty() {
+            let names = |c: &ModuleDef| c.attaches_on(item).iter().map(|a| a.slot.clone()).collect::<Vec<_>>().join(", ");
+            let said: Vec<String> = dead.iter().map(|c| format!("{} ({})", c.id, names(c))).collect();
+            plan.refused.push(Refused {
+                module: module.id.clone(),
+                kind: Kind::SecondSight,
+                why: format!(
+                    "0.69d0 links it the side sight's carrier {} but the gun has none of its slots and no carrier brings one",
+                    said.join(", ")
+                ),
+            });
+        }
+    }
     // Stock parts: displaced, closed or folded by something that goes on.
     for (module, slot) in &goes {
         let mut hit: Vec<usize> = plan.occupant(slot).into_iter().collect();
@@ -430,5 +513,229 @@ mod tests {
         // The grips that hang on a suppressor's clamp are refused, with the reason.
         let refused = planned(&catalog, "a9_91").refused;
         assert!(refused.iter().any(|r| r.kind == Kind::Grip && r.why.contains("picatinny_grip")));
+    }
+}
+
+/// The second sights, on a made-up `game.options` of 0.69d0's shape (no
+/// retail data): the HK416's angled rails take the offset rail, the M4A1's
+/// come with its tactical forend, the FAMAS is linked the rail and has none.
+#[cfg(test)]
+mod second_sights {
+    use super::*;
+    use crate::ConfigValue as V;
+    use crate::weapons_026::{field, s};
+
+    fn named(fields: Vec<(&str, V)>) -> V {
+        V::Named(fields.into_iter().map(|(n, v)| field(n, v)).collect())
+    }
+
+    /// Slot definitions: an id, a locator and a plane slot.
+    fn slots(list: &[(&str, &str, Option<&str>)]) -> V {
+        V::Indexed(
+            list.iter()
+                .map(|(id, locator, plane)| {
+                    let mut fields = vec![("id", s(*id)), ("locator", s(*locator))];
+                    fields.extend(plane.map(|p| ("plane_slot", s(p))));
+                    named(fields)
+                })
+                .collect(),
+        )
+    }
+
+    fn gun(slot_list: &[&str], defaults: &[(&str, &str)]) -> V {
+        let own: Vec<(&str, &str, Option<&str>)> = slot_list.iter().map(|id| (*id, *id, None)).collect();
+        let defaults = defaults.iter().map(|(m, slot)| named(vec![("module", s(*m)), ("slot", s(*slot))])).collect();
+        named(vec![
+            ("object", named(vec![("model", s("weapons/assault/x/x"))])),
+            ("slots", slots(&own)),
+            ("default_modules", V::Indexed(defaults)),
+        ])
+    }
+
+    /// One slot of a module: its slot, what it adds and overrides there (id, locator, plane) and
+    /// what it closes.
+    struct In<'a> {
+        slot: &'a str,
+        adds: &'a [(&'a str, &'a str, Option<&'a str>)],
+        overrides: &'a [(&'a str, &'a str, Option<&'a str>)],
+        closes: &'a [&'a str],
+    }
+
+    fn module(dict: i32, group: &str, slots_in: &[In]) -> V {
+        let mut fields = vec![
+            ("group", s(group)),
+            ("parameters", named(vec![("dict_id", V::Integer(dict)), ("cost", V::Integer(100))])),
+            ("model", s(format!("weapons/modules/{dict}"))),
+        ];
+        let entries = slots_in
+            .iter()
+            .enumerate()
+            .map(|(nth, a)| named(vec![("slot", s(a.slot)), ("attach_params", s(format!("params_{nth}")))]))
+            .collect();
+        fields.push(("slots_to_attach_to", V::Indexed(entries)));
+        let blocks: Vec<(String, V)> = slots_in
+            .iter()
+            .enumerate()
+            .map(|(nth, a)| {
+                let closes = a.closes.iter().map(|id| named(vec![("id", s(*id))])).collect();
+                let block = named(vec![
+                    ("slots_to_add", slots(a.adds)),
+                    ("slots_to_override", slots(a.overrides)),
+                    ("slots_to_disable", V::Indexed(closes)),
+                ]);
+                (format!("params_{nth}"), block)
+            })
+            .collect();
+        let mut v = named(fields);
+        if let V::Named(f) = &mut v {
+            f.extend(blocks.into_iter().map(|(n, b)| field(&n, b)));
+        }
+        v
+    }
+
+    fn catalog() -> Catalog {
+        let rail = |side: &str, other: &str, point: &'static str| -> (String, String, &'static str) {
+            (format!("angled_picatinnyrail_{side}"), format!("angled_picatinnyrail_{other}"), point)
+        };
+        let (l, r) = (rail("l", "r", "angled_collim_short_l_point"), rail("r", "l", "angled_collim_short_r_point"));
+        let mpr45 = module(
+            1886,
+            "scope_rail",
+            &[
+                In { slot: &l.0, adds: &[("angled_collim_short_l", l.2, None)], overrides: &[], closes: &[&l.1] },
+                In { slot: &r.0, adds: &[("angled_collim_short_r", r.2, None)], overrides: &[], closes: &[&r.1] },
+            ],
+        );
+        let eye = [("aim", "aim", Some("body_aim"))];
+        let dppro = module(
+            1394,
+            "scope_collimator",
+            &[
+                In { slot: "picatinny_scope_medium", adds: &[("reticle", "aim", None)], overrides: &eye, closes: &[] },
+                In {
+                    slot: "angled_collim_short_l",
+                    adds: &[("aim_3", "aim", Some("body_aim")), ("reticle_2", "aim", None)],
+                    overrides: &[],
+                    closes: &[],
+                },
+                In {
+                    slot: "angled_collim_short_r",
+                    adds: &[("aim_4", "aim", Some("body_aim")), ("reticle_3", "aim", None)],
+                    overrides: &[],
+                    closes: &[],
+                },
+            ],
+        );
+        let tactical = module(
+            1835,
+            "handguard_rail",
+            &[In {
+                slot: "forend",
+                adds: &[
+                    ("picatinny_grip", "picatinny_grip_point", None),
+                    ("angled_picatinnyrail_l", "angled_picatinnyrail_point", None),
+                    ("angled_picatinnyrail_r", "angled_picatinnyrail_inv_point", None),
+                ],
+                overrides: &[],
+                closes: &[],
+            }],
+        );
+        let own_forend = module(1000, "forend", &[In { slot: "forend", adds: &[], overrides: &[], closes: &[] }]);
+        let top = ["body_aim", "picatinny_scope_medium"];
+        let weapons = named(vec![
+            ("hk416", gun(&[&top[..], &["angled_picatinnyrail_l", "angled_picatinnyrail_r"]].concat(), &[])),
+            ("m4a1", gun(&[&top[..], &["forend"]].concat(), &[("m4a1_forend", "forend")])),
+            ("famas", gun(&top, &[])),
+            ("ak_74m", gun(&top, &[])),
+        ]);
+        let modules = named(vec![
+            ("ncstar_mpr45_picatinnyrail", mpr45),
+            ("leupold_dppro_collimator", dppro),
+            ("m4a1_tactical_forend", tactical),
+            ("m4a1_forend", own_forend),
+        ]);
+        let link = |item: &str, module: &str| named(vec![("item", s(item)), ("module", s(module))]);
+        let links = V::Indexed(vec![
+            link("hk416", "leupold_dppro_collimator"),
+            link("hk416", "ncstar_mpr45_picatinnyrail"),
+            link("m4a1", "leupold_dppro_collimator"),
+            link("m4a1", "ncstar_mpr45_picatinnyrail"),
+            link("m4a1", "m4a1_tactical_forend"),
+            link("famas", "leupold_dppro_collimator"),
+            link("famas", "ncstar_mpr45_picatinnyrail"),
+            link("ak_74m", "leupold_dppro_collimator"),
+        ]);
+        let game = named(vec![("weapons", weapons), ("weapon_modules", modules), ("module_to_item_links", links)]);
+        Catalog::read(&game).unwrap()
+    }
+
+    fn planned(catalog: &Catalog, item: &str) -> GunPlan {
+        let own: Vec<(String, Option<String>)> =
+            catalog.gun(item).unwrap().defaults.iter().map(|e| (e.module.clone(), e.slot.clone())).collect();
+        plan(catalog, item, &own, &catalog.linked(item), &|m| kind(m).is_some()).unwrap()
+    }
+
+    /// The second sight fits: each side's slot and its carriers (module, slot).
+    fn sides(plan: &GunPlan) -> Vec<(&str, Vec<(&str, &str)>)> {
+        plan.fits
+            .iter()
+            .filter(|f| f.kind == Kind::SecondSight)
+            .map(|f| (f.slot.as_str(), f.chain.iter().map(|l| (l.module.as_str(), l.slot.as_str())).collect()))
+            .collect()
+    }
+
+    const RAIL: &str = "ncstar_mpr45_picatinnyrail";
+
+    #[test]
+    fn the_offset_rail_on_either_angled_rail_brings_a_second_sight() {
+        let catalog = catalog();
+        let plan = planned(&catalog, "hk416");
+        assert_eq!(
+            sides(&plan),
+            [
+                ("angled_collim_short_l", vec![(RAIL, "angled_picatinnyrail_l")]),
+                ("angled_collim_short_r", vec![(RAIL, "angled_picatinnyrail_r")]),
+            ]
+        );
+        // The same optic is the gun's scope on its top rail, as it was.
+        let scope: Vec<&Fit> = plan.fits.iter().filter(|f| f.kind == Kind::Scope).collect();
+        assert_eq!(scope.len(), 1);
+        assert_eq!((scope[0].slot.as_str(), scope[0].chain.len()), ("picatinny_scope_medium", 0));
+        assert_eq!(plan.carriers.keys().collect::<Vec<_>>(), ["angled_collim_short_l", "angled_collim_short_r"]);
+        assert!(plan.refused.is_empty());
+    }
+
+    #[test]
+    fn the_m4a1s_angled_rails_come_with_its_tactical_forend() {
+        let catalog = catalog();
+        let plan = planned(&catalog, "m4a1");
+        let forend = ("m4a1_tactical_forend", "forend");
+        assert_eq!(
+            sides(&plan),
+            [
+                ("angled_collim_short_l", vec![forend, (RAIL, "angled_picatinnyrail_l")]),
+                ("angled_collim_short_r", vec![forend, (RAIL, "angled_picatinnyrail_r")]),
+            ]
+        );
+        // Its own forend makes way for the tactical one.
+        let stock: Vec<&str> = plan.stock().map(|(_, p)| p.module.as_str()).collect();
+        assert_eq!(stock, ["m4a1_forend"]);
+    }
+
+    #[test]
+    fn a_gun_linked_the_offset_rail_without_angled_rails_is_refused_a_second_sight() {
+        let catalog = catalog();
+        let plan = planned(&catalog, "famas");
+        assert!(sides(&plan).is_empty());
+        assert!(plan.carriers.is_empty());
+        let refused: Vec<&Refused> = plan.refused.iter().filter(|r| r.kind == Kind::SecondSight).collect();
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].module, "leupold_dppro_collimator");
+        assert!(refused[0].why.contains(RAIL) && refused[0].why.contains("angled_picatinnyrail_l"), "{}", refused[0].why);
+        // Its scope stays.
+        assert!(plan.fits.iter().any(|f| f.kind == Kind::Scope));
+        // A gun linked no such carrier says nothing of second sights.
+        let plain = planned(&catalog, "ak_74m");
+        assert!(sides(&plain).is_empty() && plain.refused.is_empty());
     }
 }

@@ -99,7 +99,9 @@ pub struct Lost {
 const RAIL_SEATS: [&str; 4] = ["scope_picatinnyrail", "scope_dovetail", "g3a3_scope_picatinnyrail", "mosin_scope"];
 /// The slots a legacy optic takes under another id when every slot it names is one some fit of the
 /// gun names too (the XPS2 on the Kedr, whose every rail slot the aperture sight names before its
-/// own short rail): ids only 0.69d0's piggyback and angled sights name, none of them fits here.
+/// own short rail): ids only 0.69d0's piggyback and angled sights name. The angled ones are the
+/// second sights' slots (table version 4): a gun with a second sight names them (`named`), so it
+/// never takes one as a spare, and no legacy row is on such a gun.
 const SPARE: [&str; 4] = ["none", "elcan_collimator_mount", "angled_collim_short_l", "angled_collim_short_r"];
 /// The optic's vertices in a variant are 0.69d0's moved by one translation
 /// within this (metres), or its box has 0.69d0's sides within it.
