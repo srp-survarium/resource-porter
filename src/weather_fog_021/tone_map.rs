@@ -51,8 +51,10 @@ pub struct KeyProfile {
 /// ```text
 /// Lc = clamp(L, floor, ceiling)
 /// c  = (c * (k(L) / Lc)^0.2)^1.2            k(L) = 1.03 - 0.1 / (2 + log10(L + 1))
-/// c  = 1 - exp(-c * key / (10 * Lc))
+/// c  = 1 - 2^(-c * key / (10 * Lc))
 /// ```
+///
+/// (`exp` and `log` are sm_4_0's, `2^x` and `log2`: the key is for that base.)
 ///
 /// so the exposure is constant above the ceiling and below the floor and follows the
 /// mean between them (as `Lc^-1.24`), as 0.69d's does. A floor equal to the ceiling is a
@@ -651,13 +653,16 @@ mod tests {
         let clamped = lb.min(ceiling);
         let gain = (k / if divide_first { l } else { clamped }).max(0.0001).powf(0.2);
         let a = key / (clamped * f(mad[6]) + f(mad[8]));
-        1.0 - (-(c * gain).powf(1.2) * a).exp()
+        // The block's powers and its curve are sm_4_0 `log` and `exp`: log2 and 2^x.
+        let opcode = |i: usize| block[i][0] & 2047;
+        assert_eq!([opcode(3), opcode(13), opcode(15), opcode(17), opcode(19), opcode(21)], [0x2f, 0x2f, 0x19, 0x2f, 0x19, 0x19]);
+        1.0 - (-(c * gain).powf(1.2) * a).exp2()
     }
 
     #[test]
     fn an_exposure_profile_follows_the_mean_between_its_floor_and_ceiling() {
         let native = native_block();
-        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.2334 };
+        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.3367 };
         let block = with_exposure(&native, &profile).unwrap();
         // The same instructions but two that changed places; four constants changed.
         assert_eq!(block.len(), native.len());
@@ -672,7 +677,7 @@ mod tests {
         let (hi, lo) = (shown(&block, 0.104167), shown(&block, 0.001151));
         assert!((hi / lo - 1.0).abs() < 0.25, "{hi} {lo}");
         assert!((shown(&block, 0.01) / hi - 1.0).abs() < 0.15);
-        let exposure = |lum: f32| (-(1.0 - run(&block, lum, 0.01)).ln()).powf(1.0 / 1.2);
+        let exposure = |lum: f32| (-(1.0 - run(&block, lum, 0.01)).log2()).powf(1.0 / 1.2);
         // (k(L) moves the exposure by 0.2 % from the ceiling to a mean of 2.)
         assert!((exposure(2.0) / exposure(0.104167) - 1.0).abs() < 3e-3 && (exposure(0.5) / exposure(0.2) - 1.0).abs() < 3e-3);
         assert!((exposure(0.0001) / exposure(0.001151) - 1.0).abs() < 3e-3);
