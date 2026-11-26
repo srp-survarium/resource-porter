@@ -29,6 +29,12 @@
 //!   `max_texture_size` by their own mips, a DXT5 colour map as DXT1 (0.26g's
 //!   character colour maps carry no alpha), the options of the template's
 //!   map of the same role.
+//! - **Camouflage maps.** The maps the game derives from a diffuse map's
+//!   name for a camouflage ([`CAMOUFLAGE_MAPS`]: the bake's mask `_aoac` and
+//!   the part's own `_camo`, `_camo_nmap`, `_camo_smap`): no material names
+//!   them, so each one the donor's albedo has goes beside the converted
+//!   diffuse, in the same conversion. Without its `_aoac` a vest or trousers
+//!   take no camouflage at all (the bake leaves the surface plain).
 //! - **Fit.** A back piece is measured against every stock torso that leaves
 //!   the back slot free ([`fit_back`]) and must sink into none of them more
 //!   than the native back pieces do. A recoloured piece of a 0.69d set (the
@@ -160,18 +166,49 @@ impl Map {
         }
     }
 
-    fn srgb(self) -> bool {
-        self == Self::Albedo
-    }
-
-    /// The block format 0.26g's character maps of this role use.
-    fn four_cc(self) -> &'static [u8; 4] {
+    /// How 0.26g's character maps of this role are stored.
+    fn format(self) -> Format {
         match self {
-            Self::Normal => b"DXT5",
-            _ => b"DXT1",
+            Self::Albedo => Format::COLOUR,
+            Self::Normal => Format::NORMAL,
+            Self::Smoothness | Self::Metalness => Format::LINEAR,
         }
     }
 }
+
+/// A map's block format and colour space in 0.26g.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Format {
+    four_cc: &'static [u8; 4],
+    srgb: bool,
+}
+
+impl Format {
+    const COLOUR: Self = Self {
+        four_cc: b"DXT1",
+        srgb: true,
+    };
+    const LINEAR: Self = Self {
+        four_cc: b"DXT1",
+        srgb: false,
+    };
+    const NORMAL: Self = Self {
+        four_cc: b"DXT5",
+        srgb: false,
+    };
+}
+
+/// The maps the game derives from a diffuse map's name for a camouflage
+/// (`camouflage_decal_texture_type_baker_cook`, 0.26g): the bake's mask, and
+/// the part's own camouflage colours, normal and gloss that a camouflage
+/// layer without a name of its own takes. Their formats are those of the
+/// released vests' maps (`renesance_combat_torso_aoac` and the others).
+const CAMOUFLAGE_MAPS: [(&str, Format); 4] = [
+    ("_aoac", Format::LINEAR),
+    ("_camo", Format::COLOUR),
+    ("_camo_nmap", Format::NORMAL),
+    ("_camo_smap", Format::LINEAR),
+];
 
 const STAGE: &str = "material.g_stage.effect";
 /// The 0.69d fuzziness and the matching 0.26g fields (the same names).
@@ -293,7 +330,7 @@ fn dxt5_to_dxt1(payload: &[u8]) -> Result<Vec<u8>> {
 
 /// A donor map in the native container: down to `max` by its mips, in the
 /// role's format.
-fn convert_texture(bytes: &[u8], label: &str, map: Map, max: u32) -> Result<Vec<u8>> {
+fn convert_texture(bytes: &[u8], label: &str, format: Format, max: u32) -> Result<Vec<u8>> {
     let mut info = parse_dds(bytes, label)?;
     let block = block_bytes(&info.four_cc)?;
     let mut at = 128;
@@ -310,7 +347,7 @@ fn convert_texture(bytes: &[u8], label: &str, map: Map, max: u32) -> Result<Vec<
     let payload = bytes
         .get(at..at + chain)
         .with_context(|| format!("{label}: shorter than its mips"))?;
-    let (four_cc, payload) = match (&info.four_cc, map.four_cc()) {
+    let (four_cc, payload) = match (&info.four_cc, format.four_cc) {
         (have, want) if have == want => (*want, payload.to_vec()),
         (b"DXT5", b"DXT1") => (*b"DXT1", dxt5_to_dxt1(payload)?),
         (have, want) => bail!(
@@ -325,7 +362,7 @@ fn convert_texture(bytes: &[u8], label: &str, map: Map, max: u32) -> Result<Vec<
     out[28..32].copy_from_slice(&info.mip_levels.to_le_bytes());
     out[84..88].copy_from_slice(&four_cc);
     out.extend_from_slice(&payload);
-    crate::duty_026::texture_dds(&out, label, map.srgb())
+    crate::duty_026::texture_dds(&out, label, format.srgb)
 }
 
 /// 0.26g's diffuse of a 0.69d albedo: albedo x (1 - metalness), in DXT1 at
@@ -503,6 +540,46 @@ fn convert_surfaces(
     Ok(out)
 }
 
+/// The donor's camouflage maps of its albedo `texture` ([`CAMOUFLAGE_MAPS`]),
+/// converted beside the diffuse at the same size, each with the options of
+/// the template diffuse's map of the same suffix. The names that are none of
+/// the donor's are left out; a donor map the template has no options for
+/// stops the build (no released map of that role to copy them from).
+fn camouflage_maps(
+    out: &Writer<'_>,
+    target: &mut ResourceDb,
+    inputs: &MaterialInputs<'_>,
+    texture: &str,
+    template_texture: &str,
+    files: &mut Vec<BuiltFile>,
+) -> Result<Vec<String>> {
+    let mut written = vec![];
+    for (suffix, format) in CAMOUFLAGE_MAPS {
+        let name = format!("{texture}{suffix}");
+        let dds = format!("textures/{name}.dds");
+        let source = inputs.source.join(&dds);
+        if !source.exists() {
+            continue;
+        }
+        ensure!(!target.contains(&dds), "{dds} is in the released game");
+        let bytes = fs::read(&source).with_context(|| format!("0.69d {dds}"))?;
+        out.raw(
+            &dds,
+            &convert_texture(&bytes, &dds, format, inputs.max_texture_size)?,
+            files,
+        )?;
+        let template = format!("textures/{template_texture}{suffix}.options");
+        ensure!(
+            target.contains(&template),
+            "{dds}: the template's diffuse {template_texture} has no {suffix} map to take options from"
+        );
+        let options = parse_config(target, &template, "template camouflage map options")?;
+        out.config(&format!("textures/{name}.options"), &options, files)?;
+        written.push(name);
+    }
+    Ok(written)
+}
+
 /// What a material conversion did, for the record.
 #[derive(Clone, Debug, Serialize)]
 pub struct MaterialRecord {
@@ -579,7 +656,7 @@ fn convert_material(
         };
         out.raw(
             &dds,
-            &convert_texture(&bytes, &dds, map, max_texture_size)?,
+            &convert_texture(&bytes, &dds, map.format(), max_texture_size)?,
             files,
         )?;
         let options = parse_config(
@@ -593,7 +670,13 @@ fn convert_material(
             &format!("{STAGE}.{native_key}.value"),
             V::String(texture.clone()),
         )?;
+        let camouflage = if map == Map::Albedo {
+            camouflage_maps(out, target, inputs, &texture, &template_texture, files)?
+        } else {
+            vec![]
+        };
         textures.push(texture);
+        textures.extend(camouflage);
     }
     for (key, value) in [
         ("constant_roughness_min", GLOSS.0),
@@ -1248,7 +1331,7 @@ mod tests {
     #[test]
     fn large_maps_shrink_by_their_own_mips() {
         let source = dds(64, 64, 5, b"DXT1");
-        let out = convert_texture(&source, "test", Map::Smoothness, 32).unwrap();
+        let out = convert_texture(&source, "test", Map::Smoothness.format(), 32).unwrap();
         let info = parse_dds(&out, "out").unwrap();
         assert_eq!((info.width, info.height), (32, 32));
         // 32 down to 4: four levels; the first is the source's second.
@@ -1262,11 +1345,23 @@ mod tests {
     #[test]
     fn a_dxt5_colour_map_becomes_dxt1_and_a_normal_map_must_be_dxt5() {
         let source = dds(16, 16, 3, b"DXT5");
-        let out = convert_texture(&source, "test", Map::Albedo, 1024).unwrap();
+        let out = convert_texture(&source, "test", Map::Albedo.format(), 1024).unwrap();
         assert_eq!(&out[84..88], b"DXT1");
         assert_eq!(out.len(), 128 + (16 + 4 + 1) * 8 + 1);
         assert_eq!(*out.last().unwrap(), 1);
-        assert!(convert_texture(&dds(16, 16, 3, b"DXT1"), "test", Map::Normal, 1024).is_err());
+        assert!(convert_texture(&dds(16, 16, 3, b"DXT1"), "test", Map::Normal.format(), 1024).is_err());
+    }
+
+    #[test]
+    fn camouflage_maps_keep_the_released_formats() {
+        // A 0.69d vest's mask at 1024x2048 goes down to the diffuse's 512x1024.
+        let mask = convert_texture(&dds(1024, 2048, 3, b"DXT1"), "aoac", CAMOUFLAGE_MAPS[0].1, 1024).unwrap();
+        let info = parse_dds(&mask, "aoac").unwrap();
+        assert_eq!((info.width, info.height, &info.four_cc), (512, 1024, b"DXT1"));
+        // The part's camouflage normal stays a normal map's DXT5; a DXT1 one is refused.
+        assert!(convert_texture(&dds(16, 16, 3, b"DXT5"), "camo_nmap", CAMOUFLAGE_MAPS[2].1, 1024).is_ok());
+        assert!(convert_texture(&dds(16, 16, 3, b"DXT1"), "camo_nmap", CAMOUFLAGE_MAPS[2].1, 1024).is_err());
+        assert_eq!(CAMOUFLAGE_MAPS.map(|(suffix, _)| suffix), ["_aoac", "_camo", "_camo_nmap", "_camo_smap"]);
     }
 
     #[test]
