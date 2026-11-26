@@ -410,6 +410,17 @@ pub fn sun_radiance(sun_intensity_r2: f32, air_density: f32, air_turbidity: f32,
     })
 }
 
+/// A sun of `radiance` (per channel, the scene's light scale) as 0.26g's
+/// environment stores it: `sun_color` and `sun_intensity`. The game raises
+/// `sun_color` to 2.2 when it loads it (the environment loader at 0x34e447,
+/// through 0x1bfcb0, every channel) and lights with that times
+/// `sun_intensity` (`light_color`, `stage_composition::execute`), so the
+/// colour is written as the linear colour to 1/2.2.
+pub fn sun_environment(radiance: [f32; 3]) -> ([f32; 3], f32) {
+    let intensity = radiance.iter().cloned().fold(0.0, f32::max);
+    (radiance.map(|v| (v / intensity).max(0.0).powf(1.0 / 2.2)), intensity)
+}
+
 /// 0.69d point and spot lights (`deferred_lighting.ps`, constants from
 /// 0x4427a0): a white Lambertian surface at `d` facing the light sends back
 /// `c * luminous_power * 1000 / D * (1 - (d / range)^16)^2 / d^2` cd/m^2,
@@ -474,6 +485,18 @@ mod light_tests {
         for (got, want) in r.iter().zip([106_653.0, 80_874.0, 57_098.0]) {
             assert!((got / want - 1.0).abs() < 0.02, "{r:?}");
         }
+    }
+
+    #[test]
+    fn the_game_lights_with_the_suns_radiance() {
+        // What the game draws with: sun_color^2.2 (its loader) times sun_intensity.
+        let radiance = [4.883, 3.702, 2.613];
+        let (colour, intensity) = sun_environment(radiance);
+        let lit = colour.map(|c| c.powf(2.2) * intensity);
+        for (got, want) in lit.iter().zip(radiance) {
+            assert!((got / want - 1.0).abs() < 1e-4, "{lit:?}");
+        }
+        assert_eq!(colour[0], 1.0);
     }
 
     #[test]
