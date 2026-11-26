@@ -262,6 +262,25 @@ enum Command {
         #[arg(long)]
         output: PathBuf,
     },
+    /// The camouflage maps 0.69d ships for released vests and trousers whose
+    /// donor had none (`_aoac`, `_camo`, `_camo_nmap`, `_camo_smap`; a manifest
+    /// `ports/survarium-069d-camo-maps-to-026g.json`).
+    #[command(name = "build-camo-maps-069d")]
+    BuildCamoMaps069d {
+        #[arg(long)]
+        manifest: PathBuf,
+        /// 0.69d's diffuse maps and their camouflage maps, extracted at their archive paths.
+        #[arg(long)]
+        source_root: PathBuf,
+        /// The stock 0.26g resources.db.
+        #[arg(long)]
+        target_db: PathBuf,
+        /// Released `resources.db.patch_<n>` over it (repeatable).
+        #[arg(long = "patch")]
+        patches: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
     /// Build three rigid STK2 weapon items and optionally replace the v0.100b lobby scene.
     BuildStk2Content {
         #[arg(long)]
@@ -1240,6 +1259,18 @@ fn main() -> Result<()> {
         } => {
             let manifest = armour_069d::Manifest::load(&manifest)?;
             armour_069d::build(&manifest, &source_root, &target_db, &patches, &output)?;
+            println!("bundle={}", output.display());
+        }
+        Command::BuildCamoMaps069d {
+            manifest,
+            source_root,
+            target_db,
+            patches,
+            output,
+        } => {
+            let manifest = armour_069d::CamouflageManifest::load(&manifest)?;
+            let records = armour_069d::build_camouflage_maps(&manifest, &source_root, &target_db, &patches, &output)?;
+            println!("textures={}", records.len());
             println!("bundle={}", output.display());
         }
         Command::BuildStk2Content {

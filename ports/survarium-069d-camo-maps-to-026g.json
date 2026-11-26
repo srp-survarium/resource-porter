@@ -1,0 +1,13 @@
+{
+  "asset_id": "camo-maps-069d-to-026g",
+  "textures": [
+    {"texture": "character/human/renesanse_sniper_07/renesanse_sniper_07_torso", "model": "character/human/renesanse/renesanse_sniper_07_torso_s1", "surface": "renesanse_sniper_07_torso_s", "template": "character/human/renesance_combat/renesance_combat_torso"},
+    {"texture": "character/human/renesanse_sniper_07/renesanse_sniper_07_legs", "model": "character/human/renesanse/renesanse_sniper_07_legs_s1", "surface": "renesanse_sniper_07_legs_s", "template": "character/human/renesance_combat/renesance_combat_legs"},
+    {"texture": "character/human/edge_keeper_07/edge_keeper_07_torso", "model": "character/human/edge/edge_keeper_07_torso_s1", "surface": "edge_keeper_07_torso_s", "template": "character/human/renesance_combat/renesance_combat_torso"},
+    {"texture": "character/human/edge_fighter_02/edge_fighter_02_torso", "model": "character/human/edge/edge_fighter_02_torso_s1", "surface": "edge_fighter_02_torso_s", "template": "character/human/renesance_combat/renesance_combat_torso"},
+    {"texture": "character/human/edge_fighter_02/edge_fighter_02_legs", "model": "character/human/edge/edge_fighter_02_legs_s1", "surface": "edge_fighter_02_legs_s", "template": "character/human/renesance_combat/renesance_combat_legs"},
+    {"texture": "character/human/renesanse_vdv/renesanse_vdv_torso", "model": "character/human/renesanse/renesanse_vdv_torso_s1", "surface": "renesanse_vdv_torso_s", "template": "character/human/renesance_combat/renesance_combat_torso"},
+    {"texture": "character/human/renesanse_vdv/renesanse_vdv_legs", "model": "character/human/renesanse/renesanse_vdv_legs_s1", "surface": "renesanse_vdv_legs_s", "template": "character/human/renesance_combat/renesance_combat_legs"},
+    {"texture": "character/human/scavenger_05_sniper/scavenger_05_sniper_torso_prem", "model": "character/human/scavengers/scavenger_05_sniper_torso_s1_prem", "surface": "scavenger_05_sniper_torso_s", "template": "character/human/renesance_combat/renesance_combat_torso"}
+  ]
+}

@@ -1278,6 +1278,166 @@ pub fn build(
     Ok(records)
 }
 
+/// The camouflage maps of released vests and trousers whose donor had none
+/// (`ports/survarium-069d-camo-maps-to-026g.json`): each names a diffuse map
+/// the released game has and 0.69d ships with its camouflage maps at the same
+/// path, a surface that draws it in both builds (whose UVs must be the same:
+/// the mask then fits, however the two paintings differ), and the native
+/// diffuse whose maps' options they take.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CamouflageManifest {
+    pub asset_id: String,
+    pub textures: Vec<CamouflageTexture>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CamouflageTexture {
+    /// The diffuse map, under `textures/`, without `.dds`.
+    pub texture: String,
+    /// A model under `models/` (without `.skinned_model`) that both builds
+    /// ship, and its surface that draws the map.
+    pub model: String,
+    pub surface: String,
+    /// A native diffuse whose camouflage maps' options these take.
+    pub template: String,
+}
+
+impl CamouflageManifest {
+    pub fn load(path: &Path) -> Result<Self> {
+        let manifest: Self = serde_json::from_slice(&fs::read(path)?)
+            .with_context(|| format!("reading {}", path.display()))?;
+        ensure!(!manifest.textures.is_empty(), "{}: no textures", path.display());
+        Ok(manifest)
+    }
+}
+
+/// A 0.26g skinned surface's UVs (the last 8 bytes of each vertex) and
+/// indices.
+fn uvs_026(raw: &[u8], label: &str) -> Result<(Vec<[f32; 2]>, Vec<u8>)> {
+    let read = |at: usize| -> Result<u32> {
+        Ok(u32::from_le_bytes(
+            raw.get(at..at + 4).with_context(|| format!("{label}: truncated"))?.try_into()?,
+        ))
+    };
+    ensure!(read(0)? == 3, "{label}: no vertex chunk");
+    let (size, count) = (read(4)? as usize, read(8)? as usize);
+    ensure!(count > 0 && (size - 4) % count == 0, "{label}: odd vertex chunk");
+    let stride = (size - 4) / count;
+    let mut uv = Vec::with_capacity(count);
+    for v in 0..count {
+        let at = 12 + v * stride + stride - 8;
+        uv.push([f32::from_bits(read(at)?), f32::from_bits(read(at + 4)?)]);
+    }
+    let at = 8 + size;
+    ensure!(read(at)? == 4, "{label}: no index chunk");
+    let indices = raw
+        .get(at + 12..at + 12 + 2 * read(at + 8)? as usize)
+        .with_context(|| format!("{label}: truncated indices"))?
+        .to_vec();
+    Ok((uv, indices))
+}
+
+/// The largest UV difference between the released surface and 0.69d's of
+/// the same model, which must have the same vertices in the same triangles.
+fn uv_difference(released: &[u8], donor: &crate::v069d_skinned::Surface, label: &str) -> Result<f32> {
+    let (ours, our_indices) = uvs_026(released, label)?;
+    let (theirs, their_indices) = uvs_026(&to_026_four_bone(donor)?, label)?;
+    ensure!(
+        ours.len() == theirs.len() && our_indices == their_indices,
+        "{label}: the released surface and 0.69d's are other meshes"
+    );
+    Ok(ours
+        .iter()
+        .zip(&theirs)
+        .map(|(a, b)| (a[0] - b[0]).abs().max((a[1] - b[1]).abs()))
+        .fold(0.0, f32::max))
+}
+
+/// How far a UV may move for 0.69d's mask to fit: a texel of the 1024 maps
+/// 0.26g's characters draw (the builds store UVs at different precisions).
+pub const SAME_UV: f32 = 1.0 / 1024.0;
+
+/// What [`build_camouflage_maps`] made of one texture.
+#[derive(Debug, Serialize)]
+pub struct CamouflageRecord {
+    pub texture: String,
+    pub template: String,
+    /// The surface checked, and its largest UV difference (see [`SAME_UV`]).
+    pub surface: String,
+    pub uv_difference: f32,
+    pub maps: Vec<String>,
+}
+
+/// The camouflage maps 0.69d ships beside each manifest texture, converted to
+/// the released diffuse's size as [`camouflage_maps`] converts a ported
+/// piece's: for the released vests and trousers whose donor had no maps (a
+/// camouflage on them showed nothing). `source` holds 0.69d's maps and the
+/// manifest's surfaces at their archive paths.
+pub fn build_camouflage_maps(
+    manifest: &CamouflageManifest,
+    source: &Path,
+    db: &Path,
+    patches: &[PathBuf],
+    output: &Path,
+) -> Result<Vec<CamouflageRecord>> {
+    crate::weapon::prepare_empty_output(output)?;
+    let overlay = output.join("overlay");
+    let out = Writer {
+        overlay: &overlay,
+        tag: "Camouflage-069d",
+    };
+    let mut target = crate::novice_026::game_view(db, patches)?;
+    let mut files = vec![];
+    let mut records = vec![];
+    for entry in &manifest.textures {
+        let dds = format!("textures/{}.dds", entry.texture);
+        let released = target.read(&dds).with_context(|| format!("{dds}: not in the released game"))?;
+        let size = parse_dds(&released, &dds)?;
+        let surface = format!(
+            "models/{}.skinned_model/render/{}/converted_model",
+            entry.model, entry.surface
+        );
+        let label = format!("{} {}", entry.model, entry.surface);
+        let ours = target.read(&surface).with_context(|| format!("{surface}: not in the released game"))?;
+        let difference = uv_difference(&ours, &donor_surface(source, &entry.model, &entry.surface)?, &label)?;
+        ensure!(
+            difference <= SAME_UV,
+            "{label}: UVs {difference} away from 0.69d's: its mask does not fit {dds}"
+        );
+        let inputs = MaterialInputs {
+            source,
+            max_texture_size: size.width.max(size.height),
+            released: &BTreeSet::new(),
+        };
+        let maps = camouflage_maps(&out, &mut target, &inputs, &entry.texture, &entry.template, &mut files)?;
+        ensure!(maps.iter().any(|m| m.ends_with("_aoac")), "{dds}: 0.69d has no _aoac beside it");
+        println!("{}: {} (UVs within {difference})", entry.texture, maps.join(", "));
+        records.push(CamouflageRecord {
+            texture: entry.texture.clone(),
+            template: entry.template.clone(),
+            surface: label,
+            uv_difference: difference,
+            maps,
+        });
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    crate::weapon::reject_duplicate_outputs(&files)?;
+    fs::write(
+        output.join("port-manifest.json"),
+        serde_json::to_vec_pretty(&json!({
+            "format_version": 1,
+            "asset_id": manifest.asset_id,
+            "donor_build": "0.69d",
+            "target_build": "0.26g",
+            "files": files,
+        }))?,
+    )?;
+    fs::write(output.join("camouflage-report.json"), serde_json::to_vec_pretty(&records)?)?;
+    Ok(records)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1350,6 +1510,26 @@ mod tests {
         assert_eq!(out.len(), 128 + (16 + 4 + 1) * 8 + 1);
         assert_eq!(*out.last().unwrap(), 1);
         assert!(convert_texture(&dds(16, 16, 3, b"DXT1"), "test", Map::Normal.format(), 1024).is_err());
+    }
+
+    #[test]
+    fn a_surfaces_uvs_are_its_vertices_last_eight_bytes() {
+        let mut raw = vec![];
+        for v in [3u32, 4 + 2 * 16, 2] {
+            raw.extend_from_slice(&v.to_le_bytes());
+        }
+        for (u, v) in [(0.25f32, 0.5f32), (1.0, 0.0)] {
+            raw.extend_from_slice(&[0; 8]);
+            raw.extend_from_slice(&u.to_le_bytes());
+            raw.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in [4u32, 4 + 4, 2] {
+            raw.extend_from_slice(&v.to_le_bytes());
+        }
+        raw.extend_from_slice(&[0, 0, 1, 0]);
+        let (uv, indices) = uvs_026(&raw, "test").unwrap();
+        assert_eq!(uv, [[0.25, 0.5], [1.0, 0.0]]);
+        assert_eq!(indices, [0, 0, 1, 0]);
     }
 
     #[test]
