@@ -101,7 +101,7 @@ less the gun's shift: every vertex of every part drawn, the optic's frame and ey
 the wrist; that the same parts are drawn; limit 0.5 mm. A second sight is checked on each side
 (`second_sight` names it in the record): its parts, its frame (`second sight`), that the gun's own
 eye stays the eye, and its eye (`second eye`) against 0.69d0's `aim_3`/`aim_4` slot after
-`get_slot_transform`'s plane rule (the origin along its line to the plane of the gun's `body_aim`),
+`get_slot_transform`'s plane rule (the origin along its line to the plane of the gun's `body_aim`), both slots on their bones in the gun's aimed idle pose as the rule runs on the live bones,
 with `second eye line` its line alone; its reticle's centre is a row of `centres` with its side. A failure is a row of the record and a
 `FAIL` line; nothing is fixed per gun. With `--renders`, each comparison is also a picture
 (`<item>/<module>.png`: 0.69d0 left, ours right, from the side and from above), and each gun

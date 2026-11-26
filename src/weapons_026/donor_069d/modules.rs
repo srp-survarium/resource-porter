@@ -2228,9 +2228,27 @@ fn check(
                         Some(site) if in_plane => Some(site_frame(b, catalog, donor, site, &donor_gun)?.then(&shift)),
                         _ => None,
                     };
-                    let theirs = plane.map_or(theirs, |plane| to_plane(&theirs, &plane));
-                    let ours_eye = ours(&second.eye.placed(EyeAnchor::Optic))?;
-                    row("second eye", spread(&PROBE, &ours_eye, &theirs), "");
+                    // The rule runs on the bones as they are: in the gun's aimed idle pose, where
+                    // the table's eye is worked out (the L85A2's barrel bone stands 4.7 mm off its
+                    // bind place there, along the sight line). Each of 0.69d0's two slots is carried
+                    // there on the bone it hangs on.
+                    let eye_at = second.eye.placed(EyeAnchor::Optic);
+                    let carry = |frame: &Frame, bone: u16| -> Result<Frame> {
+                        let bind = ship.get(usize::from(bone)).context("a bone without a bind frame")?;
+                        let posed = aimed.poses[0].get(usize::from(bone)).context("a bone without a pose")?;
+                        Ok(frame.then(&bind.inverse()).then(posed))
+                    };
+                    let posed_eye = |at: &Placement| -> Result<Frame> {
+                        let bone = aimed.poses[0].get(usize::from(at.bone.0)).context("a bone without a pose")?;
+                        Ok(HALF_TURN.then(&Frame::from_affine(&at.offset)).then(bone))
+                    };
+                    let theirs_posed = match plane {
+                        Some(plane) => to_plane(&carry(&theirs, eye_at.bone.0)?, &carry(&plane, gun.body_aim().bone.0)?),
+                        None => carry(&theirs, eye_at.bone.0)?,
+                    };
+                    row("second eye", spread(&PROBE, &posed_eye(&eye_at)?, &theirs_posed), "");
+                    // Its line of sight, in the bind pose.
+                    let ours_eye = ours(&eye_at)?;
                     row("second eye line", spread(&PROBE, &ours_eye, &nearest_on_line(&theirs, &ours_eye.t)), "");
                     let frame = ours(&second.at)?;
                     row("second sight", spread(&PROBE, &frame, &fit_frame.then(&shift)), "");
