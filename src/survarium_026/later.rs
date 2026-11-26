@@ -3023,8 +3023,7 @@ pub fn convert_scene(
                 elevation,
             )
             .map(|v| v * scale.0);
-            let intensity = sun.iter().cloned().fold(0.0, f32::max);
-            let colour = sun.map(|v| v / intensity);
+            let (colour, intensity) = super::lighting::sun_environment(sun);
             environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
             // 0.69d has no height-based ambient; 0.26's multiplies the
@@ -3036,7 +3035,7 @@ pub fn convert_scene(
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: sun_color {:?} (the game raises it to 2.2), intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
                 colour.map(|v| (v * 1000.0).round() / 1000.0)
             ));

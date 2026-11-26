@@ -354,7 +354,10 @@ the formulas come from both builds' shader disassembly):
 * Sun: 0.69d's `sun_intensity_r2 / pi * solar irradiance * T`, T its atmosphere's
   transmittance (Rayleigh x `air_density`, Mie x `air_turbidity`, ozone) at the sun's
   elevation: for Rudnya colour (1, 0.758, 0.535), intensity 4.88 (native 2). 0.26 lights a
-  white surface with `sun_color * sun_intensity * N.L` (no 1/pi, as 0.69d).
+  white surface with `sun_color^2.2 * sun_intensity * N.L` (no 1/pi, as 0.69d): its environment
+  loader raises `sun_color` to 2.2 (0x34e447 of the 0.26g exe, through 0x1bfcb0), so the scene
+  stores the colour to 1/2.2 (Rudnya's (1, 0.882, 0.753)). Written linear, the sun drew at
+  (1, 0.544, 0.253) of its intensity in the game: 0.78 of its light and red.
 * Probes: all 69 donor volumes with their own cubemaps, each volume with its full
   rotation (the church's floor lights lie on their side, the bus stop's probe turns
   about every axis) and its diffuse light times its `multiplier` (0.69d's
