@@ -524,7 +524,7 @@ dependencies = [
 [[package]]
 name = "weapon-modules"
 version = "0.1.0"
-source = "git+https://github.com/srp-survarium/skhid-srp?rev=b90fefd7d952565e6bd1cf19ef323b9ba7e1bd6c#b90fefd7d952565e6bd1cf19ef323b9ba7e1bd6c"
+source = "git+https://github.com/srp-survarium/skhid-srp?rev=c4f57620b61c3162602e6bbe02872e2d8a3dde9a#c4f57620b61c3162602e6bbe02872e2d8a3dde9a"
 
 [[package]]
 name = "windows-link"

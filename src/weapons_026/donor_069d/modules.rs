@@ -247,6 +247,9 @@ pub struct Checked {
     /// A second sight's fit: the side's slot it is checked in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub second_sight: Option<String>,
+    /// A scope checked on another of its ways (`weapon_modules::Mount` 1..): that way's slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub way: Option<String>,
 }
 
 /// How a remodel's whole body differs in shape from the live model it
@@ -373,6 +376,9 @@ pub struct Centre {
     /// A second sight's: the side's slot, and the eye the second one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub second_sight: Option<String>,
+    /// A scope on another of its ways: that way's slot.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub way: Option<String>,
 }
 
 /// A magnified scope's reticle in its aimed model (0.69d0's own).
@@ -1473,7 +1479,7 @@ pub fn port_modules(
                         _ => continue,
                     }
                 }
-                plan.fits.push(fit.clone());
+                plan.fits.push(plan::Fit { others: vec![], ..fit.clone() });
                 legacy.push(LegacyReport {
                     gun: pair.weapon.clone(),
                     module: module.clone(),
@@ -1516,6 +1522,7 @@ pub fn port_modules(
                 kind: Kind::Scope,
                 slot: slot.clone(),
                 chain: vec![],
+                others: vec![],
             });
             legacy.push(LegacyReport {
                 gun: pair.weapon.clone(),
@@ -1856,7 +1863,7 @@ pub fn port_modules(
     for (at, dict, scope, want) in &placed_legacy {
         let live_item = legacy[*at].gun.clone();
         let wanted = Wanted {
-            scope: DictId::new(*scope),
+            scope: DictId::new(*scope).map(|dict| (dict, weapon_modules::Mount::default())),
             ..Wanted::default()
         };
         let gun = parsed.gun(DictId::new(*dict).context("a dict id of 0")?).context("a legacy row's gun")?;
@@ -2081,9 +2088,23 @@ fn check(
     } else {
         &b.plan.fits
     };
-    for fit in fits {
+    // Each fit on each of its ways: a scope's others (`Mount` 1..) checked as its first is.
+    let ways: Vec<(u8, plan::Fit)> = fits
+        .iter()
+        .flat_map(|fit| {
+            let others = fit.others.iter().map(|way| plan::Fit {
+                slot: way.slot.clone(),
+                chain: way.chain.clone(),
+                others: vec![],
+                ..fit.clone()
+            });
+            (0u8..).zip(std::iter::once(fit.clone()).chain(others))
+        })
+        .collect();
+    for (mount, fit) in &ways {
         let module = catalog.module(&fit.module)?;
         let second_sight = (fit.kind == Kind::SecondSight).then(|| fit.slot.clone());
+        let way = (*mount > 0).then(|| fit.slot.clone());
         let mut row = |what: &str, metres: f64, note: &str| {
             out.push(Checked {
                 gun: live_item.to_owned(),
@@ -2093,9 +2114,22 @@ fn check(
                 pass: note.is_empty() && metres <= if what == "hand" { HAND_LIMIT } else { LIMIT },
                 note: note.to_owned(),
                 second_sight: second_sight.clone(),
+                way: way.clone(),
             });
         };
         let wanted_id = ids.get(&fit.module).copied().and_then(DictId::new).context("a fit without an id")?;
+        // The crate's ways are the plan's, in its order.
+        if fit.kind == Kind::Scope && *mount == 0 {
+            let plan_ways: Vec<SlotId> = std::iter::once(&fit.slot)
+                .chain(fit.others.iter().map(|way| &way.slot))
+                .map(|slot| slot_id(slot))
+                .collect::<Result<_>>()?;
+            let table_ways: Vec<SlotId> = weapon_modules::mounts(gun, wanted_id).iter().map(|(_, slot)| slot).collect();
+            if plan_ways != table_ways {
+                row("ways", 0.0, &format!("the table's ways {table_ways:?} are not the plan's {plan_ways:?}"));
+            }
+        }
+        let mount = weapon_modules::Mount::new(*mount).context("more ways than a kit holds")?;
         let wanted = match fit.kind {
             Kind::SecondSight => {
                 let side = match SECOND_SIGHT_SLOTS.iter().position(|s| *s == fit.slot) {
@@ -2109,7 +2143,7 @@ fn check(
                 }
             }
             Kind::Scope => Wanted {
-                scope: Some(wanted_id),
+                scope: Some((wanted_id, mount)),
                 ..Wanted::default()
             },
             Kind::Muzzle => Wanted {
@@ -2300,9 +2334,9 @@ fn check(
             }
             let dest = dir.join(live_item);
             fs::create_dir_all(&dest)?;
-            let name = match &second_sight {
-                Some(side) => format!("{}@{side}.png", fit.module),
-                None => format!("{}.png", fit.module),
+            let name = match (&second_sight, &way) {
+                (Some(slot), _) | (None, Some(slot)) => format!("{}@{slot}.png", fit.module),
+                (None, None) => format!("{}.png", fit.module),
             };
             fs::write(dest.join(name), render::pair(&left, &right, 640)?)?;
         }
@@ -2328,6 +2362,8 @@ fn check(
                         row(if in_plane { "eye line" } else { "eye" }, spread(&PROBE, &ours_eye, &theirs), "");
                         if !push_centre(donor, live_item, &fit.module, (&optic.module, &optic.frame), &eye, aimed, None, centres)? {
                             row("reticle", 0.0, "its aimed model has no reticle surface");
+                        } else if let Some(centre) = centres.last_mut() {
+                            centre.way = way.clone();
                         }
                     }
                     _ => row("eye", 0.0, "no eye on one side"),
@@ -2369,7 +2405,7 @@ fn check(
                         Ok(HALF_TURN.then(&Frame::from_affine(&at.offset)).then(bone))
                     };
                     let theirs_posed = match plane {
-                        Some(plane) => to_plane(&carry(&theirs, eye_at.bone.0)?, &carry(&plane, gun.body_aim().bone.0)?),
+                        Some(plane) => to_plane(&carry(&theirs, eye_at.bone.0)?, &carry(&plane, gun.eye_plane().context("a gun without its eye plane")?.bone.0)?),
                         None => carry(&theirs, eye_at.bone.0)?,
                     };
                     row("second eye", spread(&PROBE, &posed_eye(&eye_at)?, &theirs_posed), "");
@@ -2489,6 +2525,7 @@ fn centre(
         ahead: round(seen[0][2]),
         eye_behind_optic: round(origin[2]),
         second_sight: None,
+        way: None,
     })
 }
 

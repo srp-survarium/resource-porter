@@ -133,6 +133,17 @@ pub struct Fit {
     /// The carriers that bring that slot, in the order they go on; empty
     /// when the gun with its own parts has it.
     pub chain: Vec<Link>,
+    /// A scope's other ways onto the gun, which a player may choose
+    /// (`weapon_modules::mounts`, ways 1..): each other slot it names, in its
+    /// order, that the gun with its own parts has or carriers bring.
+    pub others: Vec<Way>,
+}
+
+/// A slot a fit may go in instead, and the carriers that bring it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct Way {
+    pub slot: String,
+    pub chain: Vec<Link>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -323,11 +334,37 @@ pub fn plan(
             goes.push((catalog.module(&link.module)?, link.slot.clone()));
         }
         goes.push((module, slot.clone()));
+        // A scope's other ways (the side sight's slots are a second sight's).
+        let mut others = vec![];
+        let other_slots = attaches
+            .iter()
+            .map(|a| &a.slot)
+            .filter(|s| kind == Kind::Scope && **s != slot && !SECOND_SIGHT_SLOTS.contains(&s.as_str()));
+        for other in other_slots {
+            let links = if plan.slots.contains_key(other) {
+                vec![]
+            } else {
+                let Some(links) = chain(item, &plan.slots, &carriers, other) else { continue };
+                match plan.carriers.get(other) {
+                    Some(known) => ensure!(*known == links, "{item}: two carrier chains bring {other}: {known:?} and {links:?}"),
+                    None => {
+                        plan.carriers.insert(other.clone(), links.clone());
+                    }
+                }
+                links
+            };
+            for link in &links {
+                goes.push((catalog.module(&link.module)?, link.slot.clone()));
+            }
+            goes.push((module, other.clone()));
+            others.push(Way { slot: other.clone(), chain: links });
+        }
         plan.fits.push(Fit {
             module: module.id.clone(),
             kind,
             slot,
             chain: links,
+            others,
         });
     }
     // Second sights: an optic again, a fit on each side the gun has its slot or carriers bring it.
@@ -361,6 +398,7 @@ pub fn plan(
                 kind: Kind::SecondSight,
                 slot: side.to_owned(),
                 chain: links,
+                others: vec![],
             });
             any = true;
         }
