@@ -35,10 +35,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
 use weapon_modules::encode::{AttachSource, GunSource, ModuleSource, Source, encode};
-use weapon_modules::{Affine, AttachEye, DictId, EyeAnchor, Loadout, Placement, Role, SlotId, Table, Wanted};
+use weapon_modules::{Affine, AttachEye, DictId, EyeAnchor, Loadout, Placement, Role, Side, SlotId, Table, Wanted};
 
 use super::catalog::{AttachDef, Catalog, ModuleDef};
-use super::plan::{self, Base, GunPlan, Kind, Site};
+use super::plan::{self, Base, GunPlan, Kind, SECOND_SIGHT_SLOTS, Site};
 use super::render::{self, Shape};
 use super::{
     BindFrame, Body, Composed, Donor069, Gun069, Locator, Rig, Spec069, body_path, db_config, encode as encode_config,
@@ -244,6 +244,9 @@ pub struct Checked {
     pub pass: bool,
     /// Why it fails, when it is not the distance.
     pub note: String,
+    /// A second sight's fit: the side's slot it is checked in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub second_sight: Option<String>,
 }
 
 /// How a remodel's whole body differs in shape from the live model it
@@ -367,6 +370,9 @@ pub struct Centre {
     pub ahead: f64,
     /// The optic's own origin along the eye's k at the clip's start, metres, signed (the eye relief).
     pub eye_behind_optic: f64,
+    /// A second sight's: the side's slot, and the eye the second one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub second_sight: Option<String>,
 }
 
 /// A magnified scope's reticle in its aimed model (0.69d0's own).
@@ -1127,6 +1133,12 @@ impl ModuleMaker<'_> {
             if role == Role::Fitted(weapon_modules::Kind::Scope) && attach.eye.is_none() {
                 continue;
             }
+            ensure!(
+                role != Role::Fitted(weapon_modules::Kind::SecondSight) || attach.eye.is_some(),
+                "{}: a second sight in {} without a second eye (aim_2 .. aim_5)",
+                module.id,
+                rules.slot
+            );
             attaches.push(attach);
         }
         ensure!(!attaches.is_empty(), "{}: no slot of {slots:?} on {item}", module.id);
@@ -1163,6 +1175,27 @@ impl ModuleMaker<'_> {
                 Some(donor.collimator_aimed(&model, models.aimed.as_deref(), (reticle, first), &eye, target, work)?)
             }
             (Role::Fitted(weapon_modules::Kind::Scope), None) => path(&models.aimed, donor, target)?,
+            (Role::Fitted(weapon_modules::Kind::SecondSight), Some(reticle)) => {
+                // Its second eyes (`aim_3`, `aim_4`) at one locator, the scope's eye's: one aimed
+                // model an optic, the scope's, with its reticle where 0.69d0 draws both.
+                let only = |a: &&AttachDef| slots.is_none_or(|only| only.contains(&a.slot.as_str()));
+                let mut eyes = module.attaches_on(item).iter().filter(only).flat_map(|a| &a.adds).filter(|p| plan::second_eye(&p.id));
+                let eye = eyes.next().with_context(|| format!("{}: a second sight without an eye", module.id))?;
+                ensure!(eyes.all(|other| other.locator == eye.locator), "{}: its side slots give it more than one eye", module.id);
+                let scope_eye = module.attaches_on(item).iter().flat_map(|a| &a.overrides).find(|p| p.id == "aim");
+                ensure!(
+                    scope_eye.is_none_or(|scope| scope.locator == eye.locator),
+                    "{}: its second eye is at {} and its scope's at another locator: two aimed models",
+                    module.id,
+                    eye.locator
+                );
+                let eye = locator(&eye.locator)?;
+                let first = module.reticles.first().context("a reticle of its own")?;
+                Some(donor.collimator_aimed(&model, models.aimed.as_deref(), (reticle, first), &eye, target, work)?)
+            }
+            (Role::Fitted(weapon_modules::Kind::SecondSight), None) => {
+                bail!("{}: a second sight without a reticle of its own (a magnified scope)", module.id)
+            }
             _ => None,
         };
         Ok(ModuleSource {
@@ -1185,8 +1218,25 @@ impl ModuleMaker<'_> {
     ) -> Result<AttachSource> {
         // A module's own locator `L` is the table's `half turn x L`.
         let own = |name: &str| -> Result<Affine> { Ok(HALF_TURN.then(&locator(name)?).affine()) };
+        // An eye at a locator, whole or at the gun's own eye plane (`plane_slot: body_aim`).
+        let eye = |point: &super::catalog::SlotDef| -> Result<AttachEye> {
+            let at = own(&point.locator)?;
+            Ok(match point.plane.as_deref() {
+                None => AttachEye::Own(at),
+                Some("body_aim") => AttachEye::InGunPlane(at),
+                Some(other) => bail!("{module}: {} keeps the plane of {other}, a slot the table has no rule for", point.id),
+            })
+        };
+        let second = role == Role::Fitted(weapon_modules::Kind::SecondSight);
         let mut out = AttachSource::new(slot_id(&rules.slot)?);
         for add in &rules.adds {
+            // A second sight's eye: the aim point it adds (0.69d0's `aim_3`, `aim_4`), the second
+            // one a player switches to; its reticle's slot stays an add, as a scope's `reticle`.
+            if second && plan::second_eye(&add.id) {
+                ensure!(out.eye.is_none(), "{module}: two second eyes in {}", rules.slot);
+                out.eye = Some(eye(add)?);
+                continue;
+            }
             match own(&add.locator) {
                 Ok(at) => out.adds.push((slot_id(&add.id)?, at)),
                 Err(_) => {
@@ -1197,16 +1247,11 @@ impl ModuleMaker<'_> {
         }
         for point in &rules.overrides {
             match point.id.as_str() {
-                "aim" => {
-                    let at = own(&point.locator)?;
-                    out.eye = Some(match point.plane.as_deref() {
-                        None => AttachEye::Own(at),
-                        Some("body_aim") => AttachEye::InGunPlane(at),
-                        Some(other) => bail!("{module}: aim keeps the plane of {other}, a slot the table has no rule for"),
-                    });
-                }
+                // (A second sight moves the second eye alone.)
+                "aim" if !second => out.eye = Some(eye(point)?),
                 "fire_point" => out.fire_point = Some(own(&point.locator)?),
-                // The charging handle and the second aim points: 0.26g has one zoom and one eye.
+                // The charging handle and the overridden second aim points (the piggyback
+                // sights'): 0.26g has one zoom, and a second eye is a second sight's alone.
                 _ => {}
             }
         }
@@ -1214,7 +1259,7 @@ impl ModuleMaker<'_> {
         // `aim` and `barrel_point` (its sights and flash are where they are today, whichever
         // body is drawn), so an own part moves neither, and only an optic moves the eye (a
         // rail mount's is where the bare rail would aim).
-        if !matches!(role, Role::Fitted(weapon_modules::Kind::Scope)) {
+        if !matches!(role, Role::Fitted(kind) if kind.sees()) {
             out.eye = None;
         }
         if role == Role::Stock {
@@ -1266,6 +1311,31 @@ fn aimed_poses(target: &mut ResourceDb, config: &V, bind: &[u8]) -> Result<[Vec<
             })
             .collect()
     }))
+}
+
+/// The carriers that bring `brings` on `item` (`links`, in the order they go on), each a row:
+/// the gun record's carrier entry.
+#[allow(clippy::too_many_arguments)]
+fn carrier_chain(
+    maker: &ModuleMaker,
+    donor: &mut Donor069,
+    target: &mut ResourceDb,
+    work: &Path,
+    catalog: &Catalog,
+    rows: &mut Rows,
+    item: &str,
+    brings: &str,
+    links: &[plan::Link],
+) -> Result<(SlotId, Vec<(usize, SlotId)>)> {
+    let mut chain = vec![];
+    for link in links {
+        let module = catalog.module(&link.module)?;
+        let row = maker
+            .source(donor, target, work, module, Role::Carrier, item, None)
+            .with_context(|| format!("{item}: carrier {}", link.module))?;
+        chain.push((rows.row(row), slot_id(&link.slot)?));
+    }
+    Ok((slot_id(brings)?, chain))
 }
 
 /// A gun while it is aimed and at rest: its bones through the aimed idle clip.
@@ -1387,7 +1457,7 @@ pub fn port_modules(
                 let Some((module, _)) = ids.iter().find(|(_, id)| **id == pair.scope) else {
                     continue;
                 };
-                if plan.fits.iter().any(|f| f.module == *module) {
+                if plan.fits.iter().any(|f| f.module == *module && f.kind == Kind::Scope) {
                     continue;
                 }
                 let Some(fit) = like.fits.iter().find(|f| f.module == *module && f.kind == Kind::Scope) else {
@@ -1425,7 +1495,7 @@ pub fn port_modules(
             let Some((module, _)) = ids.iter().find(|(_, id)| **id == pair.scope) else {
                 continue;
             };
-            if plan.fits.iter().any(|f| f.module == *module) {
+            if plan.fits.iter().any(|f| f.module == *module && f.kind == Kind::Scope) {
                 continue;
             }
             let def = catalog.module(module)?;
@@ -1523,10 +1593,13 @@ pub fn port_modules(
     // By gun of the table: its legacy rows; and each placed one, to check through the table.
     let mut gun_legacy: Vec<BTreeSet<usize>> = vec![];
     let mut placed_legacy: Vec<(usize, u16, u16, Placement)> = vec![];
+    // By gun of the table: its built gun, for its second sights (their rows after every other).
+    let mut second_sights: Vec<(usize, usize)> = vec![];
     for live in items {
-        let Some(b) = built.iter().find(|b| b.item == live.donor_item) else {
+        let Some(built_at) = built.iter().position(|b| b.item == live.donor_item) else {
             continue;
         };
+        let b = &built[built_at];
         let (dict, config_path) = dict_row(&live.name)?;
         let config = parse_config(&mut target, &config_path, "weapon config")?.root;
         let item = &b.item;
@@ -1637,12 +1710,14 @@ pub fn port_modules(
         if b.fits_like != *item && base.is_some() {
             gun.fits_of = base;
         } else {
-            for fit in &b.plan.fits {
+            // (The second sights' rows come after every other: second_sights below.)
+            for fit in b.plan.fits.iter().filter(|fit| fit.kind != Kind::SecondSight) {
                 let module = catalog.module(&fit.module)?;
                 let role = Role::Fitted(match fit.kind {
                     Kind::Scope => weapon_modules::Kind::Scope,
                     Kind::Muzzle => weapon_modules::Kind::Muzzle,
                     Kind::Grip => weapon_modules::Kind::Grip,
+                    Kind::SecondSight => unreachable!("filtered out"),
                 });
                 let row = maker
                     .source(&mut donor, &mut target, &work, module, role, item, None)
@@ -1657,16 +1732,8 @@ pub fn port_modules(
                 gun.fits.push(rows.row(row));
             }
         }
-        for (brings, links) in &b.plan.carriers {
-            let mut chain = vec![];
-            for link in links {
-                let module = catalog.module(&link.module)?;
-                let row = maker
-                    .source(&mut donor, &mut target, &work, module, Role::Carrier, item, None)
-                    .with_context(|| format!("{item}: carrier {}", link.module))?;
-                chain.push((rows.row(row), slot_id(&link.slot)?));
-            }
-            gun.carriers.push((slot_id(brings)?, chain));
+        for (brings, links) in b.plan.carriers.iter().filter(|(brings, _)| !SECOND_SIGHT_SLOTS.contains(&brings.as_str())) {
+            gun.carriers.push(carrier_chain(&maker, &mut donor, &mut target, &work, &catalog, &mut rows, item, brings, links)?);
         }
         // The released pairs the table still lacks: where their variants put them (legacy.rs, 2).
         // (A base gun's legacy rows are placed on that gun's own record: an item that takes its
@@ -1676,8 +1743,12 @@ pub fn port_modules(
             None => gun.fits.clone(),
         };
         let have: BTreeSet<u16> = fitted.iter().map(|&row| rows.modules[row].dict).collect();
-        let named: Vec<weapon_modules::SlotId> =
+        let mut named: Vec<weapon_modules::SlotId> =
             fitted.iter().flat_map(|&row| rows.modules[row].attaches.iter().map(|a| a.slot)).collect();
+        // The side slots its second sights take (their rows come later): no legacy optic's spare.
+        for fit in b.plan.fits.iter().filter(|fit| fit.kind == Kind::SecondSight) {
+            named.push(slot_id(&fit.slot)?);
+        }
         let mut own_legacy = BTreeSet::new();
         for pair in released.iter().filter(|r| r.weapon == live.name && !have.contains(&r.scope)) {
             let placed = (|| -> Result<legacy::Placed> {
@@ -1736,7 +1807,34 @@ pub fn port_modules(
         aimed.insert(live.name.clone(), Aimed { poses: poses.clone() });
         gun_at.insert(live.name.clone(), source.guns.len());
         report_items.insert(live.name.clone(), (dict, item.clone()));
+        second_sights.push((source.guns.len(), built_at));
         source.guns.push(gun);
+    }
+    // The second sights (table version 4), their rows and carriers after every other row, so that
+    // the rows of a table without them keep their places: a gun's own fits (an item that takes its
+    // base gun's has them so), each optic's one row with its side slots alone, and the carriers
+    // that bring those slots.
+    for (at, built_at) in second_sights {
+        let b = &built[built_at];
+        let item = &b.item;
+        if source.guns[at].fits_of.is_none() {
+            let mut made = BTreeSet::new();
+            for fit in b.plan.fits.iter().filter(|fit| fit.kind == Kind::SecondSight) {
+                if !made.insert(fit.module.as_str()) {
+                    continue;
+                }
+                let module = catalog.module(&fit.module)?;
+                let row = maker
+                    .source(&mut donor, &mut target, &work, module, Role::Fitted(weapon_modules::Kind::SecondSight), item, Some(&SECOND_SIGHT_SLOTS))
+                    .with_context(|| format!("{item}: second sight {}", fit.module))?;
+                let row = rows.row(row);
+                source.guns[at].fits.push(row);
+            }
+        }
+        for (brings, links) in b.plan.carriers.iter().filter(|(brings, _)| SECOND_SIGHT_SLOTS.contains(&brings.as_str())) {
+            let chain = carrier_chain(&maker, &mut donor, &mut target, &work, &catalog, &mut rows, item, brings, links)?;
+            source.guns[at].carriers.push(chain);
+        }
     }
     source.modules = rows.modules;
     let table = encode(&source).map_err(|e| anyhow::anyhow!("the modules table: {e:?}"))?;
@@ -1776,7 +1874,7 @@ pub fn port_modules(
                 );
                 if let Some(eye) = bare.eye {
                     let module = legacy[*at].module.clone();
-                    push_centre(&donor, &live_item, &module, &optic, &eye, &aimed[&live_item], &mut centres)?;
+                    push_centre(&donor, &live_item, &module, (&optic.module, &optic.frame), &eye, &aimed[&live_item], None, &mut centres)?;
                 }
             }
             other => bail!("{live_item}: the legacy scope {scope} does not resolve: {:?}", other.err()),
@@ -1859,6 +1957,20 @@ fn nearest_on_line(frame: &Frame, point: &[f64; 3]) -> Frame {
     let k = frame.r[2];
     let along = (0..3).map(|i| (point[i] - frame.t[i]) * k[i]).sum::<f64>() / (0..3).map(|i| k[i] * k[i]).sum::<f64>();
     Frame { t: [0, 1, 2].map(|i| frame.t[i] + along * k[i]), ..*frame }
+}
+
+/// 0.69d0's `get_slot_transform` with a plane slot (skhid-srp's `docs/notes/attachments-scopes.md`,
+/// "The eye's plane"): `frame`'s origin moved along its own k to the plane through `plane`'s
+/// origin normal to `plane`'s k, its axes kept; whole when the line runs along the plane or the
+/// plane is more than 2 m behind it.
+fn to_plane(frame: &Frame, plane: &Frame) -> Frame {
+    let dot = |a: [f64; 3], b: [f64; 3]| (0..3).map(|i| a[i] * b[i]).sum::<f64>();
+    let gap = [0, 1, 2].map(|i| plane.t[i] - frame.t[i]);
+    let along = dot(gap, plane.r[2]) / dot(frame.r[2], plane.r[2]);
+    if !along.is_finite() || along < -2.0 {
+        return *frame;
+    }
+    Frame { t: [0, 1, 2].map(|i| frame.t[i] + along * frame.r[2][i]), ..*frame }
 }
 
 /// The largest distance between `points` through `ours` and through
@@ -1971,6 +2083,7 @@ fn check(
     };
     for fit in fits {
         let module = catalog.module(&fit.module)?;
+        let second_sight = (fit.kind == Kind::SecondSight).then(|| fit.slot.clone());
         let mut row = |what: &str, metres: f64, note: &str| {
             out.push(Checked {
                 gun: live_item.to_owned(),
@@ -1979,10 +2092,22 @@ fn check(
                 mm: (metres * 1e6).round() / 1e3,
                 pass: note.is_empty() && metres <= if what == "hand" { HAND_LIMIT } else { LIMIT },
                 note: note.to_owned(),
+                second_sight: second_sight.clone(),
             });
         };
         let wanted_id = ids.get(&fit.module).copied().and_then(DictId::new).context("a fit without an id")?;
         let wanted = match fit.kind {
+            Kind::SecondSight => {
+                let side = match SECOND_SIGHT_SLOTS.iter().position(|s| *s == fit.slot) {
+                    Some(0) => Side::Left,
+                    Some(_) => Side::Right,
+                    None => bail!("{}: a second sight in {}, no side's slot", fit.module, fit.slot),
+                };
+                Wanted {
+                    second_sight: Some((wanted_id, side)),
+                    ..Wanted::default()
+                }
+            }
             Kind::Scope => Wanted {
                 scope: Some(wanted_id),
                 ..Wanted::default()
@@ -2175,7 +2300,11 @@ fn check(
             }
             let dest = dir.join(live_item);
             fs::create_dir_all(&dest)?;
-            fs::write(dest.join(format!("{}.png", fit.module)), render::pair(&left, &right, 640)?)?;
+            let name = match &second_sight {
+                Some(side) => format!("{}@{side}.png", fit.module),
+                None => format!("{}.png", fit.module),
+            };
+            fs::write(dest.join(name), render::pair(&left, &right, 640)?)?;
         }
         let own = donor.module_locators(&module.models_on(item).model.context("a fit without a model")?)?;
         let rules = module.attach_on(item, &fit.slot);
@@ -2197,7 +2326,7 @@ fn check(
                             .is_some_and(|aim| aim.plane.is_some());
                         let theirs = if in_plane { nearest_on_line(&theirs, &ours_eye.t) } else { theirs };
                         row(if in_plane { "eye line" } else { "eye" }, spread(&PROBE, &ours_eye, &theirs), "");
-                        if !push_centre(donor, live_item, &fit.module, &optic, &eye, aimed, centres)? {
+                        if !push_centre(donor, live_item, &fit.module, (&optic.module, &optic.frame), &eye, aimed, None, centres)? {
                             row("reticle", 0.0, "its aimed model has no reticle surface");
                         }
                     }
@@ -2206,6 +2335,56 @@ fn check(
             }
             (Kind::Scope, None) => row("optic", 0.0, "resolve gives no optic"),
             _ => {}
+        }
+        if fit.kind == Kind::SecondSight {
+            // The gun's own eye stays the eye (resolve's rule 5).
+            if bare.eye.is_some() || bare.optic.is_some() {
+                row("eye", 0.0, "a second sight moves the eye or is drawn as the scope");
+            }
+            // 0.69d0's second eye: the aim point the sight adds there (`aim_3`, `aim_4`), by
+            // get_slot_transform's plane rule: its origin along its own k to the plane through the
+            // gun's `body_aim` slot normal to that slot's k (when the plane is no more than 2 m
+            // behind it); without a `body_aim` slot, whole.
+            let add = rules.and_then(|rules| rules.adds.iter().find(|a| plan::second_eye(&a.id)));
+            let theirs = add.and_then(|add| Some(own.get(&add.locator)?.then(&fit_frame).then(&shift)));
+            match (bare.second, theirs) {
+                (Some(second), Some(theirs)) => {
+                    let in_plane = add.is_some_and(|add| add.plane.as_deref() == Some("body_aim"));
+                    let plane = match b.plan.slots.get("body_aim") {
+                        Some(site) if in_plane => Some(site_frame(b, catalog, donor, site, &donor_gun)?.then(&shift)),
+                        _ => None,
+                    };
+                    // The rule runs on the bones as they are: in the gun's aimed idle pose, where
+                    // the table's eye is worked out (the L85A2's barrel bone stands 4.7 mm off its
+                    // bind place there, along the sight line). Each of 0.69d0's two slots is carried
+                    // there on the bone it hangs on.
+                    let eye_at = second.eye.placed(EyeAnchor::Optic);
+                    let carry = |frame: &Frame, bone: u16| -> Result<Frame> {
+                        let bind = ship.get(usize::from(bone)).context("a bone without a bind frame")?;
+                        let posed = aimed.poses[0].get(usize::from(bone)).context("a bone without a pose")?;
+                        Ok(frame.then(&bind.inverse()).then(posed))
+                    };
+                    let posed_eye = |at: &Placement| -> Result<Frame> {
+                        let bone = aimed.poses[0].get(usize::from(at.bone.0)).context("a bone without a pose")?;
+                        Ok(HALF_TURN.then(&Frame::from_affine(&at.offset)).then(bone))
+                    };
+                    let theirs_posed = match plane {
+                        Some(plane) => to_plane(&carry(&theirs, eye_at.bone.0)?, &carry(&plane, gun.body_aim().bone.0)?),
+                        None => carry(&theirs, eye_at.bone.0)?,
+                    };
+                    row("second eye", spread(&PROBE, &posed_eye(&eye_at)?, &theirs_posed), "");
+                    // Its line of sight, in the bind pose.
+                    let ours_eye = ours(&eye_at)?;
+                    row("second eye line", spread(&PROBE, &ours_eye, &nearest_on_line(&theirs, &ours_eye.t)), "");
+                    let frame = ours(&second.at)?;
+                    row("second sight", spread(&PROBE, &frame, &fit_frame.then(&shift)), "");
+                    let side = Some(fit.slot.as_str());
+                    if !push_centre(donor, live_item, &fit.module, (&second.module, &second.at), &second.eye, aimed, side, centres)? {
+                        row("reticle", 0.0, "its aimed model has no reticle surface");
+                    }
+                }
+                _ => row("second eye", 0.0, "no second eye on one side"),
+            }
         }
         if fit.kind == Kind::Muzzle {
             match (bare.fire_point, point("fire_point")) {
@@ -2239,12 +2418,13 @@ fn push_centre(
     donor: &Donor069,
     gun: &str,
     fit: &str,
-    optic: &weapon_modules::Optic,
+    (module, frame): (&weapon_modules::Module, &Placement),
     eye: &weapon_modules::Eye,
     aimed: &Aimed,
+    second_sight: Option<&str>,
     centres: &mut Vec<Centre>,
 ) -> Result<bool> {
-    let aimed_model = optic.module.aimed().unwrap_or(optic.module.model()).to_str()?;
+    let aimed_model = module.aimed().unwrap_or(module.model()).to_str()?;
     // A collimator's dot; else a magnified scope's lens, whose middle is its optical axis (the
     // reticle's own box is not: the PSO-1's chevron and range scale stand off its middle).
     let render = format!("models/{aimed_model}.model/render/");
@@ -2262,7 +2442,9 @@ fn push_centre(
     let Some((surface, middle)) = reticle else {
         return Ok(false);
     };
-    centres.push(centre(gun, fit, &surface, middle, &optic.frame, eye, &aimed.poses)?);
+    let mut seen = centre(gun, fit, &surface, middle, frame, eye, &aimed.poses)?;
+    seen.second_sight = second_sight.map(str::to_owned);
+    centres.push(seen);
     Ok(true)
 }
 
@@ -2306,6 +2488,7 @@ fn centre(
         off_mrad: seen.map(|p| round(off(p))),
         ahead: round(seen[0][2]),
         eye_behind_optic: round(origin[2]),
+        second_sight: None,
     })
 }
 
@@ -2319,4 +2502,73 @@ pub fn refuse_typed_offsets(spec: &Spec069) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::weapons_026::donor_069d::catalog::SlotDef;
+
+    fn slot(id: &str, locator: &str, plane: Option<&str>) -> SlotDef {
+        SlotDef {
+            id: id.to_owned(),
+            locator: locator.to_owned(),
+            plane: plane.map(str::to_owned),
+        }
+    }
+
+    /// 0.69d0's DeltaPoint Pro on the offset rail's left slot (`attach_params_2`): `aim_3` and
+    /// `reticle_2` at its `aim`, the eye at the gun's eye plane.
+    fn side() -> AttachDef {
+        AttachDef {
+            slot: "angled_collim_short_l".to_owned(),
+            adds: vec![slot("aim_3", "aim", Some("body_aim")), slot("reticle_2", "aim", None)],
+            ..AttachDef::default()
+        }
+    }
+
+    #[test]
+    fn a_second_sights_eye_is_the_aim_point_it_adds_at_the_guns_eye_plane() {
+        let ids = BTreeMap::new();
+        let maker = ModuleMaker {
+            ids: &ids,
+            missing: Default::default(),
+        };
+        let aim = Frame::translation([0.0, 0.03, 0.01]);
+        let locator = |name: &str| -> Result<Frame> {
+            ensure!(name == "aim", "no locator {name}");
+            Ok(aim)
+        };
+        let second = Role::Fitted(weapon_modules::Kind::SecondSight);
+        let attach = maker.attach("leupold_dppro_collimator", &side(), &locator, second).unwrap();
+        assert_eq!(attach.slot, SlotId::AngledCollimShortL);
+        // A module's own locator `L` is the table's `half turn x L`.
+        assert_eq!(attach.eye, Some(AttachEye::InGunPlane(HALF_TURN.then(&aim).affine())));
+        // Its reticle's slot stays an add; the aim point is the eye, no slot.
+        let adds: Vec<SlotId> = attach.adds.iter().map(|(slot, _)| *slot).collect();
+        assert_eq!(adds, [SlotId::Reticle2]);
+        // As a scope the same slot moves no eye (its row leaves it out), and an own part's never.
+        let scope = maker.attach("leupold_dppro_collimator", &side(), &locator, Role::Fitted(weapon_modules::Kind::Scope)).unwrap();
+        assert_eq!(scope.eye, None);
+        assert_eq!(scope.adds.len(), 2);
+        assert_eq!(maker.attach("x", &side(), &locator, Role::Carrier).unwrap().eye, None);
+        // A second sight's `aim` override would be the gun's eye: not its.
+        let mut both = side();
+        both.overrides.push(slot("aim", "aim", Some("body_aim")));
+        let attach = maker.attach("x", &both, &locator, second).unwrap();
+        assert_eq!(attach.eye, Some(AttachEye::InGunPlane(HALF_TURN.then(&aim).affine())));
+    }
+
+    /// get_slot_transform's plane rule: the origin along its own line to the plane, the axes kept.
+    #[test]
+    fn a_plane_slot_moves_the_origin_along_its_line() {
+        let line = Frame { t: [0.1, 0.2, 0.5], ..Frame::IDENTITY };
+        let plane = Frame { t: [0.0, 0.0, 0.2], ..Frame::IDENTITY };
+        let moved = to_plane(&line, &plane);
+        assert_eq!((moved.r, moved.t), (line.r, [0.1, 0.2, 0.2]));
+        // A plane more than 2 m behind, or along the line: whole.
+        assert_eq!(to_plane(&line, &Frame { t: [0.0, 0.0, -2.0], ..Frame::IDENTITY }), line);
+        let across = Frame { r: [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]], t: [0.0; 3] };
+        assert_eq!(to_plane(&line, &across), line);
+    }
 }

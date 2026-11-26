@@ -35,8 +35,8 @@ resources-db = { git = "https://github.com/srp-survarium/skhid-srp", rev = "c81c
 serde = { version = "1.0", features = ["derive"] }
 # The modules table's one definition (`port-modules` writes it and runs its
 # `resolve`): skhid-srp's `srp-026g/crates/weapon-modules` (branch
-# feat/attachments-table-v3: table version 3).
-weapon-modules = { git = "https://github.com/srp-survarium/skhid-srp", rev = "bbae7d598aad059c23ec5645a270666fcf5b57ff", features = ["encode"] }
+# feat/second-sights: table version 4, the second sights).
+weapon-modules = { git = "https://github.com/srp-survarium/skhid-srp", rev = "b90fefd7d952565e6bd1cf19ef323b9ba7e1bd6c", features = ["encode"] }
 serde_json = "1.0"
 sha2 = "0.10"
 

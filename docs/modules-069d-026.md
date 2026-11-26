@@ -36,6 +36,17 @@ A gun is a base mesh with slots; every other part is a module in a slot, its own
   that carriers bring: linked modules of no kind (a rail bracket, a tactical forend, a barrel, a
   dovetail mount), the shortest chain, and among equals the one 0.69d0 links first. Neither: a
   refusal with its reason in the record.
+- **Second sights** (table version 4, the weapon kit's slot 6). An optic of the fits whose slots name
+  `angled_collim_short_l` or `_r` (0.69d0's DeltaPoint Pro and RSA-S) is a second sight too, a fit
+  a side: on each side the gun has that slot or carriers bring it, by the same chain rule (the NcStar
+  MPR45 offset rail on the gun's `angled_picatinnyrail_l` or `_r`; on the M4A1 and the L85A2 their
+  tactical forend first, which brings the angled rails). A gun 0.69d0 links such a carrier and that
+  has none of its slots (the FAMAS and the MPR45) is refused one, with the reason. Its row is the
+  optic's dict id as a second sight, with its side slots alone; its eye there is the aim point the
+  slot adds (`aim_3`, `aim_4`, at the gun's eye plane: `plane_slot: body_aim`), its reticle's slot
+  (`reticle_2`, `reticle_3`) an add; the same optic's scope row keeps its other slots. Its aimed
+  model is the scope's (one an optic, the reticle at the optic's `aim`). The second sights' rows and
+  their carriers come after every other row of the table.
 - **A premium or camouflage item** whose own links fit nothing takes the fits of its base gun: the
   item of the longest prefix of its name 0.69d0 links modules to.
 - **Exceptions.** `exceptions.<item>` gives a module other models on that gun, and other slots: its
@@ -87,7 +98,11 @@ For every gun and every fit alone, `weapon_modules::resolve` on the written tabl
 models, against 0.69d0: its own base model in its own bind pose, each module at 0.69d0's locator by
 the engine's arithmetic, a module on a module at that one's locator. Compared in mesh space, ours
 less the gun's shift: every vertex of every part drawn, the optic's frame and eye, the fire point,
-the wrist; that the same parts are drawn; limit 0.5 mm. A failure is a row of the record and a
+the wrist; that the same parts are drawn; limit 0.5 mm. A second sight is checked on each side
+(`second_sight` names it in the record): its parts, its frame (`second sight`), that the gun's own
+eye stays the eye, and its eye (`second eye`) against 0.69d0's `aim_3`/`aim_4` slot after
+`get_slot_transform`'s plane rule (the origin along its line to the plane of the gun's `body_aim`), both slots on their bones in the gun's aimed idle pose as the rule runs on the live bones,
+with `second eye line` its line alone; its reticle's centre is a row of `centres` with its side. A failure is a row of the record and a
 `FAIL` line; nothing is fixed per gun. With `--renders`, each comparison is also a picture
 (`<item>/<module>.png`: 0.69d0 left, ours right, from the side and from above), and each gun
 against its live model is `<item>/_look.png`.

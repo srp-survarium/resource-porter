@@ -1422,6 +1422,14 @@ fn main() -> Result<()> {
                 worst(1),
                 worst(2)
             );
+            let second: Vec<_> = report.centres.iter().filter(|c| c.second_sight.is_some()).collect();
+            let sides = report.guns.values().flat_map(|g| &g.plan.fits).filter(|f| f.kind == donor_069d::plan::Kind::SecondSight).count();
+            println!(
+                "Second sights: {sides} fits a side on {} guns; {} reticles, off the second eye's line at most {} mrad at rest",
+                report.guns.values().filter(|g| g.plan.fits.iter().any(|f| f.kind == donor_069d::plan::Kind::SecondSight)).count(),
+                second.len(),
+                second.iter().map(|c| c.off_mrad[0]).fold(0.0, f64::max)
+            );
             println!(
                 "Built {id}: {} guns ({} items), {} module rows, a table of {} bytes, {} files; {} checks, {} over {} mm",
                 report.guns.len(),
