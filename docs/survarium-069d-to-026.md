@@ -354,7 +354,10 @@ the formulas come from both builds' shader disassembly):
 * Sun: 0.69d's `sun_intensity_r2 / pi * solar irradiance * T`, T its atmosphere's
   transmittance (Rayleigh x `air_density`, Mie x `air_turbidity`, ozone) at the sun's
   elevation: for Rudnya colour (1, 0.758, 0.535), intensity 4.88 (native 2). 0.26 lights a
-  white surface with `sun_color * sun_intensity * N.L` (no 1/pi, as 0.69d).
+  white surface with `sun_color^2.2 * sun_intensity * N.L` (no 1/pi, as 0.69d): its environment
+  loader raises `sun_color` to 2.2 (0x34e447 of the 0.26g exe, through 0x1bfcb0), so the scene
+  stores the colour to 1/2.2 (Rudnya's (1, 0.882, 0.753)). Written linear, the sun drew at
+  (1, 0.544, 0.253) of its intensity in the game: 0.78 of its light and red.
 * Probes: all 69 donor volumes with their own cubemaps, each volume with its full
   rotation (the church's floor lights lie on their side, the bus stop's probe turns
   about every axis) and its diffuse light times its `multiplier` (0.69d's
@@ -492,8 +495,10 @@ the formulas come from both builds' shader disassembly):
   (`mie_fog_base_height` 33000 + the level's number, an integer above every camera: every
   native shader reads the field as 1 there) and resource-porter's lighting pack draws the
   native tone block behind it with the mean clamped to 0.69d's range and its own key
-  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.2334 for Rudnya, printed in
-  the build's notes); and the scene's colour grading texture
+  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.3367 for Rudnya, printed in
+  the build's notes; the curve is `1 - 2^(-X)`, sm_4_0's `exp` being `2^x`: read as
+  `1 - e^(-X)` until rudnya-069d@8, with key 0.2334, it put 0.69d's look on 0.74 of the
+  light, every 0.69d scene shown as if lit at three quarters); and the scene's colour grading texture
   (`textures/<namespace>/color_grading/day`, 16^3) holds, for each colour 0.26's curve can
   show, what 0.69d's grading and curve show for the light that gives it. 0.26's blue shift
   of dark colours is off. Gone with it: `exposure_bias`, `sun_saturation`, the raising of
