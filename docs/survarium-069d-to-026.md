@@ -476,8 +476,10 @@ the formulas come from both builds' shader disassembly):
   (`mie_fog_base_height` 33000 + the level's number, an integer above every camera: every
   native shader reads the field as 1 there) and resource-porter's lighting pack draws the
   native tone block behind it with the mean clamped to 0.69d's range and its own key
-  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.2334 for Rudnya, printed in
-  the build's notes); and the scene's colour grading texture
+  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.3367 for Rudnya, printed in
+  the build's notes; the curve is `1 - 2^(-X)`, sm_4_0's `exp` being `2^x`: read as
+  `1 - e^(-X)` until rudnya-069d@8, with key 0.2334, it put 0.69d's look on 0.74 of the
+  light, every 0.69d scene shown as if lit at three quarters); and the scene's colour grading texture
   (`textures/<namespace>/color_grading/day`, 16^3) holds, for each colour 0.26's curve can
   show, what 0.69d's grading and curve show for the light that gives it. 0.26's blue shift
   of dark colours is off. Gone with it: `exposure_bias`, `sun_saturation`, the raising of
