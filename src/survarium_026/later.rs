@@ -1507,8 +1507,10 @@ pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
     if alpha && (matches!(base, "flora" | "grass") || flag(effect, "use_t_translucency")) {
         return Ok(Category::Foliage);
     }
+    // Technique 2 draws no second layer in either build (it cuts the base
+    // where the masked weight is under 0.4), so it is a blend without one.
     let blends = usage.vertex_colour
-        && text(effect, "texture_vertex_blended_diffuse").is_some()
+        && (text(effect, "texture_vertex_blended_diffuse").is_some() || number(effect, "vertex_blend_technique") == Some(2.0))
         && (flag(effect, "use_tiled_vertex_blended_mask") || flag(effect, "use_vertex_blended_normal"));
     if blends {
         return Ok(Category::VertexBlend { two_sided, alpha_test: alpha });
@@ -2007,7 +2009,10 @@ pub fn blend_cut_masked(strength: f32) -> Option<i32> {
 /// draws the donor's technique and mask switch (its blend numbers are the
 /// donor's). A note for what is selected or left as 0.26g cuts it.
 fn blend_cut(effect: &ConfigValue, root: &mut ConfigValue, stage: &str, same: bool) -> Result<Option<String>> {
-    let cuts_by_second = flag(effect, "use_alpha_test") && flag(effect, "alpha_test_consider_vertex_blend") && !flag(effect, "consider_blended_albedo_opaque");
+    let cuts_by_second = flag(effect, "use_alpha_test")
+        && flag(effect, "alpha_test_consider_vertex_blend")
+        && !flag(effect, "consider_blended_albedo_opaque")
+        && number(effect, "vertex_blend_technique") != Some(2.0);
     if !cuts_by_second {
         return Ok(None);
     }
@@ -6349,6 +6354,17 @@ mod tests {
         assert_eq!(categorize(&blending(false, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: false });
         assert_eq!(categorize(&blending(true, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: true });
         assert_eq!(categorize(&blending(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
+        // Technique 2 with a tiled mask and no second layer (the terrain
+        // overlays `terrain_tiled/*_vc`): a blend, cut by the masked weight.
+        let cut = |alpha: bool| {
+            let mut m = base(alpha, false);
+            for (k, v) in [("vertex_blend_technique", ConfigValue::Integer(2)), ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(true))] {
+                m.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+            }
+            m
+        };
+        assert_eq!(categorize(&cut(false), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: false });
+        assert_eq!(categorize(&cut(true), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: true });
     }
 
     #[test]

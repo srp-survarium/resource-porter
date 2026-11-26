@@ -155,6 +155,7 @@
     "vertex_blend_two_sided_technique0": "tiled/concrete/concrete_black_greenwall_vc",
     "vertex_blend_alpha_test": "tiled/stucco/stucco_wood_stucco_mask_03_vc",
     "vertex_blend_alpha_test_two_sided": "tiled/stucco/stucco_wood_stucco_04_vc",
+    "vertex_blend_alpha_test_technique2_tiled_mask": "terrain_tiled/earth_vc",
     "opaque_vc": "tiled/concrete/concrete_crack",
     "terrain_blend": "tiled/bricks/brick_02_burn_vc",
     "opaque_metal": "props/box/props_boxes_metal"
