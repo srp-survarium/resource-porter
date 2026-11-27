@@ -533,10 +533,10 @@ impl Donor069 {
     ///   appends this material to the pattern's model and sets the appended copy's emission
     ///   (`solid_color_specular`: the colour times the brightness) each time the player's choice
     ///   changes; the model's own surface adds black.
-    /// - A model: 0.69d0's quad in the frame the client draws it in, the table's `aim` place
-    ///   (the module's locator after a half turn about y, [`HALF_TURN`]): turned back by that
-    ///   half turn, so it stands where 0.69d0 draws it in its `reticle` slot. Its origin is the
-    ///   aiming point as 0.69d0's (a dot's or a ring's middle, a tick's or a chevron's tip).
+    /// - A model: 0.69d0's quad as it is, in its x-y plane, its sight line its z: the client
+    ///   draws it at the optic's `aim` place in the eye's axes, as 0.69d0 draws it in its
+    ///   `reticle` slot before its eye. Its origin is the aiming point as 0.69d0's (a dot's or a
+    ///   ring's middle, a tick's or a chevron's tip).
     fn reticle_patterns(&mut self, target: &mut ResourceDb) -> Result<()> {
         let material_path = format!("material_instances/{PATTERN_MATERIAL}.material");
         if self.files.contains_key(&material_path) {
@@ -580,11 +580,7 @@ impl Donor069 {
             let bytes = self.db.read(&format!("{source}/render/{RETICLE_SURFACE_069}/converted_model"))?;
             let mesh = Mesh::parse(&super::convert::static_069_to_026(&bytes)?)?;
             ensure!(mesh.positions.iter().all(|p| p[2].abs() < 1e-6), "{source}: not a quad in its x-y plane");
-            let turned = mesh.mapped(|p| {
-                let q = HALF_TURN.apply([f64::from(p[0]), f64::from(p[1]), f64::from(p[2])]);
-                std::array::from_fn(|k| q[k] as f32)
-            });
-            let surfaces = [(PATTERN_SURFACE.to_owned(), PATTERN_MATERIAL.to_owned(), turned)];
+            let surfaces = [(PATTERN_SURFACE.to_owned(), PATTERN_MATERIAL.to_owned(), mesh.mapped(|p| p))];
             self.put_static(&root, &format!("Survarium 0.69d0: {source}"), &surfaces, target)?;
         }
         Ok(())
