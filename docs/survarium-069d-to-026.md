@@ -341,8 +341,10 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   * `environment`: environment fields over the lobby's (an integer literal stays an integer,
     as 0.26g's own projects write the field: skhid-srp's build-content keeps each key's type);
   * `lights`: lights and ambient lights by `full_name` (a key ending in `/` a folder):
-    `intensity` (0 leaves it out), `colour`, `range`, `cast_shadow`; every key must match a
-    light. `added_lights`: point lights copied from one of the lobby's as the lobby has it
+    `intensity` (0 leaves it out) or `scale` (the light it gives times a number: an adding
+    ambient light's part above 1, a light's intensity; a multiplying ambient light, a
+    contact shadow, stays), `colour`, `range`, `cast_shadow`; a light takes its own key, else
+    its nearest folder's; every key must match a light. `added_lights`: point lights copied from one of the lobby's as the lobby has it
     (`like`), with their own place, intensity, colour, range and shadow;
   * `probes`: a probe's diffuse and specular multipliers scaled (the cubemaps are baked by day);
   * `particles`: 0.26's own effects placed (`particles/<lib>.particle`, as the lobby's own
@@ -370,20 +372,24 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   from the same stock pose.
 
   The camp's three (camp @22, over the rule-lit day): numbers in the day's own scale (its
-  exposure is fixed, so a darker room is drawn darker; nothing adapts).
+  exposure is fixed, so a darker room is drawn darker; nothing adapts). The day's light the
+  room takes from outside is its probes and its adding ambient lights (the sky's fill at the
+  back window, the sun off the floor, the ceiling's and walls' fills, the blocks' own): each
+  variant scales both.
   * `camp_069_rain`: no sun, level 02 rain's overcast sky, haze and rain, the streams and the
     donor's `rain_pour` outside the windows; a cool light outside each window above the
-    ceiling's height (no shadow) in place of the day's window key, the probes x0.4, the
-    chandelier lit and warm against them.
-  * `camp_069_evening`: the sun low through the nearer left window onto the character
+    ceiling's height (no shadow) in place of the day's window key, the probes and fills
+    x0.3, the chandelier lit and warm against them.
+  * `camp_069_evening`: the sun low through the nearer left window toward the character
     (azimuth 327, elevation 15), its colour and intensity 0.69d's own sun through its
     atmosphere at that elevation (`lighting::sun_radiance`: the lobby's air density 2 gives
     the day's 37.04 at 50 degrees, 28.3 and (1, 0.74, 0.44) at 15); level 02 evening's sky
-    and haze; the probes x0.45; the back window's key a cool dusk sky.
-  * `camp_069_night`: the chandelier the room's light, the probes almost out (x0.06), the
-    environment's sun 0.26g's full moon (`sky/moon_full`, a faint cool light), stars, two lit
-    windows in the blocks, 0.26g's wolves far off; the back window's shadowed key, cool, is
-    the moonlight on the character's front.
+    and haze; the probes and fills at about half; the back window's key a cool dusk sky.
+  * `camp_069_night`: the chandelier the room's warm light (its reach within the walls: it
+    casts no shadow), the probes and fills almost out, the environment's sun 0.26g's full
+    moon (`sky/moon_full`, a faint cool light), stars, two lit windows in the blocks, 0.26g's
+    wolves far off; the back window's shadowed key, cool, is the moonlight on the character's
+    front.
 
 ## Rudnya (0.69d level_01)
 

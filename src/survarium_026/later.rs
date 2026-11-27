@@ -448,7 +448,8 @@ pub struct LobbyVariant {
     #[serde(default)]
     pub environment: BTreeMap<String, serde_json::Value>,
     /// Lights and ambient lights (`full_name`; a key ending in `/` is a
-    /// folder), each key matching at least one.
+    /// folder: a light takes its own key, else its nearest folder's), each
+    /// key matching at least one.
     #[serde(default)]
     pub lights: BTreeMap<String, VariantLight>,
     /// Point lights added, each a copy of one of the lobby's as the lobby has it (`like`).
@@ -597,6 +598,12 @@ pub struct VariantLight {
     /// 0 leaves the light out.
     #[serde(default)]
     pub intensity: Option<f32>,
+    /// The light it gives, times this (in place of `intensity`): a light's
+    /// intensity; an adding ambient light's added part (0.26g adds
+    /// `intensity - 1` above 1); a multiplying ambient light (a contact
+    /// shadow, up to 1) stays as it is.
+    #[serde(default)]
+    pub scale: Option<f32>,
     #[serde(default)]
     pub colour: Option<[f32; 3]>,
     #[serde(default)]
@@ -1128,7 +1135,9 @@ fn make_variant(
             return true;
         }
         let name = string(o, "full_name").unwrap_or("").to_owned();
-        let Some((key, over)) = variant.lights.iter().find(|(k, _)| if k.ends_with('/') { name.starts_with(k.as_str()) } else { &name == *k }) else {
+        // its own key, else the longest folder it is in
+        let folder = || variant.lights.iter().filter(|(k, _)| k.ends_with('/') && name.starts_with(k.as_str())).max_by_key(|(k, _)| k.len());
+        let Some((key, over)) = variant.lights.get_key_value(&name).or_else(folder) else {
             return true;
         };
         *matched.entry(key.as_str()).or_default() += 1;
@@ -1136,8 +1145,18 @@ fn make_variant(
             return false;
         }
         let mut apply = || -> Result<()> {
+            ensure!(over.intensity.is_none() || over.scale.is_none(), "intensity or scale, not both");
             if let Some(v) = over.intensity {
                 o.set_path("intensity", ConfigValue::Float(v))?;
+            }
+            if let Some(k) = over.scale {
+                let now = real(o, "intensity").context("no intensity")?;
+                let scaled = match kind(o) {
+                    "light" => now * k,
+                    _ if now > 1.0 => 1.0 + (now - 1.0) * k,
+                    _ => now,
+                };
+                o.set_path("intensity", ConfigValue::Float(scaled))?;
             }
             if let Some(c) = over.colour {
                 set_colour(o, c)?;
