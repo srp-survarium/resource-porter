@@ -8,57 +8,12 @@
     "output_project": "lobby_scene/camp_069",
     "vegetation_folder": "camp_069",
     "environment_overrides": {
-      "sun_intensity": 3.0,
-      "sun_color": [1.0, 0.86, 0.68, 1.0],
       "rayleigh_fog_near_distance": 15,
       "rayleigh_fog_far_distance": 300,
       "mie_fog_near_distance": 40,
       "mie_fog_far_distance": 1200,
       "mie_fog_color": [0.318, 0.325, 0.377, 1.0],
       "mie_fog_bias": 0.3
-    },
-    "probe_overrides": {
-      "environment_and_lights/outdoor/environment_probe": {
-        "volume": { "box": { "centre": [-70.0, 0.0, 60.0], "half_extents": [220.0, 40.0, 200.0] } },
-        "diffuse_scale": 2.0,
-        "saturation": 0.15
-      }
-    },
-    "glowing_surfaces": [
-      {
-        "model": "props/electric/lustra_patina",
-        "surface": "lustra_patina_plafon_s",
-        "material": "props/electric/lustra_patina_frame",
-        "colour": [1.0, 0.95, 0.88],
-        "multiplier": 1.5,
-        "near": [[-0.24, -0.456, -0.14], [0.24, -0.456, -0.14]],
-        "radius": 0.2
-      }
-    ],
-    "emission_scale": {
-      "props/electric/notebook_modern_on": 0.12
-    },
-    "light_overrides": {
-      "room/lustra/point_light(4)": { "intensity": 0.5, "range": 2.0 },
-      "room/lustra/point_light(5)": { "intensity": 0.5, "range": 2.0 },
-      "room/lustra/ambient_light": { "intensity": 0.4 },
-      "room/lustra/ambient_light(1)": { "intensity": 0.4 },
-      "room/lustra/shadow/": { "intensity": 0.0 },
-      "environment_and_lights/outdoor/": { "intensity": 1.5 },
-      "environment_and_lights/shadows/ambient_light(1)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(6)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(7)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(8)": { "intensity": 0.0 },
-      "environment_and_lights/shadows/ambient_light(9)": { "intensity": 0.0 },
-      "environment_and_lights/light/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/light/ambient_light(6)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(1)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(2)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(3)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(4)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(5)": { "intensity": 0.0 },
-      "environment_and_lights/light/celling/ambient_light(6)": { "intensity": 0.0 }
     },
     "removed_parts": [
       {
@@ -74,21 +29,7 @@
         "radius": 0.078
       }
     ],
-    "probes": {
-      "baked": {
-        "diffuse_scale": 0.45,
-        "saturation": 0.4,
-        "directionality": 0.5
-      }
-    },
-    "photometric_lights": {
-      "lux": 0.006,
-      "lumen": 0.015,
-      "fill": 0.02,
-      "fill_colour": [1.0, 0.93, 0.84],
-      "shadow": 0.25,
-      "max": 2.0
-    },
+    "probes": "donor_light",
     "exclude_models": [
       "level/new_year_event/",
       "generic/modular/terrain/snow/"
@@ -685,13 +626,13 @@
     "vertex_colour": "tiled/concrete/concrete_crack",
     "vertex_blend": "tiled/bricks/brick_02_top_burned_vc",
     "alpha_test": "decals/moss_2",
-    "alpha_test_two_sided": "flora/roots_tile",
+    "alpha_test_two_sided": "tiled/roof/roof_broken",
     "foliage": "flora/anomaly_tree_leaves",
     "grass": "flora/grass_l03",
     "decal": "decals/decals_multiply_04",
     "projected_decal": "decals/newspaper_05_corner",
     "terrain": "terrain_tiled/l_03_alfa_buter/grass_02",
-    "glass_cutout": "flora/roots_tile",
+    "glass_cutout": "tiled/roof/roof_broken",
     "glass": "level/lobby/glass_clone",
     "water": "water/water",
     "foliage_vc": "flora/roots_tree_leaves_05_nowind",
@@ -699,11 +640,14 @@
     "alpha_test_two_sided_vc": "tiled/window/window_brokengl_vc",
     "glass_cutout_vc": "tiled/window/window_brokengl_vc",
     "opaque_two_sided_vc": "tiled/floor/floor_plate_tile",
+    "vertex_colour_two_sided": "tiled/floor/floor_plate_tile",
+    "vertex_blend_two_sided": "tiled/concrete/concrete_01_floor_burned_vc",
+    "vertex_blend_alpha_test": "tiled/stucco/stucco_wood_stucco_mask_03_vc",
+    "vertex_blend_alpha_test_two_sided": "tiled/stucco/stucco_wood_stucco_04_vc",
     "opaque_vc": "tiled/concrete/concrete_crack",
-    "terrain_blend": "tiled/bricks/brick_02_burn_vc"
+    "terrain_blend": "tiled/bricks/brick_02_burn_vc",
+    "opaque_metal": "props/box/props_boxes_metal"
   },
-  "roughness_scale": 0.2,
-  "max_texture_size": 2048,
   "reuse_native_textures": true,
   "ambient_sounds": {
     "project": "projects/lobby_scene/day/client_project",

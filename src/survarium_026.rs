@@ -14,7 +14,9 @@ use std::{
 
 mod early;
 pub mod later;
-pub(crate) mod probe_bake;
+pub mod lighting;
+pub mod surface;
+pub mod tone;
 pub use early::{collector_visual, repair_chemical_collector_zone};
 
 const DICTIONARY: &str = "gameplay/db_static_dictionaries";

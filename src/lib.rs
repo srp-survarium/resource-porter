@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+pub mod ambient_facing;
 pub mod archive;
 pub mod armor;
 pub mod binary_config;
 pub mod collision_check;
 pub mod config_patch;
 pub mod dds_bc3;
+pub mod dds_cube;
 pub mod dependency;
 pub mod lilith;
 pub mod manifest;
