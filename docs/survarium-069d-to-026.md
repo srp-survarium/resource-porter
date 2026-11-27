@@ -271,13 +271,33 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   becomes 0.26's 65535. Its lights are 0.26 intensities; its probes are
   0.26's format (a cubemap and its `_diffuse`) and are imported
   (`"probes": "donor"`). Wire sets are the same object and are kept.
-* **0.69d**: lux and lumen as for Duga, but the lobby keeps its ambient
-  lights: `type` 1 (multiplying, the painted contact shadows) is dropped,
-  spheres take radius x scale, and intensities are scaled to the 0.26 lobby's
-  median and capped at 3. Its probes keep their volumes on the 0.26 lobby's
-  cubemap (`"probes": {"template": ...}`). `exclude_models` leaves out the New
-  Year snow of volume 72's project; `native_materials` draws its window panes
-  (`water/glass_water`) with 0.26's `tiled/window/glass`.
+* **0.69d** (`"probes": "donor_light"`): the camp is lit as a donor-lit map is (Rudnya
+  below, `Lighting::Donor`): every probe with its own cubemap re-encoded and its SH
+  irradiance, the largest also as the map-wide sphere (a lobby's reaches 1 km, its
+  horizon), every ambient light as a 0.26 ambient light, the sun, 0.69d's exposure and
+  curve (the lighting pack's exposure profile, marker 33100) and materials by the two
+  builds' shading, all in one scale. Its environment's exposure is fixed (minimum and
+  maximum EV 9.5), so its profile's floor is its ceiling; it has no colour grading, no
+  `sun_tint` and `sky_intensity` 1. Two rules only a lobby meets so far:
+  * point and spot lights (`lighting::PointLight`, 0.69d's `deferred_lighting.ps` and the
+    constants of 0x4427a0): `c * luminous_power * 1000 / D * (1 - (d/r)^16)^2 / d^2`,
+    `D` 4 pi^2 for a point and pi^2 for a spot (not spread over its cone), times
+    `diffuse_influence_factor`; `intensity` and `attenuation_power` are not read. 0.26 has
+    no 1/d^2: the light keeps its range and takes the intensity and attenuation power
+    closest to that falloff in ratio, by volume over 0.1 to 0.9 of the range;
+  * emission (`donor_emission`; 0.69d's is the forward effect's, constants at 0x53d758):
+    `t_emission * colour^2.2 * 2^(EV_m - 3)`, `EV_m` the material's `exposure_value` moved
+    towards the scene's by `autoexposure_factor`, an additive one times its alpha; 0.26
+    adds `constant_emissive * multiplier * texture` unlit, so the colour goes linear and
+    the multiplier into the scene's scale (the notebook's screen: 0.295).
+
+  `exclude_models` leaves out the New Year snow of volume 72's project;
+  `native_materials` draws its window panes (`water/glass_water`) with 0.26's
+  `tiled/window/glass`.
+* `reuse_native_textures` (both manifests, as Rudnya's): a donor texture whose 0.26g
+  namesake is the same image (`native_same_image`) is drawn from 0.26g's file, not
+  imported. The hangar: 72 of 131 (13 byte for byte, 59 decode alike), 123.8 MiB; the
+  camp: 54 of 220 (50 of them re-encodes about 1 level apart), 59.3 MiB.
 * What skhid-srp's lobby choice (client patch 81, `srp-026g/docs/notes/lobby-scenes.md` there)
   takes from a lobby project: the 0.26 lobby's camera `track` (copied; a project without one
   is refused), the root `camera`, and the root table `srp_lobby` with `weapon` (where the
@@ -285,7 +305,34 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
   convention: forward = (-sin yaw, 0, cos yaw)), both from the manifest. The lobby camera's
   distance is cut by a ray against the project's static collision; `camera_walls` adds
   invisible boxes (0.26's unit primitive `editor/walker_collision`, scaled) where the walls'
-  own collision is open (the camp's windows and doorway).
+  own collision is open (the camp's windows and doorway), over the floor and under the
+  ceiling (the eye stops 0.15 m short of them, never on them) and around the props the eye
+  would get into (the camp's counters, pillows, cylinder, chandelier...): the boxes the
+  lobby audit of 2026-10-30 found (skhid-srp's lobby-scenes.md).
+* `native_props`: 0.26's own models placed in the lobby frame, `{lib, position, yaw}` (a
+  render visual and its collision, cgroup 8 / cmask 16, which the camera's ray meets): the
+  hangar has no table, so the stock `props/furniture/workbench_02` stands against its
+  sandbags under the weapon's spot.
+* The view out of the windows (the 0.26 lobby camera orbits all the way round; 0.69d's was
+  fixed). The camp's room is a floor 22.7 m over the donor's own background (level 02's
+  apartment blocks `bg_house_1/2`, `bg_shop`, its billboard trees, a terrain patch):
+  * A lobby's box probes (`"probes": "donor"`, the hangar) get `radius` 0.75 x their largest half-extent. 0.26g draws the
+    visible probes largest radius first, each over the ones before (stage_visibility's sort),
+    and equal radii in its probe tree's order, which changes from run to run with the order
+    the cubemaps load in. With every probe at the template's 15.3, the camp's outdoor box drew
+    after the room's probes in about half the runs: a bluish haze over the room's shadows.
+    0.10b's engine set this radius itself; 0.26g takes the project's, and a box's radius is
+    only that sort key (its volume is its scale). So the outdoor box draws first and the
+    room's probes, smaller, over it. A box whose radius ties the one before it (equal largest
+    half-extents: two of the hangar's) goes just below it, so the donor's order decides.
+  * `environment_overrides` gives the camp level 02 day's outdoor fog (rayleigh 15..300 m,
+    mie 40..1200 m): the lobby template's (rayleigh from 1 m to 185 m) is an interior's.
+  * `native_scenery`: 0.26's own models drawn outside, `{lib, position, yaw, scale}`, as
+    render visuals only (no collision, so the camera's ray never meets them): the camp's
+    overgrown yard (level 02's poplars, birches, willows, fruit and dead trees, bushes, the
+    yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
+    belts past the blocks, and level 02's own background terrain and tree rings (as the
+    school map has them, one transform for the four) for the horizon.
 
 ## Rudnya (0.69d level_01)
 
@@ -307,7 +354,10 @@ the formulas come from both builds' shader disassembly):
 * Sun: 0.69d's `sun_intensity_r2 / pi * solar irradiance * T`, T its atmosphere's
   transmittance (Rayleigh x `air_density`, Mie x `air_turbidity`, ozone) at the sun's
   elevation: for Rudnya colour (1, 0.758, 0.535), intensity 4.88 (native 2). 0.26 lights a
-  white surface with `sun_color * sun_intensity * N.L` (no 1/pi, as 0.69d).
+  white surface with `sun_color^2.2 * sun_intensity * N.L` (no 1/pi, as 0.69d): its environment
+  loader raises `sun_color` to 2.2 (0x34e447 of the 0.26g exe, through 0x1bfcb0), so the scene
+  stores the colour to 1/2.2 (Rudnya's (1, 0.882, 0.753)). Written linear, the sun drew at
+  (1, 0.544, 0.253) of its intensity in the game: 0.78 of its light and red.
 * Probes: all 69 donor volumes with their own cubemaps, each volume with its full
   rotation (the church's floor lights lie on their side, the bus stop's probe turns
   about every axis) and its diffuse light times its `multiplier` (0.69d's
@@ -320,6 +370,22 @@ the formulas come from both builds' shader disassembly):
   0.69d's `environment_probe.ps` does (E/pi with `directional_factor`). `specular_multiplier`
   -1 (off) becomes 0. 0.26 has no sky light: the donor's largest probe's cube is also the
   map-wide sphere, on the template's own (native Rudnya's).
+* Probe tiers: 0.69d composes its probes per tier (`layer`: 0 global, 1 local, 2 detail),
+  `sum(w L) / max(W, 1)` in a tier and the global tier only where `1 - W` of the local one
+  remains; 0.26 lerps each probe over the ones before it, so between two abutting local probes
+  the outdoor light of the global ones showed through (the church nave's pale line: 0.69d
+  83 -> 87-94 -> 100, the port 83 -> 160-293 -> 100). A local probe (layer 1) is placed for skhid's
+  exe patch 203, which draws a 0.69d scene's local probes as 0.69d's tier with three-maps-021-lighting's
+  `environment_probe_tier_*` programs (@16): a box (a cylinder in its circumscribed box), no smart
+  attenuation, its radius `-(shape + 0.25 + 0.5 / (1 + R))` (`local_probe_radius`: below 0 the
+  mark, shape 1 a box and 2 a cylinder for the programs, the fraction keeping 0.26's order by the
+  sort radius R among them). The build stops on a local sphere, a local probe whose
+  `attenuation_power` is not 1 (the programs draw 0.69d's linear falloff) and a detail-tier
+  probe. Global probes stay 0.26's own draw. Rudnya: 62 local (2 cylinders, the church's
+  belfry and tower), 7 global and the map-wide sphere. A lobby's probes are not marked (its
+  builder places them as 0.26 draws them). The map's pack ships with the exe patch and the
+  lighting pack: an exe without patch 203 would draw the local probes by 0.26's lerp after every
+  global one, with the box programs' smoothstep.
 * Ambient lights are 0.26's own ambient lights, all 288 (`lighting::NativeLight`). 0.26 draws
   one with an intensity above 1 as adding `colour^2.2 * (intensity - 1)` times its falloff to
   the diffuse light, and one at or below 1 as multiplying the light under it
@@ -334,10 +400,25 @@ the formulas come from both builds' shader disassembly):
   not read); 0.26 fades a sphere by `(1 - (d / 0.98 R)^2)^p` where 0.69d fades from
   `outer - side_width` to `outer`, so the radius ends where 0.69d's light ends and the power
   is the closest by volume (`sphere_fit`; 0.26 has no flat middle, a light with one is
-  followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`); a
-  box's band holds the same light (`box_side_width`); a cylinder is the box around it. The
-  facing term (`dot_normal`): 0.26's `max(N.L, 0)` times the factor closest to 0.69d's
-  wrapped term (`facing_scale`: 0.81 for its usual power 4). The colour is packed with red
+  followed within 0.33: exact needs 0.69d's own falloff in a guarded `ambient_light.ps`). A
+  box keeps 0.69d's own falloff, which the lighting pack's `ambient_light.ps` draws (0.26's
+  box program fades by a smoothstep and has no power): per axis `(1 - t)^p` over the donor's
+  `side_width` (its inner box at least 0.01 m from the centre), and with
+  `gradient_attenuation` times `sat(0.5 - 0.5 y)^p` along its local y, full at one face and
+  nothing at the other (a mean of `1 / (p + 1)`): the light from a window or door falling off
+  into the room. Rudnya's church floor, barn, apiary and two sheds have 9 such boxes, which
+  the port had drawn uniform at full strength, 2 to 5 times 0.69d's light and hard-edged. The
+  power and the gradient ride in `attenuation_power` with the facing term (`ambient_facing`;
+  a box without `dot_normal` carries the term 1). 0.26 has no cylinder: one is placed as the
+  box around it (half extents radius, half height, radius) and the lighting pack draws 0.69d's
+  cylinder in it (the distance from the axis); drawn as that box, the church towers' three
+  near-black darkening cylinders also darkened the box's four corners outside their disc. The
+  facing term (`dot_normal`) is 0.69d's own, `sat(sat(x/2 + 1/2)(1 + cutoff) - cutoff)^power`
+  to the light's centre, not 0.26's `max(N.L, 0)`: the light's `attenuation_power` carries
+  0.26's distance power with the cutoff and power (`ambient_facing`; exact for every value
+  0.69d uses, a value it cannot carry stops the build), and the lighting pack's
+  `ambient_light.ps` draws the term in a 0.69d scene (without the pack a sphere light so
+  encoded draws nothing). The colour is packed with red
   in the low byte (packed the other way a warm fill draws blue). Lights 0.69d fades out
   (`fade_out_distance`) farther than every spawn is from them never show in play and are
   left out (`ambient_light_chaes`, 430 m, over the power plant 456 m away: kept, it lit the
@@ -368,6 +449,51 @@ the formulas come from both builds' shader disassembly):
     highlight carries 1/pi of 0.69d's energy at the same alpha (its D has the 1/pi, neither
     diffuse has), and it cannot be rougher than alpha 0.6 (80 % of Rudnya's smoothness
     texels are).
+  - A smoothness map needs a template that draws one. With a map 0.69d never reads its
+    constant `smoothness` (`min + (max - min) * map.g`); a template without
+    `use_troughness` drew that unused constant instead: 19 of Rudnya's materials, the
+    alpha-tested two-sided ones on `flora/roots_tile`, among them the sheds' rusty sheet
+    metal (`tiled/metal/metal_rust`: constant 0.8, gloss 0.62 everywhere, where its map, a
+    mean smoothness of 0.07, is matte), `metal_gray_rust` (0.9) and the glass tiles (0.98):
+    a wet, greasy sun highlight. The build stops on such a template;
+    `alpha_test_two_sided` and `glass_cutout` take `tiled/roof/roof_broken`, the same
+    switches as `roots_tile` with the gloss map on. All of 0.69d has 83 alpha-tested
+    two-sided materials with a smoothness map.
+  - Vertex blending keeps the donor's own numbers. Both builds weigh the base layer by
+    `sat(pow(w, (1 - mask)^2 falloff) strength)`, the tiled mask turned by its rotation and
+    scaled by its UV scale, and sample the second layer at the UV times its tile (0.69d
+    `g_stage_default.ps`; 0.26g's `gbuffer_pass.ps`, skhid
+    `scripts/v021d-weather/vertex-blend.md`). The converted materials kept the template's
+    strength, falloff, tile, mask scale and rotation: 55 of Rudnya's 68 blends drew their
+    moss, trash and brick patches other than 0.69d's (the lath under the wallpaper at a
+    third of its tiling). The formula depends on the blend's technique and tiled-mask
+    switch (linear; by the albedo's alpha; by a tiled mask), so a manifest names a template
+    per switch the category's own does not draw (`<category>_technique<n>[_tiled_mask]`:
+    Rudnya's technique 0, technique 1 without a mask, technique 2 with one, and the two-sided
+    technique 0, each a native 0.26 blend of that switch with the category template's other
+    switches, which stock 0.26 has for every combination). With one template a category,
+    10 of Rudnya's 68 blends kept the template's numbers: the sheds' rusty roof sheets
+    (metal over rust, technique 0) drew rust all over where 0.69d shows its patches (with
+    the rule the patches follow 0.69d's; the rust layer's colour stays more saturated than
+    0.69d's: the blended layer is not made a metal surface). The alpha-tested ones (4 on Rudnya,
+    technique 1 without a mask) stay on their category's template: their cut is the blend
+    pack's selector for it, and stock 0.26 has no one-sided alpha-tested template of that
+    switch; noted.
+  - Technique 2 (always with a tiled mask) draws no second layer in either build: both
+    programs draw the base layer and discard where the masked weight is under 0.4 (0.69d
+    `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`; alpha-tested, where the weight times the
+    base alpha is under `alpha_ref`). So a technique-2 blend binds no second texture and is
+    a blend all the same: the terrain overlays (`terrain_tiled/{grass,dirt,sand_grass,earth}_vc`,
+    `tiled/trash/trash_vc`, `trash_dirt_moss_alpha_vc`: 6 of Rudnya's materials, on its 12
+    `terrain_game` tiles, the bus stop, the culture centre and house_3) were taken for
+    one-texture vertex-colour meshes and drawn whole to their mesh borders: straight seams
+    where two ground types meet. The alpha-tested one (`earth_vc`) takes
+    `vertex_blend_alpha_test_technique2_tiled_mask`, 0.26g's `terrain/ground_moss_s_alpha_vc`.
+  - Not converted: 0.69d can cut an alpha-tested blend by its second layer's alpha
+    (`consider_blended_albedo_opaque` false: `alpha = lerp(blended.a, 1, w)` with the base
+    opaque); 0.26g's programs read only the base's (`lerp(1, base.a, w)`). The lath
+    `stucco_wood_pbr` is 38.5 % transparent with black under it, so those faces draw black
+    (house_7's stairs: `tiled/wall/paper_01_palki_vc`; 3 Rudnya materials, 17 in all of 0.69d).
 * Sky: the donor's clouds (`sky/sky_test`, imported; lit through the template's cloud normal
   map, since the donor's have none and 0.26 draws unlit clouds dark) over 0.26's own
   atmosphere.
@@ -379,8 +505,10 @@ the formulas come from both builds' shader disassembly):
   (`mie_fog_base_height` 33000 + the level's number, an integer above every camera: every
   native shader reads the field as 1 there) and resource-porter's lighting pack draws the
   native tone block behind it with the mean clamped to 0.69d's range and its own key
-  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.2334 for Rudnya, printed in
-  the build's notes); and the scene's colour grading texture
+  (`ExposureProfile`: floor 0.001151, ceiling 0.104167, key 0.3367 for Rudnya, printed in
+  the build's notes; the curve is `1 - 2^(-X)`, sm_4_0's `exp` being `2^x`: read as
+  `1 - e^(-X)` until rudnya-069d@8, with key 0.2334, it put 0.69d's look on 0.74 of the
+  light, every 0.69d scene shown as if lit at three quarters); and the scene's colour grading texture
   (`textures/<namespace>/color_grading/day`, 16^3) holds, for each colour 0.26's curve can
   show, what 0.69d's grading and curve show for the light that gives it. 0.26's blue shift
   of dark colours is off. Gone with it: `exposure_bias`, `sun_saturation`, the raising of

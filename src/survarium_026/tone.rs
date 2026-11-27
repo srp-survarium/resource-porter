@@ -13,10 +13,11 @@
 //!   luma (`shadows_max`, `highlights_min`).
 //! * The curve `y = x^a / (x^d * b + c)` (`Curve`), then the sRGB encode.
 //!
-//! 0.26g (`complex_post_process_blend.ps`): the curve `1 - exp(-x * A)` of
+//! 0.26g (`complex_post_process_blend.ps`): the curve `1 - 2^(-x * A)` of
 //! the colour times `(k / L)^0.2` to the power 1.2, `A = 4.5 / (10 clamp(L,
 //! 0.05, 2) + 1)`, then a 16^3 colour grading texture looked up by the sRGB
-//! encoded result.
+//! encoded result. The curve's `exp` is the shader model's (sm_4_0 `exp` is
+//! `2^x`, `log` is `log2`): no `log2(e)` scales its argument.
 //!
 //! So a 0.69d scene takes two things. An exposure profile (`Exposure`): the
 //! native tone block with the mean clamped to 0.69d's range, which
@@ -170,16 +171,16 @@ impl Exposure {
     }
 
     /// What 0.26g's curve shows (linear, before the grading texture) for a
-    /// light `x` at the ceiling.
+    /// light `x` at the ceiling: `1 - 2^(-(x * gain)^1.2 * a)`.
     pub fn shown(&self, x: f32) -> f32 {
         let (gain, a) = self.at_ceiling();
-        1.0 - (-(x.max(0.0) * gain).powf(1.2) * a).exp()
+        1.0 - (-(x.max(0.0) * gain).powf(1.2) * a).exp2()
     }
 
     /// The light that 0.26g's curve shows as `shown`.
     fn light(&self, shown: f32) -> f32 {
         let (gain, a) = self.at_ceiling();
-        (-(1.0 - shown.clamp(0.0, 0.9999)).ln() / a).powf(1.0 / 1.2) / gain
+        (-(1.0 - shown.clamp(0.0, 0.9999)).log2() / a).powf(1.0 / 1.2) / gain
     }
 }
 
@@ -237,7 +238,8 @@ impl Tone {
                 n("tone_mapping_white_clip", 0.0),
             ),
         };
-        ensure!(tone.min_ev < tone.max_ev, "the exposure range is empty");
+        // Equal ends are a fixed exposure (0.69d's lobby: EV 9.5).
+        ensure!(tone.min_ev <= tone.max_ev, "the exposure range is empty");
         Ok(tone)
     }
 
@@ -258,7 +260,7 @@ impl Tone {
         let mut exposure = Exposure { marker, floor, ceiling, key: 1.0 };
         let (gain, _) = exposure.at_ceiling();
         let white = self.curve.white(16.0);
-        exposure.key = -(0.02f32).ln() * 10.0 * ceiling / (white * gain).powf(1.2);
+        exposure.key = -(0.02f32).log2() * 10.0 * ceiling / (white * gain).powf(1.2);
         exposure
     }
 
@@ -400,6 +402,24 @@ mod tests {
         // A positive bias darkens: the same mean sits one stop lower.
         let biased = Tone { bias: 1.0, ..rudnya() }.exposure(33001.0);
         assert!((biased.ceiling / e.ceiling - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn the_curve_is_the_programs_with_its_exp_base_two() {
+        // The profile's last three instructions of complex_post_process_blend.ps:
+        //   mul r0.xyz, r0.xyzx, -r1.xxxx   (r1.x = key / (10 Lc))
+        //   exp r0.xyz, r0.xyzx             (sm_4_0 `exp`: 2^x)
+        //   add r0.xyz, -r0.xyzx, l(1.0)
+        // on (x * gain)^1.2, evaluated as the shader model defines them.
+        let sm4_exp = |v: f32| 2f32.powf(v);
+        let e = rudnya().exposure(33001.0);
+        let (gain, a) = e.at_ceiling();
+        for x in [0.05, 0.28, 1.0, 4.0] {
+            let program = 1.0 - sm4_exp(-(x * gain).powf(1.2) * a);
+            assert!((e.shown(x) - program).abs() < 1e-6, "{x}");
+        }
+        // Rudnya v0.69's key (the lighting pack's exposure_profiles row).
+        assert!((e.key - 0.3367).abs() < 5e-4, "{e:?}");
     }
 
     #[test]

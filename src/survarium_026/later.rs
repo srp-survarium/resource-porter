@@ -14,6 +14,7 @@
 use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
 use super::lighting::{DonorLight, DonorProbe, LightEffect, LightScale, NativeLight, Shape, Volume};
+use crate::ambient_facing::Facing;
 use super::surface::Gloss;
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
@@ -398,6 +399,113 @@ pub struct LobbySpec {
     /// (`editor/walker_collision`) scaled to these half extents.
     #[serde(default)]
     pub camera_walls: Vec<CameraWall>,
+    /// 0.26's own models placed in the lobby (a workbench under the
+    /// weapon's spot), with their collision.
+    #[serde(default)]
+    pub native_props: Vec<NativeProp>,
+    /// 0.26's own models drawn outside the room (the view through its
+    /// windows): no collision, so the lobby camera's ray never meets them.
+    #[serde(default)]
+    pub native_scenery: Vec<NativeScenery>,
+    /// Donor models whose instances are turned to this rotation (x, y, z
+    /// radians) in place of the donor's: a prop 0.69d's fixed camera only
+    /// saw one way, which the 0.26 lobby camera's orbit shows the wrong way
+    /// round (the camp's double door, its leaves facing out of the room).
+    #[serde(default)]
+    pub instance_rotations: BTreeMap<String, [f32; 3]>,
+    /// Environment fields set after the conversion, by eye against the
+    /// donor's screenshots (0.26 has no 0.69d exposure or tone curve):
+    /// numbers become floats, 3 or 4 numbers a vector.
+    #[serde(default)]
+    pub environment_overrides: BTreeMap<String, serde_json::Value>,
+    /// Surfaces that glow (0.69d lights a lamp's glass from the bulb inside;
+    /// 0.26 draws it with the material's emission): the surface gets a copy
+    /// of its converted material, `<material>_glow`, emitting its albedo.
+    #[serde(default)]
+    pub glowing_surfaces: Vec<GlowingSurface>,
+    /// Parts of donor models' surfaces left out.
+    #[serde(default)]
+    pub removed_parts: Vec<RemovedPart>,
+}
+
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct GlowingSurface {
+    /// The donor model (`props/electric/lustra_patina`).
+    pub model: String,
+    /// Its render surface.
+    pub surface: String,
+    /// The donor material the surface has.
+    pub material: String,
+    /// Emission colour and multiplier (0.26's bulb, props/light/lamp_lights_light: 8.4).
+    pub colour: [f32; 3],
+    pub multiplier: f32,
+    /// Only the surface's triangles within `radius` (model space) of these
+    /// points glow (the shades with a bulb behind them): they become a
+    /// surface of their own, `srp_glow_<surface>`; the rest keep the plain
+    /// material. Empty: the whole surface glows.
+    #[serde(default)]
+    pub near: Vec<[f32; 3]>,
+    #[serde(default)]
+    pub radius: f32,
+}
+
+/// Parts of a donor model's surfaces left out: the triangles whose centre
+/// lies within `radius` (model space) of a point (the camp door's hinge
+/// knuckles, which show on the jamb from the room).
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemovedPart {
+    pub model: String,
+    pub surfaces: Vec<String>,
+    pub near: Vec<[f32; 3]>,
+    pub radius: f32,
+}
+
+/// The glowing part of a surface: its triangles whose centre lies within
+/// `radius` of a point, and the rest (both with the whole vertex buffer).
+fn split_mesh(bytes: &[u8], near: &[[f32; 3]], radius: f32) -> Result<(Vec<u8>, Vec<u8>)> {
+    let s = stride(bytes).context("not a static mesh")?;
+    let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
+    let size = u(4);
+    let at = 8 + size;
+    ensure!(u(at) == 4, "expected index chunk");
+    let n = u(at + 8);
+    let index = |k: usize| u16::from_le_bytes([bytes[at + 12 + 2 * k], bytes[at + 13 + 2 * k]]);
+    let position = |i: u16| -> [f32; 3] {
+        let o = 12 + i as usize * s;
+        std::array::from_fn(|c| f32::from_le_bytes(bytes[o + 4 * c..o + 4 * c + 4].try_into().unwrap()))
+    };
+    let (mut lit, mut rest) = (Vec::new(), Vec::new());
+    for t in 0..n / 3 {
+        let tri = [index(3 * t), index(3 * t + 1), index(3 * t + 2)];
+        let c: [f32; 3] = std::array::from_fn(|k| tri.iter().map(|&i| position(i)[k]).sum::<f32>() / 3.0);
+        let close = near.iter().any(|p| (0..3).map(|k| (c[k] - p[k]).powi(2)).sum::<f32>() <= radius * radius);
+        (if close { &mut lit } else { &mut rest }).extend_from_slice(&tri);
+    }
+    let mesh = |indices: &[u16]| -> Result<Vec<u8>> {
+        let mut b = bytes[..at].to_vec();
+        b.extend(4u32.to_le_bytes());
+        b.extend(u32::try_from(4 + indices.len() * 2)?.to_le_bytes());
+        b.extend(u32::try_from(indices.len())?.to_le_bytes());
+        for i in indices {
+            b.extend(i.to_le_bytes());
+        }
+        Ok(b)
+    };
+    ensure!(!lit.is_empty() && !rest.is_empty(), "glowing surface: the points select {} of {} triangles", lit.len() / 3, n / 3);
+    Ok((mesh(&lit)?, mesh(&rest)?))
+}
+
+/// The `radius` 0.26g draws a box probe by. Its visibility stage sorts the
+/// visible probes by radius, largest first, and each draws over the ones
+/// before it; probes of equal radius come in its probe tree's order, which
+/// changes from run to run with the order their cubemaps load in. A box's
+/// volume is its scale, and its radius is only that sort key: 0.10b's engine
+/// set it to 0.75 x the largest half-extent itself, 0.26g takes the
+/// project's. So the larger box draws first and the smaller ones over it.
+fn box_probe_radius(half_extents: [f32; 3]) -> f32 {
+    0.75 * half_extents.iter().cloned().fold(0.0, f32::max)
 }
 
 #[derive(Clone, Deserialize, serde::Serialize)]
@@ -405,6 +513,58 @@ pub struct LobbySpec {
 pub struct CameraWall {
     pub centre: [f32; 3],
     pub half_extents: [f32; 3],
+}
+
+/// A model of 0.26's own in the lobby frame, turned about y (the engine's
+/// create_rotation(0, yaw, 0)).
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeProp {
+    /// `models/<lib>.model`, as 0.26 has it.
+    pub lib: String,
+    pub position: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
+}
+
+/// A model of 0.26's own drawn in the lobby frame, turned about y and
+/// scaled alike on every axis.
+#[derive(Clone, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeScenery {
+    /// `models/<lib>.model`, as 0.26 has it.
+    pub lib: String,
+    pub position: [f32; 3],
+    #[serde(default)]
+    pub yaw: f32,
+    #[serde(default = "unit_scale")]
+    pub scale: f32,
+}
+
+fn unit_scale() -> f32 {
+    1.0
+}
+
+
+/// The lobby's native scenery as render visuals only (no collision object:
+/// the lobby camera's ray stays inside the room). `exists` says whether 0.26
+/// has a resource.
+fn place_native_scenery(project: &mut ConfigValue, scenery: &[NativeScenery], exists: impl Fn(&str) -> bool) -> Result<String> {
+    let Some(ConfigValue::Indexed(visuals)) = project.named_mut("render_visuals") else { bail!("no render_visuals") };
+    let mut models = BTreeSet::new();
+    for item in scenery {
+        let settings = format!("models/{}.model/settings", item.lib);
+        ensure!(exists(&settings), "native scenery {}: {settings} is not in 0.26", item.lib);
+        ensure!(item.scale > 0.0 && item.scale.is_finite(), "native scenery {}: scale {}", item.lib, item.scale);
+        visuals.push(named(vec![
+            ("lib_name", ConfigValue::String(item.lib.clone())),
+            ("position", ConfigValue::Float3(item.position)),
+            ("rotation", ConfigValue::Float3([0.0, item.yaw, 0.0])),
+            ("scale", ConfigValue::Float3([item.scale; 3])),
+        ]));
+        models.insert(item.lib.as_str());
+    }
+    Ok(format!("native scenery: {} instances of {} 0.26 models outside the room, without collision", scenery.len(), models.len()))
 }
 
 /// 0.26's unit box collision (half extents 1), scaled per instance.
@@ -416,6 +576,10 @@ pub enum LobbyProbes {
     /// The donor's own cubemaps, imported with their volumes. 0.46c2 bakes
     /// probes as 0.26 does: a DXT5 cubemap and its `_diffuse` irradiance.
     Donor,
+    /// The donor's own light, as a donor-lit map's (`MapProbes::Donor`,
+    /// `donor_lighting`): its probes re-encoded with their SH irradiance, its
+    /// ambient and point lights, its sun, exposure and curve, in one scale.
+    DonorLight,
     /// The donor's volumes, drawn with this template probe's (`full_name`)
     /// cubemaps: 0.69d probes are encoded for its exposure pipeline and carry
     /// their irradiance as SH coefficients, with no `_diffuse` cubemap.
@@ -427,6 +591,16 @@ pub enum LobbyProbes {
 pub enum Port {
     Map(MapSpec),
     Lobby(LobbySpec),
+}
+
+/// How a scene is lit (`Port::lighting`).
+enum Lighting<'a> {
+    /// The donor's own light in one scale (`donor_lighting`).
+    Donor,
+    /// A map's donor volumes on native probes (`MapProbes::Native`).
+    NativeProbes { classes: &'a [ProbeClass], ambient_lights: bool },
+    /// A lobby's probes as its `LobbyProbes` says (not `DonorLight`).
+    Lobby(&'a LobbySpec),
 }
 
 impl Port {
@@ -452,6 +626,34 @@ impl Port {
         match self {
             Self::Map(_) => false,
             Self::Lobby(l) => l.exclude_models.iter().any(|p| model.starts_with(p.as_str())),
+        }
+    }
+    /// How the scene is lit.
+    fn lighting(&self) -> Lighting<'_> {
+        match self {
+            Self::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) | Self::Lobby(LobbySpec { probes: LobbyProbes::DonorLight, .. }) => Lighting::Donor,
+            Self::Map(MapSpec { probes: MapProbes::Native { classes, ambient_lights, .. }, .. }) => {
+                Lighting::NativeProbes { classes, ambient_lights: *ambient_lights }
+            }
+            Self::Lobby(lobby) => Lighting::Lobby(lobby),
+        }
+    }
+    fn donor_lit(&self) -> bool {
+        matches!(self.lighting(), Lighting::Donor)
+    }
+    /// A donor-lit scene's exposure profile marker (`exposure_marker`): a
+    /// map's by its level; 0.69d's one lobby `LOBBY_EXPOSURE_MARKER`.
+    fn exposure_marker(&self) -> Result<f32> {
+        match self {
+            Self::Map(map) => exposure_marker(&map.level),
+            Self::Lobby(_) => Ok(LOBBY_EXPOSURE_MARKER),
+        }
+    }
+    /// An instance's rotation: the manifest's for its model, else the donor's.
+    fn rotation(&self, model: &str, donor: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Map(_) => donor,
+            Self::Lobby(l) => l.instance_rotations.get(model).copied().unwrap_or(donor),
         }
     }
 }
@@ -1330,8 +1532,10 @@ pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
     if alpha && (matches!(base, "flora" | "grass") || flag(effect, "use_t_translucency")) {
         return Ok(Category::Foliage);
     }
+    // Technique 2 draws no second layer in either build (it cuts the base
+    // where the masked weight is under 0.4), so it is a blend without one.
     let blends = usage.vertex_colour
-        && text(effect, "texture_vertex_blended_diffuse").is_some()
+        && (text(effect, "texture_vertex_blended_diffuse").is_some() || number(effect, "vertex_blend_technique") == Some(2.0))
         && (flag(effect, "use_tiled_vertex_blended_mask") || flag(effect, "use_vertex_blended_normal"));
     if blends {
         return Ok(Category::VertexBlend { two_sided, alpha_test: alpha });
@@ -1371,6 +1575,9 @@ pub fn donor_textures(root: &ConfigValue) -> Vec<String> {
                             "texture_vertex_blended_tiled_mask",
                         ],
                     );
+                    if flag(effect, "use_emission") && flag(effect, "use_t_emission") {
+                        visit(effect, &["t_emission"]);
+                    }
                     if text(effect, "effect_id") == Some("g_stage_terrain_layered") {
                         for layer in 0..5 {
                             visit(
@@ -1468,11 +1675,25 @@ pub fn convert_material(
     // Vertex-colour meshes need a template compiled for that vertex input
     // (`<category>_vc`).
     let vc_key = |category: Category| format!("{}_vc", category.key());
+    // A vertex blend draws by its technique and tiled-mask switch (0.69d
+    // `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`: linear, by the albedo's
+    // alpha, by a tiled mask); a manifest may name a template per switch
+    // (`<category>_technique<n>[_tiled_mask]`), the category's own drawing the
+    // others.
+    let blend_key = |category: Category| {
+        let effect = g_stage(donor).and_then(|s| s.named("effect"))?;
+        matches!(category, Category::VertexBlend { .. }).then(|| {
+            let technique = number(effect, "vertex_blend_technique").unwrap_or(0.0) as i32;
+            let mask = if flag(effect, "use_tiled_vertex_blended_mask") { "_tiled_mask" } else { "" };
+            format!("{}_technique{technique}{mask}", category.key())
+        })
+    };
     let lookup = |category: Category| {
         let metal_key = format!("{}_metal", if usage.vertex_colour { vc_key(category) } else { category.key().to_owned() });
         let metal_template = metalness.as_ref().and_then(|_| templates.get(&metal_key));
         metal_template
             .map(|t| (t, true))
+            .or_else(|| blend_key(category).and_then(|k| templates.get(&k)).map(|t| (t, false)))
             .or_else(|| if usage.vertex_colour { templates.get(&vc_key(category)) } else { None }.map(|t| (t, false)))
             .or_else(|| templates.get(category.key()).map(|t| (t, false)))
     };
@@ -1567,6 +1788,16 @@ pub fn convert_material(
             let max = number(effect, "max_smoothness").unwrap_or(1.0);
             let min = number(effect, "min_smoothness").unwrap_or(0.0);
             let constant = number(effect, "smoothness").unwrap_or(0.5);
+            // With a map 0.69d never reads the constant (`g_stage_default.ps`:
+            // `min + (max - min) * map.g`): a template that cannot draw the map
+            // would draw that unused value instead (0.8 on Rudnya's rusty
+            // sheet metal, which its map makes nearly matte: a wet shine).
+            ensure!(
+                smoothness_map.is_none() || effect_flag(&root, stage, "use_troughness"),
+                "{template_path}, the {} template, draws no gloss map and {} binds a smoothness map; declare a template with use_troughness",
+                category.key(),
+                albedo
+            );
             if effect_flag(&root, stage, "use_troughness") {
                 match &smoothness_map {
                     Some(map) => {
@@ -1633,6 +1864,44 @@ pub fn convert_material(
                         .unwrap_or_else(|| albedo.clone());
                     set_effect(&mut root, stage, "texture_vertex_blended_tiled_mask", ConfigValue::String(mask))?;
                 }
+                // The blend's own numbers. Both builds weigh the base layer by
+                // `sat(pow(w, (1 - mask)^2 falloff) strength)` with the mask
+                // turned and scaled by its rotation and UV scale, and sample the
+                // second layer at the UV times its tile (0.69d
+                // `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`): the donor's
+                // values, where the template draws the same technique with the
+                // same mask switch (else the formula differs and the template's
+                // stay, noted).
+                if blends {
+                    let same = number(effect, "vertex_blend_technique") == effect_value(&root, stage, "vertex_blend_technique").and_then(|v| match v {
+                        ConfigValue::Integer(i) => Some(*i as f32),
+                        ConfigValue::Float(f) => Some(*f),
+                        _ => None,
+                    }) && flag(effect, "use_tiled_vertex_blended_mask") == effect_flag(&root, stage, "use_tiled_vertex_blended_mask");
+                    if same {
+                        for field in [
+                            "constant_vertex_blended_strength",
+                            "constant_vertex_blended_falloff",
+                            "constant_vertex_blended_textures_tile",
+                            "constant_tiled_mask_uv_scale",
+                            "constant_tiled_mask_uv_rotation",
+                        ] {
+                            // In the template's own type (an integer stays one
+                            // where the value is whole).
+                            let value = match (number(effect, field), effect_value(&root, stage, field)) {
+                                (Some(v), Some(ConfigValue::Integer(_))) if v.fract() == 0.0 => ConfigValue::Integer(v as i32),
+                                (Some(v), Some(_)) => ConfigValue::Float(v),
+                                _ => continue,
+                            };
+                            set_effect(&mut root, stage, field, value)?;
+                        }
+                    } else {
+                        notes.push("vertex blend: the template's technique or tiled-mask switch differs from the donor's; its blend constants are kept".into());
+                    }
+                    if let Some(note) = blend_cut(effect, &mut root, stage, same)? {
+                        notes.push(note);
+                    }
+                }
             }
             if let Some(ConfigValue::Float4(c)) = value_of(effect, "albedo_color") {
                 if root
@@ -1688,6 +1957,25 @@ pub fn convert_material(
                     notes.push(format!("{what} is not reproduced (template switch kept)"));
                 }
             }
+            // Emission (a screen, a lit bulb): 0.69d's own texture and colour
+            // in 0.26's g_stage emission, from whichever stage has it.
+            let emission = ["g_stage", "forward"]
+                .iter()
+                .filter_map(|st| donor.named("material")?.named(st)?.named("effect"))
+                .find(|e| flag(e, "use_emission") && flag(e, "use_t_emission"));
+            if let Some(e) = emission
+                && let Some(t) = text(e, "t_emission")
+            {
+                let colour = match value_of(e, "emission_color") {
+                    Some(ConfigValue::Float4(c)) => *c,
+                    _ => [1.0; 4],
+                };
+                set_effect(&mut root, stage, "use_emissive", ConfigValue::Boolean(true))?;
+                set_effect(&mut root, stage, "texture_emissive", ConfigValue::String(t.replace('\\', "/")))?;
+                set_effect(&mut root, stage, "constant_emissive", ConfigValue::Float4(colour))?;
+                set_effect(&mut root, stage, "constant_emissive_multiplier", ConfigValue::Float(number(e, "emission_intensity").unwrap_or(1.0)))?;
+                notes.push(format!("emission: {t} as 0.26's g_stage emissive"));
+            }
         }
     }
     Ok(ConvertedMaterial {
@@ -1697,6 +1985,106 @@ pub fn convert_material(
         notes,
         metal,
     })
+}
+
+/// A donor-lit scene's emission as 0.69d draws it (its forward effect,
+/// constants from 0x53d758; `g_stage` has none): `t_emission * colour^2.2 *
+/// 2^(EV_m - 3)` cd/m^2, `EV_m = exposure_value + (EV + autoexposure_bias -
+/// exposure_value) * autoexposure_factor` at the scene's exposure `EV`, an
+/// additive one (blend mode 2) times its alpha (`transparency`). 0.26 adds
+/// its emission unlit, `constant_emissive * multiplier * texture`, with no
+/// gamma: the colour linear, the multiplier in the scene's scale.
+fn donor_emission(donor: &ConfigValue, converted: &mut ConvertedMaterial, scale: LightScale, ev: f32) -> Result<()> {
+    let Some(e) = donor.named("material").and_then(|m| m.named("forward")).and_then(|s| s.named("effect")) else { return Ok(()) };
+    if !(flag(e, "use_emission") && flag(e, "use_t_emission")) {
+        return Ok(());
+    }
+    let Some(stage) = ["g_stage", "forward"].into_iter().find(|st| effect_flag(&converted.root, st, "use_emissive")) else { return Ok(()) };
+    let own = number(e, "exposure_value").unwrap_or(13.0);
+    let ev_m = own + (ev + number(e, "autoexposure_bias").unwrap_or(0.0) - own) * number(e, "autoexposure_factor").unwrap_or(0.0);
+    let alpha = match number(e, "blend_mode").unwrap_or(0.0) as i32 {
+        1 | 2 => number(e, "transparency").unwrap_or(1.0).clamp(0.0, 1.0),
+        _ => 1.0,
+    };
+    let colour = match value_of(e, "emission_color") {
+        Some(ConfigValue::Float4(c)) => [c[0].max(0.0).powf(2.2), c[1].max(0.0).powf(2.2), c[2].max(0.0).powf(2.2), 1.0],
+        _ => [1.0; 4],
+    };
+    let multiplier = 2f32.powf(ev_m - 3.0) * scale.0 * alpha;
+    set_effect(&mut converted.root, stage, "constant_emissive", ConfigValue::Float4(colour))?;
+    set_effect(&mut converted.root, stage, "constant_emissive_multiplier", ConfigValue::Float(multiplier))?;
+    converted.notes.push(format!("emission: 0.69d's at its exposure value {ev_m} (alpha {alpha}) in the scene's scale: multiplier {multiplier:.3}, linear colour"));
+    Ok(())
+}
+
+/// 0.69d cuts an alpha-tested blend by its second layer's alpha where that
+/// layer is not considered opaque (`consider_blended_albedo_opaque` false);
+/// 0.26g's programs only cut by the base layer. The selector is the blend
+/// strength, as skhid's `v021d-vertex-blend@4` reads it (resource-porter
+/// `weather_fog_021::vertex_blend::blend_cut`, on the lighting packs' line).
+pub const BLEND_CUT_LINEAR: i32 = -21069;
+
+/// The strength that selects the masked cut with `strength` (`-(2^25 + strength * 2^17)`).
+pub fn blend_cut_masked(strength: f32) -> Option<i32> {
+    let encoded = -(33_554_432.0f64 + strength as f64 * 131_072.0);
+    ((0.0..256.0).contains(&strength) && encoded == encoded.round() && (encoded as f32) as f64 == encoded).then_some(encoded as i32)
+}
+
+/// Select 0.69d's cut on a converted alpha-tested blend, from the donor's
+/// own flags (technique 1, `g_stage_default.ps`): without a tiled mask and
+/// with the base layer opaque, `alpha = B.a + w (1 - B.a)` on the raw vertex
+/// weight; with a tiled mask and neither layer opaque,
+/// `alpha = B.a + W (mask - B.a)` on the masked weight. `same`: the template
+/// draws the donor's technique and mask switch (its blend numbers are the
+/// donor's). A note for what is selected or left as 0.26g cuts it.
+fn blend_cut(effect: &ConfigValue, root: &mut ConfigValue, stage: &str, same: bool) -> Result<Option<String>> {
+    let cuts_by_second = flag(effect, "use_alpha_test")
+        && flag(effect, "alpha_test_consider_vertex_blend")
+        && !flag(effect, "consider_blended_albedo_opaque")
+        && number(effect, "vertex_blend_technique") != Some(2.0);
+    if !cuts_by_second {
+        return Ok(None);
+    }
+    let template_cuts = effect_flag(root, stage, "use_alpha_test") && effect_flag(root, stage, "alpha_test_consider_vertex_blend");
+    let technique = number(effect, "vertex_blend_technique").unwrap_or(0.0);
+    let mask = flag(effect, "use_tiled_vertex_blended_mask");
+    let base_opaque = flag(effect, "consider_albedo_opaque");
+    let typed = |root: &ConfigValue, field: &str, v: f32| match effect_value(root, stage, field) {
+        Some(ConfigValue::Integer(_)) if v.fract() == 0.0 => Some(ConfigValue::Integer(v as i32)),
+        Some(_) => Some(ConfigValue::Float(v)),
+        None => None,
+    };
+    let selector = match (template_cuts, technique == 1.0, mask, base_opaque) {
+        (true, true, false, true) => {
+            // The weight is the raw vertex alpha whatever the template's
+            // mask; the second layer keeps its own tile.
+            if let Some(tile) = number(effect, "constant_vertex_blended_textures_tile")
+                && let Some(value) = typed(root, "constant_vertex_blended_textures_tile", tile)
+            {
+                set_effect(root, stage, "constant_vertex_blended_textures_tile", value)?;
+            }
+            Some((BLEND_CUT_LINEAR, "the raw vertex weight, the base layer opaque"))
+        }
+        (true, true, true, false) if same && effect_flag(root, stage, "use_tiled_vertex_blended_mask") => {
+            let strength = number(effect, "constant_vertex_blended_strength").unwrap_or(1.0);
+            let encoded = blend_cut_masked(strength).with_context(|| format!("blend strength {strength} has no exact masked-cut encoding"))?;
+            Some((encoded, "the masked weight, the tiled mask as the base layer's alpha"))
+        }
+        _ => None,
+    };
+    let Some((value, what)) = selector else {
+        return Ok(Some(format!(
+            "vertex blend: 0.69d cuts it by its second layer's alpha (technique {technique}, tiled mask {mask}, base opaque {base_opaque}); not converted, 0.26g cuts by the base layer"
+        )));
+    };
+    let field = "constant_vertex_blended_strength";
+    let written = match effect_value(root, stage, field) {
+        Some(ConfigValue::Integer(_)) => ConfigValue::Integer(value),
+        Some(_) => ConfigValue::Float(value as f32),
+        None => bail!("the template has no {field}"),
+    };
+    set_effect(root, stage, field, written)?;
+    Ok(Some(format!("vertex blend: 0.69d's cut by the second layer's alpha ({what}), strength selector {value} (v021d-vertex-blend@4)")))
 }
 
 /// One Fresnel value on a converted material, whether its template draws a
@@ -1719,6 +2107,10 @@ pub struct MetalSource {
     pub metalness: Metalness,
     pub colour: [f32; 3],
 }
+
+/// A 0.69d light's `luminous_power` when its object has none (lumen): the light
+/// class's constructor default.
+const DONOR_LUMINOUS_POWER: f32 = 1200.0;
 
 /// The most metalness a 0.69d material without a map has and is still drawn
 /// as a dielectric (Fresnel 0.04, within 0.1 (A - 0.04) of 0.69d's).
@@ -2214,6 +2606,15 @@ fn exposure_marker(level: &str) -> Result<f32> {
     Ok(33000.0 + number as f32)
 }
 
+/// The exposure marker of 0.69d's lobby (`lobby_scene/day`), above every
+/// map's (33000 plus a level number).
+const LOBBY_EXPOSURE_MARKER: f32 = 33100.0;
+
+/// The radius of a donor-lit lobby's map-wide sphere: everything it shows
+/// outside the donor's probes, to its horizon (the tree belts 300 m out), is
+/// lit by the largest of them.
+const LOBBY_HORIZON: f32 = 1000.0;
+
 /// A probe cubemap pair made for 0.26: `textures/<ns>/<texture>.dds` from
 /// the donor probe's cube and `<texture>_diffuse.dds` from its SH.
 #[derive(Clone, Debug)]
@@ -2232,6 +2633,66 @@ struct LitVolume {
     texture: String,
     probe: DonorProbe,
     specular_multiplier: f32,
+    tier: ProbeTier,
+}
+
+/// 0.69d's probe tiers (`layer`, render properties +214h): it averages the probes of a tier by
+/// their weights, `sum(w L) / max(W, 1)`, and draws the tier below only where `1 - W` remains
+/// (`environment_probe_stage::execute` 0x20050B200). 0.26 lerps every probe over the ones before
+/// it; skhid's exe patch 203 draws the local tier as 0.69d does, for the probes this marks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeTier {
+    /// Layer 0, and the map-wide sphere: 0.26's own draw.
+    Global,
+    /// Layer 1: the radius below 0 marks it for patch 203 (`local_probe_radius`).
+    Local,
+}
+
+impl ProbeTier {
+    fn of(object: &ConfigValue, full_name: &str) -> Result<ProbeTier> {
+        match integer(object, "layer").unwrap_or(0) {
+            0 => Ok(ProbeTier::Global),
+            1 => {
+                // Patch 203's programs draw 0.69d's linear falloff (attenuation_power 1).
+                let power = real(object, "attenuation_power").unwrap_or(1.0);
+                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 203's tier programs draw 1 only");
+                Ok(ProbeTier::Local)
+            }
+            layer => bail!("{full_name}: probe layer {layer} (0.69d's detail tier): no 0.26 draw for it"),
+        }
+    }
+}
+
+/// A local probe's radius for patch 203: below 0 (the mark), its whole part's magnitude the shape
+/// the tier programs draw (1 a box, 2 a cylinder about local y in its circumscribed box), its
+/// fraction `0.25 + 0.5 / (1 + R)` of the sort radius `R`, so the sort (largest first) and the
+/// forward models' choice (the smallest radius whose box holds them) keep 0.26's order among
+/// local probes. The exe reads only the sign; the programs read the shape from `light_range`
+/// (0.98 radius) and the side width from `inner_radius` (radius - side width - 0.05).
+fn local_probe_radius(volume: &Volume) -> Result<f32> {
+    let shape = match volume.shape {
+        Shape::Box { .. } => 1.0,
+        Shape::Cylinder { .. } => 2.0,
+        Shape::Sphere { .. } => bail!("a local sphere probe: patch 203's tier programs draw boxes and cylinders"),
+    };
+    Ok(-(shape + 0.25 + 0.5 / (1.0 + volume.sort_radius())))
+}
+
+/// Put a 0.69d local probe on `volume` for patch 203: a box (a cylinder's circumscribed one, the
+/// programs cut the cylinder out of it), the marked radius, no smart attenuation (the four box
+/// effects without it are the ones with tier techniques).
+fn place_local_probe(native: &mut ConfigValue, volume: &Volume, full_name: &str) -> Result<()> {
+    place_volume(native, volume, full_name)?;
+    let scale = match volume.shape {
+        Shape::Box { half } => half,
+        Shape::Cylinder { radius, half_height } => [radius, half_height, radius],
+        Shape::Sphere { .. } => bail!("{full_name}: a local sphere probe"),
+    };
+    native.set_path("geometry", ConfigValue::Integer(1))?;
+    native.set_path("scale", ConfigValue::Float3(scale))?;
+    native.set_path("radius", ConfigValue::Float(local_probe_radius(volume).with_context(|| full_name.to_owned())?))?;
+    native.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
+    Ok(())
 }
 
 struct DonorLighting {
@@ -2275,8 +2736,9 @@ fn donor_light(object: &ConfigValue) -> Result<(DonorLight, [f32; 3])> {
         LightEffect::Add { radiance: linear.map(|c| c * e) }
     };
     let facing = matches!(object.named("dot_normal"), Some(ConfigValue::Boolean(true)))
-        .then(|| (real(object, "dot_normal_cutoff").unwrap_or(0.0), real(object, "dot_normal_power").unwrap_or(1.0)));
-    let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing };
+        .then(|| Facing { cutoff: real(object, "dot_normal_cutoff").unwrap_or(0.0), power: real(object, "dot_normal_power").unwrap_or(1.0) });
+    let gradient = matches!(object.named("gradient_attenuation"), Some(ConfigValue::Boolean(true)));
+    let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing, gradient };
     Ok((light, colour))
 }
 
@@ -2357,12 +2819,13 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
         Shape::Cylinder { radius, half_height } => 6.28 * radius * radius * half_height,
     };
-    let mut pending: Vec<(String, Volume, DonorProbe, f32)> = Vec::new();
+    let mut pending: Vec<(String, Volume, DonorProbe, f32, ProbeTier)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
         // 0.69d: specular_multiplier -1 turns the cube's reflections off.
         let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
-        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular));
+        let tier = ProbeTier::of(object, &full_name)?;
+        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular, tier));
     }
     let largest = pending
         .iter()
@@ -2372,10 +2835,10 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         .clone();
     // 0.26's order: larger first; the map-wide sphere first of all.
     pending.sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
-    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0));
+    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0, ProbeTier::Global));
     let mut volumes: Vec<LitVolume> = Vec::new();
     let mut names = BTreeSet::new();
-    for (full_name, volume, probe, specular_multiplier) in pending {
+    for (full_name, volume, probe, specular_multiplier, tier) in pending {
         let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
         let stem = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
         let mut texture = stem.clone();
@@ -2384,7 +2847,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
             n += 1;
             texture = format!("{stem}_{n}");
         }
-        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier });
+        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier, tier });
     }
 
     let mut donor_lights = Vec::new();
@@ -2420,7 +2883,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
                 light.native_additive(std::array::from_fn(|c| (factor[c] - 1.0).max(0.0) * below[c] * scale.0))
             }
         };
-        lights.push((full_name.clone(), native));
+        lights.push((full_name.clone(), native.with_context(|| format!("ambient light {full_name}"))?));
     }
     Ok(DonorLighting { volumes, lights, counts })
 }
@@ -2532,12 +2995,47 @@ pub struct SceneReport {
     /// The donor's exposure, grading and curve for a donor-lit map
     /// (`SceneTone`).
     pub tone: Option<SceneTone>,
+    /// A donor-lit scene's light scale and the exposure it is fixed at (EV).
+    pub light_scale: Option<(LightScale, f32)>,
     /// Sounds the donor's emitters kept in the scene play (`sound_name`).
     pub sounds: BTreeSet<String>,
+    /// Donor textures the environment names that the target lacks.
+    pub environment_textures: BTreeSet<String>,
     pub decal_materials: BTreeSet<String>,
     pub counts: BTreeMap<String, usize>,
     pub notes: Vec<String>,
 }
+
+/// The environment fields of 0.26g (names the executable registers, all
+/// read from `properties`), which 0.46c2's environment shares by name.
+const ENVIRONMENT_026: &[&str] = &[
+    "aberration_amount", "aberration_blue", "aberration_red", "ao_radius", "ao_saturation", "atmosphere_use_sun_illumination",
+    "bloom_color", "bloom_intensity", "bloom_ratio", "blur_kernel", "bokeh_density", "bokeh_radius", "channel_blur_amount",
+    "channel_blur_power", "cloud_distance", "color_grading_texture", "dof_blur_kernel", "dof_far_blurness_amount", "dof_focus_distance",
+    "dof_focus_region", "dof_near_blurness_amount", "environment_probes_diffuse_intensity_multiplier",
+    "environment_probes_specular_intensity_multiplier", "eye_adaptation_speed", "god_rays_attenuation", "god_rays_color_1",
+    "god_rays_color_2", "god_rays_color_blend_power", "god_rays_intensity", "height_based_ambient_high_color",
+    "height_based_ambient_high_limit", "height_based_ambient_low_color", "height_based_ambient_low_limit", "height_based_ambient_power",
+    "image_grain_intensity", "image_grain_update_frequency", "lens_flares_mask_texture", "lens_flares_multiplier", "mie_fog_base_height",
+    "mie_fog_bias", "mie_fog_color", "mie_fog_density", "mie_fog_falloff_height", "mie_fog_far_distance", "mie_fog_near_distance",
+    "mie_fog_sun_color_falloff", "radial_blur_amount", "radial_blur_intensity", "radial_blur_power", "rain_random_base_offset",
+    "rain_surface_intensity", "rain_v_scale", "rayleigh_fog_density", "rayleigh_fog_far_distance", "rayleigh_fog_near_distance",
+    "sharpen_amount", "sky_clouds_blend_mode", "sky_clouds_color", "sky_clouds_fog_color", "sky_clouds_fog_power", "sky_clouds_fog_up_limit",
+    "sky_clouds_normal_texture", "sky_clouds_rotation", "sky_clouds_rotation_speed", "sky_clouds_skylight", "sky_clouds_sunlight",
+    "sky_clouds_texture", "sky_color_multiplier", "sky_shadows_moving_x", "sky_shadows_moving_y", "sky_shadows_texture", "sky_shadows_tiling",
+    "stratosphere_intensity_multiplier", "stratosphere_rotation", "stratosphere_rotation_speed", "stratosphere_texture", "sun_angle",
+    "sun_color", "sun_intensity", "sun_moon_billboard_color_intensity", "sun_moon_billboard_scale", "sun_position_azimut",
+    "sun_shadow_filter_radius", "sun_shadow_penumbra", "sun_shadow_rain", "sun_size", "use_aberration", "use_ambient_occlusion",
+    "use_bokeh_dof", "use_bokeh_template_image", "use_channel_blur", "use_color_grading_texture", "use_dynamic_lens_flare",
+    "use_height_based_ambient", "use_image_grain", "use_radial_blur", "use_rain", "use_sharpen", "use_sky_clouds",
+    "use_sky_clouds_lighting", "use_sky_shadows", "use_stratosphere", "use_sun", "use_sun_shadows", "vignette_effect_power",
+    "wind_direction", "wind_strength",
+];
+
+/// Environment fields the 0.26 lobby template leaves out that 0.26g's maps
+/// write as floats where 0.46c2 has integers (found by skhid-srp's
+/// build-content, which keeps every key at 0.26g's type).
+const ENVIRONMENT_FLOATS_026: &[&str] = &["wind_strength"];
 
 fn model_of_reference(reference: &str) -> String {
     let normalized = reference.replace('\\', "/");
@@ -2581,7 +3079,7 @@ pub fn convert_scene(
         visuals.push(named(vec![
             ("lib_name", ConfigValue::String(model.replace('\\', "/"))),
             ("position", ConfigValue::Float3(float3(visual, "position")?)),
-            ("rotation", ConfigValue::Float3(float3(visual, "rotation")?)),
+            ("rotation", ConfigValue::Float3(port.rotation(&model_of_reference(model), float3(visual, "rotation")?))),
             ("scale", ConfigValue::Float3(float3(visual, "scale")?)),
         ]));
         count("render_visual");
@@ -2596,7 +3094,7 @@ pub fn convert_scene(
         collisions.push(named(vec![
             ("lib_name", ConfigValue::String(model.replace('\\', "/"))),
             ("position", ConfigValue::Float3(float3(collision, "position")?)),
-            ("rotation", ConfigValue::Float3(float3(collision, "rotation")?)),
+            ("rotation", ConfigValue::Float3(port.rotation(&model_of_reference(model), float3(collision, "rotation")?))),
             ("scale", ConfigValue::Float3(float3(collision, "scale")?)),
             ("cmask", ConfigValue::Integer(integer(collision, "cmask").context("cmask")?)),
             ("cgroup", ConfigValue::Integer(integer(collision, "cgroup").context("cgroup")?)),
@@ -2634,17 +3132,18 @@ pub fn convert_scene(
         .context("donor has no environment")?;
     let elevation = real(donor_environment, "sun_elevation").context("sun_elevation")?;
     let azimuth = real(donor_environment, "sun_azimuth").context("sun_azimuth")?;
+    let mut environment_textures = BTreeSet::new();
     environment.set_path("properties.sun_angle", ConfigValue::Float(elevation))?;
     environment.set_path("properties.sun_position_azimut", ConfigValue::Float(azimuth))?;
-    notes.push(format!(
-        "environment: native {} sky, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its exposure, colour grading and light shafts have no 0.26 counterpart",
-        port.template_project()
-    ));
-    // A donor-lit map: one scale for the sun, the probes and the lights.
+    // A donor-lit scene: one scale for the sun, the probes and the lights.
     // 0.26 values are 0.69d's exposed values at its outdoor exposure (the auto
     // exposure's ceiling, where a sunlit view sits).
-    let light_scale = match port {
-        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => {
+    let light_scale = if port.donor_lit() {
+        notes.push(format!(
+            "environment: native {} sky, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}); its light shafts have no 0.26 counterpart",
+            port.template_project()
+        ));
+        {
             let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")?;
             let scale = LightScale(1.0 / (1.2 * 2f32.powf(ev)));
             let white = super::lighting::sun_radiance(
@@ -2656,9 +3155,8 @@ pub fn convert_scene(
             .map(|v| v * scale.0);
             let sky = super::lighting::DonorSky::read(donor_environment)?;
             let sun = sky.tinted(white);
-            let intensity = sun.iter().cloned().fold(0.0, f32::max);
-            let colour = sun.map(|v| v / intensity);
             let sky_scale = sky.scale_over_026(white, sun);
+            let (colour, intensity) = super::lighting::sun_environment(sun);
             environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
             // 0.69d has no height-based ambient; 0.26's multiplies the
@@ -2670,7 +3168,7 @@ pub fn convert_scene(
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, tint {:?}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, tint {:?}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: sun_color {:?} (the game raises it to 2.2), intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
                 sky.sun_tint,
                 colour.map(|v| (v * 1000.0).round() / 1000.0)
@@ -2680,9 +3178,9 @@ pub fn convert_scene(
                 sky.sun_tint, sky.sky_intensity
             ));
             // Exposure, grading and curve: 0.69d's own (`super::tone`).
-            if let Port::Map(map) = port {
+            {
                 let tone = super::tone::Tone::read(donor_environment)?;
-                let exposure = tone.exposure(exposure_marker(&map.level)?);
+                let exposure = tone.exposure(port.exposure_marker()?);
                 let like = environment.named("properties").and_then(|p| string(p, "color_grading_texture")).context("the template environment has no colour grading texture")?.to_owned();
                 // 0.26g keeps the field as an integer (a whole marker).
                 environment.set_path("properties.mie_fog_base_height", ConfigValue::Integer(exposure.marker as i32))?;
@@ -2707,7 +3205,44 @@ pub fn convert_scene(
             }
             Some((scale, ev))
         }
-        _ => None,
+    } else if photometric {
+        // 0.69d grades with a white balance (6500 K: neutral) and no table;
+        // the template's table is the classic lobby's warm one.
+        let grading = matches!(donor_environment.named("use_color_grading"), Some(ConfigValue::Boolean(true)));
+        environment.set_path("properties.use_color_grading_texture", ConfigValue::Boolean(grading))?;
+        notes.push(format!(
+            "environment: native {} sky, clouds, fog and post-process; the donor's sun direction (elevation {elevation}, azimuth {azimuth}) and colour grading ({}); its exposure, white balance, tone curve, light shafts and fog volumes have no 0.26 counterpart",
+            port.template_project(),
+            if grading { "on" } else { "off: white balance only" }
+        ));
+        None
+    } else {
+        // 0.46c2's environment is 0.26's with more fields: every field the
+        // 0.26 executable reads (ENVIRONMENT_026) takes the donor's value.
+        let mut copied = 0;
+        for field in ENVIRONMENT_026 {
+            let Some(value) = donor_environment.named(field) else { continue };
+            if let ConfigValue::String(t) = value
+                && field.ends_with("_texture")
+                && !t.is_empty()
+            {
+                environment_textures.insert(t.replace('\\', "/"));
+            }
+            // In the template's encoding where it has the field (skhid-srp's
+            // build-content keeps every key at 0.26g's type).
+            let value = match (environment.named("properties").and_then(|p| p.named(field)), value) {
+                (Some(ConfigValue::Integer(_)), ConfigValue::Float(v)) => ConfigValue::Integer(v.round() as i32),
+                (Some(ConfigValue::Float(_)), ConfigValue::Integer(v)) => ConfigValue::Float(*v as f32),
+                (None, ConfigValue::Integer(v)) if ENVIRONMENT_FLOATS_026.contains(field) => ConfigValue::Float(*v as f32),
+                (_, v) => v.clone(),
+            };
+            environment.set_path(&format!("properties.{field}"), value)?;
+            copied += 1;
+        }
+        notes.push(format!(
+            "environment: the donor's ({copied} fields of the 0.26 environment: sun {elevation}/{azimuth}, sky, clouds, fog, height ambient, colour grading, post-process)"
+        ));
+        None
     };
     if let Port::Map(map) = port {
         for (name, value) in &map.environment {
@@ -2715,32 +3250,134 @@ pub fn convert_scene(
             notes.push(format!("environment: {name} {value} (manifest)"));
         }
     }
+    if let Port::Lobby(lobby) = port {
+        for (field, value) in &lobby.environment_overrides {
+            let numbers = || value.as_array().map(|a| a.iter().filter_map(|v| v.as_f64()).map(|v| v as f32).collect::<Vec<_>>());
+            let v = match value {
+                serde_json::Value::Bool(b) => ConfigValue::Boolean(*b),
+                serde_json::Value::Number(n) => ConfigValue::Float(n.as_f64().context("number")? as f32),
+                serde_json::Value::String(t) => ConfigValue::String(t.clone()),
+                _ => match numbers().as_deref() {
+                    Some(&[a, b, c]) => ConfigValue::Float3([a, b, c]),
+                    Some(&[a, b, c, d]) => ConfigValue::Float4([a, b, c, d]),
+                    _ => bail!("environment override {field}: a bool, number, string or 3/4 numbers"),
+                },
+            };
+            environment.set_path(&format!("properties.{field}"), v)?;
+        }
+        if !lobby.environment_overrides.is_empty() {
+            notes.push(format!("environment overrides (by eye against the donor's screenshots): {}", lobby.environment_overrides.keys().cloned().collect::<Vec<_>>().join(", ")));
+        }
+    }
     objects.push(environment);
     count("environment");
 
-    match port {
-        Port::Map(map) => {
-            // The map-wide sphere: 0.26 has no sky light, so open ground is lit
-            // by its largest probe.
-            let mut global = templates_of(template, "environment_probe")
-                .into_iter()
-                .filter(|p| integer(p, "geometry") == Some(0))
-                .max_by(|a, b| real(a, "radius").unwrap_or(0.0).total_cmp(&real(b, "radius").unwrap_or(0.0)))
-                .context("template has no sphere probe")?
-                .clone();
-            if let Some(position) = map.global_probe_position {
-                global.set_path("position", ConfigValue::Float3(position))?;
+    // The map-wide sphere: 0.26 has no sky light, so open ground is lit
+    // by its largest probe (the template's largest sphere, renamed, where the
+    // manifest puts it; a lobby's reaches its horizon).
+    let global = || -> Result<ConfigValue> {
+        let mut global = templates_of(template, "environment_probe")
+            .into_iter()
+            .filter(|p| integer(p, "geometry") == Some(0))
+            .max_by(|a, b| real(a, "radius").unwrap_or(0.0).total_cmp(&real(b, "radius").unwrap_or(0.0)))
+            .context("template has no sphere probe")?
+            .clone();
+        global.set_path("name", ConfigValue::String("global".into()))?;
+        global.set_path("full_name", ConfigValue::String("env_and_lights/probes/global".into()))?;
+        match port {
+            Port::Map(map) => {
+                if let Some(position) = map.global_probe_position {
+                    global.set_path("position", ConfigValue::Float3(position))?;
+                }
+                if let Some(radius) = map.global_probe_radius {
+                    global.set_path("radius", ConfigValue::Float(radius))?;
+                }
             }
-            if let Some(radius) = map.global_probe_radius {
-                global.set_path("radius", ConfigValue::Float(radius))?;
-            }
-            global.set_path("name", ConfigValue::String("global".into()))?;
-            global.set_path("full_name", ConfigValue::String("env_and_lights/probes/global".into()))?;
-            let donor_probe_objects: Vec<&ConfigValue> = donor_objects
+            Port::Lobby(_) => global.set_path("radius", ConfigValue::Float(LOBBY_HORIZON))?,
+        }
+        Ok(global)
+    };
+    let donor_probe_objects: Vec<&ConfigValue> = donor_objects
+        .iter()
+        .filter(|o| kind(o) == "environment_probe")
+        .filter(|o| !matches!(o.named("is_enabled"), Some(ConfigValue::Boolean(false))))
+        .collect();
+    match port.lighting() {
+        Lighting::Donor => {
+            let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
+            let global = global()?;
+            // Where the scene is seen from: a light 0.69d fades out farther
+            // than every one of them never shows. A map's spawns; a lobby's
+            // room (no light of 0.69d's lobby fades out within 200 m).
+            let spawns = match port {
+                Port::Map(map) => donor_spawn_positions(donor, map)?,
+                Port::Lobby(_) => Vec::new(),
+            };
+            let faded: Vec<&str> = donor_objects
                 .iter()
-                .filter(|o| kind(o) == "environment_probe")
-                .filter(|o| !matches!(o.named("is_enabled"), Some(ConfigValue::Boolean(false))))
+                .filter(|o| kind(o) == "ambient_light" && faded_out_in_play(o, &spawns))
+                .filter_map(|o| string(o, "full_name"))
                 .collect();
+            if !faded.is_empty() {
+                notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
+            }
+            let map_wide = Volume {
+                centre: float3(&global, "position")?,
+                rotation: [0.0; 3],
+                shape: Shape::Sphere { radius: real(&global, "radius").context("the map-wide probe's radius")? },
+                side_width: 0.5,
+            };
+            let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, map_wide, scale)?;
+            // 0.26 draws probes largest first, each over the ones
+            // before it by its falloff (`environment_probe_lighting`
+            // blends with the weight in alpha).
+            for v in &lit.volumes {
+                let mut p = global.clone();
+                match v.tier {
+                    ProbeTier::Global => place_volume(&mut p, &v.volume, &v.full_name)?,
+                    ProbeTier::Local => place_local_probe(&mut p, &v.volume, &v.full_name)?,
+                }
+                set_probe_texture(&mut p, &v.texture)?;
+                p.set_path("diffuse_multiplier", ConfigValue::Float(1.0))?;
+                p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
+                objects.push(p);
+                count("environment_probe");
+                generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
+            }
+            let locals = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local).count();
+            notes.push(format!(
+                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
+                lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local && matches!(v.volume.shape, Shape::Cylinder { .. })).count(),
+                lit.volumes.len() - locals
+            ));
+            let ambient_template = first_template(template, "ambient_light")?;
+            for (full_name, light) in &lit.lights {
+                let mut a = ambient_template.clone();
+                place_volume(&mut a, &light.volume, full_name)?;
+                a.set_path("color", ConfigValue::Integer(packed_colour(light.colour)))?;
+                a.set_path("intensity", ConfigValue::Float(light.intensity))?;
+                a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
+                a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
+                a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal()))?;
+                // 0.69d's ambient lights leave the reflections alone.
+                a.set_path("affect_specular", ConfigValue::Boolean(false))?;
+                a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
+                a.set_path("enabled", ConfigValue::Boolean(true))?;
+                objects.push(a);
+                count("ambient_light");
+            }
+            notes.push(format!(
+                "light: the donor's {} probe volumes with their own cubemaps re-encoded for 0.26 (scale {:.4e}: 0.69d's exposure at EV {}) and irradiance from their SH, the largest ({}) also as the map-wide sphere; its ambient lights as 0.26 ambient lights: {} adding, {} brightening (adding their share of the light under them), {} darkening",
+                donor_probe_objects.len(),
+                scale.0,
+                outdoor_ev,
+                lit.volumes[0].probe.texture,
+                lit.counts[0],
+                lit.counts[1],
+                lit.counts[2]
+            ));
+        }
+        Lighting::NativeProbes { classes, .. } => {
             // Each donor volume on a clone of `native`, drawn with `texture`.
             let volume = |native: &ConfigValue, object: &ConfigValue, texture: &str| -> Result<ConfigValue> {
                 let full_name = string(object, "full_name").unwrap_or("");
@@ -2762,94 +3399,33 @@ pub fn convert_scene(
                 copy_shared(&mut p, object, &["probe_side_width"])?;
                 Ok(p)
             };
-            match &map.probes {
-                MapProbes::Native { classes, .. } => {
-                    let global_texture = probe_texture(&global).context("global probe texture")?;
-                    set_probe_texture(&mut global, &global_texture)?;
-                    objects.push(global);
-                    count("environment_probe");
-                    let mut class_probes = Vec::new();
-                    for class in classes {
-                        let native = templates_of(template, "environment_probe")
-                            .into_iter()
-                            .find(|p| string(p, "full_name") == Some(class.native.as_str()))
-                            .with_context(|| format!("template has no probe {}", class.native))?;
-                        class_probes.push((class.prefix.clone(), native.clone(), probe_texture(native).context("probe texture")?));
-                    }
-                    for object in donor_probe_objects {
-                        let full_name = string(object, "full_name").unwrap_or("");
-                        let Some((_, native, texture)) = class_probes.iter().find(|(prefix, _, _)| full_name.starts_with(prefix.as_str())) else {
-                            continue;
-                        };
-                        objects.push(volume(native, object, texture)?);
-                        count("environment_probe");
-                    }
-                }
-                MapProbes::Donor { .. } => {
-                    let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
-                    let spawns = donor_spawn_positions(donor, map)?;
-                    let faded: Vec<&str> = donor_objects
-                        .iter()
-                        .filter(|o| kind(o) == "ambient_light" && faded_out_in_play(o, &spawns))
-                        .filter_map(|o| string(o, "full_name"))
-                        .collect();
-                    if !faded.is_empty() {
-                        notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
-                    }
-                    let map_wide = Volume {
-                        centre: float3(&global, "position")?,
-                        rotation: [0.0; 3],
-                        shape: Shape::Sphere { radius: real(&global, "radius").context("the map-wide probe's radius")? },
-                        side_width: 0.5,
-                    };
-                    let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, map_wide, scale)?;
-                    // 0.26 draws probes largest first, each over the ones
-                    // before it by its falloff (`environment_probe_lighting`
-                    // blends with the weight in alpha).
-                    for v in &lit.volumes {
-                        let mut p = global.clone();
-                        place_volume(&mut p, &v.volume, &v.full_name)?;
-                        set_probe_texture(&mut p, &v.texture)?;
-                        p.set_path("diffuse_multiplier", ConfigValue::Float(1.0))?;
-                        p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
-                        objects.push(p);
-                        count("environment_probe");
-                        generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
-                    }
-                    let ambient_template = first_template(template, "ambient_light")?;
-                    for (full_name, light) in &lit.lights {
-                        let mut a = ambient_template.clone();
-                        place_volume(&mut a, &light.volume, full_name)?;
-                        a.set_path("color", ConfigValue::Integer(packed_colour(light.colour)))?;
-                        a.set_path("intensity", ConfigValue::Float(light.intensity))?;
-                        a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
-                        a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
-                        a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal))?;
-                        // 0.69d's ambient lights leave the reflections alone.
-                        a.set_path("affect_specular", ConfigValue::Boolean(false))?;
-                        a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
-                        a.set_path("enabled", ConfigValue::Boolean(true))?;
-                        objects.push(a);
-                        count("ambient_light");
-                    }
-                    notes.push(format!(
-                        "light: the donor's {} probe volumes with their own cubemaps re-encoded for 0.26 (scale {:.4e}: 0.69d's exposure at EV {}) and irradiance from their SH, the largest ({}) also as the map-wide sphere; its ambient lights as 0.26 ambient lights: {} adding, {} brightening (adding their share of the light under them), {} darkening",
-                        donor_probe_objects.len(),
-                        scale.0,
-                        outdoor_ev,
-                        lit.volumes[0].probe.texture,
-                        lit.counts[0],
-                        lit.counts[1],
-                        lit.counts[2]
-                    ));
-                }
+            let mut global = global()?;
+            let global_texture = probe_texture(&global).context("global probe texture")?;
+            set_probe_texture(&mut global, &global_texture)?;
+            objects.push(global);
+            count("environment_probe");
+            let mut class_probes = Vec::new();
+            for class in classes {
+                let native = templates_of(template, "environment_probe")
+                    .into_iter()
+                    .find(|p| string(p, "full_name") == Some(class.native.as_str()))
+                    .with_context(|| format!("template has no probe {}", class.native))?;
+                class_probes.push((class.prefix.clone(), native.clone(), probe_texture(native).context("probe texture")?));
+            }
+            for object in donor_probe_objects {
+                let full_name = string(object, "full_name").unwrap_or("");
+                let Some((_, native, texture)) = class_probes.iter().find(|(prefix, _, _)| full_name.starts_with(prefix.as_str())) else {
+                    continue;
+                };
+                objects.push(volume(native, object, texture)?);
+                count("environment_probe");
             }
         }
-        Port::Lobby(lobby) => {
+        Lighting::Lobby(lobby) => {
             // The donor's volumes on the template's probe; their cubemaps the
             // donor's own or the template's.
             let native = match &lobby.probes {
-                LobbyProbes::Donor => templates_of(template, "environment_probe").into_iter().next(),
+                LobbyProbes::Donor | LobbyProbes::DonorLight => templates_of(template, "environment_probe").into_iter().next(),
                 LobbyProbes::Template { native } => templates_of(template, "environment_probe")
                     .into_iter()
                     .find(|p| string(p, "full_name") == Some(native.as_str())),
@@ -2857,6 +3433,7 @@ pub fn convert_scene(
             .context("template has no such environment probe")?
             .clone();
             let native_texture = probe_texture(&native).context("template probe texture")?;
+            let first_probe = objects.len();
             for object in donor_objects.iter().filter(|o| kind(o) == "environment_probe") {
                 if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) {
                     continue;
@@ -2877,8 +3454,16 @@ pub fn convert_scene(
                                 "affect_diffuse", "smart_attenuation", "use_parallax_correction", "priority", "cubemap_resolution_index",
                             ],
                         )?;
+                        // Fractional multipliers over the template's integer 1
+                        // (0.26g's own probes have them as floats).
+                        for field in ["diffuse_multiplier", "specular_multiplier", "ambient_multiplier", "probe_side_width"] {
+                            if let Some(v) = real(object, field) {
+                                p.set_path(field, ConfigValue::Float(v))?;
+                            }
+                        }
                         t
                     }
+                    LobbyProbes::DonorLight => unreachable!("a donor-lit lobby is lit by Lighting::Donor"),
                     LobbyProbes::Template { .. } => {
                         let scale = float3(object, "scale")?;
                         let sphere = integer(object, "geometry") == Some(0);
@@ -2891,11 +3476,29 @@ pub fn convert_scene(
                     }
                 };
                 set_probe_texture(&mut p, &texture)?;
+                if integer(&p, "geometry") != Some(0) {
+                    let radius = box_probe_radius(float3(&p, "scale")?);
+                    p.set_path("radius", ConfigValue::Float(radius))?;
+                }
                 objects.push(p);
                 count("environment_probe");
             }
+            // In the order 0.26g draws them (box_probe_radius), every radius
+            // its own: a box tying the one before it (equal largest
+            // half-extents) goes just below, so the donor's order decides.
+            objects[first_probe..].sort_by(|a, b| real(b, "radius").unwrap_or(0.0).total_cmp(&real(a, "radius").unwrap_or(0.0)));
+            let mut above = f32::INFINITY;
+            for p in &mut objects[first_probe..] {
+                let mut radius = real(p, "radius").unwrap_or(0.0);
+                if radius >= above && integer(p, "geometry") != Some(0) {
+                    radius = above.next_down();
+                    p.set_path("radius", ConfigValue::Float(radius))?;
+                }
+                above = radius;
+            }
             notes.push(match &lobby.probes {
                 LobbyProbes::Donor => format!("environment probes: the donor's volumes and cubemaps ({} cubemaps)", probe_textures.len()),
+                LobbyProbes::DonorLight => unreachable!("a donor-lit lobby is lit by Lighting::Donor"),
                 LobbyProbes::Template { native } => format!("environment probes: the donor's volumes drawn with {native} of {} ({native_texture})", lobby.template_project),
             });
         }
@@ -2928,10 +3531,10 @@ pub fn convert_scene(
         /// Already made into 0.26 lights (`donor_lighting`).
         Converted,
     }
-    let ambient_lights = match port {
-        Port::Map(MapSpec { probes: MapProbes::Native { ambient_lights: true, .. }, .. }) | Port::Lobby(_) => AmbientLights::Keep,
-        Port::Map(MapSpec { probes: MapProbes::Native { .. }, .. }) => AmbientLights::Drop,
-        Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }) => AmbientLights::Converted,
+    let ambient_lights = match port.lighting() {
+        Lighting::Donor => AmbientLights::Converted,
+        Lighting::NativeProbes { ambient_lights: true, .. } | Lighting::Lobby(_) => AmbientLights::Keep,
+        Lighting::NativeProbes { .. } => AmbientLights::Drop,
     };
     let particle_template = templates_of(template, "particle").first().map(|p| (*p).clone());
     let sound_template = templates_of(template, "object_sound").first().map(|p| (*p).clone());
@@ -3020,11 +3623,45 @@ pub fn convert_scene(
                         "static_shadows", "lighting_model", "shadow_map_size_index",
                     ],
                 )?;
-                if photometric {
+                // A fractional range over the template's integer one (0.26g's
+                // own lights have it as a float).
+                if let Some(range) = real(object, "range") {
+                    l.set_path("range", ConfigValue::Float(range))?;
+                }
+                if let Some((scale, _)) = light_scale {
+                    // A donor-lit scene: 0.69d's light in the scene's scale (`PointLight`).
+                    let light = super::lighting::PointLight {
+                        // A light without the field has its class's default: 0.69d0's light
+                        // constructor sets 1200 lm (`+0x54`, 0x2001e4058; the loader at
+                        // 0x2006196b8 leaves it when the key is absent). Vostok's spot_light(12).
+                        luminous_power: real(object, "luminous_power").unwrap_or(DONOR_LUMINOUS_POWER),
+                        range: real(object, "range").context("range")?,
+                        diffuse_influence: real(object, "diffuse_influence_factor").unwrap_or(1.0),
+                        spot_penumbra: (integer(object, "light_type") == Some(1)).then(|| real(object, "spot_penumbra_angle").unwrap_or(0.785)),
+                    };
+                    let (intensity, power) = light.native(scale);
+                    l.set_path("intensity", ConfigValue::Float(intensity))?;
+                    l.set_path("attenuation_power", ConfigValue::Float(power))?;
+                    // 0.26's lights ignore both factors; the diffuse one is in the intensity.
+                    // 1 in the type 0.26g's own lights keep each in (diffuse an integer: a
+                    // float there is refused by skhid's build-content type check).
+                    for field in ["diffuse_influence_factor", "specular_influence_factor"] {
+                        let one = match light_template()?.named(field) {
+                            Some(ConfigValue::Integer(_)) => ConfigValue::Integer(1),
+                            _ => ConfigValue::Float(1.0),
+                        };
+                        l.set_path(field, one)?;
+                    }
+                    notes.push(format!(
+                        "{full_name}: {} lm over {} m as 0.26 intensity {intensity:.3}, attenuation power {power:.2}",
+                        light.luminous_power, light.range
+                    ));
+                } else if photometric {
                     // 0.69d photometric power (lumen); 0.26 intensity is unitless.
                     let power = real(object, "luminous_power").unwrap_or(30.0) * real(object, "intensity").unwrap_or(1.0);
-                    l.set_path("intensity", ConfigValue::Float((power / 30.0).clamp(0.2, 3.0)))?;
-                    notes.push(format!("{full_name}: point light intensity {} from luminous power {power}", (power / 30.0).clamp(0.2, 3.0)));
+                    let intensity = (power / 30.0).clamp(0.2, 3.0);
+                    l.set_path("intensity", ConfigValue::Float(intensity))?;
+                    notes.push(format!("{full_name}: point light intensity {intensity} from luminous power {power}"));
                 } else {
                     l.set_path("intensity", ConfigValue::Float(real(object, "intensity").unwrap_or(1.0)))?;
                 }
@@ -3321,7 +3958,9 @@ pub fn convert_scene(
         probe_textures,
         generated_probes,
         tone: scene_tone,
+        light_scale,
         sounds,
+        environment_textures,
         decal_materials,
         counts,
         notes,
@@ -3690,7 +4329,53 @@ pub fn build(
     };
     let playable: BTreeSet<String> = sound_files.keys().cloned().collect();
     let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &particles, m.ambient_sounds.is_none().then_some(&playable))?;
-    let donor_lit = matches!(port, Port::Map(MapSpec { probes: MapProbes::Donor { .. }, .. }));
+    if let Port::Lobby(lobby) = &port {
+        for prop in &lobby.native_props {
+            let settings = format!("models/{}.model/settings", prop.lib);
+            ensure!(target.is_file(&settings), "native prop {}: {settings} is not in 0.26", prop.lib);
+            let collision = format!("models/{}.model/collision", prop.lib);
+            let has_collision =
+                ["vertices", "exported_primitives"].iter().any(|leaf| target.is_file(&format!("{collision}/{leaf}")));
+            let placed = |lib: String, extra: Vec<(&str, ConfigValue)>| {
+                let mut fields = vec![
+                    ("lib_name", ConfigValue::String(lib)),
+                    ("position", ConfigValue::Float3(prop.position)),
+                    ("rotation", ConfigValue::Float3([0.0, prop.yaw, 0.0])),
+                    ("scale", ConfigValue::Float3([1.0; 3])),
+                ];
+                fields.extend(extra);
+                named(fields)
+            };
+            let Some(ConfigValue::Indexed(visuals)) = scene.project.named_mut("render_visuals") else { bail!("no render_visuals") };
+            visuals.push(placed(prop.lib.clone(), Vec::new()));
+            if has_collision {
+                let Some(ConfigValue::Indexed(collisions)) = scene.project.named_mut("collision_objects") else {
+                    bail!("no collision_objects")
+                };
+                // the groups of the 0.26 lobby's prop collision, which its camera's ray meets
+                collisions.push(placed(
+                    format!("resources/{collision}"),
+                    vec![("cmask", ConfigValue::Integer(16)), ("cgroup", ConfigValue::Integer(8))],
+                ));
+            }
+            scene.notes.push(format!(
+                "native prop {} at ({:.2}, {:.2}, {:.2}), yaw {:.3}{}",
+                prop.lib,
+                prop.position[0],
+                prop.position[1],
+                prop.position[2],
+                prop.yaw,
+                if has_collision { ", with its collision" } else { "" }
+            ));
+        }
+    }
+    if let Port::Lobby(lobby) = &port
+        && !lobby.native_scenery.is_empty()
+    {
+        let note = place_native_scenery(&mut scene.project, &lobby.native_scenery, |p| target.is_file(p))?;
+        scene.notes.push(note);
+    }
+    let donor_lit = port.donor_lit();
     let ambient_scale = if m.photometric() && !donor_lit {
         Some(calibrate_ambient(&mut scene.project, median_ambient(&template))?)
     } else {
@@ -4080,6 +4765,9 @@ pub fn build(
         }
         let mut converted = convert_material(&root, *usage, &templates, m.gloss(), default_normal)
             .with_context(|| format!("converting {material}"))?;
+        if let Some((scale, ev)) = scene.light_scale {
+            donor_emission(&root, &mut converted, scale, ev)?;
+        }
         // A metal surface: its two maps made texel by texel
         // (`surface::metal_maps`), under the port's namespace, one pair for
         // every material of the same albedo, metalness map and colour.
@@ -4209,6 +4897,21 @@ pub fn build(
         ensure!(donor.is_file(&path), "vegetation file {path} missing");
         level_files.insert(path.clone(), format!("{output_level_dir}/{emitted}"));
         donor_files.insert(path);
+    }
+    // The environment's textures: native where 0.26 has them, else the donor's.
+    let mut environment_textures = BTreeSet::new();
+    for t in &scene.environment_textures {
+        let dds = format!("textures/{t}.dds");
+        if target.is_file(&dds) {
+            continue;
+        }
+        ensure!(donor.is_file(&dds), "environment texture {t} exists in neither build");
+        donor_files.insert(dds);
+        let options = format!("textures/{t}.options");
+        if donor.is_file(&options) {
+            donor_files.insert(options);
+        }
+        environment_textures.insert(t.clone());
     }
     // The donor's probe cubemaps (a cubemap, its irradiance and their options).
     let mut probe_textures = BTreeSet::new();
@@ -4430,6 +5133,31 @@ pub fn build(
                     }
                 }
             }
+            if let (Port::Lobby(lobby), Some((model_root, surface))) = (&port, path.strip_suffix("/converted_model").and_then(|p| p.split_once("/render/"))) {
+                if let Some(part) = lobby.removed_parts.iter().find(|r| model_root == format!("models/{}.model", r.model) && r.surfaces.iter().any(|x| x == surface)) {
+                    let before = triangles(&bytes);
+                    let (_, rest) = split_mesh(&bytes, &part.near, part.radius).with_context(|| format!("removing a part of {path}"))?;
+                    notes.push(format!("{path}: {} of {before} triangles left out (removed_parts)", before - triangles(&rest)));
+                    bytes = rest;
+                }
+                if let Some(glow) = lobby.glowing_surfaces.iter().find(|g| !g.near.is_empty() && model_root == format!("models/{}.model", g.model) && g.surface == surface) {
+                    let (lit, rest) = split_mesh(&bytes, &glow.near, glow.radius).with_context(|| format!("splitting {path}"))?;
+                    let name = format!("srp_glow_{surface}");
+                    emit(output, &plain_render_path(&relocate(&format!("{model_root}/render/{name}/converted_model"))), &lit, "the glowing part of the surface", &mut files)?;
+                    let properties = donor.read(&format!("{model_root}/render/{surface}/export_properties"))?;
+                    let mut properties = BinaryConfig::parse(&properties)?;
+                    if properties.root.named("source").is_some() {
+                        let u = |o: usize| u32::from_le_bytes(lit[o..o + 4].try_into().unwrap()) as usize;
+                        let (vertices, indices) = (u(8), u(8 + u(4) + 8));
+                        properties.root.set_path("source.vertices", ConfigValue::Integer(i32::try_from(vertices)?))?;
+                        properties.root.set_path("source.indices", ConfigValue::Integer(i32::try_from(indices)?))?;
+                        properties.root.set_path("source.primitives", ConfigValue::Integer(i32::try_from(indices / 3)?))?;
+                    }
+                    emit(output, &plain_render_path(&relocate(&format!("{model_root}/render/{name}/export_properties"))), &properties.to_bytes()?, source, &mut files)?;
+                    generated.entry(model_root.to_owned()).or_insert_with(Vec::new).push((0, surface.to_owned(), name));
+                    bytes = rest;
+                }
+            }
             converted_geometry.insert(path.clone());
             if let Some(s) = stride(&bytes) {
                 let u = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap()) as usize;
@@ -4462,7 +5190,11 @@ pub fn build(
                     } else if let Some(first) = terrain_layers.get(&normalized) {
                         *name = material_dest(&first[0]);
                     } else if converted_materials.contains_key(&normalized) {
-                        *name = material_dest(&normalized);
+                        let glows = match &port {
+                            Port::Lobby(l) => l.glowing_surfaces.iter().any(|g| g.near.is_empty() && model_root == format!("models/{}.model", g.model) && g.surface == entry.name && g.material == normalized),
+                            Port::Map(_) => false,
+                        };
+                        *name = if glows { format!("{}_glow", material_dest(&normalized)) } else { material_dest(&normalized) };
                     } else if let Some(native) = m.native_materials.get(&normalized) {
                         *name = native.clone();
                     }
@@ -4492,6 +5224,11 @@ pub fn build(
                     list.push(ConfigValue::String(name.clone()));
                 }
                 lods_generated += 1;
+            }
+            if let Port::Lobby(lobby) = &port {
+                for glow in lobby.glowing_surfaces.iter().filter(|g| !g.near.is_empty() && model_root == format!("models/{}.model", g.model)) {
+                    c.set_path(&format!("material_settings.srp_glow_{}.material_name", glow.surface), ConfigValue::String(format!("{}_glow", material_dest(&glow.material))))?;
+                }
             }
             let prefix = format!("{model_root}/render/");
             let mut actual: BTreeSet<String> = donor_files
@@ -4539,6 +5276,11 @@ pub fn build(
             bytes = BinaryConfig { root: c }.to_bytes()?;
         } else if path.ends_with(".veg") {
             vegetation_instances.insert(path.clone(), super::early::vegetation_instances(&bytes).with_context(|| format!("checking {path}"))?);
+        } else if path.starts_with("textures/color_grading/") && path.ends_with(".dds") {
+            // A colour grading table: a 16x16x16 RGBA8 volume, laid out as
+            // 0.26's own (color_grading/l_03d), so it ships as it is.
+            let caps2 = u32::from_le_bytes(bytes.get(112..116).context("short DDS")?.try_into().unwrap());
+            ensure!(caps2 & 0x20_0000 != 0, "{path}: a colour grading table is a volume texture");
         } else if path.starts_with("textures/") && path.ends_with(".dds") {
             let (w, h, _, fourcc) = dds_info(&bytes).with_context(|| format!("reading {path}"))?;
             ensure!(matches!(&fourcc, b"DXT1" | b"DXT5"), "{path}: unsupported texture format {:?}", String::from_utf8_lossy(&fourcc));
@@ -4603,8 +5345,9 @@ pub fn build(
     if simplified_triangles.0 > 0 {
         notes.push(format!("authored LOD1/LOD2 surfaces simplified from {} to {} triangles (meshoptimizer, error bound {}, LOD2 {})", simplified_triangles.0, simplified_triangles.1, m.simplify.unwrap().max_error, m.simplify.unwrap().lod2_max_error.unwrap_or(m.simplify.unwrap().max_error)));
     }
-    if lods_generated > 0 {
-        notes.push(format!("{lods_generated} imported models without LODs above {} LOD0 triangles got generated LOD1/LOD2 surfaces", m.simplify.unwrap().generate_above));
+    // (the count includes models given a glowing surface, which have no simplify settings)
+    if let (true, Some(simplify)) = (lods_generated > 0, m.simplify) {
+        notes.push(format!("{lods_generated} imported models without LODs above {} LOD0 triangles got generated LOD1/LOD2 surfaces", simplify.generate_above));
     }
     if lod_switched > 0 {
         notes.push(format!("{lod_switched} imported models with LODs switch by distance {:?} m instead of projected size", m.lod_distances.unwrap()));
@@ -4620,6 +5363,20 @@ pub fn build(
         let dest = format!("material_instances/{}.material", material_dest(name));
         ensure!(!target.contains(&dest), "would overwrite native {dest}");
         emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("0.26g template {}", converted.template), &mut files)?;
+    }
+    if let Port::Lobby(lobby) = &port {
+        for glow in &lobby.glowing_surfaces {
+            let converted = converted_materials.get(&glow.material).with_context(|| format!("glowing surface: no converted material {}", glow.material))?;
+            let mut root = converted.root.clone();
+            rewrite_textures(&mut root, &donor_textures, &native_textures, &ns);
+            let albedo = effect_text(&root, "g_stage", "texture_diffuse").context("glowing surface: no diffuse texture")?;
+            set_effect(&mut root, "g_stage", "use_emissive", ConfigValue::Boolean(true))?;
+            set_effect(&mut root, "g_stage", "texture_emissive", ConfigValue::String(albedo))?;
+            set_effect(&mut root, "g_stage", "constant_emissive", ConfigValue::Float4([glow.colour[0], glow.colour[1], glow.colour[2], 1.0]))?;
+            set_effect(&mut root, "g_stage", "constant_emissive_multiplier", ConfigValue::Float(glow.multiplier))?;
+            let dest = format!("material_instances/{}_glow.material", material_dest(&glow.material));
+            emit(output, &dest, &BinaryConfig { root }.to_bytes()?, &format!("{} with its albedo emitted ({}'s {})", converted.template, glow.model, glow.surface), &mut files)?;
+        }
     }
     for (name, list) in &material_notes {
         for note in list {
@@ -5095,8 +5852,23 @@ pub fn build(
         ));
     }
 
-    // Scene references.
     let mut project = scene.project;
+    // Environment textures the target lacks: the donor's, in the namespace.
+    if !environment_textures.is_empty() {
+        let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no objects") };
+        for object in objects.iter_mut().filter(|o| kind(o) == "environment") {
+            let Some(ConfigValue::Named(fields)) = object.named_mut("properties") else { continue };
+            for field in fields.iter_mut() {
+                if let ConfigValue::String(t) = &mut field.value
+                    && environment_textures.contains(t.as_str())
+                {
+                    *t = format!("{ns}/{t}");
+                }
+            }
+        }
+    }
+
+    // Scene references.
     rewrite_scene(&mut project, &donor_models, &converted_materials, &probe_textures, &ns)?;
     if let Port::Map(MapSpec { native_objects: Some(native), .. }) = &port {
         add_native_objects(&mut project, &cfg(&mut target, &native.project)?, native, &mut notes)?;
@@ -5690,6 +6462,11 @@ mod tests {
         assert_eq!(text(e, "texture_roughness"), Some("tiled/a_smap"));
         assert_eq!(number(e, "constant_roughness_max"), Some(0.2));
         assert!(flag(e, "use_troughness") && flag(e, "use_nmap"));
+        // A template with no gloss map would draw the donor's unused
+        // constant: the build stops and names the template to declare.
+        let flat = BTreeMap::from([("opaque".to_owned(), ("flora/roots_tile".to_owned(), template(&[("use_nmap", true), ("use_troughness", false)])))]);
+        let error = convert_material(&donor, Usage::default(), &flat, Gloss::Smoothness, "editor/default_nmap").err().unwrap();
+        assert!(format!("{error:#}").contains("use_troughness"), "{error:#}");
         // The switch without a map is no metal surface.
         assert!(c.metal.is_none());
         // 0.69d's own rule: the smoothness range by the two builds' alpha.
@@ -5748,6 +6525,123 @@ mod tests {
         assert_eq!(categorize(&blending(false, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: false });
         assert_eq!(categorize(&blending(true, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: true });
         assert_eq!(categorize(&blending(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
+        // Technique 2 with a tiled mask and no second layer (the terrain
+        // overlays `terrain_tiled/*_vc`): a blend, cut by the masked weight.
+        let cut = |alpha: bool| {
+            let mut m = base(alpha, false);
+            for (k, v) in [("vertex_blend_technique", ConfigValue::Integer(2)), ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(true))] {
+                m.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+            }
+            m
+        };
+        assert_eq!(categorize(&cut(false), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: false });
+        assert_eq!(categorize(&cut(true), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: true });
+    }
+
+    #[test]
+    fn a_blend_takes_the_donors_numbers_where_it_draws_the_same_technique() {
+        let donor = |mask: bool| {
+            material(
+                vec![
+                    ("effect_id", ConfigValue::String("g_stage_default".into())),
+                    ("t_albedo", ConfigValue::String("tiled/a".into())),
+                    ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/b".into())),
+                    ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+                    ("vertex_blend_technique", ConfigValue::Integer(1)),
+                    ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(mask)),
+                    ("constant_vertex_blended_strength", ConfigValue::Integer(2)),
+                    ("constant_vertex_blended_falloff", ConfigValue::Integer(4)),
+                    ("constant_vertex_blended_textures_tile", ConfigValue::Integer(3)),
+                    ("constant_tiled_mask_uv_scale", ConfigValue::Float(1.5)),
+                ],
+                "dielectric",
+            )
+        };
+        let mut t = template(&[("use_vertex_blended_textures", true), ("use_tiled_vertex_blended_mask", true)]);
+        for (k, v) in [
+            ("texture_vertex_blended_diffuse", ConfigValue::String("native/b".into())),
+            ("vertex_blend_technique", ConfigValue::Integer(1)),
+            ("constant_vertex_blended_strength", ConfigValue::Integer(4)),
+            ("constant_vertex_blended_falloff", ConfigValue::Integer(15)),
+            ("constant_vertex_blended_textures_tile", ConfigValue::Integer(1)),
+            ("constant_tiled_mask_uv_scale", ConfigValue::Integer(2)),
+        ] {
+            t.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+        }
+        t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+        let templates = BTreeMap::from([("vertex_blend".to_owned(), ("tiled/x_vc".to_owned(), t))]);
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let c = convert_material(&donor(true), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(2)));
+        assert_eq!(value_of(e, "constant_vertex_blended_falloff"), Some(&ConfigValue::Integer(4)));
+        assert_eq!(value_of(e, "constant_vertex_blended_textures_tile"), Some(&ConfigValue::Integer(3)));
+        assert_eq!(value_of(e, "constant_tiled_mask_uv_scale"), Some(&ConfigValue::Float(1.5)));
+        // Without the donor's mask the template's formula is another one: its numbers stay.
+        let c = convert_material(&donor(false), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(4)));
+        assert!(c.notes.iter().any(|n| n.contains("blend constants are kept")));
+        // A manifest's template for that switch draws it, with the donor's numbers.
+        let mut unmasked = templates["vertex_blend"].1.clone();
+        unmasked.set_path("material.g_stage.effect.use_tiled_vertex_blended_mask", named(vec![("value", ConfigValue::Boolean(false))])).unwrap();
+        let mut templates = templates;
+        templates.insert("vertex_blend_technique1".to_owned(), ("tiled/y_vc".to_owned(), unmasked));
+        let c = convert_material(&donor(false), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(c.template, "tiled/y_vc");
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(2)));
+        assert!(!c.notes.iter().any(|n| n.contains("blend constants are kept")), "{:?}", c.notes);
+        // The masked donor keeps the category's template.
+        assert_eq!(convert_material(&donor(true), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap().template, "tiled/x_vc");
+    }
+
+    #[test]
+    fn a_blend_cut_by_its_second_layer_selects_0_69d_cut_by_its_own_flags() {
+        let donor = |mask: bool, base_opaque: bool, technique: i32| {
+            material(
+                vec![
+                    ("effect_id", ConfigValue::String("g_stage_default".into())),
+                    ("t_albedo", ConfigValue::String("tiled/wall/paper".into())),
+                    ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/stucco/lath".into())),
+                    ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+                    ("use_alpha_test", ConfigValue::Boolean(true)),
+                    ("alpha_test_consider_vertex_blend", ConfigValue::Boolean(true)),
+                    ("consider_albedo_opaque", ConfigValue::Boolean(base_opaque)),
+                    ("consider_blended_albedo_opaque", ConfigValue::Boolean(false)),
+                    ("vertex_blend_technique", ConfigValue::Integer(technique)),
+                    ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(mask)),
+                    ("constant_vertex_blended_strength", ConfigValue::Integer(3)),
+                    ("constant_vertex_blended_textures_tile", ConfigValue::Integer(3)),
+                ],
+                "dielectric",
+            )
+        };
+        let mut t = template(&[("use_vertex_blended_textures", true), ("use_tiled_vertex_blended_mask", true), ("use_alpha_test", true), ("alpha_test_consider_vertex_blend", true)]);
+        for (k, v) in [
+            ("texture_vertex_blended_diffuse", ConfigValue::String("native/b".into())),
+            ("vertex_blend_technique", ConfigValue::Integer(1)),
+            ("constant_vertex_blended_strength", ConfigValue::Integer(4)),
+            ("constant_vertex_blended_textures_tile", ConfigValue::Integer(1)),
+        ] {
+            t.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+        }
+        t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+        let templates = BTreeMap::from([("vertex_blend_alpha_test".to_owned(), ("tiled/x_vc".to_owned(), t))]);
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let strength = |c: &ConvertedMaterial| value_of(c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap(), "constant_vertex_blended_strength").cloned();
+        // The lath under the wallpaper: no mask, base opaque.
+        let c = convert_material(&donor(false, true, 1), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(strength(&c), Some(ConfigValue::Integer(BLEND_CUT_LINEAR)));
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_textures_tile"), Some(&ConfigValue::Integer(3)));
+        // Masked, neither layer opaque: the donor's strength rides in the selector.
+        let c = convert_material(&donor(true, false, 1), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(strength(&c), Some(ConfigValue::Integer(-(33_554_432 + 3 * 131_072))));
+        // Another technique: left as 0.26g cuts it, noted.
+        let c = convert_material(&donor(true, false, 2), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert!(c.notes.iter().any(|n| n.contains("not converted")), "{:?}", c.notes);
+        assert_eq!(blend_cut_masked(0.5), Some(-(33_554_432 + 65_536)));
     }
 
     #[test]
@@ -5957,13 +6851,13 @@ mod tests {
         assert_eq!(surface_lods(&settings), BTreeMap::from([("bushsg".to_owned(), 0), ("lod1_bushsg".to_owned(), 1)]));
     }
 
-    #[test]
-    fn a_lobby_is_a_client_project_with_its_own_vegetation_folder() {
+    /// A native lobby project as the converter reads it: one object of each
+    /// kind it takes a template from.
+    fn lobby_template() -> ConfigValue {
         let obj = |fields: Vec<(&str, ConfigValue)>| named(fields);
         let tf = |p: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))];
         let with = |mut base: Vec<(&'static str, ConfigValue)>, more: Vec<(&'static str, ConfigValue)>| { base.extend(more); obj(base) };
-        let model = |name: &str, p: [f32; 3]| with(tf(p), vec![("model_name", ConfigValue::String(name.into()))]);
-        let template = obj(vec![
+        obj(vec![
             ("project_name", ConfigValue::String("lobby_scene".into())),
             ("client_objects", ConfigValue::Indexed(vec![
                 with(tf([0.0; 3]), vec![("game_object_type", ConfigValue::String("environment".into())), ("properties", obj(vec![("sun_angle", ConfigValue::Float(90.0)), ("sun_position_azimut", ConfigValue::Float(1.0))]))]),
@@ -5976,7 +6870,16 @@ mod tests {
                 ])]))]),
                 with(tf([0.988, 0.0, -0.605]), vec![("game_object_type", ConfigValue::String("track".into())), ("cyclic", ConfigValue::Boolean(true))]),
             ])),
-        ]);
+        ])
+    }
+
+    #[test]
+    fn a_lobby_is_a_client_project_with_its_own_vegetation_folder() {
+        let obj = |fields: Vec<(&str, ConfigValue)>| named(fields);
+        let tf = |p: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3([1.0; 3]))];
+        let with = |mut base: Vec<(&'static str, ConfigValue)>, more: Vec<(&'static str, ConfigValue)>| { base.extend(more); obj(base) };
+        let model = |name: &str, p: [f32; 3]| with(tf(p), vec![("model_name", ConfigValue::String(name.into()))]);
+        let template = lobby_template();
         let donor = obj(vec![
             ("render_visuals", ConfigValue::Indexed(vec![model("level/lobby/hangar_lobby", [0.0; 3]), model("level/new_year_event/snow_event_level1", [1.0; 3])])),
             ("collision_objects", ConfigValue::Indexed(vec![])),
@@ -5998,6 +6901,11 @@ mod tests {
             output_project: "lobby_scene/hangar_046".into(), vegetation_folder: "hangar_046".into(), probes: LobbyProbes::Donor,
             exclude_models: vec!["level/new_year_event/".into()], weapon: [-9.9, 1.3, 6.95], weapon_view: 0.6545,
             camera_walls: vec![CameraWall { centre: [0.0, 1.4, -1.9], half_extents: [2.0, 1.4, 0.05] }],
+            native_props: Vec::new(),
+            native_scenery: Vec::new(), instance_rotations: BTreeMap::new(),
+            environment_overrides: BTreeMap::new(),
+            glowing_surfaces: Vec::new(),
+            removed_parts: Vec::new(),
         };
         let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new(), None).unwrap();
         assert!(scene.project.named("server_objects").is_none(), "no server project");
@@ -6023,10 +6931,86 @@ mod tests {
         let ambient = objects.iter().find(|o| kind(o) == "ambient_light").unwrap();
         assert_eq!(real(ambient, "intensity"), Some(1.3), "0.46c2 intensities are 0.26's");
         assert_eq!(integer(ambient, "color"), Some(packed_colour([1.0, 0.5, 0.0])));
+        assert_eq!(packed_colour([1.0, 0.5, 0.0]), 0xff00_80ff_u32 as i32, "red in the low byte");
         let light = objects.iter().find(|o| kind(o) == "light").unwrap();
         assert_eq!(real(light, "intensity"), Some(0.8));
         let env = objects.iter().find(|o| kind(o) == "environment").unwrap();
         assert_eq!(real(env.named("properties").unwrap(), "sun_angle"), Some(55.0));
+    }
+
+    #[test]
+    fn an_outdoor_probe_draws_first_in_its_own_box() {
+        let tf = |p: [f32; 3], s: [f32; 3]| vec![("position", ConfigValue::Float3(p)), ("rotation", ConfigValue::Float3([0.0; 3])), ("scale", ConfigValue::Float3(s))];
+        let probe = |name: &str, p: [f32; 3], s: [f32; 3]| {
+            let mut f = tf(p, s);
+            f.extend(vec![
+                ("game_object_type", ConfigValue::String("environment_probe".into())),
+                ("full_name", ConfigValue::String(name.into())),
+                ("geometry", ConfigValue::Integer(1)),
+                ("texture", ConfigValue::String("environment_probes/lobby_scene/probe".into())),
+            ]);
+            named(f)
+        };
+        let template = lobby_template();
+        let donor = named(vec![
+            ("render_visuals", ConfigValue::Indexed(vec![])),
+            ("collision_objects", ConfigValue::Indexed(vec![])),
+            ("client_objects", ConfigValue::Indexed(vec![
+                named(vec![("game_object_type", ConfigValue::String("environment".into())), ("sun_elevation", ConfigValue::Integer(50)), ("sun_azimuth", ConfigValue::Integer(25))]),
+                probe("room_probe", [0.0, 1.4, 2.0], [2.2, 1.5, 4.2]),
+                probe("outdoor/environment_probe", [-18.8, 0.8, 25.7], [127.0, 25.0, 127.0]),
+                probe("window_probe", [-2.0, 1.4, 2.0], [0.5, 1.0, 4.2]),
+            ])),
+        ]);
+        let lobby = LobbySpec {
+            donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
+            probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
+            native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: BTreeMap::new(), environment_overrides: BTreeMap::new(),
+            glowing_surfaces: Vec::new(), removed_parts: Vec::new(),
+        };
+        let scene = convert_scene(&donor, &template, &Port::Lobby(lobby), false, &BTreeMap::new(), None).unwrap();
+        let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
+        let probes: Vec<_> = objects.iter().filter(|o| kind(o) == "environment_probe").collect();
+        assert_eq!(probes.iter().map(|p| string(p, "full_name").unwrap()).collect::<Vec<_>>(), ["outdoor/environment_probe", "room_probe", "window_probe"], "the room's probes draw over the outdoor box");
+        assert_eq!(float3(probes[1], "scale").unwrap(), [2.2, 1.5, 4.2], "the donor's volume");
+        // 0.26g sorts by radius alone: equal radii would draw in a different order each run.
+        assert_eq!(real(probes[0], "radius"), Some(0.75 * 127.0), "0.75 x the largest half-extent");
+        assert_eq!(real(probes[1], "radius"), Some(0.75 * 4.2));
+        assert_eq!(real(probes[2], "radius"), Some((0.75f32 * 4.2).next_down()), "a tie goes just below, in the donor's order");
+    }
+
+    #[test]
+    fn a_turned_model_takes_its_rotation_and_the_others_keep_the_donors() {
+        let spec = |turned: BTreeMap<String, [f32; 3]>| LobbySpec {
+            donor_project: "d".into(), template_project: "t".into(), output_project: "lobby_scene/camp".into(), vegetation_folder: "camp".into(),
+            probes: LobbyProbes::Donor, exclude_models: Vec::new(), weapon: [0.0; 3], weapon_view: 0.0, camera_walls: Vec::new(),
+            native_props: Vec::new(), native_scenery: Vec::new(), instance_rotations: turned, environment_overrides: BTreeMap::new(),
+            glowing_surfaces: Vec::new(), removed_parts: Vec::new(),
+        };
+        let donor = [-3.1411853, -1.4530003, -3.1411853];
+        let port = Port::Lobby(spec(BTreeMap::from([("props/door/wood_door_02".to_owned(), [0.0, 1.6885923, 0.0])])));
+        assert_eq!(port.rotation("props/door/wood_door_02", donor), [0.0, 1.6885923, 0.0]);
+        assert_eq!(port.rotation("props/door/wood_door_01", donor), donor);
+        assert_eq!(model_of_reference("resources/models/props/door/wood_door_02.model/collision"), "props/door/wood_door_02");
+        assert_eq!(Port::Lobby(spec(BTreeMap::new())).rotation("props/door/wood_door_02", donor), donor);
+    }
+
+    #[test]
+    fn native_scenery_is_drawn_without_collision() {
+        let mut project = named(vec![("render_visuals", ConfigValue::Indexed(vec![])), ("collision_objects", ConfigValue::Indexed(vec![]))]);
+        let tree = NativeScenery { lib: "flora/poplar_04".into(), position: [-16.0, -22.673, 4.0], yaw: 1.0, scale: 1.8 };
+        let exists = |p: &str| p == "models/flora/poplar_04.model/settings";
+        let note = place_native_scenery(&mut project, std::slice::from_ref(&tree), exists).unwrap();
+        assert!(note.contains("1 instances of 1"));
+        let visuals = array(project.named("render_visuals").unwrap()).unwrap();
+        assert_eq!(string(&visuals[0], "lib_name"), Some("flora/poplar_04"));
+        assert_eq!(float3(&visuals[0], "rotation").unwrap(), [0.0, 1.0, 0.0]);
+        assert_eq!(float3(&visuals[0], "scale").unwrap(), [1.8; 3]);
+        assert!(array(project.named("collision_objects").unwrap()).unwrap().is_empty());
+        let missing = NativeScenery { lib: "flora/nothing".into(), ..tree.clone() };
+        assert!(place_native_scenery(&mut project, &[missing], exists).is_err());
+        let flat = NativeScenery { scale: 0.0, ..tree };
+        assert!(place_native_scenery(&mut project, &[flat], exists).is_err());
     }
 
     #[test]
@@ -6094,5 +7078,30 @@ mod tests {
         assert_eq!(float3(spawner.named("spawned_item").unwrap(), "position").unwrap(), [1.0, 2.75, 3.0]);
         let missing = ModeSpec { drop: vec![PlacedModel { model: "transmitter".into(), position: [9.0; 3], why: String::new() }], ..mode };
         assert!(mode_project(&scene, &native, &template, &missing, &mut notes).is_err(), "a drop that matches nothing is an error");
+    }
+}
+
+#[cfg(test)]
+mod probe_tier_tests {
+    use super::*;
+
+    fn boxed(half: [f32; 3]) -> Volume {
+        Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Box { half }, side_width: 0.3 }
+    }
+
+    #[test]
+    fn a_local_probes_radius_marks_it_and_keeps_the_order() {
+        let small = local_probe_radius(&boxed([1.0, 1.0, 1.0])).unwrap();
+        let large = local_probe_radius(&boxed([4.0, 3.0, 5.0])).unwrap();
+        let cylinder = local_probe_radius(&Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 2.6 }, ..boxed([1.0; 3]) }).unwrap();
+        assert!(small < 0.0 && large < 0.0 && cylinder < 0.0);
+        // largest first, as 0.26 sorts; the shape the programs read from the whole part
+        assert!(large > small);
+        assert_eq!((-small).floor(), 1.0);
+        assert_eq!((-large).floor(), 1.0);
+        assert_eq!((-cylinder).floor(), 2.0);
+        let f = -small - 1.0;
+        assert!(f > 0.25 && f < 0.75);
+        assert!(local_probe_radius(&Volume { shape: Shape::Sphere { radius: 3.0 }, ..boxed([1.0; 3]) }).is_err());
     }
 }
