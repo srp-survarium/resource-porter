@@ -64,6 +64,10 @@ struct ExposureProfileSpec {
     /// builder prints it; 1 when absent.
     #[serde(default = "one")]
     sky: f32,
+    /// 0.69d's environment `vignette_intensity` (`shaders::ExposureProfile::vignette` is 10x
+    /// it); 0 or absent draws none.
+    #[serde(default)]
+    vignette_intensity: f32,
 }
 
 fn one() -> f32 {
@@ -163,8 +167,8 @@ fn main() -> Result<()> {
         .exposure_profiles
         .iter()
         .map(|p| {
-            println!("{}: marker {}, exposure follows the mean from {} to {}, key {}", p.name, p.marker, p.floor, p.ceiling, p.key);
-            shaders::ExposureProfile { marker: p.marker, floor: p.floor, ceiling: p.ceiling, key: p.key }
+            println!("{}: marker {}, exposure follows the mean from {} to {}, key {}, vignette {}", p.name, p.marker, p.floor, p.ceiling, p.key, p.vignette_intensity);
+            shaders::ExposureProfile { marker: p.marker, floor: p.floor, ceiling: p.ceiling, key: p.key, vignette: 10.0 * p.vignette_intensity }
         })
         .collect();
     let native_fog = native.read(shaders::PATH)?;
