@@ -563,3 +563,33 @@ the bundle list each material).
 
 Spawns: the 405 respawn points of `logic/modes/team_death_match/` (team 0: 313 in four
 groups around (49..77, 32..54); team 1: 92 around (-34..-51, -83..-94)).
+
+## School (0.69d level_02)
+
+0.69d's School becomes 0.26g maps **257** (team deathmatch), **256** (Protective device),
+**299** (with charging stations) and **116** (Research), level number 27, projects
+`v069d_level_02/day_*` (`ports/survarium-069d-school-to-026g.json`): the Rudnya rules
+unchanged, native School's layouts as Rudnya's modes take native Rudnya's (its Research
+project from published patch 30). The most reworked 0.69d map: the school, its basement, the
+boiler house and the greenhouse re-cut into new meshes, its plants placed anew; 394 models
+imported, 84 reused; 39.6 MiB of geometry for TDM, 42.0 MiB at most (the battery modes).
+
+Rules it added, which every 0.69d map now takes:
+
+* **Sun tint.** 0.69d lights with `sun_intensity_r2 * sun_tint / pi` (0x200443310; the
+  loader 0x200222F18 reads the float4 and uses its rgb; 1 when absent). School's grey 0.518
+  made the port's sun 1.9x 0.69d's (intensity 1.56, now 0.81). Rudnya and Vostok have none.
+* **Sky.** 0.69d's sky scatters the same tinted sun (0x200442D33) times `sky_intensity`;
+  0.26's Rayleigh sky follows `sun_intensity^1.4`, and no 0.26 environment field scales the
+  sky alone. The build notes the factor between them (`lighting::DonorSky::scale_over_026`,
+  School 1.301: 0.26 draws its sky that much darker) for the lighting pack's profile.
+* **0.26's own terrain effect.** 0.69d kept `g_stage_terrain` (0.26's four-layer splat) for
+  ground it did not re-make (School's `terrain/02_base_test_ovrl`, Chemical Plant's
+  `04_base_final`): 0.26's material of the same name draws it.
+* **Stages 0.69d cannot make.** A stage whose effect samples a texture 0.69d does not ship is
+  left out, as 0.69d leaves it out ("effect creation failed"): the stalactite anomaly's moss
+  names 0.26's `_spec` map for its g_stage.
+
+Its 0.69d reference: the rig's `hook069` gives each particle pool a buffer of its own (16x),
+without which 0.69d ran out of particle nodes on School (37 particle objects; "particle
+single_size_buffer_allocator - out of memory", 1365 nodes of 384 bytes) and crashed.

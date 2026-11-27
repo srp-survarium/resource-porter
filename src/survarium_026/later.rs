@@ -1467,6 +1467,31 @@ fn g_stage(root: &ConfigValue) -> Option<&ConfigValue> {
     root.named("material")?.named("g_stage")
 }
 
+/// 0.69d makes no stage whose effect samples a texture it does not ship
+/// ("effect creation failed", "effect for stage 0 failed to load": School's
+/// anomaly/anomaly_stalactite_moss names 0.26's `_spec` map, which 0.69d
+/// dropped) and draws the material without it: so does the port. Returns
+/// each stage left out and the texture it lacked.
+fn drop_failing_stages(root: &mut ConfigValue, ships: impl Fn(&str) -> bool) -> Vec<(String, String)> {
+    let Some(material) = root.named("material") else { return Vec::new() };
+    let failing: Vec<(String, String)> = stages(root)
+        .into_iter()
+        .filter_map(|stage| {
+            let effect = material.named(&stage)?.named("effect")?;
+            let ConfigValue::Named(fields) = effect else { return None };
+            let missing = fields.iter().filter(|f| f.name.starts_with("t_") && flag(effect, &format!("use_{}", f.name))).find_map(|f| text(effect, &f.name).filter(|t| !ships(t)))?;
+            Some((stage, missing.to_owned()))
+        })
+        .collect();
+    if let Some(ConfigValue::Named(material)) = root.named_mut("material") {
+        material.retain(|s| !failing.iter().any(|(stage, _)| *stage == s.name));
+        if let Some(ConfigValue::Named(stages)) = material.iter_mut().find(|s| s.name == "common").and_then(|c| c.value.named_mut("stages")) {
+            stages.retain(|s| !failing.iter().any(|(stage, _)| *stage == s.name));
+        }
+    }
+    failing
+}
+
 pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
     let stages = stages(root);
     if stages.iter().any(|s| s == "decals") {
@@ -2621,19 +2646,19 @@ enum ProbeTier {
     Global,
     /// Layer 1: the radius below 0 marks it for patch 203 (`local_probe_radius`).
     Local,
+    /// A probe patch 203's tier programs cannot draw: layer 2 (0.69d's detail tier, over the
+    /// local one) or a local one whose attenuation_power is not 1 (the programs draw 0.69d's
+    /// linear falloff). Drawn as every probe was before the tiers, unmarked.
+    Untiered,
 }
 
 impl ProbeTier {
     fn of(object: &ConfigValue, full_name: &str) -> Result<ProbeTier> {
         match integer(object, "layer").unwrap_or(0) {
             0 => Ok(ProbeTier::Global),
-            1 => {
-                // Patch 203's programs draw 0.69d's linear falloff (attenuation_power 1).
-                let power = real(object, "attenuation_power").unwrap_or(1.0);
-                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 203's tier programs draw 1 only");
-                Ok(ProbeTier::Local)
-            }
-            layer => bail!("{full_name}: probe layer {layer} (0.69d's detail tier): no 0.26 draw for it"),
+            1 if real(object, "attenuation_power").unwrap_or(1.0) == 1.0 => Ok(ProbeTier::Local),
+            1 | 2 => Ok(ProbeTier::Untiered),
+            layer => bail!("{full_name}: probe layer {layer}: 0.69d has layers 0 to 2"),
         }
     }
 }
@@ -3124,13 +3149,16 @@ pub fn convert_scene(
         {
             let ev = real(donor_environment, "max_auto_exposure_value").context("max_auto_exposure_value")?;
             let scale = LightScale(1.0 / (1.2 * 2f32.powf(ev)));
-            let sun = super::lighting::sun_radiance(
+            let white = super::lighting::sun_radiance(
                 real(donor_environment, "sun_intensity_r2").context("sun_intensity_r2")?,
                 real(donor_environment, "air_density").context("air_density")?,
                 real(donor_environment, "air_turbidity").context("air_turbidity")?,
                 elevation,
             )
             .map(|v| v * scale.0);
+            let sky = super::lighting::DonorSky::read(donor_environment)?;
+            let sun = sky.tinted(white);
+            let sky_scale = sky.scale_over_026(white, sun);
             let (colour, intensity) = super::lighting::sun_environment(sun);
             environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
@@ -3143,9 +3171,14 @@ pub fn convert_scene(
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: sun_color {:?} (the game raises it to 2.2), intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, tint {:?}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: sun_color {:?} (the game raises it to 2.2), intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
+                sky.sun_tint,
                 colour.map(|v| (v * 1000.0).round() / 1000.0)
+            ));
+            notes.push(format!(
+                "sky: 0.69d's is {sky_scale:.4} times what 0.26's atmosphere draws under this sun (sun_tint {:?}, sky_intensity {}; 0.26's Rayleigh sky follows sun_intensity^1.4, 0.69d's the tinted sun times sky_intensity)",
+                sky.sun_tint, sky.sky_intensity
             ));
             // Exposure, grading and curve: 0.69d's own (`super::tone`).
             {
@@ -3304,7 +3337,7 @@ pub fn convert_scene(
             for v in &lit.volumes {
                 let mut p = global.clone();
                 match v.tier {
-                    ProbeTier::Global => place_volume(&mut p, &v.volume, &v.full_name)?,
+                    ProbeTier::Global | ProbeTier::Untiered => place_volume(&mut p, &v.volume, &v.full_name)?,
                     ProbeTier::Local => place_local_probe(&mut p, &v.volume, &v.full_name)?,
                 }
                 set_probe_texture(&mut p, &v.texture)?;
@@ -3315,10 +3348,12 @@ pub fn convert_scene(
                 generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
             }
             let locals = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local).count();
+            let untiered: Vec<&str> = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Untiered).map(|v| v.full_name.as_str()).collect();
             notes.push(format!(
-                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
+                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} unmarked as before (layer 2, or layer 1 with an attenuation_power other than 1: the tier programs draw neither) {untiered:?}, {} global",
                 lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local && matches!(v.volume.shape, Shape::Cylinder { .. })).count(),
-                lit.volumes.len() - locals
+                untiered.len(),
+                lit.volumes.len() - locals - untiered.len()
             ));
             let ambient_template = first_template(template, "ambient_light")?;
             for (full_name, light) in &lit.lights {
@@ -4581,6 +4616,17 @@ pub fn build(
         let mut root = cfg(&mut donor, &path).with_context(|| format!("decal or model material {material}"))?;
         if m.source_build == SourceBuild::V046c2 {
             vocabulary_046(&mut root);
+        }
+        for (stage, texture) in drop_failing_stages(&mut root, |t| donor.is_file(&format!("textures/{t}.dds"))) {
+            notes.push(format!("{material}: its {stage} samples {texture}, which 0.69d does not ship: 0.69d makes no {stage} for it, nor does the port"));
+        }
+        // 0.26's own terrain effect, which 0.69d kept for ground it did not
+        // re-make (School's, Chemical Plant's): the native material of the
+        // same name draws it.
+        if g_stage(&root).and_then(|s| s.named("effect")).and_then(|e| text(e, "effect_id")) == Some("g_stage_terrain") {
+            ensure!(target.is_file(&path), "{material}: 0.26's g_stage_terrain, but 0.26 has no material of that name");
+            notes.push(format!("{material}: 0.26's own terrain effect; the native 0.26 material of the same name draws it"));
+            continue;
         }
         let category = categorize(&root, *usage).with_context(|| format!("categorizing {material}"))?;
         if category == Category::Terrain {
