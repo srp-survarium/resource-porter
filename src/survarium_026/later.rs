@@ -239,7 +239,7 @@ pub struct MaterialConstants {
 #[derive(Clone, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MapSpec {
-    pub id: u8,
+    pub id: u16,
     /// HUD key; 0.26 has no minimap for it.
     pub level: String,
     pub donor_project: String,
@@ -316,7 +316,7 @@ pub struct NativeObjects {
 #[serde(deny_unknown_fields)]
 pub struct ModeSpec {
     /// `maps_dict` id.
-    pub id: u8,
+    pub id: u16,
     pub native_project: String,
     pub native_mode: String,
     pub output_project: String,
@@ -1635,11 +1635,18 @@ pub fn convert_material(
     // the category's `_metal` template where the manifest has one: 0.26's
     // Fresnel map, which darkens the diffuse by f0 and tints the specular by
     // the albedo's hue above f0 0.5 (`composition.ps`).
-    let metalness = g_stage(donor)
-        .and_then(|s| s.named("effect"))
-        .filter(|e| flag(e, "use_t_metalness"))
-        .and_then(|e| text(e, "t_metalness"))
-        .map(str::to_owned);
+    //
+    // A constant metalness above a dielectric's (0.69d's `metalness` with no
+    // map, more than 0.1: barbed wire's 0.7) is a metal surface as a mapped
+    // one is, its maps made with that value in every texel.
+    let donor_effect = g_stage(donor).and_then(|s| s.named("effect"));
+    let metalness = match donor_effect.filter(|e| flag(e, "use_t_metalness")).and_then(|e| text(e, "t_metalness")) {
+        Some(map) => Some(Metalness::Map(map.to_owned())),
+        None => donor_effect
+            .and_then(|e| number(e, "metalness"))
+            .filter(|m| gloss == Gloss::Smoothness && *m > DIELECTRIC_METALNESS)
+            .map(Metalness::Constant),
+    };
     // Vertex-colour meshes need a template compiled for that vertex input
     // (`<category>_vc`).
     let vc_key = |category: Category| format!("{}_vc", category.key());
@@ -1882,8 +1889,8 @@ pub fn convert_material(
                     set_effect(&mut root, stage, "constant_diffuse", ConfigValue::Float4(*c))?;
                 }
             }
-            // A metalness map: the build makes the surface's diffuse and
-            // Fresnel maps from it and the albedo (`MetalSource`).
+            // A metal: the build makes the surface's diffuse and Fresnel
+            // maps from its metalness and the albedo (`MetalSource`).
             if let Some(map) = &metalness {
                 let colour = match value_of(effect, "albedo_color") {
                     Some(ConfigValue::Float4(c)) => [c[0], c[1], c[2]].map(|v| v.max(0.0).powf(2.2)),
@@ -1892,13 +1899,10 @@ pub fn convert_material(
                 metal = Some(MetalSource { albedo: albedo.clone(), metalness: map.clone(), colour });
                 let _ = metal_template;
             } else if gloss == Gloss::Smoothness {
-                // 0.69d without a map: Fresnel 0.04 + m (A - 0.04) of its
-                // constant `metalness`, which is 0 to 0.1 on every material
-                // met (the old Fresnel numbers, 0.02 and 0.04 on most): a
-                // dielectric's 0.04 within 0.1 (A - 0.04). A constant metal
-                // would need its albedo's maps made as a mapped one's are.
-                let m = number(effect, "metalness").unwrap_or(0.0);
-                ensure!(m <= 0.1, "constant metalness {m} without a metalness map is not converted");
+                // 0.69d without a map and a constant `metalness` of at most
+                // 0.1 (0.02 and 0.04 on most): Fresnel 0.04 + m (A - 0.04), a
+                // dielectric's 0.04 within 0.1 (A - 0.04). Above it the
+                // surface is a metal (`Metalness::Constant`, above).
                 flat_fresnel(&mut root, stage, 0.04)?;
             }
             if gloss == Gloss::Smoothness {
@@ -2069,14 +2073,49 @@ fn flat_fresnel(root: &mut ConfigValue, stage: &str, value: f32) -> Result<()> {
     Ok(())
 }
 
-/// A converted material's metal surface: 0.69d's albedo and metalness maps
+/// A converted material's metal surface: 0.69d's albedo map, its metalness
 /// and its linear albedo multiplier (`albedo_color^2.2`), from which the build
 /// makes 0.26's diffuse and Fresnel maps (`surface::metal_maps`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MetalSource {
     pub albedo: String,
-    pub metalness: String,
+    pub metalness: Metalness,
     pub colour: [f32; 3],
+}
+
+/// A 0.69d light's `luminous_power` when its object has none (lumen): the light
+/// class's constructor default.
+const DONOR_LUMINOUS_POWER: f32 = 1200.0;
+
+/// The most metalness a 0.69d material without a map has and is still drawn
+/// as a dielectric (Fresnel 0.04, within 0.1 (A - 0.04) of 0.69d's).
+const DIELECTRIC_METALNESS: f32 = 0.1;
+
+/// A metal surface's metalness: 0.69d's map (`t_metalness`), or its constant
+/// `metalness` over the whole surface.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Metalness {
+    Map(String),
+    Constant(f32),
+}
+
+impl Metalness {
+    /// The part of the made maps' name that tells this metalness.
+    fn key(&self) -> String {
+        match self {
+            Metalness::Map(map) => plain_texture(map.rsplit('/').next().unwrap_or(map)),
+            Metalness::Constant(m) => format!("m{:03}", (m.clamp(0.0, 1.0) * 100.0).round() as u32),
+        }
+    }
+}
+
+impl std::fmt::Display for Metalness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Metalness::Map(map) => f.write_str(map),
+            Metalness::Constant(m) => write!(f, "constant metalness {m}"),
+        }
+    }
 }
 
 /// 0.46c2 materials still name their maps as 0.26 does (`texture_diffuse`,
@@ -2870,6 +2909,9 @@ fn copy_shared(native: &mut ConfigValue, donor: &ConfigValue, fields: &[&str]) -
             (ConfigValue::Integer(_), ConfigValue::Float(v)) if v.fract() == 0.0 => {
                 ConfigValue::Integer(*v as i32)
             }
+            // A fractional value over the template's integer one stays the
+            // donor's (a 0.25 m decal kept the template's 2 m).
+            (ConfigValue::Integer(_), ConfigValue::Float(v)) => ConfigValue::Float(*v),
             (ConfigValue::Float(_), ConfigValue::Float(_))
             | (ConfigValue::Integer(_), ConfigValue::Integer(_))
             | (ConfigValue::Boolean(_), ConfigValue::Boolean(_))
@@ -3559,7 +3601,10 @@ pub fn convert_scene(
                 if let Some((scale, _)) = light_scale {
                     // A donor-lit scene: 0.69d's light in the scene's scale (`PointLight`).
                     let light = super::lighting::PointLight {
-                        luminous_power: real(object, "luminous_power").context("luminous_power")?,
+                        // A light without the field has its class's default: 0.69d0's light
+                        // constructor sets 1200 lm (`+0x54`, 0x2001e4058; the loader at
+                        // 0x2006196b8 leaves it when the key is absent). Vostok's spot_light(12).
+                        luminous_power: real(object, "luminous_power").unwrap_or(DONOR_LUMINOUS_POWER),
                         range: real(object, "range").context("range")?,
                         diffuse_influence: real(object, "diffuse_influence_factor").unwrap_or(1.0),
                         spot_penumbra: (integer(object, "light_type") == Some(1)).then(|| real(object, "spot_penumbra_angle").unwrap_or(0.785)),
@@ -3568,8 +3613,15 @@ pub fn convert_scene(
                     l.set_path("intensity", ConfigValue::Float(intensity))?;
                     l.set_path("attenuation_power", ConfigValue::Float(power))?;
                     // 0.26's lights ignore both factors; the diffuse one is in the intensity.
-                    l.set_path("diffuse_influence_factor", ConfigValue::Float(1.0))?;
-                    l.set_path("specular_influence_factor", ConfigValue::Float(1.0))?;
+                    // 1 in the type 0.26g's own lights keep each in (diffuse an integer: a
+                    // float there is refused by skhid's build-content type check).
+                    for field in ["diffuse_influence_factor", "specular_influence_factor"] {
+                        let one = match light_template()?.named(field) {
+                            Some(ConfigValue::Integer(_)) => ConfigValue::Integer(1),
+                            _ => ConfigValue::Float(1.0),
+                        };
+                        l.set_path(field, one)?;
+                    }
                     notes.push(format!(
                         "{full_name}: {} lm over {} m as 0.26 intensity {intensity:.3}, attenuation power {power:.2}",
                         light.luminous_power, light.range
@@ -4150,7 +4202,7 @@ fn emit_modes(
     output: &Path,
     files: &mut Vec<BuiltFile>,
     notes: &mut Vec<String>,
-) -> Result<Vec<(u8, String)>> {
+) -> Result<Vec<(u16, String)>> {
     let template = cfg(sources, &spec.template_project)?;
     let mut registered = Vec::new();
     for mode in &spec.modes {
@@ -4683,15 +4735,15 @@ pub fn build(
             let name = format!(
                 "{ns}/metal/{}__{}{}",
                 plain_texture(&source.albedo),
-                plain_texture(source.metalness.rsplit('/').next().unwrap_or(&source.metalness)),
+                source.metalness.key(),
                 if tinted { format!("__{:06x}", source.colour.iter().fold(0u32, |a, c| a << 8 | (c.clamp(0.0, 1.0) * 255.0).round() as u32)) } else { String::new() }
             );
             if !metal_maps.contains_key(&name) {
-                let maps = super::surface::metal_maps(
-                    &donor.read(&format!("textures/{}.dds", source.albedo))?,
-                    &donor.read(&format!("textures/{}.dds", source.metalness))?,
-                    source.colour,
-                )
+                let metalness = match &source.metalness {
+                    Metalness::Map(map) => super::surface::MetalInput::Map(donor.read(&format!("textures/{map}.dds"))?),
+                    Metalness::Constant(m) => super::surface::MetalInput::Constant(*m),
+                };
+                let maps = super::surface::metal_maps(&donor.read(&format!("textures/{}.dds", source.albedo))?, &metalness, source.colour)
                 .with_context(|| format!("the metal maps of {material}"))?;
                 metal_maps.insert(name.clone(), (source.clone(), maps));
             }
@@ -4852,7 +4904,13 @@ pub fn build(
     // the options of the albedo and of the metalness map.
     for (name, (source, maps)) in &metal_maps {
         let what = format!("0.26's diffuse and Fresnel of the 0.69d metal surface {} with {}", source.albedo, source.metalness);
-        for (suffix, bytes, like) in [("d", &maps.diffuse, &source.albedo), ("f", &maps.fresnel, &source.metalness)] {
+        // A constant metalness has no map: its Fresnel map takes the albedo's
+        // options, as linear data.
+        let fresnel_like = match &source.metalness {
+            Metalness::Map(map) => map,
+            Metalness::Constant(_) => &source.albedo,
+        };
+        for (suffix, bytes, like) in [("d", &maps.diffuse, &source.albedo), ("f", &maps.fresnel, fresnel_like)] {
             if !generated_textures.contains(&format!("{name}_{suffix}")) {
                 continue;
             }
@@ -4864,6 +4922,9 @@ pub fn build(
             if suffix == "f" {
                 let format = if &maps.fresnel[84..88] == b"DXT5" { "DXT5" } else { "DXT1" };
                 options.root.set_path("options.format", ConfigValue::String(format.into()))?;
+                if matches!(source.metalness, Metalness::Constant(_)) {
+                    options.root.set_path("options.srgb", ConfigValue::Integer(0))?;
+                }
             }
             emit(output, &format!("textures/{name}_{suffix}.options"), &options.to_bytes()?, &what, &mut files)?;
         }
@@ -6383,7 +6444,7 @@ mod tests {
         );
         let c = convert_material(&donor, Usage::default(), &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
         assert_eq!(c.template, "props/box/props_boxes_metal");
-        assert_eq!(c.metal, Some(MetalSource { albedo: "tiled/a".into(), metalness: "tiled/a_fmap".into(), colour: [1.0; 3] }));
+        assert_eq!(c.metal, Some(MetalSource { albedo: "tiled/a".into(), metalness: Metalness::Map("tiled/a_fmap".into()), colour: [1.0; 3] }));
     }
 
     #[test]
