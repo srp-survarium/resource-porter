@@ -3375,19 +3375,19 @@ enum ProbeTier {
     Global,
     /// Layer 1: the radius below 0 marks it for patch 203 (`local_probe_radius`).
     Local,
+    /// A probe patch 203's tier programs cannot draw: layer 2 (0.69d's detail tier, over the
+    /// local one) or a local one whose attenuation_power is not 1 (the programs draw 0.69d's
+    /// linear falloff). Drawn as every probe was before the tiers, unmarked.
+    Untiered,
 }
 
 impl ProbeTier {
     fn of(object: &ConfigValue, full_name: &str) -> Result<ProbeTier> {
         match integer(object, "layer").unwrap_or(0) {
             0 => Ok(ProbeTier::Global),
-            1 => {
-                // Patch 203's programs draw 0.69d's linear falloff (attenuation_power 1).
-                let power = real(object, "attenuation_power").unwrap_or(1.0);
-                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 203's tier programs draw 1 only");
-                Ok(ProbeTier::Local)
-            }
-            layer => bail!("{full_name}: probe layer {layer} (0.69d's detail tier): no 0.26 draw for it"),
+            1 if real(object, "attenuation_power").unwrap_or(1.0) == 1.0 => Ok(ProbeTier::Local),
+            1 | 2 => Ok(ProbeTier::Untiered),
+            layer => bail!("{full_name}: probe layer {layer}: 0.69d has layers 0 to 2"),
         }
     }
 }
@@ -4055,7 +4055,7 @@ pub fn convert_scene(
             for v in &lit.volumes {
                 let mut p = global.clone();
                 match v.tier {
-                    ProbeTier::Global => place_volume(&mut p, &v.volume, &v.full_name)?,
+                    ProbeTier::Global | ProbeTier::Untiered => place_volume(&mut p, &v.volume, &v.full_name)?,
                     ProbeTier::Local => place_local_probe(&mut p, &v.volume, &v.full_name)?,
                 }
                 set_probe_texture(&mut p, &v.texture)?;
@@ -4066,10 +4066,12 @@ pub fn convert_scene(
                 generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
             }
             let locals = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local).count();
+            let untiered: Vec<&str> = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Untiered).map(|v| v.full_name.as_str()).collect();
             notes.push(format!(
-                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
+                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} unmarked as before (layer 2, or layer 1 with an attenuation_power other than 1: the tier programs draw neither) {untiered:?}, {} global",
                 lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local && matches!(v.volume.shape, Shape::Cylinder { .. })).count(),
-                lit.volumes.len() - locals
+                untiered.len(),
+                lit.volumes.len() - locals - untiered.len()
             ));
             let ambient_template = first_template(template, "ambient_light")?;
             for (full_name, light) in &lit.lights {
