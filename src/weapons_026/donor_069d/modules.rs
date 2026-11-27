@@ -389,20 +389,16 @@ fn module_path(model: &str) -> Result<String> {
     Ok(format!("{MODULES_ROOT}/{}", rest.strip_prefix("modules/").unwrap_or(rest)))
 }
 
-/// A collimator's reticle. 0.69d0 draws it as a model of its own in the
-/// optic's `reticle` slot, at the eye (`possible_reticles`, the first one
-/// until a player picks another); 0.26g draws a scope's aimed model alone.
-/// So the reticle goes into the aimed model as a surface: the players' own
-/// emitter of that shape (patch 19's 0.51c5 optics have it in their mesh),
-/// where 0.69d0 draws its reticle model (the `reticle` slot is the optic's
-/// `aim` locator), its lit feature 0.69d0's size ([`Reticle::feature`]):
-/// seen from any eye it subtends 0.69d0's angle. Its middle is on the line
-/// of the optic's eye, the screen's centre at rest, on every gun.
+/// A collimator: 0.69d0 draws its reticle as a model of its own in the optic's `reticle` slot,
+/// which is the optic's `aim` locator (`possible_reticles`, the first until a player picks
+/// another). So does the client (skhid-srp's patch `reticle`, `docs/notes/reticle-choice.md`): a
+/// pattern model of [`RETICLE_PATTERNS`] at the optic's `aim` place in its aimed model's frame,
+/// in the colour and brightness the player chose. Its aimed model has no reticle of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Reticle {
-    /// A red dot (0.69d0's `ncstar_4_dot_*`).
+    /// A red dot first (0.69d0's `ncstar_4_dot_*`).
     Dot,
-    /// The EOTech's ring and dot (`eotech_552_o_reticle`).
+    /// The EOTech's ring and dot first (`eotech_552_o_reticle`).
     Ring,
 }
 
@@ -423,67 +419,43 @@ impl Reticle {
             bail!("{}: its first reticle {first} is neither a dot nor the EOTech's ring", module.id)
         }
     }
-
-    /// The size of the shape's lit feature, metres: a dot's diameter, a
-    /// ring's diameter along its line's middle. `at(x, y)` is how lit the
-    /// shape is at a point of its plane (0 to 1) within `half` of `middle`.
-    fn feature(self, middle: [f32; 2], half: f32, at: &dyn Fn(f32, f32) -> f32) -> Result<f32> {
-        let steps = 400;
-        let step = half / steps as f32;
-        match self {
-            // The dot: across its middle, where it is at least half as lit as there.
-            Reticle::Dot => {
-                let peak = at(middle[0], middle[1]);
-                ensure!(peak > 0.0, "an unlit dot");
-                let reach = |dx: f32, dy: f32| {
-                    (1..=steps)
-                        .map(|i| i as f32 * step)
-                        .take_while(|&r| at(middle[0] + dx * r, middle[1] + dy * r) >= peak / 2.0)
-                        .last()
-                        .unwrap_or(0.0)
-                };
-                Ok(reach(1.0, 0.0) + reach(-1.0, 0.0) + step)
-            }
-            // The ring: its brightest radius on eight lines off the axes (the
-            // EOTech's ticks are on the axes), past the middle dot.
-            Reticle::Ring => {
-                let mut sum = 0.0;
-                for k in 0..8 {
-                    let angle = (22.5 + 45.0 * k as f32).to_radians();
-                    let (dx, dy) = (angle.cos(), angle.sin());
-                    let radius = (steps / 5..=steps)
-                        .map(|i| i as f32 * step)
-                        .max_by(|a, b| at(middle[0] + dx * a, middle[1] + dy * a).total_cmp(&at(middle[0] + dx * b, middle[1] + dy * b)))
-                        .context("a ring")?;
-                    sum += radius;
-                }
-                Ok(2.0 * sum / 8.0)
-            }
-        }
-    }
-
-    /// The players' aimed model whose [`RETICLE_SURFACE`] is this shape.
-    fn from(self) -> &'static str {
-        match self {
-            Reticle::Dot => "models/weapons/attach/fit3/fitn_aimpoint_compm4_m4a1_aim.model",
-            Reticle::Ring => "models/weapons/attach/fit3/fitn_eotech_552_m4a1_aim.model",
-        }
-    }
 }
 
-/// The reticle's surface in the players' collimators, and in ours.
+/// The reticle patterns, each a model `weapons/reticles_069/<name>` made of one of 0.69d0's
+/// reticle models (a quad whose texture's alpha draws the shape), at 0.69d0's size. 0.69d0's dot
+/// has four sizes, four models (`dot_04` to `dot_01`); here the dot is `dot_04` and a size is
+/// the client's scale on any pattern (0.69d0's dot sizes as ratios to `dot_04`: 1, 0.80, 0.60,
+/// 0.40).
+const RETICLE_PATTERNS: [(&str, &str); 10] = [
+    ("dot", "ncstar_4_collimator/reticles/ncstar_4_dot_04_reticle"),
+    ("eotech_ring", "eotech_552_collimator/reticles/eotech_552_o_reticle"),
+    ("eotech_xr308", "eotech_552_collimator/reticles/eotech_552_xr308_reticle"),
+    ("ncstar_cross", "ncstar_4_collimator/reticles/ncstar_4_cross_reticle"),
+    ("ncstar_bullseye", "ncstar_4_collimator/reticles/ncstar_4_bullseye_reticle"),
+    ("ncstar_starburst", "ncstar_4_collimator/reticles/ncstar_4_starburst_reticle"),
+    ("cobra_cross", "ekp8cobra_collimator/reticles/ekp8cobra_cross_reticle"),
+    ("cobra_tick", "ekp8cobra_collimator/reticles/ekp8cobra_tick_reticle"),
+    ("cobra_tick_dot", "ekp8cobra_collimator/reticles/ekp8cobra_tick_with_dot_reticle"),
+    ("dppro_triangle", "leupold_dppro_collimator/reticles/leupold_dppro_triangle_reticle"),
+];
+/// Where 0.69d0 keeps them, and the folder they go to.
+const RETICLES_069: &str = "weapons/modules/collimators";
+const RETICLES_ROOT: &str = "weapons/reticles_069";
+/// A pattern model's one surface.
+const PATTERN_SURFACE: &str = "reticle_s";
+/// The patterns' one material, and its atlas (0.69d0's `collimator_reticles`).
+const PATTERN_MATERIAL: &str = "weapons/reticles_069/reticle";
+const PATTERN_ATLAS: &str = "weapons/reticles_069/collimator_reticles";
+const ATLAS_069: &str = "weapons/modules/collimators/collimator_reticles/collimator_reticles";
+/// The players' collimator emitter (patch 21), whose switches the material starts from.
+const EMITTER_TEMPLATE: &str = "material_instances/weapons/loc2/collimator_glowing_dot_red.material";
+/// 0.69d0's reticle's one surface.
+const RETICLE_SURFACE_069: &str = "collimator_reticles_s";
+/// The surface the players' collimators' aimed models had their dot in: none of ours has one now.
 const RETICLE_SURFACE: &str = "collimator_glowing_dot_s";
-/// The reticle's material: the players' emitter of [`RETICLE_SURFACE`]
-/// without its fade by the view's angle. The fade (`forward_base.ps`: alpha
-/// times |cos|^7000 of the angle between the pixel's ray and the view's axis)
-/// leaves a pixel lit only within about a degree of the screen's centre; it is
-/// made for the 0.51c5 optics' dot, about 0.6 m ahead of the eye, which the
-/// gun's moves hardly move. Ours is at 0.69d0's place, 0.08 to 0.8 m ahead,
-/// where a few millimetres of the gun's move took it out of that degree: it
-/// flickered and went dark. 0.69d0's reticle and 0.26g's own EOTech and Walther
-/// emitters, at the same place, are not faded.
-const RETICLE_MATERIAL: &str = "weapons/modules_069/collimator_glowing_dot_red";
-const ANGLE_FADE: &str = "material.forward.effect.use_angle_depended_attenuation.value";
+/// What a collimator's centre is measured at, in the record: the optic's `aim` place.
+const RETICLE_PLACE: &str = "aim";
+
 /// 0.69d0's lens surfaces: the first-person one of an aimed model (`scope_lense_1p_s`, which
 /// no collimator of the players' has in its aimed model) and the outside one of an idle model
 /// (`scope_lense_3p_s`).
@@ -501,12 +473,6 @@ const GLASS_ALPHA_SCALE: f32 = 2.2;
 const GLASS_DIFFUSE: [f32; 4] = [0.25, 0.22, 0.45, 1.0];
 /// The lit stage's specular times this (the PSO-1's 0.1): sharp highlights that show at that opacity.
 const GLASS_SPECULAR: f32 = 0.5;
-
-/// A reticle's surface, ready for an aimed model.
-struct Baked {
-    material: String,
-    mesh: Vec<u8>,
-}
 
 fn slot_id(name: &str) -> Result<SlotId> {
     SlotId::from_name(name)
@@ -541,106 +507,95 @@ impl Donor069 {
     /// A module's static model (`weapons/modules/<x>`) written at its new
     /// path, once; its materials as the guns'.
     fn module_model(&mut self, model: &str, target: &mut ResourceDb, work: &Path) -> Result<String> {
-        self.module_model_at(model, module_path(model)?, None, target, work)
+        self.module_model_at(model, module_path(model)?, false, target, work)
     }
 
-    /// A collimator's aimed model with its reticle in it ([`Reticle`]), at
-    /// the aimed model's new path (`<model>_aim` where 0.69d0 aims through
-    /// the optic's one model). `eye`: the optic's `aim` locator, in its
-    /// model's space.
-    fn collimator_aimed(
-        &mut self,
-        model: &str,
-        aimed: Option<&str>,
-        (reticle, first): (Reticle, &str),
-        eye: &Frame,
-        target: &mut ResourceDb,
-        work: &Path,
-    ) -> Result<String> {
+    /// A collimator's aimed model, at the aimed model's new path (`<model>_aim` where 0.69d0
+    /// aims through the optic's one model): its first-person lens left out, no reticle in it
+    /// (the client draws the player's pattern, [`Reticle`]). The patterns are made with the
+    /// first one ([`Self::reticle_patterns`]).
+    fn collimator_aimed(&mut self, model: &str, aimed: Option<&str>, target: &mut ResourceDb, work: &Path) -> Result<String> {
         let path = match aimed {
             Some(aimed) if aimed != model => module_path(aimed)?,
             _ => format!("{}_aim", module_path(model)?),
         };
-        let from = format!("{}/render/{RETICLE_SURFACE}", reticle.from());
-        let mesh = Mesh::parse(&target.read(&format!("{from}/converted_model"))?).with_context(|| from.clone())?;
-        let bounds = Bounds::of(mesh.positions.iter().copied()).context("an empty reticle")?;
-        let settings = parse_config(target, &format!("{}/settings", reticle.from()), "the reticle's model")?.root;
-        let players = string_of(get(&settings, &format!("material_settings.{RETICLE_SURFACE}.material_name")))?.to_owned();
-        let material = self.reticle_material(&players, target)?;
-        let middle: [f32; 3] = std::array::from_fn(|k| (bounds.min[k] + bounds.max[k]) / 2.0);
-        // Ours is lit where its mesh is: a dot's width, a ring's line between its inner and outer edge.
-        let ours = match reticle {
-            Reticle::Dot => bounds.max[0] - bounds.min[0],
-            Reticle::Ring => {
-                let radii: Vec<f32> =
-                    mesh.positions.iter().map(|p| (p[0] - middle[0]).hypot(p[1] - middle[1])).collect();
-                let outer = radii.iter().copied().fold(0.0, f32::max);
-                let ring: Vec<f32> = radii.into_iter().filter(|&r| r > outer / 2.0).collect();
-                ring.iter().copied().fold(f32::MAX, f32::min) + outer
-            }
-        };
-        let scale = self.reticle_feature_069(reticle, first).with_context(|| format!("0.69d0's reticle {first}"))? / ours;
-        // Where 0.69d0 draws its reticle: the optic's `aim` locator, the eye's own frame.
-        let at = eye.apply([0.0; 3]);
-        let baked = Baked {
-            material,
-            mesh: mesh.mapped(|p| std::array::from_fn(|k| at[k] as f32 + (p[k] - middle[k]) * scale)),
-        };
-        self.module_model_at(aimed.unwrap_or(model), path, Some(&baked), target, work)
+        self.reticle_patterns(target)?;
+        self.module_model_at(aimed.unwrap_or(model), path, true, target, work)
     }
 
-    /// [`RETICLE_MATERIAL`], made once of the players' `players`.
-    fn reticle_material(&mut self, players: &str, target: &mut ResourceDb) -> Result<String> {
-        let path = format!("material_instances/{RETICLE_MATERIAL}.material");
-        if !self.files.contains_key(&path) {
-            ensure!(!target.contains(&path), "{path}: the target has it; a module's material path must be new");
-            let mut material =
-                parse_config(target, &format!("material_instances/{players}.material"), "the players' reticle material")?.root;
-            ensure!(get(&material, ANGLE_FADE).is_some(), "{players}: no {ANGLE_FADE}");
-            material.set_path(ANGLE_FADE, V::Boolean(false))?;
-            self.put(path, encode_config(material)?)?;
+    /// [`RETICLE_PATTERNS`]' models, their material and its atlas, made once.
+    ///
+    /// - The atlas: 0.69d0's as it is (DXT5, linear), its alpha the shapes, its colour grey in
+    ///   them and black elsewhere.
+    /// - The material: the players' emitter's forward stage (forward_default) with the atlas as
+    ///   its emissive and its transparency map, added (`blend_mode` 2), both sides, no fade by
+    ///   the view's angle, and no light of its own: `constant_emissive_multiplier` 0. The client
+    ///   appends this material to the pattern's model and sets the appended copy's emission
+    ///   (`solid_color_specular`: the colour times the brightness) each time the player's choice
+    ///   changes; the model's own surface adds black.
+    /// - A model: 0.69d0's quad in the frame the client draws it in, the table's `aim` place
+    ///   (the module's locator after a half turn about y, [`HALF_TURN`]): turned back by that
+    ///   half turn, so it stands where 0.69d0 draws it in its `reticle` slot. Its origin is the
+    ///   aiming point as 0.69d0's (a dot's or a ring's middle, a tick's or a chevron's tip).
+    fn reticle_patterns(&mut self, target: &mut ResourceDb) -> Result<()> {
+        let material_path = format!("material_instances/{PATTERN_MATERIAL}.material");
+        if self.files.contains_key(&material_path) {
+            return Ok(());
         }
-        Ok(RETICLE_MATERIAL.to_owned())
+        for path in [material_path.clone(), format!("textures/{PATTERN_ATLAS}.dds")] {
+            ensure!(!target.contains(&path), "{path}: the target has it; a reticle's path must be new");
+        }
+        let atlas = self.db.read(&format!("textures/{ATLAS_069}.dds"))?;
+        self.put(format!("textures/{PATTERN_ATLAS}.dds"), crate::duty_026::texture_dds(&atlas, PATTERN_ATLAS, false)?)?;
+        let options = self.db.read(&format!("textures/{ATLAS_069}.options"))?;
+        self.put(format!("textures/{PATTERN_ATLAS}.options"), options)?;
+        let mut material = parse_config(target, EMITTER_TEMPLATE, "the players' collimator emitter")?.root;
+        for (key, value) in [
+            ("forward.two_sided", V::Boolean(true)),
+            ("forward.effect.use_angle_depended_attenuation", V::Boolean(false)),
+            ("forward.effect.use_temissive", V::Boolean(true)),
+            ("forward.effect.texture_emissive", s(PATTERN_ATLAS)),
+            ("forward.effect.use_ttransparency", V::Boolean(true)),
+            ("forward.effect.texture_transparency", s(PATTERN_ATLAS)),
+            ("forward.effect.blend_mode", V::Integer(2)),
+            ("forward.effect.constant_transparency", V::Float(1.0)),
+            ("forward.effect.constant_emissive", V::Float4([1.0, 1.0, 1.0, 1.0])),
+            ("forward.effect.constant_emissive_multiplier", V::Float(0.0)),
+        ] {
+            let key = format!("material.{key}.value");
+            ensure!(get(&material, &key).is_some(), "{EMITTER_TEMPLATE}: no {key}");
+            material.set_path(&key, value)?;
+        }
+        self.put(material_path, encode_config(material)?)?;
+        for (name, from) in RETICLE_PATTERNS {
+            let root = format!("models/{RETICLES_ROOT}/{name}.model");
+            ensure!(!target.contains(&format!("{root}/settings")), "{root}: the target has it");
+            let source = format!("models/{RETICLES_069}/{from}.model");
+            let settings = db_config(&mut self.db, &format!("{source}/settings"))?;
+            let surfaces = lod0_surfaces(&settings, &source)?;
+            ensure!(
+                surfaces.len() == 1 && surfaces[0].0 == RETICLE_SURFACE_069,
+                "{source}: not one {RETICLE_SURFACE_069} surface"
+            );
+            let bytes = self.db.read(&format!("{source}/render/{RETICLE_SURFACE_069}/converted_model"))?;
+            let mesh = Mesh::parse(&super::convert::static_069_to_026(&bytes)?)?;
+            ensure!(mesh.positions.iter().all(|p| p[2].abs() < 1e-6), "{source}: not a quad in its x-y plane");
+            let turned = mesh.mapped(|p| {
+                let q = HALF_TURN.apply([f64::from(p[0]), f64::from(p[1]), f64::from(p[2])]);
+                std::array::from_fn(|k| q[k] as f32)
+            });
+            let surfaces = [(PATTERN_SURFACE.to_owned(), PATTERN_MATERIAL.to_owned(), turned)];
+            self.put_static(&root, &format!("Survarium 0.69d0: {source}"), &surfaces, target)?;
+        }
+        Ok(())
     }
-
-    /// The size of the lit feature of 0.69d0's reticle model `first` (a quad
-    /// whose texture's alpha draws the shape), metres ([`Reticle::feature`]).
-    fn reticle_feature_069(&mut self, reticle: Reticle, first: &str) -> Result<f32> {
-        let root = format!("models/{first}.model");
-        let settings = db_config(&mut self.db, &format!("{root}/settings"))?;
-        let (surface, material) = lod0_surfaces(&settings, &root)?.into_iter().next().context("no surface")?;
-        let bytes = self.db.read(&format!("{root}/render/{surface}/converted_model"))?;
-        let (positions, uvs) = (super::convert::static_positions_069(&bytes)?, super::convert::static_uvs_069(&bytes)?);
-        let instance = db_config(&mut self.db, &format!("material_instances/{material}.material"))?;
-        let texture = string_of(get(&instance, "material.forward.effect.t_emission.value"))?.to_owned();
-        let (w, h, px) = super::convert::decode_dds(&self.db.read(&format!("textures/{texture}.dds"))?)?;
-        // The quad's plane to its texture: u along x, v along y, each by the vertices furthest apart.
-        let by = |axis: usize, uv: usize| -> Result<(f32, f32)> {
-            let lo = (0..positions.len()).min_by(|&a, &b| positions[a][axis].total_cmp(&positions[b][axis])).context("no vertex")?;
-            let hi = (0..positions.len()).max_by(|&a, &b| positions[a][axis].total_cmp(&positions[b][axis])).context("no vertex")?;
-            let span = positions[hi][axis] - positions[lo][axis];
-            ensure!(span > 0.0, "a flat quad");
-            let slope = (uvs[hi][uv] - uvs[lo][uv]) / span;
-            Ok((slope, uvs[lo][uv] - slope * positions[lo][axis]))
-        };
-        let ((su, bu), (sv, bv)) = (by(0, 0)?, by(1, 1)?);
-        let lit = |x: f32, y: f32| {
-            let (u, v) = (su * x + bu, sv * y + bv);
-            let (i, j) = ((u * w as f32) as usize, (v * h as f32) as usize);
-            px.get(j.min(h - 1) * w + i.min(w - 1)).map_or(0.0, |p| f32::from(p[3]) / 255.0)
-        };
-        let b = Bounds::of(positions.iter().copied()).context("an empty quad")?;
-        let middle = [(b.min[0] + b.max[0]) / 2.0, (b.min[1] + b.max[1]) / 2.0];
-        reticle.feature(middle, (b.max[0] - b.min[0]) / 2.0, &lit)
-    }
-
-    /// `model` written at `path`. With `reticle`: an aimed collimator, its
-    /// first-person lens left out and the reticle's surface added.
+    /// `model` written at `path`. `collimator`: an aimed collimator, its first-person lens left
+    /// out.
     fn module_model_at(
         &mut self,
         model: &str,
         path: String,
-        reticle: Option<&Baked>,
+        collimator: bool,
         target: &mut ResourceDb,
         work: &Path,
     ) -> Result<String> {
@@ -656,7 +611,7 @@ impl Donor069 {
         let settings = db_config(&mut self.db, &format!("{source}/settings"))?;
         let mut surfaces = vec![];
         for (surface, material) in lod0_surfaces(&settings, &source)? {
-            if reticle.is_some() && surface.starts_with(LENS) {
+            if collimator && surface.starts_with(LENS) {
                 continue;
             }
             let bytes = self.db.read(&format!("{source}/render/{surface}/converted_model"))?;
@@ -705,9 +660,6 @@ impl Donor069 {
             surfaces.push((surface, material, mesh));
         }
         ensure!(!surfaces.is_empty(), "{source}: no surface with a material 0.26g can draw");
-        if let Some(reticle) = reticle {
-            surfaces.push((RETICLE_SURFACE.to_owned(), reticle.material.clone(), reticle.mesh.clone()));
-        }
         self.put_static(&root, &format!("Survarium 0.69d0: {source}"), &surfaces, target)?;
         Ok(path)
     }
@@ -1149,8 +1101,8 @@ impl ModuleMaker<'_> {
         };
         let alt = path(&models.alt, donor, target)?;
         let aimed = match (role, Reticle::of(module)?) {
-            (Role::Fitted(weapon_modules::Kind::Scope), Some(reticle)) => {
-                // One eye an optic: the reticle is in its one aimed model.
+            (Role::Fitted(weapon_modules::Kind::Scope), Some(_)) => {
+                // One eye an optic: the client draws the reticle at it, in its aimed model's frame.
                 let mut eyes = module.attaches_on(item).iter().flat_map(|a| &a.overrides).filter(|p| p.id == "aim");
                 let eye = eyes.next().with_context(|| format!("{}: a collimator without an eye", module.id))?;
                 ensure!(
@@ -1158,9 +1110,7 @@ impl ModuleMaker<'_> {
                     "{}: its slots give it more than one eye",
                     module.id
                 );
-                let eye = locator(&eye.locator)?;
-                let first = module.reticles.first().context("a reticle of its own")?;
-                Some(donor.collimator_aimed(&model, models.aimed.as_deref(), (reticle, first), &eye, target, work)?)
+                Some(donor.collimator_aimed(&model, models.aimed.as_deref(), target, work)?)
             }
             (Role::Fitted(weapon_modules::Kind::Scope), None) => path(&models.aimed, donor, target)?,
             _ => None,
@@ -2254,10 +2204,17 @@ fn push_centre(
         .filter_map(|key| key.strip_prefix(render.as_str())?.strip_suffix("/converted_model"))
         .filter(|surface| surface.starts_with(LENS))
         .min();
-    let reticle = [Some(RETICLE_SURFACE), lens, Some(SCOPE_RETICLE)].into_iter().flatten().find_map(|surface| {
+    let surfaces = [Some(RETICLE_SURFACE), lens, Some(SCOPE_RETICLE)].into_iter().flatten().find_map(|surface| {
         let mesh = donor.files.get(&format!("{render}{surface}/converted_model"))?;
         let bounds = Bounds::of(Mesh::parse(mesh).ok()?.positions)?;
         Some((surface.to_owned(), std::array::from_fn(|k| f64::from(bounds.min[k] + bounds.max[k]) / 2.0)))
+    });
+    // A collimator's aimed model has no reticle (the client draws the player's pattern at the
+    // optic's `aim` place, whose origin is the pattern's aiming point).
+    let reticle = surfaces.or_else(|| {
+        let eye = optic.module.attaches().find_map(|attach| attach.eye())?;
+        let (AttachEye::Own(at) | AttachEye::InGunPlane(at)) = eye;
+        Some((RETICLE_PLACE.to_owned(), at.t.map(f64::from)))
     });
     let Some((surface, middle)) = reticle else {
         return Ok(false);
