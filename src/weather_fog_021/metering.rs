@@ -269,7 +269,7 @@ mod tests {
     use super::*;
     use crate::weather_fog_021::u32_at;
 
-    const RUDNYA: ExposureProfile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.2334 };
+    const RUDNYA: ExposureProfile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.2334, vignette: 0.0 };
 
     fn hex(text: &str) -> Vec<Vec<u32>> {
         text.lines().map(|l| l.split_whitespace().map(|w| u32::from_str_radix(w, 16).unwrap()).collect()).collect()
@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn each_profile_has_its_own_branch_and_floor() {
-        let other = ExposureProfile { marker: 33002.0, floor: 0.01, ceiling: 0.1, key: 0.2 };
+        let other = ExposureProfile { marker: 33002.0, floor: 0.01, ceiling: 0.1, key: 0.2, vignette: 0.0 };
         let log = log_meter(&native_log(), 0, &[RUDNYA, other]).unwrap();
         let mean = mean_meter(&native_mean(), 0, &[RUDNYA, other]).unwrap();
         assert_eq!(run(&log, &[[0.0; 4]], 33001.0)[0], pixel_floor(&RUDNYA).log2());

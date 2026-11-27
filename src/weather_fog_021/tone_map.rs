@@ -66,6 +66,10 @@ pub struct ExposureProfile {
     pub floor: f32,
     pub ceiling: f32,
     pub key: f32,
+    /// 0.69d's vignette, `k` = 10 x the environment's `vignette_intensity`; 0 draws none.
+    /// 0.69d (`tone_mapping.ps`, `cb4[14].w`) scales the scene's light before its curve by
+    /// `1 / (1 + (k (u - 0.5))^2 + (k (v - 0.5))^2)^2`, `u, v` the screen's 0..1.
+    pub vignette: f32,
 }
 
 /// Only the selected maps use original tone mapping. Native bloom, texture
@@ -266,12 +270,35 @@ fn with_exposure(block: &[Vec<u32>], e: &ExposureProfile) -> Result<Vec<Vec<u32>
         block.len() == 23 && block[1] == MAX && block[8] == DIV && block[9] == MIN && block[10] == MAD && block[11] == KEY,
         "the native tone block's exposure instructions changed"
     );
+    ensure!(e.vignette.is_finite() && e.vignette >= 0.0, "invalid vignette {}", e.vignette);
     let mut out = block.to_vec();
     out[1][7] = e.floor.to_bits();
     out[9][6] = e.ceiling.to_bits();
     out[10][8] = 0f32.to_bits();
     out[11][4] = e.key.to_bits();
     out.swap(8, 9);
+    if e.vignette > 0.0 {
+        // Before the block (whose first instruction overwrites r1), on the light in r0:
+        //   add r1.zw, v1.xxxy, l(0, 0, -0.5, -0.5)
+        //   mul r1.zw, r1.zzzw, l(k)
+        //   dp2 r1.z, r1.zwzz, r1.zwzz
+        //   add r1.z, r1.z, l(1.0)
+        //   div r1.z, l(1.0), r1.z
+        //   mul r1.z, r1.z, r1.z
+        //   mul r0.xyz, r0.xyzx, r1.zzzz
+        let half = (-0.5f32).to_bits();
+        let one = 1f32.to_bits();
+        let vignette = vec![
+            vec![0x0a000000, 0x001000c2, 1, 0x00101406, 1, 0x00004002, 0, 0, half, half],
+            vec![0x07000038, 0x001000c2, 1, 0x00100ea6, 1, 0x00004001, e.vignette.to_bits()],
+            vec![0x0700000f, 0x00100042, 1, 0x00100ae6, 1, 0x00100ae6, 1],
+            vec![0x07000000, 0x00100042, 1, 0x0010002a, 1, 0x00004001, one],
+            vec![0x0700000e, 0x00100042, 1, 0x00004001, one, 0x0010002a, 1],
+            vec![0x07000038, 0x00100042, 1, 0x0010002a, 1, 0x0010002a, 1],
+            vec![0x07000038, 0x00100072, 0, 0x00100246, 0, 0x00100aa6, 1],
+        ];
+        out.splice(0..0, vignette);
+    }
     Ok(out)
 }
 
@@ -486,7 +513,7 @@ mod tests {
         let ok = [KeyProfile { marker: 32909.0, key: 6.0 }];
         assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok, &[]).unwrap().is_none());
         // An exposure profile: a marker of its own, a floor below its ceiling.
-        let exposure = ExposureProfile { marker: 33001.0, floor: 0.001, ceiling: 0.1, key: 1.0 };
+        let exposure = ExposureProfile { marker: 33001.0, floor: 0.001, ceiling: 0.1, key: 1.0, vignette: 0.0 };
         assert!(build_tonemap_profiles(&[], &[], &[-32198.], &ok, &[exposure]).unwrap().is_none());
         for bad in [
             ExposureProfile { marker: 32909.0, ..exposure },
@@ -662,7 +689,7 @@ mod tests {
     #[test]
     fn an_exposure_profile_follows_the_mean_between_its_floor_and_ceiling() {
         let native = native_block();
-        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.3367 };
+        let profile = ExposureProfile { marker: 33001.0, floor: 0.001151, ceiling: 0.104167, key: 0.3367, vignette: 0.0 };
         let block = with_exposure(&native, &profile).unwrap();
         // The same instructions but two that changed places; four constants changed.
         assert_eq!(block.len(), native.len());
