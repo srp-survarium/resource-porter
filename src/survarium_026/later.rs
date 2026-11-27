@@ -468,33 +468,23 @@ pub struct LobbyVariant {
     /// whose material emits light from some of its window panes.
     #[serde(default)]
     pub lit_windows: Option<LitWindows>,
-    /// The whole scene half a turn about the character, after every other
-    /// change (whose positions are the lobby's). 0.26g stands the lobby's
-    /// character at the origin facing -z, which no project turns: turning the
-    /// room shows him from its other half (the camp's night: facing his lamp).
-    /// The vegetation layers are left out (their density maps are not turned).
+    /// Render visuals drawn by another of 0.26's models (`lib_name` to
+    /// `lib_name`: a lit lamp's unlit twin); each key must draw something.
     #[serde(default)]
-    pub turned: bool,
-    /// `srp_lobby.facing` (radians): how far the exe turns the characters
-    /// about the origin when it shows the lobby (their spots and facings) and
-    /// the lobby camera's start yaw with them (skhid-srp's lobby choice reads
-    /// it; the camp's night: they face the chandelier, the camera starts on
-    /// its side). The room stays as it is: the alternative to `turned`.
-    #[serde(default)]
-    pub facing: Option<f32>,
+    pub models: BTreeMap<String, String>,
     /// A colour grading table of its own (`<namespace>/color_grading/<project's
-    /// name>`), drawn with: 0.26's eye adaptation brings a room lit only by
-    /// its lamps to the brightness of a sunlit one, and the table, applied
-    /// after it, takes the mid-tones down again.
+    /// name>`): the lobby's own table with the grading drawn over it (a
+    /// donor-lit lobby's table is its tone curve, so the variant keeps it).
     #[serde(default)]
     pub grading: Option<Grading>,
 }
 
-/// A colour grading table: each colour desaturated (`saturation`, 1 as it
-/// is), raised to `gamma` and scaled by `gain`, its darker part tinted
-/// toward `shadow_tint` (by 1 - its luminance). 0.26's layout (the stock
-/// `color_grading/l_03d`): a 16 x 16 x 16 RGBA volume, red along x, green
-/// along y, blue along z, its mips halving x and y.
+/// A grading drawn over a colour grading table: each of the table's colours
+/// desaturated (`saturation`, 1 as it is), raised to `gamma` and scaled by
+/// `gain`, its darker part tinted toward `shadow_tint` (by 1 - its
+/// luminance). 0.26's layout (the stock `color_grading/l_03d`): a 16 x 16 x
+/// 16 BGRA volume, red along x, green along y, blue along z, its mips
+/// halving x and y.
 #[derive(Clone, Copy, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Grading {
@@ -516,21 +506,21 @@ impl Grading {
         })
     }
 
-    /// The table, in the layout, header and trailing byte of `template`.
+    /// `template` (the lobby's own table) with the grading over each of its
+    /// colours, in its layout, header and trailing byte.
     fn table(&self, template: &[u8]) -> Result<Vec<u8>> {
         ensure!(template.len() > 128 && &template[..4] == b"DDS ", "grading template: not a DDS");
         let get = |o: usize| u32::from_le_bytes(template[o..o + 4].try_into().unwrap()) as usize;
         let (height, width, depth, mips) = (get(12), get(16), get(24), get(28).max(1));
         ensure!((width, height, depth) == (16, 16, 16) && get(88) == 32, "grading template: not a 16^3 RGBA volume");
-        let mut texels = vec![[0u8; 4]; 16 * 16 * 16];
-        for z in 0..16 {
-            for y in 0..16 {
-                for x in 0..16 {
-                    let c = self.apply([x as f32 / 15.0, y as f32 / 15.0, z as f32 / 15.0]).map(|v| (v * 255.0).round() as u8);
-                    texels[(z * 16 + y) * 16 + x] = [c[2], c[1], c[0], 255];
-                }
-            }
-        }
+        ensure!(template.len() >= 128 + 16 * 16 * 16 * 4, "grading template: its first level is cut short");
+        let texels: Vec<[u8; 4]> = template[128..128 + 16 * 16 * 16 * 4]
+            .chunks_exact(4)
+            .map(|t| {
+                let c = self.apply([t[2], t[1], t[0]].map(|v| f32::from(v) / 255.0)).map(|v| (v * 255.0).round() as u8);
+                [c[2], c[1], c[0], t[3]]
+            })
+            .collect();
         let mut out = template[..128].to_vec();
         let mut level = texels;
         let mut side = 16;
@@ -1083,60 +1073,6 @@ fn light_windows(lit: &LitWindows, project: &mut ConfigValue, target: &mut Resou
     Ok(format!("lit windows: {} panes of {albedo_name}; {}", lit.panes.len(), notes.join(", ")))
 }
 
-/// The rotation `instance_rotation` makes, back: its x, y and z angles.
-fn rotation_angles(r: &[[f32; 3]; 3]) -> [f32; 3] {
-    let y = r[0][2].clamp(-1.0, 1.0).asin();
-    if r[0][2].abs() < 0.999_999 {
-        [(-r[1][2]).atan2(r[2][2]), y, (-r[0][1]).atan2(r[0][0])]
-    } else {
-        // gimbal lock: x and z turn about one axis; all of it on x
-        [r[1][0].atan2(r[1][1]), y, 0.0]
-    }
-}
-
-/// A placement's position and rotation half a turn about the y axis
-/// (`LobbyVariant::turned`): x and z negated, the rotation followed by the turn.
-fn half_turned(object: &mut ConfigValue) -> Result<()> {
-    if let Some(ConfigValue::Float3(p)) = object.named("position").cloned() {
-        object.set_path("position", ConfigValue::Float3([-p[0], p[1], -p[2]]))?;
-    }
-    if let Some(ConfigValue::Float3(a)) = object.named("rotation").cloned() {
-        let r = instance_rotation(a);
-        // row vectors: v (R W), W = the turn about y = diag(-1, 1, -1)
-        let turned: [[f32; 3]; 3] = std::array::from_fn(|i| [-r[i][0], r[i][1], -r[i][2]]);
-        object.set_path("rotation", ConfigValue::Float3(rotation_angles(&turned)))?;
-    }
-    Ok(())
-}
-
-/// A project half a turn about the character (`LobbyVariant::turned`): every
-/// placed instance and object, the weapon's spot and its view, the sun; the
-/// vegetation left out. The root `camera` is the lobby camera's frame, kept.
-fn turn_half(project: &mut ConfigValue) -> Result<usize> {
-    let mut turned = 0;
-    for list in ["render_visuals", "collision_objects", "client_objects"] {
-        let Some(ConfigValue::Indexed(items)) = project.named_mut(list) else { bail!("no {list}") };
-        items.retain(|o| kind(o) != "vegetation");
-        for item in items.iter_mut() {
-            if kind(item) == "environment" {
-                let azimuth = real(item, "properties.sun_position_azimut").or_else(|| item.named("properties").and_then(|p| real(p, "sun_position_azimut"))).unwrap_or(0.0);
-                item.set_path("properties.sun_position_azimut", ConfigValue::Float((azimuth + 180.0).rem_euclid(360.0)))?;
-                continue;
-            }
-            half_turned(item)?;
-            turned += 1;
-        }
-    }
-    if let Some(ConfigValue::Float3(v)) = project.named("srp_lobby").and_then(|t| t.named("weapon")).cloned() {
-        project.set_path("srp_lobby.weapon", ConfigValue::Float3([-v[0], v[1], -v[2]]))?;
-    }
-    if let Some(view) = project.named("srp_lobby").and_then(|t| real(t, "weapon_view")) {
-        let pi = std::f32::consts::PI;
-        project.set_path("srp_lobby.weapon_view", ConfigValue::Float((view + pi + pi).rem_euclid(2.0 * pi) - pi))?;
-    }
-    Ok(turned)
-}
-
 /// One variant of a built lobby project (see `LobbyVariant`): the project and
 /// the sound files it imports (`imported`: the namespace's sound files
 /// already emitted, with the options they were given).
@@ -1323,39 +1259,48 @@ fn make_variant(
     if let Some(grading) = &variant.grading {
         let name = variant.output_project.rsplit('/').next().unwrap_or(&variant.output_project);
         let texture = format!("{ns}/color_grading/{name}");
-        let table = grading.table(&target.read("textures/color_grading/l_03d.dds")?)?;
-        let source = format!("a grading table (0.26's color_grading/l_03d layout) for {}", variant.output_project);
-        emit(output, &format!("textures/{texture}.dds"), &table, &source, files)?;
-        emit(output, &format!("textures/{texture}.options"), &target.read("textures/color_grading/l_03d.options")?, &source, files)?;
         let Some(ConfigValue::Indexed(objects)) = project.named_mut("client_objects") else { bail!("no objects") };
         let environment = objects.iter_mut().find(|o| kind(o) == "environment").context("no environment")?;
+        // the lobby's own table: this build's (its tone curve) or 0.26's
+        let own = environment.named("properties").and_then(|p| string(p, "color_grading_texture")).context("the lobby has no colour grading texture")?.to_owned();
+        let built = crate::archive::safe_join(&output.join("overlay"), &format!("textures/{own}.dds"))?;
+        let (base, options) = if built.is_file() {
+            (fs::read(&built)?, fs::read(built.with_extension("options"))?)
+        } else {
+            (target.read(&format!("textures/{own}.dds"))?, target.read(&format!("textures/{own}.options"))?)
+        };
+        let source = format!("the lobby's grading table {own} with {}'s grading over it", variant.output_project);
+        emit(output, &format!("textures/{texture}.dds"), &grading.table(&base)?, &source, files)?;
+        emit(output, &format!("textures/{texture}.options"), &options, &source, files)?;
         environment.set_path("properties.color_grading_texture", ConfigValue::String(texture))?;
         environment.set_path("properties.use_color_grading_texture", ConfigValue::Boolean(true))?;
+    }
+    for (from, to) in &variant.models {
+        ensure!(target.is_file(&format!("models/{to}.model/settings")), "variant {what}: models/{to}.model is not in 0.26");
+        let Some(ConfigValue::Indexed(visuals)) = project.named_mut("render_visuals") else { bail!("no render_visuals") };
+        let mut drawn = 0;
+        for visual in visuals.iter_mut().filter(|v| string(v, "lib_name") == Some(from.as_str())) {
+            visual.set_path("lib_name", ConfigValue::String(to.clone()))?;
+            drawn += 1;
+        }
+        ensure!(drawn > 0, "variant {what}: the lobby draws no {from}");
     }
     let windows = match &variant.lit_windows {
         Some(lit) => light_windows(lit, &mut project, target, output, files)?,
         None => "no lit windows".to_owned(),
     };
-    ensure!(!(variant.turned && variant.facing.is_some()), "variant {what}: turned (the room) or facing (the characters), not both");
-    let turned = if variant.turned { format!("; half a turn about the character ({} placements)", turn_half(&mut project)?) } else { String::new() };
-    let turned = match variant.facing {
-        Some(f) => {
-            project.set_path("srp_lobby.facing", ConfigValue::Float(f))?;
-            format!("{turned}; the characters and the camera's start turned {f} rad (srp_lobby.facing)")
-        }
-        None => turned,
-    };
     let path = format!("projects/{}/client_project", variant.output_project);
     ensure!(!target.contains(&path), "project exists");
     emit(output, &path, &BinaryConfig { root: project }.to_bytes()?, &format!("variant of the lobby: {}", variant.output_project), files)?;
     Ok(format!(
-        "variant {}: environment {}; {} lights set, {} added; {} probes scaled; {} particles; sounds: {}; {windows}{turned}",
+        "variant {}: environment {}; {} lights set, {} added; {} probes scaled; {} particles; {} models swapped; sounds: {}; {windows}",
         variant.output_project,
         variant.environment.keys().cloned().collect::<Vec<_>>().join(", "),
         matched.values().sum::<usize>(),
         variant.added_lights.len(),
         variant.probes.len(),
         variant.particles.len(),
+        variant.models.len(),
         if sound_notes.is_empty() { "none".to_owned() } else { sound_notes.join(", ") }
     ))
 }
@@ -4363,8 +4308,9 @@ pub fn convert_scene(
                     l.set_path("intensity", ConfigValue::Float(intensity))?;
                     l.set_path("attenuation_power", ConfigValue::Float(power))?;
                     // 0.26's lights ignore both factors; the diffuse one is in the intensity.
-                    l.set_path("diffuse_influence_factor", ConfigValue::Float(1.0))?;
-                    l.set_path("specular_influence_factor", ConfigValue::Float(1.0))?;
+                    // (integers, as 0.26g's own lights write a whole factor)
+                    l.set_path("diffuse_influence_factor", ConfigValue::Integer(1))?;
+                    l.set_path("specular_influence_factor", ConfigValue::Integer(1))?;
                     notes.push(format!(
                         "{full_name}: {} lm over {} m as 0.26 intensity {intensity:.3}, attenuation power {power:.2}",
                         light.luminous_power, light.range
@@ -7118,34 +7064,6 @@ mod tests {
         assert!(at(1, 1)[0] > 200 && at(1, 1)[1] > 100 && at(1, 1)[2] < 100, "the glass glows warm: {:?}", at(1, 1));
         assert_eq!(&at(6, 1)[..3], &[0, 0, 0], "the frame does not glow");
         assert_eq!(&at(1, 6)[..3], &[0, 0, 0], "outside the panes nothing glows");
-    }
-
-    #[test]
-    fn rotation_angles_give_back_the_rotation() {
-        for a in [[0.0, 0.0, 0.0], [-1.571, 1.5707964, 0.0], [0.3, -0.7, 2.9], [-3.141, -1.453, -3.141], [1.146, -0.546, -1.716]] {
-            let r = instance_rotation(a);
-            let back = instance_rotation(rotation_angles(&r));
-            for i in 0..3 {
-                for j in 0..3 {
-                    assert!((r[i][j] - back[i][j]).abs() < 1e-4, "{a:?}: {r:?} != {back:?}");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn a_half_turn_moves_a_point_to_the_other_side_and_turns_its_rotation() {
-        let mut o = named(vec![("position", ConfigValue::Float3([1.0, 2.0, 3.0])), ("rotation", ConfigValue::Float3([0.0, 0.5, 0.0]))]);
-        half_turned(&mut o).unwrap();
-        assert!(matches!(o.named("position"), Some(ConfigValue::Float3([-1.0, 2.0, -3.0]))));
-        let Some(ConfigValue::Float3(a)) = o.named("rotation") else { panic!() };
-        // the same as a yaw of 0.5 + pi
-        let (want, got) = (instance_rotation([0.0, 0.5 + std::f32::consts::PI, 0.0]), instance_rotation(*a));
-        for i in 0..3 {
-            for j in 0..3 {
-                assert!((want[i][j] - got[i][j]).abs() < 1e-5, "{want:?} != {got:?}");
-            }
-        }
     }
 
     #[test]

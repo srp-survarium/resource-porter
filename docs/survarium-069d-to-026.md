@@ -352,26 +352,38 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
     the donor's, or one whose `volume_k` or `spl_preset` the variant sets, is imported under the
     namespace with its `.raw_options` (0.26's own file is the maps' too). `lp_filter_k` was
     measured to change nothing in a game and is not offered;
+  * `models`: render visuals drawn by another of 0.26's models (the lamp's lit bulbs,
+    `props/light/lamp_on`, by the unlit `props/light/lamp`);
   * `grading`: a colour grading table of its own (`<namespace>/color_grading/<project's name>`,
-    0.26's `l_03d` layout: a 16^3 RGBA volume, red along x): saturation, gamma, gain and a tint
-    of the darks. 0.26g's eye adaptation brings a room lit only by its lamps back to a day's
-    brightness; the table, after it, is what keeps a night dim;
+    0.26's layout: a 16^3 BGRA volume, red along x): the lobby's own table with a saturation,
+    gamma, gain and a tint of the darks drawn over each of its colours. A donor-lit lobby's
+    table is its tone curve (0.69d's grading and curve), so the variant keeps the curve and
+    grades what it shows;
   * `lit_windows`: a few facade windows lit. The facades' windows are quads each showing one
     pane of the material's atlas: a copy of the material (`<material>_<suffix>`) emits a BC1
     texture, black but for the glass of the given panes (each texel's darkness in the albedo,
     so the glass glows and the frames do not); one instance of a model (`at`, its render
     visual's position) is drawn by a copy (`<model>_<suffix>_<n>`) whose triangles near given
-    points (model space) are a surface of their own, `srp_lit_<surface>`, with that material;
-  * `turned`: the whole scene half a turn about the character, after everything else. 0.26g
-    stands the lobby's character at the origin facing -z whatever the project, so the room turns
-    instead (the camp's night: he faces the chandelier, the stock camera between him and the
-    lamp). Every placement turns (x and z negated, the rotation followed by the turn), the
-    weapon's spot and view, the sun's azimuth; the root `camera` (the lobby camera's own frame)
-    stays; vegetation layers are left out (their density maps are not turned).
-  * `facing` (the alternative to `turned`; not both): the room stays, and the project's
-    `srp_lobby.facing` (radians) tells skhid-srp's exe how far to turn the characters about the
-    origin (their spots and facings) and the lobby camera's start yaw with them. The camp's
-    night uses it (pi: they face the chandelier, the camera starts on its side).
+    points (model space) are a surface of their own, `srp_lit_<surface>`, with that material.
+
+  A variant never moves the room, the characters or the camera: skhid-srp shows every one
+  from the same stock pose.
+
+  The camp's three (camp @22, over the rule-lit day): numbers in the day's own scale (its
+  exposure is fixed, so a darker room is drawn darker; nothing adapts).
+  * `camp_069_rain`: no sun, level 02 rain's overcast sky, haze and rain, the streams and the
+    donor's `rain_pour` outside the windows; a cool light outside each window above the
+    ceiling's height (no shadow) in place of the day's window key, the probes x0.4, the
+    chandelier lit and warm against them.
+  * `camp_069_evening`: the sun low through the nearer left window onto the character
+    (azimuth 327, elevation 15), its colour and intensity 0.69d's own sun through its
+    atmosphere at that elevation (`lighting::sun_radiance`: the lobby's air density 2 gives
+    the day's 37.04 at 50 degrees, 28.3 and (1, 0.74, 0.44) at 15); level 02 evening's sky
+    and haze; the probes x0.45; the back window's key a cool dusk sky.
+  * `camp_069_night`: the chandelier the room's light, the probes almost out (x0.06), the
+    environment's sun 0.26g's full moon (`sky/moon_full`, a faint cool light), stars, two lit
+    windows in the blocks, 0.26g's wolves far off; the back window's shadowed key, cool, is
+    the moonlight on the character's front.
 
 ## Rudnya (0.69d level_01)
 
