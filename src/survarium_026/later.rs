@@ -2870,6 +2870,9 @@ fn copy_shared(native: &mut ConfigValue, donor: &ConfigValue, fields: &[&str]) -
             (ConfigValue::Integer(_), ConfigValue::Float(v)) if v.fract() == 0.0 => {
                 ConfigValue::Integer(*v as i32)
             }
+            // A fractional value over the template's integer one stays the
+            // donor's (a 0.25 m decal kept the template's 2 m).
+            (ConfigValue::Integer(_), ConfigValue::Float(v)) => ConfigValue::Float(*v),
             (ConfigValue::Float(_), ConfigValue::Float(_))
             | (ConfigValue::Integer(_), ConfigValue::Integer(_))
             | (ConfigValue::Boolean(_), ConfigValue::Boolean(_))
