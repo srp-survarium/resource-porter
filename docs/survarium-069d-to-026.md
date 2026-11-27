@@ -479,6 +479,16 @@ the formulas come from both builds' shader disassembly):
     technique 1 without a mask) stay on their category's template: their cut is the blend
     pack's selector for it, and stock 0.26 has no one-sided alpha-tested template of that
     switch; noted.
+  - Technique 2 (always with a tiled mask) draws no second layer in either build: both
+    programs draw the base layer and discard where the masked weight is under 0.4 (0.69d
+    `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`; alpha-tested, where the weight times the
+    base alpha is under `alpha_ref`). So a technique-2 blend binds no second texture and is
+    a blend all the same: the terrain overlays (`terrain_tiled/{grass,dirt,sand_grass,earth}_vc`,
+    `tiled/trash/trash_vc`, `trash_dirt_moss_alpha_vc`: 6 of Rudnya's materials, on its 12
+    `terrain_game` tiles, the bus stop, the culture centre and house_3) were taken for
+    one-texture vertex-colour meshes and drawn whole to their mesh borders: straight seams
+    where two ground types meet. The alpha-tested one (`earth_vc`) takes
+    `vertex_blend_alpha_test_technique2_tiled_mask`, 0.26g's `terrain/ground_moss_s_alpha_vc`.
   - Not converted: 0.69d can cut an alpha-tested blend by its second layer's alpha
     (`consider_blended_albedo_opaque` false: `alpha = lerp(blended.a, 1, w)` with the base
     opaque); 0.26g's programs read only the base's (`lerp(1, base.a, w)`). The lath
