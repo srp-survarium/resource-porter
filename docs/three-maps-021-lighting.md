@@ -77,17 +77,18 @@ grading texture, which the map's pack carries.
 | --- | --- | --- | --- | --- |
 | Rudnya v0.69 (0.69d `level_01` day, EV 6 to 12.5) | 33001 | 0.001151 | 0.104167 | 0.3367 |
 | The lobby room v0.69 (0.69d `lobby_scene/day`, EV fixed at 9.5) | 33100 | 0.104167 | 0.104167 | 0.1820 |
-| School v0.69 (0.69d `level_02` day, EV 11.5 to 14) | 33002 | 0.018414 | 0.104167 | 0.0854 |
-| Vostok Radar Station v0.69 (0.69d `level_03` day, EV 10 to 12) | 33003 | 0.026042 | 0.104167 | 0.0854 |
+| School v0.69 (0.69d `level_02` day, EV 11.5 to 14) | 33002 | 0.018414 | 0.104167 | 0.1232 |
+| Vostok Radar Station v0.69 (0.69d `level_03` day, EV 10 to 12) | 33003 | 0.026042 | 0.104167 | 0.1232 |
 
 The curve is `1 - 2^(-X)`: sm_4_0's `exp` is `2^x` and its `log` is `log2` (the native block
 has no `log2(e)` before them), and a key is for that base. Up to @14 the map builder took the
 curve as `1 - e^(-X)` for its key and its grading texture, so a scene showed 0.69d's look for
 `ln(2)^(1/1.2)` = 0.74 of its light. @15 takes Rudnya's key from the builder that reads it in
-base 2 (0.2334 to 0.3367, with its grading texture in rudnya-069d after @8). The other rows
-are still the base-e builder's and draw as before until their scenes are rebuilt: the lobby
-room's key 0.1820 (0.2626 in base 2; no live scene: the shipped lobby predates the 0.69d rules), School's and Vostok's 0.0854
-(0.1232; no live scene yet).
+base 2 (0.2334 to 0.3367, with its grading texture in rudnya-069d after @8). @17 takes School's
+and Vostok's from that builder too (0.0854 to 0.1232 each, with school-069d@3 and vostok-069d@3,
+whose grading textures it made). The lobby room's row is still the base-e builder's and draws as
+before until its scene is rebuilt: 0.1820 (0.2626 in base 2; no live scene: the shipped lobby
+predates the 0.69d rules).
 
 A row's `sky` (1 when absent) scales the native sky behind its marker (`scale_sky`, after
 `build_sky`): 0.69d's sky scatters its tinted sun times `sky_intensity`, 0.26g's Rayleigh sky
