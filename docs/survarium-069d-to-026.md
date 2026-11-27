@@ -368,7 +368,11 @@ the formulas come from both builds' shader disassembly):
   `rgb = sqrt(e/m)`, `a = sqrt(1/m)`). Every mip is re-encoded (both builds prefilter with
   GGX). 0.26's `_diffuse` cube (16 texels, 3 mips) is evaluated from the probe's SH as
   0.69d's `environment_probe.ps` does (E/pi with `directional_factor`). `specular_multiplier`
-  -1 (off) becomes 0. 0.26 has no sky light: the donor's largest probe's cube is also the
+  -1 (0.69d's default; its probe constant clamps it to 0, no reflection from the cube) becomes
+  1: 0.26's own weapons, hands and characters take their light in shade from the probe's
+  reflection and drew black under a probe with 0 (Vostok's map-wide boxes, Rudnya's seven
+  rooms, the lobby room), and Vostok's interiors come out nearer 0.69d's frames with it (10
+  poses, the error to 0.69d lower on every one). 0.26 has no sky light: the donor's largest probe's cube is also the
   map-wide sphere, on the template's own (native Rudnya's).
 * Probe tiers: 0.69d composes its probes per tier (`layer`: 0 global, 1 local, 2 detail),
   `sum(w L) / max(W, 1)` in a tier and the global tier only where `1 - W` of the local one

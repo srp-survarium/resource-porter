@@ -2735,6 +2735,20 @@ fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
     !spawns.is_empty() && spawns.iter().all(|s| distance(s) > fade)
 }
 
+/// A donor probe's `specular_multiplier` in 0.26. 0.69d's default is -1,
+/// which its probe constant clamps to 0: no reflection from the cube.
+/// 0.26's own models (weapons, hands, characters: dark albedo, Fresnel-map
+/// materials) take their light in shade from the probe's reflection and draw
+/// black under a probe with 0. Such a probe reflects its cube at 1 here; the
+/// static surfaces under it come out nearer 0.69d's frames that way too
+/// (docs/survarium-069d-to-026.md, Probes).
+fn probe_specular(donor: Option<f32>) -> f32 {
+    match donor {
+        Some(m) if m > 0.0 => m,
+        _ => 1.0,
+    }
+}
+
 /// 0.69d's probes and ambient lights as 0.26's own objects.
 ///
 /// Probes: every donor probe keeps its volume, cube and SH; 0.26 draws them
@@ -2758,8 +2772,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
     let mut pending: Vec<(String, Volume, DonorProbe, f32, ProbeTier)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
-        // 0.69d: specular_multiplier -1 turns the cube's reflections off.
-        let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
+        let specular = probe_specular(real(object, "specular_multiplier"));
         let tier = ProbeTier::of(object, &full_name)?;
         pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular, tier));
     }
