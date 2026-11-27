@@ -14,6 +14,7 @@
 use super::{BinaryConfig, ConfigValue, NamedValue, Record, ResourceDb, SourceBuild, Map};
 use super::{array, check_hash, emit, string};
 use super::lighting::{DonorLight, DonorProbe, LightEffect, LightScale, NativeLight, Shape, Volume};
+use crate::ambient_facing::Facing;
 use super::surface::Gloss;
 use crate::manifest::BuiltFile;
 use anyhow::{Context, Result, bail, ensure};
@@ -1506,8 +1507,10 @@ pub fn categorize(root: &ConfigValue, usage: Usage) -> Result<Category> {
     if alpha && (matches!(base, "flora" | "grass") || flag(effect, "use_t_translucency")) {
         return Ok(Category::Foliage);
     }
+    // Technique 2 draws no second layer in either build (it cuts the base
+    // where the masked weight is under 0.4), so it is a blend without one.
     let blends = usage.vertex_colour
-        && text(effect, "texture_vertex_blended_diffuse").is_some()
+        && (text(effect, "texture_vertex_blended_diffuse").is_some() || number(effect, "vertex_blend_technique") == Some(2.0))
         && (flag(effect, "use_tiled_vertex_blended_mask") || flag(effect, "use_vertex_blended_normal"));
     if blends {
         return Ok(Category::VertexBlend { two_sided, alpha_test: alpha });
@@ -1647,11 +1650,25 @@ pub fn convert_material(
     // Vertex-colour meshes need a template compiled for that vertex input
     // (`<category>_vc`).
     let vc_key = |category: Category| format!("{}_vc", category.key());
+    // A vertex blend draws by its technique and tiled-mask switch (0.69d
+    // `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`: linear, by the albedo's
+    // alpha, by a tiled mask); a manifest may name a template per switch
+    // (`<category>_technique<n>[_tiled_mask]`), the category's own drawing the
+    // others.
+    let blend_key = |category: Category| {
+        let effect = g_stage(donor).and_then(|s| s.named("effect"))?;
+        matches!(category, Category::VertexBlend { .. }).then(|| {
+            let technique = number(effect, "vertex_blend_technique").unwrap_or(0.0) as i32;
+            let mask = if flag(effect, "use_tiled_vertex_blended_mask") { "_tiled_mask" } else { "" };
+            format!("{}_technique{technique}{mask}", category.key())
+        })
+    };
     let lookup = |category: Category| {
         let metal_key = format!("{}_metal", if usage.vertex_colour { vc_key(category) } else { category.key().to_owned() });
         let metal_template = metalness.as_ref().and_then(|_| templates.get(&metal_key));
         metal_template
             .map(|t| (t, true))
+            .or_else(|| blend_key(category).and_then(|k| templates.get(&k)).map(|t| (t, false)))
             .or_else(|| if usage.vertex_colour { templates.get(&vc_key(category)) } else { None }.map(|t| (t, false)))
             .or_else(|| templates.get(category.key()).map(|t| (t, false)))
     };
@@ -1746,6 +1763,16 @@ pub fn convert_material(
             let max = number(effect, "max_smoothness").unwrap_or(1.0);
             let min = number(effect, "min_smoothness").unwrap_or(0.0);
             let constant = number(effect, "smoothness").unwrap_or(0.5);
+            // With a map 0.69d never reads the constant (`g_stage_default.ps`:
+            // `min + (max - min) * map.g`): a template that cannot draw the map
+            // would draw that unused value instead (0.8 on Rudnya's rusty
+            // sheet metal, which its map makes nearly matte: a wet shine).
+            ensure!(
+                smoothness_map.is_none() || effect_flag(&root, stage, "use_troughness"),
+                "{template_path}, the {} template, draws no gloss map and {} binds a smoothness map; declare a template with use_troughness",
+                category.key(),
+                albedo
+            );
             if effect_flag(&root, stage, "use_troughness") {
                 match &smoothness_map {
                     Some(map) => {
@@ -1811,6 +1838,44 @@ pub fn convert_material(
                         .map(str::to_owned)
                         .unwrap_or_else(|| albedo.clone());
                     set_effect(&mut root, stage, "texture_vertex_blended_tiled_mask", ConfigValue::String(mask))?;
+                }
+                // The blend's own numbers. Both builds weigh the base layer by
+                // `sat(pow(w, (1 - mask)^2 falloff) strength)` with the mask
+                // turned and scaled by its rotation and UV scale, and sample the
+                // second layer at the UV times its tile (0.69d
+                // `g_stage_default.ps`, 0.26g `gbuffer_pass.ps`): the donor's
+                // values, where the template draws the same technique with the
+                // same mask switch (else the formula differs and the template's
+                // stay, noted).
+                if blends {
+                    let same = number(effect, "vertex_blend_technique") == effect_value(&root, stage, "vertex_blend_technique").and_then(|v| match v {
+                        ConfigValue::Integer(i) => Some(*i as f32),
+                        ConfigValue::Float(f) => Some(*f),
+                        _ => None,
+                    }) && flag(effect, "use_tiled_vertex_blended_mask") == effect_flag(&root, stage, "use_tiled_vertex_blended_mask");
+                    if same {
+                        for field in [
+                            "constant_vertex_blended_strength",
+                            "constant_vertex_blended_falloff",
+                            "constant_vertex_blended_textures_tile",
+                            "constant_tiled_mask_uv_scale",
+                            "constant_tiled_mask_uv_rotation",
+                        ] {
+                            // In the template's own type (an integer stays one
+                            // where the value is whole).
+                            let value = match (number(effect, field), effect_value(&root, stage, field)) {
+                                (Some(v), Some(ConfigValue::Integer(_))) if v.fract() == 0.0 => ConfigValue::Integer(v as i32),
+                                (Some(v), Some(_)) => ConfigValue::Float(v),
+                                _ => continue,
+                            };
+                            set_effect(&mut root, stage, field, value)?;
+                        }
+                    } else {
+                        notes.push("vertex blend: the template's technique or tiled-mask switch differs from the donor's; its blend constants are kept".into());
+                    }
+                    if let Some(note) = blend_cut(effect, &mut root, stage, same)? {
+                        notes.push(note);
+                    }
                 }
             }
             if let Some(ConfigValue::Float4(c)) = value_of(effect, "albedo_color") {
@@ -1925,6 +1990,76 @@ fn donor_emission(donor: &ConfigValue, converted: &mut ConvertedMaterial, scale:
     set_effect(&mut converted.root, stage, "constant_emissive_multiplier", ConfigValue::Float(multiplier))?;
     converted.notes.push(format!("emission: 0.69d's at its exposure value {ev_m} (alpha {alpha}) in the scene's scale: multiplier {multiplier:.3}, linear colour"));
     Ok(())
+}
+
+/// 0.69d cuts an alpha-tested blend by its second layer's alpha where that
+/// layer is not considered opaque (`consider_blended_albedo_opaque` false);
+/// 0.26g's programs only cut by the base layer. The selector is the blend
+/// strength, as skhid's `v021d-vertex-blend@4` reads it (resource-porter
+/// `weather_fog_021::vertex_blend::blend_cut`, on the lighting packs' line).
+pub const BLEND_CUT_LINEAR: i32 = -21069;
+
+/// The strength that selects the masked cut with `strength` (`-(2^25 + strength * 2^17)`).
+pub fn blend_cut_masked(strength: f32) -> Option<i32> {
+    let encoded = -(33_554_432.0f64 + strength as f64 * 131_072.0);
+    ((0.0..256.0).contains(&strength) && encoded == encoded.round() && (encoded as f32) as f64 == encoded).then_some(encoded as i32)
+}
+
+/// Select 0.69d's cut on a converted alpha-tested blend, from the donor's
+/// own flags (technique 1, `g_stage_default.ps`): without a tiled mask and
+/// with the base layer opaque, `alpha = B.a + w (1 - B.a)` on the raw vertex
+/// weight; with a tiled mask and neither layer opaque,
+/// `alpha = B.a + W (mask - B.a)` on the masked weight. `same`: the template
+/// draws the donor's technique and mask switch (its blend numbers are the
+/// donor's). A note for what is selected or left as 0.26g cuts it.
+fn blend_cut(effect: &ConfigValue, root: &mut ConfigValue, stage: &str, same: bool) -> Result<Option<String>> {
+    let cuts_by_second = flag(effect, "use_alpha_test")
+        && flag(effect, "alpha_test_consider_vertex_blend")
+        && !flag(effect, "consider_blended_albedo_opaque")
+        && number(effect, "vertex_blend_technique") != Some(2.0);
+    if !cuts_by_second {
+        return Ok(None);
+    }
+    let template_cuts = effect_flag(root, stage, "use_alpha_test") && effect_flag(root, stage, "alpha_test_consider_vertex_blend");
+    let technique = number(effect, "vertex_blend_technique").unwrap_or(0.0);
+    let mask = flag(effect, "use_tiled_vertex_blended_mask");
+    let base_opaque = flag(effect, "consider_albedo_opaque");
+    let typed = |root: &ConfigValue, field: &str, v: f32| match effect_value(root, stage, field) {
+        Some(ConfigValue::Integer(_)) if v.fract() == 0.0 => Some(ConfigValue::Integer(v as i32)),
+        Some(_) => Some(ConfigValue::Float(v)),
+        None => None,
+    };
+    let selector = match (template_cuts, technique == 1.0, mask, base_opaque) {
+        (true, true, false, true) => {
+            // The weight is the raw vertex alpha whatever the template's
+            // mask; the second layer keeps its own tile.
+            if let Some(tile) = number(effect, "constant_vertex_blended_textures_tile")
+                && let Some(value) = typed(root, "constant_vertex_blended_textures_tile", tile)
+            {
+                set_effect(root, stage, "constant_vertex_blended_textures_tile", value)?;
+            }
+            Some((BLEND_CUT_LINEAR, "the raw vertex weight, the base layer opaque"))
+        }
+        (true, true, true, false) if same && effect_flag(root, stage, "use_tiled_vertex_blended_mask") => {
+            let strength = number(effect, "constant_vertex_blended_strength").unwrap_or(1.0);
+            let encoded = blend_cut_masked(strength).with_context(|| format!("blend strength {strength} has no exact masked-cut encoding"))?;
+            Some((encoded, "the masked weight, the tiled mask as the base layer's alpha"))
+        }
+        _ => None,
+    };
+    let Some((value, what)) = selector else {
+        return Ok(Some(format!(
+            "vertex blend: 0.69d cuts it by its second layer's alpha (technique {technique}, tiled mask {mask}, base opaque {base_opaque}); not converted, 0.26g cuts by the base layer"
+        )));
+    };
+    let field = "constant_vertex_blended_strength";
+    let written = match effect_value(root, stage, field) {
+        Some(ConfigValue::Integer(_)) => ConfigValue::Integer(value),
+        Some(_) => ConfigValue::Float(value as f32),
+        None => bail!("the template has no {field}"),
+    };
+    set_effect(root, stage, field, written)?;
+    Ok(Some(format!("vertex blend: 0.69d's cut by the second layer's alpha ({what}), strength selector {value} (v021d-vertex-blend@4)")))
 }
 
 /// One Fresnel value on a converted material, whether its template draws a
@@ -2473,6 +2608,66 @@ struct LitVolume {
     texture: String,
     probe: DonorProbe,
     specular_multiplier: f32,
+    tier: ProbeTier,
+}
+
+/// 0.69d's probe tiers (`layer`, render properties +214h): it averages the probes of a tier by
+/// their weights, `sum(w L) / max(W, 1)`, and draws the tier below only where `1 - W` remains
+/// (`environment_probe_stage::execute` 0x20050B200). 0.26 lerps every probe over the ones before
+/// it; skhid's exe patch 203 draws the local tier as 0.69d does, for the probes this marks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProbeTier {
+    /// Layer 0, and the map-wide sphere: 0.26's own draw.
+    Global,
+    /// Layer 1: the radius below 0 marks it for patch 203 (`local_probe_radius`).
+    Local,
+}
+
+impl ProbeTier {
+    fn of(object: &ConfigValue, full_name: &str) -> Result<ProbeTier> {
+        match integer(object, "layer").unwrap_or(0) {
+            0 => Ok(ProbeTier::Global),
+            1 => {
+                // Patch 203's programs draw 0.69d's linear falloff (attenuation_power 1).
+                let power = real(object, "attenuation_power").unwrap_or(1.0);
+                ensure!(power == 1.0, "{full_name}: a local probe's attenuation_power {power}: patch 203's tier programs draw 1 only");
+                Ok(ProbeTier::Local)
+            }
+            layer => bail!("{full_name}: probe layer {layer} (0.69d's detail tier): no 0.26 draw for it"),
+        }
+    }
+}
+
+/// A local probe's radius for patch 203: below 0 (the mark), its whole part's magnitude the shape
+/// the tier programs draw (1 a box, 2 a cylinder about local y in its circumscribed box), its
+/// fraction `0.25 + 0.5 / (1 + R)` of the sort radius `R`, so the sort (largest first) and the
+/// forward models' choice (the smallest radius whose box holds them) keep 0.26's order among
+/// local probes. The exe reads only the sign; the programs read the shape from `light_range`
+/// (0.98 radius) and the side width from `inner_radius` (radius - side width - 0.05).
+fn local_probe_radius(volume: &Volume) -> Result<f32> {
+    let shape = match volume.shape {
+        Shape::Box { .. } => 1.0,
+        Shape::Cylinder { .. } => 2.0,
+        Shape::Sphere { .. } => bail!("a local sphere probe: patch 203's tier programs draw boxes and cylinders"),
+    };
+    Ok(-(shape + 0.25 + 0.5 / (1.0 + volume.sort_radius())))
+}
+
+/// Put a 0.69d local probe on `volume` for patch 203: a box (a cylinder's circumscribed one, the
+/// programs cut the cylinder out of it), the marked radius, no smart attenuation (the four box
+/// effects without it are the ones with tier techniques).
+fn place_local_probe(native: &mut ConfigValue, volume: &Volume, full_name: &str) -> Result<()> {
+    place_volume(native, volume, full_name)?;
+    let scale = match volume.shape {
+        Shape::Box { half } => half,
+        Shape::Cylinder { radius, half_height } => [radius, half_height, radius],
+        Shape::Sphere { .. } => bail!("{full_name}: a local sphere probe"),
+    };
+    native.set_path("geometry", ConfigValue::Integer(1))?;
+    native.set_path("scale", ConfigValue::Float3(scale))?;
+    native.set_path("radius", ConfigValue::Float(local_probe_radius(volume).with_context(|| full_name.to_owned())?))?;
+    native.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
+    Ok(())
 }
 
 struct DonorLighting {
@@ -2516,8 +2711,9 @@ fn donor_light(object: &ConfigValue) -> Result<(DonorLight, [f32; 3])> {
         LightEffect::Add { radiance: linear.map(|c| c * e) }
     };
     let facing = matches!(object.named("dot_normal"), Some(ConfigValue::Boolean(true)))
-        .then(|| (real(object, "dot_normal_cutoff").unwrap_or(0.0), real(object, "dot_normal_power").unwrap_or(1.0)));
-    let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing };
+        .then(|| Facing { cutoff: real(object, "dot_normal_cutoff").unwrap_or(0.0), power: real(object, "dot_normal_power").unwrap_or(1.0) });
+    let gradient = matches!(object.named("gradient_attenuation"), Some(ConfigValue::Boolean(true)));
+    let light = DonorLight { volume: donor_volume(object, "side_width")?, effect, attenuation_power: real(object, "attenuation_power").unwrap_or(1.0), facing, gradient };
     Ok((light, colour))
 }
 
@@ -2598,12 +2794,13 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
         Shape::Cylinder { radius, half_height } => 6.28 * radius * radius * half_height,
     };
-    let mut pending: Vec<(String, Volume, DonorProbe, f32)> = Vec::new();
+    let mut pending: Vec<(String, Volume, DonorProbe, f32, ProbeTier)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
         // 0.69d: specular_multiplier -1 turns the cube's reflections off.
         let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
-        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular));
+        let tier = ProbeTier::of(object, &full_name)?;
+        pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular, tier));
     }
     let largest = pending
         .iter()
@@ -2613,10 +2810,10 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         .clone();
     // 0.26's order: larger first; the map-wide sphere first of all.
     pending.sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
-    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0));
+    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0, ProbeTier::Global));
     let mut volumes: Vec<LitVolume> = Vec::new();
     let mut names = BTreeSet::new();
-    for (full_name, volume, probe, specular_multiplier) in pending {
+    for (full_name, volume, probe, specular_multiplier, tier) in pending {
         let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
         let stem = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
         let mut texture = stem.clone();
@@ -2625,7 +2822,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
             n += 1;
             texture = format!("{stem}_{n}");
         }
-        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier });
+        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier, tier });
     }
 
     let mut donor_lights = Vec::new();
@@ -2661,7 +2858,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
                 light.native_additive(std::array::from_fn(|c| (factor[c] - 1.0).max(0.0) * below[c] * scale.0))
             }
         };
-        lights.push((full_name.clone(), native));
+        lights.push((full_name.clone(), native.with_context(|| format!("ambient light {full_name}"))?));
     }
     Ok(DonorLighting { volumes, lights, counts })
 }
@@ -2931,8 +3128,7 @@ pub fn convert_scene(
                 elevation,
             )
             .map(|v| v * scale.0);
-            let intensity = sun.iter().cloned().fold(0.0, f32::max);
-            let colour = sun.map(|v| v / intensity);
+            let (colour, intensity) = super::lighting::sun_environment(sun);
             environment.set_path("properties.sun_color", ConfigValue::Float4([colour[0], colour[1], colour[2], 1.0]))?;
             environment.set_path("properties.sun_intensity", ConfigValue::Float(intensity))?;
             // 0.69d has no height-based ambient; 0.26's multiplies the
@@ -2944,7 +3140,7 @@ pub fn convert_scene(
                 environment.set_path("properties.sky_clouds_texture", ConfigValue::String(clouds.into()))?;
             }
             notes.push(format!(
-                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: colour {:?}, intensity {intensity:.3}; no height-based ambient",
+                "sun: 0.69d's (intensity {}, its atmosphere's transmittance at {elevation} degrees) at exposure EV {ev}: sun_color {:?} (the game raises it to 2.2), intensity {intensity:.3}; no height-based ambient",
                 real(donor_environment, "sun_intensity_r2").unwrap_or(0.0),
                 colour.map(|v| (v * 1000.0).round() / 1000.0)
             ));
@@ -3104,7 +3300,10 @@ pub fn convert_scene(
             // blends with the weight in alpha).
             for v in &lit.volumes {
                 let mut p = global.clone();
-                place_volume(&mut p, &v.volume, &v.full_name)?;
+                match v.tier {
+                    ProbeTier::Global => place_volume(&mut p, &v.volume, &v.full_name)?,
+                    ProbeTier::Local => place_local_probe(&mut p, &v.volume, &v.full_name)?,
+                }
                 set_probe_texture(&mut p, &v.texture)?;
                 p.set_path("diffuse_multiplier", ConfigValue::Float(1.0))?;
                 p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
@@ -3112,6 +3311,12 @@ pub fn convert_scene(
                 count("environment_probe");
                 generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
             }
+            let locals = lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local).count();
+            notes.push(format!(
+                "probe tiers: {locals} local probes (0.69d layer 1, {} of them cylinders) marked by a radius below 0 for skhid's exe patch 203 (0.69d's averaged local tier; needs it and three-maps-021-lighting's environment_probe_tier_* programs), {} global",
+                lit.volumes.iter().filter(|v| v.tier == ProbeTier::Local && matches!(v.volume.shape, Shape::Cylinder { .. })).count(),
+                lit.volumes.len() - locals
+            ));
             let ambient_template = first_template(template, "ambient_light")?;
             for (full_name, light) in &lit.lights {
                 let mut a = ambient_template.clone();
@@ -3120,7 +3325,7 @@ pub fn convert_scene(
                 a.set_path("intensity", ConfigValue::Float(light.intensity))?;
                 a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
                 a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
-                a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal))?;
+                a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal()))?;
                 // 0.69d's ambient lights leave the reflections alone.
                 a.set_path("affect_specular", ConfigValue::Boolean(false))?;
                 a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
@@ -6213,6 +6418,11 @@ mod tests {
         assert_eq!(text(e, "texture_roughness"), Some("tiled/a_smap"));
         assert_eq!(number(e, "constant_roughness_max"), Some(0.2));
         assert!(flag(e, "use_troughness") && flag(e, "use_nmap"));
+        // A template with no gloss map would draw the donor's unused
+        // constant: the build stops and names the template to declare.
+        let flat = BTreeMap::from([("opaque".to_owned(), ("flora/roots_tile".to_owned(), template(&[("use_nmap", true), ("use_troughness", false)])))]);
+        let error = convert_material(&donor, Usage::default(), &flat, Gloss::Smoothness, "editor/default_nmap").err().unwrap();
+        assert!(format!("{error:#}").contains("use_troughness"), "{error:#}");
         // The switch without a map is no metal surface.
         assert!(c.metal.is_none());
         // 0.69d's own rule: the smoothness range by the two builds' alpha.
@@ -6271,6 +6481,123 @@ mod tests {
         assert_eq!(categorize(&blending(false, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: false });
         assert_eq!(categorize(&blending(true, true), vc).unwrap(), Category::VertexBlend { two_sided: true, alpha_test: true });
         assert_eq!(categorize(&blending(true, true), Usage::default()).unwrap(), Category::AlphaTestTwoSided);
+        // Technique 2 with a tiled mask and no second layer (the terrain
+        // overlays `terrain_tiled/*_vc`): a blend, cut by the masked weight.
+        let cut = |alpha: bool| {
+            let mut m = base(alpha, false);
+            for (k, v) in [("vertex_blend_technique", ConfigValue::Integer(2)), ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(true))] {
+                m.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+            }
+            m
+        };
+        assert_eq!(categorize(&cut(false), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: false });
+        assert_eq!(categorize(&cut(true), vc).unwrap(), Category::VertexBlend { two_sided: false, alpha_test: true });
+    }
+
+    #[test]
+    fn a_blend_takes_the_donors_numbers_where_it_draws_the_same_technique() {
+        let donor = |mask: bool| {
+            material(
+                vec![
+                    ("effect_id", ConfigValue::String("g_stage_default".into())),
+                    ("t_albedo", ConfigValue::String("tiled/a".into())),
+                    ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/b".into())),
+                    ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+                    ("vertex_blend_technique", ConfigValue::Integer(1)),
+                    ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(mask)),
+                    ("constant_vertex_blended_strength", ConfigValue::Integer(2)),
+                    ("constant_vertex_blended_falloff", ConfigValue::Integer(4)),
+                    ("constant_vertex_blended_textures_tile", ConfigValue::Integer(3)),
+                    ("constant_tiled_mask_uv_scale", ConfigValue::Float(1.5)),
+                ],
+                "dielectric",
+            )
+        };
+        let mut t = template(&[("use_vertex_blended_textures", true), ("use_tiled_vertex_blended_mask", true)]);
+        for (k, v) in [
+            ("texture_vertex_blended_diffuse", ConfigValue::String("native/b".into())),
+            ("vertex_blend_technique", ConfigValue::Integer(1)),
+            ("constant_vertex_blended_strength", ConfigValue::Integer(4)),
+            ("constant_vertex_blended_falloff", ConfigValue::Integer(15)),
+            ("constant_vertex_blended_textures_tile", ConfigValue::Integer(1)),
+            ("constant_tiled_mask_uv_scale", ConfigValue::Integer(2)),
+        ] {
+            t.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+        }
+        t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+        let templates = BTreeMap::from([("vertex_blend".to_owned(), ("tiled/x_vc".to_owned(), t))]);
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let c = convert_material(&donor(true), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(2)));
+        assert_eq!(value_of(e, "constant_vertex_blended_falloff"), Some(&ConfigValue::Integer(4)));
+        assert_eq!(value_of(e, "constant_vertex_blended_textures_tile"), Some(&ConfigValue::Integer(3)));
+        assert_eq!(value_of(e, "constant_tiled_mask_uv_scale"), Some(&ConfigValue::Float(1.5)));
+        // Without the donor's mask the template's formula is another one: its numbers stay.
+        let c = convert_material(&donor(false), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(4)));
+        assert!(c.notes.iter().any(|n| n.contains("blend constants are kept")));
+        // A manifest's template for that switch draws it, with the donor's numbers.
+        let mut unmasked = templates["vertex_blend"].1.clone();
+        unmasked.set_path("material.g_stage.effect.use_tiled_vertex_blended_mask", named(vec![("value", ConfigValue::Boolean(false))])).unwrap();
+        let mut templates = templates;
+        templates.insert("vertex_blend_technique1".to_owned(), ("tiled/y_vc".to_owned(), unmasked));
+        let c = convert_material(&donor(false), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(c.template, "tiled/y_vc");
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_strength"), Some(&ConfigValue::Integer(2)));
+        assert!(!c.notes.iter().any(|n| n.contains("blend constants are kept")), "{:?}", c.notes);
+        // The masked donor keeps the category's template.
+        assert_eq!(convert_material(&donor(true), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap().template, "tiled/x_vc");
+    }
+
+    #[test]
+    fn a_blend_cut_by_its_second_layer_selects_0_69d_cut_by_its_own_flags() {
+        let donor = |mask: bool, base_opaque: bool, technique: i32| {
+            material(
+                vec![
+                    ("effect_id", ConfigValue::String("g_stage_default".into())),
+                    ("t_albedo", ConfigValue::String("tiled/wall/paper".into())),
+                    ("texture_vertex_blended_diffuse", ConfigValue::String("tiled/stucco/lath".into())),
+                    ("use_vertex_blended_normal", ConfigValue::Boolean(true)),
+                    ("use_alpha_test", ConfigValue::Boolean(true)),
+                    ("alpha_test_consider_vertex_blend", ConfigValue::Boolean(true)),
+                    ("consider_albedo_opaque", ConfigValue::Boolean(base_opaque)),
+                    ("consider_blended_albedo_opaque", ConfigValue::Boolean(false)),
+                    ("vertex_blend_technique", ConfigValue::Integer(technique)),
+                    ("use_tiled_vertex_blended_mask", ConfigValue::Boolean(mask)),
+                    ("constant_vertex_blended_strength", ConfigValue::Integer(3)),
+                    ("constant_vertex_blended_textures_tile", ConfigValue::Integer(3)),
+                ],
+                "dielectric",
+            )
+        };
+        let mut t = template(&[("use_vertex_blended_textures", true), ("use_tiled_vertex_blended_mask", true), ("use_alpha_test", true), ("alpha_test_consider_vertex_blend", true)]);
+        for (k, v) in [
+            ("texture_vertex_blended_diffuse", ConfigValue::String("native/b".into())),
+            ("vertex_blend_technique", ConfigValue::Integer(1)),
+            ("constant_vertex_blended_strength", ConfigValue::Integer(4)),
+            ("constant_vertex_blended_textures_tile", ConfigValue::Integer(1)),
+        ] {
+            t.set_path(&format!("material.g_stage.effect.{k}"), named(vec![("value", v)])).unwrap();
+        }
+        t.set_path("material.g_stage.with_static_vertex_color_meshes", ConfigValue::Boolean(true)).unwrap();
+        let templates = BTreeMap::from([("vertex_blend_alpha_test".to_owned(), ("tiled/x_vc".to_owned(), t))]);
+        let vc = Usage { vertex_colour: true, vegetation: false };
+        let strength = |c: &ConvertedMaterial| value_of(c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap(), "constant_vertex_blended_strength").cloned();
+        // The lath under the wallpaper: no mask, base opaque.
+        let c = convert_material(&donor(false, true, 1), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(strength(&c), Some(ConfigValue::Integer(BLEND_CUT_LINEAR)));
+        let e = c.root.named("material").unwrap().named("g_stage").unwrap().named("effect").unwrap();
+        assert_eq!(value_of(e, "constant_vertex_blended_textures_tile"), Some(&ConfigValue::Integer(3)));
+        // Masked, neither layer opaque: the donor's strength rides in the selector.
+        let c = convert_material(&donor(true, false, 1), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert_eq!(strength(&c), Some(ConfigValue::Integer(-(33_554_432 + 3 * 131_072))));
+        // Another technique: left as 0.26g cuts it, noted.
+        let c = convert_material(&donor(true, false, 2), vc, &templates, Gloss::Smoothness, "editor/default_nmap").unwrap();
+        assert!(c.notes.iter().any(|n| n.contains("not converted")), "{:?}", c.notes);
+        assert_eq!(blend_cut_masked(0.5), Some(-(33_554_432 + 65_536)));
     }
 
     #[test]
@@ -6707,5 +7034,30 @@ mod tests {
         assert_eq!(float3(spawner.named("spawned_item").unwrap(), "position").unwrap(), [1.0, 2.75, 3.0]);
         let missing = ModeSpec { drop: vec![PlacedModel { model: "transmitter".into(), position: [9.0; 3], why: String::new() }], ..mode };
         assert!(mode_project(&scene, &native, &template, &missing, &mut notes).is_err(), "a drop that matches nothing is an error");
+    }
+}
+
+#[cfg(test)]
+mod probe_tier_tests {
+    use super::*;
+
+    fn boxed(half: [f32; 3]) -> Volume {
+        Volume { centre: [0.0; 3], rotation: [0.0; 3], shape: Shape::Box { half }, side_width: 0.3 }
+    }
+
+    #[test]
+    fn a_local_probes_radius_marks_it_and_keeps_the_order() {
+        let small = local_probe_radius(&boxed([1.0, 1.0, 1.0])).unwrap();
+        let large = local_probe_radius(&boxed([4.0, 3.0, 5.0])).unwrap();
+        let cylinder = local_probe_radius(&Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 2.6 }, ..boxed([1.0; 3]) }).unwrap();
+        assert!(small < 0.0 && large < 0.0 && cylinder < 0.0);
+        // largest first, as 0.26 sorts; the shape the programs read from the whole part
+        assert!(large > small);
+        assert_eq!((-small).floor(), 1.0);
+        assert_eq!((-large).floor(), 1.0);
+        assert_eq!((-cylinder).floor(), 2.0);
+        let f = -small - 1.0;
+        assert!(f > 0.25 && f < 0.75);
+        assert!(local_probe_radius(&Volume { shape: Shape::Sphere { radius: 3.0 }, ..boxed([1.0; 3]) }).is_err());
     }
 }
