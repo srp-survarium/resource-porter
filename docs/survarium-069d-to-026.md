@@ -368,7 +368,17 @@ the formulas come from both builds' shader disassembly):
   `rgb = sqrt(e/m)`, `a = sqrt(1/m)`). Every mip is re-encoded (both builds prefilter with
   GGX). 0.26's `_diffuse` cube (16 texels, 3 mips) is evaluated from the probe's SH as
   0.69d's `environment_probe.ps` does (E/pi with `directional_factor`). `specular_multiplier`
-  -1 (off) becomes 0. 0.26 has no sky light: the donor's largest probe's cube is also the
+  -1 (0.69d's default; its probe constant clamps it to 0, no reflection from the cube) becomes
+  1: 0.26's own weapons, hands and characters take their light in shade from the probe's
+  reflection and drew black under a probe with 0 (Vostok's map-wide boxes, Rudnya's seven
+  rooms, the lobby room). Its cube is the light of where it was captured (Vostok's six map-size
+  "fake" boxes share the outdoor one, mean 1.6 decoded against 0.2 for 0.26's own indoor
+  cubes), so a multiplying ambient light whose centre lies in such a probe darkens its
+  reflection too (`affect_specular`: 0.26 multiplies `accum_specular` by the same factor);
+  over a probe with its own 0.69d reflection it leaves it alone, as 0.69d does. Vostok's 20
+  interior darkeners (the repair hangar's x0.18) take the outdoor cube to the indoor level: a
+  held gun and a desk stopped mirroring the sky, and the ten interior poses' mean error to
+  0.69d went 9.43 (0) to 8.49 (7.78 at a bare 1, which mirrored the sky indoors). 0.26 has no sky light: the donor's largest probe's cube is also the
   map-wide sphere, on the template's own (native Rudnya's).
 * Probe tiers: 0.69d composes its probes per tier (`layer`: 0 global, 1 local, 2 detail),
   `sum(w L) / max(W, 1)` in a tier and the global tier only where `1 - W` of the local one
