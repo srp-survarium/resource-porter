@@ -558,7 +558,7 @@ enum MapRole {
     Normal,
     /// The smoothness, the gloss ([`convert::gloss_from_smoothness`]).
     Gloss,
-    /// The metalness, the Fresnel F0 ([`convert::fresnel_from_metalness`]).
+    /// The metalness, with the albedo, the Fresnel ([`convert::fresnel_from_albedo`]).
     Fresnel,
 }
 
@@ -611,11 +611,27 @@ fn diffuse_dds(albedo: &[u8], metalness: &[u8], name: &str, work: &Path) -> Resu
     Ok(out)
 }
 
-/// A 0.69d grey map (smoothness or metalness) with `map` applied to each
-/// pixel, DXT1 with mips like a native weapon's, read linear.
-fn mapped_dds(bytes: &[u8], map: fn(u8) -> u8, name: &str, work: &Path) -> Result<Vec<u8>> {
-    let (w, h, px) = convert::decode_dds(bytes)?;
-    let px: Vec<[u8; 3]> = px.iter().map(|p| [map(p[0]); 3]).collect();
+/// A 0.69d smoothness map as 0.26g's gloss ([`convert::gloss_from_smoothness`]),
+/// DXT1 with mips like a native weapon's, read linear.
+fn gloss_dds(smoothness: &[u8], name: &str, work: &Path) -> Result<Vec<u8>> {
+    let (w, h, px) = convert::decode_dds(smoothness)?;
+    let px: Vec<[u8; 3]> = px.iter().map(|p| [convert::gloss_from_smoothness(p[0]); 3]).collect();
+    encode_dxt1(w, h, &px, name, false, work)
+}
+
+/// A 0.69d metalness map with its albedo as 0.26g's Fresnel
+/// ([`convert::fresnel_from_albedo`]), at the metalness map's size, DXT1 with
+/// mips like a native weapon's, read linear.
+fn fresnel_dds(metalness: &[u8], albedo: &[u8], name: &str, work: &Path) -> Result<Vec<u8>> {
+    let (w, h, m) = convert::decode_dds(metalness)?;
+    let (aw, ah, a) = convert::decode_dds(albedo)?;
+    let px: Vec<[u8; 3]> = (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            let c = a[(y * ah / h) * aw + x * aw / w];
+            [convert::fresnel_from_albedo([c[0], c[1], c[2]], m[i][0]); 3]
+        })
+        .collect();
     encode_dxt1(w, h, &px, name, false, work)
 }
 
@@ -1465,9 +1481,12 @@ impl Donor069 {
                     diffuse_dds(&bytes, &metalness, &dds, work)?
                 }
                 MapRole::Normal => bytes,
-                MapRole::Gloss => mapped_dds(&bytes, convert::gloss_from_smoothness, &dds, work)?,
+                MapRole::Gloss => gloss_dds(&bytes, &dds, work)?,
+                // The albedo is always bound (checked above). A metalness map shared by
+                // two albedos takes the first one's (the made maps are kept by name).
                 MapRole::Fresnel => {
-                    mapped_dds(&bytes, convert::fresnel_from_metalness, &dds, work)?
+                    let albedo = self.db.read(&format!("textures/{}.dds", names["t_albedo"]))?;
+                    fresnel_dds(&bytes, &albedo, &dds, work)?
                 }
             };
             let options = encode(db_config(

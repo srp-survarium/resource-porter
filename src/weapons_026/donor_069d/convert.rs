@@ -14,7 +14,7 @@
 //!   the weapon, bound to one bone and moved to their socket.
 //! * **Textures**: the same DDS layout. 0.69d's maps are PBR (albedo,
 //!   smoothness, metalness); [`diffuse_from_albedo`], [`gloss_from_smoothness`]
-//!   and [`fresnel_from_metalness`] map each pixel onto 0.26g's diffuse, gloss
+//!   and [`fresnel_from_albedo`] map each pixel onto 0.26g's diffuse, gloss
 //!   and Fresnel, and the map is encoded again (DXT1, the source's mips).
 
 use anyhow::{Context, Result, bail, ensure};
@@ -404,15 +404,73 @@ pub fn diffuse_from_albedo(albedo: [u8; 3], metalness: u8) -> [u8; 3] {
 
 /// 0.26g gloss (the `texture_roughness` slot: 0.26g's g-buffer pass reads it
 /// as smoothness, `1 - (min + (max - min) g)` the GGX roughness) from a 0.69d
-/// smoothness: `0.36 * smoothness`.
+/// smoothness, with 0.69d's GGX alpha: 0.69d draws `max((1 - s)^2, 0.001)`
+/// (`g_stage_default.ps`), 0.26g `0.5 r^6 + 0.1 r` of `r = 1 - gloss`
+/// (`composition.ps`), so the gloss is the one whose alpha is 0.69d's; 0 where
+/// 0.69d is rougher than 0.26g can draw (alpha 0.6). As resource-porter's
+/// `survarium_026::surface::gloss_of` draws a 0.69d map's statics.
+///
+/// Before, `0.36 * smoothness` and `0.08 + 0.09 * sqrt(metalness)`, fitted
+/// per pixel to stock's maps of the guns both builds ship: their means, at
+/// 0.41 and 0.40 of stock's spread, so a gun reflected evenly all over (the
+/// AK-74N's Fresnel 5 of 255 against stock's 24): smooth and shiny under a
+/// bright probe. With 0.69d's own formulas, over the 21 guns with a stock
+/// twin, the gloss has stock's spread (the AK-74N 0.129 against 0.111) and
+/// the Fresnel 0.69d's, lower than stock's (0.050 against 0.126).
 pub fn gloss_from_smoothness(smoothness: u8) -> u8 {
-    (0.36 * f32::from(smoothness)).round() as u8
+    let want = (1.0 - f32::from(smoothness) / 255.0).powi(2).max(0.001);
+    let alpha = |gloss: f32| {
+        let r = 1.0 - gloss;
+        0.5 * r.powi(6) + 0.1 * r
+    };
+    if want >= alpha(0.0) {
+        return 0;
+    }
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if alpha(mid) > want { lo = mid } else { hi = mid }
+    }
+    (255.0 * 0.5 * (lo + hi)).round() as u8
 }
 
-/// 0.26g Fresnel F0 from a 0.69d metalness: `0.08 + 0.09 * sqrt(metalness)`.
-pub fn fresnel_from_metalness(metalness: u8) -> u8 {
+/// 0.26g Fresnel from a 0.69d albedo (sRGB) and metalness: the luminance of
+/// 0.69d's F0 `0.04 + m (A - 0.04)` (`sun_lighting.ps`), which 0.26g draws
+/// as its specular at normal incidence while its Fresnel is at most 0.1;
+/// above, 0.26g tints the specular towards the albedo's hue
+/// (`lerp(1.3 hue, 1, sat(1.04 - 4 f^2))`), and the Fresnel is the one whose
+/// tinted luminance is 0.69d's (as `survarium_026::surface::metal_texel`).
+pub fn fresnel_from_albedo(albedo: [u8; 3], metalness: u8) -> u8 {
+    let linear = albedo.map(|c| {
+        let v = f32::from(c) / 255.0;
+        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    });
+    let lum = |c: [f32; 3]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let tint = |a: [f32; 3]| {
+        let norm = a.iter().map(|c| c.powi(4)).sum::<f32>().sqrt().max(1e-4).sqrt();
+        a.map(|c| 1.3 * c / norm)
+    };
     let m = f32::from(metalness) / 255.0;
-    (255.0 * (0.08 + 0.09 * m.sqrt())).round().clamp(0.0, 255.0) as u8
+    let f0 = linear.map(|a| 0.04 + m * (a - 0.04));
+    let y = lum(f0).clamp(0.0, 1.0);
+    let f = if y <= 0.1 {
+        y
+    } else {
+        let body: [f32; 3] = std::array::from_fn(|c| linear[c] * (1.0 - m) * (1.0 - f0[c]));
+        let floor = tint(linear).map(|c| c * 0.012 / 1.3);
+        let hue = lum(tint(std::array::from_fn(|c| body[c].max(floor[c]))));
+        let shown = |f: f32| {
+            let t = (1.04 - 4.0 * f * f).clamp(0.0, 1.0);
+            f * (t + (1.0 - t) * hue)
+        };
+        let (mut lo, mut hi) = (y, 1.0f32);
+        for _ in 0..24 {
+            let mid = 0.5 * (lo + hi);
+            if shown(mid) < y { lo = mid } else { hi = mid }
+        }
+        (0.5 * (lo + hi)).min(0.98)
+    };
+    (255.0 * f).round() as u8
 }
 
 /// An uncompressed 24-bit TGA, top row first, for the DDS encoder.
@@ -844,16 +902,13 @@ mod tests {
     }
 
     #[test]
-    fn every_surface_has_some_fresnel_and_gloss_follows_smoothness() {
-        assert_eq!(
-            fresnel_from_metalness(0),
-            20,
-            "a dielectric's F0 as 0.26g's maps have it"
-        );
-        assert_eq!(fresnel_from_metalness(255), 43);
-        assert!((0..255).all(|m| fresnel_from_metalness(m) <= fresnel_from_metalness(m + 1)));
-        assert_eq!(gloss_from_smoothness(0), 0);
-        assert_eq!(gloss_from_smoothness(255), 92);
+    fn gloss_and_fresnel_are_069ds() {
+        assert_eq!(gloss_from_smoothness(0), 0, "rougher than 0.26g draws");
+        assert_eq!(gloss_from_smoothness(255), 252);
+        assert!((0..255).all(|s| gloss_from_smoothness(s) <= gloss_from_smoothness(s + 1)));
+        assert_eq!(fresnel_from_albedo([0, 0, 0], 0), 10, "0.69d's dielectric F0 0.04");
+        assert_eq!(fresnel_from_albedo([200, 200, 200], 0), 10);
+        assert!((0..255).all(|m| fresnel_from_albedo([150, 150, 150], m) <= fresnel_from_albedo([150, 150, 150], m + 1)));
     }
 
     #[test]
