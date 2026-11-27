@@ -333,6 +333,63 @@ vostok-port pack from-bundle --base-db "$TARGET_026_DB" --base-patch ... \
     yard trees scaled 1.1-2.1 so their crowns reach the room's windows), level 04's tree
     belts past the blocks, and level 02's own background terrain and tree rings (as the
     school map has them, one transform for the four) for the horizon.
+* `variants`: the same lobby under other weather or at another time of day, each a project
+  of its own (`output_project`; skhid-srp's lobby choice swaps whole projects). A variant is
+  made from the lobby's project once it is built, so it shares every model, material, texture
+  and probe cubemap, and its room, camera walls, weapon spot (`srp_lobby`) and camera track
+  are the lobby's. What it changes:
+  * `environment`: environment fields over the lobby's (an integer literal stays an integer,
+    as 0.26g's own projects write the field: skhid-srp's build-content keeps each key's type);
+  * `lights`: lights and ambient lights by `full_name` (a key ending in `/` a folder):
+    `intensity` (0 leaves it out) or `scale` (the light it gives times a number: an adding
+    ambient light's part above 1, a light's intensity; a multiplying ambient light, a
+    contact shadow, stays), `colour`, `range`, `cast_shadow`; a light takes its own key, else
+    its nearest folder's; every key must match a light. `added_lights`: point lights copied from one of the lobby's as the lobby has it
+    (`like`), with their own place, intensity, colour, range and shadow;
+  * `probes`: a probe's diffuse and specular multipliers scaled (the cubemaps are baked by day);
+  * `particles`: 0.26's own effects placed (`particles/<lib>.particle`, as the lobby's own
+    particle object, its `path` the effect's);
+  * `sounds`: `object_sound` emitters (`resource_id` 256 a single sound, 258 a collection: a
+    collection given 256 crashes the game as the project loads); a 0.26 sound is used as it is,
+    the donor's, or one whose `volume_k` or `spl_preset` the variant sets, is imported under the
+    namespace with its `.raw_options` (0.26's own file is the maps' too). `lp_filter_k` was
+    measured to change nothing in a game and is not offered;
+  * `models`: render visuals drawn by another of 0.26's models (the lamp's lit bulbs,
+    `props/light/lamp_on`, by the unlit `props/light/lamp`);
+  * `grading`: a colour grading table of its own (`<namespace>/color_grading/<project's name>`,
+    0.26's layout: a 16^3 BGRA volume, red along x): the lobby's own table with a saturation,
+    gamma, gain and a tint of the darks drawn over each of its colours. A donor-lit lobby's
+    table is its tone curve (0.69d's grading and curve), so the variant keeps the curve and
+    grades what it shows;
+  * `lit_windows`: a few facade windows lit. The facades' windows are quads each showing one
+    pane of the material's atlas: a copy of the material (`<material>_<suffix>`) emits a BC1
+    texture, black but for the glass of the given panes (each texel's darkness in the albedo,
+    so the glass glows and the frames do not); one instance of a model (`at`, its render
+    visual's position) is drawn by a copy (`<model>_<suffix>_<n>`) whose triangles near given
+    points (model space) are a surface of their own, `srp_lit_<surface>`, with that material.
+
+  A variant never moves the room, the characters or the camera: skhid-srp shows every one
+  from the same stock pose.
+
+  The camp's three (camp @22, over the rule-lit day): numbers in the day's own scale (its
+  exposure is fixed, so a darker room is drawn darker; nothing adapts). The day's light the
+  room takes from outside is its probes and its adding ambient lights (the sky's fill at the
+  back window, the sun off the floor, the ceiling's and walls' fills, the blocks' own): each
+  variant scales both.
+  * `camp_069_rain`: no sun, level 02 rain's overcast sky, haze and rain, the streams and the
+    donor's `rain_pour` outside the windows; a cool light outside each window above the
+    ceiling's height (no shadow) in place of the day's window key, the probes and fills
+    x0.3, the chandelier lit and warm against them.
+  * `camp_069_evening`: the sun low through the nearer left window toward the character
+    (azimuth 327, elevation 15), its colour and intensity 0.69d's own sun through its
+    atmosphere at that elevation (`lighting::sun_radiance`: the lobby's air density 2 gives
+    the day's 37.04 at 50 degrees, 28.3 and (1, 0.74, 0.44) at 15); level 02 evening's sky
+    and haze; the probes and fills at about half; the back window's key a cool dusk sky.
+  * `camp_069_night`: the chandelier the room's warm light (its reach within the walls: it
+    casts no shadow), the probes and fills almost out, the environment's sun 0.26g's full
+    moon (`sky/moon_full`, a faint cool light), stars, two lit windows in the blocks, 0.26g's
+    wolves far off; the back window's shadowed key, cool, is the moonlight on the character's
+    front.
 
 ## Rudnya (0.69d level_01)
 
