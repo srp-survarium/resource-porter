@@ -615,8 +615,8 @@ single_size_buffer_allocator - out of memory", 1365 nodes of 384 bytes) and cras
 
 ## Cologne (0.69d level_08)
 
-0.69d's Cologne becomes 0.26g maps **286** (team deathmatch), **287** (Protective device),
-**288** (with charging stations) and **289** (Research), level number 30, projects
+0.69d's Cologne becomes 0.26g maps **543** (team deathmatch), **544** (Protective device),
+**545** (with charging stations) and **546** (Research), level number 30, projects
 `v069d_level_08/day_*` (`ports/survarium-069d-cologne-to-026g.json`): the rules of Rudnya,
 School and Vostok unchanged, nothing tuned for Cologne; native Cologne's layouts as the other
 ports' modes take their native map's (the Research project from published patch 30), and native
