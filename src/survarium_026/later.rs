@@ -2810,25 +2810,49 @@ fn plain_name(name: &str) -> String {
     name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' }).collect()
 }
 
-/// The positions players start from: the donor's respawn points in the map's
-/// spawn folder.
-fn donor_spawn_positions(donor: &ConfigValue, map: &MapSpec) -> Result<Vec<[f32; 3]>> {
-    let respawns = donor.named("server_objects").and_then(|s| s.named("respawn_points")).context("donor has no respawn points")?;
-    array(respawns)?
-        .iter()
-        .filter(|s| string(s, "full_name").unwrap_or("").starts_with(&map.spawn_folder))
-        .map(|s| float3(s, "position"))
-        .collect()
+/// Where players can be, as far as a light's fade goes: the ground box
+/// (x, z) around every respawn point the donor has, of every mode. Players
+/// walk between the bases, so the box holds the rooms between them. A
+/// light's distance to the spawns themselves dropped room lights 0.69d shows
+/// to a player who walks in: Vostok's 12 hospital and window fills (30 and
+/// 40 m fades, 35 to 49 m from the nearest spawn), School's gym fill (60 m,
+/// 63 m).
+#[derive(Clone, Copy, Debug)]
+struct PlayArea {
+    min: [f32; 2],
+    max: [f32; 2],
+}
+
+impl PlayArea {
+    fn of_donor(donor: &ConfigValue) -> Result<Option<PlayArea>> {
+        let Some(respawns) = donor.named("server_objects").and_then(|s| s.named("respawn_points")) else { return Ok(None) };
+        let mut area: Option<PlayArea> = None;
+        for spawn in array(respawns)? {
+            let p = float3(spawn, "position")?;
+            let a = area.get_or_insert(PlayArea { min: [p[0], p[2]], max: [p[0], p[2]] });
+            a.min = [a.min[0].min(p[0]), a.min[1].min(p[2])];
+            a.max = [a.max[0].max(p[0]), a.max[1].max(p[2])];
+        }
+        Ok(area)
+    }
+
+    /// The ground distance from a point to the area (0 inside).
+    fn distance(&self, at: [f32; 3]) -> f32 {
+        let dx = (self.min[0] - at[0]).max(at[0] - self.max[0]).max(0.0);
+        let dz = (self.min[1] - at[2]).max(at[2] - self.max[1]).max(0.0);
+        (dx * dx + dz * dz).sqrt()
+    }
 }
 
 /// 0.69d fades an ambient light out beyond its `fade_out_distance` from the
 /// camera; 0.26's lights have no such fade. A light farther than that from
-/// every spawn (`ambient_light_chaes`, 430 m, over the power plant 456 m out)
-/// never shows in play, and kept it would light the backdrop for good.
-fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
-    let (Some(fade), Ok(at)) = (real(object, "fade_out_distance"), float3(object, "position")) else { return false };
-    let distance = |p: &[f32; 3]| ((0..3).map(|i| (p[i] - at[i]).powi(2)).sum::<f32>()).sqrt();
-    !spawns.is_empty() && spawns.iter().all(|s| distance(s) > fade)
+/// everywhere players can be (`ambient_light_chaes`, 430 m, over the power
+/// plant 444 m out of Rudnya's spawn box) never shows in play, and kept it
+/// would light the backdrop for good. Every other light shows to a player who
+/// walks near it, whatever the distance to the spawns.
+fn faded_out_in_play(object: &ConfigValue, area: Option<&PlayArea>) -> bool {
+    let (Some(fade), Ok(at), Some(area)) = (real(object, "fade_out_distance"), float3(object, "position"), area) else { return false };
+    area.distance(at) > fade
 }
 
 /// 0.69d's probes and ambient lights as 0.26's own objects.
@@ -2845,7 +2869,7 @@ fn faded_out_in_play(object: &ConfigValue, spawns: &[[f32; 3]]) -> bool {
 /// adding light adds, a darkening one multiplies, and a brightening one
 /// (factor above 1) adds the share it brightens by of the probe light under
 /// its centre.
-fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f32; 3]], map_wide: Volume, scale: LightScale) -> Result<DonorLighting> {
+fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], area: Option<&PlayArea>, map_wide: Volume, scale: LightScale) -> Result<DonorLighting> {
     let size = |v: &Volume| match v.shape {
         Shape::Sphere { radius } => radius.powi(3) * 4.19,
         Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
@@ -2883,7 +2907,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
 
     let mut donor_lights = Vec::new();
     for object in objects.iter().filter(|o| kind(o) == "ambient_light") {
-        if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) || faded_out_in_play(object, spawns) {
+        if matches!(object.named("is_enabled"), Some(ConfigValue::Boolean(false))) || faded_out_in_play(object, area) {
             continue;
         }
         donor_lights.push((string(object, "full_name").unwrap_or("ambient_light").to_owned(), donor_light(object)?.0));
@@ -3409,19 +3433,19 @@ pub fn convert_scene(
             let (scale, outdoor_ev) = light_scale.context("donor lighting needs the donor's exposure")?;
             let global = global()?;
             // Where the scene is seen from: a light 0.69d fades out farther
-            // than every one of them never shows. A map's spawns; a lobby's
-            // room (no light of 0.69d's lobby fades out within 200 m).
-            let spawns = match port {
-                Port::Map(map) => donor_spawn_positions(donor, map)?,
-                Port::Lobby(_) => Vec::new(),
+            // than that never shows. A map's play area; a lobby's room (no
+            // light of 0.69d's lobby fades out within 200 m).
+            let area = match port {
+                Port::Map(_) => PlayArea::of_donor(donor)?,
+                Port::Lobby(_) => None,
             };
             let faded: Vec<&str> = donor_objects
                 .iter()
-                .filter(|o| kind(o) == "ambient_light" && faded_out_in_play(o, &spawns))
+                .filter(|o| kind(o) == "ambient_light" && faded_out_in_play(o, area.as_ref()))
                 .filter_map(|o| string(o, "full_name"))
                 .collect();
             if !faded.is_empty() {
-                notes.push(format!("ambient lights 0.69d fades out farther than every spawn is from them, left out: {faded:?}"));
+                notes.push(format!("ambient lights 0.69d fades out farther than the play area (the box around its spawns) is from them, left out: {faded:?}"));
             }
             let map_wide = Volume {
                 centre: float3(&global, "position")?,
@@ -3429,7 +3453,7 @@ pub fn convert_scene(
                 shape: Shape::Sphere { radius: real(&global, "radius").context("the map-wide probe's radius")? },
                 side_width: 0.5,
             };
-            let lit = donor_lighting(&donor_probe_objects, donor_objects, &spawns, map_wide, scale)?;
+            let lit = donor_lighting(&donor_probe_objects, donor_objects, area.as_ref(), map_wide, scale)?;
             // 0.26 draws probes largest first, each over the ones
             // before it by its falloff (`environment_probe_lighting`
             // blends with the weight in alpha).
@@ -6193,6 +6217,31 @@ fn rewrite_scene(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_light_fades_out_in_play_only_farther_than_its_fade_from_the_box_around_every_spawn() {
+        let spawn = |x: f32, z: f32, folder: &str| {
+            named(vec![("position", ConfigValue::Float3([x, 0.0, z])), ("full_name", ConfigValue::String(format!("{folder}/respawn_point")))])
+        };
+        let donor = named(vec![(
+            "server_objects",
+            named(vec![(
+                "respawn_points",
+                ConfigValue::Indexed(vec![spawn(-50.0, -100.0, "logic/modes/tdm"), spawn(70.0, 30.0, "logic/modes/tdm"), spawn(0.0, 40.0, "logic/respawn/team1")]),
+            )]),
+        )]);
+        let area = PlayArea::of_donor(&donor).unwrap().unwrap();
+        let light = |x: f32, z: f32, fade: f32| named(vec![("position", ConfigValue::Float3([x, 5.0, z])), ("fade_out_distance", ConfigValue::Float(fade))]);
+        // between the bases, 45 m from the nearest spawn: a player walks there
+        assert!(!faded_out_in_play(&light(-10.0, -10.0, 40.0), Some(&area)));
+        // the far power plant, 430 m fade, 450 m out of the box
+        assert!(faded_out_in_play(&light(-500.0, -50.0, 430.0), Some(&area)));
+        // out of the box by less than its fade, the box of every mode's spawns (z 40)
+        assert!(!faded_out_in_play(&light(0.0, 60.0, 30.0), Some(&area)));
+        // a lobby (no area) and a light without a fade are kept
+        assert!(!faded_out_in_play(&light(-500.0, -50.0, 430.0), None));
+        assert!(!faded_out_in_play(&named(vec![("position", ConfigValue::Float3([-500.0, 0.0, 0.0]))]), Some(&area)));
+    }
 
     fn static_mesh(basis: [u32; 3], stride: usize, extra: &[(u32, Vec<u8>)]) -> Vec<u8> {
         let mut b = Vec::new();

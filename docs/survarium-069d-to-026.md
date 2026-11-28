@@ -429,10 +429,13 @@ the formulas come from both builds' shader disassembly):
   0.69d uses, a value it cannot carry stops the build), and the lighting pack's
   `ambient_light.ps` draws the term in a 0.69d scene (without the pack a sphere light so
   encoded draws nothing). The colour is packed with red
-  in the low byte (packed the other way a warm fill draws blue). Lights 0.69d fades out
-  (`fade_out_distance`) farther than every spawn is from them never show in play and are
-  left out (`ambient_light_chaes`, 430 m, over the power plant 456 m away: kept, it lit the
-  backdrop white into the haze). Height-based ambient (a multiply 0.69d has not) is off.
+  in the low byte (packed the other way a warm fill draws blue). 0.69d fades a light out
+  beyond its `fade_out_distance` from the camera; a light farther than that from where
+  players can be, the ground box around every respawn point of every mode, never shows in
+  play and is left out (`ambient_light_chaes`, 430 m, over the power plant 444 m out of
+  Rudnya's box: kept, it lit the backdrop white into the haze). Measured from the spawns
+  themselves, as until vostok-069d@7, the rule dropped room fills a player walks into 30 to
+  60 m from a base: Vostok's 12 hospital and window fills (its stairwell), School's gym fill. Height-based ambient (a multiply 0.69d has not) is off.
 * Materials, from the two builds' shading (`surface.rs`; `g_stage_default.ps`,
   `sun_lighting.ps` against `gbuffer_pass.ps`, `composition.ps` of shading quality 1 to 3):
   - Gloss. 0.69d's GGX alpha is `max((1 - s)^2, 0.001)` of its smoothness; 0.26's is
