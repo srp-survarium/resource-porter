@@ -612,3 +612,24 @@ Rules it added, which every 0.69d map now takes:
 Its 0.69d reference: the rig's `hook069` gives each particle pool a buffer of its own (16x),
 without which 0.69d ran out of particle nodes on School (37 particle objects; "particle
 single_size_buffer_allocator - out of memory", 1365 nodes of 384 bytes) and crashed.
+
+## Cologne (0.69d level_08)
+
+0.69d's Cologne becomes 0.26g maps **282** (team deathmatch), **283** (Protective device),
+**284** (with charging stations) and **285** (Research), level number 30, projects
+`v069d_level_08/day_*` (`ports/survarium-069d-cologne-to-026g.json`): the rules of Rudnya,
+School and Vostok unchanged, nothing tuned for Cologne; native Cologne's layouts as the other
+ports' modes take their native map's (the Research project from published patch 30), and native
+Cologne's under-bridge damage zone (`logic/underbridge/`) in every mode. 201 models imported, 34
+reused; 28.0 MiB of geometry for TDM, 31.1 MiB at most (charging stations).
+
+- light: the donor's 74 probe volumes (the largest, `level_08/day/_global_3212`, also as the
+  map-wide sphere; 60 local ones marked for the probe tiers, 3 left unmarked), its ambient lights
+  as 0.26g's (165 adding, 58 brightening, 1 darkening; one it fades out farther than every spawn
+  left out), its sun (0.9 at 80 degrees, tint 1.0 0.824 0.675);
+- exposure: EV 5 to 11, marker 33008 (floor 0.001628, ceiling 0.104167, key 0.1232), sky 0.8589,
+  vignette 0.12: `three-maps-021-lighting@20`'s row;
+- the donor's 6 sound emitters, all in the form they play (none a collection);
+- spawns: the 133 of `logic/modes/team_deathmatch/` (team 0: 72, team 1: 61). Protective
+  device moves two native battery spawners (`victory_item_spawner(23)`, `(2)`) down onto 0.69d's
+  floor, which lacks what they stood on (0.34 and 0.33 m).
