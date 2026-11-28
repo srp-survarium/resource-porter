@@ -2993,10 +2993,49 @@ fn packed_colour(rgb: [f32; 3]) -> i32 {
     (0xff00_0000 | c(rgb[2]) << 16 | c(rgb[1]) << 8 | c(rgb[0])) as i32
 }
 
-/// Where a donor emitter's sound comes from: 0.26 ships it (0.69d kept most
-/// of 0.26's ambience under the same names), or the donor's own files of a
-/// single sound are imported (`sounds/single/<name>.*`: an Ogg stream, its
-/// loudness track and options with the same fields in both builds).
+/// The form an emitter plays its sound in, which its `resource_id` names
+/// (the resource class: 256 a single sound, 258 a sound collection). The
+/// game asks for that form under the sound's name, so the port must supply
+/// that form: a collection id over a name 0.26 has only as a single sound
+/// finds no collection config, and the collection cook reads the null config
+/// (`sound_collection_cook::collection_config_loaded`, 0x5F65E). School
+/// (v0.69) crashed so as its level started: 0.69d has `creaking_floor` and
+/// `door_closed` both as a single sound and as a collection of it (its
+/// emitters play the collection: the sound four times, a few seconds apart),
+/// and the port imported the single only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SoundForm {
+    Single,
+    Collection,
+}
+
+impl SoundForm {
+    /// The form a donor emitter plays; None for another resource class.
+    pub fn of_emitter(object: &ConfigValue) -> Option<Self> {
+        match integer(object, "resource_id")? {
+            256 => Some(Self::Single),
+            258 => Some(Self::Collection),
+            _ => None,
+        }
+    }
+
+    /// The file the game reads first for a sound of this form.
+    fn config(self, name: &str) -> String {
+        match self {
+            Self::Single => format!("sounds/single/{name}.raw_options"),
+            Self::Collection => format!("sounds/collections/{name}.sound_collection"),
+        }
+    }
+}
+
+/// Where a donor emitter's sound comes from, in the form the emitter plays
+/// it (`SoundForm`): 0.26 ships it (0.69d kept most of 0.26's ambience under
+/// the same names), or the donor's own files are imported. A single sound's
+/// are `sounds/single/<name>.*` (an Ogg stream, its loudness track and
+/// options with the same fields in both builds); a collection's are its
+/// config (the same fields in both builds: its type, repeat rule and items,
+/// each a single sound with its start offset and end delay ranges) and its
+/// items' files where 0.26 does not ship them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SoundFiles {
     Native,
@@ -3004,15 +3043,40 @@ pub enum SoundFiles {
 }
 
 impl SoundFiles {
-    /// None when neither build can supply the sound (a collection 0.26
-    /// lacks: its members and their rules are not converted).
-    fn find(donor: &ResourceDb, target: &ResourceDb, name: &str) -> Option<Self> {
-        if target.is_file(&format!("sounds/single/{name}.raw_options")) || target.is_file(&format!("sounds/collections/{name}.sound_collection")) {
-            return Some(Self::Native);
+    /// None when neither build can supply the sound in that form (a
+    /// collection with an item neither build has).
+    fn find(donor: &mut ResourceDb, target: &ResourceDb, name: &str, form: SoundForm) -> Result<Option<Self>> {
+        if target.is_file(&form.config(name)) {
+            return Ok(Some(Self::Native));
         }
-        let prefix = format!("sounds/single/{name}.");
-        let files: Vec<String> = donor.paths_with_prefix(&prefix).filter(|p| donor.is_file(p)).map(str::to_owned).collect();
-        files.iter().any(|p| p.ends_with(".raw_options")).then_some(Self::Imported(files))
+        match form {
+            SoundForm::Single => {
+                let prefix = format!("sounds/single/{name}.");
+                let files: Vec<String> = donor.paths_with_prefix(&prefix).filter(|p| donor.is_file(p)).map(str::to_owned).collect();
+                Ok(files.iter().any(|p| p.ends_with(".raw_options")).then_some(Self::Imported(files)))
+            }
+            SoundForm::Collection => {
+                let path = form.config(name);
+                if !donor.is_file(&path) {
+                    return Ok(None);
+                }
+                let collection = cfg(donor, &path)?;
+                let items = collection
+                    .named("collection")
+                    .and_then(|c| c.named("sound_items"))
+                    .with_context(|| format!("{path}: no collection/sound_items"))?;
+                let mut files = vec![path.clone()];
+                for item in array(items)? {
+                    let item_name = string(item, "filename").with_context(|| format!("{path}: an item without a filename"))?;
+                    match Self::find(donor, target, item_name, SoundForm::Single)? {
+                        Some(Self::Native) => {}
+                        Some(Self::Imported(more)) => files.extend(more.into_iter().filter(|f| !files.contains(f)).collect::<Vec<_>>()),
+                        None => return Ok(None),
+                    }
+                }
+                Ok(Some(Self::Imported(files)))
+            }
+        }
     }
 }
 
@@ -3036,7 +3100,7 @@ pub struct SceneReport {
     /// A donor-lit scene's light scale and the exposure it is fixed at (EV).
     pub light_scale: Option<(LightScale, f32)>,
     /// Sounds the donor's emitters kept in the scene play (`sound_name`).
-    pub sounds: BTreeSet<String>,
+    pub sounds: BTreeSet<(String, SoundForm)>,
     /// Donor textures the environment names that the target lacks.
     pub environment_textures: BTreeSet<String>,
     pub decal_materials: BTreeSet<String>,
@@ -3097,7 +3161,7 @@ pub fn convert_scene(
     port: &Port,
     photometric: bool,
     particle_replacements: &BTreeMap<String, String>,
-    donor_sounds: Option<&BTreeSet<String>>,
+    donor_sounds: Option<&BTreeSet<(String, SoundForm)>>,
 ) -> Result<SceneReport> {
     let mut counts = BTreeMap::<String, usize>::new();
     let mut notes = Vec::new();
@@ -3801,16 +3865,18 @@ pub fn convert_scene(
             // fade-in time and an importance flag 0.26 does not read).
             "object_sound" if donor_sounds.is_some() => {
                 let name = string(object, "sound_name").unwrap_or("");
-                match (donor_sounds.is_some_and(|playable| playable.contains(name)), &sound_template) {
-                    (true, Some(template)) => {
+                let form = SoundForm::of_emitter(object);
+                let playable = form.filter(|f| donor_sounds.is_some_and(|playable| playable.contains(&(name.to_owned(), *f))));
+                match (playable, &sound_template) {
+                    (Some(form), Some(template)) => {
                         let mut s = template.clone();
                         place(&mut s, object, &full_name)?;
                         copy_shared(&mut s, object, &["sound_name", "sound_type", "resource_id"])?;
                         objects.push(s);
                         count("object_sound");
-                        sounds.insert(name.to_owned());
+                        sounds.insert((name.to_owned(), form));
                     }
-                    _ => *dropped.entry(format!("object_sound {name} (0.26 has no such sound and the donor none to import)")).or_default() += 1,
+                    _ => *dropped.entry(format!("object_sound {name} {form:?} (0.26 has no such sound in that form and the donor none to import)")).or_default() += 1,
                 }
             }
             // A hanging cable: the same object in both builds (0.46c2 adds a
@@ -4356,17 +4422,19 @@ pub fn build(
             }
         }
     }
-    let sound_files: BTreeMap<String, SoundFiles> = if m.ambient_sounds.is_none() && !m.source_build.early() {
-        donor_client_objects
-            .iter()
-            .filter(|o| kind(o) == "object_sound")
-            .filter_map(|o| string(o, "sound_name"))
-            .filter_map(|name| Some((name.to_owned(), SoundFiles::find(&donor, &target, name)?)))
-            .collect()
-    } else {
-        BTreeMap::new()
-    };
-    let playable: BTreeSet<String> = sound_files.keys().cloned().collect();
+    let mut sound_files = BTreeMap::<(String, SoundForm), SoundFiles>::new();
+    if m.ambient_sounds.is_none() && !m.source_build.early() {
+        for o in donor_client_objects.iter().filter(|o| kind(o) == "object_sound") {
+            let (Some(name), Some(form)) = (string(o, "sound_name"), SoundForm::of_emitter(o)) else { continue };
+            let key = (name.to_owned(), form);
+            if !sound_files.contains_key(&key) {
+                if let Some(files) = SoundFiles::find(&mut donor, &target, name, form)? {
+                    sound_files.insert(key, files);
+                }
+            }
+        }
+    }
+    let playable: BTreeSet<(String, SoundForm)> = sound_files.keys().cloned().collect();
     let mut scene = convert_scene(&donor_project, &template, &port, m.photometric(), &particles, m.ambient_sounds.is_none().then_some(&playable))?;
     if let Port::Lobby(lobby) = &port {
         for prop in &lobby.native_props {
@@ -4439,7 +4507,7 @@ pub fn build(
         scene.notes.push(format!("ambience: {added} native object_sound emitters from {} (the donor's sound environments have no 0.26 counterpart)", sounds.project));
     }
     if m.ambient_sounds.is_none() && !scene.sounds.is_empty() {
-        let imported: Vec<&str> = scene.sounds.iter().filter(|n| matches!(sound_files.get(*n), Some(SoundFiles::Imported(_)))).map(String::as_str).collect();
+        let imported: Vec<String> = scene.sounds.iter().filter(|k| matches!(sound_files.get(*k), Some(SoundFiles::Imported(_)))).map(|(n, f)| format!("{n} ({f:?})")).collect();
         scene.notes.push(format!(
             "ambience: the donor's {} sound emitters where it has them, {} sounds; its own files for the ones 0.26 does not ship: {imported:?}",
             scene.counts.get("object_sound").copied().unwrap_or(0),
@@ -5010,12 +5078,12 @@ pub fn build(
         }
     }
     // Sounds the donor's emitters play that 0.26 does not ship (`SoundFiles`).
-    for name in &scene.sounds {
-        if let Some(SoundFiles::Imported(paths)) = sound_files.get(name) {
-            let what = format!("0.69d sound {name}: a donor emitter plays it and 0.26 ships none");
+    for key in &scene.sounds {
+        if let Some(SoundFiles::Imported(paths)) = sound_files.get(key) {
+            let what = format!("0.69d sound {} ({:?}): a donor emitter plays it and 0.26 ships none", key.0, key.1);
             for path in paths {
                 let bytes = donor.read(path)?;
-                let bytes = if path.ends_with(".raw_options") { BinaryConfig::parse(&bytes)?.to_bytes()? } else { bytes };
+                let bytes = if path.ends_with(".raw_options") || path.ends_with(".sound_collection") { BinaryConfig::parse(&bytes)?.to_bytes()? } else { bytes };
                 emit(output, path, &bytes, &what, &mut files)?;
             }
         }
@@ -6806,14 +6874,17 @@ mod tests {
             with(tf([0.0; 3]), vec![("game_object_type", text("object_sound")), ("sound_name", text("native/sound")), ("sound_type", ConfigValue::Integer(0)), ("layer", text("default"))]),
             with(tf([0.0; 3]), vec![("game_object_type", text("particle")), ("lib_name", text("native/particle"))]),
         ]);
-        let sound = |name: &str, x: f32| with(tf([x, 0.0, 0.0]), vec![("game_object_type", text("object_sound")), ("full_name", text(&format!("sounds/{x}"))), ("sound_name", text(name)), ("sound_type", ConfigValue::Integer(1)), ("fade_in_time", ConfigValue::Integer(0))]);
+        let sound = |name: &str, x: f32| with(tf([x, 0.0, 0.0]), vec![("game_object_type", text("object_sound")), ("full_name", text(&format!("sounds/{x}"))), ("sound_name", text(name)), ("sound_type", ConfigValue::Integer(1)), ("resource_id", ConfigValue::Integer(258)), ("fade_in_time", ConfigValue::Integer(0))]);
         let donor = add(&donor, vec![
             sound("scapes/a", 1.0),
             sound("scapes/nowhere", 2.0),
             with(tf([3.0, 0.0, 0.0]), vec![("game_object_type", text("particle")), ("full_name", text("fx/fly")), ("particle_name", text("fx/environment/fly"))]),
         ]);
         let particles = BTreeMap::from([("fx/environment/fly".to_owned(), "fx/environment/fly".to_owned())]);
-        let playable = BTreeSet::from(["scapes/a".to_owned()]);
+        // The collection the donor's emitters play (258) is supplied; a single of the name would not be.
+        let scene = convert_scene(&donor, &template, &Port::Map(spec.clone()), true, &particles, Some(&BTreeSet::from([("scapes/a".to_owned(), SoundForm::Single)]))).unwrap();
+        assert!(!array(scene.project.named("client_objects").unwrap()).unwrap().iter().any(|o| kind(o) == "object_sound"), "a single does not stand in for the collection the emitter plays");
+        let playable = BTreeSet::from([("scapes/a".to_owned(), SoundForm::Collection)]);
         let scene = convert_scene(&donor, &template, &Port::Map(spec.clone()), true, &particles, Some(&playable)).unwrap();
         let objects = array(scene.project.named("client_objects").unwrap()).unwrap();
         let sounds: Vec<_> = objects.iter().filter(|o| kind(o) == "object_sound").collect();

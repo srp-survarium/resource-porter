@@ -531,6 +531,15 @@ the formulas come from both builds' shader disassembly):
   ship, is imported: an Ogg stream, its loudness track and options with the same fields in
   both builds), and a particle 0.26 ships under the same name (`fx/environment/fly`). A
   manifest with `ambient_sounds` takes a native map's emitters instead (Duga).
+  An emitter's sound is supplied in the form the emitter plays it, which its `resource_id`
+  names (256 a single sound, 258 a collection): the game asks for that form under the name,
+  and a collection id over a name 0.26 has only as a single sound finds no collection config,
+  which the collection cook reads as null (`sound_collection_cook::collection_config_loaded`,
+  0x5F65E). School's `scapes/level_02/creaking_floor` and `door_closed` are both forms in
+  0.69d, its emitters play the collections (the sound four times, a few seconds apart), and
+  the port had imported the singles only: School crashed as its level started. A collection
+  0.26 lacks is imported with its config (the same fields in both builds) and its items'
+  single sounds where 0.26 lacks them; one with an item neither build has is left out.
 * Not reproduced yet: 0.69d's height fog over the whole map (it lives in `sun_lighting.ps`:
   extinction `fog_density * 0.001 * exp((fog_base_height - y) / fog_falloff_height)` per
   metre, 0.0031 at Rudnya's ground, lit by the horizon sky times `fog_tint`; 0.26's Mie fog
