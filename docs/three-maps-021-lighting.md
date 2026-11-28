@@ -79,6 +79,7 @@ grading texture, which the map's pack carries.
 | The lobby room v0.69 (0.69d `lobby_scene/day`, EV fixed at 9.5) | 33100 | 0.104167 | 0.104167 | 0.2625 |
 | School v0.69 (0.69d `level_02` day, EV 11.5 to 14) | 33002 | 0.018414 | 0.104167 | 0.1232 |
 | Vostok Radar Station v0.69 (0.69d `level_03` day, EV 10 to 12) | 33003 | 0.026042 | 0.104167 | 0.1232 |
+| Cologne v0.69 (0.69d `level_08` day, EV 5 to 11; @20) | 33008 | 0.001628 | 0.104167 | 0.1232 |
 
 The curve is `1 - 2^(-X)`: sm_4_0's `exp` is `2^x` and its `log` is `log2` (the native block
 has no `log2(e)` before them), and a key is for that base. Up to @14 the map builder took the
@@ -93,8 +94,13 @@ number for `lobby_scene/day` (no live scene carries its marker: the shipped lobb
 A row's `sky` (1 when absent) scales the native sky behind its marker (`scale_sky`, after
 `build_sky`): 0.69d's sky scatters its tinted sun times `sky_intensity`, 0.26g's Rayleigh sky
 follows `sun_intensity^1.4`, so under the port's sun 0.69d's sky is that factor times 0.26g's
-(resource-porter's 0.69d map builder prints it, `DonorSky::scale_over_026`). School v0.69 1.301;
-Rudnya, Vostok and the lobby room 1 (no change to the program for them).
+(resource-porter's 0.69d map builder prints it, `DonorSky::scale_over_026`). School v0.69 1.301,
+Cologne v0.69 0.8589; Rudnya, Vostok and the lobby room 1 (no change to the program for them).
+
+A row's `vignette_intensity` (none when absent) is 0.69d's environment value; its branch scales the
+light before the curve by `1 / (1 + (k (u - 0.5))^2 + (k (v - 0.5))^2)^2`, k ten times it, as 0.69d's
+`tone_mapping.ps` does (@18, @19). School v0.69 0.11, Vostok v0.69 and Cologne v0.69 (@20) 0.12;
+Rudnya v0.69 none (it stays as it draws, the owner's ruling) and the lobby room none.
 
 Unlike the 0.21 curve and the key profiles, an exposure profile is also drawn by the tone
 program of post-process quality 0 and 1 (six paths, one program: the same tone block
