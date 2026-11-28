@@ -1294,6 +1294,22 @@ fn stride(bytes: &[u8]) -> Option<usize> {
     (count > 0 && size >= 4).then(|| (size - 4) / count)
 }
 
+/// Whether 0.26g draws a static surface of this material with its sway program, which moves
+/// the vertices about the model's origin: `vertex_base.vs` builds `CONFIG_WIND_MOTION` 2, and
+/// 1 on a mesh without vertex colour (28-byte vertices; with colour, 1 is the detail bending,
+/// which reads only the world position and the colour), into an orbit of
+/// `|p| p.y wind 0.000356` with its phase from the instance's translation. A model merged
+/// into a cluster at the world origin (`p` its world position, 15 to 25 m high and up to
+/// 150 m out) swings about a metre where it should a millimetre, every cluster in one phase:
+/// School's bushes on the second floor. Such a model keeps its own instance.
+fn sways_about_origin(material: &ConfigValue, mesh_stride: usize) -> bool {
+    match effect_value(material, "g_stage", "wind_motion") {
+        Some(ConfigValue::Integer(2)) => true,
+        Some(ConfigValue::Integer(1)) => mesh_stride == 28,
+        _ => false,
+    }
+}
+
 /// Bounding box of render geometry from its `export_properties`.
 fn bounding_box(properties: &ConfigValue) -> Option<([f32; 3], [f32; 3])> {
     let b = properties.named("bounding_box")?;
@@ -5747,6 +5763,8 @@ pub fn build(
             signature: String,
         }
         let mut prepared: BTreeMap<String, Option<Prepared>> = BTreeMap::new();
+        // Models left instanced because a surface sways about the model's origin.
+        let mut swaying: BTreeSet<String> = BTreeSet::new();
         let mut cells: BTreeMap<(i64, i64, String), Vec<usize>> = BTreeMap::new();
         // (instance, world centre, merges only with models alike)
         let mut alike: BTreeMap<(i64, i64, String), Vec<(usize, [f32; 3], bool)>> = BTreeMap::new();
@@ -5777,6 +5795,17 @@ pub fn build(
                             Ok(mesh) => {
                                 ok &= matches!(stride(&mesh), Some(28 | 32));
                                 geometry_bytes += mesh.len();
+                                // A surface that sways about its model's origin keeps the model's own instance.
+                                if let (Some(s), false) = (stride(&mesh), material.is_empty()) {
+                                    let imported = material.starts_with(&format!("{ns}/"));
+                                    let path = format!("material_instances/{material}.material");
+                                    if let Ok(config) = read_model_config(&mut target, &overlay, !imported, &path) {
+                                        if sways_about_origin(&config, s) {
+                                            ok = false;
+                                            swaying.insert(model.clone());
+                                        }
+                                    }
+                                }
                             }
                             Err(_) => ok = false,
                         }
@@ -5981,6 +6010,12 @@ pub fn build(
             "material clusters (instances of models alike, same LOD switching and material set, per {2} m cell first, then the remaining imported instances up to {1} m radius across models per {0} m cell; foliage, native and larger models only with models alike; models above {3} bytes of geometry stay instanced): {clustered} render instances ({native_clustered} of native models) merged into {clusters} render-only models, one surface per material and LOD; surfaces per LOD {draws_before:?} -> {draws_after:?}; each cluster switches LOD later by its centre-to-member reach; collision instances unchanged",
             cluster.cell, cluster.max_member_radius, cluster.model_cell, cluster.max_member_bytes
         ));
+        if !swaying.is_empty() {
+            notes.push(format!(
+                "{} models stay instanced: a surface of theirs sways about the model's origin in 0.26g (wind_motion 2, or 1 without vertex colour), which a cluster at the world origin would swing by metres: {swaying:?}",
+                swaying.len()
+            ));
+        }
     }
 
     let mut project = scene.project;
@@ -6241,6 +6276,25 @@ mod tests {
         // a lobby (no area) and a light without a fade are kept
         assert!(!faded_out_in_play(&light(-500.0, -50.0, 430.0), None));
         assert!(!faded_out_in_play(&named(vec![("position", ConfigValue::Float3([-500.0, 0.0, 0.0]))]), Some(&area)));
+    }
+
+    #[test]
+    fn a_surface_sways_about_its_origin_with_wind_motion_2_or_1_without_vertex_colour() {
+        let material = |motion: i32| {
+            named(vec![(
+                "material",
+                named(vec![("g_stage", named(vec![("effect", named(vec![("wind_motion", named(vec![("value", ConfigValue::Integer(motion))]))]))]))]),
+            )])
+        };
+        // sway: 2 on any mesh, 1 on a mesh without vertex colour (28-byte vertices)
+        assert!(sways_about_origin(&material(2), 32));
+        assert!(sways_about_origin(&material(2), 28));
+        assert!(sways_about_origin(&material(1), 28));
+        // detail bending (1 with vertex colour), none (0) and 3 (no motion on a static mesh)
+        assert!(!sways_about_origin(&material(1), 32));
+        assert!(!sways_about_origin(&material(0), 28));
+        assert!(!sways_about_origin(&material(3), 28));
+        assert!(!sways_about_origin(&named(vec![]), 28));
     }
 
     fn static_mesh(basis: [u32; 3], stride: usize, extra: &[(u32, Vec<u8>)]) -> Vec<u8> {

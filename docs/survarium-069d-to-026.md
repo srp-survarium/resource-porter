@@ -152,6 +152,13 @@ static values (normal 127, tangent/binormal 255) are written. Chunks 110 and
     wires may differ by a few vertices, so surfaces match exactly or by
     vertex count within 0.2% and bounds within 1 cm) draw the first copy,
     moved by the offset.
+  - A model one of whose surfaces sways in 0.26g stays instanced: `vertex_base.vs` draws
+    `wind_motion` 2, and 1 on a mesh without vertex colour, as an orbit of `|p| p.y wind
+    0.000356` about the model's origin with its phase from the instance's translation (1 with
+    vertex colour is the detail bending, which reads only the world position and the colour,
+    and merges). Merged into a cluster at the world origin, School's stock bushes and poplars
+    (`flora/bush_small`, `flora/poplar`: 22 models) swung about a metre every 250 ms, every
+    cluster in one phase.
   - **Material clusters** merge render instances into render-only models
     with one surface per material and LOD: first models alike (same LOD
     switching, same material set: copies of a model, or the native elka
