@@ -629,7 +629,7 @@ reused; 28.0 MiB of geometry for TDM, 31.1 MiB at most (charging stations).
   left out), its sun (0.9 at 80 degrees, tint 1.0 0.824 0.675);
 - exposure: EV 5 to 11, marker 33008 (floor 0.001628, ceiling 0.104167, key 0.1232), sky 0.8589,
   vignette 0.12: `three-maps-021-lighting@20`'s row;
-- the donor's 6 sound emitters, all in the form they play (none a collection);
+- the donor's 6 sound emitters (4 collections, 2 singles), each in the form it plays, all of them 0.26g's own files;
 - spawns: the 133 of `logic/modes/team_deathmatch/` (team 0: 72, team 1: 61). Protective
   device moves two native battery spawners (`victory_item_spawner(23)`, `(2)`) down onto 0.69d's
   floor, which lacks what they stood on (0.34 and 0.33 m).
