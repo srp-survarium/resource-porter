@@ -283,6 +283,9 @@ pub struct NativeLight {
     /// with its facing term or none; the lighting pack's `ambient_light.ps` draws an encoded
     /// light in a 0.69d scene.
     pub attenuation_power: f32,
+    /// `affect_specular`: a darkening light multiplies the probes' reflection
+    /// under it too (0.26 draws it only for an intensity at most 1).
+    pub darkens_reflections: bool,
 }
 
 impl NativeLight {
@@ -332,14 +335,26 @@ impl DonorLight {
         let (volume, falloff) = self.native_volume();
         let v = radiance.map(|c| c.max(0.0));
         let peak = v.iter().cloned().fold(1e-6, f32::max);
-        Ok(NativeLight { volume, colour: v.map(|c| (c / peak).powf(1.0 / 2.2)), intensity: 1.0 + peak, attenuation_power: self.attenuation_power(falloff)? })
+        Ok(NativeLight {
+            volume,
+            colour: v.map(|c| (c / peak).powf(1.0 / 2.2)),
+            intensity: 1.0 + peak,
+            attenuation_power: self.attenuation_power(falloff)?,
+            darkens_reflections: false,
+        })
     }
 
     /// The 0.26 light that multiplies the light under it by `factor` (each
-    /// channel at most 1).
-    pub fn native_multiply(&self, factor: [f32; 3]) -> Result<NativeLight> {
+    /// channel at most 1), the probes' reflection too with `darkens_reflections`.
+    pub fn native_multiply(&self, factor: [f32; 3], darkens_reflections: bool) -> Result<NativeLight> {
         let (volume, falloff) = self.native_volume();
-        Ok(NativeLight { volume, colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)), intensity: 1.0, attenuation_power: self.attenuation_power(falloff)? })
+        Ok(NativeLight {
+            volume,
+            colour: factor.map(|f| f.clamp(0.0, 1.0).powf(1.0 / 2.2)),
+            intensity: 1.0,
+            attenuation_power: self.attenuation_power(falloff)?,
+            darkens_reflections,
+        })
     }
 }
 
@@ -647,18 +662,18 @@ mod light_tests {
         // A box keeps the donor's side width, power and gradient (0.26 draws no power)
         // beside the term.
         let cube = DonorLight { volume: Volume { shape: Shape::Box { half: [2.0, 1.0, 3.0] }, ..volume }, gradient: true, ..light };
-        let b = cube.native_multiply([0.5, 0.5, 0.5]).unwrap();
+        let b = cube.native_multiply([0.5, 0.5, 0.5], false).unwrap();
         let carried = ambient_facing::decode(b.attenuation_power, ambient_facing::Shape::Box).unwrap();
         assert_eq!((carried.facing, carried.falloff), (facing, Falloff::Box { power: 2.0, gradient: true }));
         assert!(b.dot_normal() && b.volume.side_width == 2.0);
         // A cylinder is drawn on the box around it, as a cylinder; a darkening light keeps
         // intensity 1; without a facing term it carries none, drawn by the adapted program.
         let cylinder = DonorLight { volume: Volume { shape: Shape::Cylinder { radius: 2.0, half_height: 3.0 }, ..volume }, facing: None, ..light };
-        let d = cylinder.native_multiply([0.5, 0.25, 0.0]).unwrap();
+        let d = cylinder.native_multiply([0.5, 0.25, 0.0], true).unwrap();
         assert_eq!(d.volume.shape, Shape::Box { half: [2.0, 3.0, 2.0] });
         let carried = ambient_facing::decode(d.attenuation_power, ambient_facing::Shape::Box).unwrap();
         assert_eq!((carried.facing, carried.falloff), (Facing::NONE, Falloff::Cylinder { power: 2.0, gradient: false }));
-        assert!(d.intensity == 1.0 && d.dot_normal());
+        assert!(d.intensity == 1.0 && d.dot_normal() && d.darkens_reflections && !b.darkens_reflections);
         assert!((d.colour[0].powf(2.2) - 0.5).abs() < 1e-4 && d.colour[2] == 0.0);
         // A sphere without a facing term keeps a plain power.
         let plain = DonorLight { facing: None, ..light }.native_additive([0.1; 3]).unwrap();

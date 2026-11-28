@@ -2632,8 +2632,40 @@ struct LitVolume {
     volume: Volume,
     texture: String,
     probe: DonorProbe,
-    specular_multiplier: f32,
+    reflection: ProbeReflection,
     tier: ProbeTier,
+}
+
+/// What a probe's cube reflects in 0.26.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ProbeReflection {
+    /// 0.69d's own `specular_multiplier` (the map-wide sphere: 1).
+    Own(f32),
+    /// 0.69d reflected nothing from this probe (`specular_multiplier` -1, its
+    /// default, which its probe constant clamps to 0). 0.26's own models
+    /// (weapons, hands, characters: dark albedo, Fresnel-map materials) take
+    /// their light in shade from the probe's reflection and draw black under
+    /// a probe with 0, so it reflects its cube at 1 here. The cube is the
+    /// light of where it was captured (Vostok's map-size "fake" boxes share
+    /// the outdoor one), so a darkening ambient light over it darkens the
+    /// reflection as it does the diffuse (`NativeLight::darkens_reflections`).
+    StandIn,
+}
+
+impl ProbeReflection {
+    fn of(donor: Option<f32>) -> Self {
+        match donor {
+            Some(m) if m > 0.0 => Self::Own(m),
+            _ => Self::StandIn,
+        }
+    }
+
+    fn multiplier(self) -> f32 {
+        match self {
+            Self::Own(m) => m,
+            Self::StandIn => 1.0,
+        }
+    }
 }
 
 /// 0.69d's probe tiers (`layer`, render properties +214h): it averages the probes of a tier by
@@ -2819,11 +2851,10 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         Shape::Box { half } => 8.0 * half[0] * half[1] * half[2],
         Shape::Cylinder { radius, half_height } => 6.28 * radius * radius * half_height,
     };
-    let mut pending: Vec<(String, Volume, DonorProbe, f32, ProbeTier)> = Vec::new();
+    let mut pending: Vec<(String, Volume, DonorProbe, ProbeReflection, ProbeTier)> = Vec::new();
     for object in probes {
         let full_name = string(object, "full_name").unwrap_or("environment_probe").to_owned();
-        // 0.69d: specular_multiplier -1 turns the cube's reflections off.
-        let specular = real(object, "specular_multiplier").unwrap_or(1.0).max(0.0);
+        let specular = ProbeReflection::of(real(object, "specular_multiplier"));
         let tier = ProbeTier::of(object, &full_name)?;
         pending.push((full_name, donor_volume(object, "probe_side_width")?, donor_probe(object)?, specular, tier));
     }
@@ -2835,10 +2866,10 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
         .clone();
     // 0.26's order: larger first; the map-wide sphere first of all.
     pending.sort_by(|a, b| b.1.sort_radius().total_cmp(&a.1.sort_radius()));
-    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, 1.0, ProbeTier::Global));
+    pending.insert(0, ("env_and_lights/probes/global".into(), map_wide, largest, ProbeReflection::Own(1.0), ProbeTier::Global));
     let mut volumes: Vec<LitVolume> = Vec::new();
     let mut names = BTreeSet::new();
-    for (full_name, volume, probe, specular_multiplier, tier) in pending {
+    for (full_name, volume, probe, reflection, tier) in pending {
         let base = probe.texture.rsplit('/').next().unwrap_or(&probe.texture);
         let stem = if volumes.is_empty() { "environment_probes/map_wide".to_owned() } else { format!("environment_probes/{}", plain_name(base)) };
         let mut texture = stem.clone();
@@ -2847,7 +2878,7 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
             n += 1;
             texture = format!("{stem}_{n}");
         }
-        volumes.push(LitVolume { full_name, volume, texture, probe, specular_multiplier, tier });
+        volumes.push(LitVolume { full_name, volume, texture, probe, reflection, tier });
     }
 
     let mut donor_lights = Vec::new();
@@ -2860,8 +2891,9 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
     // The probe light under a point, averaged over every facing (0.69d
     // scene units): 0.69d draws its multiplying lights before the adding
     // ones, so they multiply the probes' light alone.
+    let probe_at = |p: [f32; 3]| volumes.iter().rev().find(|v| v.volume.contains(p)).unwrap_or(&volumes[0]);
     let under = |p: [f32; 3]| -> [f32; 3] {
-        let probe = &volumes.iter().rev().find(|v| v.volume.contains(p)).unwrap_or(&volumes[0]).probe;
+        let probe = &probe_at(p).probe;
         let k = probe.diffuse_scale() * 0.282_094_78;
         probe.sh[0].map(|c| (c * k).max(0.0))
     };
@@ -2875,7 +2907,10 @@ fn donor_lighting(probes: &[&ConfigValue], objects: &[ConfigValue], spawns: &[[f
             }
             LightEffect::Multiply { factor } if factor.iter().all(|f| *f <= 1.0) => {
                 counts[2] += 1;
-                light.native_multiply(factor)
+                // 0.69d's darkening leaves a probe's own reflection alone; a
+                // stand-in one (the outdoor cube over Vostok's repair hangar,
+                // the diffuse there x0.18) darkens with the diffuse.
+                light.native_multiply(factor, probe_at(light.volume.centre).reflection == ProbeReflection::StandIn)
             }
             LightEffect::Multiply { factor } => {
                 counts[1] += 1;
@@ -3342,7 +3377,7 @@ pub fn convert_scene(
                 }
                 set_probe_texture(&mut p, &v.texture)?;
                 p.set_path("diffuse_multiplier", ConfigValue::Float(1.0))?;
-                p.set_path("specular_multiplier", ConfigValue::Float(v.specular_multiplier))?;
+                p.set_path("specular_multiplier", ConfigValue::Float(v.reflection.multiplier()))?;
                 objects.push(p);
                 count("environment_probe");
                 generated_probes.push(GeneratedProbe { full_name: v.full_name.clone(), texture: v.texture.clone(), probe: v.probe.clone(), scale });
@@ -3364,8 +3399,7 @@ pub fn convert_scene(
                 a.set_path("attenuation_power", ConfigValue::Float(light.attenuation_power))?;
                 a.set_path("side_width", ConfigValue::Float(light.volume.side_width))?;
                 a.set_path("dot_normal", ConfigValue::Boolean(light.dot_normal()))?;
-                // 0.69d's ambient lights leave the reflections alone.
-                a.set_path("affect_specular", ConfigValue::Boolean(false))?;
+                a.set_path("affect_specular", ConfigValue::Boolean(light.darkens_reflections))?;
                 a.set_path("smart_attenuation", ConfigValue::Boolean(false))?;
                 a.set_path("enabled", ConfigValue::Boolean(true))?;
                 objects.push(a);
