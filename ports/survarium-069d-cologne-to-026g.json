@@ -3,7 +3,7 @@
   "donor_fingerprint": "f8c729b6e27cdb8a1647ca724ab410481734b164f5c0135bd1987ccd8513e9c4",
   "target_sha256": "c74078be702d17113b9ca23f59aa2b0087238481e7f01fb793620d51d875492c",
   "map": {
-    "id": 282,
+    "id": 286,
     "level": "level_08",
     "donor_project": "projects/level_08/day_tdm/client_project",
     "template_project": "projects/level_08/day_4/client_project",
@@ -25,7 +25,7 @@
     },
     "modes": [
       {
-        "id": 283,
+        "id": 287,
         "native_project": "projects/level_08/day_2/client_project",
         "native_mode": "gameplay/game_modes/level_08_day_2.options",
         "output_project": "v069d_level_08/day_2",
@@ -52,14 +52,14 @@
         ]
       },
       {
-        "id": 284,
+        "id": 288,
         "native_project": "projects/level_08/day_3/client_project",
         "native_mode": "gameplay/game_modes/level_08_day_3.options",
         "output_project": "v069d_level_08/day_3",
         "mode_name": "v069d_level_08_day_3.options"
       },
       {
-        "id": 285,
+        "id": 289,
         "native_project": "projects/level_08/day_5/client_project",
         "native_mode": "gameplay/game_modes/level_08_day_5.options",
         "output_project": "v069d_level_08/day_5",
